@@ -1,0 +1,8 @@
+# Architectural Decision Records
+
+| ID | Title | Status | Scope | Decision Summary & Primary Invariant | Date |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| [0001](0001-flat-workspace-and-microkernel-capability-topology.md) | Flat Workspace Topology and Microkernel Capability Architecture | Accepted | workspace/topology, architecture/microkernel, capability/tools | Abolish nested apps/ and crates/ dirs for flat workspace, enforce microkernel harness role, decentralize capability tools, and eliminate catch-all contracts [INV-WS-01, INV-TOOL-01] | 2026-10-02 |
+| [0002](0002-canonical-agent-coordination-protocol-acp.md) | Canonical Agent Coordination Protocol (ACP) Standard | Accepted | workspace/substrate, comm/acp, security/envelopes | Establish ACP specification with agent:// and acp:// URI addressing, tamper-evident HMAC-SHA256 envelopes, fabric channels, and native collaboration tools [INV-ACP-01, INV-ACP-02] | 2026-10-02 |
+| [0003](0003-autonomous-terminal-canvas-substrate-nuotc.md) | Autonomous Retained-Mode Terminal Canvas Engine (Nuotc) | Accepted | workspace/substrate, terminal/nuotc, ui/engine | Retained-mode 2D terminal canvas with differential double-buffered rendering and Flexbox layout solver strictly decoupled from AI domain concepts [INV-NUOTC-01, INV-NUOTC-02] | 2026-10-02 |
+| [0004](0004-federated-cluster-semver-and-release-topology.md) | Federated Cluster SemVer and Release Topology | Accepted | workspace/versioning, release/topology, semver/governance | Partition crates into 4 SemVer clusters (nuotc, acp, host suite lockstep, and nuox) with dual-resolving version and path dependencies [INV-VER-01, INV-VER-02] | 2026-10-02 |

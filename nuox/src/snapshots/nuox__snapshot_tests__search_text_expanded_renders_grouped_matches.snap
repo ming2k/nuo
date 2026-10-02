@@ -1,0 +1,20 @@
+---
+source: apps/terminal/crates/mutx/src/snapshot_tests.rs
+assertion_line: 357
+expression: "render_grid(&m, 80, 40)"
+---
+- Search "foo" in src
+  src/a.rs
+  10  let foo = 1;
+  22  foo();
+  src/b.rs
+   5  foo,
+
+backgrounds:
+A=#070808  B=#111312  .=reset
+0: A80
+1: B80
+2: B80
+3: B80
+4: B80
+5: B80

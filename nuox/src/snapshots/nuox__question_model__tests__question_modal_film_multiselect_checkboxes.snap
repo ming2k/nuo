@@ -1,0 +1,81 @@
+---
+source: apps/terminal/crates/mutx/src/question_model.rs
+expression: film
+---
+=== open (none selected) ===
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   Question
+
+   Which features?
+
+   [ ] a                                                              ▼
+
+   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel
+
+=== 1,2,3 → select all three ===
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   Question
+
+   [x] a                                                              ▲
+   [x] b
+   [x] c                                                              ▼
+
+   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel
+
+=== '2' again → deselect 'b' ===
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   Question
+
+                                                                      ▲
+   [x] a
+   [ ] b                                                              ▼
+
+   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel

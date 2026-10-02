@@ -1,0 +1,5025 @@
+{
+  "app": [
+    {
+      "display_name": "Auto",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "auto",
+      "max_input_tokens": 200000,
+      "price_factor": 0.5,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Ultimate",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "ultimate",
+      "max_input_tokens": 1000000,
+      "price_factor": 2.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "272K": {
+          "is_default": true,
+          "token_count": 272000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Performance",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "performance",
+      "max_input_tokens": 1000000,
+      "price_factor": 1.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "description": "High thinking intensity"
+            },
+            "low": {
+              "description": "Low thinking intensity"
+            },
+            "max": {
+              "description": "Maximum thinking intensity"
+            },
+            "medium": {
+              "description": "Medium thinking intensity",
+              "is_default": true
+            },
+            "xhigh": {
+              "description": "Extreme thinking intensity"
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "display_name": "Efficient",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "efficient",
+      "max_input_tokens": 200000,
+      "price_factor": 0.3,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Sonus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "smodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "1.0.48",
+        "ide": "1.13.3",
+        "jb_plugin": "2026.715.1",
+        "qoder_wake": "1.0.48"
+      },
+      "price_factor": 8.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Cantus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "cmodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "1.0.48",
+        "ide": "1.13.3",
+        "jb_plugin": "2026.715.1",
+        "qoder_wake": "1.0.48"
+      },
+      "price_factor": 4.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.8-Max",
+      "enable": true,
+      "format": "openai",
+      "is_default": true,
+      "is_editable": true,
+      "is_free": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "qmodel_38max",
+      "max_input_tokens": 180000,
+      "price_factor": 0.5,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 60% off",
+          "zh": "错峰 4 折"
+        },
+        "before_promotion_price_factor": 0.5,
+        "description": {
+          "en": "Off-Peak 60% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段4折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.4,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "strategies": [
+        {
+          "enabled": true,
+          "tag": "enterprise-safety"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {},
+        "enabled": {
+          "efforts": {
+            "low": {},
+            "medium": {
+              "is_default": true
+            },
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.8-Flash",
+      "enable": true,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "qfmodel",
+      "max_input_tokens": 180000,
+      "original_price_factor": 0.1,
+      "price_factor": 0.0,
+      "source": "system",
+      "strategies": [
+        {
+          "enabled": true,
+          "tag": "enterprise-safety"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {},
+        "enabled": {
+          "efforts": {
+            "low": {},
+            "medium": {
+              "is_default": true
+            },
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.7-Max",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qmodel_latest",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "original_price_factor": 0.5,
+      "price_factor": 0.5,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 80% off",
+          "zh": "错峰2折"
+        },
+        "before_promotion_price_factor": 0.5,
+        "description": {
+          "en": "Off-Peak 80% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段2折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.2,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "strategies": [
+        {
+          "enabled": true,
+          "tag": "enterprise-safety"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.7-Plus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.1,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 60% off",
+          "zh": "错峰4折"
+        },
+        "before_promotion_price_factor": 0.1,
+        "description": {
+          "en": "Off-Peak 60% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段4折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.4,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "strategies": [
+        {
+          "enabled": true,
+          "tag": "enterprise-safety"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "GLM-5.3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "gmodel",
+      "max_input_tokens": 180000,
+      "price_factor": 0.8,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "GLM-5.3-Flash",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "gfmodel",
+      "max_input_tokens": 1000000,
+      "price_factor": 0.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Kimi-K3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "kmodel_latest",
+      "max_input_tokens": 180000,
+      "price_factor": 1.4,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Kimi-K2.8-Preview",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "kmodel",
+      "minimal_version": {
+        "cli": "0.1.26",
+        "ide": "0.3.1",
+        "jb_plugin": "0.12.0"
+      },
+      "price_factor": 0.8,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "DeepSeek-V4-Pro",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "dmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.5,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "description": "High thinking intensity"
+            },
+            "max": {
+              "description": "Maximum thinking intensity",
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "DeepSeek-Flash",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "dfmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "MiniMax-M3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "mmodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "0.1.26",
+        "ide": "0.3.1",
+        "jb_plugin": "0.12.0"
+      },
+      "price_factor": 0.2,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    }
+  ],
+  "assistant": [
+    {
+      "display_name": "Auto",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "auto",
+      "max_input_tokens": 200000,
+      "price_factor": 0.5,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Ultimate",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "ultimate",
+      "max_input_tokens": 1000000,
+      "price_factor": 2.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "272K": {
+          "is_default": true,
+          "token_count": 272000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Performance",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "performance",
+      "max_input_tokens": 1000000,
+      "price_factor": 1.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "description": "High thinking intensity"
+            },
+            "low": {
+              "description": "Low thinking intensity"
+            },
+            "max": {
+              "description": "Maximum thinking intensity"
+            },
+            "medium": {
+              "description": "Medium thinking intensity",
+              "is_default": true
+            },
+            "xhigh": {
+              "description": "Extreme thinking intensity"
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "display_name": "Efficient",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "efficient",
+      "max_input_tokens": 200000,
+      "price_factor": 0.3,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Sonus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "smodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "1.0.48",
+        "ide": "1.13.3",
+        "jb_plugin": "2026.715.1",
+        "qoder_wake": "1.0.48"
+      },
+      "price_factor": 8.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Cantus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "cmodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "1.0.48",
+        "ide": "1.13.3",
+        "jb_plugin": "2026.715.1",
+        "qoder_wake": "1.0.48"
+      },
+      "price_factor": 4.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.8-Max",
+      "enable": true,
+      "format": "openai",
+      "is_default": true,
+      "is_editable": true,
+      "is_free": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "qmodel_38max",
+      "max_input_tokens": 180000,
+      "price_factor": 0.5,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 60% off",
+          "zh": "错峰 4 折"
+        },
+        "before_promotion_price_factor": 0.5,
+        "description": {
+          "en": "Off-Peak 60% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段4折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.4,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {},
+        "enabled": {
+          "efforts": {
+            "low": {},
+            "medium": {
+              "is_default": true
+            },
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.8-Flash",
+      "enable": true,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "qfmodel",
+      "max_input_tokens": 180000,
+      "original_price_factor": 0.1,
+      "price_factor": 0.0,
+      "source": "system",
+      "thinking_config": {
+        "disabled": {},
+        "enabled": {
+          "efforts": {
+            "low": {},
+            "medium": {
+              "is_default": true
+            },
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.7-Max",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qmodel_latest",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "original_price_factor": 0.5,
+      "price_factor": 0.5,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 80% off",
+          "zh": "错峰2折"
+        },
+        "before_promotion_price_factor": 0.5,
+        "description": {
+          "en": "Off-Peak 80% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段2折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.2,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.7-Plus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.1,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 60% off",
+          "zh": "错峰4折"
+        },
+        "before_promotion_price_factor": 0.1,
+        "description": {
+          "en": "Off-Peak 60% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段4折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.4,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Kimi-K3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "kmodel_latest",
+      "max_input_tokens": 180000,
+      "price_factor": 1.4,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Kimi-K2.8-Preview",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "kmodel",
+      "minimal_version": {
+        "cli": "0.1.26",
+        "ide": "0.3.1",
+        "jb_plugin": "0.12.0"
+      },
+      "price_factor": 0.8,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "GLM-5.3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "gmodel",
+      "max_input_tokens": 180000,
+      "price_factor": 0.8,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "GLM-5.3-Flash",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "gfmodel",
+      "max_input_tokens": 1000000,
+      "price_factor": 0.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "DeepSeek-V4-Pro",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "dmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.5,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "description": "High thinking intensity"
+            },
+            "max": {
+              "description": "Maximum thinking intensity",
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "DeepSeek-Flash",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "dfmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "MiniMax-M3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "mmodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "0.1.26",
+        "ide": "0.3.1",
+        "jb_plugin": "0.12.0"
+      },
+      "price_factor": 0.2,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    }
+  ],
+  "byok_enterprise": [],
+  "byok_teams": [],
+  "chat": [
+    {
+      "display_name": "Auto",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "auto",
+      "max_input_tokens": 200000,
+      "price_factor": 0.5,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Ultimate",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "ultimate",
+      "max_input_tokens": 1000000,
+      "price_factor": 2.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "272K": {
+          "is_default": true,
+          "token_count": 272000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Performance",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "performance",
+      "max_input_tokens": 1000000,
+      "price_factor": 1.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "description": "High thinking intensity"
+            },
+            "low": {
+              "description": "Low thinking intensity"
+            },
+            "max": {
+              "description": "Maximum thinking intensity"
+            },
+            "medium": {
+              "description": "Medium thinking intensity",
+              "is_default": true
+            },
+            "xhigh": {
+              "description": "Extreme thinking intensity"
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "display_name": "Efficient",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "efficient",
+      "max_input_tokens": 200000,
+      "price_factor": 0.3,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Sonus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "smodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "1.0.48",
+        "ide": "1.13.3",
+        "jb_plugin": "2026.715.1",
+        "qoder_wake": "1.0.48"
+      },
+      "price_factor": 8.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Cantus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "cmodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "1.0.48",
+        "ide": "1.13.3",
+        "jb_plugin": "2026.715.1",
+        "qoder_wake": "1.0.48"
+      },
+      "price_factor": 4.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.8-Max",
+      "enable": true,
+      "format": "openai",
+      "is_default": true,
+      "is_editable": true,
+      "is_free": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "qmodel_38max",
+      "max_input_tokens": 180000,
+      "price_factor": 0.5,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 60% off",
+          "zh": "错峰 4 折"
+        },
+        "before_promotion_price_factor": 0.5,
+        "description": {
+          "en": "Off-Peak 60% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段4折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.4,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {},
+        "enabled": {
+          "efforts": {
+            "low": {},
+            "medium": {},
+            "xhigh": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.8-Flash",
+      "enable": true,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "qfmodel",
+      "max_input_tokens": 180000,
+      "original_price_factor": 0.1,
+      "price_factor": 0.0,
+      "source": "system",
+      "thinking_config": {
+        "disabled": {},
+        "enabled": {
+          "efforts": {
+            "low": {},
+            "medium": {
+              "is_default": true
+            },
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.7-Max",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qmodel_latest",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "original_price_factor": 0.5,
+      "price_factor": 0.5,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 80% off",
+          "zh": "错峰2折"
+        },
+        "before_promotion_price_factor": 0.5,
+        "description": {
+          "en": "Off-Peak 80% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段2折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.2,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.7-Plus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.1,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 60% off",
+          "zh": "错峰4折"
+        },
+        "before_promotion_price_factor": 0.1,
+        "description": {
+          "en": "Off-Peak 60% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段4折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.4,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Kimi-K3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "kmodel_latest",
+      "max_input_tokens": 180000,
+      "price_factor": 1.4,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Kimi-K2.8-Preview",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "kmodel",
+      "minimal_version": {
+        "cli": "0.1.26",
+        "ide": "0.3.1",
+        "jb_plugin": "0.12.0"
+      },
+      "price_factor": 0.8,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "GLM-5.3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "gmodel",
+      "max_input_tokens": 180000,
+      "price_factor": 0.8,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "GLM-5.3-Flash",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "gfmodel",
+      "max_input_tokens": 1000000,
+      "price_factor": 0.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "DeepSeek-V4-Pro",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "dmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.5,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "description": "High thinking intensity"
+            },
+            "max": {
+              "description": "Maximum thinking intensity",
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "DeepSeek-Flash",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "dfmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "MiniMax-M3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "mmodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "0.1.26",
+        "ide": "0.3.1",
+        "jb_plugin": "0.12.0"
+      },
+      "price_factor": 0.2,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    }
+  ],
+  "experts": [
+    {
+      "display_name": "Auto",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "experts-auto",
+      "max_input_tokens": 200000,
+      "minimal_version": {
+        "ide": "0.9.0"
+      },
+      "price_factor": 0.5,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Ultimate",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "experts-ultimate",
+      "max_input_tokens": 1000000,
+      "price_factor": 2.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Sonus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "smodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "1.0.48",
+        "ide": "1.13.3",
+        "jb_plugin": "2026.715.1",
+        "qoder_wake": "1.0.48"
+      },
+      "price_factor": 8.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Cantus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "cmodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "1.0.48",
+        "ide": "1.13.3",
+        "jb_plugin": "2026.715.1",
+        "qoder_wake": "1.0.48"
+      },
+      "price_factor": 4.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.8-Max",
+      "enable": true,
+      "format": "openai",
+      "is_default": true,
+      "is_editable": true,
+      "is_free": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "qmodel_38max",
+      "max_input_tokens": 180000,
+      "price_factor": 0.5,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 60% off",
+          "zh": "错峰 4 折"
+        },
+        "before_promotion_price_factor": 0.5,
+        "description": {
+          "en": "Off-Peak 60% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段4折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.4,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {},
+        "enabled": {
+          "efforts": {
+            "low": {},
+            "medium": {
+              "is_default": true
+            },
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "GLM-5.3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "gmodel",
+      "max_input_tokens": 180000,
+      "price_factor": 0.8,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    }
+  ],
+  "inline": [
+    {
+      "display_name": "Auto",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "auto",
+      "max_input_tokens": 200000,
+      "price_factor": 0.5,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Ultimate",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "ultimate",
+      "max_input_tokens": 1000000,
+      "price_factor": 2.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "272K": {
+          "is_default": true,
+          "token_count": 272000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Performance",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "performance",
+      "max_input_tokens": 1000000,
+      "price_factor": 1.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "description": "High thinking intensity"
+            },
+            "low": {
+              "description": "Low thinking intensity"
+            },
+            "max": {
+              "description": "Maximum thinking intensity"
+            },
+            "medium": {
+              "description": "Medium thinking intensity",
+              "is_default": true
+            },
+            "xhigh": {
+              "description": "Extreme thinking intensity"
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "display_name": "Efficient",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "efficient",
+      "max_input_tokens": 200000,
+      "price_factor": 0.3,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    }
+  ],
+  "nap": [
+    {
+      "display_name": "Auto",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "nap-auto",
+      "max_input_tokens": 180000,
+      "price_factor": 1.0,
+      "source": "system"
+    }
+  ],
+  "quest": [
+    {
+      "display_name": "Auto",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "quest-auto",
+      "max_input_tokens": 200000,
+      "price_factor": 0.5,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Ultimate",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "quest-ultimate",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "ide": "0.19.0",
+        "jb_plugin": "999.999.999"
+      },
+      "price_factor": 2.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "272K": {
+          "is_default": true,
+          "token_count": 272000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Performance",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "performance",
+      "max_input_tokens": 1000000,
+      "price_factor": 1.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "description": "High thinking intensity"
+            },
+            "low": {
+              "description": "Low thinking intensity"
+            },
+            "max": {
+              "description": "Maximum thinking intensity"
+            },
+            "medium": {
+              "description": "Medium thinking intensity",
+              "is_default": true
+            },
+            "xhigh": {
+              "description": "Extreme thinking intensity"
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "display_name": "Efficient",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "efficient",
+      "max_input_tokens": 200000,
+      "price_factor": 0.3,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Sonus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "smodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "1.0.48",
+        "ide": "1.13.3",
+        "jb_plugin": "2026.715.1",
+        "qoder_wake": "1.0.48"
+      },
+      "price_factor": 8.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Cantus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "cmodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "1.0.48",
+        "ide": "1.13.3",
+        "jb_plugin": "2026.715.1",
+        "qoder_wake": "1.0.48"
+      },
+      "price_factor": 4.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.8-Max",
+      "enable": true,
+      "format": "openai",
+      "is_default": true,
+      "is_editable": true,
+      "is_free": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "qmodel_38max",
+      "max_input_tokens": 180000,
+      "price_factor": 0.5,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 60% off",
+          "zh": "错峰 4 折"
+        },
+        "before_promotion_price_factor": 0.5,
+        "description": {
+          "en": "Off-Peak 60% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段4折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.4,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {},
+        "enabled": {
+          "efforts": {
+            "low": {},
+            "medium": {
+              "is_default": true
+            },
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.8-Flash",
+      "enable": true,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "qfmodel",
+      "max_input_tokens": 180000,
+      "original_price_factor": 0.1,
+      "price_factor": 0.0,
+      "source": "system",
+      "thinking_config": {
+        "disabled": {},
+        "enabled": {
+          "efforts": {
+            "low": {},
+            "medium": {
+              "is_default": true
+            },
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.7-Max",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qmodel_latest",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "original_price_factor": 0.5,
+      "price_factor": 0.5,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 80% off",
+          "zh": "错峰2折"
+        },
+        "before_promotion_price_factor": 0.5,
+        "description": {
+          "en": "Off-Peak 80% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段2折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.2,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.7-Plus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.1,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 60% off",
+          "zh": "错峰4折"
+        },
+        "before_promotion_price_factor": 0.1,
+        "description": {
+          "en": "Off-Peak 60% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段4折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.4,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Kimi-K3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "kmodel_latest",
+      "max_input_tokens": 180000,
+      "price_factor": 1.4,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Kimi-K2.8-Preview",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "kmodel",
+      "minimal_version": {
+        "cli": "0.1.26",
+        "ide": "0.3.1",
+        "jb_plugin": "0.12.0"
+      },
+      "price_factor": 0.8,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "GLM-5.3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "gmodel",
+      "max_input_tokens": 180000,
+      "price_factor": 0.8,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "GLM-5.3-Flash",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "gfmodel",
+      "max_input_tokens": 1000000,
+      "price_factor": 0.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "DeepSeek-V4-Pro",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "dmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.5,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "description": "High thinking intensity"
+            },
+            "max": {
+              "description": "Maximum thinking intensity",
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "DeepSeek-Flash",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "dfmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "MiniMax-M3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "mmodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "0.1.26",
+        "ide": "0.3.1",
+        "jb_plugin": "0.12.0"
+      },
+      "price_factor": 0.2,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    }
+  ],
+  "qwake": [
+    {
+      "display_name": "Auto",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "auto",
+      "max_input_tokens": 200000,
+      "price_factor": 0.5,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "Ultimate",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "ultimate",
+      "max_input_tokens": 1000000,
+      "price_factor": 2.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "Performance",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "performance",
+      "max_input_tokens": 1000000,
+      "price_factor": 1.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "description": "High thinking intensity"
+            },
+            "low": {
+              "description": "Low thinking intensity"
+            },
+            "max": {
+              "description": "Maximum thinking intensity"
+            },
+            "medium": {
+              "description": "Medium thinking intensity",
+              "is_default": true
+            },
+            "xhigh": {
+              "description": "Extreme thinking intensity"
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "Efficient",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "efficient",
+      "max_input_tokens": 200000,
+      "price_factor": 0.3,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "Sonus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "smodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "1.0.48",
+        "ide": "1.13.3",
+        "jb_plugin": "2026.715.1",
+        "qoder_wake": "1.0.48"
+      },
+      "price_factor": 8.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "Cantus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "cmodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "1.0.48",
+        "ide": "1.13.3",
+        "jb_plugin": "2026.715.1",
+        "qoder_wake": "1.0.48"
+      },
+      "price_factor": 4.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.8-Max",
+      "enable": true,
+      "format": "openai",
+      "is_default": true,
+      "is_editable": true,
+      "is_free": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "qmodel_38max",
+      "max_input_tokens": 180000,
+      "price_factor": 0.5,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 60% off",
+          "zh": "错峰 4 折"
+        },
+        "before_promotion_price_factor": 0.5,
+        "description": {
+          "en": "Off-Peak 60% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段4折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.4,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {},
+        "enabled": {
+          "efforts": {
+            "low": {},
+            "medium": {
+              "is_default": true
+            },
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.8-Flash",
+      "enable": true,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "qfmodel",
+      "max_input_tokens": 180000,
+      "original_price_factor": 0.1,
+      "price_factor": 0.0,
+      "source": "system",
+      "thinking_config": {
+        "disabled": {},
+        "enabled": {
+          "efforts": {
+            "low": {},
+            "medium": {
+              "is_default": true
+            },
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.7-Max",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qmodel_latest",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "original_price_factor": 0.5,
+      "price_factor": 0.5,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 80% off",
+          "zh": "错峰2折"
+        },
+        "before_promotion_price_factor": 0.5,
+        "description": {
+          "en": "Off-Peak 80% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段2折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.2,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.7-Plus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.1,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 60% off",
+          "zh": "错峰4折"
+        },
+        "before_promotion_price_factor": 0.1,
+        "description": {
+          "en": "Off-Peak 60% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段4折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.4,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "Kimi-K3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "kmodel_latest",
+      "max_input_tokens": 180000,
+      "price_factor": 1.4,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "Kimi-K2.8-Preview",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "kmodel",
+      "minimal_version": {
+        "cli": "0.1.26",
+        "ide": "0.3.1",
+        "jb_plugin": "0.12.0"
+      },
+      "price_factor": 0.8,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "GLM-5.3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_sensitive": true,
+      "is_vl": true,
+      "key": "gmodel",
+      "max_input_tokens": 180000,
+      "price_factor": 0.8,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "GLM-5.3-Flash",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "gfmodel",
+      "max_input_tokens": 1000000,
+      "price_factor": 0.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "DeepSeek-V4-Pro",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "dmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.5,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {
+              "description": "High thinking intensity"
+            },
+            "max": {
+              "description": "Maximum thinking intensity",
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "DeepSeek-Flash",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "dfmodel",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.1,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "efforts": {
+            "high": {},
+            "low": {},
+            "max": {
+              "is_default": true
+            }
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "token_count": 200000
+        },
+        "400K": {
+          "is_default": true,
+          "token_count": 400000
+        }
+      },
+      "display_name": "MiniMax-M3",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "mmodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "0.1.26",
+        "ide": "0.3.1",
+        "jb_plugin": "0.12.0"
+      },
+      "price_factor": 0.2,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "enabled": false,
+          "priority": 999,
+          "tag": "C4"
+        }
+      ]
+    }
+  ],
+  "qwork": [
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Premium",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qwork-ultimate",
+      "max_input_tokens": 180000,
+      "price_factor": 1.6,
+      "source": "system"
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Advanced",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qwork-advanced",
+      "max_input_tokens": 180000,
+      "price_factor": 0.6,
+      "source": "system"
+    },
+    {
+      "display_name": "Standard",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qwork-auto",
+      "max_input_tokens": 180000,
+      "price_factor": 0.3,
+      "source": "system"
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Sonus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": false,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "smodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "1.0.48",
+        "ide": "1.13.3",
+        "jb_plugin": "2026.715.1",
+        "qoder_wake": "1.0.48"
+      },
+      "price_factor": 8.0,
+      "source": "system",
+      "strategies": [
+        {
+          "disabled_message_key": "codeSafeModelReason",
+          "tag": "C4"
+        }
+      ],
+      "thinking_config": {
+        "enabled": {
+          "efforts": {
+            "high": {
+              "is_default": true
+            },
+            "low": {},
+            "max": {},
+            "medium": {},
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.8-Max",
+      "enable": true,
+      "format": "openai",
+      "is_default": true,
+      "is_editable": true,
+      "is_free": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "qmodel_38max",
+      "max_input_tokens": 180000,
+      "price_factor": 0.5,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 60% off",
+          "zh": "错峰 4 折"
+        },
+        "before_promotion_price_factor": 0.5,
+        "description": {
+          "en": "Off-Peak 60% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段4折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.4,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {},
+        "enabled": {
+          "efforts": {
+            "low": {},
+            "medium": {
+              "is_default": true
+            },
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.8-Flash",
+      "enable": true,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_free": true,
+      "is_new": true,
+      "is_reasoning": true,
+      "is_vl": true,
+      "key": "qfmodel",
+      "max_input_tokens": 180000,
+      "original_price_factor": 0.1,
+      "price_factor": 0.0,
+      "source": "system",
+      "thinking_config": {
+        "disabled": {},
+        "enabled": {
+          "efforts": {
+            "low": {},
+            "medium": {
+              "is_default": true
+            },
+            "xhigh": {}
+          },
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.7-Max",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qmodel_latest",
+      "max_input_tokens": 1000000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "original_price_factor": 0.5,
+      "price_factor": 0.5,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 80% off",
+          "zh": "错峰2折"
+        },
+        "before_promotion_price_factor": 0.5,
+        "description": {
+          "en": "Off-Peak 80% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段2折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.2,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "is_default": true
+        }
+      }
+    },
+    {
+      "context_config": {
+        "1M": {
+          "token_count": 1000000
+        },
+        "200K": {
+          "is_default": true,
+          "token_count": 200000
+        },
+        "400K": {
+          "token_count": 400000
+        }
+      },
+      "display_name": "Qwen3.7-Plus",
+      "enable": false,
+      "format": "openai",
+      "is_default": false,
+      "is_editable": true,
+      "is_new": true,
+      "is_reasoning": false,
+      "is_vl": true,
+      "key": "qmodel",
+      "max_input_tokens": 180000,
+      "minimal_version": {
+        "cli": "0.1.25",
+        "ide": "0.3.0",
+        "jb_plugin": "0.15.0"
+      },
+      "price_factor": 0.1,
+      "promotion": {
+        "active": false,
+        "badge": {
+          "en": "Off-Peak 60% off",
+          "zh": "错峰4折"
+        },
+        "before_promotion_price_factor": 0.1,
+        "description": {
+          "en": "Off-Peak 60% off (10 PM-8 AM UTC+8)",
+          "zh": "错峰时段4折优惠（10 PM-8 AM UTC+8）"
+        },
+        "discount_factor": 0.4,
+        "link_url": {
+          "en": "https://docs.qoder.com/events/offpeakrate",
+          "zh": "https://docs.qoder.com/zh/events/offpeakrate"
+        },
+        "rule_id": "idle_time_model_credit_discount",
+        "timezone": "Asia/Singapore",
+        "window_end": "08:00",
+        "window_start": "22:00"
+      },
+      "source": "system",
+      "thinking_config": {
+        "disabled": {
+          "description": "Disable thinking"
+        },
+        "enabled": {
+          "description": "Enable thinking",
+          "is_default": true
+        }
+      }
+    }
+  ]
+}

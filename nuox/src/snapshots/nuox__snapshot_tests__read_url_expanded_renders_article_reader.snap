@@ -1,0 +1,39 @@
+---
+source: apps/terminal/crates/mutx/src/snapshot_tests.rs
+expression: "render_grid(&m, 80, 20)"
+---
+- Read https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html (0ms)
+  🔗  https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html
+  🛡️   Untrusted External Content · Reader: Jina · ~1840 tokens
+
+  # Announcing Rust 1.85.0 and Rust 2024
+
+  The Rust team is happy to announce a new version of Rust, 1.85.0.
+
+  ## Stabilized Features
+
+  • Async closures (`async || { ... }`)
+  • Naked functions
+
+  ```rust
+    async fn test() {}
+  ```
+
+backgrounds:
+A=#070808  B=#111312  .=reset
+0: A80
+1: B80
+2: B80
+3: B80
+4: B80
+5: B80
+6: B80
+7: B80
+8: B80
+9: B80
+10: B80
+11: B80
+12: B80
+13: B80
+14: B80
+15: B80

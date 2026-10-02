@@ -1,0 +1,30 @@
+{
+  "protocol": "muta/v1",
+  "version": "0.37.21",
+  "capabilities": {
+    "streaming": true,
+    "tools": [
+      {
+        "name": "edit_text",
+        "description": "Replace a unique block of text with new_string in an existing file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" },
+            "old_string": { "type": "string" },
+            "new_string": { "type": "string" }
+          },
+          "required": ["path", "old_string", "new_string"]
+        }
+      }
+    ],
+    "context_limits": {
+      "default_max_tokens": 128000,
+      "max_output_tokens": 8192
+    }
+  },
+  "metadata": {
+    "author": "muta-team",
+    "created_at": 1700000000
+  }
+}

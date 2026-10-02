@@ -1,0 +1,46 @@
+---
+source: apps/terminal/crates/mutx/src/question_model.rs
+expression: film
+---
+=== open: Question 1/2 ===
+
+
+
+
+┃
+┃first?
+┃
+┃[x] x
+┃[ ] Other
+┃
+┃↑↓ navigate  Enter next  1-9 jump  Esc cancel
+
+=== Enter → Question 2/2 ===
+
+
+
+
+
+
+
+
+
+   Question 2/2
+
+                                                              ▲
+   [x] y
+
+   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel
+
+=== Shift+Tab → Question 1/2 ===
+
+
+
+
+┃
+┃first?
+┃
+┃[x] x
+┃[ ] Other
+┃
+┃↑↓ navigate  Enter next  1-9 jump  Esc cancel
