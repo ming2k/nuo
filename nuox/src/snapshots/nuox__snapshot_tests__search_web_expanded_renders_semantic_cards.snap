@@ -1,0 +1,27 @@
+---
+source: apps/terminal/crates/mutx/src/snapshot_tests.rs
+expression: "render_grid(&m, 80, 20)"
+---
+- Web search "rust 1.85 release notes" (0ms)
+  [1] Rust 1.85.0 released | Rust Blog
+    🌐  blog.rust-lang.org · https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.ht
+      The Rust team is happy to announce a new version of Rust, 1.85.0. Rust 202
+      4 edition is now stable!
+
+  [2] What is new in Rust 1.85? - GitHub Discussions
+    🌐  github.com · https://github.com/rust-lang/rust/discussions/134900
+      A summary of major additions including async closures and standard library
+       improvements.
+
+backgrounds:
+A=#070808  B=#111312  .=reset
+0: A80
+1: B80
+2: B80
+3: B80
+4: B80
+5: B80
+6: B80
+7: B80
+8: B80
+9: B80

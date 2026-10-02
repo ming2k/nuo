@@ -1,0 +1,23 @@
+[package]
+name = "nuotc"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "High-performance retained-mode terminal canvas and diff rendering engine"
+repository = "https://github.com/ming2k/nuotc"
+readme = "README.md"
+keywords = ["tui", "terminal", "canvas", "grid", "diff"]
+categories = ["command-line-interface", "graphics"]
+
+[dependencies]
+crossterm = { workspace = true }
+unicode-width = { workspace = true }
+unicode-segmentation = { workspace = true }
+bitflags = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,21 @@
+---
+source: apps/terminal/crates/mutx/src/snapshot_tests.rs
+expression: "render_grid(&m, 100, 30)"
+---
+- Edit docs/explanation/tui.md +1 -1
+         @@ -1 +1 @@
+   1   - Because the frame is a pure function of state, anything that changes state — a streamed tok
+         en, a permission request, a mouse drag — shows up on the very next frame with no manual inv
+         alidation.
+      1+ Because the frame is a pure function of state, diff compares the back grid against the fron
+         t grid and walks only the dirty rows from each row's dirty column.
+
+backgrounds:
+A=#070808  B=#111312  C=#201414  D=#402828  E=#121F16  F=#2A4030  .=reset
+0: A100
+1: B100
+2: C56 D13 C1 D7 C1 D5 C1 D1 C1 D1 C1 D8 C1 D3
+3: C9 D3 C1 D1 C1 D10 C1 D8 C1 D1 C1 D18 C1 D6 C4 D4 C1 D4 C1 D5 C1 D4 C1 D2 C1 D6 C1 D3
+4: C9 D10 C81
+5: E56 F4 E1 F8 E1 F3 E1 F4 E1 F4 E1 F7 E1 F3 E1 F4
+6: E9 F1 E1 F4 E1 F3 E1 F5 E1 F4 E5 F5 E1 F4 E1 F4 E1 F4 E1 F5 E1 F5 E1 F7 E25

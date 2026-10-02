@@ -1,0 +1,13 @@
+# Generated automatically by docgov. Do not edit manually.
+protocol_version: 0.0.7
+upstream:
+  source: https://github.com/ming2k/docgov
+  ref: v0.0.7
+  synced_at: 2026-10-01T09:23:22Z
+artifacts:
+  agent_directives:
+    target: AGENTS.md
+    hash: sha256:e84adcad554c26e0be872823dae0bc825f82f28e77e1124502597c198c27afe1
+  governance_docs:
+    target: docs/governance/documentation
+    hash: sha256:64f1642cd27f8d6fef571ee29c42ac16dd3db9b9e4cabac3c6bc5f9235a4b0d2

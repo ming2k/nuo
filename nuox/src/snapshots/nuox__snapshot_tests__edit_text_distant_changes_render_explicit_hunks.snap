@@ -1,0 +1,41 @@
+---
+source: apps/terminal/crates/mutx/src/snapshot_tests.rs
+expression: "render_grid(&m, 80, 40)"
+---
+- Edit a.rs +2 -2
+         @@ -1,6 +1,6 @@
+   1  1  line  1
+   2  2  line  2
+   3   - CHANGE
+      3+ change
+   4  4  line  4
+   5  5  line  5
+   6  6  line  6
+         @@ -11,6 +11,6 @@
+  11 11  line 11
+  12 12  line 12
+  13 13  line 13
+  14   - CHANGE
+     14+ change
+  15 15  line 15
+  16 16  line 16
+
+backgrounds:
+A=#070808  B=#111312  C=#201414  D=#402828  E=#121F16  F=#2A4030  .=reset
+0: A80
+1: B80
+2: B80
+3: B80
+4: C9 D6 C65
+5: E9 F6 E65
+6: B80
+7: B80
+8: B80
+9: B80
+10: B80
+11: B80
+12: B80
+13: C9 D6 C65
+14: E9 F6 E65
+15: B80
+16: B80

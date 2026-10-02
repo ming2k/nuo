@@ -1,0 +1,123 @@
+[workspace]
+members = [
+    "nuo",
+    "nuox",
+    "nuo-agent",
+    "nuo-client",
+    "nuo-contracts",
+    "nuo-harness",
+    "nuo-mcp",
+    "nuo-model-codec",
+    "nuo-persistence",
+    "nuo-providers",
+    "nuo-host",
+    "nuo-tool",
+    "nuo-tool-derive",
+    "acp",
+    "nuotc",
+]
+default-members = ["nuo", "nuox"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = { package = "yaml_serde", version = "0.10" }
+semver = "1.0"
+toml = "1"
+futures = "0.3"
+async-trait = "0.1"
+tokio = { version = "1", default-features = false }
+tokio-util = { version = "0.7", features = ["codec"] }
+bytes = "1"
+tokio-tungstenite = "0.26"
+libc = "0.2"
+glob = "0.3"
+ignore = "0.4"
+walkdir = "2"
+dirs = "6"
+directories = "6.0"
+arboard = "3.6"
+uuid = { version = "1", features = ["v4", "serde"] }
+httpdate = "1"
+fastrand = "2"
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+md-5 = "0.10"
+rsa = { version = "0.9", features = ["sha2"] }
+cbc = { version = "0.1", features = ["alloc"] }
+aes = "0.8"
+tracing = "0.1"
+inventory = "0.3"
+syn = { version = "2", features = ["full", "derive"] }
+quote = "1"
+proc-macro2 = "1"
+base64 = "0.22"
+hex = "0.4"
+hmac = "0.12"
+thiserror = "2.0"
+netune = "0.1.1"
+http = "1.2"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+ts-rs = { version = "12", features = ["no-serde-warnings"] }
+windows-sys = "0.61"
+notify = "8"
+tree-sitter = "0.25"
+tree-sitter-rust = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-go = "0.25"
+
+# TUI stack
+crossterm = { version = "0.29", features = ["event-stream"] }
+unicode-width = "0.2"
+unicode-segmentation = "1.12"
+similar = { version = "2", features = ["unicode"] }
+bitflags = "2"
+
+# Diagnostics & testing
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+insta = "1.48"
+mockito = "1"
+tempfile = "3"
+
+# ACP & Substrates
+acp = { version = "0.0.1", path = "acp" }
+nuo-agent = { version = "0.0.1", path = "nuo-agent" }
+nuo-tool = { version = "0.0.1", path = "nuo-tool" }
+nuo-mcp = { version = "0.0.1", path = "nuo-mcp" }
+nuo-model-codec = { version = "0.0.1", path = "nuo-model-codec" }
+
+# Terminal Substrate (Nuotc)
+nuotc = { version = "0.0.1", path = "nuotc" }
+
+# In-house Nuo crates
+nuo-client = { version = "0.0.1", path = "nuo-client" }
+nuo = { version = "0.0.1", path = "nuo" }
+nuox = { version = "0.0.1", path = "nuox" }
+nuo-providers = { version = "0.0.1", path = "nuo-providers" }
+nuo-persistence = { version = "0.0.1", path = "nuo-persistence" }
+nuo-contracts = { version = "0.0.1", path = "nuo-contracts" }
+nuo-host = { version = "0.0.1", path = "nuo-host" }
+nuo-harness = { version = "0.0.1", path = "nuo-harness" }
+
+[workspace.lints.rust]
+unsafe_code = "allow"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+dbg_macro = "warn"
+print_stdout = "allow"
+print_stderr = "allow"

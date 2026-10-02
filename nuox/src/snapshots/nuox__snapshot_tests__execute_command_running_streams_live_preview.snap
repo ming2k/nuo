@@ -1,0 +1,9 @@
+---
+source: apps/terminal/crates/mutx/src/snapshot_tests.rs
+expression: "render_grid(&m, 80, 24)"
+---
++ Run cargo
+
+backgrounds:
+A=#070808  .=reset
+0: A80

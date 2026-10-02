@@ -1,0 +1,59 @@
+[package]
+name = "nuo-harness"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+nuo-tool = { workspace = true }
+nuo-model-codec = { workspace = true }
+
+nuo-contracts = { workspace = true }
+nuo-persistence = { workspace = true }
+nuo-host = { workspace = true }
+nuo-providers = { workspace = true }
+serde_yaml = { workspace = true }
+dirs = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
+tokio-util = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+netune = "0.1.0"
+bytes = { workspace = true }
+http = "1.4"
+uuid = { workspace = true }
+regex = "1"
+fastrand = { workspace = true }
+glob = { workspace = true }
+ignore = { workspace = true }
+walkdir = { workspace = true }
+inventory = { workspace = true }
+base64 = { workspace = true }
+image = { workspace = true }
+sha2 = { workspace = true }
+toml = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-rust = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+tree-sitter-python = { workspace = true }
+tree-sitter-c = { workspace = true }
+tree-sitter-cpp = { workspace = true }
+tree-sitter-go = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+mockito = { workspace = true }
+tempfile = { workspace = true }
+# `test-path-override` exposes `paths::set_test_default` so catalog discovery
+# tests can sandbox the XDG roots; without it a `DiscoveryCache::save()` in a
+# test writes `test-instance` rows into the developer's real
+# `$XDG_STATE_HOME/muta/models_discovery.json`.
+nuo-host = { workspace = true, features = ["test-path-override"] }
+
+[lints]
+workspace = true

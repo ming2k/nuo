@@ -1,0 +1,21 @@
+[package]
+name = "nuo-tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Canonical tool specification, context-aware execution, and capability registry for Nuo"
+
+[dependencies]
+nuo-tool-derive = { path = "../nuo-tool-derive", version = "0.0.1" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "macros", "process", "io-util", "rt"] }
+tokio-util = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

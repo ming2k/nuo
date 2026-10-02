@@ -1,0 +1,54 @@
+---
+source: apps/terminal/crates/mutx/src/question_model.rs
+expression: film
+---
+=== open (first row highlighted = selected) ===
+
+
+
+
+
+
+
+
+
+   Question
+
+   [x] anyhow                                                 ▲
+       Simple
+
+   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel
+
+=== down → highlight 'thiserror' (selected, no marker) ===
+
+
+
+
+
+
+
+
+
+   Question
+
+   [x] thiserror                                              ▲
+       Structured
+
+   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel
+
+=== '3' → jump to 'Other' (now the live selection) ===
+
+
+
+
+
+
+
+
+
+   Question
+
+   [x] Other                                                  ▲
+   › type your answer…
+
+   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel

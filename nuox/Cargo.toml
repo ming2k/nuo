@@ -1,0 +1,36 @@
+[package]
+name = "nuox"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+nuo-contracts = { workspace = true }
+nuo-host = { workspace = true }
+nuo-client = { workspace = true }
+nuotc = { workspace = true }
+bitflags = { workspace = true }
+async-trait = { workspace = true }
+crossterm = { workspace = true }
+unicode-width = { workspace = true }
+unicode-segmentation.workspace = true
+similar = { workspace = true }
+arboard = { workspace = true }
+dirs = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+nuo-providers = { workspace = true }
+insta = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

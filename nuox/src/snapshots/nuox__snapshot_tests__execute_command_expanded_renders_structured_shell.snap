@@ -1,0 +1,21 @@
+---
+source: apps/terminal/crates/mutx/src/snapshot_tests.rs
+expression: "render_grid(&m, 80, 40)"
+---
+- Run cargo (failed 0ms)
+  $ cargo test
+  running 3 tests
+  ...
+  test result: ok. 3 passed
+  warning: unused import
+  exit 1
+
+backgrounds:
+A=#070808  B=#111312  .=reset
+0: A80
+1: B80
+2: B80
+3: B80
+4: B80
+5: B80
+6: B80
