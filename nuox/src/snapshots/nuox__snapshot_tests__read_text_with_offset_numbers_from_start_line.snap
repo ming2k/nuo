@@ -1,0 +1,19 @@
+---
+source: apps/terminal/crates/mutx/src/snapshot_tests.rs
+expression: "render_grid(&m, 80, 40)"
+---
+- Read src/lib.rs :100,$ (0ms)
+   rs
+   100 fn a() {}
+   101 fn b() {}
+   102 fn c() {}
+   103
+
+backgrounds:
+A=#070808  B=#111312  .=reset
+0: A80
+1: B80
+2: B80
+3: B80
+4: B80
+5: B80

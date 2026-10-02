@@ -1,0 +1,22 @@
+---
+source: apps/terminal/crates/mutx/src/snapshot_tests.rs
+expression: "render_grid(&m, 80, 14)"
+---
+- Ask: 这 次 改 动 的 范 围 定 多 大 ? · Which layout pieces?
+    Scope · 这 次 改 动 的 范 围 定 多 大 ? (2 options)
+  ↳ 整 个  telemetry modal 重 构
+
+    Which layout pieces? (3 options, multi-select)
+  ↳ 垂 直 阶 梯
+    差 值 列
+
+backgrounds:
+A=#070808  B=#111312  .=reset
+0: A80
+1: B80
+2: B80
+3: B80
+4: B80
+5: B80
+6: B80
+7: B80

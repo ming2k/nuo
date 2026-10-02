@@ -1,0 +1,27 @@
+---
+source: apps/terminal/crates/mutx/src/snapshot_tests.rs
+expression: "render_grid(&m, 80, 40)"
+---
+- Run cargo (failed 0ms)
+  $ cargo build
+  line 1
+  line 2
+  line 3
+  ⋯ 14 lines hidden
+  line 18
+  line 19
+  line 20
+  exit 1
+
+backgrounds:
+A=#070808  B=#111312  .=reset
+0: A80
+1: B80
+2: B80
+3: B80
+4: B80
+5: B80
+6: B80
+7: B80
+8: B80
+9: B80

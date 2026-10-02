@@ -1,0 +1,34 @@
+[package]
+name = "nuo-model-codec"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Multi-vendor wire protocol, client identity spoofing, SSE stream demuxing, and Netune transport for AI model APIs"
+
+[dependencies]
+netune = { workspace = true, optional = true }
+netune-trace = { version = "0.1.1", optional = true }
+bytes = { workspace = true }
+http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros", "time"] }
+futures = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"], optional = true }
+
+[features]
+default = ["netune"]
+netune = ["dep:netune", "dep:netune-trace"]
+reqwest-oracle = ["dep:reqwest"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

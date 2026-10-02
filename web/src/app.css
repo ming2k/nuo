@@ -1,0 +1,309 @@
+/*
+ * app.css — 山水 theme tokens + global baseline.
+ *
+ * Design language: 中国山水画 (shanshui). Two modes:
+ *   宣纸 xuan (light) — warm rice-paper surfaces, ink text, one vermilion seal accent.
+ *   夜山 ye  (dark)  — deep mountain night, moon-lit text, same vermilion.
+ *
+ * Principles (from the shanshui brief):
+ *   - 留白 liubai: generous empty space; content column is narrow and centered.
+ *   - Few colors: ink scale + paper scale + ONE accent (朱砂 cinnabar).
+ *   - Hairlines, not boxes: structure comes from 1px rules and spacing,
+ *     never from filled cards or shadows.
+ */
+
+:root {
+  /* ——— Typography ——— */
+  /* Serif for titles & role glyphs (the "brush" voice); the UI body stays
+     sans for legibility; mono for machine identifiers. */
+  --font-brush: "Songti SC", "Noto Serif SC", "Source Han Serif SC", "SimSun",
+    Georgia, serif;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas,
+    monospace;
+
+  /* ——— Shape ——— */
+  /* Shanshui avoids hard boxes: keep radii small and corners soft-but-square. */
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+
+  /* ——— Spacing rhythm ——— */
+  /* The transcript column: narrow, centered, breathing. */
+  --measure: 46rem;
+  --pad-x: clamp(1rem, 4vw, 2.5rem);
+
+  /* ——— Motion ——— */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --t-fast: 0.15s var(--ease);
+  --t-slow: 0.4s var(--ease);
+
+  /* ——— Semantic aliases (mapped per theme below) ——— */
+  --ink: var(--text-primary);
+  --ink-2: var(--text-secondary);
+  --ink-3: var(--text-muted);
+  --paper: var(--bg-app);
+  --line: var(--border-subtle);
+  --line-strong: var(--border-strong);
+  --seal: var(--accent-danger);
+}
+
+/* ————————————————— 宣纸 · light theme ————————————————— */
+:root {
+  color-scheme: light;
+
+  /* Paper: warm rice-paper steps, slightly darker as surfaces rise. */
+  --bg-app: #f4f0e6; /* xuan paper */
+  --bg-sidebar: #ede8db; /* aged paper */
+  --bg-surface: #faf7ef; /* raised leaf */
+  --bg-surface-hover: #e6e0d0;
+  --bg-header: #f4f0e6;
+  --bg-code: #f0ece0;
+  --bg-quote: #ede9dc;
+
+  --input-bg-inactive: #faf7ef;
+  --input-bg-active: #fffdf6;
+
+  /* Ink: soot on paper. */
+  --text-primary: #2a2620;
+  --text-secondary: #5d574b;
+  --text-muted: #8f887a;
+
+  /* Hairlines: diluted ink. */
+  --border-subtle: #ddd6c4;
+  --border-strong: #c4bca6;
+  --border-input-focus: #a89f88;
+
+  /* 朱砂 cinnabar seal — the single accent. */
+  --accent-primary: #a63a2b;
+  --accent-danger: #b8402f;
+  --accent-info: #4a6b57; /* 苔 green — secondary accent for "live" states */
+  --accent-warning: #a8752c;
+
+  --seal-soft: rgba(166, 58, 43, 0.08);
+
+  /* Syntax (github-dark palette): fenced code blocks stay dark in both
+     themes — a block of polished inkstone (砚) on the paper. Inline code
+     stays on paper via --bg-code. */
+  --code-fg: #c9d1d9;
+  --hljs-bg: #23272e;
+
+  --shadow-modal: 0 24px 64px rgba(58, 48, 28, 0.18);
+}
+
+/* ————————————————— 夜山 · dark theme ————————————————— */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Mountain night: blue-black steps, subtly lighter as surfaces rise. */
+  --bg-app: #12151a;
+  --bg-sidebar: #0e1116;
+  --bg-surface: #191e26;
+  --bg-surface-hover: #222834;
+  --bg-header: #12151a;
+  --bg-code: #171c24;
+  --bg-quote: #161b22;
+
+  --input-bg-inactive: #171c24;
+  --input-bg-active: #1e2530;
+
+  /* Moonlit ink. */
+  --text-primary: #dfe3e8;
+  --text-secondary: #9aa3ad;
+  --text-muted: #6d7681;
+
+  --border-subtle: #262d38;
+  --border-strong: #39424f;
+  --border-input-focus: #566374;
+
+  /* Cinnabar reads slightly brighter on night paper. */
+  --accent-primary: #d0604c;
+  --accent-danger: #e06a55;
+  --accent-info: #7aa898;
+  --accent-warning: #c99a4e;
+
+  --seal-soft: rgba(208, 96, 76, 0.1);
+
+  --code-fg: #cfd6de;
+  --hljs-bg: #171c24;
+
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+
+/* ————————————————— Baseline ————————————————— */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  background-color: var(--bg-app);
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  line-height: 1.6;
+  font-size: 14px;
+  /* Subtle paper grain in light mode; kept near-invisible to preserve 留白. */
+  transition: background-color var(--t-slow), color var(--t-slow);
+}
+
+::selection {
+  background: var(--seal-soft);
+}
+
+/* Scrollbars: thin ink strokes, nearly invisible. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Focus: a quiet cinnabar underline rather than a loud ring. */
+:focus-visible {
+  outline: 1px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* ——— Shared markdown voice ——— */
+/* One place styles transcript prose; components just tag .markdown-body. */
+
+.markdown-body {
+  line-height: 1.75;
+  word-break: break-word;
+}
+
+.markdown-body p {
+  margin-bottom: 0.75em;
+}
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  font-family: var(--font-brush);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: 1.1em 0 0.5em;
+  line-height: 1.3;
+}
+
+.markdown-body h1 {
+  font-size: 1.25em;
+}
+.markdown-body h2 {
+  font-size: 1.15em;
+}
+.markdown-body h3 {
+  font-size: 1.05em;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.4em;
+  margin-bottom: 0.75em;
+}
+.markdown-body li {
+  margin-bottom: 0.25em;
+}
+
+.markdown-body blockquote {
+  border-left: 2px solid var(--line-strong);
+  padding: 0.1em 0 0.1em 0.9em;
+  margin: 0.75em 0;
+  color: var(--text-secondary);
+  background: var(--bg-quote);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.markdown-body pre {
+  /* The inkstone: fenced code stays dark on paper in both themes. */
+  background: var(--hljs-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 0.85em 1em;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  line-height: 1.55;
+  margin: 0.75em 0;
+  color: var(--code-fg);
+}
+
+.markdown-body code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--bg-code);
+  border: 1px solid var(--line);
+  padding: 0.08em 0.35em;
+  border-radius: var(--radius-sm);
+}
+
+.markdown-body pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 1em;
+  color: inherit;
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 0.75em 0;
+  font-size: 0.92em;
+  width: 100%;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--line);
+  padding: 0.35em 0.7em;
+  text-align: left;
+}
+.markdown-body th {
+  font-weight: 600;
+  background: var(--bg-surface);
+}
+
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 1.25em 0;
+}
+
+.markdown-body a {
+  color: var(--accent-primary);
+  text-decoration-color: var(--seal-soft);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.markdown-body a:hover {
+  text-decoration-color: var(--accent-primary);
+}
+
+.markdown-body img {
+  max-width: 100%;
+  border-radius: var(--radius-md);
+}

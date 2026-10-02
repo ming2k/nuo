@@ -1,0 +1,133 @@
+---
+source: apps/terminal/crates/mutx/src/question_model.rs
+expression: film
+---
+=== open ===
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   Question
+
+   Which features?
+
+   [ ] a                                                              ▼
+
+   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel
+
+=== down → highlight 'b' ===
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   Question
+
+                                                                      ▲
+   [ ] a
+   [ ] b                                                              ▼
+
+   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel
+
+=== space → toggle 'b' selected ===
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   Question
+
+                                                                      ▲
+   [ ] a
+   [x] b                                                              ▼
+
+   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel
+
+=== '1' → select 'a' ===
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   Question
+
+   Which features?
+
+   [x] a                                                              ▼
+
+   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel
+
+=== '4' + 'custom' → focus 'Other', type ===
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   Question
+
+   [ ] c                                                              ▲
+   [x] Other
+   › cust
+
+   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel
