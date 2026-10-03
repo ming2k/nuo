@@ -171,8 +171,6 @@ mod tool_integration;
 mod tool_manager;
 mod tool_scheduler;
 pub mod tools;
-pub mod tool_bridge;
-pub use tool_bridge::{NousToolBridge, NuoToNousToolBridge, NuoToolBridge, bridge_substrate_tools};
 
 pub mod extension;
 pub(crate) mod sync;

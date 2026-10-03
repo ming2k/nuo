@@ -62,16 +62,6 @@ impl DynamicToolRegistry {
         }
         false
     }
-
-    /// Register tools conforming to the canonical substrate [`nuo_tool::Tool`] standard.
-    #[allow(dead_code)]
-    pub fn replace_substrate_tools(&self, source: &str, tools: Vec<Arc<dyn nuo_tool::Tool>>) {
-        let bridged: Vec<Arc<dyn Tool>> = tools
-            .into_iter()
-            .map(|t| Arc::new(crate::NousToolBridge::new(t)) as Arc<dyn Tool>)
-            .collect();
-        self.replace(source, bridged);
-    }
 }
 
 impl DynamicToolSink for DynamicToolRegistry {
@@ -170,7 +160,7 @@ mod tests {
             }
         }
         let registry = DynamicToolRegistry::default();
-        registry.replace_substrate_tools("mcp-server-1", vec![Arc::new(MockNousTool)]);
+        registry.replace("mcp-server-1", vec![Arc::new(MockNousTool)]);
         assert!(registry.contains("substrate_calc"));
         let tool = registry.find("substrate_calc").unwrap();
         assert_eq!(tool.name(), "substrate_calc");

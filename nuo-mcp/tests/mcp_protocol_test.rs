@@ -57,8 +57,8 @@ done
 
     let ctx = nuo_tool::ToolContext::default();
     let out = native_tools[0].execute(&ctx, json!({})).await.unwrap();
-    assert_eq!(&out[..], "hello from mcp");
-    assert!(!out.is_error);
+    assert_eq!(out.content(), "hello from mcp");
+    assert!(!out.is_error());
 
     client.close();
 }

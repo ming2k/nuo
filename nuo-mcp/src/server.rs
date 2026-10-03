@@ -121,9 +121,9 @@ impl McpServer {
                         Ok(output) => {
                             let result = CallToolResult {
                                 content: vec![ContentItem::Text {
-                                    text: output.content,
+                                    text: output.content(),
                                 }],
-                                is_error: if output.is_error { Some(true) } else { None },
+                                is_error: if output.is_error() { Some(true) } else { None },
                             };
                             JsonRpcResponse {
                                 jsonrpc: "2.0".to_string(),

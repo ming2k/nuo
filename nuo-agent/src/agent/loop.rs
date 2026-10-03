@@ -597,7 +597,7 @@ impl CognitiveLoop {
 
                 let outcome = self.tools.execute(&ctx, &call.name, call.arguments).await;
                 let (output, is_error) = match outcome {
-                    Ok(tool_output) => (tool_output.content, tool_output.is_error),
+                    Ok(tool_output) => (tool_output.content(), tool_output.is_error()),
                     Err(err) => (err.to_string(), true),
                 };
 

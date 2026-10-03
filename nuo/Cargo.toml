@@ -53,5 +53,13 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 nuo-host = { workspace = true, features = ["test-path-override"] }
 
+[features]
+# Expose ACP collaboration tools (delegate_to_peer, channels) to the model
+# (ADR-0005 §5, ADR-0008 step 8, ADR-0009 §3). The daemon always links the ACP
+# fabric for its own mesh/Hypervisor/Archivist infrastructure; this feature
+# gates only the *model-facing tool surface*, so lean single-agent builds omit
+# the multi-agent tools without dropping the internal fabric.
+collaboration = []
+
 [lints]
 workspace = true

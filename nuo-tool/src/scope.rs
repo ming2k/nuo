@@ -25,3 +25,31 @@ impl ToolScope {
         Self::Custom(name.into())
     }
 }
+
+/// What a tool call acts on, so the operation-scope gate can match it against
+/// the agent's granted scope. A tool reports this via its [`ToolDescriptor`] or
+/// per-call refinement; each variant names a locatable target a tool may report.
+/// [`ScopeTarget::Unspecified`] is the default for tools with no locatable target.
+///
+/// Lives in the tool leaf (ADR-0008 `[INV-TOOL-11]`): it is pure tool metadata
+/// with no dependency on any higher layer.
+///
+/// [`ToolDescriptor`]: crate::descriptor::ToolDescriptor
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScopeTarget {
+    /// A filesystem path the tool writes or reads (e.g. `write_file`, `edit_text`).
+    /// Checked against the scope's granted directory prefixes.
+    Path(std::path::PathBuf),
+    /// A shell command string (e.g. `bash`). Checked against the scope's command
+    /// allowlist, when one is set.
+    Command(String),
+    /// The tool declares no locatable target (e.g. `search_text`, `list_dir`).
+    /// Admitted by the scope gate without a dimension check.
+    Unspecified,
+}
+
+impl Default for ScopeTarget {
+    fn default() -> Self {
+        Self::Unspecified
+    }
+}

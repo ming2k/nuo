@@ -485,15 +485,6 @@ impl Tool for SubagentTool {
         self.run_subagent(None, arguments, Box::new(|_| {})).await
     }
 
-    async fn call_with_events<'a>(
-        &self,
-        call_id: &str,
-        arguments: &str,
-        on_event: Box<dyn FnMut(nuo_wire::SubagentEvent) + Send + 'a>,
-    ) -> Result<String, String> {
-        self.run_subagent(Some(call_id), arguments, on_event).await
-    }
-
     async fn call_structured_with_events<'a>(
         &self,
         invocation: nuo_wire::ToolInvocation<'a>,

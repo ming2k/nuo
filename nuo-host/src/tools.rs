@@ -9,8 +9,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use nuo_tool::{Result as ToolResult, RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope};
-use serde_json::{Value, json};
+use nuo_tool::{
+    RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope, ToolSchema,
+};
+use serde::Deserialize;
+use serde_json::Value;
 
 /// Context holding the active workspace root and system tool settings.
 #[derive(Debug, Clone)]
@@ -42,6 +45,17 @@ impl SystemToolContext {
     }
 }
 
+/// Typed parameters for [`ReadTextTool`].
+#[derive(Debug, Clone, Deserialize, ToolSchema)]
+pub struct ReadTextArgs {
+    #[tool(desc = "Path to the text file; relative paths use the workspace root")]
+    pub path: String,
+    #[tool(desc = "1-based line number to start reading from (default 1)")]
+    pub offset: Option<usize>,
+    #[tool(desc = "Maximum number of lines to read")]
+    pub limit: Option<usize>,
+}
+
 /// Reads a text file with optional line-level pagination.
 pub struct ReadTextTool {
     ctx: Arc<SystemToolContext>,
@@ -64,27 +78,7 @@ impl Tool for ReadTextTool {
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Path to the text file; relative paths use the workspace root"
-                },
-                "offset": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "1-based line number to start reading from (default 1)"
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "Maximum number of lines to read"
-                }
-            },
-            "required": ["path"],
-            "additionalProperties": false
-        })
+        ReadTextArgs::parameters_schema()
     }
 
     fn risk_profile(&self) -> RiskProfile {
@@ -95,22 +89,13 @@ impl Tool for ReadTextTool {
         vec![ToolScope::ReadOnly, ToolScope::Workspace]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
-        let raw_path = arguments
-            .get("path")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::execution(self.name(), "missing required `path`"))?;
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
+        let args: ReadTextArgs = serde_json::from_value(arguments)
+            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
 
-        let offset = arguments
-            .get("offset")
-            .and_then(Value::as_u64)
-            .unwrap_or(1)
-            .max(1) as usize;
-
-        let limit = arguments
-            .get("limit")
-            .and_then(Value::as_u64)
-            .map(|l| l.max(1) as usize);
+        let raw_path = &args.path;
+        let offset = args.offset.unwrap_or(1).max(1);
+        let limit = args.limit.map(|l| l.max(1));
 
         let path = self.ctx.resolve_path(raw_path);
         if !path.exists() {
@@ -157,6 +142,15 @@ impl Tool for ReadTextTool {
     }
 }
 
+/// Typed parameters for [`WriteFileTool`].
+#[derive(Debug, Clone, Deserialize, ToolSchema)]
+pub struct WriteFileArgs {
+    #[tool(desc = "Path to the file to create or overwrite; relative paths use the workspace root")]
+    pub path: String,
+    #[tool(desc = "The complete file content to write")]
+    pub content: String,
+}
+
 /// Atomically creates or overwrites a file with new content.
 pub struct WriteFileTool {
     ctx: Arc<SystemToolContext>,
@@ -179,21 +173,7 @@ impl Tool for WriteFileTool {
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Path to the file to create or overwrite; relative paths use the workspace root"
-                },
-                "content": {
-                    "type": "string",
-                    "description": "The complete file content to write"
-                }
-            },
-            "required": ["path", "content"],
-            "additionalProperties": false
-        })
+        WriteFileArgs::parameters_schema()
     }
 
     fn risk_profile(&self) -> RiskProfile {
@@ -204,16 +184,12 @@ impl Tool for WriteFileTool {
         vec![ToolScope::Workspace]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
-        let raw_path = arguments
-            .get("path")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::execution(self.name(), "missing required `path`"))?;
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
+        let args: WriteFileArgs = serde_json::from_value(arguments)
+            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
 
-        let content = arguments
-            .get("content")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::execution(self.name(), "missing required `content`"))?;
+        let raw_path = &args.path;
+        let content = &args.content;
 
         let path = self.ctx.resolve_path(raw_path);
         if let Some(parent) = path.parent() {
@@ -235,6 +211,17 @@ impl Tool for WriteFileTool {
             "Successfully wrote {bytes} bytes ({lines} lines) to `{raw_path}`."
         )))
     }
+}
+
+/// Typed parameters for [`EditTextTool`].
+#[derive(Debug, Clone, Deserialize, ToolSchema)]
+pub struct EditTextArgs {
+    #[tool(desc = "Path to the text file to modify; relative paths use the workspace root")]
+    pub path: String,
+    #[tool(desc = "The exact verbatim text to replace; must match uniquely in the file")]
+    pub old_string: String,
+    #[tool(desc = "The replacement text to insert in place of old_string")]
+    pub new_string: String,
 }
 
 /// Surgically replaces an exact, unique occurrence of text in a file.
@@ -259,25 +246,7 @@ impl Tool for EditTextTool {
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Path to the text file to modify; relative paths use the workspace root"
-                },
-                "old_string": {
-                    "type": "string",
-                    "description": "The exact verbatim text to replace; must match uniquely in the file"
-                },
-                "new_string": {
-                    "type": "string",
-                    "description": "The replacement text to insert in place of old_string"
-                }
-            },
-            "required": ["path", "old_string", "new_string"],
-            "additionalProperties": false
-        })
+        EditTextArgs::parameters_schema()
     }
 
     fn risk_profile(&self) -> RiskProfile {
@@ -288,21 +257,13 @@ impl Tool for EditTextTool {
         vec![ToolScope::Workspace]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
-        let raw_path = arguments
-            .get("path")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::execution(self.name(), "missing required `path`"))?;
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
+        let args: EditTextArgs = serde_json::from_value(arguments)
+            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
 
-        let old_string = arguments
-            .get("old_string")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::execution(self.name(), "missing required `old_string`"))?;
-
-        let new_string = arguments
-            .get("new_string")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::execution(self.name(), "missing required `new_string`"))?;
+        let raw_path = &args.path;
+        let old_string = &args.old_string;
+        let new_string = &args.new_string;
 
         if old_string.is_empty() {
             return Err(ToolError::execution(
@@ -344,6 +305,15 @@ impl Tool for EditTextTool {
     }
 }
 
+/// Typed parameters for [`ListDirTool`].
+#[derive(Debug, Clone, Deserialize, ToolSchema)]
+pub struct ListDirArgs {
+    #[tool(desc = "Directory to list immediate children of (default '.')")]
+    pub path: Option<String>,
+    #[tool(desc = "Maximum entries cap (default 200)")]
+    pub limit: Option<usize>,
+}
+
 /// Lists immediate children of a directory.
 pub struct ListDirTool {
     ctx: Arc<SystemToolContext>,
@@ -366,21 +336,7 @@ impl Tool for ListDirTool {
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Directory to list immediate children of (default '.')"
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "Maximum entries cap (default 200)"
-                }
-            },
-            "additionalProperties": false
-        })
+        ListDirArgs::parameters_schema()
     }
 
     fn risk_profile(&self) -> RiskProfile {
@@ -391,16 +347,12 @@ impl Tool for ListDirTool {
         vec![ToolScope::ReadOnly, ToolScope::Workspace]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
-        let raw_path = arguments
-            .get("path")
-            .and_then(Value::as_str)
-            .unwrap_or(".");
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
+        let args: ListDirArgs = serde_json::from_value(arguments)
+            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
 
-        let limit = arguments
-            .get("limit")
-            .and_then(Value::as_u64)
-            .unwrap_or(200) as usize;
+        let raw_path = args.path.as_deref().unwrap_or(".");
+        let limit = args.limit.unwrap_or(200);
 
         let path = self.ctx.resolve_path(raw_path);
         let read_dir = fs::read_dir(&path).map_err(|err| {
@@ -451,6 +403,17 @@ impl Tool for ListDirTool {
     }
 }
 
+/// Typed parameters for [`FindFilesTool`].
+#[derive(Debug, Clone, Deserialize, ToolSchema)]
+pub struct FindFilesArgs {
+    #[tool(desc = "Directory to search (default '.')")]
+    pub path: Option<String>,
+    #[tool(desc = "Path globs to match files (e.g. ['*.rs'], ['src/**'])")]
+    pub patterns: Option<Vec<String>>,
+    #[tool(desc = "Maximum results cap (default 200)")]
+    pub limit: Option<usize>,
+}
+
 /// Recursively finds files matching glob patterns, respecting .gitignore.
 pub struct FindFilesTool {
     ctx: Arc<SystemToolContext>,
@@ -473,26 +436,7 @@ impl Tool for FindFilesTool {
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Directory to search (default '.')"
-                },
-                "patterns": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Path globs to match files (e.g. ['*.rs'], ['src/**'])"
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "Maximum results cap (default 200)"
-                }
-            },
-            "additionalProperties": false
-        })
+        FindFilesArgs::parameters_schema()
     }
 
     fn risk_profile(&self) -> RiskProfile {
@@ -503,27 +447,13 @@ impl Tool for FindFilesTool {
         vec![ToolScope::ReadOnly, ToolScope::Workspace]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
-        let raw_path = arguments
-            .get("path")
-            .and_then(Value::as_str)
-            .unwrap_or(".");
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
+        let args: FindFilesArgs = serde_json::from_value(arguments)
+            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
 
-        let limit = arguments
-            .get("limit")
-            .and_then(Value::as_u64)
-            .unwrap_or(200) as usize;
-
-        let patterns: Vec<String> = arguments
-            .get("patterns")
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(Value::as_str)
-                    .map(String::from)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let raw_path = args.path.as_deref().unwrap_or(".");
+        let limit = args.limit.unwrap_or(200);
+        let patterns = args.patterns.unwrap_or_default();
 
         let root = self.ctx.resolve_path(raw_path);
         if !root.exists() {
@@ -579,6 +509,19 @@ impl Tool for FindFilesTool {
     }
 }
 
+/// Typed parameters for [`SearchTextTool`].
+#[derive(Debug, Clone, Deserialize, ToolSchema)]
+pub struct SearchTextArgs {
+    #[tool(desc = "Exact text or regex to search for")]
+    pub query: String,
+    #[tool(desc = "Directory or file to search (default '.')")]
+    pub path: Option<String>,
+    #[tool(desc = "Treat query as a regular expression (default false)")]
+    pub regex: Option<bool>,
+    #[tool(desc = "Maximum matching lines (default 200)")]
+    pub limit: Option<usize>,
+}
+
 /// Recursively searches file contents for regular expressions or literal text.
 pub struct SearchTextTool {
     ctx: Arc<SystemToolContext>,
@@ -601,30 +544,7 @@ impl Tool for SearchTextTool {
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Exact text or regex to search for"
-                },
-                "path": {
-                    "type": "string",
-                    "description": "Directory or file to search (default '.')"
-                },
-                "regex": {
-                    "type": "boolean",
-                    "description": "Treat query as a regular expression (default false)"
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "Maximum matching lines (default 200)"
-                }
-            },
-            "required": ["query"],
-            "additionalProperties": false
-        })
+        SearchTextArgs::parameters_schema()
     }
 
     fn risk_profile(&self) -> RiskProfile {
@@ -635,26 +555,14 @@ impl Tool for SearchTextTool {
         vec![ToolScope::ReadOnly, ToolScope::Workspace]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
-        let query = arguments
-            .get("query")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::execution(self.name(), "missing required `query`"))?;
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
+        let args: SearchTextArgs = serde_json::from_value(arguments)
+            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
 
-        let raw_path = arguments
-            .get("path")
-            .and_then(Value::as_str)
-            .unwrap_or(".");
-
-        let is_regex = arguments
-            .get("regex")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-
-        let limit = arguments
-            .get("limit")
-            .and_then(Value::as_u64)
-            .unwrap_or(200) as usize;
+        let query = &args.query;
+        let raw_path = args.path.as_deref().unwrap_or(".");
+        let is_regex = args.regex.unwrap_or(false);
+        let limit = args.limit.unwrap_or(200);
 
         let compiled_re = if is_regex {
             Some(regex::Regex::new(query).map_err(|err| {
@@ -709,6 +617,15 @@ impl Tool for SearchTextTool {
     }
 }
 
+/// Typed parameters for [`ExecuteCommandTool`].
+#[derive(Debug, Clone, Deserialize, ToolSchema)]
+pub struct ExecuteCommandArgs {
+    #[tool(desc = "The shell command to execute")]
+    pub command: String,
+    #[tool(desc = "Timeout in seconds")]
+    pub timeout: Option<u64>,
+}
+
 /// Executes shell commands within the workspace context.
 pub struct ExecuteCommandTool {
     ctx: Arc<SystemToolContext>,
@@ -731,22 +648,7 @@ impl Tool for ExecuteCommandTool {
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "The shell command to execute"
-                },
-                "timeout": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "Timeout in seconds"
-                }
-            },
-            "required": ["command"],
-            "additionalProperties": false
-        })
+        ExecuteCommandArgs::parameters_schema()
     }
 
     fn risk_profile(&self) -> RiskProfile {
@@ -757,15 +659,13 @@ impl Tool for ExecuteCommandTool {
         vec![ToolScope::Workspace]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
-        let command = arguments
-            .get("command")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::execution(self.name(), "missing required `command`"))?;
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
+        let args: ExecuteCommandArgs = serde_json::from_value(arguments)
+            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
 
-        let timeout_secs = arguments
-            .get("timeout")
-            .and_then(Value::as_u64)
+        let command = &args.command;
+        let timeout_secs = args
+            .timeout
             .map(Duration::from_secs)
             .unwrap_or(self.ctx.default_timeout);
 
@@ -837,16 +737,10 @@ pub fn create_system_tools(ctx: Arc<SystemToolContext>) -> Vec<Arc<dyn Tool>> {
     ]
 }
 
-/// Registers the system tools into a ToolRegistry.
-pub fn register_system_tools(registry: &mut nuo_tool::ToolRegistry, ctx: Arc<SystemToolContext>) {
-    for tool in create_system_tools(ctx) {
-        registry.register_arc(tool);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -872,7 +766,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(!write_res.is_error);
+        assert!(!write_res.is_error());
 
         // 2. Read file
         let read_res = read_tool
@@ -886,8 +780,8 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(read_res.content.contains("line 2: world"));
-        assert!(read_res.content.contains("line 3: end"));
+        assert!(read_res.content().contains("line 2: world"));
+        assert!(read_res.content().contains("line 3: end"));
 
         // 3. Edit file
         let edit_res = edit_tool
@@ -901,7 +795,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(!edit_res.is_error);
+        assert!(!edit_res.is_error());
 
         // Verify edit
         let read_res2 = read_tool
@@ -913,7 +807,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(read_res2.content.contains("line 2: universe"));
+        assert!(read_res2.content().contains("line 2: universe"));
 
         // 4. Search text
         let search_res = search_tool
@@ -925,13 +819,42 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(search_res.content.contains("hello.txt:2: line 2: universe"));
+        assert!(search_res.content().contains("hello.txt:2: line 2: universe"));
 
         // 5. List dir
         let list_res = list_tool
             .execute(&t_ctx, json!({"path": "."}))
             .await
             .unwrap();
-        assert!(list_res.content.contains("hello.txt"));
+        assert!(list_res.content().contains("hello.txt"));
+    }
+
+    #[tokio::test]
+    async fn test_system_tools_schema_and_validation() {
+        let dir = tempdir().unwrap();
+        let ctx = Arc::new(SystemToolContext::new(dir.path()));
+        let t_ctx = ToolContext::default();
+
+        let read_tool = ReadTextTool::new(ctx.clone());
+        let write_tool = WriteFileTool::new(ctx.clone());
+
+        // Validate derived schema shapes
+        let read_schema = read_tool.parameters_schema();
+        assert_eq!(read_schema["type"], "object");
+        assert_eq!(read_schema["required"], json!(["path"]));
+        assert_eq!(read_schema["additionalProperties"], false);
+
+        let write_schema = write_tool.parameters_schema();
+        assert_eq!(write_schema["type"], "object");
+        assert_eq!(write_schema["required"], json!(["path", "content"]));
+
+        // Validate descriptors derive cleanly
+        let desc = read_tool.descriptor();
+        assert_eq!(desc.name, "read_text");
+        assert_eq!(desc.risk, RiskProfile::ReadOnly);
+
+        // Validate typed rejection on missing required fields
+        let err = read_tool.execute(&t_ctx, json!({})).await.unwrap_err();
+        assert!(err.to_string().contains("invalid arguments"));
     }
 }

@@ -1,7 +1,6 @@
 //! Substrate MCP Bridge connecting `nous-mcp` to Nuo's dynamic tool registry (ADR-0002).
 
 use std::sync::Arc;
-use nuo_harness::NousToolBridge;
 use nuo_wire::Tool;
 use nuo_mcp::{McpClient, McpNativeTool, McpToolDefinition};
 
@@ -24,7 +23,7 @@ pub async fn load_substrate_mcp_tools(
         .into_iter()
         .map(|tool_def| {
             let native_tool = Arc::new(McpNativeTool::new(Arc::clone(&client), tool_def));
-            Arc::new(NousToolBridge::new(native_tool)) as Arc<dyn Tool>
+            native_tool as Arc<dyn Tool>
         })
         .collect();
 
@@ -34,7 +33,7 @@ pub async fn load_substrate_mcp_tools(
 /// Convert a `nous-mcp` tool definition and client into a Nuo application `Tool`.
 pub fn adapt_mcp_tool(client: Arc<McpClient>, tool_def: McpToolDefinition) -> Arc<dyn Tool> {
     let native_tool = Arc::new(McpNativeTool::new(client, tool_def));
-    Arc::new(NousToolBridge::new(native_tool))
+    native_tool
 }
 
 #[cfg(test)]

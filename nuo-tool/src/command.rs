@@ -595,8 +595,8 @@ mod tests {
             .await
             .expect("execution must succeed");
 
-        assert!(!output.is_error);
-        assert!(output.content.contains("Testing Nous Command"));
+        assert!(!output.is_error());
+        assert!(output.content().contains("Testing Nous Command"));
     }
 
     #[tokio::test]
@@ -609,7 +609,7 @@ mod tests {
             .await
             .expect("should return tool output with error indicator");
 
-        assert!(output.is_error);
-        assert!(output.content.contains("[Exit status:"));
+        assert!(output.is_error());
+        assert!(output.content().contains("[Exit status:"));
     }
 }

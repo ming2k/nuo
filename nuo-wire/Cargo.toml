@@ -13,7 +13,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokio-util = { workspace = true, features = ["codec"] }
 nuo-host = { workspace = true }
-nuo-agent = { workspace = true }
 nuo-mcp = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 nuo-model-codec = { workspace = true }

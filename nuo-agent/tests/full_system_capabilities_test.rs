@@ -542,8 +542,8 @@ async fn inspect_tool_rehydrates_invoice_slice() {
     });
 
     let result = inspect_tool.execute_simple(args).await.unwrap();
-    assert!(result.contains("call:compile_errors"));
-    assert!(result.contains("Compiler error on line 42: mismatched types"));
+    assert!(result.content().contains("call:compile_errors"));
+    assert!(result.content().contains("Compiler error on line 42: mismatched types"));
 }
 
 #[tokio::test]
@@ -685,7 +685,7 @@ async fn command_tool_executes_safely_and_triggers_approval_on_danger() {
     assert!(!cmd_tool.requires_approval(&ctx, &safe_args));
 
     let output = cmd_tool.execute_simple(safe_args).await.unwrap();
-    assert!(output.contains("Hello from CommandTool"));
+    assert!(output.content().contains("Hello from CommandTool"));
 
     // 2. High risk command triggers approval requirement
     let dangerous_args = json!({

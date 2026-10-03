@@ -405,7 +405,10 @@ impl SessionRegistry {
     }
 
     /// Register this session's master at `agent://local/session/<id>` on the ACP fabric.
-    async fn register_session_mailbox(&self, session_id: &str) {
+    ///
+    /// Returns the session's [`acp::MailboxHandle`] so the caller can wire ACP
+    /// collaboration tools into the live agent (ADR-0008 step 8 / ADR-0009 §3).
+    async fn register_session_mailbox(&self, session_id: &str) -> acp::MailboxHandle {
         let addr = acp::AgentAddress::parse(&format!("agent://local/session/{session_id}"))
             .expect("valid session address");
         let manifest = acp::AgentManifest::new(
@@ -414,6 +417,7 @@ impl SessionRegistry {
             "Hosted session root agent",
         );
         let mailbox = self.fabric.join(manifest, 64).await;
+        let handle = mailbox.handle();
         self.session_mailboxes
             .lock()
             .await
@@ -427,6 +431,7 @@ impl SessionRegistry {
                 self.fabric.clone(),
             ).await));
         }
+        handle
     }
 
     /// Drop one session's ACP mailbox (teardown path).
@@ -1474,7 +1479,30 @@ impl SessionRegistry {
         // mesh at `session/<id>`, parented to the Hypervisor. Failure is not
         // session-fatal (mesh delivery is fail-open observability), so a
         // duplicate registration simply replaces the mailbox.
-        self.register_session_mailbox(&session.id().await).await;
+        let session_id = session.id().await;
+        let mailbox_handle = self.register_session_mailbox(&session_id).await;
+        // ADR-0008 step 8 / ADR-0009 §3: wire ACP collaboration tools into the
+        // live agent through its dynamic-tool sink (the same seam MCP uses).
+        // Feature-gated (ADR-0005 §5) so lean single-agent builds omit the
+        // whole multi-agent surface. Published after the mailbox exists so the
+        // tools can address peers and channels on the daemon fabric.
+        #[cfg(feature = "collaboration")]
+        {
+            let addr = acp::AgentAddress::parse(&format!("agent://local/session/{session_id}"))
+                .expect("valid session address");
+            let ctx = Arc::new(acp::AcpToolContext::for_fabric(
+                addr,
+                self.fabric.clone(),
+                mailbox_handle,
+                std::time::Duration::from_secs(120),
+            ));
+            let acp_tools = acp::create_acp_tools(ctx);
+            boot.agent.dynamic_tool_sink().replace("acp", acp_tools);
+        }
+        #[cfg(not(feature = "collaboration"))]
+        {
+            let _ = mailbox_handle;
+        }
         let req_tx = boot.req_tx.clone();
         let command_catalog = boot.command_catalog.clone();
         let (events_tx, _) = broadcast::channel::<AgentResponse>(1024);

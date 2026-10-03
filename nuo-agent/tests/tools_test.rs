@@ -39,7 +39,7 @@ async fn dynamic_tool_receives_arguments_and_returns_output() {
         .execute_simple(json!({"value": "hello"}))
         .await
         .unwrap();
-    assert_eq!(&output[..], "hello");
+    assert_eq!(output.content(), "hello");
     assert_eq!(seen.lock().unwrap().as_deref(), Some("hello"));
     assert_eq!(tool.name(), "echo");
 }
@@ -79,7 +79,7 @@ async fn mcp_tool_bridges_an_external_server_call() {
         .execute_simple(json!({"path": "/tmp/a.txt"}))
         .await
         .unwrap();
-    assert_eq!(&output[..], "contents of /tmp/a.txt");
+    assert_eq!(output.content(), "contents of /tmp/a.txt");
     assert!(invoked.load(Ordering::SeqCst));
 }
 

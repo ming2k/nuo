@@ -489,14 +489,14 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     if let Some(root) = &workspace_root {
         let sys_ctx = Arc::new(nuo_host::SystemToolContext::new(root.clone()));
         let sys_tools = nuo_host::create_system_tools(sys_ctx);
-        for bridged in nuo_harness::bridge_substrate_tools(sys_tools) {
-            toolset.upsert(bridged);
+        for tool in sys_tools {
+            toolset.upsert(tool);
         }
     }
     if let Ok(store) = nuo_persistence::get_role_memory_store() {
         let p_tools = nuo_persistence::create_persistence_tools(Arc::new(store));
-        for bridged in nuo_harness::bridge_substrate_tools(p_tools) {
-            toolset.upsert(bridged);
+        for tool in p_tools {
+            toolset.upsert(tool);
         }
     }
     // MCP tools are discovered after Agent construction and published through

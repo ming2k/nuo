@@ -51,4 +51,4 @@ pub mod workspace_security;
 pub use asset_attestation::AssetAttestationLedger;
 pub use role_memory::{RecalledMemory, RoleMemoryEntry, RoleMemoryStore, get_role_memory_store};
 pub use session::{CommitTurn, SessionStore};
-pub use tools::{RecallMemoryTool, create_persistence_tools, register_persistence_tools};
+pub use tools::{RecallMemoryArgs, RecallMemoryTool, create_persistence_tools};

@@ -44,8 +44,9 @@ pub use workspace::{WorkspaceBinding, WorkspaceFilter};
 pub use color_scheme::*;
 pub use fs_watcher::{FsEvent, FsEventKind, FsWatcher};
 pub use tools::{
-    EditTextTool, ExecuteCommandTool, FindFilesTool, ListDirTool, ReadTextTool, SearchTextTool,
-    SystemToolContext, WriteFileTool, create_system_tools, register_system_tools,
+    EditTextArgs, EditTextTool, ExecuteCommandArgs, ExecuteCommandTool, FindFilesArgs,
+    FindFilesTool, ListDirArgs, ListDirTool, ReadTextArgs, ReadTextTool, SearchTextArgs,
+    SearchTextTool, SystemToolContext, WriteFileArgs, WriteFileTool, create_system_tools,
 };
 pub use web_config::*;
 

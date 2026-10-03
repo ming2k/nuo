@@ -2,10 +2,24 @@
 
 use std::sync::Arc;
 use async_trait::async_trait;
-use nuo_tool::{Result as ToolResult, RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope};
-use serde_json::{Value, json};
+use nuo_tool::{
+    RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope, ToolSchema,
+};
+use serde::Deserialize;
+use serde_json::Value;
 
 use crate::role_memory::RoleMemoryStore;
+
+/// Typed parameters for [`RecallMemoryTool`].
+#[derive(Debug, Clone, Deserialize, ToolSchema)]
+pub struct RecallMemoryArgs {
+    #[tool(desc = "The topic, concept, question, or keyword to recall from past dialogues with the user")]
+    pub query: String,
+    #[tool(desc = "The specific role boundary to search memories for (default: current role)")]
+    pub role: Option<String>,
+    #[tool(desc = "Maximum number of past dialogue memories to retrieve (default 5, max 10)")]
+    pub limit: Option<usize>,
+}
 
 /// Queries the agent's long-term role dialogue memory.
 pub struct RecallMemoryTool {
@@ -40,27 +54,7 @@ impl Tool for RecallMemoryTool {
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The topic, concept, question, or keyword to recall from past dialogues with the user"
-                },
-                "role": {
-                    "type": "string",
-                    "description": "The specific role boundary to search memories for (default: current role)"
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 10,
-                    "description": "Maximum number of past dialogue memories to retrieve (default 5, max 10)"
-                }
-            },
-            "required": ["query"],
-            "additionalProperties": false
-        })
+        RecallMemoryArgs::parameters_schema()
     }
 
     fn risk_profile(&self) -> RiskProfile {
@@ -71,22 +65,13 @@ impl Tool for RecallMemoryTool {
         vec![ToolScope::ReadOnly]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
-        let query = arguments
-            .get("query")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::execution(self.name(), "missing required `query`"))?;
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
+        let args: RecallMemoryArgs = serde_json::from_value(arguments)
+            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
 
-        let role = arguments
-            .get("role")
-            .and_then(Value::as_str)
-            .unwrap_or(&self.default_role);
-
-        let limit = arguments
-            .get("limit")
-            .and_then(Value::as_u64)
-            .unwrap_or(5)
-            .clamp(1, 10) as usize;
+        let query = &args.query;
+        let role = args.role.as_deref().unwrap_or(&self.default_role);
+        let limit = args.limit.unwrap_or(5).clamp(1, 10);
 
         let memories = self.store.recall(role, query, limit).map_err(|err| {
             ToolError::execution(self.name(), format!("failed to recall memory: {err}"))
@@ -119,16 +104,10 @@ pub fn create_persistence_tools(store: Arc<RoleMemoryStore>) -> Vec<Arc<dyn Tool
     vec![Arc::new(RecallMemoryTool::new(store))]
 }
 
-/// Registers persistence tools into a ToolRegistry.
-pub fn register_persistence_tools(registry: &mut nuo_tool::ToolRegistry, store: Arc<RoleMemoryStore>) {
-    for tool in create_persistence_tools(store) {
-        registry.register_arc(tool);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[tokio::test]
     async fn test_recall_memory_tool() {
@@ -145,12 +124,22 @@ mod tests {
         let tool = RecallMemoryTool::with_default_role(store, "developer");
         let t_ctx = ToolContext::default();
 
+        // Validate derived schema
+        let schema = tool.parameters_schema();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["required"], json!(["query"]));
+        assert_eq!(schema["additionalProperties"], false);
+
         let res = tool
             .execute(&t_ctx, json!({"query": "rust tools"}))
             .await
             .unwrap();
 
-        assert!(!res.is_error);
-        assert!(res.content.contains("nuo_tool::Tool"));
+        assert!(!res.is_error());
+        assert!(res.content().contains("nuo_tool::Tool"));
+
+        // Validate typed rejection on missing query
+        let err = tool.execute(&t_ctx, json!({})).await.unwrap_err();
+        assert!(err.to_string().contains("invalid arguments"));
     }
 }

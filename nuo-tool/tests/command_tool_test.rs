@@ -34,9 +34,9 @@ async fn command_tool_executes_echo_successfully() {
         .await
         .expect("echo must succeed");
 
-    assert!(!output.is_error);
-    assert!(output.content.contains("[Exit status: 0]"));
-    assert!(output.content.contains("Hello Cross-Platform Nous"));
+    assert!(!output.is_error());
+    assert!(output.content().contains("[Exit status: 0]"));
+    assert!(output.content().contains("Hello Cross-Platform Nous"));
 }
 
 #[tokio::test]
@@ -64,7 +64,7 @@ async fn command_tool_honors_working_directory() {
         .await
         .expect("execution must succeed");
 
-    assert!(!output.is_error);
+    assert!(!output.is_error());
 }
 
 #[tokio::test]

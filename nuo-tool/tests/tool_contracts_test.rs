@@ -23,8 +23,8 @@ async fn dynamic_tool_basic_execution() {
 
     let ctx = ToolContext::default();
     let res = tool.execute(&ctx, json!({"a": 2, "b": 3})).await.unwrap();
-    assert_eq!(&res[..], "5");
-    assert!(!res.is_error);
+    assert_eq!(res.content(), "5");
+    assert!(!res.is_error());
 }
 
 #[tokio::test]
@@ -92,5 +92,5 @@ async fn mcp_adapter_invokes_handler() {
     assert_eq!(tool.server_name(), "git");
     let ctx = ToolContext::default();
     let out = tool.execute(&ctx, json!({})).await.unwrap();
-    assert_eq!(&out[..], "status: clean");
+    assert_eq!(out.content(), "status: clean");
 }

@@ -548,34 +548,7 @@ pub trait Provider: Send + Sync {
     }
 }
 
-/// Runtime input supervisor for a supervised command invocation. Implemented
-/// by the agent layer (which owns the human-input channel) and handed to the
-/// command tool through [`Tool::input_handler`]. Kept as a trait so
-/// `muta-contracts` stays free of agent/async-runtime coupling: the command
-/// tool's examiner calls it, the agent fulfils it.
-#[async_trait]
-pub trait InputHandler: Send + Sync {
-    /// Resolve one runtime input prompt. `Ok(Some(line))` — the operator's
-    /// answer, written into the reported channel. `Ok(None)` — no answer
-    /// (declined, or no reachable human channel); the caller kills the child
-    /// with [`ShellTermination::InputUnanswered`](crate::ShellTermination::InputUnanswered).
-    async fn resolve(&self, prompt: crate::tool_output::InputPrompt) -> Option<String>;
-}
-
-/// Everything a tool needs for one invocation beyond its own state: the call
-/// identity, the raw arguments, the input-execution contract, and the runtime
-/// input supervisor (when the dispatch layer supplied one). Bundled so the
-/// trait method stays stable as per-call context grows.
-pub struct ToolInvocation<'a> {
-    /// The dispatch-generated call id (keys live streams and subagent views).
-    pub call_id: &'a str,
-    /// Raw JSON tool arguments exactly as the model emitted them.
-    pub arguments: &'a str,
-    /// How the child's input channels are provisioned (command tool only;
-    /// other tools ignore it).
-    pub input: crate::tool_output::InputContract,
-    /// Runtime input supervisor for a supervised child. The dispatch layer
-    /// builds it per invocation (it captures the live event channel), so it is
-    /// borrowed rather than owned for the tool's lifetime.
-    pub input_handler: Option<&'a dyn InputHandler>,
-}
+// `InputHandler` / `ToolInvocation` were relocated to `nuo-wire::capability`
+// (the session-adapter layer) when `nuo-contracts` was consolidated. The
+// duplicates that used to live here had zero referents and are removed per
+// ADR-0008 (single tool contract; no duplicate vocabulary).

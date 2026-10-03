@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use nuo_tool::{Result as ToolResult, RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope};
+use nuo_tool::{RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope};
 use serde_json::{Value, json};
 
 use crate::{
@@ -327,7 +327,7 @@ impl Tool for DelegateToPeerTool {
         vec![ToolScope::Collaboration]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
         match self.execute_internal(arguments).await {
             Ok(output) => Ok(ToolOutput::success(output)),
             Err(err) => Err(ToolError::execution(self.name(), err)),
@@ -393,7 +393,7 @@ impl Tool for ListPeersTool {
         vec![ToolScope::Collaboration]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
         match self.execute_internal(arguments).await {
             Ok(output) => Ok(ToolOutput::success(output)),
             Err(err) => Err(ToolError::execution(self.name(), err)),
@@ -498,7 +498,7 @@ impl Tool for PublishToChannelTool {
         vec![ToolScope::Collaboration]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
         match self.execute_internal(arguments).await {
             Ok(output) => Ok(ToolOutput::success(output)),
             Err(err) => Err(ToolError::execution(self.name(), err)),
@@ -591,7 +591,7 @@ impl Tool for ReadChannelTool {
         vec![ToolScope::Collaboration]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
         match self.execute_internal(arguments).await {
             Ok(output) => Ok(ToolOutput::success(output)),
             Err(err) => Err(ToolError::execution(self.name(), err)),
@@ -665,7 +665,7 @@ impl Tool for ListChannelsTool {
         vec![ToolScope::Collaboration]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
         match self.execute_internal(arguments).await {
             Ok(output) => Ok(ToolOutput::success(output)),
             Err(err) => Err(ToolError::execution(self.name(), err)),
@@ -741,7 +741,7 @@ impl Tool for OpenChannelTool {
         vec![ToolScope::Collaboration]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
         match self.execute_internal(arguments).await {
             Ok(output) => Ok(ToolOutput::success(output)),
             Err(err) => Err(ToolError::execution(self.name(), err)),
@@ -850,7 +850,7 @@ impl Tool for SubscribeChannelTool {
         vec![ToolScope::Collaboration]
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> ToolResult<ToolOutput> {
+    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
         match self.execute_internal(arguments).await {
             Ok(output) => Ok(ToolOutput::success(output)),
             Err(err) => Err(ToolError::execution(self.name(), err)),

@@ -2,8 +2,8 @@
 
 /**
  * An incremental chunk streamed by a long-running tool before its final
- * [`ToolOutput`] lands. Lets the UI render partial output (e.g. a bash
- * command's stdout as it arrives) instead of freezing on a spinner until the
- * process exits.
+ * output lands. Lets the UI render partial output (e.g. a bash command's
+ * stdout as it arrives) instead of freezing on a spinner until the process
+ * exits.
  */
 export type ToolStream = { "Stdout": string } | { "Stderr": string };

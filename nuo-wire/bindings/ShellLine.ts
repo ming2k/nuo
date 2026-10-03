@@ -3,9 +3,9 @@ import type { ShellStream } from "./ShellStream";
 
 /**
  * One captured line of shell output with its source stream tagged. The TUI
- * renders [`ToolOutput::Shell`]'s `lines` verbatim in order (the source tag
- * only picks the colour), which preserves stdout/stderr interleaving. The
- * model-facing text path (`to_text`) keeps using the flat `stdout`/`stderr`
- * fields, so the two audiences stay decoupled.
+ * renders a shell output's `lines` verbatim in order (the source tag only
+ * picks the colour), which preserves stdout/stderr interleaving. The
+ * model-facing text path keeps using the flat `stdout`/`stderr` fields, so the
+ * two audiences stay decoupled.
  */
 export type ShellLine = { stream: ShellStream, text: string, };

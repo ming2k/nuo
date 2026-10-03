@@ -59,8 +59,8 @@ pub use routing::{
 };
 pub type Timeline = Channel;
 pub use signature::{
-    EnvelopeSignature, EnvelopeSigner, EnvelopeVerifier, HmacSigner, SignatureEnforcement,
-    canonical_bytes,
+    AdmissionRejection, EnvelopeSignature, EnvelopeSigner, EnvelopeVerifier, HmacSigner,
+    SignatureEnforcement, canonical_bytes,
 };
 pub use tools::{
     AcpToolContext, DelegateToPeerTool, DelegationContext, ListChannelsTool, ListPeersTool,

@@ -11,7 +11,7 @@
  * (and added into `prompt_tokens`/`total_tokens`) or the context meter would
  * undercount every cached turn. Other routes may report reads, writes, or
  * misses independently. Protocol adapters normalize those counters through
- * [`crate::read_prompt_cache_usage`].
+ * the codec crate's `read_prompt_cache_usage`.
  */
 export type TokenUsage = { prompt_tokens: bigint, completion_tokens: bigint, total_tokens: bigint, 
 /**

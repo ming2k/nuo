@@ -190,4 +190,73 @@ impl AgentEnvelope {
             .verify(&sig.key_id, &canonical, &sig.signature)
             .await
     }
+
+    /// Applies a [`SignatureEnforcement`] policy to this envelope (ADR-0002
+    /// `[INV-ACP-02]`).
+    ///
+    /// This is the **single source of truth** for the zero-trust admission
+    /// decision; a runtime must call it rather than re-implementing the policy.
+    ///
+    /// - `Permissive`: an *unsigned* envelope is admitted; a *signed* envelope
+    ///   must still verify (a bad signature is always rejected — a signer that
+    ///   gets it wrong is not silently trusted).
+    /// - `Strict`: every envelope must carry a valid signature. A missing
+    ///   verifier, an unsigned envelope, an invalid signature, or a stale
+    ///   timestamp is rejected.
+    ///
+    /// Returns `Ok(())` when admitted, or an [`AdmissionRejection`] naming why.
+    pub async fn enforce(
+        &self,
+        verifier: Option<&dyn EnvelopeVerifier>,
+        enforcement: SignatureEnforcement,
+        max_skew: Option<Duration>,
+    ) -> std::result::Result<(), AdmissionRejection> {
+        match verifier {
+            Some(verifier) => match self.verify_with(verifier, max_skew).await {
+                Ok(true) => Ok(()),
+                Ok(false) => {
+                    // A present-but-invalid signature is always a rejection; an
+                    // absent signature is a rejection only under Strict.
+                    if enforcement == SignatureEnforcement::Strict || self.signature.is_some() {
+                        Err(AdmissionRejection::InvalidSignature)
+                    } else {
+                        Ok(())
+                    }
+                }
+                Err(err) => Err(AdmissionRejection::VerifyFailed(err.to_string())),
+            },
+            None => {
+                if enforcement == SignatureEnforcement::Strict {
+                    Err(AdmissionRejection::NoVerifierConfigured)
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
 }
+
+/// Why an envelope was rejected at the zero-trust admission boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdmissionRejection {
+    /// Strict policy is active but no verifier was configured.
+    NoVerifierConfigured,
+    /// The envelope's signature is missing (Strict) or invalid.
+    InvalidSignature,
+    /// Signature verification itself failed (malformed input, etc.).
+    VerifyFailed(String),
+}
+
+impl std::fmt::Display for AdmissionRejection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoVerifierConfigured => {
+                write!(f, "strict zero-trust policy active but no verifier configured")
+            }
+            Self::InvalidSignature => write!(f, "rejected by zero-trust policy: invalid signature"),
+            Self::VerifyFailed(err) => write!(f, "signature verification failed: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for AdmissionRejection {}
