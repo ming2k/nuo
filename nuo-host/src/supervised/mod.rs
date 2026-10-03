@@ -8,6 +8,9 @@
 //! handle ([`SupervisedChild`]); they never see a pty, a `pre_exec` hook, or
 //! `/proc`. See ADR-0293, ADR-0294, ADR-0295.
 
+pub mod job;
+pub use job::*;
+
 use std::io;
 
 #[cfg(target_os = "linux")]

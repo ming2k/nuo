@@ -4,7 +4,7 @@
 //!   with dirty tracking and a back/front diff; ADR-0038) plus the crossterm
 //!   backend.
 //! - the view modules under this one — the drawing tree + semantic document
-//!   model, painting `nuo_contracts` domain types into the engine grid:
+//!   model, painting `nuo_wire` domain types into the engine grid:
 //!   `model` (document, layout map for hit-testing, selection state),
 //!   `view` (the transcript-area renderer the shell drives each frame), the
 //!   drawing sub-trees (`components` / `overlays` / `tools` /
@@ -71,7 +71,6 @@ pub mod views;
 pub(crate) mod chrome;
 pub(crate) mod composer;
 pub(crate) mod design;
-pub(crate) mod effort_ignition;
 pub(crate) mod elevation;
 pub(crate) mod empty_state;
 pub(crate) mod footer_stack;
@@ -106,7 +105,7 @@ pub(crate) use completion::CompletionKind;
 pub(crate) use overlays::telemetry::TelemetryTab;
 pub(crate) use providers::{CustomField, PROVIDER_PRESETS, provider_label_for};
 
-use nuo_contracts::{
+use nuo_wire::{
     AgentRequest, AgentResponse, LoopStatus, Message, ParentStatus, ProviderPickerSnapshot, Role,
     RoundEvent,
 };
@@ -369,8 +368,8 @@ fn is_coalescible_stream_update(response: &AgentResponse) -> bool {
                 | RoundEvent::StreamReasoningDelta(_)
                 | RoundEvent::ToolStream { .. }
                 | RoundEvent::SubagentStep {
-                    event: nuo_contracts::SubagentEvent::StreamDelta(_)
-                        | nuo_contracts::SubagentEvent::StreamReasoningDelta(_),
+                    event: nuo_wire::SubagentEvent::StreamDelta(_)
+                        | nuo_wire::SubagentEvent::StreamReasoningDelta(_),
                     ..
                 },
             ..
@@ -381,17 +380,17 @@ fn is_coalescible_stream_update(response: &AgentResponse) -> bool {
 pub struct TuiLaunchConfig {
     pub initial_provider: String,
     pub initial_model: String,
-    pub input_history: Vec<nuo_contracts::HistoryEntry>,
+    pub input_history: Vec<nuo_wire::HistoryEntry>,
     pub initial_messages: Vec<Message>,
-    pub initial_commands: Vec<nuo_contracts::CommandRecord>,
+    pub initial_commands: Vec<nuo_wire::CommandRecord>,
     pub initial_round_count: u64,
-    pub command_catalog: nuo_contracts::CommandCatalog,
-    pub initial_round_interrupts: Vec<nuo_contracts::RoundInterrupt>,
-    pub initial_retry_resolutions: Vec<nuo_contracts::RetryResolution>,
+    pub command_catalog: nuo_wire::CommandCatalog,
+    pub initial_round_interrupts: Vec<nuo_wire::RoundInterrupt>,
+    pub initial_retry_resolutions: Vec<nuo_wire::RetryResolution>,
     pub tui_config: config::TuiConfig,
     pub input_history_config: config::InputHistoryConfig,
     pub session: SessionSource,
-    pub token_ledger: Option<Arc<nuo_contracts::TokenSourceLedger>>,
+    pub token_ledger: Option<Arc<nuo_wire::TokenSourceLedger>>,
     pub startup_overlay: StartupOverlay,
 }
 
@@ -517,17 +516,17 @@ pub async fn run_tui(
             let Some(info) = nuo_client::discover(&project_root) else {
                 return;
             };
-            let action = nuo_contracts::MonitorAction {
+            let action = nuo_wire::MonitorAction {
                 watch: true,
                 include_idle: true,
             };
             let Ok(mut rx) = nuo_client::monitor_stream(&info, action).await else {
                 return;
             };
-            let mut rows: Vec<nuo_contracts::MonitoredSession> = Vec::new();
+            let mut rows: Vec<nuo_wire::MonitoredSession> = Vec::new();
             while let Some(event) = rx.recv().await {
                 match event {
-                    nuo_contracts::MonitorEvent::Snapshot(snap) => {
+                    nuo_wire::MonitorEvent::Snapshot(snap) => {
                         rows = snap.sessions;
                         mutations
                             .send(event_loop::AppMutation::PersistenceHealth(
@@ -535,20 +534,20 @@ pub async fn run_tui(
                             ))
                             .await;
                     }
-                    nuo_contracts::MonitorEvent::SessionAdded(row)
-                    | nuo_contracts::MonitorEvent::SessionUpdated(row) => {
+                    nuo_wire::MonitorEvent::SessionAdded(row)
+                    | nuo_wire::MonitorEvent::SessionUpdated(row) => {
                         nuo_client::upsert_session_row(&mut rows, row);
                     }
-                    nuo_contracts::MonitorEvent::SessionRemoved { session_id } => {
+                    nuo_wire::MonitorEvent::SessionRemoved { session_id } => {
                         rows.retain(|r| r.id != session_id);
                     }
                     // Daemon-level task diffs (ADR-0190): the dashboard's
                     // task section is folded in a later phase.
-                    nuo_contracts::MonitorEvent::TaskUpdated(_) => {}
-                    nuo_contracts::MonitorEvent::TaskRemoved { .. } => {}
+                    nuo_wire::MonitorEvent::TaskUpdated(_) => {}
+                    nuo_wire::MonitorEvent::TaskRemoved { .. } => {}
                     // Durability-health transitions (ADR-0196 D4): a degraded
                     // state retains the visible banner; Healthy clears it.
-                    nuo_contracts::MonitorEvent::PersistenceHealth(health) => {
+                    nuo_wire::MonitorEvent::PersistenceHealth(health) => {
                         mutations
                             .send(event_loop::AppMutation::PersistenceHealth(
                                 (!health.is_healthy()).then_some(health),
@@ -558,7 +557,7 @@ pub async fn run_tui(
                     // The daemon began its graceful shutdown (ADR-0101): the
                     // stream closes right after; the next daemon interaction
                     // re-discovers or re-spawns.
-                    nuo_contracts::MonitorEvent::DaemonDraining => {}
+                    nuo_wire::MonitorEvent::DaemonDraining => {}
                 }
                 mutations
                     .send(event_loop::AppMutation::HostSessions(rows.clone()))
@@ -597,12 +596,12 @@ pub async fn run_tui(
             let mut current_provider = initial_provider_for_translator.clone();
             let mut current_model = initial_model_for_translator.clone();
             let mut picker = ProviderPickerSnapshot::default();
-            let mut harness = nuo_contracts::HarnessSnapshot {
+            let mut harness = nuo_wire::HarnessSnapshot {
                 loop_status: LoopStatus::Idle,
                 round_counter: initial_round_count,
                 unattended: false,
                 confined: true,
-                workspace_security: nuo_contracts::WorkspaceSecuritySnapshot::default(),
+                workspace_security: nuo_wire::WorkspaceSecuritySnapshot::default(),
                 retry_pending: false,
                 role: None,
                 workspace: None,
@@ -824,9 +823,9 @@ pub async fn run_tui(
                                 // transcript disclosure driven by RetryScheduled.
                                 // Toast-surfaced notices (command acknowledgments)
                                 // ride the toast surface; everything else appends.
-                                if notice.kind == nuo_contracts::NoticeKind::ProviderRetry {
+                                if notice.kind == nuo_wire::NoticeKind::ProviderRetry {
                                     // RetryScheduled owns the retry disclosure.
-                                } else if notice.surface == nuo_contracts::NoticeSurface::Toast {
+                                } else if notice.surface == nuo_wire::NoticeSurface::Toast {
                                     mutations
                                         .send(M::NoticeToast {
                                             severity: notice_severity_from_core(notice.severity),
@@ -1057,7 +1056,7 @@ pub async fn run_tui(
                                 // full chain: gate at message creation. Unrecognized
                                 // ids default to disclosed — only known
                                 // `ReasoningSummary` models are gated.
-                                let hidden_chain = !nuo_contracts::model_by_id(&current_model)
+                                let hidden_chain = !nuo_wire::model_by_id(&current_model)
                                     .map(|m| m.thinking.chain_disclosed())
                                     .unwrap_or(true);
                                 if hidden_chain {
@@ -1196,7 +1195,7 @@ pub async fn run_tui(
                                 // under this `parent_call_id`; the reply is tagged
                                 // for down-routing into the child.
                                 match &event {
-                                    nuo_contracts::SubagentEvent::PermissionRequest(req) => {
+                                    nuo_wire::SubagentEvent::PermissionRequest(req) => {
                                         mutations
                                             .send(M::QueuePermission {
                                                 request: req.clone(),
@@ -1210,7 +1209,7 @@ pub async fn run_tui(
                                             mutations.send(M::SetResponding(true)).await;
                                         }
                                     }
-                                    nuo_contracts::SubagentEvent::UserQuestionRequest(req) => {
+                                    nuo_wire::SubagentEvent::UserQuestionRequest(req) => {
                                         mutations
                                             .send(M::QueueQuestion {
                                                 request: req.clone(),
@@ -1470,10 +1469,10 @@ pub async fn run_tui(
                             }
                             RoundEvent::BackgroundJobStarted(info) => {
                                 let label = match &info.spec {
-                                    nuo_contracts::JobSpec::Process { command, label, .. } => {
+                                    nuo_wire::JobSpec::Process { command, label, .. } => {
                                         label.as_deref().unwrap_or(command)
                                     }
-                                    nuo_contracts::JobSpec::Timer { label, prompt, .. } => {
+                                    nuo_wire::JobSpec::Timer { label, prompt, .. } => {
                                         label.as_deref().unwrap_or(prompt.as_str())
                                     }
                                 };
@@ -1505,7 +1504,7 @@ pub async fn run_tui(
                                 let (label, is_success, exit_code, duration_secs) = match &outcome
                                     .state
                                 {
-                                    nuo_contracts::JobState::Succeeded { duration_ms, .. } => (
+                                    nuo_wire::JobState::Succeeded { duration_ms, .. } => (
                                         format!(
                                             "Background job `{}` completed ({}s)",
                                             outcome.job_id.0,
@@ -1515,7 +1514,7 @@ pub async fn run_tui(
                                         Some(0),
                                         duration_ms / 1000,
                                     ),
-                                    nuo_contracts::JobState::Failed {
+                                    nuo_wire::JobState::Failed {
                                         duration_ms,
                                         exit_code,
                                         ..
@@ -1529,7 +1528,7 @@ pub async fn run_tui(
                                         Some(*exit_code),
                                         duration_ms / 1000,
                                     ),
-                                    nuo_contracts::JobState::Killed { duration_ms } => (
+                                    nuo_wire::JobState::Killed { duration_ms } => (
                                         format!(
                                             "Background job `{}` terminated ({}s)",
                                             outcome.job_id.0,
@@ -1539,7 +1538,7 @@ pub async fn run_tui(
                                         None,
                                         duration_ms / 1000,
                                     ),
-                                    nuo_contracts::JobState::TimedOut { duration_ms } => (
+                                    nuo_wire::JobState::TimedOut { duration_ms } => (
                                         format!(
                                             "Background job `{}` timed out ({}s)",
                                             outcome.job_id.0,
@@ -1678,7 +1677,7 @@ pub async fn run_tui(
                         live_session = session_id.clone();
                         mutations.send(M::TokenReport(None)).await;
                         mutations
-                            .send(M::SessionTree(nuo_contracts::SessionTree::default()))
+                            .send(M::SessionTree(nuo_wire::SessionTree::default()))
                             .await;
                     }
                     AgentResponse::ConversationReplaced {
@@ -1719,7 +1718,7 @@ pub async fn run_tui(
                         live_session = session_id;
                         mutations.send(M::TokenReport(None)).await;
                         mutations
-                            .send(M::SessionTree(nuo_contracts::SessionTree::default()))
+                            .send(M::SessionTree(nuo_wire::SessionTree::default()))
                             .await;
                     }
                     AgentResponse::SessionsOverview(sessions) => {
@@ -1795,7 +1794,7 @@ pub async fn run_tui(
                     }
                     AgentResponse::ConnectStatus(status) => {
                         match status {
-                            nuo_contracts::ConnectStatus::Pending {
+                            nuo_wire::ConnectStatus::Pending {
                                 url,
                                 user_code,
                                 message,
@@ -1845,7 +1844,7 @@ pub async fn run_tui(
                                         .await;
                                 }
                             }
-                            nuo_contracts::ConnectStatus::Done { provider } => {
+                            nuo_wire::ConnectStatus::Done { provider } => {
                                 mutations
                                     .send(M::Oauth(crate::app::OauthAddSignal::Done))
                                     .await;
@@ -1863,7 +1862,7 @@ pub async fn run_tui(
                                     })
                                     .await;
                             }
-                            nuo_contracts::ConnectStatus::CatalogSyncWarning {
+                            nuo_wire::ConnectStatus::CatalogSyncWarning {
                                 provider,
                                 message,
                                 kind,
@@ -1872,10 +1871,10 @@ pub async fn run_tui(
                                 // account may not use this provider); a
                                 // transient failure is not. Say which (ADR-0273).
                                 let text = match kind {
-                                    nuo_contracts::CatalogSyncFailure::Refused => format!(
+                                    nuo_wire::CatalogSyncFailure::Refused => format!(
                                         "{provider}: the upstream refused the model-list request ({message}). This connection is not usable with the current credentials or plan; the previously cached list is still shown."
                                     ),
-                                    nuo_contracts::CatalogSyncFailure::Transient => format!(
+                                    nuo_wire::CatalogSyncFailure::Transient => format!(
                                         "{provider}: could not refresh the model list ({message}). Showing the previous list."
                                     ),
                                 };
@@ -1893,7 +1892,7 @@ pub async fn run_tui(
                                     })
                                     .await;
                             }
-                            nuo_contracts::ConnectStatus::Failed { provider, message } => {
+                            nuo_wire::ConnectStatus::Failed { provider, message } => {
                                 mutations
                                     .send(M::Oauth(crate::app::OauthAddSignal::Failed {
                                         message: message.clone(),
@@ -1990,7 +1989,7 @@ pub async fn run_tui(
         saved_primary_chrome: None,
         btw_scroll: 0,
         btw_modal_follow: true,
-        session_tree: nuo_contracts::SessionTree::default(),
+        session_tree: nuo_wire::SessionTree::default(),
         tree_scroll: 0,
         tree_modal_follow: true,
         scroll: 0,
@@ -2024,7 +2023,7 @@ pub async fn run_tui(
         pending_inputs: std::collections::VecDeque::new(),
         subagent_permission_parent: HashMap::new(),
         subagent_question_parent: HashMap::new(),
-        workspace_security: nuo_contracts::WorkspaceSecuritySnapshot::default(),
+        workspace_security: nuo_wire::WorkspaceSecuritySnapshot::default(),
         context_tokens_by_session: HashMap::new(),
         open_sessions_signal: false,
         open_tree_signal: false,
@@ -2197,7 +2196,6 @@ pub async fn run_tui(
         esc_armed_until: None,
         spinner_epoch: std::time::Instant::now(),
         carousel_epoch: std::time::Instant::now(),
-        effort_ignition_epoch: None,
         injection_stashed_input: String::new(),
         editor_target: None,
         editor_field: 0,
@@ -2206,6 +2204,7 @@ pub async fn run_tui(
         editor_model_settings_only: false,
         editor_target_is_builtin: false,
         editor_effort: "high".to_string(),
+        editor_effort_levels: Vec::new(),
         editor_thinking_available: false,
         editor_thinking: true,
         editor_vision_override: None,
@@ -2213,11 +2212,11 @@ pub async fn run_tui(
         custom_field: 0,
         custom_fields: Vec::new(),
         custom_protocol_wire: String::new(),
-        custom_client_identity: nuo_contracts::ClientIdentity::Native,
+        custom_client_identity: nuo_wire::ClientIdentity::Native,
         custom_models: Vec::new(),
         custom_url_hint: String::new(),
         custom_user_agent: None,
-        custom_auth: nuo_contracts::ConnectionAuth::ApiKey,
+        custom_auth: nuo_wire::ConnectionAuth::ApiKey,
         custom_provider_id: None,
         awaiting_oauth_add: false,
         oauth_pending_message: String::new(),
@@ -2300,7 +2299,7 @@ pub async fn run_tui(
 /// when the user picked a session in the `/host` panel — the daemon session
 /// to switch to (the caller re-attaches).
 pub struct TuiOutcome {
-    pub history: Vec<nuo_contracts::HistoryEntry>,
+    pub history: Vec<nuo_wire::HistoryEntry>,
     pub switch_to: Option<String>,
 }
 
@@ -2457,7 +2456,7 @@ mod streaming_appends_tests {
 
     #[test]
     fn text_delta_appends_across_an_intervening_command_entry() {
-        use nuo_contracts::Role;
+        use nuo_wire::Role;
         let mut text = TranscriptMessage::new(Role::Assistant, "hello ");
         text.round = Some(3);
         text.turn = Some(1);

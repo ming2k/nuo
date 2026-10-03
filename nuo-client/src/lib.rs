@@ -46,7 +46,7 @@ pub fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
 }
 
 /// Standard slash command catalog for frontend client auto-completion.
-pub fn command_catalog(custom: &[(String, String)]) -> nuo_contracts::CommandCatalog {
+pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog {
     let raw_specs: &[(&str, &str, &[&str], &[(&str, &str)])] = &[
         ("/models", "Switch the active model (context preserved)", &["model", "llm", "switch", "provider", "gpt", "claude", "gemini", "deepseek", "change-model"], &[]),
         ("/connections", "Manage LLM provider connections", &["connection", "provider", "api-key", "auth", "endpoint", "credentials", "token", "login"], &[]),
@@ -81,9 +81,9 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_contracts::CommandCat
         ("/exit", "Exit the program", &["exit", "quit", "q", "leave", "bye", "shutdown"], &[]),
     ];
 
-    let mut catalog = nuo_contracts::CommandCatalog::default();
+    let mut catalog = nuo_wire::CommandCatalog::default();
     for &(name, summary, kws, subcmds) in raw_specs {
-        catalog.commands.push(nuo_contracts::CommandSpec {
+        catalog.commands.push(nuo_wire::CommandSpec {
             name: name.to_string(),
             summary: summary.to_string(),
             usage: vec![name.to_string()],
@@ -92,7 +92,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_contracts::CommandCat
             category: Some(if name == "/models" { "Model".into() } else { "system".into() }),
             subcommands: subcmds
                 .iter()
-                .map(|(s, desc)| nuo_contracts::CommandSubcommandSpec {
+                .map(|(s, desc)| nuo_wire::CommandSubcommandSpec {
                     name: s.to_string(),
                     summary: desc.to_string(),
                 })
@@ -100,28 +100,28 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_contracts::CommandCat
         });
     }
 
-    catalog.aliases.push(nuo_contracts::CommandAlias {
+    catalog.aliases.push(nuo_wire::CommandAlias {
         name: "/setup".to_string(),
         target: "/init".to_string(),
     });
-    catalog.aliases.push(nuo_contracts::CommandAlias {
+    catalog.aliases.push(nuo_wire::CommandAlias {
         name: "/resume".to_string(),
         target: "/sessions".to_string(),
     });
 
-    catalog.suggestions.push(nuo_contracts::CommandSuggestion {
+    catalog.suggestions.push(nuo_wire::CommandSuggestion {
         trigger: "/clear".into(),
         target: "/new".into(),
         reason: "Start a fresh session".into(),
     });
-    catalog.suggestions.push(nuo_contracts::CommandSuggestion {
+    catalog.suggestions.push(nuo_wire::CommandSuggestion {
         trigger: "/continue".into(),
         target: "/sessions".into(),
         reason: "Resume a previous session".into(),
     });
 
     for (name, desc) in custom {
-        catalog.commands.push(nuo_contracts::CommandSpec {
+        catalog.commands.push(nuo_wire::CommandSpec {
             name: name.clone(),
             summary: desc.clone(),
             usage: vec![name.clone()],
@@ -135,7 +135,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_contracts::CommandCat
 }
 
 
-use nuo_contracts::{CommandCatalog, CommandSpec, InputCompletion, InputCompletionKind};
+use nuo_wire::{CommandCatalog, CommandSpec, InputCompletion, InputCompletionKind};
 
 fn slash_item(
     label: &str,
@@ -396,11 +396,11 @@ pub(crate) fn expand_usage_options(usage: &str) -> Vec<String> {
 
 
 pub fn complete_for_frontend_test(
-    catalog: nuo_contracts::CommandCatalog,
+    catalog: nuo_wire::CommandCatalog,
     project_root: std::path::PathBuf,
     input: &str,
     cursor: usize,
-) -> Vec<nuo_contracts::InputCompletion> {
+) -> Vec<nuo_wire::InputCompletion> {
     if input.starts_with('/') {
         return complete_slash_items(&catalog, input, cursor);
     }
@@ -408,23 +408,23 @@ pub fn complete_for_frontend_test(
         let query = &input[at_idx + 1..cursor.min(input.len())];
         if query.is_empty() {
             return vec![
-                nuo_contracts::InputCompletion {
+                nuo_wire::InputCompletion {
                     label: "@file:".into(),
                     description: "Reference a workspace file".into(),
                     insert_text: "@file:".into(),
                     replace_start: at_idx,
                     replace_end: cursor,
-                    kind: nuo_contracts::ComposerCompletionKind::PathDir,
+                    kind: nuo_wire::ComposerCompletionKind::PathDir,
                     alias_of: None,
                     command: None,
                 },
-                nuo_contracts::InputCompletion {
+                nuo_wire::InputCompletion {
                     label: "@skill:".into(),
                     description: "Invoke a skill".into(),
                     insert_text: "@skill:".into(),
                     replace_start: at_idx,
                     replace_end: cursor,
-                    kind: nuo_contracts::ComposerCompletionKind::PathDir,
+                    kind: nuo_wire::ComposerCompletionKind::PathDir,
                     alias_of: None,
                     command: None,
                 },
@@ -448,13 +448,13 @@ pub fn complete_for_frontend_test(
                         let filename = path.file_name().unwrap_or_default().to_string_lossy();
                         if filename.starts_with(query_tail) {
                             let abs_str = path.to_string_lossy().to_string();
-                            items.push(nuo_contracts::InputCompletion {
+                            items.push(nuo_wire::InputCompletion {
                                 label: abs_str.clone(),
                                 description: "Explicit path".into(),
                                 insert_text: format!("{abs_str} "),
                                 replace_start: at_idx,
                                 replace_end: cursor,
-                                kind: nuo_contracts::ComposerCompletionKind::PathExplicit,
+                                kind: nuo_wire::ComposerCompletionKind::PathExplicit,
                                 alias_of: None,
                                 command: None,
                             });
@@ -479,13 +479,13 @@ pub fn complete_for_frontend_test(
                         let label = if is_dir { format!("@file:{filename}/") } else { format!("@file:{filename}") };
                         let needs_space = input.get(cursor..).and_then(|suffix| suffix.chars().next()).map(|ch| !ch.is_whitespace()).unwrap_or(true);
                         let insert = if !is_dir && needs_space { format!("{label} ") } else { label.clone() };
-                        items.push(nuo_contracts::InputCompletion {
+                        items.push(nuo_wire::InputCompletion {
                             label,
                             description: if is_dir { "Workspace directory".into() } else { "Workspace file".into() },
                             insert_text: insert,
                             replace_start: at_idx,
                             replace_end: cursor,
-                            kind: if is_dir { nuo_contracts::ComposerCompletionKind::PathDir } else { nuo_contracts::ComposerCompletionKind::PathFile },
+                            kind: if is_dir { nuo_wire::ComposerCompletionKind::PathDir } else { nuo_wire::ComposerCompletionKind::PathFile },
                             alias_of: None,
                             command: None,
                         });
@@ -498,18 +498,18 @@ pub fn complete_for_frontend_test(
             if file_query.ends_with('/') {
                 let target_dir = project_root.join(file_query);
                 if target_dir.is_dir() {
-                    items.push(nuo_contracts::InputCompletion {
+                    items.push(nuo_wire::InputCompletion {
                         label: format!("@file:{file_query}"),
                         description: "Workspace directory".into(),
                         insert_text: format!("@file:{file_query}"),
                         replace_start: at_idx,
                         replace_end: cursor,
-                        kind: nuo_contracts::ComposerCompletionKind::PathDir,
+                        kind: nuo_wire::ComposerCompletionKind::PathDir,
                         alias_of: None,
                         command: None,
                     });
                 }
-                fn collect_descendants(base: &std::path::Path, current: &std::path::Path, input: &str, items: &mut Vec<nuo_contracts::InputCompletion>, at_idx: usize, cursor: usize) {
+                fn collect_descendants(base: &std::path::Path, current: &std::path::Path, input: &str, items: &mut Vec<nuo_wire::InputCompletion>, at_idx: usize, cursor: usize) {
                     if let Ok(entries) = std::fs::read_dir(current) {
                         for entry in entries.flatten() {
                             let path = entry.path();
@@ -520,13 +520,13 @@ pub fn complete_for_frontend_test(
                                 let label = if is_dir { format!("@file:{rel_str}/") } else { format!("@file:{rel_str}") };
                                 let needs_space = input.get(cursor..).and_then(|suffix| suffix.chars().next()).map(|ch| !ch.is_whitespace()).unwrap_or(true);
                                 let insert = if !is_dir && needs_space { format!("{label} ") } else { label.clone() };
-                                items.push(nuo_contracts::InputCompletion {
+                                items.push(nuo_wire::InputCompletion {
                                     label,
                                     description: if is_dir { "Workspace directory".into() } else { "Workspace file".into() },
                                     insert_text: insert,
                                     replace_start: at_idx,
                                     replace_end: cursor,
-                                    kind: if is_dir { nuo_contracts::ComposerCompletionKind::PathDir } else { nuo_contracts::ComposerCompletionKind::PathFile },
+                                    kind: if is_dir { nuo_wire::ComposerCompletionKind::PathDir } else { nuo_wire::ComposerCompletionKind::PathFile },
                                     alias_of: None,
                                     command: None,
                                 });
@@ -542,7 +542,7 @@ pub fn complete_for_frontend_test(
             }
 
             // Substring query across all files
-            fn collect_matching(base: &std::path::Path, current: &std::path::Path, query: &str, input: &str, items: &mut Vec<nuo_contracts::InputCompletion>, at_idx: usize, cursor: usize) {
+            fn collect_matching(base: &std::path::Path, current: &std::path::Path, query: &str, input: &str, items: &mut Vec<nuo_wire::InputCompletion>, at_idx: usize, cursor: usize) {
                 if let Ok(entries) = std::fs::read_dir(current) {
                     for entry in entries.flatten() {
                         let path = entry.path();
@@ -554,13 +554,13 @@ pub fn complete_for_frontend_test(
                                 let label = if is_dir { format!("@file:{rel_str}/") } else { format!("@file:{rel_str}") };
                                 let needs_space = input.get(cursor..).and_then(|suffix| suffix.chars().next()).map(|ch| !ch.is_whitespace()).unwrap_or(true);
                                 let insert = if !is_dir && needs_space { format!("{label} ") } else { label.clone() };
-                                items.push(nuo_contracts::InputCompletion {
+                                items.push(nuo_wire::InputCompletion {
                                     label,
                                     description: if is_dir { "Workspace directory".into() } else { "Workspace file".into() },
                                     insert_text: insert,
                                     replace_start: at_idx,
                                     replace_end: cursor,
-                                    kind: if is_dir { nuo_contracts::ComposerCompletionKind::PathDir } else { nuo_contracts::ComposerCompletionKind::PathFile },
+                                    kind: if is_dir { nuo_wire::ComposerCompletionKind::PathDir } else { nuo_wire::ComposerCompletionKind::PathFile },
                                     alias_of: None,
                                     command: None,
                                 });
@@ -578,13 +578,13 @@ pub fn complete_for_frontend_test(
 
         if let Some(skill_query) = query.strip_prefix("skill:") {
             let mut items = vec![
-                nuo_contracts::InputCompletion {
+                nuo_wire::InputCompletion {
                     label: "skill-creator".into(),
                     description: "Built-in skill creator".into(),
                     insert_text: "@skill:skill-creator".into(),
                     replace_start: at_idx,
                     replace_end: cursor,
-                    kind: nuo_contracts::ComposerCompletionKind::PathFile,
+                    kind: nuo_wire::ComposerCompletionKind::PathFile,
                     alias_of: None,
                     command: None,
                 }
@@ -611,7 +611,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use nuo_contracts::{
+use nuo_wire::{
     AgentRequest, AgentResponse, Message, MonitorAction, MonitorEvent, MonitoredSession,
     SessionOverview,
 };
@@ -629,18 +629,18 @@ static POSTURE_OVERRIDE: std::sync::atomic::AtomicU8 = std::sync::atomic::Atomic
 
 /// Declare this client's human-channel posture (ADR-0141). Must be called
 /// before the first attach; later attaches of the same process inherit it.
-pub fn set_posture(posture: nuo_contracts::human_request::HumanChannelPosture) {
+pub fn set_posture(posture: nuo_wire::human_request::HumanChannelPosture) {
     let code = match posture {
-        nuo_contracts::human_request::HumanChannelPosture::Interactive => 0,
-        nuo_contracts::human_request::HumanChannelPosture::Autonomous => 1,
+        nuo_wire::human_request::HumanChannelPosture::Interactive => 0,
+        nuo_wire::human_request::HumanChannelPosture::Autonomous => 1,
     };
     POSTURE_OVERRIDE.store(code, std::sync::atomic::Ordering::Relaxed);
 }
 
-fn current_posture() -> nuo_contracts::human_request::HumanChannelPosture {
+fn current_posture() -> nuo_wire::human_request::HumanChannelPosture {
     match POSTURE_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => nuo_contracts::human_request::HumanChannelPosture::Autonomous,
-        _ => nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        1 => nuo_wire::human_request::HumanChannelPosture::Autonomous,
+        _ => nuo_wire::human_request::HumanChannelPosture::Interactive,
     }
 }
 
@@ -1422,18 +1422,18 @@ pub enum Handshake {
         /// Durable round-interrupt records (C11) from the daemon's welcome,
         /// so an attaching TUI projects the stopped rounds into its restored
         /// transcript. Empty for older daemons.
-        round_interrupts: Vec<nuo_contracts::RoundInterrupt>,
+        round_interrupts: Vec<nuo_wire::RoundInterrupt>,
         /// Durable retry-resolution records from the daemon's welcome, so an
         /// attaching TUI projects recovered rounds into its restored
         /// transcript. Empty for older daemons.
-        retry_resolutions: Vec<nuo_contracts::RetryResolution>,
+        retry_resolutions: Vec<nuo_wire::RetryResolution>,
         /// The provider/model the session is currently serving, carried on
         /// the welcome so the TUI's hint bar shows them from the first frame
         /// instead of waiting for the next provider mutation.
         provider: String,
         model: String,
         /// Backend-owned completion/help vocabulary for this session.
-        command_catalog: nuo_contracts::CommandCatalog,
+        command_catalog: nuo_wire::CommandCatalog,
     },
     Pick(Vec<SessionOverview>),
 }
@@ -1714,12 +1714,12 @@ struct Welcome {
     model: String,
     /// Durable round-interrupt records (C11) carried on the daemon's
     /// welcome; empty for older daemons that predate the field.
-    round_interrupts: Vec<nuo_contracts::RoundInterrupt>,
+    round_interrupts: Vec<nuo_wire::RoundInterrupt>,
     /// Durable retry-resolution records (success-side mirror of the
     /// interrupts) carried on the daemon's welcome; empty for older daemons
     /// that predate the field.
-    retry_resolutions: Vec<nuo_contracts::RetryResolution>,
-    command_catalog: nuo_contracts::CommandCatalog,
+    retry_resolutions: Vec<nuo_wire::RetryResolution>,
+    command_catalog: nuo_wire::CommandCatalog,
 }
 enum Reply {
     Welcome(Welcome),
@@ -1831,8 +1831,8 @@ pub fn upsert_session_row(rows: &mut Vec<MonitoredSession>, row: MonitoredSessio
 }
 
 pub fn upsert_task_row(
-    rows: &mut Vec<nuo_contracts::MonitoredTask>,
-    row: nuo_contracts::MonitoredTask,
+    rows: &mut Vec<nuo_wire::MonitoredTask>,
+    row: nuo_wire::MonitoredTask,
 ) {
     match rows.iter_mut().find(|existing| existing.id == row.id) {
         Some(existing) => *existing = row,

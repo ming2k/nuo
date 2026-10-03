@@ -29,7 +29,7 @@ impl SessionStore {
     }
 
     /// The current todo list, derived from the newest `state` entry.
-    pub async fn todos(&self) -> nuo_contracts::TodoList {
+    pub async fn todos(&self) -> nuo_wire::TodoList {
         self.state
             .lock()
             .await
@@ -41,13 +41,13 @@ impl SessionStore {
 
     /// Mirror the agent's todo list into the transcript as a `state` entry
     /// (latest wins on derivation) and persist.
-    pub async fn set_todos(&self, todos: nuo_contracts::TodoList) -> Result<(), String> {
+    pub async fn set_todos(&self, todos: nuo_wire::TodoList) -> Result<(), String> {
         let (path, data, should_persist) = {
             let mut state = self.state.lock().await;
             state
                 .data
                 .transcript
-                .push(nuo_contracts::TranscriptEntry::from_state(0, Some(todos)));
+                .push(nuo_wire::TranscriptEntry::from_state(0, Some(todos)));
             state.data.updated_at = unix_timestamp();
             let empty_unpersisted = Self::should_skip_persist(&state);
             if !empty_unpersisted {
@@ -69,7 +69,7 @@ impl SessionStore {
         let transcript = &state.data.transcript;
         let directive = transcript.directives.last()?;
         let (operation, archived_messages) = match directive.kind {
-            nuo_contracts::DirectiveKind::Compact => (
+            nuo_wire::DirectiveKind::Compact => (
                 ContextProjectionKind::Compact,
                 transcript.projected_out().len(),
             ),
@@ -139,7 +139,7 @@ impl SessionStore {
 
     /// The current digest and its transcript watermark (ADR-0187
     /// `digest_anchor`).
-    pub async fn digest(&self) -> (Option<nuo_contracts::SessionDigest>, Option<u64>) {
+    pub async fn digest(&self) -> (Option<nuo_wire::SessionDigest>, Option<u64>) {
         let state = self.state.lock().await;
         (state.data.digest.clone(), state.data.digest_anchor)
     }
@@ -147,7 +147,7 @@ impl SessionStore {
     /// Unconditionally replace the digest and its anchor.
     pub async fn set_digest(
         &self,
-        digest: Option<nuo_contracts::SessionDigest>,
+        digest: Option<nuo_wire::SessionDigest>,
         anchor: Option<u64>,
     ) -> Result<(), String> {
         self.store_digest(digest, anchor, None).await.map(|_| ())
@@ -163,7 +163,7 @@ impl SessionStore {
     /// generation racing a concurrent first generation).
     pub async fn set_digest_if_anchor(
         &self,
-        digest: Option<nuo_contracts::SessionDigest>,
+        digest: Option<nuo_wire::SessionDigest>,
         anchor: Option<u64>,
         expected_anchor: Option<u64>,
     ) -> Result<bool, String> {
@@ -175,7 +175,7 @@ impl SessionStore {
     /// an optional anchor CAS on the digest path.
     async fn store_digest(
         &self,
-        digest: Option<nuo_contracts::SessionDigest>,
+        digest: Option<nuo_wire::SessionDigest>,
         anchor: Option<u64>,
         cas: Option<Option<u64>>,
     ) -> Result<bool, String> {
@@ -261,7 +261,7 @@ impl SessionStore {
 
     pub async fn set_workspace(
         &self,
-        workspace: Option<nuo_contracts::WorkspaceBinding>,
+        workspace: Option<nuo_wire::WorkspaceBinding>,
     ) -> Result<(), String> {
         {
             let mut ws_guard = self.workspace.write().unwrap_or_else(|e| e.into_inner());
@@ -306,7 +306,7 @@ impl SessionStore {
         Ok(())
     }
 
-    pub async fn request_usage_records(&self) -> Vec<nuo_contracts::RequestUsageRecord> {
+    pub async fn request_usage_records(&self) -> Vec<nuo_wire::RequestUsageRecord> {
         self.state.lock().await.data.request_usage_records.clone()
     }
 
@@ -315,7 +315,7 @@ impl SessionStore {
     /// are removed from the durable ledger too (ADR-0187).
     pub async fn set_request_usage_records(
         &self,
-        records: Vec<nuo_contracts::RequestUsageRecord>,
+        records: Vec<nuo_wire::RequestUsageRecord>,
     ) -> Result<(), String> {
         let (data, should_persist) = {
             let mut state = self.state.lock().await;
@@ -385,7 +385,7 @@ mod tests {
         assert!(store.workspace().is_none());
 
         // Test dynamic set_workspace
-        let new_ws = nuo_contracts::WorkspaceBinding::new(dir.path().to_path_buf());
+        let new_ws = nuo_wire::WorkspaceBinding::new(dir.path().to_path_buf());
         store.set_workspace(Some(new_ws.clone())).await.unwrap();
         assert_eq!(store.workspace(), Some(new_ws));
         store.set_workspace(None).await.unwrap();

@@ -4,7 +4,7 @@
 //! in [`crate::client`]; endpoint configuration in [`crate::endpoint`]; SSE
 //! byte reassembly in [`crate::sse`].
 
-use nuo_contracts::{ProviderError, ProviderErrorKind};
+use nuo_model_codec::{ProviderError, ProviderErrorKind};
 use std::time::SystemTime;
 
 pub fn retry_after_ms(headers: &http::header::HeaderMap) -> Option<u64> {
@@ -174,7 +174,7 @@ pub async fn decode_response_json(
         Err(error) => {
             let preview = body_preview(&text);
             tracing::warn!(
-                target: "nuo_contracts::provider",
+                target: "nuo_model_codec::provider",
                 provider = provider,
                 error = %error,
                 body_len = text.len(),
@@ -196,10 +196,10 @@ pub async fn decode_response_json(
 fn body_preview(text: &str) -> String {
     // Diagnostic text inside a decode-error message: report the omitted tail
     // in tokens (ADR-0120) — how much context the body would have cost.
-    let total_tokens = nuo_contracts::tokenizer::count_tokens(text);
+    let total_tokens = nuo_model_codec::tokenizer::count_tokens(text);
     let mut preview: String = text.chars().take(DECODE_ERROR_BODY_PREVIEW).collect();
     let truncated_tokens =
-        total_tokens.saturating_sub(nuo_contracts::tokenizer::count_tokens(&preview));
+        total_tokens.saturating_sub(nuo_model_codec::tokenizer::count_tokens(&preview));
     if truncated_tokens > 0 {
         preview.push_str(&format!("…<{truncated_tokens} more tokens>"));
     }
@@ -236,8 +236,8 @@ mod tests {
         // The omitted tail is reported in tokens (ADR-0120): the whole body
         // tokenizes to N, the kept preview to fewer, the difference is the
         // count in the suffix.
-        let total = nuo_contracts::tokenizer::count_tokens(&long);
-        let kept = nuo_contracts::tokenizer::count_tokens(&long[..DECODE_ERROR_BODY_PREVIEW]);
+        let total = nuo_model_codec::tokenizer::count_tokens(&long);
+        let kept = nuo_model_codec::tokenizer::count_tokens(&long[..DECODE_ERROR_BODY_PREVIEW]);
         let omitted = total - kept;
         assert!(
             preview.ends_with(&format!("…<{omitted} more tokens>")),

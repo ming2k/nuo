@@ -6,7 +6,7 @@
 //! content lives in `candidates[0].content.parts[]` as either `text` or
 //! `functionCall`.
 
-use nuo_contracts::{Message, ProviderStreamEvent, Role, TokenUsage, ToolCall};
+use nuo_model_codec::{Message, ProviderStreamEvent, Role, TokenUsage, ToolCall};
 use serde_json::{Map, Value};
 
 pub const THOUGHT_SIGNATURES_META_KEY: &str = "gemini_thought_signatures";
@@ -35,7 +35,7 @@ pub fn usage(usage: &Value) -> Option<TokenUsage> {
     // Route cache-read accounting through the shared helper so the cache
     // policy is enforced in one place (ADR-0161). Google hides the discount in
     // `cachedContentTokenCount`, which the helper reads.
-    let cache = nuo_contracts::read_prompt_cache_usage(usage);
+    let cache = nuo_model_codec::read_prompt_cache_usage(usage);
     match (prompt, completion, total) {
         (Some(p), Some(c), _) => Some(TokenUsage {
             prompt_tokens: p,
@@ -337,10 +337,10 @@ pub fn rejects_thinking_config(error: &str) -> bool {
 /// the envelope's message and any `RetryInfo` delay Google embedded in the
 /// body is promoted to `retry_after_ms` when the envelope has none.
 pub fn clarify_error(
-    err: nuo_contracts::ProviderError,
+    err: nuo_model_codec::ProviderError,
     model: &str,
     base_url: &str,
-) -> nuo_contracts::ProviderError {
+) -> nuo_model_codec::ProviderError {
     let server_delay = google_retry_after_ms(err.message());
     let mut err = err.map_message(|msg| clarify_message(msg, model, base_url));
     if server_delay.is_some() {
@@ -722,9 +722,9 @@ mod tests {
 
     #[test]
     fn clarify_error_appends_guidance_to_retryable_error() {
-        let raw = nuo_contracts::ProviderError::new(
+        let raw = nuo_model_codec::ProviderError::new(
             "Google",
-            nuo_contracts::ProviderErrorKind::RateLimited,
+            nuo_model_codec::ProviderErrorKind::RateLimited,
             "Google HTTP 429 Too Many Requests: {\"error\":{\"code\":429,\"status\":\"RESOURCE_EXHAUSTED\"}}",
         )
         .with_status(429)
@@ -738,7 +738,7 @@ mod tests {
         assert_eq!(clarified.status(), Some(429));
         assert_eq!(
             clarified.retry_disposition(),
-            nuo_contracts::RetryDisposition::Retry {
+            nuo_model_codec::RetryDisposition::Retry {
                 retry_after_ms: None
             }
         );
@@ -759,9 +759,9 @@ mod tests {
     #[test]
     fn clarify_error_promotes_google_retryinfo_delay_into_retry_after_ms() {
         let body = r#"{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"3620s"}]}}"#;
-        let raw = nuo_contracts::ProviderError::new(
+        let raw = nuo_model_codec::ProviderError::new(
             "Google",
-            nuo_contracts::ProviderErrorKind::RateLimited,
+            nuo_model_codec::ProviderErrorKind::RateLimited,
             format!("Google HTTP 429 Too Many Requests: {body}"),
         )
         .with_status(429)
@@ -769,7 +769,7 @@ mod tests {
         let clarified = super::clarify_error(raw, "gemini-3.7-flash", "https://x");
         assert_eq!(
             clarified.retry_disposition(),
-            nuo_contracts::RetryDisposition::Retry {
+            nuo_model_codec::RetryDisposition::Retry {
                 retry_after_ms: Some(3_620_000)
             }
         );
@@ -782,9 +782,9 @@ mod tests {
 
     #[test]
     fn clarify_error_preserves_an_existing_retry_after() {
-        let raw = nuo_contracts::ProviderError::new(
+        let raw = nuo_model_codec::ProviderError::new(
             "Google",
-            nuo_contracts::ProviderErrorKind::RateLimited,
+            nuo_model_codec::ProviderErrorKind::RateLimited,
             "Google HTTP 429: {\"error\":{\"status\":\"RESOURCE_EXHAUSTED\",\"details\":[{\"retryDelay\":\"45s\"}]}}",
         )
         .with_status(429)
@@ -792,7 +792,7 @@ mod tests {
         let clarified = super::clarify_error(raw, "m", "https://x");
         assert_eq!(
             clarified.retry_disposition(),
-            nuo_contracts::RetryDisposition::Retry {
+            nuo_model_codec::RetryDisposition::Retry {
                 retry_after_ms: Some(120_000)
             }
         );
@@ -800,9 +800,9 @@ mod tests {
 
     #[test]
     fn clarify_error_passes_non_retryable_errors_through_with_guidance() {
-        let raw = nuo_contracts::ProviderError::new(
+        let raw = nuo_model_codec::ProviderError::new(
             "Google",
-            nuo_contracts::ProviderErrorKind::InvalidRequest,
+            nuo_model_codec::ProviderErrorKind::InvalidRequest,
             "Google HTTP 404 Not Found",
         )
         .with_status(404);
@@ -816,7 +816,7 @@ mod tests {
         assert!(!clarified.message().contains("Switch to a model"));
         assert_eq!(
             clarified.retry_disposition(),
-            nuo_contracts::RetryDisposition::Never
+            nuo_model_codec::RetryDisposition::Never
         );
     }
 

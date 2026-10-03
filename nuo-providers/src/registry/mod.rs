@@ -5,8 +5,8 @@
 //! provider's model constants and its [`ModelProviderSpec`] entry.
 //! This file keeps the shared types, the aggregate tables, and the factory.
 
-use nuo_contracts::Provider;
-use nuo_contracts::catalog::{Channel, Transport};
+use nuo_model_codec::Provider;
+use nuo_model_codec::catalog::{Channel, Transport};
 use std::borrow::Cow;
 use std::sync::Arc;
 
@@ -61,7 +61,7 @@ use anthropic::anthropic_model_max_tokens;
 // OpenAI-compatible provider wrappers for popular Chinese & global services
 // ═════════════════════════════════════════════════════════════════════════════
 
-pub use nuo_contracts::RemoteCatalogSource;
+pub use nuo_model_codec::RemoteCatalogSource;
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Model providers — the definition of one upstream service surface
@@ -90,15 +90,15 @@ pub struct ModelProviderSpec {
     pub user_agent: Option<Cow<'static, str>>,
     /// Baseline capability metadata for the models this provider serves.
     /// Lives beside the preset (one table per provider) and is submitted to
-    /// `nuo_contracts`'s baseline registry at link time; the reconciliation
+    /// `nuo_model_codec`'s baseline registry at link time; the reconciliation
     /// layer intersects live-discovered ids against this local table.
-    pub baselines: &'static [nuo_contracts::Model],
+    pub baselines: &'static [nuo_model_codec::Model],
     /// Exact inference protocol spoken by the preset's default route.
-    pub protocol: nuo_contracts::WireProtocol,
+    pub protocol: nuo_model_codec::WireProtocol,
     /// Service behavior inherited independently of model protocol selection.
-    pub dialect: nuo_contracts::ProviderDialect,
+    pub dialect: nuo_model_codec::ProviderDialect,
     /// Explicit transport endpoints for services whose protocol families use different paths.
-    pub protocol_roots: Cow<'static, [(nuo_contracts::WireProtocol, Cow<'static, str>)]>,
+    pub protocol_roots: Cow<'static, [(nuo_model_codec::WireProtocol, Cow<'static, str>)]>,
     pub catalog_root_url: Option<Cow<'static, str>>,
     /// The model ids the preset initially seeds, in display/activation order.
     /// Fixed connections continue to mirror this list.
@@ -106,7 +106,7 @@ pub struct ModelProviderSpec {
     /// Remote model-catalog source layered on top of the compiled baseline (ADR-0203).
     pub catalog_source: RemoteCatalogSource,
     /// Factory-recommended client emulation profile (ADR-0164, ADR-0203).
-    pub default_client_profile: nuo_contracts::ClientPreset,
+    pub default_client_profile: nuo_model_codec::ClientPreset,
     /// Whether this provider strictly requires its recommended client profile
     /// to avoid 403 / anti-bot WAF rejections (e.g. Codex, Copilot, Antigravity).
     pub client_profile_sensitive: bool,
@@ -118,11 +118,11 @@ pub struct ModelProviderSpec {
 
 #[derive(Clone)]
 pub enum PromptCachePolicy {
-    Compiled(fn(&str) -> nuo_contracts::PromptCacheSpec),
-    Declared(nuo_contracts::provider_surface::ProviderPromptCache),
+    Compiled(fn(&str) -> nuo_model_codec::PromptCacheSpec),
+    Declared(nuo_model_codec::provider_surface::ProviderPromptCache),
 }
 impl PromptCachePolicy {
-    pub fn resolve(&self, model: &str) -> nuo_contracts::PromptCacheCapabilities {
+    pub fn resolve(&self, model: &str) -> nuo_model_codec::PromptCacheCapabilities {
         match self {
             Self::Compiled(resolve) => resolve(model).materialize(),
             Self::Declared(declaration) => declaration.resolve(model),
@@ -130,8 +130,8 @@ impl PromptCachePolicy {
     }
 }
 
-pub const fn unsupported_prompt_cache(_: &str) -> nuo_contracts::PromptCacheSpec {
-    nuo_contracts::PromptCacheSpec::UNSUPPORTED
+pub const fn unsupported_prompt_cache(_: &str) -> nuo_model_codec::PromptCacheSpec {
+    nuo_model_codec::PromptCacheSpec::UNSUPPORTED
 }
 
 /// The single registry of model providers.
@@ -205,12 +205,12 @@ pub fn sync_user_declared_providers(declared: &nuo_persistence::model_providers:
     for (id, provider) in store.providers {
         let wire = provider
             .default_protocol
-            .unwrap_or(nuo_contracts::WireProtocol::ChatCompletions);
+            .unwrap_or(nuo_model_codec::WireProtocol::ChatCompletions);
         let dialect = provider.dialect.unwrap_or_default();
         let catalog_source = provider.catalog.unwrap_or_else(|| {
             RemoteCatalogSource::Endpoint(match dialect {
-                nuo_contracts::ProviderDialect::Antigravity => CatalogShape::GoogleCloudCode,
-                nuo_contracts::ProviderDialect::ChatGpt => CatalogShape::Codex,
+                nuo_model_codec::ProviderDialect::Antigravity => CatalogShape::GoogleCloudCode,
+                nuo_model_codec::ProviderDialect::ChatGpt => CatalogShape::Codex,
                 _ => CatalogShape::from_wire_protocol(wire),
             })
         });
@@ -233,7 +233,7 @@ pub fn sync_user_declared_providers(declared: &nuo_persistence::model_providers:
             catalog_source,
             default_client_profile: provider
                 .client_profile
-                .unwrap_or(nuo_contracts::ClientPreset::Native),
+                .unwrap_or(nuo_model_codec::ClientPreset::Native),
             client_profile_sensitive: provider.client_profile_sensitive,
             prompt_cache: PromptCachePolicy::Declared(provider.prompt_cache.unwrap_or_default()),
         };
@@ -276,7 +276,7 @@ pub fn route_for_model(
     provider_id: &str,
     model_id: &str,
 ) -> Option<(
-    nuo_contracts::WireProtocol,
+    nuo_model_codec::WireProtocol,
     String,
     Option<Cow<'static, str>>,
 )> {
@@ -291,7 +291,7 @@ pub fn route_for_model(
 
 impl ModelProviderSpec {
     pub fn validate(&self) -> Result<(), String> {
-        nuo_contracts::ApiRoot::parse(&self.root_url)?;
+        nuo_model_codec::ApiRoot::parse(&self.root_url)?;
         if !self.dialect.supports(self.protocol) {
             return Err(format!(
                 "provider `{}` has an incompatible default protocol",
@@ -303,15 +303,15 @@ impl ModelProviderSpec {
             if !seen.insert(*wire) {
                 return Err(format!("duplicate protocol root for {wire}"));
             }
-            nuo_contracts::ApiRoot::parse(root)?;
+            nuo_model_codec::ApiRoot::parse(root)?;
         }
         if let Some(root) = &self.catalog_root_url {
-            nuo_contracts::ApiRoot::parse(root)?;
+            nuo_model_codec::ApiRoot::parse(root)?;
         }
         Ok(())
     }
 
-    pub fn model_protocol(&self, model_id: &str) -> nuo_contracts::WireProtocol {
+    pub fn model_protocol(&self, model_id: &str) -> nuo_model_codec::WireProtocol {
         self.baselines
             .iter()
             .find(|model| model.id == model_id)
@@ -320,14 +320,14 @@ impl ModelProviderSpec {
     }
 
     /// Convert a provider root to the exact endpoint representation required by the wire adapter.
-    pub fn endpoint(&self, protocol: nuo_contracts::WireProtocol) -> Result<String, String> {
+    pub fn endpoint(&self, protocol: nuo_model_codec::WireProtocol) -> Result<String, String> {
         let root = self
             .protocol_roots
             .iter()
             .find(|(wire, _)| *wire == protocol)
             .map(|(_, root)| root.as_ref())
             .unwrap_or(&self.root_url);
-        let root = nuo_contracts::ApiRoot::parse(root)?;
+        let root = nuo_model_codec::ApiRoot::parse(root)?;
         Ok(endpoint_for(self.dialect, &root, protocol))
     }
 
@@ -341,11 +341,11 @@ impl ModelProviderSpec {
 /// through here exactly like the spec's compiled-in roots, so both surfaces
 /// share one algebra.
 pub fn endpoint_for(
-    dialect: nuo_contracts::ProviderDialect,
-    root: &nuo_contracts::ApiRoot,
-    protocol: nuo_contracts::WireProtocol,
+    dialect: nuo_model_codec::ProviderDialect,
+    root: &nuo_model_codec::ApiRoot,
+    protocol: nuo_model_codec::WireProtocol,
 ) -> String {
-    use nuo_contracts::{ProviderDialect, WireProtocol};
+    use nuo_model_codec::{ProviderDialect, WireProtocol};
     match (protocol, dialect) {
         (WireProtocol::GoogleGemini, _) | (_, ProviderDialect::Qoder) => root.as_str().to_string(),
         (WireProtocol::ChatCompletions, _) => root.append("chat/completions"),
@@ -354,7 +354,7 @@ pub fn endpoint_for(
     }
 }
 
-/// Construct the concrete `Provider` for a [`nuo_contracts::catalog::Channel`].
+/// Construct the concrete `Provider` for a [`nuo_model_codec::catalog::Channel`].
 ///
 /// This is the construction layer that knows about every concrete `Provider`
 /// implementation; it lives in `muta-providers` (not `muta-contracts`) so the
@@ -435,7 +435,7 @@ pub fn build_provider_for_channel(
             // anything unset keeps that default. Effort is clamped to the
             // model's registered levels at request-build time.
             let mut cfg =
-                ThinkingConfig::for_model(&nuo_contracts::model::resolve(&channel.model));
+                ThinkingConfig::for_model(&nuo_model_codec::model::resolve(&channel.model));
             if let Some(mode) = thinking {
                 cfg = cfg.with_mode(*mode);
             }
@@ -478,7 +478,7 @@ pub fn build_provider_for_channel(
             .with_dialect(*dialect)
             .with_catalog_provenance(catalog_source, display_name)
             .with_id(entry_id.to_string());
-            if *dialect == nuo_contracts::OpenAiChatDialect::Qoder {
+            if *dialect == nuo_model_codec::OpenAiChatDialect::Qoder {
                 provider = provider.with_pipeline(qoder::build_qoder_pipeline());
             }
             if let Some(sid) = session_id {
@@ -516,22 +516,22 @@ pub fn build_provider_for_channel(
 }
 
 /// Resolve the effort a channel's request actually carries: the explicit
-/// override when set, otherwise the shared [`nuo_contracts::Effort::channel_default`]
+/// override when set, otherwise the shared [`nuo_model_codec::Effort::channel_default`]
 /// for a model that advertises an effort ladder. Used by the OpenAI-family
 /// factory arms so the wire can never omit the reasoning control the picker
 /// already promises (`None` remains `None` for ladder-less models — no
 /// `reasoning_effort` field is stamped for them at request-build time).
 fn effective_channel_effort(
-    override_effort: Option<nuo_contracts::Effort>,
-    capabilities: &nuo_contracts::ModelCapabilities,
-) -> Option<nuo_contracts::Effort> {
+    override_effort: Option<nuo_model_codec::Effort>,
+    capabilities: &nuo_model_codec::ModelCapabilities,
+) -> Option<nuo_model_codec::Effort> {
     override_effort.or_else(|| {
-        let known: Vec<nuo_contracts::Effort> = capabilities
+        let known: Vec<nuo_model_codec::Effort> = capabilities
             .effort_levels
             .iter()
-            .filter_map(nuo_contracts::EffortLevel::as_known)
+            .filter_map(nuo_model_codec::EffortLevel::as_known)
             .collect();
-        nuo_contracts::Effort::channel_default(&capabilities.family, &known)
+        nuo_model_codec::Effort::channel_default(&capabilities.family, &known)
     })
 }
 
@@ -575,7 +575,7 @@ mod spec_tests {
     fn user_declared_provider_can_be_registered_and_resolved() {
         let test_id = "test-corp-relay";
         let custom_spec = ModelProviderSpec {
-            dialect: nuo_contracts::ProviderDialect::Standard,
+            dialect: nuo_model_codec::ProviderDialect::Standard,
             protocol_roots: Cow::Borrowed(&[]),
             catalog_root_url: None,
             prompt_cache: PromptCachePolicy::Compiled(unsupported_prompt_cache),
@@ -583,10 +583,10 @@ mod spec_tests {
             baselines: &[],
             root_url: Cow::Borrowed("https://relay.example.com/v1"),
             user_agent: None,
-            protocol: nuo_contracts::WireProtocol::ChatCompletions,
+            protocol: nuo_model_codec::WireProtocol::ChatCompletions,
             models: &[],
             catalog_source: RemoteCatalogSource::None,
-            default_client_profile: nuo_contracts::ClientPreset::Cursor,
+            default_client_profile: nuo_model_codec::ClientPreset::Cursor,
             client_profile_sensitive: false,
         };
         register_user_declared_provider(custom_spec).unwrap();
@@ -595,7 +595,7 @@ mod spec_tests {
         assert_eq!(resolved.root_url, "https://relay.example.com/v1");
         assert_eq!(
             resolved.default_client_profile,
-            nuo_contracts::ClientPreset::Cursor
+            nuo_model_codec::ClientPreset::Cursor
         );
     }
 
@@ -608,7 +608,7 @@ mod spec_tests {
             .iter()
             .map(|spec| spec.id.as_ref())
             .collect();
-        let mut contract: Vec<&str> = nuo_contracts::model_providers::MODEL_PROVIDER_IDS.to_vec();
+        let mut contract: Vec<&str> = nuo_model_codec::model_providers::MODEL_PROVIDER_IDS.to_vec();
         registry.sort_unstable();
         contract.sort_unstable();
         assert_eq!(registry, contract);
@@ -629,7 +629,7 @@ mod spec_tests {
         // `Model` is not `PartialEq`, so compare a derived signature instead.
         use std::collections::HashMap;
 
-        fn signature(m: &nuo_contracts::Model) -> String {
+        fn signature(m: &nuo_model_codec::Model) -> String {
             format!(
                 "{:?}|{:?}|{}|{}|{:?}|{:?}",
                 m.context_window,
@@ -685,7 +685,7 @@ mod spec_tests {
         // Another provider's known model ID cannot inject a protocol here.
         assert_eq!(
             google.model_protocol("claude-sonnet-4-6"),
-            nuo_contracts::WireProtocol::GoogleGemini
+            nuo_model_codec::WireProtocol::GoogleGemini
         );
         for (id, model) in [
             ("deepseek", "deepseek-v4-pro"),
@@ -694,7 +694,7 @@ mod spec_tests {
             let spec = model_provider_spec(id).unwrap();
             assert_eq!(
                 spec.model_protocol(model),
-                nuo_contracts::WireProtocol::Responses
+                nuo_model_codec::WireProtocol::Responses
             );
         }
         for spec in MODEL_PROVIDER_SPECS {
@@ -713,7 +713,7 @@ mod spec_tests {
     #[test]
     fn opencode_baselines_route_by_console_surface() {
         let (wire, endpoint, _) = route_for_model("opencode", "deepseek-v4-flash").unwrap();
-        assert_eq!(wire, nuo_contracts::WireProtocol::ChatCompletions);
+        assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
         assert_eq!(
             endpoint,
             "https://opencode.ai/inference/openai/v1/chat/completions"
@@ -723,19 +723,19 @@ mod spec_tests {
     #[test]
     fn opencode_go_baselines_route_by_zen_go_surface() {
         let (wire, endpoint, _) = route_for_model("opencode-go", "minimax-m3").unwrap();
-        assert_eq!(wire, nuo_contracts::WireProtocol::AnthropicMessages);
+        assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
         assert_eq!(
             endpoint,
             "https://opencode.ai/zen/go/v1/messages"
         );
         let (wire, endpoint, _) = route_for_model("opencode-go", "qwen3.6-plus").unwrap();
-        assert_eq!(wire, nuo_contracts::WireProtocol::AnthropicMessages);
+        assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
         assert_eq!(
             endpoint,
             "https://opencode.ai/zen/go/v1/messages"
         );
         let (wire, endpoint, _) = route_for_model("opencode-go", "glm-5.2").unwrap();
-        assert_eq!(wire, nuo_contracts::WireProtocol::ChatCompletions);
+        assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
         assert_eq!(
             endpoint,
             "https://opencode.ai/zen/go/v1/chat/completions"
@@ -745,10 +745,10 @@ mod spec_tests {
     #[test]
     fn opencode_zen_baselines_route_by_zen_surface() {
         let (wire, endpoint, _) = route_for_model("opencode-zen", "claude-sonnet-4-6").unwrap();
-        assert_eq!(wire, nuo_contracts::WireProtocol::AnthropicMessages);
+        assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
         assert_eq!(endpoint, "https://opencode.ai/zen/v1/messages");
         let (wire, endpoint, _) = route_for_model("opencode-zen", "glm-5.2").unwrap();
-        assert_eq!(wire, nuo_contracts::WireProtocol::ChatCompletions);
+        assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
         assert_eq!(endpoint, "https://opencode.ai/zen/v1/chat/completions");
     }
 
@@ -756,7 +756,7 @@ mod spec_tests {
     fn endpoint_for_applies_root_algebra_per_protocol() {
         // The catalog-advertised root override shares one algebra with the
         // compiled spec roots (ADR-0259 + ADR-0269).
-        use nuo_contracts::{ApiRoot, ProviderDialect, WireProtocol};
+        use nuo_model_codec::{ApiRoot, ProviderDialect, WireProtocol};
         let root = ApiRoot::parse("https://opencode.ai/inference/anthropic/v1").unwrap();
         assert_eq!(
             endpoint_for(
@@ -789,16 +789,16 @@ mod build_tests {
             label: "OpenAI".to_string(),
             transport: Transport::OpenAi {
                 base_url: "https://api.openai.com/v1/chat/completions".to_string(),
-                client_profile: nuo_contracts::ClientProfile::from("agent"),
+                client_profile: nuo_model_codec::ClientProfile::from("agent"),
                 effort: None,
                 dialect: Default::default(),
             },
-            credentials: nuo_contracts::static_credential("k"),
+            credentials: nuo_model_codec::static_credential("k"),
             model: "gpt-4o".to_string(),
             remote: None,
             user_overrides: None,
-            prompt_cache_preference: nuo_contracts::PromptCachePreference::default(),
-            prompt_cache: nuo_contracts::PromptCacheCapabilities::unsupported(),
+            prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
+            prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
         };
         let provider = build_provider_for_channel(&channel, "openai", None);
         assert_eq!(provider.provider_id(), "openai");
@@ -818,27 +818,27 @@ mod build_tests {
             transport: Transport::OpenAi {
                 base_url: "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"
                     .to_string(),
-                client_profile: nuo_contracts::ClientProfile::from("agent"),
+                client_profile: nuo_model_codec::ClientProfile::from("agent"),
                 effort: None,
                 dialect: Default::default(),
             },
-            credentials: nuo_contracts::static_credential("k"),
+            credentials: nuo_model_codec::static_credential("k"),
             model: "glm-5.3".to_string(),
             remote: None,
             user_overrides: None,
-            prompt_cache_preference: nuo_contracts::PromptCachePreference::default(),
-            prompt_cache: nuo_contracts::PromptCacheCapabilities::unsupported(),
+            prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
+            prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
         };
         let provider = build_provider_for_channel(&channel, "zai-code", None);
-        assert_eq!(provider.effort(), Some(nuo_contracts::Effort::High));
+        assert_eq!(provider.effort(), Some(nuo_model_codec::Effort::High));
 
         // An explicit override still wins verbatim.
         let mut pinned = channel;
         if let Transport::OpenAi { effort, .. } = &mut pinned.transport {
-            *effort = Some(nuo_contracts::Effort::Low);
+            *effort = Some(nuo_model_codec::Effort::Low);
         }
         let provider = build_provider_for_channel(&pinned, "zai-code", None);
-        assert_eq!(provider.effort(), Some(nuo_contracts::Effort::Low));
+        assert_eq!(provider.effort(), Some(nuo_model_codec::Effort::Low));
     }
 
     #[test]
@@ -851,16 +851,16 @@ mod build_tests {
             label: "OpenAI".to_string(),
             transport: Transport::OpenAi {
                 base_url: "https://api.openai.com/v1/chat/completions".to_string(),
-                client_profile: nuo_contracts::ClientProfile::from("agent"),
+                client_profile: nuo_model_codec::ClientProfile::from("agent"),
                 effort: None,
                 dialect: Default::default(),
             },
-            credentials: nuo_contracts::static_credential("k"),
+            credentials: nuo_model_codec::static_credential("k"),
             model: "gpt-4o".to_string(),
             remote: None,
             user_overrides: None,
-            prompt_cache_preference: nuo_contracts::PromptCachePreference::default(),
-            prompt_cache: nuo_contracts::PromptCacheCapabilities::unsupported(),
+            prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
+            prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
         };
         let provider = build_provider_for_channel(&channel, "openai", None);
         assert_eq!(provider.effort(), None);
@@ -876,17 +876,17 @@ mod build_tests {
             label: "Qwen3.6 Plus".to_string(),
             transport: Transport::Anthropic {
                 base_url: "https://opencode.ai/inference/anthropic/v1/messages".to_string(),
-                client_profile: nuo_contracts::ClientProfile::from("agent"),
+                client_profile: nuo_model_codec::ClientProfile::from("agent"),
                 effort: None,
                 thinking: None,
                 dialect: Default::default(),
             },
-            credentials: nuo_contracts::static_credential("go-key"),
+            credentials: nuo_model_codec::static_credential("go-key"),
             model: "qwen3.6-plus".to_string(),
             remote: None,
             user_overrides: None,
-            prompt_cache_preference: nuo_contracts::PromptCachePreference::default(),
-            prompt_cache: nuo_contracts::PromptCacheCapabilities::unsupported(),
+            prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
+            prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
         };
         let provider = build_provider_for_channel(&channel, "opencode-go", None);
         assert_eq!(provider.provider_id(), "opencode-go");
@@ -895,7 +895,7 @@ mod build_tests {
 
     #[test]
     fn builtin_provider_models_resolve_with_expected_wire_formats() {
-        use nuo_contracts::WireProtocol;
+        use nuo_model_codec::WireProtocol;
         // Every model a multi-model built-in serves must exist in the model
         // registry (so metadata resolves) and carry the wire format its own
         // provider speaks. ADR-0260: protocol selection is provider-scoped, so
@@ -966,7 +966,7 @@ mod build_tests {
         for (provider_id, ids, expected) in cases {
             let spec = model_provider_spec(provider_id).expect("provider resolves");
             for id in ids.iter() {
-                let model = nuo_contracts::model::resolve(id);
+                let model = nuo_model_codec::model::resolve(id);
                 assert_eq!(model.id, *id, "model {id} must be registered");
                 assert_eq!(
                     spec.model_protocol(id),

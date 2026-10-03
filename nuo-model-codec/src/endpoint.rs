@@ -2,7 +2,7 @@
 
 use crate::credentials::CredentialsProvider;
 use crate::error::Result;
-use crate::identity::ClientProfile;
+use crate::client_identity::ClientProfile;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,6 +17,60 @@ pub enum ProviderVendor {
     Google,
     DeepSeek,
     Ollama,
+}
+
+use std::sync::Mutex;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+pub enum TransportObservation {
+    #[default]
+    Unreported,
+    PooledConnection,
+    ColdConnection,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransportTimings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dns_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tcp_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tls_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connected_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_sent_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_ready_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rtt_us: Option<u64>,
+    #[serde(default)]
+    pub retransmits: u32,
+    #[serde(default)]
+    pub observation: TransportObservation,
+    #[serde(skip)]
+    pub dispatch_at: Option<std::time::Instant>,
+}
+
+#[derive(Clone, Default, Debug)]
+pub struct TransportTelemetry(Arc<Mutex<Option<TransportTimings>>>);
+
+impl TransportTelemetry {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(None)))
+    }
+    pub fn publish(&self, timings: TransportTimings) {
+        *self.0.lock().unwrap_or_else(|error| error.into_inner()) = Some(timings);
+    }
+    pub fn snapshot(&self) -> Option<TransportTimings> {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    pub fn read(&self) -> Option<TransportTimings> {
+        self.snapshot()
+    }
 }
 
 /// Target API endpoint configuration.

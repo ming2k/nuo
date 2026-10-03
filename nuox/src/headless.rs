@@ -1,4 +1,4 @@
-use nuo_contracts::{
+use nuo_wire::{
     AgentRequest, AgentResponse, PermissionDecision, PermissionRequest, RoundEvent,
     UserQuestionRequest,
 };
@@ -66,9 +66,9 @@ pub async fn run_headless(
     // this client fabricate answers below (the old `options.first()` bug).
     {
         client::set_posture(if io::stderr().is_terminal() {
-            nuo_contracts::human_request::HumanChannelPosture::Interactive
+            nuo_wire::human_request::HumanChannelPosture::Interactive
         } else {
-            nuo_contracts::human_request::HumanChannelPosture::Autonomous
+            nuo_wire::human_request::HumanChannelPosture::Autonomous
         });
     }
     let init_options = nuo_client::SessionInitOptions::new(unattended, confined)
@@ -180,11 +180,11 @@ pub async fn run_headless(
                 RoundEvent::ToolStream { id, stream } => {
                     if !json {
                         match stream {
-                            nuo_contracts::ToolStream::Stdout(text) => {
+                            nuo_wire::ToolStream::Stdout(text) => {
                                 let _ = io::stderr().write_all(text.as_bytes());
                                 let _ = io::stderr().flush();
                             }
-                            nuo_contracts::ToolStream::Stderr(text) => {
+                            nuo_wire::ToolStream::Stderr(text) => {
                                 let _ = io::stderr().write_all(text.as_bytes());
                                 let _ = io::stderr().flush();
                             }
@@ -217,10 +217,10 @@ pub async fn run_headless(
                     } else {
                         let is_error = matches!(
                             structured,
-                            nuo_contracts::ToolOutput::Error { .. }
-                                | nuo_contracts::ToolOutput::PermissionDenied { .. }
+                            nuo_wire::ToolOutput::Error { .. }
+                                | nuo_wire::ToolOutput::PermissionDenied { .. }
                         ) || match &structured {
-                            nuo_contracts::ToolOutput::Shell { exit, .. } => {
+                            nuo_wire::ToolOutput::Shell { exit, .. } => {
                                 exit.is_some_and(|code| code != 0)
                             }
                             _ => false,

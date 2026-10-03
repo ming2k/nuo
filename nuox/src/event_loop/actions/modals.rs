@@ -6,7 +6,7 @@
 
 use std::sync::atomic::Ordering;
 
-use nuo_contracts::AgentRequest;
+use nuo_wire::AgentRequest;
 
 use crate::App;
 use crate::overlays;
@@ -23,10 +23,10 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
         let name = app.custom_name.trim().to_string();
         let protocol = app
             .custom_protocol_wire
-            .parse::<nuo_contracts::WireProtocol>()
+            .parse::<nuo_wire::WireProtocol>()
             .expect("provider editor must carry a registered wire protocol");
         let base_url = app.custom_base_url.trim().to_string();
-        let api_key = nuo_contracts::SecretString::from(app.custom_token.trim());
+        let api_key = nuo_wire::SecretString::from(app.custom_token.trim());
         if let Some(key) = app.custom_edit_id.clone() {
             // Edit mode: update meta (models stay managed in
             // the Models picker). A name is still required.
@@ -162,7 +162,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
 }
 
 /// Loop stage (input dispatch): the `OpenModelEditor` arm.
-pub(super) fn handle_open_model_editor(app: &mut App) {
+pub(crate) fn handle_open_model_editor(app: &mut App) {
     if app.active_dialog() == Some(DialogKind::Models) {
         // `e` on a flat model row. The per-model settings popup
         // opens for any model that exposes effort and/or a
@@ -186,7 +186,7 @@ pub(super) fn handle_open_model_editor(app: &mut App) {
             // cleared and prefill when the `RouteSettings` answer lands.
             app.editor_vision_override = None;
             app.editor_tool_override = None;
-            app.send_intent(nuo_contracts::AgentRequest::QueryRouteSettings {
+            app.send_intent(nuo_wire::AgentRequest::QueryRouteSettings {
                 provider_id: row.provider_id.clone(),
                 model: row.model.clone(),
             });
@@ -195,10 +195,27 @@ pub(super) fn handle_open_model_editor(app: &mut App) {
             // ladder — a ladder without `medium` (e.g. Kimi
             // K3's low/high/max) must still open with a rung
             // the segmented selector can highlight.
+            //
+            // The ladder itself comes from the snapshot row (the daemon's
+            // ADR-0149 resolution), never from `resolve_model`: this client
+            // does not link `nuo-providers`, so the static baseline tables are
+            // absent here and a client-side resolve would yield an empty
+            // ladder — which is exactly what collapsed the node slider.
+            //
+            // The default is clamped with the canonical `Effort::clamp_to`
+            // (via `clamp_to_levels`, which also honors provider tiers the
+            // vocabulary does not name). Re-implementing the clamp here by
+            // hand is how the open value drifted from the documented
+            // "medium clamped onto the ladder" rule.
+            app.editor_effort_levels = row.effort_levels.clone();
             app.editor_effort = row.effort.clone().unwrap_or_else(|| {
-                let model = nuo_contracts::resolve_model(&row.model);
-                nuo_contracts::effort::Effort::Medium
-                    .clamp_to(model.effort_levels)
+                let levels: Vec<nuo_wire::EffortLevel> = row
+                    .effort_levels
+                    .iter()
+                    .map(|l| nuo_wire::EffortLevel::parse(l))
+                    .collect();
+                nuo_wire::Effort::Medium
+                    .clamp_to_levels(&levels)
                     .as_str()
                     .to_string()
             });
@@ -234,6 +251,7 @@ pub(super) fn handle_open_model_editor(app: &mut App) {
                 app.editor_model_settings_only = false;
                 app.editor_target_is_builtin = false;
                 app.editor_effort = "high".to_string();
+                app.editor_effort_levels.clear();
                 app.editor_thinking_available = false;
                 app.editor_vision_override = None;
                 app.editor_tool_override = None;
@@ -264,9 +282,9 @@ pub(super) fn handle_open_model_editor(app: &mut App) {
                         String::new(),
                         String::new(),
                         String::new(),
-                        nuo_contracts::ConnectionAuth::ApiKey,
+                        nuo_wire::ConnectionAuth::ApiKey,
                         true,
-                        nuo_contracts::ClientIdentity::Native,
+                        nuo_wire::ClientIdentity::Native,
                     ));
                 app.model_search = false;
                 app.open_edit_provider_editor(
@@ -296,15 +314,15 @@ pub(super) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
             };
             let mut parts = payload.splitn(2, ':');
             let axis = match parts.next() {
-                Some("search") => nuo_contracts::WebProviderAxis::Search,
-                Some("reader") => nuo_contracts::WebProviderAxis::Reader,
+                Some("search") => nuo_wire::WebProviderAxis::Search,
+                Some("reader") => nuo_wire::WebProviderAxis::Reader,
                 _ => return ActionFlow::NextEvent,
             };
             let provider_id = parts.next().unwrap_or_default().to_string();
             app.send_intent(AgentRequest::UpdateWebSearchConfig(Box::new(
-                nuo_contracts::WebSearchConfigUpdate {
+                nuo_wire::WebSearchConfigUpdate {
                     expected_revision,
-                    credential: Some(nuo_contracts::WebCredentialUpdate {
+                    credential: Some(nuo_wire::WebCredentialUpdate {
                         axis,
                         provider_id,
                         value: app.input.trim().to_string(),
@@ -326,7 +344,7 @@ pub(super) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
                 return ActionFlow::NextEvent;
             };
             app.send_intent(AgentRequest::UpdateWebSearchConfig(Box::new(
-                nuo_contracts::WebSearchConfigUpdate {
+                nuo_wire::WebSearchConfigUpdate {
                     expected_revision,
                     searxng_url: Some(app.input.trim().to_string()),
                     ..Default::default()
@@ -368,7 +386,7 @@ pub(super) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
                     model,
                     effort: Some(effort),
                     thinking: app.editor_thinking_available.then_some(app.editor_thinking),
-                    overrides: Some(nuo_contracts::CapabilityOverrides {
+                    overrides: Some(nuo_wire::CapabilityOverrides {
                         vision: app.editor_vision_override,
                         tool_call: app.editor_tool_override,
                         ..Default::default()
@@ -380,7 +398,7 @@ pub(super) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
                     model,
                     effort: Some(effort),
                     thinking: app.editor_thinking_available.then_some(app.editor_thinking),
-                    overrides: Some(nuo_contracts::CapabilityOverrides {
+                    overrides: Some(nuo_wire::CapabilityOverrides {
                         vision: app.editor_vision_override,
                         tool_call: app.editor_tool_override,
                         ..Default::default()
@@ -398,7 +416,6 @@ pub(super) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
             app.model_search = false;
             app.model_modal_follow = true;
             app.pop_transient_surface();
-            arm_effort_ignition_if_max(app);
             return ActionFlow::NextEvent;
         }
         // Key editor (not model-settings-only): this is a
@@ -860,12 +877,6 @@ pub(crate) fn effective_reasoning_effort(app: &App) -> Option<&str> {
         })
 }
 
-pub(crate) fn arm_effort_ignition_if_max(app: &mut App) {
-    if effective_reasoning_effort(app) == Some("max") && app.effort_ignition_epoch.is_none() {
-        app.effort_ignition_epoch = Some(std::time::Instant::now());
-    }
-}
-
 pub(crate) fn activate_picked_model(app: &mut App, id: String, model: String, key_ready: bool) {
     if key_ready {
         app.send_intent(AgentRequest::SwitchConnection {
@@ -874,13 +885,12 @@ pub(crate) fn activate_picked_model(app: &mut App, id: String, model: String, ke
             api_key: None,
             base_url: None,
         });
-        arm_effort_ignition_if_max(app);
         app.dismiss_surface();
     } else if app.provider_row_auth(&id).is_oauth() {
         let auth = app.provider_row_auth(&id);
         let method = auth
             .default_login_method()
-            .unwrap_or(nuo_contracts::LoginMethod::Device);
+            .unwrap_or(nuo_wire::LoginMethod::Device);
         app.send_intent(AgentRequest::ConnectConnection { name: id, method });
         app.dismiss_surface();
     } else {
@@ -892,6 +902,7 @@ pub(crate) fn activate_picked_model(app: &mut App, id: String, model: String, ke
         app.editor_model_settings_only = false;
         app.editor_target_is_builtin = false;
         app.editor_effort = "high".to_string();
+        app.editor_effort_levels.clear();
         app.editor_thinking = true;
         app.input.clear();
         app.set_cursor(0);
@@ -927,12 +938,12 @@ pub(crate) async fn handle_permission_submit(
     }
     if let Some(request) = app.pending_permission.take() {
         let decision = if app.permission_confirm_always {
-            nuo_contracts::PermissionDecision::Always
+            nuo_wire::PermissionDecision::Always
         } else {
             match app.modal_index {
-                0 => nuo_contracts::PermissionDecision::Once,
-                i if i == reject_idx => nuo_contracts::PermissionDecision::Reject,
-                _ => nuo_contracts::PermissionDecision::Reject,
+                0 => nuo_wire::PermissionDecision::Once,
+                i if i == reject_idx => nuo_wire::PermissionDecision::Reject,
+                _ => nuo_wire::PermissionDecision::Reject,
             }
         };
         let request_id = request.id;
@@ -942,14 +953,14 @@ pub(crate) async fn handle_permission_submit(
             decision,
             parent_call_id,
         });
-        if decision == nuo_contracts::PermissionDecision::Reject {
-            let queued: Vec<nuo_contracts::PermissionRequest> =
+        if decision == nuo_wire::PermissionDecision::Reject {
+            let queued: Vec<nuo_wire::PermissionRequest> =
                 app.pending_permissions.drain(..).collect();
             for pending in queued {
                 let parent_call_id = app.subagent_permission_parent.remove(&pending.id);
                 app.send_intent(AgentRequest::PermissionReply {
                     request_id: pending.id,
-                    decision: nuo_contracts::PermissionDecision::Reject,
+                    decision: nuo_wire::PermissionDecision::Reject,
                     parent_call_id,
                 });
             }
@@ -1085,7 +1096,7 @@ mod tests {
         // Simulate the mounted sheet exactly as the per-frame sync leaves it:
         // slot state set, no router transient pushed on top of the session view.
         let request = {
-            use nuo_contracts::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+            use nuo_wire::{UserQuestion, UserQuestionOption, UserQuestionRequest};
             UserQuestionRequest {
                 id: "q1".into(),
                 questions: vec![UserQuestion {

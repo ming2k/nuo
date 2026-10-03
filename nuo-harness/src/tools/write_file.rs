@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use nuo_contracts::Tool;
+use nuo_wire::Tool;
 use nuo_tool::ToolSchema;
 use serde::Deserialize;
 
@@ -31,7 +31,7 @@ struct WriteFileArgs {
 /// project, and a write is exactly where that divergence does damage.
 pub struct WriteFileTool {
     pub(crate) root: WorkspaceBase,
-    pub(crate) env: Option<std::sync::Arc<dyn nuo_contracts::ExecutionEnvironment>>,
+    pub(crate) env: Option<std::sync::Arc<dyn nuo_wire::ExecutionEnvironment>>,
 }
 
 impl WriteFileTool {
@@ -39,7 +39,7 @@ impl WriteFileTool {
         Self { root, env: None }
     }
 
-    pub fn with_env(env: std::sync::Arc<dyn nuo_contracts::ExecutionEnvironment>) -> Self {
+    pub fn with_env(env: std::sync::Arc<dyn nuo_wire::ExecutionEnvironment>) -> Self {
         let root = Some(env.workspace_root().to_path_buf());
         Self {
             root,
@@ -59,23 +59,23 @@ impl Tool for WriteFileTool {
     fn parameters(&self) -> serde_json::Value {
         WriteFileArgs::parameters_schema()
     }
-    fn scope_target(&self, arguments: &str) -> nuo_contracts::ScopeTarget {
-        nuo_contracts::ScopeTarget::Path(std::path::PathBuf::from(json_string(arguments, "path")))
+    fn scope_target(&self, arguments: &str) -> nuo_wire::ScopeTarget {
+        nuo_wire::ScopeTarget::Path(std::path::PathBuf::from(json_string(arguments, "path")))
     }
-    fn hazard_level(&self) -> nuo_contracts::HazardLevel {
-        nuo_contracts::HazardLevel::FileModification
+    fn hazard_level(&self) -> nuo_wire::HazardLevel {
+        nuo_wire::HazardLevel::FileModification
     }
     fn permission_submission(
         &self,
         arguments: &str,
-    ) -> Option<nuo_contracts::ToolPermissionSubmission> {
+    ) -> Option<nuo_wire::ToolPermissionSubmission> {
         let path = json_string(arguments, "path");
-        Some(nuo_contracts::ToolPermissionSubmission {
-            hazard_level: nuo_contracts::HazardLevel::FileModification,
+        Some(nuo_wire::ToolPermissionSubmission {
+            hazard_level: nuo_wire::HazardLevel::FileModification,
             label: format!("Write file `{path}`"),
             description: format!("Creates or overwrites file `{path}` with new content."),
             scope: path.clone(),
-            payload: nuo_contracts::ToolPermissionPayload::FileEdit {
+            payload: nuo_wire::ToolPermissionPayload::FileEdit {
                 paths: vec![path],
                 operation: "write_file".to_string(),
             },
@@ -85,7 +85,7 @@ impl Tool for WriteFileTool {
         self.call_structured(arguments).await.map(|o| o.to_text())
     }
 
-    async fn call_structured(&self, arguments: &str) -> Result<nuo_contracts::ToolOutput, String> {
+    async fn call_structured(&self, arguments: &str) -> Result<nuo_wire::ToolOutput, String> {
         let args: WriteFileArgs =
             serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {}", e))?;
         let path = &args.path;
@@ -118,9 +118,9 @@ impl Tool for WriteFileTool {
         Ok(super::syntax_guard::mutation_output(
             &resolved,
             content,
-            nuo_contracts::ToolOutput::Patch {
+            nuo_wire::ToolOutput::Patch {
                 path: path.to_string(),
-                op: nuo_contracts::PatchOp::Create,
+                op: nuo_wire::PatchOp::Create,
                 old: String::new(),
                 new: content.to_string(),
                 start_line: 0,
@@ -129,7 +129,7 @@ impl Tool for WriteFileTool {
         ))
     }
 }
-nuo_contracts::register_tool!(WriteFileFactory => |ctx| WriteFileTool {
+nuo_wire::register_tool!(WriteFileFactory => |ctx| WriteFileTool {
     root: workspace_base(ctx),
     env: Some(execution_environment(ctx)),
 });

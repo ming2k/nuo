@@ -21,7 +21,7 @@
 
 use std::collections::HashMap;
 
-use nuo_contracts::{
+use nuo_wire::{
     InputRequest, PermissionRequest, ProviderPickerSnapshot, SessionOverview, SubagentEvent,
     ToolStream, UserQuestionRequest,
 };
@@ -39,7 +39,7 @@ pub(crate) struct CompletionSignal {
     pub request_id: u64,
     pub input: String,
     pub cursor: usize,
-    pub items: Vec<nuo_contracts::InputCompletion>,
+    pub items: Vec<nuo_wire::InputCompletion>,
 }
 
 /// Which transcript document a mutation targets.
@@ -110,7 +110,7 @@ pub(crate) enum TranscriptEdit {
         id: String,
         name: String,
         output: String,
-        structured: nuo_contracts::ToolOutput,
+        structured: nuo_wire::ToolOutput,
         duration_ms: u64,
         fallback: Option<TranscriptMessage>,
     },
@@ -145,7 +145,7 @@ pub(crate) enum TranscriptEdit {
     /// this invocation, or append the fallback component.
     SettleCommandResult {
         invocation: String,
-        result: nuo_contracts::CommandResult,
+        result: nuo_wire::CommandResult,
         fallback: Option<TranscriptMessage>,
     },
     /// The newest user prompt matching the interruption semantics is marked
@@ -153,7 +153,7 @@ pub(crate) enum TranscriptEdit {
     /// notice preserving diagnostics, and a round-interrupt projection row is
     /// appended.
     Interrupted {
-        record: nuo_contracts::RoundInterrupt,
+        record: nuo_wire::RoundInterrupt,
     },
     /// The newest user prompt is marked cancelled (transport-level retraction).
     CancelLastUserPrompt,
@@ -209,7 +209,7 @@ pub(crate) enum ChromeEdit {
     /// The round ended (interrupt / error): retire the live surface.
     RoundEnded,
     /// The turn finished; performance snapshot for the Activity modal.
-    TurnPerformance(Box<nuo_contracts::TurnPerformanceSnapshot>),
+    TurnPerformance(Box<nuo_wire::TurnPerformanceSnapshot>),
     /// The session's in-flight model request was retried (`RetryScheduled`):
     /// publish the setback clause beside its phase.
     ///
@@ -237,7 +237,7 @@ pub(crate) enum AppMutation {
     },
 
     // Session lifecycle / harness.
-    Harness(nuo_contracts::HarnessSnapshot),
+    Harness(nuo_wire::HarnessSnapshot),
     HarnessUnattended(bool),
     HarnessConfined(bool),
     ClearSwitchingSession,
@@ -307,22 +307,22 @@ pub(crate) enum AppMutation {
     /// snapshot cannot know about yet, and mirror the daemon's paused flag.
     QueueSnapshot {
         session_id: String,
-        items: Vec<nuo_contracts::QueuedMessage>,
+        items: Vec<nuo_wire::QueuedMessage>,
         paused: bool,
     },
     // Views / panels / modal data.
-    ParentStatus(nuo_contracts::ParentStatus),
+    ParentStatus(nuo_wire::ParentStatus),
     SideView(SideViewSignal),
-    BtwList(Vec<nuo_contracts::BtwAsideSummary>),
+    BtwList(Vec<nuo_wire::BtwAsideSummary>),
     /// The daemon's persisted prompt input history (the daemon is the SSOT;
     /// the TUI never opens the database itself).
-    InputHistory(Vec<nuo_contracts::HistoryEntry>),
+    InputHistory(Vec<nuo_wire::HistoryEntry>),
     /// Stored capability overrides for one provider/model route — the model
     /// editor's prefill, delivered after the editor opened.
     RouteSettings {
         provider_id: String,
         model: String,
-        overrides: Option<nuo_contracts::model::CapabilityOverrides>,
+        overrides: Option<nuo_wire::model::CapabilityOverrides>,
     },
     KeyStatus(HashMap<String, bool>),
     ProviderPicker(ProviderPickerSnapshot),
@@ -330,19 +330,19 @@ pub(crate) enum AppMutation {
     OpenSessionsPanel,
     OpenTreePanel,
     OpenHostPanel,
-    SessionDetail(nuo_contracts::SessionDetail),
-    ConnectionDetail(nuo_contracts::ConnectionDetail),
-    TokenReport(Option<nuo_contracts::TokenSourceReport>),
-    UsageStats(nuo_contracts::usage_stats::UsageStatsReport),
-    SessionTree(nuo_contracts::SessionTree),
-    SessionContext(nuo_contracts::SessionContextSnapshot),
+    SessionDetail(nuo_wire::SessionDetail),
+    ConnectionDetail(nuo_wire::ConnectionDetail),
+    TokenReport(Option<nuo_wire::TokenSourceReport>),
+    UsageStats(nuo_wire::usage_stats::UsageStatsReport),
+    SessionTree(nuo_wire::SessionTree),
+    SessionContext(nuo_wire::SessionContextSnapshot),
     CompletionSignal(CompletionSignal),
     NoticeToast {
         severity: NoticeSeverity,
         text: String,
     },
     Oauth(OauthAddSignal),
-    WebSearchConfig(Option<nuo_contracts::WebSearchConfigView>),
+    WebSearchConfig(Option<nuo_wire::WebSearchConfigView>),
     PreAttach(PreAttachSignal),
     ProviderSwitched {
         provider: String,
@@ -350,12 +350,12 @@ pub(crate) enum AppMutation {
     },
     ContextTokens {
         session_id: String,
-        snapshot: nuo_contracts::ContextTokenSnapshot,
+        snapshot: nuo_wire::ContextTokenSnapshot,
     },
     ClearContextTokens,
     Quit,
-    HostSessions(Vec<nuo_contracts::MonitoredSession>),
-    PersistenceHealth(Option<nuo_contracts::monitor::PersistenceHealth>),
+    HostSessions(Vec<nuo_wire::MonitoredSession>),
+    PersistenceHealth(Option<nuo_wire::monitor::PersistenceHealth>),
     /// A dashboard console receipt (ADR-0097 §3): appended to
     /// `App::host_console_log` by the applier.
     HostConsole(crate::overlays::ConsoleLine),

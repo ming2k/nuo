@@ -21,7 +21,7 @@
 //!    request is always wire-valid: every `tool` result references a known
 //!    preceding `tool_call`, and every assistant `tool_calls` has its results.
 
-use nuo_contracts::{Effort, Message, OpenAiChatDialect, Role};
+use nuo_model_codec::{Effort, Message, OpenAiChatDialect, Role};
 use serde_json::{Value, json};
 
 /// The headers this wire format requires on every request, beyond the
@@ -66,16 +66,16 @@ pub struct BodyInput<'a> {
     pub model: &'a str,
     pub stream: bool,
     /// Structured instructions to project as the leading system message.
-    pub instructions: Option<&'a nuo_contracts::InstructionBundle>,
+    pub instructions: Option<&'a nuo_model_codec::InstructionBundle>,
     /// OpenAI-shaped tool specs (`{type:"function", function:{...}}`), if any.
-    pub tool_specs: Option<&'a [nuo_contracts::ToolSpec]>,
+    pub tool_specs: Option<&'a [nuo_model_codec::ToolSpec]>,
     /// Optional OpenAI reasoning-effort override. `None` omits the field and
     /// keeps the model/provider default.
     pub reasoning_effort: Option<Effort>,
     /// Provider-specific behavior layered on the shared Chat Completions wire.
     pub dialect: OpenAiChatDialect,
     /// Cache controls resolved against this exact provider route.
-    pub cache_plan: &'a nuo_contracts::ResolvedCachePolicy,
+    pub cache_plan: &'a nuo_model_codec::ResolvedCachePolicy,
 }
 
 /// Build the chat-completions request body.
@@ -91,7 +91,7 @@ pub struct BodyInput<'a> {
 /// reach the wire. Serialization is therefore a pure projection of the
 /// session: no field on the wire exists that the session did not produce.
 pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
-    let capabilities = nuo_contracts::ModelCapabilities::for_channel(input.model, None);
+    let capabilities = nuo_model_codec::ModelCapabilities::for_channel(input.model, None);
     body_with_capabilities(messages, input, &capabilities)
 }
 
@@ -101,7 +101,7 @@ pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
 pub fn body_with_capabilities(
     messages: Vec<Message>,
     input: BodyInput<'_>,
-    capabilities: &nuo_contracts::ModelCapabilities,
+    capabilities: &nuo_model_codec::ModelCapabilities,
 ) -> Value {
     let BodyInput {
         model: model_id,
@@ -336,17 +336,17 @@ pub fn content(m: &Message) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::ToolCall;
+    use nuo_model_codec::ToolCall;
 
-    static DEFAULT_CACHE_PLAN: nuo_contracts::ResolvedCachePolicy =
-        nuo_contracts::ResolvedCachePolicy::Unsupported;
+    static DEFAULT_CACHE_PLAN: nuo_model_codec::ResolvedCachePolicy =
+        nuo_model_codec::ResolvedCachePolicy::Unsupported;
 
     fn test_body_input<'a>(
         model: &'a str,
         stream: bool,
-        tool_specs: Option<&'a [nuo_contracts::ToolSpec]>,
+        tool_specs: Option<&'a [nuo_model_codec::ToolSpec]>,
         reasoning_effort: Option<Effort>,
-        cache_plan: &'a nuo_contracts::ResolvedCachePolicy,
+        cache_plan: &'a nuo_model_codec::ResolvedCachePolicy,
     ) -> BodyInput<'a> {
         BodyInput {
             model,
@@ -361,12 +361,12 @@ mod tests {
 
     /// Route capabilities with only the vision declaration varied, for the
     /// image-projection tests below.
-    fn caps_with_vision(vision: Option<bool>) -> nuo_contracts::ModelCapabilities {
-        nuo_contracts::ModelCapabilities {
+    fn caps_with_vision(vision: Option<bool>) -> nuo_model_codec::ModelCapabilities {
+        nuo_model_codec::ModelCapabilities {
             family: "test".into(),
             context_window: 200_000,
             max_output_tokens: None,
-            thinking: nuo_contracts::ReasoningSupport::None,
+            thinking: nuo_model_codec::ReasoningSupport::None,
             tool_call: true,
             vision,
             effort_levels: Vec::new(),
@@ -374,7 +374,7 @@ mod tests {
     }
 
     fn image_message(text: &str) -> Message {
-        Message::new(Role::User, text).with_images(vec![nuo_contracts::ImagePart {
+        Message::new(Role::User, text).with_images(vec![nuo_model_codec::ImagePart {
             mime: "image/png".to_string(),
             data: "aGk=".to_string(),
         }])
@@ -471,11 +471,11 @@ mod tests {
             tool_call_id: Some("call_1".into()),
             ..Message::new(Role::Tool, "")
         };
-        let capabilities = nuo_contracts::ModelCapabilities {
+        let capabilities = nuo_model_codec::ModelCapabilities {
             family: "nex".into(),
             context_window: 262_144,
             max_output_tokens: Some(235_929),
-            thinking: nuo_contracts::ReasoningSupport::ReasoningContent,
+            thinking: nuo_model_codec::ReasoningSupport::ReasoningContent,
             tool_call: true,
             vision: Some(true),
             effort_levels: vec![
@@ -523,8 +523,8 @@ mod tests {
 
     #[test]
     fn request_injects_prompt_cache_key_when_present() {
-        let cache_plan = nuo_contracts::ResolvedCachePolicy::Enabled {
-            mode: nuo_contracts::PromptCacheMode::Implicit,
+        let cache_plan = nuo_model_codec::ResolvedCachePolicy::Enabled {
+            mode: nuo_model_codec::PromptCacheMode::Implicit,
             retention: None,
             routing_key: Some("session-42".into()),
             max_breakpoints: None,

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_contracts::{ExecutionEnvironment, Tool, ToolAccesses};
+use nuo_wire::{ExecutionEnvironment, Tool, ToolAccesses};
 use nuo_tool::ToolSchema;
 use serde::Deserialize;
 
@@ -98,15 +98,15 @@ impl Tool for ListDirTool {
         Ok(output)
     }
 
-    async fn call_structured(&self, arguments: &str) -> Result<nuo_contracts::ToolOutput, String> {
+    async fn call_structured(&self, arguments: &str) -> Result<nuo_wire::ToolOutput, String> {
         let output = self.call(arguments).await?;
-        Ok(nuo_contracts::ToolOutput::Listing {
+        Ok(nuo_wire::ToolOutput::Listing {
             entries: output.lines().map(str::to_string).collect(),
         })
     }
 }
 
-nuo_contracts::register_tool!(ListDirFactory => |ctx| ListDirTool {
+nuo_wire::register_tool!(ListDirFactory => |ctx| ListDirTool {
     env: execution_environment(ctx),
 });
 

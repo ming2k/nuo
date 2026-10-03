@@ -1,5 +1,5 @@
 //! Offline policy conversion. No clamping or implicit decision can activate a policy.
-use nuo_contracts::context_lifecycle::{ContextPolicy, WatermarkPolicy};
+use nuo_wire::context_lifecycle::{ContextPolicy, WatermarkPolicy};
 
 /// The legacy `compaction.*` family, as read from an old configuration file.
 ///

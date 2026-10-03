@@ -38,7 +38,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nuo_contracts::ProviderError;
+use nuo_model_codec::ProviderError;
 
 use crate::egress::{Egress, HttpResponse};
 use crate::transport::{decode_response_json, ensure_success};
@@ -226,7 +226,7 @@ mod tests {
         );
         let retryable = error.retry_disposition();
         assert!(
-            matches!(retryable, nuo_contracts::RetryDisposition::Retry { .. }),
+            matches!(retryable, nuo_model_codec::RetryDisposition::Retry { .. }),
             "a timeout must classify as retryable: {error}"
         );
         assert!(
@@ -258,7 +258,7 @@ mod tests {
         assert!(
             matches!(
                 error.retry_disposition(),
-                nuo_contracts::RetryDisposition::Retry { .. }
+                nuo_model_codec::RetryDisposition::Retry { .. }
             ),
             "connect-phase errors must be retryable: {error}"
         );

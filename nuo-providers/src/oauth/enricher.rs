@@ -4,8 +4,8 @@
 //! extraction into strategy enrichers.
 
 use async_trait::async_trait;
-use nuo_contracts::SecretString;
-use nuo_contracts::provider_auth::OAuthConfig;
+use nuo_host::SecretString;
+use nuo_model_codec::provider_auth::OAuthConfig;
 
 use super::opencode_device::{fetch_orgs, fetch_user, server_from_config};
 use super::token::{

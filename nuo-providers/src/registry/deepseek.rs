@@ -12,19 +12,19 @@
 //! the Responses transport. Chat-completions remains available upstream, but
 //! is no longer what the preset seeds.
 
-use nuo_contracts::reasoning::ReasoningSupport;
-use nuo_contracts::{Model, WireProtocol};
+use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_model_codec::{Model, WireProtocol};
 
 use super::{effort_ladders, CatalogShape, ModelProviderSpec, RemoteCatalogSource};
 
 /// The model ids the built-in `deepseek` provider serves (V4 Flash, Pro, and
 /// Flash Vision over the Responses API, one key). Each id exists in the model
 /// registry and floats with the upstream latest.
-pub use nuo_contracts::model_providers::DEEPSEEK_BUILTIN_MODELS;
+pub use nuo_model_codec::model_providers::DEEPSEEK_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
-/// submitted to `nuo_contracts`'s registry at link time (see
-/// [`nuo_contracts::model::BaselineModels`]).
+/// submitted to `nuo_model_codec`'s registry at link time (see
+/// [`nuo_model_codec::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // DeepSeek (opencode-go / direct)
     Model {
@@ -62,12 +62,12 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_contracts::model::BaselineModels(MODELS));
+inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
-fn prompt_cache_for_model(_: &str) -> nuo_contracts::PromptCacheSpec {
-    nuo_contracts::PromptCacheSpec {
-        modes: &[nuo_contracts::PromptCacheMode::Implicit],
-        default_mode: Some(nuo_contracts::PromptCacheMode::Implicit),
+fn prompt_cache_for_model(_: &str) -> nuo_model_codec::PromptCacheSpec {
+    nuo_model_codec::PromptCacheSpec {
+        modes: &[nuo_model_codec::PromptCacheMode::Implicit],
+        default_mode: Some(nuo_model_codec::PromptCacheMode::Implicit),
         supported_retentions: &[],
         default_retention: None,
         disable_supported: false,
@@ -81,7 +81,7 @@ fn prompt_cache_for_model(_: &str) -> nuo_contracts::PromptCacheSpec {
 }
 
 pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_contracts::ProviderDialect::DeepSeek,
+    dialect: nuo_model_codec::ProviderDialect::DeepSeek,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: super::PromptCachePolicy::Compiled(prompt_cache_for_model),
@@ -92,7 +92,7 @@ pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol: WireProtocol::Responses,
     models: DEEPSEEK_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_contracts::ClientPreset::Native,
+    default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
 };
 

@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 
 use ignore::WalkBuilder;
 use ignore::overrides::{Override as OverrideMatcher, OverrideBuilder};
-use nuo_contracts::ExecutionEnvironment;
+use nuo_wire::ExecutionEnvironment;
 
 use crate::tools::helpers::IGNORED_DIRS;
 
@@ -17,7 +17,7 @@ pub(crate) fn resolve_search_root(
     path: &str,
 ) -> Result<PathBuf, String> {
     env.resolve_path(path).map_err(|err| match err {
-        nuo_contracts::execution::FsError::PermissionDenied(_) => format!(
+        nuo_wire::execution::FsError::PermissionDenied(_) => format!(
             "Search path is outside the admitted workspace roots (admitted: {})",
             admitted_roots_summary(env.workspace_root(), &env.additional_roots())
         ),

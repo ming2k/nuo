@@ -536,7 +536,7 @@ Gave up after 6 attempt(s); the upstream service appears overloaded. Resend the 
         // by the heuristic text parse. Mirrors the runtime's
         // `workspace_trust_notice`, which emits a first-class `TrustChanged`
         // kind (ADR-0155).
-        let core = nuo_contracts::AgentNotice::trust_changed("Workspace configurations changed")
+        let core = nuo_wire::AgentNotice::trust_changed("Workspace configurations changed")
             .with_body("Changed on disk: rules (AGENTS.md / rules) — quarantined pending review.");
         let msg = TranscriptMessage::notice_from_core(&core);
 

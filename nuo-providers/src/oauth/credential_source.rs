@@ -5,7 +5,7 @@ use super::store::{CredentialSession, CredentialStore, TokenSet};
 use super::{ACCESS_TOKEN_REFRESH_SKEW_MS, OAuth, access_token_is_expiring};
 use futures::future::BoxFuture;
 use crate::oauth::presets::config_by_provider_id;
-use nuo_contracts::{ConnectionAuth, CredentialSource, ResolvedAuth, SecretString};
+use nuo_model_codec::{ConnectionAuth, CredentialSource, ResolvedAuth, SecretString};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -95,11 +95,11 @@ impl OAuthCredentialSource {
                 });
             if let Some(acct) = account_id {
                 auth =
-                    auth.with_extension(nuo_contracts::ChatGptAuthMetadata { account_id: acct });
+                    auth.with_extension(nuo_model_codec::ChatGptAuthMetadata { account_id: acct });
             }
         }
         if let Some(proj) = tokens.get_attr("project_id") {
-            auth = auth.with_extension(nuo_contracts::GoogleAuthMetadata {
+            auth = auth.with_extension(nuo_model_codec::GoogleAuthMetadata {
                 project_id: proj.to_string(),
             });
         }
@@ -112,7 +112,7 @@ impl OAuthCredentialSource {
             Some("opencode" | "opencode-go")
         ) && let Some(org_id) = tokens.get_attr("org_id")
         {
-            auth = auth.with_extension(nuo_contracts::OpencodeAuthMetadata {
+            auth = auth.with_extension(nuo_model_codec::OpencodeAuthMetadata {
                 org_id: org_id.to_string(),
             });
         }
@@ -473,7 +473,7 @@ mod tests {
         let resolved = source.resolved(&t);
         assert_eq!(
             resolved
-                .extension::<nuo_contracts::ChatGptAuthMetadata>()
+                .extension::<nuo_model_codec::ChatGptAuthMetadata>()
                 .map(|m| m.account_id.as_str()),
             Some("org-xyz789")
         );
@@ -493,13 +493,13 @@ mod tests {
         let resolved = source.resolved(&t);
         assert!(
             resolved
-                .extension::<nuo_contracts::ChatGptAuthMetadata>()
+                .extension::<nuo_model_codec::ChatGptAuthMetadata>()
                 .is_none(),
             "opencode must not be projected as a ChatGPT/Codex credential"
         );
         assert_eq!(
             resolved
-                .extension::<nuo_contracts::OpencodeAuthMetadata>()
+                .extension::<nuo_model_codec::OpencodeAuthMetadata>()
                 .map(|m| m.org_id.as_str()),
             Some("org-1"),
             "the stored org_id must project onto the typed Console workspace metadata"
@@ -509,7 +509,7 @@ mod tests {
         // no metadata attached, and no invented default.
         let bare = source.resolved(&tokens("console-access"));
         assert!(
-            bare.extension::<nuo_contracts::OpencodeAuthMetadata>()
+            bare.extension::<nuo_model_codec::OpencodeAuthMetadata>()
                 .is_none()
         );
 
@@ -526,7 +526,7 @@ mod tests {
         assert!(
             chatgpt
                 .resolved(&foreign)
-                .extension::<nuo_contracts::OpencodeAuthMetadata>()
+                .extension::<nuo_model_codec::OpencodeAuthMetadata>()
                 .is_none()
         );
     }

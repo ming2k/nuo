@@ -584,10 +584,10 @@ pub fn suggest_for_trigger(word: &str) -> Option<(&'static str, &'static str)> {
 /// attach. Built-ins, compatibility aliases, trigger steering, and trusted
 /// project commands all originate here so TUI and Web never maintain their
 /// own command vocabulary.
-pub fn command_catalog(custom: &[(String, String)]) -> nuo_contracts::CommandCatalog {
+pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog {
     let mut commands = BuiltinCmd::SPECS
         .iter()
-        .map(|spec| nuo_contracts::CommandSpec {
+        .map(|spec| nuo_wire::CommandSpec {
             name: spec.name.to_string(),
             summary: spec.summary.to_string(),
             usage: spec
@@ -598,7 +598,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_contracts::CommandCat
             examples: spec
                 .examples
                 .iter()
-                .map(|(command, description)| nuo_contracts::CommandExample {
+                .map(|(command, description)| nuo_wire::CommandExample {
                     command: (*command).to_string(),
                     description: (*description).to_string(),
                 })
@@ -610,10 +610,10 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_contracts::CommandCat
                 .collect(),
             category: Some(spec.category.label().to_string()),
             subcommands: {
-                let mut subs: Vec<nuo_contracts::CommandSubcommandSpec> = spec
+                let mut subs: Vec<nuo_wire::CommandSubcommandSpec> = spec
                     .subcommands
                     .iter()
-                    .map(|(name, summary)| nuo_contracts::CommandSubcommandSpec {
+                    .map(|(name, summary)| nuo_wire::CommandSubcommandSpec {
                         name: (*name).to_string(),
                         summary: (*summary).to_string(),
                     })
@@ -623,7 +623,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_contracts::CommandCat
                     for (id, p) in user_roles.roles {
                         if !subs.iter().any(|s| s.name == id) {
                             let desc = p.description.as_deref().unwrap_or(p.name.as_str());
-                            subs.push(nuo_contracts::CommandSubcommandSpec {
+                            subs.push(nuo_wire::CommandSubcommandSpec {
                                 name: id,
                                 summary: desc.to_string(),
                             });
@@ -637,7 +637,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_contracts::CommandCat
     commands.extend(
         custom
             .iter()
-            .map(|(name, summary)| nuo_contracts::CommandSpec {
+            .map(|(name, summary)| nuo_wire::CommandSpec {
                 name: name.clone(),
                 summary: summary.clone(),
                 usage: vec![name.clone()],
@@ -648,7 +648,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_contracts::CommandCat
             }),
     );
 
-    nuo_contracts::CommandCatalog {
+    nuo_wire::CommandCatalog {
         commands,
         aliases: [
             ("/host", "/dashboard"),
@@ -665,7 +665,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_contracts::CommandCat
             ("/escape", "/confinement"),
         ]
         .into_iter()
-        .map(|(name, target)| nuo_contracts::CommandAlias {
+        .map(|(name, target)| nuo_wire::CommandAlias {
             name: name.to_string(),
             target: target.to_string(),
         })
@@ -673,7 +673,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_contracts::CommandCat
         suggestions: TRIGGER_WORD_SUGGESTIONS
             .iter()
             .map(
-                |(trigger, target, reason)| nuo_contracts::CommandSuggestion {
+                |(trigger, target, reason)| nuo_wire::CommandSuggestion {
                     trigger: (*trigger).to_string(),
                     target: (*target).to_string(),
                     reason: (*reason).to_string(),
@@ -735,7 +735,7 @@ pub fn init_tracing() -> Option<WorkerGuard> {
             .then_some(l.as_str())
             .unwrap_or("info");
         tracing_subscriber::EnvFilter::new(format!(
-            "muta={lvl},nuo_contracts={lvl},muta_runtime={lvl}"
+            "muta={lvl},nuo_wire={lvl},muta_runtime={lvl}"
         ))
     });
     tracing_subscriber::fmt()

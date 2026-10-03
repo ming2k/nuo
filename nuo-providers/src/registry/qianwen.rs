@@ -29,19 +29,19 @@
 //! `enable_thinking` is restricted to `true` on the always-thinking GLM-5.3
 //! and pointless on the effort-gated models, so muta sends no extra field.
 
-use nuo_contracts::reasoning::ReasoningSupport;
-use nuo_contracts::{Model, WireProtocol};
+use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_model_codec::{Model, WireProtocol};
 
 use super::{effort_ladders, CatalogShape, ModelProviderSpec, RemoteCatalogSource};
 
 /// The model ids the built-in `qianwen` provider seeds (the plan's
 /// Qwen-native models; the live catalog serves the rest). Each id exists in
 /// the model registry and floats with the upstream latest.
-pub use nuo_contracts::model_providers::QIANWEN_BUILTIN_MODELS;
+pub use nuo_model_codec::model_providers::QIANWEN_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the Qwen-native models this provider
-/// serves, submitted to `nuo_contracts`'s registry at link time (see
-/// [`nuo_contracts::model::BaselineModels`]).
+/// serves, submitted to `nuo_model_codec`'s registry at link time (see
+/// [`nuo_model_codec::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // Qwen hybrid models — thinking on by default, gated only by
     // `reasoning_effort`; the `none` rung is the documented off switch.
@@ -94,10 +94,10 @@ pub const MODELS: &[Model] = &[
     // and `none` requests on the Qwen-only ids are the explicit off switch.
 ];
 
-inventory::submit!(nuo_contracts::model::BaselineModels(MODELS));
+inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
 pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_contracts::ProviderDialect::Standard,
+    dialect: nuo_model_codec::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: super::PromptCachePolicy::Compiled(super::unsupported_prompt_cache),
@@ -110,7 +110,7 @@ pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol: WireProtocol::ChatCompletions,
     models: QIANWEN_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_contracts::ClientPreset::Native,
+    default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
 };
 
@@ -118,8 +118,8 @@ pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 mod tests {
     use super::*;
     use crate::effort_ladders::{DEEPSEEK_V4_PLAN, QWEN_MIXED};
-    use nuo_contracts::effort::Effort;
-    use nuo_contracts::model::resolve;
+    use nuo_model_codec::effort::Effort;
+    use nuo_model_codec::model::resolve;
 
     /// Every seeded id is registered (the same invariant
     /// `builtin_provider_models_resolve_with_expected_wire_formats` enforces

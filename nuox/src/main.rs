@@ -293,7 +293,7 @@ async fn run_dashboard(
     // most-recently-active hosted session (ADR-0096: every row is hosted).
     let mut rx = client::monitor_stream(
         &info,
-        nuo_contracts::MonitorAction {
+        nuo_wire::MonitorAction {
             watch: false,
             include_idle: true,
         },
@@ -301,7 +301,7 @@ async fn run_dashboard(
     .await
     .map_err(|e| format!("could not read the daemon's session list: {e}"))?;
     let snapshot = match rx.recv().await {
-        Some(nuo_contracts::MonitorEvent::Snapshot(snap)) => snap,
+        Some(nuo_wire::MonitorEvent::Snapshot(snap)) => snap,
         Some(_) => return Err("daemon monitor stream opened without a snapshot".into()),
         None => return Err("daemon closed the monitor stream".into()),
     };
@@ -471,7 +471,7 @@ async fn run_attached(
             }
         };
         if let Some(prompt) = initial_prompt.take() {
-            tx.send(nuo_contracts::AgentRequest::Prompt {
+            tx.send(nuo_wire::AgentRequest::Prompt {
                 text: prompt,
                 images: Vec::new(),
                 sent_at_ms: None,
@@ -513,7 +513,7 @@ async fn run_attached(
         // Exit flush: merge the final buffer into the daemon's store. Each
         // prompt was already recorded during the session, so a lost flush at
         // most drops the last dedup pass — never the entries themselves.
-        if let Err(error) = exit_tx.send(nuo_contracts::AgentRequest::RecordInputHistory {
+        if let Err(error) = exit_tx.send(nuo_wire::AgentRequest::RecordInputHistory {
             entries: outcome.history,
             dedup: mutx_config.input_history.dedup,
         }) {

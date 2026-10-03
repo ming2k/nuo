@@ -394,10 +394,10 @@ pub(crate) fn resolve_modal_key(
             },
             OverlaySurface::Sheet(SheetKind::ProviderPreset) => match c {
                 'b' => Some(InputAction::SelectPresetWithOauthMethod {
-                    method: nuo_contracts::LoginMethod::Browser,
+                    method: nuo_wire::LoginMethod::Browser,
                 }),
                 'd' => Some(InputAction::SelectPresetWithOauthMethod {
-                    method: nuo_contracts::LoginMethod::Device,
+                    method: nuo_wire::LoginMethod::Device,
                 }),
                 _ => None,
             },

@@ -8,7 +8,7 @@
 
 use nuo_harness::orchestration::{RoundInput, round_response};
 use nuo_harness::{Agent, RoundLifecycle};
-use nuo_contracts::{AgentResponse, QueuedMessage, RoundEvent};
+use nuo_wire::{AgentResponse, QueuedMessage, RoundEvent};
 use nuo_persistence::session::SessionStore;
 use std::sync::Arc;
 use tokio::sync::{RwLock as AsyncRwLock, mpsc};
@@ -23,7 +23,7 @@ use crate::side::{
 pub(crate) async fn chat(
     env: SideEnv<'_>,
     text: String,
-    images: Vec<nuo_contracts::ImagePart>,
+    images: Vec<nuo_wire::ImagePart>,
     sent_at_ms: Option<u64>,
 ) {
     let SideEnv {

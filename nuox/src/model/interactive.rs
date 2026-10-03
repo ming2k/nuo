@@ -246,7 +246,7 @@ impl InteractiveEntry for TranscriptMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::Role;
+    use nuo_wire::Role;
 
     #[test]
     fn interactive_entry_contract_on_messages() {

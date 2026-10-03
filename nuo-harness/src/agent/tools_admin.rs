@@ -8,7 +8,7 @@ impl Agent {
     /// modal's Permissions pane. Unlike [`Agent::allowed_tools`] (which collapses
     /// each rule to a single formatted string), this keeps the tool/scope pair
     /// intact so the modal can target an individual rule for revocation.
-    pub fn allowed_tools_structured(&self) -> Vec<nuo_contracts::PermissionRuleInfo> {
+    pub fn allowed_tools_structured(&self) -> Vec<nuo_wire::PermissionRuleInfo> {
         self.permissions.allowed_tools_structured()
     }
 
@@ -67,7 +67,7 @@ impl Agent {
 
     /// The connector-facing publication port. It deliberately exposes no
     /// agent-owned lock or protocol-specific state.
-    pub fn dynamic_tool_sink(&self) -> Arc<dyn nuo_contracts::DynamicToolSink> {
+    pub fn dynamic_tool_sink(&self) -> Arc<dyn nuo_wire::DynamicToolSink> {
         self.dynamic_tools.clone()
     }
 
@@ -118,7 +118,7 @@ impl Agent {
     /// point. Idempotent across repeated fires via refcounting.
     pub(super) fn apply_scoped_disables(
         &self,
-        disables: &[(String, nuo_contracts::RestorePoint)],
+        disables: &[(String, nuo_wire::RestorePoint)],
     ) {
         if disables.is_empty() {
             return;
@@ -194,7 +194,7 @@ impl Agent {
     /// Structured view of every installed tool, for the session modal's Tools
     /// pane. `enabled` reflects the disabled mask; `source` classifies origin
     /// (`builtin`, `subagent`, or the publisher-provided dynamic source id).
-    pub fn snapshot_tools(&self) -> Vec<nuo_contracts::ToolInfo> {
+    pub fn snapshot_tools(&self) -> Vec<nuo_wire::ToolInfo> {
         // Classification delegates to the ToolManager's two-bucket authority
         // for the builtin bucket (with subagent broken out for display); the
         // mcp bucket keeps the publisher-provided dynamic source id as its
@@ -230,11 +230,11 @@ impl Agent {
             }
         }
 
-        let mut infos: Vec<nuo_contracts::ToolInfo> = sourced_tools
+        let mut infos: Vec<nuo_wire::ToolInfo> = sourced_tools
             .into_iter()
             .map(|(source, tool)| {
                 let name = tool.name();
-                nuo_contracts::ToolInfo {
+                nuo_wire::ToolInfo {
                     name: name.to_string(),
                     description: tool.description().to_string(),
                     enabled: !disabled.contains(name),
@@ -249,12 +249,12 @@ impl Agent {
     /// Structured view of the skills registry, for the session modal's Skills
     /// pane. Mirrors [`skills::RegistryGuard::list`] into the render-friendly
     /// DTO.
-    pub fn snapshot_skills(&self) -> Vec<nuo_contracts::SkillInfo> {
+    pub fn snapshot_skills(&self) -> Vec<nuo_wire::SkillInfo> {
         let guard = self.skills_registry.lock();
         guard
             .list()
             .into_iter()
-            .map(|skill| nuo_contracts::SkillInfo {
+            .map(|skill| nuo_wire::SkillInfo {
                 name: skill.name.clone(),
                 description: skill.description.clone(),
                 version: skill.version.clone(),

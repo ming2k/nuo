@@ -4,7 +4,7 @@
 //! so that selection and copy operate on semantic units (blocks) rather than
 //! terminal grid characters.
 
-use nuo_contracts::{Role, SubagentEvent};
+use nuo_wire::{Role, SubagentEvent};
 
 use crate::design::{COMMAND_CARD_LEAD_COLS, JOIN_ENUMERATE_COLS};
 use unicode_width::UnicodeWidthStr;
@@ -52,7 +52,7 @@ pub struct ToolInvocation {
     pub profile: Option<String>,
     pub arguments: String,
     pub output: Option<String>,
-    pub structured: Option<Box<nuo_contracts::ToolOutput>>,
+    pub structured: Option<Box<nuo_wire::ToolOutput>>,
     pub status: ToolInvocationStatus,
     pub expanded: bool,
     pub user_pinned: bool,
@@ -149,7 +149,7 @@ pub enum MessageKind {
         arguments: String,
         output: Option<String>,
         /// Typed result (ADR-0001). `None` until the result lands, then a
-        /// [`nuo_contracts::ToolOutput`] carrying structured data (e.g. a shell
+        /// [`nuo_wire::ToolOutput`] carrying structured data (e.g. a shell
         /// exit code) alongside the legacy `output` text. Consumed by the
         /// renderer for data-level classification — `finish_tool_step` derives
         /// [`ToolStepStatus`] from `ToolOutput::is_error()` instead of
@@ -162,7 +162,7 @@ pub enum MessageKind {
         /// `Option<ToolOutput>` would dominate the `MessageKind` enum size
         /// (clippy::large_enum_variant). The indirection is transparent to
         /// callers — the surrounding accessors deref it as needed.
-        structured: Option<Box<nuo_contracts::ToolOutput>>,
+        structured: Option<Box<nuo_wire::ToolOutput>>,
         /// Explicit lifecycle. Kept in sync with `output` by the
         /// `finish_tool_step` / `cancel_tool_step` transitions below.
         status: ToolStepStatus,
@@ -247,7 +247,7 @@ pub enum MessageKind {
         /// running, and when the invocation was recorded but the reply was
         /// never persisted (legacy echo folds). Boxed to keep this enum
         /// variant small (`CommandResult` carries `Vec<SearchHit>` / `Vec<ReviewVerdict>`).
-        result: Option<Box<nuo_contracts::CommandResult>>,
+        result: Option<Box<nuo_wire::CommandResult>>,
         /// Lifecycle of the invocation (ADR-0108) — see [`CommandPhase`].
         phase: CommandPhase,
         expanded: bool,
@@ -324,7 +324,7 @@ pub const SENT_TIME_LABEL_COLS: usize = 8;
 /// has to fit *inside the card*, not merely inside the terminal.
 pub const COMMAND_ROW_CHROME_COLS: usize = COMMAND_CARD_LEAD_COLS + 2 /* marker slot */ + 2 /* glyph */;
 pub fn command_row_layout(
-    result: Option<&nuo_contracts::CommandResult>,
+    result: Option<&nuo_wire::CommandResult>,
     invocation: &str,
     available_width: usize,
 ) -> CommandRowLayout {
@@ -354,9 +354,9 @@ pub fn command_row_layout(
 /// lines. The title is the part worth the reader's first glance; the detail
 /// is the muted explanation beneath it (ADR-0106's two-tone ack scheme).
 pub fn command_ack_split(
-    result: Option<&nuo_contracts::CommandResult>,
+    result: Option<&nuo_wire::CommandResult>,
 ) -> Option<(&str, &[String])> {
-    let nuo_contracts::CommandResult::Ack { title, detail } = result? else {
+    let nuo_wire::CommandResult::Ack { title, detail } = result? else {
         return None;
     };
     let detail = detail.as_deref().filter(|d| !d.is_empty())?;
@@ -377,11 +377,11 @@ pub enum NoticeSeverity {
     Error,
 }
 
-pub fn notice_severity_from_core(severity: nuo_contracts::NoticeSeverity) -> NoticeSeverity {
+pub fn notice_severity_from_core(severity: nuo_wire::NoticeSeverity) -> NoticeSeverity {
     match severity {
-        nuo_contracts::NoticeSeverity::Info => NoticeSeverity::Info,
-        nuo_contracts::NoticeSeverity::Warning => NoticeSeverity::Warning,
-        nuo_contracts::NoticeSeverity::Error => NoticeSeverity::Error,
+        nuo_wire::NoticeSeverity::Info => NoticeSeverity::Info,
+        nuo_wire::NoticeSeverity::Warning => NoticeSeverity::Warning,
+        nuo_wire::NoticeSeverity::Error => NoticeSeverity::Error,
     }
 }
 
@@ -412,14 +412,14 @@ pub struct NoticeParts {
 /// predictable, architecture-agreed vocabulary for "what is speaking".
 /// Each kind maps 1:1 to its topic; frontends may localize these, the
 /// *kind* stays stable on the wire.
-pub fn notice_topic_label(kind: nuo_contracts::NoticeKind) -> &'static str {
+pub fn notice_topic_label(kind: nuo_wire::NoticeKind) -> &'static str {
     match kind {
-        nuo_contracts::NoticeKind::ProviderRetry => "provider",
-        nuo_contracts::NoticeKind::NudgeInjected => "turn guard",
-        nuo_contracts::NoticeKind::ReviewAlert => "review",
-        nuo_contracts::NoticeKind::TrustChanged => "trust",
-        nuo_contracts::NoticeKind::CommandAck => "command",
-        nuo_contracts::NoticeKind::ImageInputWithheld => "images",
+        nuo_wire::NoticeKind::ProviderRetry => "provider",
+        nuo_wire::NoticeKind::NudgeInjected => "turn guard",
+        nuo_wire::NoticeKind::ReviewAlert => "review",
+        nuo_wire::NoticeKind::TrustChanged => "trust",
+        nuo_wire::NoticeKind::CommandAck => "command",
+        nuo_wire::NoticeKind::ImageInputWithheld => "images",
     }
 }
 
@@ -678,7 +678,7 @@ pub struct TranscriptMessage {
     /// `None` for every non-insert message.
     pub insert_id: Option<String>,
     /// Provider/solution id that produced this message, mirrored from the
-    /// core [`nuo_contracts::Message`] so the transcript stays traceable across
+    /// core [`nuo_wire::Message`] so the transcript stays traceable across
     /// model switches. `None` for messages that don't carry attribution.
     pub provider: Option<String>,
     /// Model id that produced this message, companion to [`TranscriptMessage::provider`].
@@ -703,7 +703,7 @@ pub struct TranscriptMessage {
     /// fall back to the durable core-message timestamp for legacy sessions.
     pub sent_at_ms: Option<u64>,
     /// Durable provenance / injection origin stamped by the harness (ADR-0050).
-    pub injection_origin: Option<nuo_contracts::InjectionOrigin>,
+    pub injection_origin: Option<nuo_wire::InjectionOrigin>,
     /// Component state revision. Incremented on mutations so the cascade
     /// layout cache instantly detects if remeasurement is required.
     pub rev: u64,
@@ -960,7 +960,7 @@ impl TranscriptMessage {
     pub fn command_result(
         name: impl Into<String>,
         args: impl Into<String>,
-        result: Option<nuo_contracts::CommandResult>,
+        result: Option<nuo_wire::CommandResult>,
     ) -> Self {
         Self::command_result_in_phase(name, args, result, CommandPhase::Completed)
     }
@@ -976,7 +976,7 @@ impl TranscriptMessage {
     fn command_result_in_phase(
         name: impl Into<String>,
         args: impl Into<String>,
-        result: Option<nuo_contracts::CommandResult>,
+        result: Option<nuo_wire::CommandResult>,
         phase: CommandPhase,
     ) -> Self {
         let name = name.into();
@@ -994,7 +994,7 @@ impl TranscriptMessage {
         // lines, ADR-0106), so it parses plain — the markdown parser's
         // soft-break rule would squeeze those lines onto one row. Every other
         // result keeps the markdown block renderer (lists, tables, code).
-        let is_ack = matches!(result, Some(nuo_contracts::CommandResult::Ack { .. }));
+        let is_ack = matches!(result, Some(nuo_wire::CommandResult::Ack { .. }));
         Self {
             id: next_message_id(),
             // A harness artifact, not user or model prose — the renderer gives
@@ -1104,7 +1104,7 @@ impl TranscriptMessage {
     /// message is not a pending command (an id mismatch — the pending row was
     /// dropped by a transcript rebuild — so the caller may push a fresh
     /// completed row instead).
-    pub fn settle_command_result(&mut self, result: nuo_contracts::CommandResult) -> bool {
+    pub fn settle_command_result(&mut self, result: nuo_wire::CommandResult) -> bool {
         let MessageKind::CommandResult {
             result: slot,
             phase,
@@ -1120,7 +1120,7 @@ impl TranscriptMessage {
         // way the constructor derives it (acks parse plain — their newlines
         // are structure, not markdown soft breaks).
         let result_text = result.to_text();
-        let is_ack = matches!(result, nuo_contracts::CommandResult::Ack { .. });
+        let is_ack = matches!(result, nuo_wire::CommandResult::Ack { .. });
         self.blocks = if is_ack {
             parse_blocks_plain(&result_text)
         } else {
@@ -1153,7 +1153,7 @@ impl TranscriptMessage {
         &mut self,
         id: &str,
         output: impl Into<String>,
-        structured: nuo_contracts::ToolOutput,
+        structured: nuo_wire::ToolOutput,
         duration_ms: u64,
     ) -> bool {
         let MessageKind::ToolStep {
@@ -1182,12 +1182,12 @@ impl TranscriptMessage {
         // from a runtime error.
         *status = if matches!(
             structured,
-            nuo_contracts::ToolOutput::PermissionDenied { .. }
+            nuo_wire::ToolOutput::PermissionDenied { .. }
         ) {
             ToolStepStatus::Denied
         } else if matches!(
             &structured,
-            nuo_contracts::ToolOutput::Subagent {
+            nuo_wire::ToolOutput::Subagent {
                 interrupted: true,
                 ..
             }
@@ -1210,10 +1210,10 @@ impl TranscriptMessage {
 
     /// Accumulate an incremental stream chunk into a still-running tool step,
     /// so the UI can render partial output (e.g. bash stdout) live. The first
-    /// chunk initializes a partial [`nuo_contracts::ToolOutput::Shell`]; the
+    /// chunk initializes a partial [`nuo_wire::ToolOutput::Shell`]; the
     /// terminal `finish_tool_step` later overwrites it with the final result.
     /// Returns `false` if this isn't a matching running step.
-    pub fn push_tool_stream(&mut self, id: &str, stream: &nuo_contracts::ToolStream) -> bool {
+    pub fn push_tool_stream(&mut self, id: &str, stream: &nuo_wire::ToolStream) -> bool {
         let MessageKind::ToolStep {
             id: step_id,
             arguments,
@@ -1229,14 +1229,14 @@ impl TranscriptMessage {
         }
         if !matches!(
             structured.as_deref(),
-            Some(nuo_contracts::ToolOutput::Shell { .. })
+            Some(nuo_wire::ToolOutput::Shell { .. })
         ) {
             let cmd = parse_arguments_kv(arguments)
                 .into_iter()
                 .find(|(k, _)| k == "command")
                 .map(|(_, v)| v)
                 .unwrap_or_default();
-            *structured = Some(Box::new(nuo_contracts::ToolOutput::Shell {
+            *structured = Some(Box::new(nuo_wire::ToolOutput::Shell {
                 command: cmd,
                 stdout: String::new(),
                 stderr: String::new(),
@@ -1245,11 +1245,11 @@ impl TranscriptMessage {
                 truncated: false,
                 // Still-streaming seed: the real termination lands with the
                 // final result (`finish_tool_step`). Default until then.
-                termination: nuo_contracts::tool_output::ShellTermination::default(),
+                termination: nuo_wire::tool_output::ShellTermination::default(),
                 detached_job_id: None,
             }));
         }
-        if let Some(nuo_contracts::ToolOutput::Shell {
+        if let Some(nuo_wire::ToolOutput::Shell {
             stdout,
             stderr,
             lines,
@@ -1267,27 +1267,27 @@ impl TranscriptMessage {
             // stream. Trailing empties (from the terminal `\n`) are dropped so
             // they don't paint phantom blank rows.
             let stream_tag = match stream {
-                nuo_contracts::ToolStream::Stdout(_) => {
-                    nuo_contracts::tool_output::ShellStream::Out
+                nuo_wire::ToolStream::Stdout(_) => {
+                    nuo_wire::tool_output::ShellStream::Out
                 }
-                nuo_contracts::ToolStream::Stderr(_) => {
-                    nuo_contracts::tool_output::ShellStream::Err
+                nuo_wire::ToolStream::Stderr(_) => {
+                    nuo_wire::tool_output::ShellStream::Err
                 }
             };
             let text = match stream {
-                nuo_contracts::ToolStream::Stdout(s) | nuo_contracts::ToolStream::Stderr(s) => s,
+                nuo_wire::ToolStream::Stdout(s) | nuo_wire::ToolStream::Stderr(s) => s,
             };
             for piece in text.split('\n') {
                 if !piece.is_empty() {
-                    lines.push(nuo_contracts::tool_output::ShellLine {
+                    lines.push(nuo_wire::tool_output::ShellLine {
                         stream: stream_tag,
                         text: piece.to_string(),
                     });
                 }
             }
             match stream {
-                nuo_contracts::ToolStream::Stdout(s) => stdout.push_str(s),
-                nuo_contracts::ToolStream::Stderr(s) => stderr.push_str(s),
+                nuo_wire::ToolStream::Stdout(s) => stdout.push_str(s),
+                nuo_wire::ToolStream::Stderr(s) => stderr.push_str(s),
             }
         }
         self.refresh_tool_step();
@@ -1521,7 +1521,7 @@ impl TranscriptMessage {
                     child.finish_tool_step(
                         id,
                         output.clone(),
-                        nuo_contracts::ToolOutput::text(output.clone()),
+                        nuo_wire::ToolOutput::text(output.clone()),
                         *duration_ms,
                     );
                 } else {
@@ -1529,7 +1529,7 @@ impl TranscriptMessage {
                     msg.finish_tool_step(
                         id,
                         output.clone(),
-                        nuo_contracts::ToolOutput::text(output.clone()),
+                        nuo_wire::ToolOutput::text(output.clone()),
                         *duration_ms,
                     );
                     children.push(msg);
@@ -1666,7 +1666,7 @@ impl TranscriptMessage {
     }
 
     /// The typed result itself, when this row carries one.
-    pub fn command_result_payload(&self) -> Option<&nuo_contracts::CommandResult> {
+    pub fn command_result_payload(&self) -> Option<&nuo_wire::CommandResult> {
         match &self.kind {
             MessageKind::CommandResult { result, .. } => result.as_deref(),
             _ => None,
@@ -1900,7 +1900,7 @@ impl TranscriptMessage {
             return None;
         }
         let source: &str = match structured.as_deref() {
-            Some(nuo_contracts::ToolOutput::Subagent { summary, .. }) => summary,
+            Some(nuo_wire::ToolOutput::Subagent { summary, .. }) => summary,
             _ => output.as_deref()?,
         };
         source
@@ -2004,13 +2004,13 @@ impl TranscriptMessage {
     }
 
     /// Construct a round-interrupt marker row (C11) unified as a Notice entry.
-    pub fn round_interrupted(record: nuo_contracts::RoundInterrupt) -> Self {
+    pub fn round_interrupted(record: nuo_wire::RoundInterrupt) -> Self {
         let severity = match record.reason {
-            nuo_contracts::RoundInterruptReason::Error => NoticeSeverity::Error,
+            nuo_wire::RoundInterruptReason::Error => NoticeSeverity::Error,
             _ => NoticeSeverity::Warning,
         };
         let raw = match record.reason {
-            nuo_contracts::RoundInterruptReason::Error => {
+            nuo_wire::RoundInterruptReason::Error => {
                 record.detail.clone().unwrap_or_else(|| match record.round {
                     Some(round) => format!("Round {round} — failed with error"),
                     None => "Round failed with error".to_string(),
@@ -2018,33 +2018,33 @@ impl TranscriptMessage {
             }
             _ => match record.round {
                 Some(round) => match record.reason {
-                    nuo_contracts::RoundInterruptReason::User => {
+                    nuo_wire::RoundInterruptReason::User => {
                         format!("Round {round} — cancelled via [Esc Esc]")
                     }
-                    nuo_contracts::RoundInterruptReason::Superseded => {
+                    nuo_wire::RoundInterruptReason::Superseded => {
                         format!("Round {round} — superseded by new message")
                     }
-                    nuo_contracts::RoundInterruptReason::Terminated => {
+                    nuo_wire::RoundInterruptReason::Terminated => {
                         format!("Round {round} — process exited")
                     }
-                    nuo_contracts::RoundInterruptReason::Error => unreachable!(),
+                    nuo_wire::RoundInterruptReason::Error => unreachable!(),
                 },
                 None => match record.reason {
-                    nuo_contracts::RoundInterruptReason::User => {
+                    nuo_wire::RoundInterruptReason::User => {
                         "Cancelled via [Esc Esc]".to_string()
                     }
-                    nuo_contracts::RoundInterruptReason::Superseded => {
+                    nuo_wire::RoundInterruptReason::Superseded => {
                         "Superseded by new message".to_string()
                     }
-                    nuo_contracts::RoundInterruptReason::Terminated => {
+                    nuo_wire::RoundInterruptReason::Terminated => {
                         "Process exited".to_string()
                     }
-                    nuo_contracts::RoundInterruptReason::Error => unreachable!(),
+                    nuo_wire::RoundInterruptReason::Error => unreachable!(),
                 },
             },
         };
         let parts = match record.reason {
-            nuo_contracts::RoundInterruptReason::Error => {
+            nuo_wire::RoundInterruptReason::Error => {
                 let parsed = crate::components::notice::parse_notice_content(&raw);
                 NoticeParts {
                     origin: Some(NoticeOrigin::Provider {
@@ -2072,7 +2072,7 @@ impl TranscriptMessage {
     /// [`Self::round_interrupted`]. One compact system notice per round that
     /// recovered from transient provider faults; the per-attempt fault lines
     /// ride as the expandable detail.
-    pub fn retry_resolved(record: nuo_contracts::RetryResolution) -> Self {
+    pub fn retry_resolved(record: nuo_wire::RetryResolution) -> Self {
         Self::notice(NoticeSeverity::Info, record.summary_line())
             .with_notice_parts(NoticeParts {
                 origin: Some(NoticeOrigin::System {
@@ -2138,28 +2138,28 @@ impl TranscriptMessage {
     /// carries the flattened `render_text()` form for copy fidelity and as
     /// the renderer's fallback, but the renderer never has to guess the
     /// split back out of it.
-    pub fn notice_from_core(notice: &nuo_contracts::AgentNotice) -> Self {
+    pub fn notice_from_core(notice: &nuo_wire::AgentNotice) -> Self {
         // Same sanitized boundary as `raw`: provider HTTP bodies commonly
         // carry CRLF, and a raw `\r` reaching the grid moves the physical
         // cursor while the retained grid believes it advanced.
         let origin = match notice.kind {
-            nuo_contracts::NoticeKind::ProviderRetry => Some(NoticeOrigin::Provider {
+            nuo_wire::NoticeKind::ProviderRetry => Some(NoticeOrigin::Provider {
                 provider_name: None,
                 attempt: None,
             }),
-            nuo_contracts::NoticeKind::NudgeInjected => Some(NoticeOrigin::System {
+            nuo_wire::NoticeKind::NudgeInjected => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::TurnGuard,
             }),
-            nuo_contracts::NoticeKind::ReviewAlert => Some(NoticeOrigin::System {
+            nuo_wire::NoticeKind::ReviewAlert => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::Review,
             }),
-            nuo_contracts::NoticeKind::TrustChanged => Some(NoticeOrigin::System {
+            nuo_wire::NoticeKind::TrustChanged => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::Trust,
             }),
-            nuo_contracts::NoticeKind::CommandAck => Some(NoticeOrigin::System {
+            nuo_wire::NoticeKind::CommandAck => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::CommandAck,
             }),
-            nuo_contracts::NoticeKind::ImageInputWithheld => Some(NoticeOrigin::System {
+            nuo_wire::NoticeKind::ImageInputWithheld => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::Images,
             }),
         };

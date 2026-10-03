@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_contracts::{ExecutionEnvironment, Tool, ToolAccesses};
+use nuo_wire::{ExecutionEnvironment, Tool, ToolAccesses};
 use nuo_tool::ToolSchema;
 use serde::Deserialize;
 use std::time::{Duration, Instant};
@@ -120,20 +120,20 @@ impl Tool for SearchTextTool {
         .map_err(|error| format!("Text search task failed: {error}"))?
     }
 
-    async fn call_structured(&self, arguments: &str) -> Result<nuo_contracts::ToolOutput, String> {
+    async fn call_structured(&self, arguments: &str) -> Result<nuo_wire::ToolOutput, String> {
         let output = self.call(arguments).await?;
         let query = serde_json::from_str::<serde_json::Value>(arguments)
             .ok()
             .and_then(|value| value["query"].as_str().map(str::to_string))
             .unwrap_or_default();
-        Ok(nuo_contracts::ToolOutput::Matches {
+        Ok(nuo_wire::ToolOutput::Matches {
             pattern: query,
             lines: output.lines().map(str::to_string).collect(),
         })
     }
 }
 
-nuo_contracts::register_tool!(SearchTextFactory => |ctx| SearchTextTool {
+nuo_wire::register_tool!(SearchTextFactory => |ctx| SearchTextTool {
     env: execution_environment(ctx),
 });
 

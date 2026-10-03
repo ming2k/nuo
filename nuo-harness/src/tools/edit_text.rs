@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use nuo_contracts::Tool;
+use nuo_wire::Tool;
 use nuo_tool::ToolSchema;
 use serde::Deserialize;
 
@@ -33,7 +33,7 @@ struct EditTextArgs {
 /// project, and an edit is exactly where that divergence does damage.
 pub struct EditTextTool {
     pub(crate) root: WorkspaceBase,
-    pub(crate) env: Option<std::sync::Arc<dyn nuo_contracts::ExecutionEnvironment>>,
+    pub(crate) env: Option<std::sync::Arc<dyn nuo_wire::ExecutionEnvironment>>,
 }
 
 impl EditTextTool {
@@ -41,7 +41,7 @@ impl EditTextTool {
         Self { root, env: None }
     }
 
-    pub fn with_env(env: std::sync::Arc<dyn nuo_contracts::ExecutionEnvironment>) -> Self {
+    pub fn with_env(env: std::sync::Arc<dyn nuo_wire::ExecutionEnvironment>) -> Self {
         let root = Some(env.workspace_root().to_path_buf());
         Self {
             root,
@@ -311,23 +311,23 @@ impl Tool for EditTextTool {
     fn parameters(&self) -> serde_json::Value {
         EditTextArgs::parameters_schema()
     }
-    fn scope_target(&self, arguments: &str) -> nuo_contracts::ScopeTarget {
-        nuo_contracts::ScopeTarget::Path(std::path::PathBuf::from(json_string(arguments, "path")))
+    fn scope_target(&self, arguments: &str) -> nuo_wire::ScopeTarget {
+        nuo_wire::ScopeTarget::Path(std::path::PathBuf::from(json_string(arguments, "path")))
     }
-    fn hazard_level(&self) -> nuo_contracts::HazardLevel {
-        nuo_contracts::HazardLevel::FileModification
+    fn hazard_level(&self) -> nuo_wire::HazardLevel {
+        nuo_wire::HazardLevel::FileModification
     }
     fn permission_submission(
         &self,
         arguments: &str,
-    ) -> Option<nuo_contracts::ToolPermissionSubmission> {
+    ) -> Option<nuo_wire::ToolPermissionSubmission> {
         let path = json_string(arguments, "path");
-        Some(nuo_contracts::ToolPermissionSubmission {
-            hazard_level: nuo_contracts::HazardLevel::FileModification,
+        Some(nuo_wire::ToolPermissionSubmission {
+            hazard_level: nuo_wire::HazardLevel::FileModification,
             label: format!("Edit text in `{path}`"),
             description: format!("Modifies text content within file `{path}`."),
             scope: path.clone(),
-            payload: nuo_contracts::ToolPermissionPayload::FileEdit {
+            payload: nuo_wire::ToolPermissionPayload::FileEdit {
                 paths: vec![path],
                 operation: "edit_text".to_string(),
             },
@@ -337,7 +337,7 @@ impl Tool for EditTextTool {
         self.call_structured(arguments).await.map(|o| o.to_text())
     }
 
-    async fn call_structured(&self, arguments: &str) -> Result<nuo_contracts::ToolOutput, String> {
+    async fn call_structured(&self, arguments: &str) -> Result<nuo_wire::ToolOutput, String> {
         let args: EditTextArgs =
             serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {}", e))?;
         let path = &args.path;
@@ -392,9 +392,9 @@ impl Tool for EditTextTool {
         Ok(super::syntax_guard::mutation_output(
             &resolved,
             &edit.new_content,
-            nuo_contracts::ToolOutput::Patch {
+            nuo_wire::ToolOutput::Patch {
                 path: path.to_string(),
-                op: nuo_contracts::PatchOp::Edit,
+                op: nuo_wire::PatchOp::Edit,
                 old: edit.old_ctx,
                 new: edit.new_ctx,
                 start_line: edit.ctx_start,
@@ -404,7 +404,7 @@ impl Tool for EditTextTool {
     }
 }
 
-nuo_contracts::register_tool!(EditTextFactory => |ctx| EditTextTool {
+nuo_wire::register_tool!(EditTextFactory => |ctx| EditTextTool {
     root: workspace_base(ctx),
     env: Some(execution_environment(ctx)),
 });

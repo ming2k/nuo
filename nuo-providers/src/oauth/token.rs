@@ -7,17 +7,17 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 
 use crate::oauth::pkce::PkceCodes;
-use nuo_contracts::SecretString;
-use nuo_contracts::provider_auth::{ClientAuthMethod, OAuthConfig, PkceMode, TokenRequestFormat};
+use nuo_host::SecretString;
+use nuo_model_codec::provider_auth::{ClientAuthMethod, OAuthConfig, PkceMode, TokenRequestFormat};
 
 /// Refresh the access token ahead of expiry so long-running calls don't hit a 401.
 pub const ACCESS_TOKEN_REFRESH_SKEW_MS: i64 = 120_000;
 
 /// Standard Antigravity User-Agent matching the official Antigravity CLI.
-pub const ANTIGRAVITY_USER_AGENT: &str = nuo_contracts::client_identity::ANTIGRAVITY_USER_AGENT;
+pub const ANTIGRAVITY_USER_AGENT: &str = nuo_model_codec::client_identity::ANTIGRAVITY_USER_AGENT;
 /// Antigravity Google API client header.
 pub const ANTIGRAVITY_API_CLIENT_HEADER: &str =
-    nuo_contracts::client_identity::ANTIGRAVITY_API_CLIENT_HEADER;
+    nuo_model_codec::client_identity::ANTIGRAVITY_API_CLIENT_HEADER;
 /// Endpoint for Antigravity loadCodeAssist account metadata.
 pub const ANTIGRAVITY_LOAD_CODE_ASSIST_URL: &str =
     "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
@@ -57,7 +57,7 @@ pub struct TokenResponse {
     pub scope: Option<String>,
     /// Qoder's device-token/device-exchange responses carry the account's
     /// uid; every other issuer leaves this absent. Consumed by the runtime
-    /// to assemble the connection's typed [`nuo_contracts::QoderRequestIdentity`]
+    /// to assemble the connection's typed [`nuo_model_codec::QoderRequestIdentity`]
     /// at login time.
     #[serde(default, alias = "uid", alias = "userId")]
     pub qoder_uid: Option<String>,
@@ -470,8 +470,8 @@ pub async fn resolve_antigravity_project(
     let load_body = serde_json::json!({
         "metadata": {
             "ideType": "ANTIGRAVITY",
-            "ideVersion": nuo_contracts::client_identity::ANTIGRAVITY_VERSION,
-            "ideName": nuo_contracts::client_identity::ANTIGRAVITY_APP_NAME,
+            "ideVersion": nuo_model_codec::client_identity::ANTIGRAVITY_VERSION,
+            "ideName": nuo_model_codec::client_identity::ANTIGRAVITY_APP_NAME,
             "platform": ANTIGRAVITY_IDE_PLATFORM,
             "pluginType": "GEMINI"
         }
@@ -520,8 +520,8 @@ pub async fn resolve_antigravity_project(
             "tierId": tier_id,
             "metadata": {
                 "ideType": "ANTIGRAVITY",
-                "ideVersion": nuo_contracts::client_identity::ANTIGRAVITY_VERSION,
-                "ideName": nuo_contracts::client_identity::ANTIGRAVITY_APP_NAME,
+                "ideVersion": nuo_model_codec::client_identity::ANTIGRAVITY_VERSION,
+                "ideName": nuo_model_codec::client_identity::ANTIGRAVITY_APP_NAME,
                 "platform": ANTIGRAVITY_IDE_PLATFORM,
                 "pluginType": "GEMINI"
             }

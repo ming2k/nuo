@@ -167,11 +167,11 @@ impl PermissionStore {
         tools
     }
 
-    pub fn allowed_tools_structured(&self) -> Vec<nuo_contracts::PermissionRuleInfo> {
-        let mut rules: Vec<nuo_contracts::PermissionRuleInfo> = poison_lock(&self.state)
+    pub fn allowed_tools_structured(&self) -> Vec<nuo_wire::PermissionRuleInfo> {
+        let mut rules: Vec<nuo_wire::PermissionRuleInfo> = poison_lock(&self.state)
             .always
             .iter()
-            .map(|rule| nuo_contracts::PermissionRuleInfo {
+            .map(|rule| nuo_wire::PermissionRuleInfo {
                 tool: rule.tool.clone(),
                 scope: rule.scope.clone(),
             })

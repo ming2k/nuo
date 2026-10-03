@@ -5,7 +5,7 @@
 //! - `tables`   — Activity tab rounds/turns tables (L1/L2)
 //! - `attempt`  — Attempt inspector with the latency timeline (L3)
 
-use nuo_contracts::TokenSourceReport;
+use nuo_wire::TokenSourceReport;
 use nuotc::{Frame, Line, Modifier, Rect, Span, Style};
 
 use super::super::common::placeholder;

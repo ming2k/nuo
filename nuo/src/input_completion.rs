@@ -6,7 +6,7 @@
 //! so terminal and browser apps cannot drift into separate completion products.
 
 use ignore::WalkBuilder;
-use nuo_contracts::{
+use nuo_wire::{
     AgentResponse, CommandCatalog, CommandSpec, InputCompletion, InputCompletionKind,
 };
 use std::path::{Path, PathBuf};
@@ -400,13 +400,13 @@ fn slash_item(
 }
 
 fn is_skill_query(query: &str) -> bool {
-    nuo_contracts::mention::SKILL_NAMESPACES
+    nuo_wire::mention::SKILL_NAMESPACES
         .iter()
         .any(|ns| query.starts_with(ns))
 }
 
 fn is_file_query(query: &str) -> bool {
-    nuo_contracts::mention::FILE_NAMESPACES
+    nuo_wire::mention::FILE_NAMESPACES
         .iter()
         .any(|ns| query.starts_with(ns))
 }
@@ -425,7 +425,7 @@ fn skill_completion_items(
     // The namespace vocabulary is owned by the grammar kernel; derive the
     // filter and the re-emitted prefix from it rather than re-typing the
     // spellings here.
-    use nuo_contracts::mention::SKILL_NAMESPACES;
+    use nuo_wire::mention::SKILL_NAMESPACES;
     let (filter, explicit_prefix) = SKILL_NAMESPACES
         .iter()
         .find_map(|ns| query.strip_prefix(ns).map(|rest| (rest, *ns)))
@@ -463,7 +463,7 @@ fn file_completion_items(
     cursor_end: usize,
     entries: &[String],
 ) -> Vec<InputCompletion> {
-    let filter = nuo_contracts::mention::strip_file_namespace(query).unwrap_or(query);
+    let filter = nuo_wire::mention::strip_file_namespace(query).unwrap_or(query);
     let mut items = entries
         .iter()
         .filter(|path| path_query_match(path, filter))
@@ -502,7 +502,7 @@ fn namespace_items(
     cursor_end: usize,
     has_skills: bool,
 ) -> Vec<InputCompletion> {
-    use nuo_contracts::mention::{FILE_NAMESPACES, SKILL_NAMESPACES};
+    use nuo_wire::mention::{FILE_NAMESPACES, SKILL_NAMESPACES};
 
     let q_lower = query.to_lowercase();
     let prefixes_namespace =
@@ -656,7 +656,7 @@ fn char_to_byte(input: &str, char_index: usize) -> Option<usize> {
 }
 
 fn mention_range_at(input: &str, cursor_byte: usize) -> Option<(usize, usize)> {
-    nuo_contracts::mention::mention_range_at(input, cursor_byte)
+    nuo_wire::mention::mention_range_at(input, cursor_byte)
 }
 
 fn path_query_match(path: &str, query: &str) -> bool {

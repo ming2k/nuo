@@ -1,12 +1,12 @@
 //! The built-in `openrouter` provider: OpenRouter's normalized multi-model
 //! gateway over Chat Completions, authenticated with one API key.
 
-use nuo_contracts::reasoning::ReasoningSupport;
-use nuo_contracts::{Effort, Model, WireProtocol};
+use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_model_codec::{Effort, Model, WireProtocol};
 
 use super::{CatalogShape, ModelProviderSpec, RemoteCatalogSource};
 
-pub use nuo_contracts::model_providers::OPENROUTER_BUILTIN_MODELS;
+pub use nuo_model_codec::model_providers::OPENROUTER_BUILTIN_MODELS;
 
 const NEX_N25_EFFORTS: &[Effort] = &[Effort::None, Effort::Medium, Effort::High];
 
@@ -25,10 +25,10 @@ pub const MODELS: &[Model] = &[Model {
     effort_levels: NEX_N25_EFFORTS,
 }];
 
-inventory::submit!(nuo_contracts::model::BaselineModels(MODELS));
+inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
 pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_contracts::ProviderDialect::OpenRouter,
+    dialect: nuo_model_codec::ProviderDialect::OpenRouter,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: super::PromptCachePolicy::Compiled(super::unsupported_prompt_cache),
@@ -39,7 +39,7 @@ pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol: WireProtocol::ChatCompletions,
     models: OPENROUTER_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_contracts::ClientPreset::Native,
+    default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
 };
 

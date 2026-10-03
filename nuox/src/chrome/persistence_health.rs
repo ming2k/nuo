@@ -13,17 +13,17 @@ use crate::render::Theme;
 pub fn draw_persistence_health_bar(
     frame: &mut Frame,
     rect: Rect,
-    state: &nuo_contracts::monitor::PersistenceHealth,
+    state: &nuo_wire::monitor::PersistenceHealth,
     theme: &Theme,
 ) {
     let (label, color) = match state {
-        nuo_contracts::monitor::PersistenceHealth::Recovering { .. } => {
+        nuo_wire::monitor::PersistenceHealth::Recovering { .. } => {
             ("RECOVERING", theme.warn())
         }
-        nuo_contracts::monitor::PersistenceHealth::Down { .. } => ("STORAGE DOWN", theme.err()),
+        nuo_wire::monitor::PersistenceHealth::Down { .. } => ("STORAGE DOWN", theme.err()),
         // Healthy never places a row; drawing defensively keeps the
         // contract visible if a caller mis-places it.
-        nuo_contracts::monitor::PersistenceHealth::Healthy => ("STORAGE", theme.muted()),
+        nuo_wire::monitor::PersistenceHealth::Healthy => ("STORAGE", theme.muted()),
     };
 
     let detail = state.detail().unwrap_or_default();

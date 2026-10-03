@@ -398,7 +398,7 @@ async fn run_inner(
     // (the D6 hub), not lost to an unobserved manager. Failures are logged
     // and non-fatal.
     {
-        use nuo_contracts::JobSpec;
+        use nuo_wire::JobSpec;
         let registry_for_rehost = Arc::clone(&registry);
         crate::task_ledger::rehost_all(
             &nuo_persistence::db::get_persistence_handle(),
@@ -418,7 +418,7 @@ async fn run_inner(
                         .spawn_daemon_task(
                             command,
                             Some(format!("rehost:{}", row.job_id)),
-                            nuo_contracts::JobKind::Service,
+                            nuo_wire::JobKind::Service,
                         )
                         .await
                     {
@@ -458,9 +458,9 @@ async fn run_inner(
 
     // Phase 2 — stop accepting, close live connections, confirm the loops.
     handle.cancel.cancel();
-    registry.publish_host_event(nuo_contracts::MonitorEvent::DaemonDraining);
+    registry.publish_host_event(nuo_wire::MonitorEvent::DaemonDraining);
     registry
-        .broadcast_all_sessions(nuo_contracts::AgentResponse::Exit)
+        .broadcast_all_sessions(nuo_wire::AgentResponse::Exit)
         .await;
     if !gate.forced() {
         handle.conns.drain().await;

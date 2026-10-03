@@ -5,7 +5,7 @@
 //! and `autonomous_fallback`) into a coherent, single-source-of-truth interaction
 //! state machine.
 
-use nuo_contracts::human_request::{
+use nuo_wire::human_request::{
     AutonomousFallbackPolicy, HumanChannelAccountant, HumanChannelPosture,
 };
 use std::sync::Arc;

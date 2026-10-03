@@ -13,7 +13,7 @@ use super::file_tracker::FileOperations;
 use super::split_compaction::{
     compact_causal_nodes, find_cut_point_nodes, find_tail_preserving_cut_point,
 };
-use nuo_contracts::{CausalNode, NodePayload, Provider, Role, SessionIR};
+use nuo_wire::{CausalNode, NodePayload, Provider, Role, SessionIR};
 use std::sync::Arc;
 
 /// Strategy determining where the compaction boundary cuts the active lineage (ADR-0296).
@@ -248,7 +248,7 @@ fn build_deterministic_causal_excerpt(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::{Message, NodeKind, Role, SessionPolicy};
+    use nuo_wire::{Message, NodeKind, Role, SessionPolicy};
 
     #[tokio::test]
     async fn test_causal_compactor_deterministic_fallback() {

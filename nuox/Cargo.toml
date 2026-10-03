@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-nuo-contracts = { workspace = true }
+nuo-wire = { workspace = true }
 nuo-host = { workspace = true }
 nuo-client = { workspace = true }
 nuotc = { workspace = true }

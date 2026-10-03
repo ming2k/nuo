@@ -15,7 +15,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use nuo_contracts::TrajectoryGuardConfig;
+use nuo_wire::TrajectoryGuardConfig;
 use serde_json::Value;
 
 use crate::guard::GuardAction;

@@ -1,7 +1,7 @@
 //! Workspace jail middleware to ensure file operations stay confined within the workspace root.
 
 use async_trait::async_trait;
-use nuo_contracts::execution::{ExecutionEnvironment, ToolMiddleware};
+use nuo_wire::execution::{ExecutionEnvironment, ToolMiddleware};
 use serde_json::Value;
 
 /// Reject path arguments outside the primary and explicitly admitted workspace roots.

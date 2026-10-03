@@ -1,18 +1,18 @@
 //! The `xai-oauth` provider preset: xAI Grok over OpenAI-compatible chat
 //! completions (SuperGrok OAuth or `XAI_API_KEY`).
 
-use nuo_contracts::reasoning::ReasoningSupport;
-use nuo_contracts::{Model, WireProtocol};
+use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_model_codec::{Model, WireProtocol};
 
 use super::{effort_ladders, CatalogShape, ModelProviderSpec, RemoteCatalogSource};
 
 /// xAI Grok models over OpenAI-compatible chat completions (SuperGrok OAuth or
 /// `XAI_API_KEY`).
-pub use nuo_contracts::model_providers::XAI_BUILTIN_MODELS;
+pub use nuo_model_codec::model_providers::XAI_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
-/// submitted to `nuo_contracts`'s registry at link time (see
-/// [`nuo_contracts::model::BaselineModels`]).
+/// submitted to `nuo_model_codec`'s registry at link time (see
+/// [`nuo_model_codec::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // xAI Grok (OpenAI-compatible; SuperGrok OAuth or XAI_API_KEY)
     Model {
@@ -61,10 +61,10 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_contracts::model::BaselineModels(MODELS));
+inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
 pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_contracts::ProviderDialect::Standard,
+    dialect: nuo_model_codec::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: super::PromptCachePolicy::Compiled(super::unsupported_prompt_cache),
@@ -75,6 +75,6 @@ pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol: WireProtocol::ChatCompletions,
     models: XAI_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_contracts::ClientPreset::Native,
+    default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
 };

@@ -1,6 +1,6 @@
 //! Overview tab: context window, session token totals, streaming performance.
 
-use nuo_contracts::TokenSourceReport;
+use nuo_wire::TokenSourceReport;
 use nuotc::{Line, Modifier, Span, Style};
 
 use super::model::*;

@@ -17,7 +17,7 @@ use crate::side::SideRegistry;
 use crate::slash_handler::SlashCommandRegistry;
 use crate::startup::SessionStart;
 use nuo_harness::{Agent, RoundLifecycle};
-use nuo_contracts::{AgentRequest, AgentResponse, Provider, Tool};
+use nuo_wire::{AgentRequest, AgentResponse, Provider, Tool};
 use crate::mcp::McpRuntime;
 use nuo_persistence::{
     config::Config, connection_usage::ConnectionUsage, session::SessionStore,
@@ -35,8 +35,8 @@ pub struct SlashEnv<'a> {
     pub agent: &'a Arc<Agent>,
     pub mcp_runtime: &'a Arc<McpRuntime>,
     pub workspace_security: &'a Arc<WorkspaceSecurityStore>,
-    pub shared_additional_roots: &'a nuo_contracts::SharedAdditionalRoots,
-    pub shared_confinement: &'a nuo_contracts::SharedConfinement,
+    pub shared_additional_roots: &'a nuo_wire::SharedAdditionalRoots,
+    pub shared_confinement: &'a nuo_wire::SharedConfinement,
     pub resp_tx: &'a mpsc::UnboundedSender<AgentResponse>,
     pub session: &'a Arc<SessionStore>,
     pub lifecycle: &'a Arc<RoundLifecycle>,
@@ -50,6 +50,6 @@ pub struct SlashEnv<'a> {
     pub startup: &'a SessionStart,
     pub ui: &'a dyn crate::UiBridge,
     pub extra_commands: &'a SlashCommandRegistry,
-    pub websearch_shared: &'a nuo_contracts::SharedWebConfig,
+    pub websearch_shared: &'a nuo_wire::SharedWebConfig,
     pub background_jobs: &'a crate::background_jobs::BackgroundJobManager,
 }

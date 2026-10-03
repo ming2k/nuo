@@ -205,7 +205,7 @@ impl App {
     /// Resolve a row index from [`Self::current_session_history`] to its
     /// entry, transparently spanning the persisted store (`0..len`) and the
     /// session backfill (`len..`). `None` when the index is out of range.
-    pub fn history_entry(&self, idx: usize) -> Option<&nuo_contracts::HistoryEntry> {
+    pub fn history_entry(&self, idx: usize) -> Option<&nuo_wire::HistoryEntry> {
         if idx < self.input_history.len() {
             self.input_history.get(idx)
         } else {
@@ -280,7 +280,7 @@ impl App {
                 continue;
             }
             self.session_history_backfill
-                .push(nuo_contracts::HistoryEntry::new(
+                .push(nuo_wire::HistoryEntry::new(
                     text.clone(),
                     Some(self.current_session_id.clone()),
                     Some(self.current_workspace.clone()),
@@ -396,17 +396,17 @@ impl App {
                 if self.input_history_persist {
                     // Daemon-side SSOT merge (ADR-0197): the TUI never opens
                     // the shared SQLite store itself.
-                    self.send_intent(nuo_contracts::AgentRequest::RecordInputHistory {
+                    self.send_intent(nuo_wire::AgentRequest::RecordInputHistory {
                         entries: vec![refreshed],
                         dedup: true,
                     });
                 }
                 return;
             }
-            let recorded = nuo_contracts::HistoryEntry::new(entry, session_id, workspace, now);
+            let recorded = nuo_wire::HistoryEntry::new(entry, session_id, workspace, now);
             self.push_history(recorded.clone());
             if self.input_history_persist {
-                self.send_intent(nuo_contracts::AgentRequest::RecordInputHistory {
+                self.send_intent(nuo_wire::AgentRequest::RecordInputHistory {
                     entries: vec![recorded],
                     dedup: true,
                 });
@@ -426,7 +426,7 @@ impl App {
         if already_latest_in_session {
             return;
         }
-        let recorded = nuo_contracts::HistoryEntry::new(entry, session_id, workspace, now);
+        let recorded = nuo_wire::HistoryEntry::new(entry, session_id, workspace, now);
         self.push_history(recorded.clone());
         // Same dedup guard as above: a backfilled row for this text is now
         // redundant with the recorded one.
@@ -436,7 +436,7 @@ impl App {
         // lock and must not block the event loop. Skipped entirely when disk
         // persistence is disabled (tests).
         if self.input_history_persist {
-            self.send_intent(nuo_contracts::AgentRequest::RecordInputHistory {
+            self.send_intent(nuo_wire::AgentRequest::RecordInputHistory {
                 entries: vec![recorded],
                 dedup: false,
             });
@@ -624,7 +624,7 @@ impl App {
     pub fn delete_history_entry_at(
         &mut self,
         orig_idx: usize,
-    ) -> Option<nuo_contracts::HistoryEntry> {
+    ) -> Option<nuo_wire::HistoryEntry> {
         if orig_idx >= self.input_history.len() {
             return None;
         }
@@ -638,7 +638,7 @@ impl App {
         self.history_attachments_order.retain(|k| k != &identity);
         // Cascade 3: invalidate the daemon's on-disk record.
         if self.input_history_persist {
-            self.send_intent(nuo_contracts::AgentRequest::DeleteInputHistoryEntry {
+            self.send_intent(nuo_wire::AgentRequest::DeleteInputHistoryEntry {
                 text: removed.text.clone(),
                 created_at_ms: removed.created_at_ms,
             });
@@ -648,7 +648,7 @@ impl App {
 
     /// Delete the currently selected entry in the Ctrl+R history panel, adjusting
     /// selection and follow states.
-    pub fn delete_selected_history_entry(&mut self) -> Option<nuo_contracts::HistoryEntry> {
+    pub fn delete_selected_history_entry(&mut self) -> Option<nuo_wire::HistoryEntry> {
         let ranked = self.history_rows();
         let pick = ranked.get(self.modal_index).or_else(|| ranked.first());
         let &(orig_idx, _) = pick?;

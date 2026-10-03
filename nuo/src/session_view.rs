@@ -6,7 +6,7 @@
 
 use nuo_harness::Agent;
 use crate::catalog;
-use nuo_contracts::{
+use nuo_wire::{
     McpConnectionStatus, McpServerInfo, ModelInfo, SessionContextSnapshot, SessionOverview,
 };
 use nuo_persistence::{config::Config, session::SessionStore};
@@ -35,9 +35,9 @@ pub fn provider_key_status(_config: &Config) -> Vec<(String, bool)> {
 /// agent, and MCP per-server tool names by matching the `mcp__<server>__*`
 /// naming convention against the agent's installed tools.
 ///
-/// Sent in reply to [`nuo_contracts::AgentRequest::QuerySessionContext`] and re-sent
-/// after any mutation ([`nuo_contracts::AgentRequest::RevokePermission`] /
-/// [`nuo_contracts::AgentRequest::ToggleTool`]) so the modal always reflects the
+/// Sent in reply to [`nuo_wire::AgentRequest::QuerySessionContext`] and re-sent
+/// after any mutation ([`nuo_wire::AgentRequest::RevokePermission`] /
+/// [`nuo_wire::AgentRequest::ToggleTool`]) so the modal always reflects the
 /// post-change state.
 pub fn build_session_context(
     agent: &Agent,
@@ -129,7 +129,7 @@ pub fn build_session_context(
 /// nothing to state. (The *request* path is permissive instead — an undeclared
 /// route still carries images — but that is `accepts_images`, a policy rather
 /// than a claim.)
-pub fn derive_capabilities(capabilities: &nuo_contracts::ModelCapabilities) -> Vec<String> {
+pub fn derive_capabilities(capabilities: &nuo_wire::ModelCapabilities) -> Vec<String> {
     let mut caps = Vec::new();
     if capabilities.tool_call {
         caps.push("tool calling".to_string());

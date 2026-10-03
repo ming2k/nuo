@@ -19,11 +19,11 @@
 //! provider or a database. The commit helper takes an already-open `Connection`
 //! (ADR-0231 one-door) and never opens its own.
 
-use nuo_contracts::context_lifecycle::{
+use nuo_wire::context_lifecycle::{
     Checkpoint, CheckpointId, ContextView, ExecutionGroup, FactId, FactNode, Representation,
     RepresentationEntry, SourceAuthority, SourceInterval, SourceManifest, Validity, ViewId,
 };
-use nuo_contracts::tokenizer;
+use nuo_wire::tokenizer;
 use sha2::{Digest, Sha256};
 
 /// Wall-clock access, injected so the builder stays pure and testable.
@@ -559,12 +559,12 @@ fn source_manifest(facts: &[FactNode]) -> SourceManifest {
 
 /// The default CAS retry bound (ADR-0280 §2), re-exported from the domain
 /// contracts for callers of the persistence-door CAS helper.
-pub const DEFAULT_CAS_ATTEMPTS: u32 = nuo_contracts::context_lifecycle::CAS_MAX_ATTEMPTS;
+pub const DEFAULT_CAS_ATTEMPTS: u32 = nuo_wire::context_lifecycle::CAS_MAX_ATTEMPTS;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::context_lifecycle::{ResultAcceptance, ExternalExecution, FactPayload, GroupCall, RoundId, TurnId};
+    use nuo_wire::context_lifecycle::{ResultAcceptance, ExternalExecution, FactPayload, GroupCall, RoundId, TurnId};
 
     struct StubSummarizer {
         respond: bool,
@@ -635,7 +635,7 @@ impl Summarizer for StubSummarizer {
                 text: format!("message {seq}"),
             },
             source_authority: SourceAuthority::User,
-            sensitivity: nuo_contracts::context_lifecycle::Sensitivity::Internal,
+            sensitivity: nuo_wire::context_lifecycle::Sensitivity::Internal,
             artifact_refs: vec![],
         }
     }

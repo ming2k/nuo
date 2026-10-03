@@ -84,7 +84,7 @@ mod session_route_tests {
 #[cfg(test)]
 mod trust_route_tests {
     use super::{TrustRoute, trust_route};
-    use nuo_contracts::TrustDomain;
+    use nuo_wire::TrustDomain;
 
     fn parts(command: &str) -> Vec<&str> {
         command.split_whitespace().collect()
@@ -239,7 +239,7 @@ mod confinement_arg_tests {
 #[cfg(test)]
 mod trust_domain_tests {
     use super::parse_trust_domain;
-    use nuo_contracts::TrustDomain;
+    use nuo_wire::TrustDomain;
 
     #[test]
     fn known_domains_parse() {
@@ -293,14 +293,14 @@ mod trust_domain_tests {
         let agent = Arc::new(nuo_harness::Agent::new(
             Arc::new(nuo_harness::NoProvider),
             vec![],
-            nuo_contracts::AgentIdentity::default(),
+            nuo_wire::AgentIdentity::default(),
         ));
         let mcp = Arc::new(crate::mcp::McpRuntime::start_background(
             Default::default(),
             agent.dynamic_tool_sink(),
         ));
         let skills = nuo_harness::skills::SkillRegistry::empty();
-        let shared_roots = nuo_contracts::SharedAdditionalRoots::empty();
+        let shared_roots = nuo_wire::SharedAdditionalRoots::empty();
 
         // Initially untrusted: roots should remain quarantined and empty
         let report = security_ops::reload_trusted_assets(
@@ -315,7 +315,7 @@ mod trust_domain_tests {
         .unwrap();
         assert_eq!(
             report.snapshot.ex_workspace,
-            nuo_contracts::WorkspaceTrustState::Quarantined
+            nuo_wire::WorkspaceTrustState::Quarantined
         );
         assert!(shared_roots.snapshot().is_empty());
 
@@ -333,7 +333,7 @@ mod trust_domain_tests {
         .unwrap();
         assert_eq!(
             report.snapshot.ex_workspace,
-            nuo_contracts::WorkspaceTrustState::Trusted
+            nuo_wire::WorkspaceTrustState::Trusted
         );
         let canonical_extra = std::fs::canonicalize(&external).unwrap();
         assert_eq!(shared_roots.snapshot(), vec![canonical_extra]);
@@ -352,7 +352,7 @@ mod trust_domain_tests {
         .unwrap();
         assert_eq!(
             report.snapshot.ex_workspace,
-            nuo_contracts::WorkspaceTrustState::Quarantined
+            nuo_wire::WorkspaceTrustState::Quarantined
         );
         assert!(shared_roots.snapshot().is_empty());
     }
@@ -361,7 +361,7 @@ mod trust_domain_tests {
 #[cfg(test)]
 mod role_command_tests {
     use crate::startup::BuiltinCmd;
-    use nuo_contracts::MainAgentRole;
+    use nuo_wire::MainAgentRole;
 
     #[test]
     fn role_command_resolves_to_builtin_role() {

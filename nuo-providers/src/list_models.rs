@@ -49,12 +49,12 @@
 
 use std::collections::HashSet;
 
-use nuo_contracts::{
+use nuo_model_codec::{
     Availability, ReasoningSupport, RemoteModelMetadata, SecretString, WireProtocol,
 };
 use serde_json::Value;
 
-pub use nuo_contracts::CatalogShape;
+pub use nuo_model_codec::CatalogShape;
 
 /// Everything a live catalog request needs, borrowed from the instance's
 /// first channel. Fields mirror what a chat request would use so the auth
@@ -105,7 +105,7 @@ pub struct CatalogSignature {
 
 /// Dialect-signed catalog transport, supplied by the caller.
 ///
-/// A shape whose [`CatalogAuth`](nuo_contracts::provider_surface::CatalogAuth)
+/// A shape whose [`CatalogAuth`](nuo_model_codec::provider_surface::CatalogAuth)
 /// is `Dialect` authenticates with the dialect's own request signing. The
 /// signer and the identity-headers table are supplied as data by the catalog
 /// sync layer (which legitimately knows the provider) so this generic fetcher
@@ -319,7 +319,7 @@ impl DiscoveredModel {
                 // rather than silently dropped.
                 levels
                     .iter()
-                    .map(|level| nuo_contracts::EffortLevel::parse(level))
+                    .map(|level| nuo_model_codec::EffortLevel::parse(level))
                     .collect()
             }),
             catalog_source: self.catalog_source.clone(),
@@ -356,7 +356,7 @@ pub fn models_endpoint_for(
     protocol: CatalogShape,
     base_url: &str,
 ) -> Result<String, ModelListError> {
-    let root = nuo_contracts::ApiRoot::parse(base_url).map_err(ModelListError::BadEndpoint)?;
+    let root = nuo_model_codec::ApiRoot::parse(base_url).map_err(ModelListError::BadEndpoint)?;
     Ok(root.append(protocol.path()))
 }
 
@@ -451,7 +451,7 @@ pub async fn fetch_remote_catalog(
                 &endpoint,
                 &[(
                     "client_version",
-                    nuo_contracts::client_identity::CODEX_VERSION,
+                    nuo_model_codec::client_identity::CODEX_VERSION,
                 )],
             );
             let mut request = crate::http::Request::new(netune::Method::GET, &endpoint)
@@ -496,7 +496,7 @@ pub async fn fetch_remote_catalog(
         CatalogShape::GoogleCloudCode => {
             let mut request = crate::http::Request::new(netune::Method::POST, &endpoint)
                 .header("user-agent", user_agent)
-                .header("x-goog-api-client", nuo_contracts::client_identity::ANTIGRAVITY_API_CLIENT_HEADER)
+                .header("x-goog-api-client", nuo_model_codec::client_identity::ANTIGRAVITY_API_CLIENT_HEADER)
                 .json(&serde_json::json!({ "project": "" }));
             if !req.api_key.expose_secret().trim().is_empty() {
                 request = request.header(
@@ -1678,9 +1678,9 @@ mod tests {
         assert_eq!(
             remote.effort_levels,
             Some(vec![
-                nuo_contracts::EffortLevel::Known(nuo_contracts::Effort::Low),
-                nuo_contracts::EffortLevel::Known(nuo_contracts::Effort::Medium),
-                nuo_contracts::EffortLevel::Known(nuo_contracts::Effort::High)
+                nuo_model_codec::EffortLevel::Known(nuo_model_codec::Effort::Low),
+                nuo_model_codec::EffortLevel::Known(nuo_model_codec::Effort::Medium),
+                nuo_model_codec::EffortLevel::Known(nuo_model_codec::Effort::High)
             ])
         );
         assert_eq!(remote.thinking, Some(ReasoningSupport::AnthropicAdaptive));

@@ -6,7 +6,7 @@
 //! concern, not a domain-tool concern. The other tools (Bash/Read/Web/…)
 //! stay in [`crate::tools`] and remain pure trait implementations.
 //!
-//! Admission of tools to the subagent is driven by [`nuo_contracts::SubAgentProfile::EXPLORE`]
+//! Admission of tools to the subagent is driven by [`nuo_wire::SubAgentProfile::EXPLORE`]
 //! — the single source of truth for the read-only / non-interactive /
 //! non-recursive policy. See ADR-0011.
 
@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use nuo_contracts::{SubAgentProfile, Tool};
+use nuo_wire::{SubAgentProfile, Tool};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
@@ -33,7 +33,7 @@ pub const SPAWN_AGENT_TOOL_NAME: &str = "spawn_agent";
 /// instead of being silently treated as the bound default (ADR-0179's
 /// "actionable diagnostics for mode errors").
 ///
-/// Deliberately narrower than [`nuo_contracts::SubAgentProfile::ALL`]:
+/// Deliberately narrower than [`nuo_wire::SubAgentProfile::ALL`]:
 /// `title` is a harness-internal role (session titling drives it directly
 /// through the cognitive pipeline) and must not become spawnable just because
 /// it lives in the same pool.
@@ -130,8 +130,8 @@ impl SubagentRegistry {
 /// non-recursive. Its final answer is returned to the calling agent, which
 /// stays in control of any write operations and any questions for the user.
 pub struct SubagentTool {
-    provider: Arc<dyn nuo_contracts::Provider>,
-    toolset: nuo_contracts::ToolSet,
+    provider: Arc<dyn nuo_wire::Provider>,
+    toolset: nuo_wire::ToolSet,
     profile: &'static SubAgentProfile,
     /// The tool name the model calls this dispatch tool by. The default (set by
     /// [`SubagentTool::new`]) is `"subagent"` for the read-only research role; a
@@ -151,17 +151,17 @@ pub struct SubagentTool {
     /// this, so a subagent — an agent on the same model — inherits the parent's
     /// overrides. `None` (the default, e.g. in tests) means default variants.
     parent_variants:
-        std::sync::Mutex<Option<Arc<std::sync::Mutex<nuo_contracts::VariantSelection>>>>,
+        std::sync::Mutex<Option<Arc<std::sync::Mutex<nuo_wire::VariantSelection>>>>,
     /// Live workspace authority inherited from the parent. Delegation may
     /// narrow this through the subagent's operation scope, never widen it.
     parent_workspace_security:
-        std::sync::Mutex<Option<Arc<std::sync::Mutex<nuo_contracts::WorkspaceSecuritySnapshot>>>>,
+        std::sync::Mutex<Option<Arc<std::sync::Mutex<nuo_wire::WorkspaceSecuritySnapshot>>>>,
     /// ADR-0141: the parent's human-channel accountant, inherited by every
     /// spawned subagent so a child's posture tracks the session's live OR over
     /// attached clients (an interactive session's subagent can ask the user;
     /// an autonomous one's child never parks on a missing human).
     parent_human_channel:
-        std::sync::Mutex<Option<Arc<nuo_contracts::human_request::HumanChannelAccountant>>>,
+        std::sync::Mutex<Option<Arc<nuo_wire::human_request::HumanChannelAccountant>>>,
     /// Full-duplex handle registry (ADR-0029): each spawned subagent's
     /// [`SubagentHandle`] is lodged here keyed by the parent tool-call id, so
     /// the harness can route a user's permission / `ask_user` reply back down
@@ -182,9 +182,9 @@ pub struct SubagentTool {
     /// `request_cancel` for a finished call degrades to a no-op.
     active_cancels: std::sync::Mutex<std::collections::HashMap<String, CancellationToken>>,
     /// Agent preset delegation policy gating which subagent presets may be dispatched.
-    parent_delegation: std::sync::Mutex<Option<nuo_contracts::AgentRoleDelegation>>,
+    parent_delegation: std::sync::Mutex<Option<nuo_wire::AgentRoleDelegation>>,
     /// Parent execution policy enforcing recursion limits and depth bounds (ADR-0183).
-    parent_execution_policy: std::sync::Mutex<Option<nuo_contracts::ExecutionPolicy>>,
+    parent_execution_policy: std::sync::Mutex<Option<nuo_wire::ExecutionPolicy>>,
     /// The session's workspace root, captured at bootstrap so the child's
     /// tools resolve relative paths against the session's project — not the
     /// daemon process's cwd (ADR-0096). `None` falls back to the process cwd
@@ -195,7 +195,7 @@ pub struct SubagentTool {
 
 #[derive(Clone)]
 struct SubagentAccountingContext {
-    ledger: Arc<nuo_contracts::TokenSourceLedger>,
+    ledger: Arc<nuo_wire::TokenSourceLedger>,
     session_id: Arc<std::sync::Mutex<Option<String>>>,
     round_counter: Arc<std::sync::Mutex<u64>>,
 }
@@ -206,8 +206,8 @@ impl SubagentTool {
     /// pins + framing). The caller binds the role explicitly — `&SubAgentProfile::EXPLORE` for
     /// the `spawn_agent` tool.
     pub fn new(
-        provider: Arc<dyn nuo_contracts::Provider>,
-        toolset: nuo_contracts::ToolSet,
+        provider: Arc<dyn nuo_wire::Provider>,
+        toolset: nuo_wire::ToolSet,
         profile: &'static SubAgentProfile,
     ) -> Self {
         Self::named(
@@ -222,8 +222,8 @@ impl SubagentTool {
     /// Like [`new`](Self::new) but shares an existing [`SubagentRegistry`] instead
     /// of creating a fresh one.
     pub fn with_registry(
-        provider: Arc<dyn nuo_contracts::Provider>,
-        toolset: nuo_contracts::ToolSet,
+        provider: Arc<dyn nuo_wire::Provider>,
+        toolset: nuo_wire::ToolSet,
         profile: &'static SubAgentProfile,
         registry: Arc<SubagentRegistry>,
     ) -> Self {
@@ -244,8 +244,8 @@ impl SubagentTool {
     /// delegation path for debugging and diagnostics. The read-only `subagent` tool and
     /// a named variant coexist as separate capabilities in the parent toolset.
     pub fn named(
-        provider: Arc<dyn nuo_contracts::Provider>,
-        toolset: nuo_contracts::ToolSet,
+        provider: Arc<dyn nuo_wire::Provider>,
+        toolset: nuo_wire::ToolSet,
         profile: &'static SubAgentProfile,
         tool_name: &'static str,
         tool_description: &'static str,
@@ -273,8 +273,8 @@ impl SubagentTool {
     /// [`Self::with_registry`]: a named dispatch tool whose children are
     /// reachable through the same harness reply path as its sibling.
     pub fn named_with_registry(
-        provider: Arc<dyn nuo_contracts::Provider>,
-        toolset: nuo_contracts::ToolSet,
+        provider: Arc<dyn nuo_wire::Provider>,
+        toolset: nuo_wire::ToolSet,
         profile: &'static SubAgentProfile,
         tool_name: &'static str,
         tool_description: &'static str,
@@ -300,7 +300,7 @@ impl SubagentTool {
     }
 
     /// Bind the agent preset delegation policy to enforce allowed subagent profiles.
-    pub fn bind_delegation(&self, delegation: nuo_contracts::AgentRoleDelegation) {
+    pub fn bind_delegation(&self, delegation: nuo_wire::AgentRoleDelegation) {
         *self
             .parent_delegation
             .lock()
@@ -308,7 +308,7 @@ impl SubagentTool {
     }
 
     /// Bind the parent agent's execution policy to govern child depth bounds (ADR-0183).
-    pub fn bind_execution_policy(&self, policy: nuo_contracts::ExecutionPolicy) {
+    pub fn bind_execution_policy(&self, policy: nuo_wire::ExecutionPolicy) {
         *self
             .parent_execution_policy
             .lock()
@@ -332,7 +332,7 @@ impl SubagentTool {
     /// round/turn numbers.
     pub fn bind_accounting(
         &self,
-        ledger: Arc<nuo_contracts::TokenSourceLedger>,
+        ledger: Arc<nuo_wire::TokenSourceLedger>,
         session_id: Arc<std::sync::Mutex<Option<String>>>,
         round_counter: Arc<std::sync::Mutex<u64>>,
     ) {
@@ -350,7 +350,7 @@ impl SubagentTool {
     /// unbound, subagents use each capability's default variant.
     pub fn bind_variant_selection(
         &self,
-        handle: Arc<std::sync::Mutex<nuo_contracts::VariantSelection>>,
+        handle: Arc<std::sync::Mutex<nuo_wire::VariantSelection>>,
     ) {
         *self
             .parent_variants
@@ -363,7 +363,7 @@ impl SubagentTool {
     /// `Agent::set_human_channel_accountant`).
     pub fn bind_human_channel(
         &self,
-        handle: Arc<nuo_contracts::human_request::HumanChannelAccountant>,
+        handle: Arc<nuo_wire::human_request::HumanChannelAccountant>,
     ) {
         *self
             .parent_human_channel
@@ -373,7 +373,7 @@ impl SubagentTool {
 
     fn parent_human_channel(
         &self,
-    ) -> Option<Arc<nuo_contracts::human_request::HumanChannelAccountant>> {
+    ) -> Option<Arc<nuo_wire::human_request::HumanChannelAccountant>> {
         self.parent_human_channel
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -382,7 +382,7 @@ impl SubagentTool {
 
     pub fn bind_workspace_security(
         &self,
-        handle: Arc<std::sync::Mutex<nuo_contracts::WorkspaceSecuritySnapshot>>,
+        handle: Arc<std::sync::Mutex<nuo_wire::WorkspaceSecuritySnapshot>>,
     ) {
         *self
             .parent_workspace_security
@@ -391,7 +391,7 @@ impl SubagentTool {
     }
 
     /// Snapshot the parent's current variant selection (empty when unbound).
-    fn variant_snapshot(&self) -> nuo_contracts::VariantSelection {
+    fn variant_snapshot(&self) -> nuo_wire::VariantSelection {
         self.parent_variants
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -489,17 +489,17 @@ impl Tool for SubagentTool {
         &self,
         call_id: &str,
         arguments: &str,
-        on_event: Box<dyn FnMut(nuo_contracts::SubagentEvent) + Send + 'a>,
+        on_event: Box<dyn FnMut(nuo_wire::SubagentEvent) + Send + 'a>,
     ) -> Result<String, String> {
         self.run_subagent(Some(call_id), arguments, on_event).await
     }
 
     async fn call_structured_with_events<'a>(
         &self,
-        invocation: nuo_contracts::ToolInvocation<'a>,
-        on_event: Box<dyn FnMut(nuo_contracts::SubagentEvent) + Send + 'a>,
-        _on_stream: &mut (dyn FnMut(nuo_contracts::ToolStream) + Send + 'a),
-    ) -> Result<nuo_contracts::ToolOutput, String> {
+        invocation: nuo_wire::ToolInvocation<'a>,
+        on_event: Box<dyn FnMut(nuo_wire::SubagentEvent) + Send + 'a>,
+        _on_stream: &mut (dyn FnMut(nuo_wire::ToolStream) + Send + 'a),
+    ) -> Result<nuo_wire::ToolOutput, String> {
         let call_id = invocation.call_id;
         let arguments = invocation.arguments;
         // Run the subagent, streaming its lifecycle as SubagentEvents to the
@@ -533,7 +533,7 @@ impl Tool for SubagentTool {
         } else {
             outcome.final_content.trim().to_string()
         };
-        Ok(nuo_contracts::ToolOutput::Subagent {
+        Ok(nuo_wire::ToolOutput::Subagent {
             summary,
             messages: outcome.messages,
             usage: outcome.token_usage,
@@ -547,14 +547,14 @@ impl Tool for SubagentTool {
 /// Internal result of running a sub-agent. Bundles everything the parent
 /// harness needs to persist the nested transcript and account for real cost.
 pub struct SubagentOutcome {
-    messages: Vec<nuo_contracts::Message>,
-    token_usage: nuo_contracts::TokenUsage,
+    messages: Vec<nuo_wire::Message>,
+    token_usage: nuo_wire::TokenUsage,
     /// Final assistant content, mirrored for convenience so the parent doesn't
     /// have to scan `messages` for the last Assistant turn.
     final_content: String,
     /// Whether the subagent terminated abnormally (hit its turn cap,
     /// repeated-call guard, or a provider error). Drives the structured
-    /// `failed` flag on the returned [`nuo_contracts::ToolOutput::Subagent`]
+    /// `failed` flag on the returned [`nuo_wire::ToolOutput::Subagent`]
     /// instead of the old `summary.starts_with("Error")` text sniff.
     failed: bool,
     /// Whether the subagent was stopped by the parent before finishing (the turn
@@ -574,7 +574,7 @@ impl SubagentTool {
         &self,
         call_id: Option<&str>,
         arguments: &str,
-        mut on_event: Box<dyn FnMut(nuo_contracts::SubagentEvent) + Send + 'a>,
+        mut on_event: Box<dyn FnMut(nuo_wire::SubagentEvent) + Send + 'a>,
     ) -> Result<SubagentOutcome, String> {
         let args: serde_json::Value =
             serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {}", e))?;
@@ -610,7 +610,7 @@ impl SubagentTool {
                         self.profile.name
                     ));
                 }
-                nuo_contracts::SubAgentProfile::find(role).ok_or_else(|| {
+                nuo_wire::SubAgentProfile::find(role).ok_or_else(|| {
                     format!(
                         "Role '{role}' is advertised by this dispatch tool but has no preset in \
                          the pool. This is a dispatch-tool configuration error, not a caller \
@@ -669,7 +669,7 @@ impl SubagentTool {
         // Announce the bound profile name first so the parent harness / TUI
         // can label this subagent by its role (explore / plan / verify / …)
         // rather than a generic "Subagent". Emitted before the child runs.
-        on_event(nuo_contracts::SubagentEvent::Started {
+        on_event(nuo_wire::SubagentEvent::Started {
             profile: profile.name.to_string(),
         });
 
@@ -680,9 +680,9 @@ impl SubagentTool {
         // its variant overrides (snapshotted from the parent) and its hard
         // capability limits. `resolve_tools` composes both and applies the subagent
         // runtime hard rules (no recursion / control-flow / blocking-on-user).
-        let model = nuo_contracts::resolve_model(&self.provider.model());
+        let model = nuo_wire::resolve_model(&self.provider.model());
         let model_sel =
-            nuo_contracts::ToolSelection::unrestricted().with_variants(self.variant_snapshot());
+            nuo_wire::ToolSelection::unrestricted().with_variants(self.variant_snapshot());
         let sub_tools = profile.resolve_tools(&self.toolset, &model, &model_sel);
 
         // The subagent's identity *is* its profile's task prompt — that is the
@@ -691,7 +691,7 @@ impl SubagentTool {
         // is enforced by the execution policy below, not by prose.
         let identity = crate::AgentIdentity::from_directive(profile.system_prompt);
         let mut subagent = Agent::new(self.provider.clone(), sub_tools, identity);
-        subagent.set_kind(nuo_contracts::AgentKind::Subagent);
+        subagent.set_kind(nuo_wire::AgentKind::Subagent);
 
         // ADR-0224: bind instance-scoped extensions according to the child's mission.
         match profile.name {
@@ -713,14 +713,14 @@ impl SubagentTool {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
-            .unwrap_or_else(nuo_contracts::ExecutionPolicy::root_default);
+            .unwrap_or_else(nuo_wire::ExecutionPolicy::root_default);
         let child_policy = parent_policy
             .derive_child(Some(profile.tool_policy))
-            .unwrap_or_else(|_| nuo_contracts::ExecutionPolicy {
+            .unwrap_or_else(|_| nuo_wire::ExecutionPolicy {
                 depth: parent_policy.depth + 1,
                 max_depth: parent_policy.max_depth,
                 allow_human_interaction: false,
-                lifecycle: nuo_contracts::ContextLifecycle::EphemeralScratchpad,
+                lifecycle: nuo_wire::ContextLifecycle::EphemeralScratchpad,
                 tool_policy: Some(profile.tool_policy),
                 max_children_budget: 0,
             });
@@ -764,7 +764,7 @@ impl SubagentTool {
         // read-loop guard's nudge (ADR-0034) so a short-lived, parent-supervised
         // subagent is never steered by it. The parent and `abort` remain its
         // backstops.
-        subagent.set_trajectory_guard_config(nuo_contracts::TrajectoryGuardConfig::disabled());
+        subagent.set_trajectory_guard_config(nuo_wire::TrajectoryGuardConfig::disabled());
         // Full-duplex (ADR-0029): install the child's steering inbox and lodge
         // its handle in the registry keyed by the parent tool-call id. Now any
         // permission / `ask_user` request the child surfaces travels *up* via
@@ -813,7 +813,7 @@ impl SubagentTool {
         // itself is the user message; `description` remains a required label
         // arg (validated above) for the parent / TUI.
         let mut messages = vec![crate::conversation_context::visible_user(
-            nuo_contracts::InjectionKind::SubagentTask,
+            nuo_wire::InjectionKind::SubagentTask,
             prompt,
         )];
         // The subagent runs under its own cancellation token. When the parent
@@ -862,7 +862,7 @@ impl SubagentTool {
             attempt += 1;
             let run = subagent
                 .resume_streaming_with_events(&mut messages, &child_cancel, &mut round, |event| {
-                    if let nuo_contracts::AgentEvent::ModelRequestStarted { round, turn, .. } =
+                    if let nuo_wire::AgentEvent::ModelRequestStarted { round, turn, .. } =
                         &event
                     {
                         position = (*round, *turn);
@@ -872,16 +872,16 @@ impl SubagentTool {
                 .await;
             match run {
                 Ok(outcome) => break Ok(outcome),
-                Err(nuo_contracts::HarnessError::Provider(provider_err))
+                Err(nuo_wire::HarnessError::Provider(provider_err))
                     if {
                         matches!(
                             provider_err.retry_disposition(),
-                            nuo_contracts::RetryDisposition::Retry { .. }
+                            nuo_wire::RetryDisposition::Retry { .. }
                         )
                     } && attempt < retry_limit =>
                 {
                     let retry_after_ms = match provider_err.retry_disposition() {
-                        nuo_contracts::RetryDisposition::Retry { retry_after_ms } => {
+                        nuo_wire::RetryDisposition::Retry { retry_after_ms } => {
                             retry_after_ms
                         }
                         _ => unreachable!(),
@@ -903,15 +903,15 @@ impl SubagentTool {
                         error = %message,
                         "subagent hit a transient provider error; retrying"
                     );
-                    on_event(nuo_contracts::SubagentEvent::Notice(
-                        nuo_contracts::AgentNotice::new(
-                            nuo_contracts::NoticeKind::ProviderRetry,
-                            nuo_contracts::NoticeSeverity::Warning,
+                    on_event(nuo_wire::SubagentEvent::Notice(
+                        nuo_wire::AgentNotice::new(
+                            nuo_wire::NoticeKind::ProviderRetry,
+                            nuo_wire::NoticeSeverity::Warning,
                             format!(
                                 "Subagent retrying after transient provider error \
                                  ({attempt}/{retry_limit})"
                             ),
-                            nuo_contracts::NoticeSource::Harness,
+                            nuo_wire::NoticeSource::Harness,
                         )
                         .with_body(format!(
                             "Waiting {}s before retrying: {}",
@@ -919,13 +919,13 @@ impl SubagentTool {
                             crate::orchestration::public_retry_reason(message),
                         )),
                     ));
-                    on_event(nuo_contracts::SubagentEvent::Activity(format!(
+                    on_event(nuo_wire::SubagentEvent::Activity(format!(
                         "waiting to retry ({}s)",
                         delay_ms.div_ceil(1_000)
                     )));
                     tokio::select! {
                         _ = child_cancel.cancelled() => {
-                            break Err(nuo_contracts::HarnessError::Interrupted)
+                            break Err(nuo_wire::HarnessError::Interrupted)
                         }
                         _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => {}
                     }
@@ -969,13 +969,13 @@ impl SubagentTool {
                 // reaches the parent round's accounting; the `final_content`
                 // is prefixed `Error: …` so the failure classifier and the
                 // TUI's Failed badge both trigger.
-                if matches!(error, nuo_contracts::HarnessError::Interrupted) {
+                if matches!(error, nuo_wire::HarnessError::Interrupted) {
                     let tool_calls = messages
                         .iter()
-                        .filter(|m| m.role == nuo_contracts::Role::Tool)
+                        .filter(|m| m.role == nuo_wire::Role::Tool)
                         .count();
                     let partial = messages.iter().rev().find_map(|m| {
-                        (m.role == nuo_contracts::Role::Assistant && !m.content.trim().is_empty())
+                        (m.role == nuo_wire::Role::Assistant && !m.content.trim().is_empty())
                             .then(|| m.content.trim().to_string())
                     });
                     let final_content = match partial {
@@ -995,7 +995,7 @@ impl SubagentTool {
                     );
                     return Ok(SubagentOutcome {
                         messages,
-                        token_usage: nuo_contracts::TokenUsage::default(),
+                        token_usage: nuo_wire::TokenUsage::default(),
                         final_content,
                         failed: false,
                         interrupted: true,
@@ -1006,7 +1006,7 @@ impl SubagentTool {
                 tracing::warn!(error = %error_string, "subagent failed; preserving partial transcript");
                 Ok(SubagentOutcome {
                     messages,
-                    token_usage: nuo_contracts::TokenUsage::default(),
+                    token_usage: nuo_wire::TokenUsage::default(),
                     final_content: format!("Error: {error_string}"),
                     failed: true,
                     interrupted: false,
@@ -1020,7 +1020,7 @@ impl SubagentTool {
         &self,
         call_id: Option<&str>,
         arguments: &str,
-        on_event: Box<dyn FnMut(nuo_contracts::SubagentEvent) + Send + 'a>,
+        on_event: Box<dyn FnMut(nuo_wire::SubagentEvent) + Send + 'a>,
     ) -> Result<String, String> {
         let outcome = self
             .run_subagent_outcome(call_id, arguments, on_event)
@@ -1034,55 +1034,55 @@ impl SubagentTool {
     }
 
     fn forward_event(
-        event: nuo_contracts::AgentEvent,
+        event: nuo_wire::AgentEvent,
         position: (u64, usize),
         origin: Option<&str>,
-        on_event: &mut dyn FnMut(nuo_contracts::SubagentEvent),
+        on_event: &mut dyn FnMut(nuo_wire::SubagentEvent),
     ) {
         match event {
-            nuo_contracts::AgentEvent::Notice(notice) => {
-                on_event(nuo_contracts::SubagentEvent::Notice(notice));
+            nuo_wire::AgentEvent::Notice(notice) => {
+                on_event(nuo_wire::SubagentEvent::Notice(notice));
             }
-            nuo_contracts::AgentEvent::ModelRequestStarted { turn, .. } => {
+            nuo_wire::AgentEvent::ModelRequestStarted { turn, .. } => {
                 let status = if turn == 0 {
                     "waiting for model".to_string()
                 } else {
                     format!("waiting for model (turn {})", turn + 1)
                 };
-                on_event(nuo_contracts::SubagentEvent::Activity(status));
+                on_event(nuo_wire::SubagentEvent::Activity(status));
             }
-            nuo_contracts::AgentEvent::AssistantDelta { delta, start } => {
+            nuo_wire::AgentEvent::AssistantDelta { delta, start } => {
                 if start {
-                    on_event(nuo_contracts::SubagentEvent::StreamStart {
+                    on_event(nuo_wire::SubagentEvent::StreamStart {
                         round: position.0,
                         turn: position.1,
                     });
                 }
-                on_event(nuo_contracts::SubagentEvent::StreamDelta(delta));
+                on_event(nuo_wire::SubagentEvent::StreamDelta(delta));
             }
-            nuo_contracts::AgentEvent::AssistantEnd(content) => {
-                on_event(nuo_contracts::SubagentEvent::StreamEnd(content));
+            nuo_wire::AgentEvent::AssistantEnd(content) => {
+                on_event(nuo_wire::SubagentEvent::StreamEnd(content));
             }
             // The subagent's reasoning chain, streamed live instead of surfacing
             // only after a session reload.
-            nuo_contracts::AgentEvent::ReasoningDelta { delta, start } => {
+            nuo_wire::AgentEvent::ReasoningDelta { delta, start } => {
                 if start {
-                    on_event(nuo_contracts::SubagentEvent::StreamReasoningStart {
+                    on_event(nuo_wire::SubagentEvent::StreamReasoningStart {
                         round: position.0,
                         turn: position.1,
                     });
                 }
-                on_event(nuo_contracts::SubagentEvent::StreamReasoningDelta(delta));
+                on_event(nuo_wire::SubagentEvent::StreamReasoningDelta(delta));
             }
-            nuo_contracts::AgentEvent::ReasoningEnd(content) => {
-                on_event(nuo_contracts::SubagentEvent::StreamReasoningEnd(content));
+            nuo_wire::AgentEvent::ReasoningEnd(content) => {
+                on_event(nuo_wire::SubagentEvent::StreamReasoningEnd(content));
             }
-            nuo_contracts::AgentEvent::ToolCall {
+            nuo_wire::AgentEvent::ToolCall {
                 id,
                 name,
                 arguments,
             } => {
-                on_event(nuo_contracts::SubagentEvent::ToolCall {
+                on_event(nuo_wire::SubagentEvent::ToolCall {
                     id,
                     name,
                     arguments,
@@ -1090,14 +1090,14 @@ impl SubagentTool {
                     turn: position.1,
                 });
             }
-            nuo_contracts::AgentEvent::ToolResult {
+            nuo_wire::AgentEvent::ToolResult {
                 id,
                 name,
                 output,
                 duration_ms,
                 ..
             } => {
-                on_event(nuo_contracts::SubagentEvent::ToolResult {
+                on_event(nuo_wire::SubagentEvent::ToolResult {
                     id,
                     name,
                     output,
@@ -1106,24 +1106,24 @@ impl SubagentTool {
             }
             // Full-duplex (ADR-0029 / ADR-0138): a permission broker request from the
             // child travels *up* stamped with the child's short hash and profile origin.
-            nuo_contracts::AgentEvent::PermissionRequest(mut request) => {
+            nuo_wire::AgentEvent::PermissionRequest(mut request) => {
                 if request.origin.is_none() {
                     request.origin = origin.map(str::to_string);
                 }
-                on_event(nuo_contracts::SubagentEvent::PermissionRequest(request));
+                on_event(nuo_wire::SubagentEvent::PermissionRequest(request));
             }
             // Same full-duplex contract as the permission arm above.
-            nuo_contracts::AgentEvent::UserQuestionRequest(mut request) => {
+            nuo_wire::AgentEvent::UserQuestionRequest(mut request) => {
                 if request.origin.is_none() {
                     request.origin = origin.map(str::to_string);
                 }
-                on_event(nuo_contracts::SubagentEvent::UserQuestionRequest(request));
+                on_event(nuo_wire::SubagentEvent::UserQuestionRequest(request));
             }
             // An interactive `bash` inside the subagent needs operator
             // stdin; forward the request up so the parent harness can surface
             // it, with the reply routed back down via `reply_input`.
-            nuo_contracts::AgentEvent::StdinRequest(request) => {
-                on_event(nuo_contracts::SubagentEvent::StdinRequest(request));
+            nuo_wire::AgentEvent::StdinRequest(request) => {
+                on_event(nuo_wire::SubagentEvent::StdinRequest(request));
             }
             _ => {}
         }
@@ -1134,7 +1134,7 @@ impl SubagentTool {
 mod tests {
     use super::*;
     use futures::stream::{self, BoxStream};
-    use nuo_contracts::{Message, Provider, ProviderStreamEvent, Role, SubAgentProfile};
+    use nuo_wire::{Message, Provider, ProviderStreamEvent, Role, SubAgentProfile};
 
     struct CannedProvider;
 
@@ -1142,19 +1142,19 @@ mod tests {
     impl Provider for CannedProvider {
         async fn chat(
             &self,
-            _request: nuo_contracts::ModelRequest,
-        ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
-            Ok(nuo_contracts::ProviderCompletion::message(Message::new(
+            _request: nuo_wire::ModelRequest,
+        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            Ok(nuo_wire::ProviderCompletion::message(Message::new(
                 Role::Assistant,
                 "found 3 relevant files",
             )))
         }
         async fn stream_chat(
             &self,
-            _request: nuo_contracts::ModelRequest,
+            _request: nuo_wire::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-            nuo_contracts::ProviderError,
+            BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+            nuo_wire::ProviderError,
         > {
             Ok(Box::pin(stream::once(async {
                 Ok("found 3 relevant files".to_string())
@@ -1164,7 +1164,7 @@ mod tests {
 
     #[derive(Default)]
     struct RecordingProvider {
-        request: std::sync::Mutex<Option<nuo_contracts::ModelRequest>>,
+        request: std::sync::Mutex<Option<nuo_wire::ModelRequest>>,
     }
 
     /// Fails the first `stream_chat_events` call with a retryable transport
@@ -1187,9 +1187,9 @@ mod tests {
     impl Provider for FlakyThenOkProvider {
         async fn chat(
             &self,
-            _request: nuo_contracts::ModelRequest,
-        ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
-            Ok(nuo_contracts::ProviderCompletion::message(Message::new(
+            _request: nuo_wire::ModelRequest,
+        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            Ok(nuo_wire::ProviderCompletion::message(Message::new(
                 Role::Assistant,
                 "recovered",
             )))
@@ -1197,10 +1197,10 @@ mod tests {
 
         async fn stream_chat(
             &self,
-            _request: nuo_contracts::ModelRequest,
+            _request: nuo_wire::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-            nuo_contracts::ProviderError,
+            BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+            nuo_wire::ProviderError,
         > {
             Ok(Box::pin(stream::once(async {
                 Ok("recovered".to_string())
@@ -1209,23 +1209,23 @@ mod tests {
 
         async fn stream_chat_events(
             &self,
-            _request: nuo_contracts::ModelRequest,
+            _request: nuo_wire::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<ProviderStreamEvent, nuo_contracts::ProviderError>>,
-            nuo_contracts::ProviderError,
+            BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
+            nuo_wire::ProviderError,
         > {
             let seen = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if seen == 0 {
-                return Err(nuo_contracts::ProviderError::new(
+                return Err(nuo_wire::ProviderError::new(
                     "OpenAI",
-                    nuo_contracts::ProviderErrorKind::Transport,
+                    nuo_wire::ProviderErrorKind::Transport,
                     "OpenAI transport error: error decoding response body (connection closed before message completed)",
                 ).retryable(None));
             }
             Ok(Box::pin(stream::iter(vec![
                 Ok(ProviderStreamEvent::TextDelta("recovered".to_string())),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_contracts::ProviderCompletionMeta::default(),
+                    nuo_wire::ProviderCompletionMeta::default(),
                 )),
             ])))
         }
@@ -1234,10 +1234,10 @@ mod tests {
     impl Provider for RecordingProvider {
         async fn chat(
             &self,
-            request: nuo_contracts::ModelRequest,
-        ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
+            request: nuo_wire::ModelRequest,
+        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
             *self.request.lock().unwrap() = Some(request);
-            Ok(nuo_contracts::ProviderCompletion::message(Message::new(
+            Ok(nuo_wire::ProviderCompletion::message(Message::new(
                 Role::Assistant,
                 "found 3 relevant files",
             )))
@@ -1245,10 +1245,10 @@ mod tests {
 
         async fn stream_chat(
             &self,
-            request: nuo_contracts::ModelRequest,
+            request: nuo_wire::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-            nuo_contracts::ProviderError,
+            BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+            nuo_wire::ProviderError,
         > {
             *self.request.lock().unwrap() = Some(request);
             Ok(Box::pin(stream::once(async {
@@ -1301,7 +1301,7 @@ mod tests {
     fn subagent_inherits_model_variant_then_applies_profile_scope() {
         // `StubWriteTool` (name "stub_write") is not in SubAgentProfile::EXPLORE's read-only
         // scope, so it is always excluded; `read_text` has two variants.
-        let toolset = nuo_contracts::ToolSet::from_tools([
+        let toolset = nuo_wire::ToolSet::from_tools([
             std::sync::Arc::new(EchoReadTool) as std::sync::Arc<dyn Tool>,
             std::sync::Arc::new(TerseReadTool) as std::sync::Arc<dyn Tool>,
             std::sync::Arc::new(StubWriteTool) as std::sync::Arc<dyn Tool>,
@@ -1313,8 +1313,8 @@ mod tests {
         );
 
         let resolve = |tool: &SubagentTool| {
-            let model = nuo_contracts::resolve_model(&CannedProvider.model());
-            let model_sel = nuo_contracts::ToolSelection::unrestricted()
+            let model = nuo_wire::resolve_model(&CannedProvider.model());
+            let model_sel = nuo_wire::ToolSelection::unrestricted()
                 .with_variants(tool.variant_snapshot());
             tool.profile
                 .resolve_tools(&tool.toolset, &model, &model_sel)
@@ -1329,7 +1329,7 @@ mod tests {
 
         // Bind a model selection pinning read_text=terse: the subagent inherits
         // the override (terse), while scope is still profile-driven.
-        let mut sel = nuo_contracts::VariantSelection::new();
+        let mut sel = nuo_wire::VariantSelection::new();
         sel.insert("read_text".to_string(), "terse".to_string());
         tool.bind_variant_selection(std::sync::Arc::new(std::sync::Mutex::new(sel)));
         let scoped = resolve(&tool);
@@ -1343,7 +1343,7 @@ mod tests {
         let provider = std::sync::Arc::new(FlakyThenOkProvider::new());
         let tool = SubagentTool::new(
             std::sync::Arc::clone(&provider) as std::sync::Arc<dyn Provider>,
-            nuo_contracts::ToolSet::from_tools([
+            nuo_wire::ToolSet::from_tools([
                 std::sync::Arc::new(EchoReadTool) as std::sync::Arc<dyn Tool>
             ]),
             &SubAgentProfile::EXPLORE,
@@ -1370,7 +1370,7 @@ mod tests {
         let provider = std::sync::Arc::new(FlakyThenOkProvider::new());
         let tool = SubagentTool::new(
             std::sync::Arc::clone(&provider) as std::sync::Arc<dyn Provider>,
-            nuo_contracts::ToolSet::from_tools([
+            nuo_wire::ToolSet::from_tools([
                 std::sync::Arc::new(EchoReadTool) as std::sync::Arc<dyn Tool>
             ]),
             &SubAgentProfile::EXPLORE,
@@ -1393,7 +1393,7 @@ mod tests {
     async fn task_tool_runs_read_only_subagent_and_returns_answer() {
         let tool = SubagentTool::new(
             std::sync::Arc::new(CannedProvider),
-            nuo_contracts::ToolSet::from_tools([
+            nuo_wire::ToolSet::from_tools([
                 std::sync::Arc::new(EchoReadTool) as std::sync::Arc<dyn Tool>
             ]),
             &SubAgentProfile::EXPLORE,
@@ -1421,28 +1421,28 @@ mod tests {
     impl Provider for GatedProvider {
         async fn chat(
             &self,
-            _request: nuo_contracts::ModelRequest,
-        ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
-            Ok(nuo_contracts::ProviderCompletion::message(Message::new(
+            _request: nuo_wire::ModelRequest,
+        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            Ok(nuo_wire::ProviderCompletion::message(Message::new(
                 Role::Assistant,
                 "gated",
             )))
         }
         async fn stream_chat(
             &self,
-            _request: nuo_contracts::ModelRequest,
+            _request: nuo_wire::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-            nuo_contracts::ProviderError,
+            BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+            nuo_wire::ProviderError,
         > {
             Ok(Box::pin(stream::empty()))
         }
         async fn stream_chat_events(
             &self,
-            _request: nuo_contracts::ModelRequest,
+            _request: nuo_wire::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<ProviderStreamEvent, nuo_contracts::ProviderError>>,
-            nuo_contracts::ProviderError,
+            BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
+            nuo_wire::ProviderError,
         > {
             if self
                 .requests
@@ -1458,7 +1458,7 @@ mod tests {
                         arguments: "{}".to_string(),
                     }),
                     Ok(ProviderStreamEvent::Completed(
-                        nuo_contracts::ProviderCompletionMeta::default(),
+                        nuo_wire::ProviderCompletionMeta::default(),
                     )),
                 ])))
             } else {
@@ -1486,7 +1486,7 @@ mod tests {
         });
         let tool = std::sync::Arc::new(SubagentTool::new(
             provider,
-            nuo_contracts::ToolSet::from_tools([
+            nuo_wire::ToolSet::from_tools([
                 std::sync::Arc::new(EchoReadTool) as std::sync::Arc<dyn Tool>
             ]),
             &SubAgentProfile::EXPLORE,
@@ -1498,7 +1498,7 @@ mod tests {
                 .run_subagent_outcome(
                     Some("call_interrupt"),
                     r#"{"description":"interrupt me","prompt":"find the handlers"}"#,
-                    Box::new(|_event: nuo_contracts::SubagentEvent| {}),
+                    Box::new(|_event: nuo_wire::SubagentEvent| {}),
                 )
                 .await
         });
@@ -1549,7 +1549,7 @@ mod tests {
         let provider = std::sync::Arc::new(RecordingProvider::default());
         let tool = SubagentTool::new(
             provider.clone(),
-            nuo_contracts::ToolSet::from_tools([
+            nuo_wire::ToolSet::from_tools([
                 std::sync::Arc::new(EchoReadTool) as std::sync::Arc<dyn Tool>
             ]),
             &SubAgentProfile::EXPLORE,
@@ -1558,7 +1558,7 @@ mod tests {
             .run_subagent_outcome(
                 None,
                 r#"{"description":"find files","prompt":"where are the handlers?"}"#,
-                Box::new(|_event: nuo_contracts::SubagentEvent| {}),
+                Box::new(|_event: nuo_wire::SubagentEvent| {}),
             )
             .await
             .unwrap();
@@ -1583,19 +1583,19 @@ mod tests {
             outcome
                 .messages
                 .iter()
-                .all(|message| message.role != nuo_contracts::Role::System),
+                .all(|message| message.role != nuo_wire::Role::System),
             "request-scoped policy must not be persisted in the child transcript"
         );
 
         // The task is the first durable user message.
-        assert_eq!(outcome.messages[0].role, nuo_contracts::Role::User);
+        assert_eq!(outcome.messages[0].role, nuo_wire::Role::User);
         assert_eq!(outcome.messages[0].content, "where are the handlers?");
         assert_eq!(
             outcome.messages[0]
                 .origin
                 .as_ref()
                 .map(|origin| origin.kind),
-            Some(nuo_contracts::InjectionKind::SubagentTask)
+            Some(nuo_wire::InjectionKind::SubagentTask)
         );
     }
 
@@ -1603,7 +1603,7 @@ mod tests {
     async fn task_tool_rejects_missing_fields() {
         let tool = SubagentTool::new(
             std::sync::Arc::new(CannedProvider),
-            nuo_contracts::ToolSet::default(),
+            nuo_wire::ToolSet::default(),
             &SubAgentProfile::EXPLORE,
         );
         assert!(tool.call(r#"{"description":"x"}"#).await.is_err());
@@ -1618,7 +1618,7 @@ mod tests {
     async fn subagent_schema_hides_and_rejects_background_dispatch() {
         let tool = SubagentTool::new(
             std::sync::Arc::new(CannedProvider),
-            nuo_contracts::ToolSet::default(),
+            nuo_wire::ToolSet::default(),
             &SubAgentProfile::EXPLORE,
         );
         assert!(
@@ -1669,19 +1669,19 @@ mod tests {
         let provider: std::sync::Arc<dyn Provider> = std::sync::Arc::new(CannedProvider);
         let subagent_tool = SubagentTool::new(
             provider.clone(),
-            nuo_contracts::ToolSet::default(),
+            nuo_wire::ToolSet::default(),
             &SubAgentProfile::EXPLORE,
         );
 
-        let toolset = nuo_contracts::ToolSet::from_tools(vec![
+        let toolset = nuo_wire::ToolSet::from_tools(vec![
             std::sync::Arc::new(EchoReadTool) as std::sync::Arc<dyn Tool>,
             std::sync::Arc::new(crate::tools::AskUserTool),
             std::sync::Arc::new(StubWriteTool),
             std::sync::Arc::new(subagent_tool),
         ]);
 
-        let model = nuo_contracts::resolve_model(&CannedProvider.model());
-        let model_sel = nuo_contracts::ToolSelection::unrestricted();
+        let model = nuo_wire::resolve_model(&CannedProvider.model());
+        let model_sel = nuo_wire::ToolSelection::unrestricted();
         let admitted = SubAgentProfile::EXPLORE.resolve_tools(&toolset, &model, &model_sel);
         let admitted_names: Vec<&str> = admitted.iter().map(|t| t.name()).collect();
 
@@ -1697,11 +1697,11 @@ mod tests {
         let provider: std::sync::Arc<dyn Provider> = std::sync::Arc::new(CannedProvider);
         let subagent_tool = SubagentTool::new(
             provider.clone(),
-            nuo_contracts::ToolSet::default(),
+            nuo_wire::ToolSet::default(),
             &SubAgentProfile::EXPLORE,
         );
 
-        let toolset = nuo_contracts::ToolSet::from_tools(vec![
+        let toolset = nuo_wire::ToolSet::from_tools(vec![
             std::sync::Arc::new(EchoReadTool) as std::sync::Arc<dyn Tool>,
             std::sync::Arc::new(crate::tools::ExecuteCommandTool::new(None)),
             std::sync::Arc::new(crate::tools::AskUserTool),
@@ -1711,14 +1711,14 @@ mod tests {
 
         // SubAgentProfile::EXPLORE: only the whitelisted read tool survives (bash, ask_user,
         // the write stub, and recursion are all excluded).
-        let model = nuo_contracts::resolve_model(&CannedProvider.model());
-        let model_sel = nuo_contracts::ToolSelection::unrestricted();
+        let model = nuo_wire::resolve_model(&CannedProvider.model());
+        let model_sel = nuo_wire::ToolSelection::unrestricted();
         let explore_selected = SubAgentProfile::EXPLORE.resolve_tools(&toolset, &model, &model_sel);
         let explore_names: Vec<&str> = explore_selected.iter().map(|t| t.name()).collect();
         assert_eq!(explore_names, vec!["read_text"]);
     }
 
-    /// A diagnostic `delegate_debug` tool (bound to [`nuo_contracts::SubAgentProfile::DEBUG`])
+    /// A diagnostic `delegate_debug` tool (bound to [`nuo_wire::SubAgentProfile::DEBUG`])
     /// admits read tools and command execution/process tools, but strictly excludes
     /// workspace writes, human interaction, and recursion. Built with the real tools the
     /// harness registers so a future capability regression is caught here —
@@ -1729,13 +1729,13 @@ mod tests {
         let provider: std::sync::Arc<dyn Provider> = std::sync::Arc::new(CannedProvider);
         let delegate_debug_arc = std::sync::Arc::new(SubagentTool::named(
             provider.clone(),
-            nuo_contracts::ToolSet::default(),
-            &nuo_contracts::SubAgentProfile::DEBUG,
+            nuo_wire::ToolSet::default(),
+            &nuo_wire::SubAgentProfile::DEBUG,
             "delegate_debug",
             "debugging subagent",
         ));
 
-        let toolset = nuo_contracts::ToolSet::from_tools(vec![
+        let toolset = nuo_wire::ToolSet::from_tools(vec![
             std::sync::Arc::new(EchoReadTool) as std::sync::Arc<dyn Tool>,
             std::sync::Arc::new(crate::tools::ExecuteCommandTool::new(None)),
             std::sync::Arc::new(crate::tools::WriteFileTool::new(None)),
@@ -1746,9 +1746,9 @@ mod tests {
 
         // SubAgentProfile::DEBUG admits bash (run_command) and the read tools; it
         // strictly excludes write_file, edit_text, ask_user, and the subagent dispatch tool itself (recursion).
-        let model = nuo_contracts::resolve_model(&CannedProvider.model());
-        let model_sel = nuo_contracts::ToolSelection::unrestricted();
-        let selected = nuo_contracts::SubAgentProfile::DEBUG.resolve_tools(&toolset, &model, &model_sel);
+        let model = nuo_wire::resolve_model(&CannedProvider.model());
+        let model_sel = nuo_wire::ToolSelection::unrestricted();
+        let selected = nuo_wire::SubAgentProfile::DEBUG.resolve_tools(&toolset, &model, &model_sel);
         let names: std::collections::HashSet<&str> = selected.iter().map(|t| t.name()).collect();
         assert!(names.contains("read_text"));
         assert!(names.contains("run_command"));
@@ -1774,14 +1774,14 @@ mod tests {
         let provider: std::sync::Arc<dyn Provider> = std::sync::Arc::new(CannedProvider);
         let explore = SubagentTool::new(
             provider.clone(),
-            nuo_contracts::ToolSet::default(),
+            nuo_wire::ToolSet::default(),
             &SubAgentProfile::EXPLORE,
         );
         let shared = explore.registry();
         let debug = SubagentTool::named_with_registry(
             provider.clone(),
-            nuo_contracts::ToolSet::default(),
-            &nuo_contracts::SubAgentProfile::DEBUG,
+            nuo_wire::ToolSet::default(),
+            &nuo_wire::SubAgentProfile::DEBUG,
             "delegate_debug",
             "debugging subagent",
             shared.clone(),
@@ -1804,7 +1804,7 @@ mod tests {
         let provider = std::sync::Arc::new(CannedProvider);
         let tool = SubagentTool::new(
             provider.clone(),
-            nuo_contracts::ToolSet::default(),
+            nuo_wire::ToolSet::default(),
             &SubAgentProfile::EXPLORE,
         );
 
@@ -1821,7 +1821,7 @@ mod tests {
         let provider = std::sync::Arc::new(CannedProvider);
         let tool = SubagentTool::new(
             provider.clone(),
-            nuo_contracts::ToolSet::default(),
+            nuo_wire::ToolSet::default(),
             &SubAgentProfile::EXPLORE,
         );
 
@@ -1843,7 +1843,7 @@ mod tests {
         let provider = std::sync::Arc::new(CannedProvider);
         let tool = SubagentTool::new(
             provider.clone(),
-            nuo_contracts::ToolSet::default(),
+            nuo_wire::ToolSet::default(),
             &SubAgentProfile::EXPLORE,
         );
 
@@ -1866,7 +1866,7 @@ mod tests {
         let provider = std::sync::Arc::new(CannedProvider);
         let tool = SubagentTool::new(
             provider.clone(),
-            nuo_contracts::ToolSet::default(),
+            nuo_wire::ToolSet::default(),
             &SubAgentProfile::EXPLORE,
         );
 
@@ -1884,7 +1884,7 @@ mod tests {
     fn schema_role_enum_matches_the_enforced_dispatch_roles() {
         let tool = SubagentTool::new(
             std::sync::Arc::new(CannedProvider),
-            nuo_contracts::ToolSet::default(),
+            nuo_wire::ToolSet::default(),
             &SubAgentProfile::EXPLORE,
         );
 
@@ -1909,7 +1909,7 @@ mod tests {
         // Every advertised role must resolve to a real preset.
         for role in DISPATCH_ROLES {
             assert!(
-                nuo_contracts::SubAgentProfile::find(role).is_some(),
+                nuo_wire::SubAgentProfile::find(role).is_some(),
                 "advertised role '{role}' has no preset"
             );
         }
@@ -1920,16 +1920,16 @@ mod tests {
         let provider = std::sync::Arc::new(CannedProvider);
         let tool = SubagentTool::new(
             provider.clone(),
-            nuo_contracts::ToolSet::default(),
+            nuo_wire::ToolSet::default(),
             &SubAgentProfile::EXPLORE,
         );
 
         // Max depth is 1, current depth is already 1 (child trying to spawn grandchild)
-        let capped_policy = nuo_contracts::ExecutionPolicy {
+        let capped_policy = nuo_wire::ExecutionPolicy {
             depth: 1,
             max_depth: 1,
             allow_human_interaction: false,
-            lifecycle: nuo_contracts::ContextLifecycle::EphemeralScratchpad,
+            lifecycle: nuo_wire::ContextLifecycle::EphemeralScratchpad,
             tool_policy: None,
             max_children_budget: 0,
         };

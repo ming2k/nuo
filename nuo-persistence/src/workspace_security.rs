@@ -8,7 +8,7 @@
 //! Quarantined until explicitly reviewed again.
 
 use crate::paths;
-use nuo_contracts::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
+use nuo_wire::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
 use serde::{Deserialize, Serialize};
 
 use sha2::{Digest, Sha256};

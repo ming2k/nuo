@@ -13,7 +13,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nuo_contracts::DynamicCatalog;
+use nuo_wire::DynamicCatalog;
 
 use super::McpRuntime;
 
@@ -46,7 +46,7 @@ impl DynamicCatalog for McpCatalog {
             .filter(|(_, s)| {
                 matches!(
                     s,
-                    nuo_contracts::mcp::McpConnectionStatus::Connected { .. }
+                    nuo_wire::mcp::McpConnectionStatus::Connected { .. }
                 )
             })
             .count();

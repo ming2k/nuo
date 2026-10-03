@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 /// hosts sessions for many projects, so the daemon's process cwd is whatever
 /// directory the first client spawned it from. The assembling bootstrap
 /// therefore registers the session's project root as a
-/// [`WorkspaceRoot`](nuo_contracts::WorkspaceRoot) service on the
-/// [`ToolContext`](nuo_contracts::ToolContext), and each path-taking tool
+/// [`WorkspaceRoot`](nuo_wire::WorkspaceRoot) service on the
+/// [`ToolContext`](nuo_wire::ToolContext), and each path-taking tool
 /// captures it at factory time into its `root` field.
 ///
 /// `None` (unit tests, a context built without the service) means "use the
@@ -20,17 +20,17 @@ pub(crate) type WorkspaceBase = Option<PathBuf>;
 /// Capture the workspace base from a tool-assembly context. Factories call
 /// this once at build time; the returned value is immutable for the tool's
 /// lifetime, matching the session whose bootstrap assembled it.
-pub(crate) fn workspace_base(ctx: &nuo_contracts::tool_registry::ToolContext) -> WorkspaceBase {
+pub(crate) fn workspace_base(ctx: &nuo_wire::tool_registry::ToolContext) -> WorkspaceBase {
     ctx.workspace_root().map(Path::to_path_buf)
 }
 
-/// Capture or synthesize an [`ExecutionEnvironment`](nuo_contracts::execution::ExecutionEnvironment)
+/// Capture or synthesize an [`ExecutionEnvironment`](nuo_wire::execution::ExecutionEnvironment)
 /// from the tool build context.
 pub(crate) fn execution_environment(
-    ctx: &nuo_contracts::tool_registry::ToolContext,
-) -> std::sync::Arc<dyn nuo_contracts::execution::ExecutionEnvironment> {
+    ctx: &nuo_wire::tool_registry::ToolContext,
+) -> std::sync::Arc<dyn nuo_wire::execution::ExecutionEnvironment> {
     if let Some(env) =
-        ctx.get::<std::sync::Arc<dyn nuo_contracts::execution::ExecutionEnvironment>>()
+        ctx.get::<std::sync::Arc<dyn nuo_wire::execution::ExecutionEnvironment>>()
     {
         return env.clone();
     }
@@ -41,11 +41,11 @@ pub(crate) fn execution_environment(
     std::sync::Arc::new(crate::execution::LocalExecutionEnvironment::new(root))
 }
 
-/// Synthesize an [`ExecutionEnvironment`](nuo_contracts::execution::ExecutionEnvironment)
+/// Synthesize an [`ExecutionEnvironment`](nuo_wire::execution::ExecutionEnvironment)
 /// from an optional workspace root base.
 pub(crate) fn env_from_root(
     root: &WorkspaceBase,
-) -> std::sync::Arc<dyn nuo_contracts::execution::ExecutionEnvironment> {
+) -> std::sync::Arc<dyn nuo_wire::execution::ExecutionEnvironment> {
     let base = root.clone().unwrap_or_else(|| PathBuf::from("."));
     std::sync::Arc::new(crate::execution::LocalExecutionEnvironment::new(base))
 }
@@ -59,7 +59,7 @@ pub(crate) fn env_from_root(
 /// through the resolved value, so prompt/UI rendering keeps showing what the
 /// model actually sent.
 pub(crate) fn resolve_workspace_path(base: &WorkspaceBase, path: &str) -> PathBuf {
-    let expanded = nuo_contracts::execution::expand_tilde(Path::new(path));
+    let expanded = nuo_wire::execution::expand_tilde(Path::new(path));
     if expanded.is_absolute() {
         expanded
     } else {
@@ -170,12 +170,12 @@ pub(crate) fn check_expected_version(
 /// while any other error is surfaced (an unreadable file must not look absent,
 /// or a broken read would disable the check rather than fail closed).
 pub(crate) async fn read_optional(
-    env: &dyn nuo_contracts::ExecutionEnvironment,
+    env: &dyn nuo_wire::ExecutionEnvironment,
     resolved: &std::path::Path,
 ) -> Result<Option<Vec<u8>>, String> {
     match env.fs().read(resolved).await {
         Ok(bytes) => Ok(Some(bytes)),
-        Err(nuo_contracts::execution::FsError::NotFound(_)) => Ok(None),
+        Err(nuo_wire::execution::FsError::NotFound(_)) => Ok(None),
         Err(error) => Err(error.to_string()),
     }
 }

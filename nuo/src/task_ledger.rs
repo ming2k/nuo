@@ -11,7 +11,7 @@
 //! Every access goes through the single-writer actor (ADR-0231): the ledger
 //! never opens a connection of its own.
 
-use nuo_contracts::{BackgroundJobInfo, BackgroundJobOutcome, JobSpec, JobState};
+use nuo_wire::{BackgroundJobInfo, BackgroundJobOutcome, JobSpec, JobState};
 use nuo_persistence::db::PersistenceHandle;
 
 const LEDGER_PREFIX: &str = "task:";
@@ -168,15 +168,15 @@ mod tests {
         (handle, tmp)
     }
 
-    fn outcome(restart: Option<nuo_contracts::RestartPolicy>) -> BackgroundJobOutcome {
+    fn outcome(restart: Option<nuo_wire::RestartPolicy>) -> BackgroundJobOutcome {
         BackgroundJobOutcome {
-            job_id: nuo_contracts::JobId::new("svc"),
+            job_id: nuo_wire::JobId::new("svc"),
             spec: JobSpec::Process {
                 command: "sleep 30".into(),
                 label: Some("ledger-test".into()),
                 cwd: None,
                 detached: false,
-                task_kind: nuo_contracts::JobKind::Service,
+                task_kind: nuo_wire::JobKind::Service,
                 readiness: None,
                 restart,
             },
@@ -194,7 +194,7 @@ mod tests {
     fn record_then_load_roundtrips_and_flags_rehost_candidates() {
         let (writer, _tmp) = writer();
 
-        let with_policy = outcome(Some(nuo_contracts::RestartPolicy {
+        let with_policy = outcome(Some(nuo_wire::RestartPolicy {
             max_retries: 3,
             backoff_ms: 500,
         }));

@@ -11,7 +11,7 @@
 //!   `ChatGPT-Account-Id` header (applied by the provider, not here).
 //! - Body: `{model, instructions?, input, tools?, reasoning?, tool_choice?, stream}`.
 
-use nuo_contracts::{Effort, Message, Role};
+use nuo_model_codec::{Effort, Message, Role};
 use serde_json::{Value, json};
 
 use super::tool_trace::{self, InputItem};
@@ -48,13 +48,13 @@ pub struct BodyInput<'a> {
     pub model: &'a str,
     pub stream: bool,
     /// Structured instructions from the instruction manifest.
-    pub instructions: Option<&'a nuo_contracts::InstructionBundle>,
+    pub instructions: Option<&'a nuo_model_codec::InstructionBundle>,
     /// OpenAI-shaped tool specs (`{type:"function", function:{...}}`), if any.
-    pub tool_specs: Option<&'a [nuo_contracts::ToolSpec]>,
+    pub tool_specs: Option<&'a [nuo_model_codec::ToolSpec]>,
     pub reasoning_effort: Option<Effort>,
-    pub delivery: &'a nuo_contracts::RequestDelivery,
+    pub delivery: &'a nuo_model_codec::RequestDelivery,
     pub store: bool,
-    pub cache_plan: &'a nuo_contracts::ResolvedCachePolicy,
+    pub cache_plan: &'a nuo_model_codec::ResolvedCachePolicy,
 }
 
 /// Build the Responses request body.
@@ -65,7 +65,7 @@ pub struct BodyInput<'a> {
 /// `function_call_output` references a preceding `function_call`, and every
 /// `function_call` has its output (mirrors the chat-completions builder).
 pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Result<Value, RequestBuildError> {
-    let capabilities = nuo_contracts::ModelCapabilities::for_channel(input.model, None);
+    let capabilities = nuo_model_codec::ModelCapabilities::for_channel(input.model, None);
     body_with_capabilities(messages, input, &capabilities)
 }
 
@@ -75,7 +75,7 @@ pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Result<Value, Reque
 pub fn body_with_capabilities(
     messages: Vec<Message>,
     input: BodyInput<'_>,
-    capabilities: &nuo_contracts::ModelCapabilities,
+    capabilities: &nuo_model_codec::ModelCapabilities,
 ) -> Result<Value, RequestBuildError> {
     let BodyInput {
         model: model_id,
@@ -114,7 +114,7 @@ pub fn body_with_capabilities(
                 instructions.push_str(&m.content);
             }
             _ => {
-                if let nuo_contracts::RequestDelivery::RemoteContinuation { input_start, .. } =
+                if let nuo_model_codec::RequestDelivery::RemoteContinuation { input_start, .. } =
                     delivery
                     && index < *input_start
                 {
@@ -134,9 +134,9 @@ pub fn body_with_capabilities(
                 input_items.push(InputItem::plain(message_item("user", &m, "input_text")));
             }
             Role::Assistant => {
-                if matches!(delivery, nuo_contracts::RequestDelivery::OpaqueReplay) {
+                if matches!(delivery, nuo_model_codec::RequestDelivery::OpaqueReplay) {
                     match m.provider_meta.as_ref().and_then(|meta| {
-                        meta.get(nuo_contracts::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
+                        meta.get(nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
                     }) {
                         Some(Value::Array(items)) if items.is_empty() => {
                             return Err(RequestBuildError::EmptyReplayArtifact);
@@ -210,7 +210,7 @@ pub fn body_with_capabilities(
         // the returned output. The next turn replays that output verbatim.
         body["include"] = json!(["reasoning.encrypted_content"]);
     }
-    if let nuo_contracts::RequestDelivery::RemoteContinuation {
+    if let nuo_model_codec::RequestDelivery::RemoteContinuation {
         previous_response_id,
         ..
     } = delivery
@@ -252,9 +252,9 @@ pub fn body_with_capabilities(
 /// calls; older calls are already settled inside the remote chain.
 fn remote_parent_call_ids(
     messages: &[Message],
-    delivery: &nuo_contracts::RequestDelivery,
+    delivery: &nuo_model_codec::RequestDelivery,
 ) -> Vec<String> {
-    let nuo_contracts::RequestDelivery::RemoteContinuation { input_start, .. } = delivery else {
+    let nuo_model_codec::RequestDelivery::RemoteContinuation { input_start, .. } = delivery else {
         return Vec::new();
     };
     let Some(anchor_index) = input_start.checked_sub(1) else {
@@ -280,7 +280,7 @@ fn valid_message(message: &Message) -> bool {
                 .map(|calls| calls.is_empty())
                 .unwrap_or(true)
             && !message.provider_meta.as_ref().is_some_and(|meta| {
-                meta.contains_key(nuo_contracts::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
+                meta.contains_key(nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
             });
         return !empty;
     }
@@ -309,7 +309,7 @@ fn message_item(role: &str, m: &Message, text_part: &str) -> Value {
 /// Flatten the OpenAI function-spec tool shape (`{type:"function",
 /// Translate provider-neutral [`ToolSpec`]s into the OpenAI Responses tool
 /// shape (`{type:"function", name, description, parameters, strict:false}`).
-fn flatten_tools(tool_specs: Option<&[nuo_contracts::ToolSpec]>) -> Option<Value> {
+fn flatten_tools(tool_specs: Option<&[nuo_model_codec::ToolSpec]>) -> Option<Value> {
     let specs = tool_specs?;
     let out: Vec<Value> = specs
         .iter()
@@ -397,21 +397,21 @@ pub fn has_input_image(body: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::ToolCall;
+    use nuo_model_codec::ToolCall;
 
-    static DEFAULT_DELIVERY: nuo_contracts::RequestDelivery =
-        nuo_contracts::RequestDelivery::FullReplay;
-    static DEFAULT_CACHE_PLAN: nuo_contracts::ResolvedCachePolicy =
-        nuo_contracts::ResolvedCachePolicy::Unsupported;
+    static DEFAULT_DELIVERY: nuo_model_codec::RequestDelivery =
+        nuo_model_codec::RequestDelivery::FullReplay;
+    static DEFAULT_CACHE_PLAN: nuo_model_codec::ResolvedCachePolicy =
+        nuo_model_codec::ResolvedCachePolicy::Unsupported;
 
     fn test_body_input<'a>(
         model: &'a str,
         stream: bool,
-        tool_specs: Option<&'a [nuo_contracts::ToolSpec]>,
+        tool_specs: Option<&'a [nuo_model_codec::ToolSpec]>,
         reasoning_effort: Option<Effort>,
-        delivery: &'a nuo_contracts::RequestDelivery,
+        delivery: &'a nuo_model_codec::RequestDelivery,
         store: bool,
-        cache_plan: &'a nuo_contracts::ResolvedCachePolicy,
+        cache_plan: &'a nuo_model_codec::ResolvedCachePolicy,
     ) -> BodyInput<'a> {
         BodyInput {
             model,
@@ -520,7 +520,7 @@ mod tests {
                 true,
                 None,
                 None,
-                &nuo_contracts::RequestDelivery::OpaqueReplay,
+                &nuo_model_codec::RequestDelivery::OpaqueReplay,
                 false,
                 &DEFAULT_CACHE_PLAN,
             ),
@@ -549,7 +549,7 @@ mod tests {
         fn opaque_assistant(call: ToolCall, item_id: &str) -> Message {
             let mut provider_meta = serde_json::Map::new();
             provider_meta.insert(
-                nuo_contracts::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
+                nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
                 serde_json::json!([{
                     "id": item_id,
                     "type": "function_call",
@@ -588,7 +588,7 @@ mod tests {
                 true,
                 None,
                 None,
-                &nuo_contracts::RequestDelivery::OpaqueReplay,
+                &nuo_model_codec::RequestDelivery::OpaqueReplay,
                 false,
                 &DEFAULT_CACHE_PLAN,
             ),
@@ -613,7 +613,7 @@ mod tests {
             name: "lookup".into(),
             arguments: "{}".into(),
         };
-        let delivery = nuo_contracts::RequestDelivery::RemoteContinuation {
+        let delivery = nuo_model_codec::RequestDelivery::RemoteContinuation {
             previous_response_id: "resp_1".into(),
             input_start: 2,
         };
@@ -700,17 +700,17 @@ mod tests {
             test_body_input(
                 "gpt-5.6-sol",
                 true,
-                Some(&[nuo_contracts::ToolSpec {
+                Some(&[nuo_model_codec::ToolSpec {
                     name: "lookup".to_string(),
                     description: "lookup".to_string(),
                     parameters: serde_json::json!({"type": "object"}),
                 }]),
                 None,
-                &nuo_contracts::RequestDelivery::OpaqueReplay,
+                &nuo_model_codec::RequestDelivery::OpaqueReplay,
                 false,
-                &nuo_contracts::ResolvedCachePolicy::Unsupported,
+                &nuo_model_codec::ResolvedCachePolicy::Unsupported,
             ),
-            &nuo_contracts::ModelCapabilities::for_channel("gpt-5.6-sol", None),
+            &nuo_model_codec::ModelCapabilities::for_channel("gpt-5.6-sol", None),
         )
         .unwrap();
         assert_eq!(
@@ -788,16 +788,16 @@ mod tests {
     #[test]
     fn user_message_with_image_serializes_as_input_image_string_url() {
         let mut msg = Message::new(Role::User, "look at this");
-        msg.images = Some(vec![nuo_contracts::message::ImagePart {
+        msg.images = Some(vec![nuo_model_codec::message::ImagePart {
             mime: "image/png".to_string(),
             data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=".to_string(),
         }]);
 
-        let remote = nuo_contracts::RemoteModelMetadata {
+        let remote = nuo_model_codec::RemoteModelMetadata {
             vision: Some(true),
             ..Default::default()
         };
-        let caps = nuo_contracts::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
+        let caps = nuo_model_codec::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
 
         let payload = body_with_capabilities(
             vec![msg],
@@ -835,16 +835,16 @@ mod tests {
         // for a route that declared no image input — the Responses API 400s on
         // `input_image` outright.
         let mut msg = Message::new(Role::User, "look at this");
-        msg.images = Some(vec![nuo_contracts::message::ImagePart {
+        msg.images = Some(vec![nuo_model_codec::message::ImagePart {
             mime: "image/png".to_string(),
             data: "aGk=".to_string(),
         }]);
 
-        let remote = nuo_contracts::RemoteModelMetadata {
+        let remote = nuo_model_codec::RemoteModelMetadata {
             vision: Some(false),
             ..Default::default()
         };
-        let caps = nuo_contracts::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
+        let caps = nuo_model_codec::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
 
         let payload = body_with_capabilities(
             vec![msg],
@@ -872,7 +872,7 @@ mod tests {
     fn empty_opaque_replay_artifact_fails_closed() {
         let mut provider_meta = serde_json::Map::new();
         provider_meta.insert(
-            nuo_contracts::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
+            nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
             serde_json::json!([]),
         );
         let assistant = Message {
@@ -886,7 +886,7 @@ mod tests {
                 true,
                 None,
                 None,
-                &nuo_contracts::RequestDelivery::OpaqueReplay,
+                &nuo_model_codec::RequestDelivery::OpaqueReplay,
                 false,
                 &DEFAULT_CACHE_PLAN,
             ),

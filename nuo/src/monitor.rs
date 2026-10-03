@@ -5,14 +5,14 @@
 //! renders. The tap lives in the session's broadcast-tap task
 //! ([`crate::registry`]), which calls [`MonitorTracker::observe`] for every
 //! response; the registry owns publishing the resulting
-//! [`nuo_contracts::MonitorEvent`] diffs to the host-level topic.
+//! [`nuo_wire::MonitorEvent`] diffs to the host-level topic.
 //!
 //! The tracker is deliberately *derived state, not protocol state*: the round
 //! lifecycle itself stays binary (ADR-0078) — `Idle`/`Running` here are a
 //! display badge, and the `Needs*` states are overlays on a still-running
 //! round, exactly like the single-session `ParentStatus` (ADR-0017).
 
-use nuo_contracts::{AgentResponse, MonitoredSession, RoundEvent, SessionStatus};
+use nuo_wire::{AgentResponse, MonitoredSession, RoundEvent, SessionStatus};
 
 /// Tracks one hosted session. `base` is the cheap header row (from the same
 /// deferred parse that feeds the sessions picker), re-seeded whenever a
@@ -241,7 +241,7 @@ fn truncate(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::{PermissionRequest, RoundSummary};
+    use nuo_wire::{PermissionRequest, RoundSummary};
 
     fn round_event(event: RoundEvent) -> AgentResponse {
         AgentResponse::Round {
@@ -259,7 +259,7 @@ mod tests {
                 updated_at: 1,
                 message_count: 2,
                 status: SessionStatus::Idle,
-                hosting: nuo_contracts::SessionHosting::Hosted,
+                hosting: nuo_wire::SessionHosting::Hosted,
                 round: 0,
                 turn: None,
                 output_tokens: 0,
@@ -270,7 +270,7 @@ mod tests {
                 note: None,
                 project_root: "/tmp/proj".into(),
                 parent_id: None,
-                fork_kind: nuo_contracts::SessionForkKind::Trunk,
+                fork_kind: nuo_wire::SessionForkKind::Trunk,
                 digest: None,
             },
             SessionStatus::Idle,
@@ -285,7 +285,7 @@ mod tests {
         // title, which the live event stream never carries).
         let mut t = tracker();
         t.observe(&AgentResponse::SessionsOverview(vec![
-            nuo_contracts::SessionOverview {
+            nuo_wire::SessionOverview {
                 id: "s".into(),
                 overview: "renamed title".into(),
                 created_at: 7,
@@ -293,11 +293,11 @@ mod tests {
                 message_count: 9,
                 active: true,
                 parent_id: None,
-                fork_kind: nuo_contracts::SessionForkKind::Trunk,
+                fork_kind: nuo_wire::SessionForkKind::Trunk,
                 digest: None,
             },
             // Another session's row must not leak into ours.
-            nuo_contracts::SessionOverview {
+            nuo_wire::SessionOverview {
                 id: "other".into(),
                 overview: "someone else".into(),
                 created_at: 1,
@@ -305,7 +305,7 @@ mod tests {
                 message_count: 1,
                 active: false,
                 parent_id: None,
-                fork_kind: nuo_contracts::SessionForkKind::Trunk,
+                fork_kind: nuo_wire::SessionForkKind::Trunk,
                 digest: None,
             },
         ]));
@@ -321,7 +321,7 @@ mod tests {
         // our session at all; the seeded header must survive untouched.
         let mut t = tracker();
         t.observe(&AgentResponse::SessionsOverview(vec![
-            nuo_contracts::SessionOverview {
+            nuo_wire::SessionOverview {
                 id: "other".into(),
                 overview: "someone else".into(),
                 created_at: 1,
@@ -329,7 +329,7 @@ mod tests {
                 message_count: 1,
                 active: false,
                 parent_id: None,
-                fork_kind: nuo_contracts::SessionForkKind::Trunk,
+                fork_kind: nuo_wire::SessionForkKind::Trunk,
                 digest: None,
             },
         ]));
@@ -424,8 +424,8 @@ mod tests {
         let mut t = tracker();
         t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 0 }));
         t.observe(&round_event(RoundEvent::RoundInterrupted(
-            nuo_contracts::RoundInterrupt {
-                reason: nuo_contracts::RoundInterruptReason::User,
+            nuo_wire::RoundInterrupt {
+                reason: nuo_wire::RoundInterruptReason::User,
                 at_ms: 1_700_000_000_000,
                 round: Some(1),
                 detail: None,

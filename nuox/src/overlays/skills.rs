@@ -25,7 +25,7 @@ use crate::render::Theme;
 /// consistent with the clamped body height.
 pub fn draw_skills_modal(
     frame: &mut Frame,
-    session_context: Option<&nuo_contracts::SessionContextSnapshot>,
+    session_context: Option<&nuo_wire::SessionContextSnapshot>,
     modal_index: usize,
     expanded: Option<usize>,
     scroll: &mut usize,

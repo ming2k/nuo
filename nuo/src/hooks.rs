@@ -3,7 +3,7 @@
 //! Each `[hooks]` entry becomes one [`CommandHook`] that spawns a shell
 //! process: the [`HookContext`] is serialized to JSON on stdin, and the
 //! process replies via exit code and stdout JSON. This is the only handler
-//! type v1 ships; the [`Hook`] trait (in `nuo_contracts`) is shaped so `http`
+//! type v1 ships; the [`Hook`] trait (in `nuo_wire`) is shaped so `http`
 //! and `mcp_tool` handlers can be added later without touching the loop.
 
 use std::path::Path;
@@ -54,17 +54,17 @@ impl Hook for CommandHook {
     fn permission_submission(
         &self,
         ctx: &HookContext,
-    ) -> Option<nuo_contracts::ToolPermissionSubmission> {
+    ) -> Option<nuo_wire::ToolPermissionSubmission> {
         let first_word = self.command.split_whitespace().next().unwrap_or("sh");
-        Some(nuo_contracts::ToolPermissionSubmission {
-            hazard_level: nuo_contracts::HazardLevel::CommandExecution,
+        Some(nuo_wire::ToolPermissionSubmission {
+            hazard_level: nuo_wire::HazardLevel::CommandExecution,
             label: format!("Execute lifecycle hook: `{}`", self.command),
             description: "Runs a configured lifecycle hook command.".to_string(),
             scope: self.command.clone(),
-            payload: nuo_contracts::ToolPermissionPayload::Command {
+            payload: nuo_wire::ToolPermissionPayload::Command {
                 command: self.command.clone(),
                 cwd: ctx.cwd.as_ref().map(|path| path.display().to_string()),
-                kill_spec: nuo_contracts::ProcessKillSpec {
+                kill_spec: nuo_wire::ProcessKillSpec {
                     command: first_word.to_string(),
                     process_group_killable: true,
                     pkill_target: format!("pkill -f '{first_word}'"),

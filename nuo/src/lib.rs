@@ -57,8 +57,8 @@
 //!
 //! This crate is application-neutral: it holds no product name, mission, or
 //! preset profile. The embedding binary supplies an
-//! [`nuo_contracts::AgentIdentity`] to `Agent::new` / `from_toolset` and binds
-//! an [`nuo_contracts::AgentRoleProfile`] via `apply_preset`.
+//! [`nuo_wire::AgentIdentity`] to `Agent::new` / `from_toolset` and binds
+//! an [`nuo_wire::AgentRoleProfile`] via `apply_preset`.
 //! `mutx` keeps the coding identity. The `/btw` side-session reuses
 //! the primary agent's identity (`Agent::identity()`) rather than naming a product here.
 

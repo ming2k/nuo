@@ -4,7 +4,7 @@
 //! upon round admission, without blocking TTFT or tying to end-of-round digest tasks.
 
 use crate::agent::Agent;
-use nuo_contracts::SessionTitleInput;
+use nuo_wire::SessionTitleInput;
 use std::sync::Arc;
 
 /// Character budget for prompt excerpt used for title generation.
@@ -72,7 +72,7 @@ impl Agent {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use nuo_contracts::{Message, ModelRequest, Provider, Role};
+    use nuo_wire::{Message, ModelRequest, Provider, Role};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct MockTitleProvider {
@@ -85,9 +85,9 @@ mod tests {
         async fn chat(
             &self,
             _request: ModelRequest,
-        ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
+        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
             self.consult_count.fetch_add(1, Ordering::SeqCst);
-            Ok(nuo_contracts::ProviderCompletion::message(Message::new(
+            Ok(nuo_wire::ProviderCompletion::message(Message::new(
                 Role::Assistant,
                 self.reply.clone(),
             )))
@@ -97,8 +97,8 @@ mod tests {
             &self,
             _request: ModelRequest,
         ) -> Result<
-            futures::stream::BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-            nuo_contracts::ProviderError,
+            futures::stream::BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+            nuo_wire::ProviderError,
         > {
             Ok(Box::pin(futures::stream::empty()))
         }

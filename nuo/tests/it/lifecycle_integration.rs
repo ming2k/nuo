@@ -23,7 +23,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nuo_contracts::MonitorEvent;
+use nuo_wire::MonitorEvent;
 use nuo_persistence::session::SessionStore;
 use nuo::host::{HostIdentity, HostOptions, LifecycleOptions, RunOutcome};
 use nuo::registry::{HostedSession, SessionRegistry};
@@ -86,10 +86,10 @@ fn nuo_home_redirects_the_daemon_footprint() {
 /// exist.
 fn test_identity() -> HostIdentity {
     HostIdentity {
-        identity: nuo_contracts::AgentIdentity::new("probe", "lifecycle probe"),
-        preset: nuo_contracts::AgentRoleProfile::with_identity(
+        identity: nuo_wire::AgentIdentity::new("probe", "lifecycle probe"),
+        preset: nuo_wire::AgentRoleProfile::with_identity(
             "probe",
-            nuo_contracts::AgentIdentity::new("probe", "lifecycle probe"),
+            nuo_wire::AgentIdentity::new("probe", "lifecycle probe"),
         ),
         ui: Arc::new(HeadlessProbe),
     }
@@ -109,32 +109,32 @@ impl nuo::UiBridge for HeadlessProbe {
 /// registry (fixtures mirror `serve_integration::prehosted`, minus the tap).
 async fn host_one(registry: &Arc<SessionRegistry>, project: &str) {
     let session = Arc::new(SessionStore::load_for_project(project.into()));
-    let (req_tx, _req_rx) = mpsc::channel::<nuo_contracts::AgentRequest>(512);
-    let (bc_tx, _) = broadcast::channel::<nuo_contracts::AgentResponse>(16);
+    let (req_tx, _req_rx) = mpsc::channel::<nuo_wire::AgentRequest>(512);
+    let (bc_tx, _) = broadcast::channel::<nuo_wire::AgentResponse>(16);
     let id = session.id().await;
     let tracker = Arc::new(Mutex::new(
         nuo::monitor::MonitorTracker::bootstrap(
-            nuo_contracts::MonitoredSession::empty(id),
-            nuo_contracts::SessionStatus::Idle,
+            nuo_wire::MonitoredSession::empty(id),
+            nuo_wire::SessionStatus::Idle,
         ),
     ));
     registry
         .host(HostedSession {
             workspace_root: Some(std::path::PathBuf::from(project)),
             human_channel: std::sync::Arc::new(
-                nuo_contracts::human_request::HumanChannelAccountant::new(),
+                nuo_wire::human_request::HumanChannelAccountant::new(),
             ),
             security: std::sync::Arc::new(
                 nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
             ),
             session,
-            shared_confinement: nuo_contracts::SharedConfinement::default(),
+            shared_confinement: nuo_wire::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
             tracker,
             sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-            command_catalog: nuo_contracts::CommandCatalog::default(),
+            command_catalog: nuo_wire::CommandCatalog::default(),
             created_at: std::time::Instant::now(),
             last_activity: tokio::sync::Mutex::new(std::time::Instant::now()),
             last_seen_tick: std::sync::atomic::AtomicU64::new(0),
@@ -362,31 +362,31 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
         session: Arc<SessionStore>,
         project_root: &std::path::Path,
     ) {
-        let (req_tx, _req_rx) = mpsc::channel::<nuo_contracts::AgentRequest>(512);
-        let (bc_tx, _) = broadcast::channel::<nuo_contracts::AgentResponse>(16);
+        let (req_tx, _req_rx) = mpsc::channel::<nuo_wire::AgentRequest>(512);
+        let (bc_tx, _) = broadcast::channel::<nuo_wire::AgentResponse>(16);
         let tracker = Arc::new(Mutex::new(
             nuo::monitor::MonitorTracker::bootstrap(
-                nuo_contracts::MonitoredSession::empty(session.id().await),
-                nuo_contracts::SessionStatus::Idle,
+                nuo_wire::MonitoredSession::empty(session.id().await),
+                nuo_wire::SessionStatus::Idle,
             ),
         ));
         registry
             .host(HostedSession {
                 workspace_root: Some(project_root.to_path_buf()),
                 human_channel: std::sync::Arc::new(
-                    nuo_contracts::human_request::HumanChannelAccountant::new(),
+                    nuo_wire::human_request::HumanChannelAccountant::new(),
                 ),
                 security: std::sync::Arc::new(
                     nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
                 ),
                 session,
-                shared_confinement: nuo_contracts::SharedConfinement::default(),
+                shared_confinement: nuo_wire::SharedConfinement::default(),
                 req_tx,
                 events: bc_tx,
                 cancel: tokio_util::sync::CancellationToken::new(),
                 tracker,
                 sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-                command_catalog: nuo_contracts::CommandCatalog::default(),
+                command_catalog: nuo_wire::CommandCatalog::default(),
                 created_at: std::time::Instant::now(),
                 last_activity: tokio::sync::Mutex::new(std::time::Instant::now()),
                 last_seen_tick: std::sync::atomic::AtomicU64::new(0),
@@ -399,8 +399,8 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
     let plain_project = tmp.path().join("plain-project");
     let plain_session = Arc::new(SessionStore::load_for_project(plain_project.clone()));
     plain_session
-        .replace_messages(vec![nuo_contracts::Message::new(
-            nuo_contracts::Role::User,
+        .replace_messages(vec![nuo_wire::Message::new(
+            nuo_wire::Role::User,
             "no schedule here",
         )])
         .await

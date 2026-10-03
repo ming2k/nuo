@@ -6,7 +6,7 @@
 //! envelope the body is wrapped in, the slots that carry the model identity,
 //! and the live catalog endpoint.
 
-use nuo_contracts::wire_surface::{
+use nuo_model_codec::wire_surface::{
     AgentChatSpec, CatalogSpec, DialectSurface, Envelope, IdentitySpec, IdentityValue,
     InferenceSpec, ModelBinding, ModelCarrier,
 };
@@ -161,6 +161,6 @@ pub const QODER_SURFACE: DialectSurface = DialectSurface {
         model_bindings: MODEL_BINDINGS,
     },
     catalog: Some(CatalogSpec {
-        shape: nuo_contracts::provider_surface::CatalogShape::SceneMap,
+        shape: nuo_model_codec::provider_surface::CatalogShape::SceneMap,
     }),
 };

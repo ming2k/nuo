@@ -12,7 +12,7 @@ pub use crate::chrome::{
 };
 pub use crate::composer::{
     ComposerDrawOptions, INPUT_MSG_IDX, draw_composer, draw_composer_highlighted,
-    draw_composer_igniting, draw_composer_with_options,
+    draw_composer_with_options,
 };
 // Design tokens are re-exported crate-visibility so the drawing leaves that
 // used to reach them via the old `paint` parent's namespace still resolve.
@@ -78,7 +78,7 @@ use crate::model::document::TranscriptMessage;
 use crate::model::layout::{InteractiveTarget, LayoutMap};
 use crate::model::selection::{CellDragInfo, SelectionState};
 #[cfg(test)]
-use nuo_contracts::{PermissionRequest, UserQuestionRequest};
+use nuo_wire::{PermissionRequest, UserQuestionRequest};
 
 /// Inner rect of a transcript-area region after reserving the uniform
 /// [`TRANSCRIPT_H_INSET`] left+right `app_bg` gutters. This is the **single
@@ -185,7 +185,7 @@ pub struct TranscriptProps<'a> {
     /// (and not `Healthy`), the footer stack reserves a retained one-row
     /// banner between the transcript gap and the queue bar; `Healthy` /
     /// `None` place nothing.
-    pub persistence_health: Option<&'a nuo_contracts::monitor::PersistenceHealth>,
+    pub persistence_health: Option<&'a nuo_wire::monitor::PersistenceHealth>,
     /// When set, the view is zoomed into a subagent task: a contextual page
     /// header is rendered and `messages` is the focused task's child stream.
     pub subagent_bar: Option<SubagentBarInfo>,

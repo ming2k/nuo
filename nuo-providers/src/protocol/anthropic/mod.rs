@@ -18,7 +18,7 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::BoxStream;
-use nuo_contracts::{
+use nuo_model_codec::{
     CredentialSource, ModelRequest, Provider, ProviderError, ProviderPromptHints,
     ProviderStreamEvent, ResolvedAuth,
 };
@@ -32,10 +32,10 @@ pub mod signature;
 pub mod thinking;
 
 // Re-export the model-capability enums so callers reaching them through the
-// provider crate keep a stable path. They live in `nuo-contracts` because they
+// provider crate keep a stable path. They live in `nuo-wire` because they
 // are model capabilities, not transport details.
-pub use nuo_contracts::effort::Effort;
-pub use nuo_contracts::{ReasoningMode, ReasoningSupport};
+pub use nuo_model_codec::effort::Effort;
+pub use nuo_model_codec::{ReasoningMode, ReasoningSupport};
 pub use thinking::ThinkingConfig;
 
 /// Anthropic-compatible `/messages` provider.
@@ -54,10 +54,10 @@ pub struct AnthropicMessagesProvider {
     pub thinking: ThinkingConfig,
     /// Channel-scoped capability view. A trusted remote catalogue overrides the
     /// static baseline only for this provider/model route.
-    pub capabilities: nuo_contracts::ModelCapabilities,
+    pub capabilities: nuo_model_codec::ModelCapabilities,
     /// Use GitHub Copilot's bearer authentication and client headers for its
     /// `/v1/messages` adapter instead of stock Anthropic API-key headers.
-    pub dialect: nuo_contracts::AnthropicMessagesDialect,
+    pub dialect: nuo_model_codec::AnthropicMessagesDialect,
     /// Route-scoped prompt-cache capabilities, defaults, and affinity.
     pub prompt_cache: crate::PromptCacheConfig,
 }
@@ -82,8 +82,8 @@ impl AnthropicMessagesProvider {
         user_agent: &str,
     ) -> Self {
         // Default the thinking/effort config to opt-in off (ADR-0046).
-        let thinking = ThinkingConfig::for_model(&nuo_contracts::model::resolve(&model));
-        let capabilities = nuo_contracts::ModelCapabilities::for_channel(&model, None);
+        let thinking = ThinkingConfig::for_model(&nuo_model_codec::model::resolve(&model));
+        let capabilities = nuo_model_codec::ModelCapabilities::for_channel(&model, None);
         Self {
             endpoint: Endpoint::from_static_key(api_key, model, base_url, "anthropic")
                 .with_user_agent(user_agent),
@@ -91,7 +91,7 @@ impl AnthropicMessagesProvider {
             max_tokens: 8192,
             thinking,
             capabilities,
-            dialect: nuo_contracts::AnthropicMessagesDialect::Standard,
+            dialect: nuo_model_codec::AnthropicMessagesDialect::Standard,
             prompt_cache: crate::PromptCacheConfig::default(),
         }
     }
@@ -103,8 +103,8 @@ impl AnthropicMessagesProvider {
         base_url: &str,
         client_profile: impl Into<ClientProfile>,
     ) -> Self {
-        let thinking = ThinkingConfig::for_model(&nuo_contracts::model::resolve(&model));
-        let capabilities = nuo_contracts::ModelCapabilities::for_channel(&model, None);
+        let thinking = ThinkingConfig::for_model(&nuo_model_codec::model::resolve(&model));
+        let capabilities = nuo_model_codec::ModelCapabilities::for_channel(&model, None);
         Self {
             endpoint: Endpoint::with_credentials(credentials, model, base_url, "anthropic")
                 .with_client_profile(client_profile),
@@ -112,7 +112,7 @@ impl AnthropicMessagesProvider {
             max_tokens: 8192,
             thinking,
             capabilities,
-            dialect: nuo_contracts::AnthropicMessagesDialect::Standard,
+            dialect: nuo_model_codec::AnthropicMessagesDialect::Standard,
             prompt_cache: crate::PromptCacheConfig::default(),
         }
     }
@@ -132,7 +132,7 @@ impl AnthropicMessagesProvider {
     /// Attach the effective provider-channel capability view.
     pub fn with_model_capabilities(
         mut self,
-        capabilities: nuo_contracts::ModelCapabilities,
+        capabilities: nuo_model_codec::ModelCapabilities,
     ) -> Self {
         self.capabilities = capabilities;
         self
@@ -151,13 +151,13 @@ impl AnthropicMessagesProvider {
     fn resolve_cache_plan(
         &self,
         request: &ModelRequest,
-    ) -> Result<nuo_contracts::ResolvedCachePolicy, ProviderError> {
+    ) -> Result<nuo_model_codec::ResolvedCachePolicy, ProviderError> {
         self.prompt_cache
             .resolve(request)
             .map_err(|e| ProviderError::invalid_request("Anthropic", e))
     }
 
-    pub fn with_dialect(mut self, dialect: nuo_contracts::AnthropicMessagesDialect) -> Self {
+    pub fn with_dialect(mut self, dialect: nuo_model_codec::AnthropicMessagesDialect) -> Self {
         self.dialect = dialect;
         self
     }
@@ -182,12 +182,12 @@ impl AnthropicMessagesProvider {
             auth.token.expose_secret(),
             &self.capabilities,
             self.thinking,
-            self.dialect == nuo_contracts::AnthropicMessagesDialect::Copilot,
+            self.dialect == nuo_model_codec::AnthropicMessagesDialect::Copilot,
         ) {
             req = req.header(name, value);
         }
         for (name, value) in self.endpoint.headers() {
-            if self.dialect != nuo_contracts::AnthropicMessagesDialect::Copilot
+            if self.dialect != nuo_model_codec::AnthropicMessagesDialect::Copilot
                 || !crate::COPILOT_CLIENT_HEADERS
                     .iter()
                     .any(|(k, _)| *k == name)
@@ -207,7 +207,7 @@ impl AnthropicMessagesProvider {
         &self,
         body: &serde_json::Value,
         is_stream: bool,
-        telemetry: &nuo_contracts::TransportTelemetry,
+        telemetry: &nuo_model_codec::TransportTelemetry,
     ) -> Result<crate::egress::HttpResponse, ProviderError> {
         let auth = self
             .endpoint
@@ -256,8 +256,8 @@ impl Provider for AnthropicMessagesProvider {
         self.endpoint.model.clone()
     }
 
-    fn wire_protocol(&self) -> Option<nuo_contracts::WireProtocol> {
-        Some(nuo_contracts::WireProtocol::AnthropicMessages)
+    fn wire_protocol(&self) -> Option<nuo_model_codec::WireProtocol> {
+        Some(nuo_model_codec::WireProtocol::AnthropicMessages)
     }
 
     fn effort(&self) -> Option<Effort> {
@@ -270,7 +270,7 @@ impl Provider for AnthropicMessagesProvider {
         }
     }
 
-    fn model_capabilities(&self) -> nuo_contracts::ModelCapabilities {
+    fn model_capabilities(&self) -> nuo_model_codec::ModelCapabilities {
         self.capabilities.clone()
     }
 
@@ -291,7 +291,7 @@ impl Provider for AnthropicMessagesProvider {
     async fn chat(
         &self,
         request: ModelRequest,
-    ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
+    ) -> Result<nuo_model_codec::ProviderCompletion, nuo_model_codec::ProviderError> {
         let cache_plan = self.resolve_cache_plan(&request)?;
         let ModelRequest {
             instructions,
@@ -333,9 +333,9 @@ impl Provider for AnthropicMessagesProvider {
             );
             map
         });
-        Ok(nuo_contracts::ProviderCompletion {
+        Ok(nuo_model_codec::ProviderCompletion {
             message: response::into_message(assembled),
-            meta: nuo_contracts::ProviderCompletionMeta {
+            meta: nuo_model_codec::ProviderCompletionMeta {
                 usage,
                 artifacts,
                 continuation: None,
@@ -347,8 +347,8 @@ impl Provider for AnthropicMessagesProvider {
         &self,
         request: ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-        nuo_contracts::ProviderError,
+        BoxStream<'static, Result<String, nuo_model_codec::ProviderError>>,
+        nuo_model_codec::ProviderError,
     > {
         let cache_plan = self.resolve_cache_plan(&request)?;
         let ModelRequest {
@@ -387,8 +387,8 @@ impl Provider for AnthropicMessagesProvider {
         &self,
         request: ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_contracts::ProviderError>>,
-        nuo_contracts::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_model_codec::ProviderError>>,
+        nuo_model_codec::ProviderError,
     > {
         let cache_plan = self.resolve_cache_plan(&request)?;
         let ModelRequest {
@@ -423,7 +423,7 @@ impl Provider for AnthropicMessagesProvider {
         // emitted Usage events carry the full counts.
         let mut usage_state = response::StreamUsage::default();
         let stream = crate::sse::data_payloads(response, "Anthropic").flat_map(move |item| {
-            let events: Vec<Result<ProviderStreamEvent, nuo_contracts::ProviderError>> = match item
+            let events: Vec<Result<ProviderStreamEvent, nuo_model_codec::ProviderError>> = match item
             {
                 Ok(payload) => {
                     // Parse-once discipline (ADR-0184): each payload is
@@ -456,7 +456,7 @@ impl Provider for AnthropicMessagesProvider {
                 map
             });
             Ok(ProviderStreamEvent::Completed(
-                nuo_contracts::ProviderCompletionMeta {
+                nuo_model_codec::ProviderCompletionMeta {
                     artifacts,
                     ..Default::default()
                 },

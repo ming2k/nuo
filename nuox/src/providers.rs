@@ -1,7 +1,7 @@
 //! Snapshot-driven provider/model picker filter & sort logic.
 //!
-//! The pickers render directly from [`nuo_contracts::ProviderPickerSnapshot`] — one
-//! [`nuo_contracts::ProviderPickerRow`] per provider the harness knows how to
+//! The pickers render directly from [`nuo_wire::ProviderPickerSnapshot`] — one
+//! [`nuo_wire::ProviderPickerRow`] per provider the harness knows how to
 //! drive, carrying the display name, the served model ids, the active model, and
 //! the live per-user signals (favorite, key-ready, last-used). Built-in and
 //! user-defined providers share this single path, so a custom provider added via
@@ -19,14 +19,14 @@
 //!   models; see [`ModelSection`]), and [`models_body_lines`] maps the flat
 //!   row indices onto the body's line geometry for the renderer.
 
-use nuo_contracts::{ConnectionAuth, ProviderModelInfo, ProviderPickerSnapshot, WireProtocol};
+use nuo_wire::{ConnectionAuth, ProviderModelInfo, ProviderPickerSnapshot, WireProtocol};
 
 use crate::fuzzy;
 
 /// One editable field of the provider editor. The visible set is chosen by the
 /// active [`ConnectionTemplate`] (create) or the edited connection's provider
 /// (edit), rather than a fixed five-field form. Provider-owned model collections are
-/// imported from `nuo_contracts`; this view layer only selects and renders
+/// imported from `nuo_wire`; this view layer only selects and renders
 /// those curated values.
 ///
 /// Reasoning (effort/thinking) is intentionally NOT a provider-editor field —
@@ -50,7 +50,7 @@ pub enum CustomField {
 /// surface, ADR-0201 INV-1). Curated templates lock the wire protocol and seed
 /// their model list; the standalone `custom` template exposes protocol, model,
 /// and request identity in its editor. Modelled as *data* — one table entry per
-/// template — mirroring `nuo_contracts::model_providers`.
+/// template — mirroring `nuo_wire::model_providers`.
 pub struct ConnectionTemplate {
     /// The **model provider id** this template creates a connection for
     /// (`"openai"`, `"openai-subscription"`, `"custom"`, …). MUST match the
@@ -91,7 +91,7 @@ pub struct ConnectionTemplate {
     pub user_agent: Option<&'static str>,
     /// How connections created from this template authenticate. `XaiOAuth`
     /// starts browser OAuth before the name editor (OAuth-first add flow).
-    pub auth: nuo_contracts::ConnectionAuth,
+    pub auth: nuo_wire::ConnectionAuth,
 }
 
 impl ConnectionTemplate {
@@ -151,163 +151,163 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         label: "Anthropic",
         description: "Anthropic's official API for flagship Claude models with advanced reasoning; sign in with an Anthropic API key.",
         protocol: WireProtocol::AnthropicMessages,
-        models: nuo_contracts::model_providers::ANTHROPIC_BUILTIN_MODELS,
+        models: nuo_wire::model_providers::ANTHROPIC_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://api.anthropic.com/v1/messages",
         needs_model: false,
         default_url: Some("https://api.anthropic.com/v1/messages"),
         user_agent: None,
-        auth: nuo_contracts::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
         id: "openai-subscription",
         label: "ChatGPT Subscription",
         description: "Uses your ChatGPT Plus or Pro subscription for Codex and flagship GPT models; authorizes in the browser, no API key.",
         protocol: WireProtocol::Responses,
-        models: nuo_contracts::model_providers::CHATGPT_BUILTIN_MODELS,
+        models: nuo_wire::model_providers::CHATGPT_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://chatgpt.com/backend-api/codex/responses",
         needs_model: false,
         default_url: Some("https://chatgpt.com/backend-api/codex/responses"),
         user_agent: None,
-        auth: nuo_contracts::ConnectionAuth::subscription_const("chatgpt"),
+        auth: nuo_wire::ConnectionAuth::subscription_const("chatgpt"),
     },
     ConnectionTemplate {
         id: "deepseek",
         label: "DeepSeek",
         description: "DeepSeek's platform API with high-performance reasoning and coding models; sign in with a DeepSeek API key.",
         protocol: WireProtocol::Responses,
-        models: nuo_contracts::model_providers::DEEPSEEK_BUILTIN_MODELS,
+        models: nuo_wire::model_providers::DEEPSEEK_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://api.deepseek.com/v1/responses",
         needs_model: false,
         default_url: Some("https://api.deepseek.com/v1/responses"),
         user_agent: None,
-        auth: nuo_contracts::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
         id: "github-copilot",
         label: "GitHub Copilot",
         description: "Your GitHub Copilot subscription, serving multi-vendor coding and reasoning models; authorizes on the device via GitHub.",
         protocol: WireProtocol::ChatCompletions,
-        models: nuo_contracts::model_providers::COPILOT_SEED_MODELS,
+        models: nuo_wire::model_providers::COPILOT_SEED_MODELS,
         needs_url: false,
         url_hint: "https://api.githubcopilot.com/chat/completions",
         needs_model: false,
         default_url: Some("https://api.githubcopilot.com/chat/completions"),
         user_agent: None,
-        auth: nuo_contracts::ConnectionAuth::subscription_const("copilot"),
+        auth: nuo_wire::ConnectionAuth::subscription_const("copilot"),
     },
     ConnectionTemplate {
         id: "google",
         label: "Google AI Studio",
         description: "Google AI Studio / developer API covering the full Gemini range; sign in with a Google API key.",
         protocol: WireProtocol::GoogleGemini,
-        models: nuo_contracts::model_providers::GOOGLE_BUILTIN_MODELS,
+        models: nuo_wire::model_providers::GOOGLE_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://generativelanguage.googleapis.com/v1beta",
         needs_model: false,
         default_url: Some("https://generativelanguage.googleapis.com/v1beta"),
         user_agent: None,
-        auth: nuo_contracts::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
         id: "google-antigravity",
         label: "Google Antigravity",
         description: "Your Google One AI Premium subscription for flagship Gemini plus companion Claude models; authorizes in the browser.",
         protocol: WireProtocol::GoogleGemini,
-        models: nuo_contracts::model_providers::ANTIGRAVITY_OAUTH_MODELS,
+        models: nuo_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS,
         needs_url: false,
         url_hint: "https://daily-cloudcode-pa.googleapis.com",
         needs_model: false,
         default_url: Some("https://daily-cloudcode-pa.googleapis.com"),
-        user_agent: Some(nuo_contracts::client_identity::ANTIGRAVITY_USER_AGENT),
-        auth: nuo_contracts::ConnectionAuth::subscription_const("google-antigravity"),
+        user_agent: Some(nuo_wire::client_identity::ANTIGRAVITY_USER_AGENT),
+        auth: nuo_wire::ConnectionAuth::subscription_const("google-antigravity"),
     },
     ConnectionTemplate {
         id: "kimi-code",
         label: "Kimi Code",
         description: "Moonshot's Kimi Coding Plan with long-context coding and reasoning models; sign in with a plan API key.",
         protocol: WireProtocol::ChatCompletions,
-        models: nuo_contracts::model_providers::KIMI_CODE_MODELS,
+        models: nuo_wire::model_providers::KIMI_CODE_MODELS,
         needs_url: false,
         url_hint: "https://api.kimi.com/coding/v1/chat/completions",
         needs_model: false,
         default_url: Some("https://api.kimi.com/coding/v1/chat/completions"),
-        user_agent: Some(nuo_contracts::client_identity::OPENCODE_USER_AGENT),
-        auth: nuo_contracts::ConnectionAuth::ApiKey,
+        user_agent: Some(nuo_wire::client_identity::OPENCODE_USER_AGENT),
+        auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
         id: "openai",
         label: "OpenAI Platform",
         description: "OpenAI's platform API for official flagship GPT and frontier reasoning models; sign in with an OpenAI API key.",
         protocol: WireProtocol::ChatCompletions,
-        models: nuo_contracts::model_providers::OPENAI_BUILTIN_MODELS,
+        models: nuo_wire::model_providers::OPENAI_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://api.openai.com/v1/chat/completions",
         needs_model: false,
         default_url: Some("https://api.openai.com/v1/chat/completions"),
         user_agent: None,
-        auth: nuo_contracts::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
         id: "opencode",
         label: "OpenCode",
         description: "OpenCode Console account for coding and agent models; sign in with your OpenCode account.",
         protocol: WireProtocol::ChatCompletions,
-        models: nuo_contracts::model_providers::OPENCODE_CONSOLE_MODELS,
+        models: nuo_wire::model_providers::OPENCODE_CONSOLE_MODELS,
         needs_url: false,
         url_hint: "https://opencode.ai/inference/openai/v1/chat/completions",
         needs_model: false,
         default_url: Some("https://opencode.ai/inference/openai/v1/chat/completions"),
-        user_agent: Some(nuo_contracts::client_identity::OPENCODE_USER_AGENT),
-        auth: nuo_contracts::ConnectionAuth::subscription_const("opencode"),
+        user_agent: Some(nuo_wire::client_identity::OPENCODE_USER_AGENT),
+        auth: nuo_wire::ConnectionAuth::subscription_const("opencode"),
     },
     ConnectionTemplate {
         id: "opencode-go",
         label: "OpenCode Go",
         description: "OpenCode Go $10/mo subscription for open coding models; sign in with your OpenCode Go API key.",
         protocol: WireProtocol::ChatCompletions,
-        models: nuo_contracts::model_providers::OPENCODE_GO_MODELS,
+        models: nuo_wire::model_providers::OPENCODE_GO_MODELS,
         needs_url: false,
         url_hint: "https://opencode.ai/zen/go/v1/chat/completions",
         needs_model: false,
         default_url: Some("https://opencode.ai/zen/go/v1/chat/completions"),
-        user_agent: Some(nuo_contracts::client_identity::OPENCODE_USER_AGENT),
-        auth: nuo_contracts::ConnectionAuth::ApiKey,
+        user_agent: Some(nuo_wire::client_identity::OPENCODE_USER_AGENT),
+        auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
         id: "opencode-zen",
         label: "OpenCode Zen",
         description: "OpenCode Zen relay with pay-as-you-go billing for frontier coding models; sign in with your OpenCode API key.",
         protocol: WireProtocol::ChatCompletions,
-        models: nuo_contracts::model_providers::OPENCODE_ZEN_MODELS,
+        models: nuo_wire::model_providers::OPENCODE_ZEN_MODELS,
         needs_url: false,
         url_hint: "https://opencode.ai/zen/v1/chat/completions",
         needs_model: false,
         default_url: Some("https://opencode.ai/zen/v1/chat/completions"),
-        user_agent: Some(nuo_contracts::client_identity::OPENCODE_USER_AGENT),
-        auth: nuo_contracts::ConnectionAuth::ApiKey,
+        user_agent: Some(nuo_wire::client_identity::OPENCODE_USER_AGENT),
+        auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
         id: "openrouter",
         label: "OpenRouter",
         description: "OpenRouter's unified gateway for Nex and hundreds of other models; sign in with an OpenRouter API key.",
         protocol: WireProtocol::ChatCompletions,
-        models: nuo_contracts::model_providers::OPENROUTER_BUILTIN_MODELS,
+        models: nuo_wire::model_providers::OPENROUTER_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://openrouter.ai/api/v1/chat/completions",
         needs_model: false,
         default_url: Some("https://openrouter.ai/api/v1/chat/completions"),
         user_agent: None,
-        auth: nuo_contracts::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
         id: "qianwen",
         label: "QianwenAI Token Plan",
         description: "Alibaba's QianwenAI Platform Token Plan serving Qwen, DeepSeek, GLM, and Kimi over one Credits-billed key; sign in with your plan API key (sk-sp-…).",
         protocol: WireProtocol::ChatCompletions,
-        models: nuo_contracts::model_providers::QIANWEN_BUILTIN_MODELS,
+        models: nuo_wire::model_providers::QIANWEN_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1/chat/completions",
         needs_model: false,
@@ -315,46 +315,46 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
             "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1/chat/completions",
         ),
         user_agent: None,
-        auth: nuo_contracts::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
         id: "qoder",
         label: "Qoder",
         description: "Alibaba's Qoder subscription for Qoder3 and Qwen coding models with COSY-signed inference; paste a personal access token (pt-…) or authorize via device flow.",
         protocol: WireProtocol::ChatCompletions,
-        models: nuo_contracts::model_providers::QODER_MODELS,
+        models: nuo_wire::model_providers::QODER_MODELS,
         needs_url: false,
         url_hint: "https://api3.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation",
         needs_model: false,
         default_url: Some("https://api3.qoder.sh"),
         user_agent: None,
-        auth: nuo_contracts::ConnectionAuth::subscription_const("qoder"),
+        auth: nuo_wire::ConnectionAuth::subscription_const("qoder"),
     },
     ConnectionTemplate {
         id: "glm-cn",
         label: "ZAI Code (CN)",
         description: "Zhipu's Z.AI Coding Plan with flagship GLM and code-enhanced models; sign in with a plan API key.",
         protocol: WireProtocol::ChatCompletions,
-        models: nuo_contracts::model_providers::ZAI_CODE_MODELS,
+        models: nuo_wire::model_providers::ZAI_CODE_MODELS,
         needs_url: false,
         url_hint: "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
         needs_model: false,
         default_url: Some("https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"),
-        user_agent: Some(nuo_contracts::client_identity::ZCODE_USER_AGENT),
-        auth: nuo_contracts::ConnectionAuth::ApiKey,
+        user_agent: Some(nuo_wire::client_identity::ZCODE_USER_AGENT),
+        auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
         id: "xai",
         label: "xAI",
         description: "Your SuperGrok or X Premium subscription for flagship Grok reasoning models; authorizes in the browser.",
         protocol: WireProtocol::ChatCompletions,
-        models: nuo_contracts::model_providers::XAI_BUILTIN_MODELS,
+        models: nuo_wire::model_providers::XAI_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://api.x.ai/v1/chat/completions",
         needs_model: false,
         default_url: Some("https://api.x.ai/v1/chat/completions"),
         user_agent: None,
-        auth: nuo_contracts::ConnectionAuth::subscription_const("xai"),
+        auth: nuo_wire::ConnectionAuth::subscription_const("xai"),
     },
 ];
 
@@ -378,7 +378,7 @@ pub const CUSTOM_TEMPLATE: ConnectionTemplate = ConnectionTemplate {
     needs_model: true,
     default_url: None,
     user_agent: None,
-    auth: nuo_contracts::ConnectionAuth::ApiKey,
+    auth: nuo_wire::ConnectionAuth::ApiKey,
 };
 
 /// Resolve either a curated template or the standalone `custom` template by
@@ -460,7 +460,7 @@ fn protocol_model_candidates(protocol_wire: &str) -> Vec<&'static str> {
         return Vec::new();
     };
     let mut seen = std::collections::HashSet::new();
-    nuo_contracts::baseline_models()
+    nuo_wire::baseline_models()
         .filter(|m| m.protocol == protocol)
         .map(|m| m.id)
         // Deduplicate: a model id can appear in multiple provider tables (e.g.
@@ -600,7 +600,7 @@ pub struct RankedProvider {
     /// the connection name (ADR-0201).
     pub provider: String,
     /// Client identity configured for this connection.
-    pub client_identity: nuo_contracts::ClientIdentity,
+    pub client_identity: nuo_wire::ClientIdentity,
     /// The rendered label — the provider's display name (the instance name).
     pub label: String,
     /// The fuzzy match against `label`, or `None` in browse mode (empty query).
@@ -745,7 +745,14 @@ pub fn models_flat_filtered_from(
                 provider_label: prow.name.clone(),
                 effort: info.effort,
                 thinking: info.thinking,
-                effort_levels: Vec::new(),
+                // The daemon already resolved this route's ladder (ADR-0149:
+                // baseline ⊕ remote ⊕ user overrides) and shipped it on the
+                // snapshot. It must ride through to the editor: the client
+                // cannot re-resolve it, because `nuo-providers` (which owns
+                // the baseline tables) is not linked into this binary — the
+                // registries live in `nuo-wire`, whose baselines are
+                // populated by the daemon's provider crates.
+                effort_levels: info.effort_levels,
                 favorite: info.favorite,
                 last_used_ms: info.last_used_ms,
                 context_window: info.context_window,
@@ -870,7 +877,7 @@ pub fn models_body_lines(models: &[RankedModel]) -> (Vec<ModelBodyLine>, Vec<usi
 mod tests {
     extern crate nuo_providers;
     use super::*;
-    use nuo_contracts::ProviderPickerRow;
+    use nuo_wire::ProviderPickerRow;
 
     fn row(id: &str, name: &str, models: &[&str], builtin: bool) -> ProviderPickerRow {
         ProviderPickerRow {
@@ -1320,7 +1327,7 @@ mod tests {
         assert_eq!(tmpl.protocol, WireProtocol::GoogleGemini);
         assert_eq!(
             tmpl.models,
-            nuo_contracts::model_providers::ANTIGRAVITY_OAUTH_MODELS
+            nuo_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS
         );
         assert_eq!(
             tmpl.default_url,
@@ -1343,7 +1350,7 @@ mod tests {
         assert_eq!(tmpl.protocol, WireProtocol::ChatCompletions);
         assert_eq!(
             tmpl.models,
-            nuo_contracts::model_providers::OPENAI_BUILTIN_MODELS
+            nuo_wire::model_providers::OPENAI_BUILTIN_MODELS
         );
         assert!(
             !tmpl.needs_url,
@@ -1405,7 +1412,7 @@ mod tests {
         assert_eq!(tmpl.protocol, WireProtocol::ChatCompletions);
         assert_eq!(
             tmpl.models,
-            nuo_contracts::model_providers::OPENCODE_ZEN_MODELS
+            nuo_wire::model_providers::OPENCODE_ZEN_MODELS
         );
         assert_eq!(
             tmpl.default_url,
@@ -1643,29 +1650,29 @@ mod tests {
         // The template `id` IS the model provider id, persisted on the created
         // connection as `provider`. The daemon's provider specs and this UI
         // table must share the *same* model-list constant (single source of
-        // truth in `nuo_contracts::model_providers`) — otherwise the catalog's
+        // truth in `nuo_wire::model_providers`) — otherwise the catalog's
         // reconciliation could not re-seed a connection from its provider. This
         // test catches a UI table that inlined a drifted copy of the list.
         for t in PROVIDER_PRESETS {
             let referenced = match t.id {
-                "anthropic" => Some(nuo_contracts::model_providers::ANTHROPIC_BUILTIN_MODELS),
+                "anthropic" => Some(nuo_wire::model_providers::ANTHROPIC_BUILTIN_MODELS),
                 "openai-subscription" => {
-                    Some(nuo_contracts::model_providers::CHATGPT_BUILTIN_MODELS)
+                    Some(nuo_wire::model_providers::CHATGPT_BUILTIN_MODELS)
                 }
-                "deepseek" => Some(nuo_contracts::model_providers::DEEPSEEK_BUILTIN_MODELS),
-                "github-copilot" => Some(nuo_contracts::model_providers::COPILOT_SEED_MODELS),
-                "google" => Some(nuo_contracts::model_providers::GOOGLE_BUILTIN_MODELS),
+                "deepseek" => Some(nuo_wire::model_providers::DEEPSEEK_BUILTIN_MODELS),
+                "github-copilot" => Some(nuo_wire::model_providers::COPILOT_SEED_MODELS),
+                "google" => Some(nuo_wire::model_providers::GOOGLE_BUILTIN_MODELS),
                 "google-antigravity" => {
-                    Some(nuo_contracts::model_providers::ANTIGRAVITY_OAUTH_MODELS)
+                    Some(nuo_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS)
                 }
-                "kimi-code" => Some(nuo_contracts::model_providers::KIMI_CODE_MODELS),
-                "openai" => Some(nuo_contracts::model_providers::OPENAI_BUILTIN_MODELS),
-                "openrouter" => Some(nuo_contracts::model_providers::OPENROUTER_BUILTIN_MODELS),
-                "opencode-go" => Some(nuo_contracts::model_providers::OPENCODE_GO_MODELS),
-                "opencode-zen" => Some(nuo_contracts::model_providers::OPENCODE_ZEN_MODELS),
-                "opencode" => Some(nuo_contracts::model_providers::OPENCODE_CONSOLE_MODELS),
-                "glm-cn" => Some(nuo_contracts::model_providers::ZAI_CODE_MODELS),
-                "xai" => Some(nuo_contracts::model_providers::XAI_BUILTIN_MODELS),
+                "kimi-code" => Some(nuo_wire::model_providers::KIMI_CODE_MODELS),
+                "openai" => Some(nuo_wire::model_providers::OPENAI_BUILTIN_MODELS),
+                "openrouter" => Some(nuo_wire::model_providers::OPENROUTER_BUILTIN_MODELS),
+                "opencode-go" => Some(nuo_wire::model_providers::OPENCODE_GO_MODELS),
+                "opencode-zen" => Some(nuo_wire::model_providers::OPENCODE_ZEN_MODELS),
+                "opencode" => Some(nuo_wire::model_providers::OPENCODE_CONSOLE_MODELS),
+                "glm-cn" => Some(nuo_wire::model_providers::ZAI_CODE_MODELS),
+                "xai" => Some(nuo_wire::model_providers::XAI_BUILTIN_MODELS),
                 _ => None,
             };
             if let Some(expected) = referenced {
@@ -1724,7 +1731,7 @@ mod tests {
         );
         assert_eq!(
             openrouter.models,
-            nuo_contracts::model_providers::OPENROUTER_BUILTIN_MODELS
+            nuo_wire::model_providers::OPENROUTER_BUILTIN_MODELS
         );
     }
 
@@ -1805,5 +1812,38 @@ mod tests {
         let rows = models_flat_filtered_from(&snapshot, "", "", "");
         assert!(!rows.iter().any(|r| r.provider_id == "openai"));
         assert!(rows.iter().any(|r| r.provider_id == "kimi-code"));
+    }
+
+    /// The flat picker row must carry the route's effort ladder straight from
+    /// the snapshot. `RankedModel.effort_levels` was hardcoded empty, so the
+    /// editor opened from a Models row always fell back to the value-only
+    /// control — the node slider never appeared. The daemon is the only
+    /// authority for the ladder (it owns the provider baseline tables, which
+    /// this client does not link), so the field must be a pass-through.
+    #[test]
+    fn flat_rows_carry_the_snapshot_effort_ladder() {
+        let mut snapshot = sample();
+        for prow in &mut snapshot.rows {
+            if prow.id == "kimi-code" {
+                let mut i = info("kimi-k2.7-code");
+                i.effort = Some("high".to_string());
+                i.effort_levels = vec![
+                    "low".to_string(),
+                    "high".to_string(),
+                    "max".to_string(),
+                ];
+                prow.model_info = vec![i];
+            }
+        }
+        let rows = models_flat_filtered_from(&snapshot, "", "", "kimi-k2.7-code");
+        let row = rows
+            .iter()
+            .find(|r| r.model == "kimi-k2.7-code")
+            .expect("row");
+        assert_eq!(
+            row.effort_levels,
+            vec!["low".to_string(), "high".to_string(), "max".to_string()],
+            "the row must forward the snapshot ladder, not drop it"
+        );
     }
 }

@@ -14,7 +14,7 @@
 //! - `response.output_item.done` → preserves the complete opaque output item
 //! - `response.completed` → terminal usage and exact replay artifacts
 
-use nuo_contracts::{Message, ProviderStreamEvent, Role, TokenUsage, ToolCall};
+use nuo_model_codec::{Message, ProviderStreamEvent, Role, TokenUsage, ToolCall};
 use serde_json::Value;
 
 /// Parse a Responses `usage` object (`input_tokens` / `output_tokens` /
@@ -35,7 +35,7 @@ pub fn usage(usage: &Value) -> Option<TokenUsage> {
     // Route cache-read accounting through the shared helper so the cache
     // policy is enforced in one place (ADR-0161). The Responses API hides the
     // discount in `input_tokens_details.cached_tokens`, which the helper reads.
-    let cache = nuo_contracts::read_prompt_cache_usage(usage);
+    let cache = nuo_model_codec::read_prompt_cache_usage(usage);
     match (prompt, completion, total) {
         (Some(p), Some(c), _) => Some(TokenUsage {
             prompt_tokens: p,
@@ -321,17 +321,17 @@ impl ResponsesStream {
                 }
                 let mut artifacts = serde_json::Map::new();
                 artifacts.insert(
-                    nuo_contracts::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
+                    nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
                     Value::Array(output),
                 );
                 if let Some(id) = response["id"].as_str() {
                     artifacts.insert(
-                        nuo_contracts::OPENAI_RESPONSE_ID_ARTIFACT_KEY.to_string(),
+                        nuo_model_codec::OPENAI_RESPONSE_ID_ARTIFACT_KEY.to_string(),
                         serde_json::Value::String(id.to_string()),
                     );
                 }
                 events.push(ProviderStreamEvent::Completed(
-                    nuo_contracts::ProviderCompletionMeta {
+                    nuo_model_codec::ProviderCompletionMeta {
                         usage: usage(&response["usage"]),
                         artifacts: Some(artifacts),
                         continuation: None,
@@ -651,7 +651,7 @@ mod tests {
             .artifacts
             .as_ref()
             .and_then(|artifacts| {
-                artifacts.get(nuo_contracts::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
+                artifacts.get(nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
             })
             .and_then(Value::as_array)
             .unwrap();

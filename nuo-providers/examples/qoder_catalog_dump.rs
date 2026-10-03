@@ -22,8 +22,8 @@
 // pre-condition is the point, not a defect to handle gracefully.
 #![allow(clippy::expect_used, clippy::panic)]
 
-use nuo_contracts::CatalogShape;
-use nuo_contracts::{ConnectionAuth, CredentialSource as _};
+use nuo_model_codec::CatalogShape;
+use nuo_model_codec::{ConnectionAuth, CredentialSource as _};
 use nuo_providers::http::{Http, Request};
 use nuo_providers::oauth::{OAuthCredentialSource, stored_qoder_request_identity};
 use nuo_providers::qoder::QoderCatalogSigning;

@@ -350,7 +350,7 @@ fn antigravity_template_prefills_url_and_seeds_relay_models() {
     );
     assert_eq!(
         app.custom_models,
-        nuo_contracts::model_providers::ANTIGRAVITY_OAUTH_MODELS
+        nuo_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS
     );
     // No free-text Model field — the closed Gemini family is the seed.
     assert!(!app.custom_fields.contains(&crate::CustomField::Model));
@@ -420,7 +420,7 @@ fn custom_provider_cycles_protocol_and_request_identity() {
     app.cycle_custom_choice(true);
     assert_eq!(
         app.custom_client_identity,
-        nuo_contracts::ClientIdentity::OpenCode
+        nuo_wire::ClientIdentity::OpenCode
     );
 }
 
@@ -432,14 +432,14 @@ fn custom_provider_edit_restores_protocol_and_request_identity() {
         "Relay".to_string(),
         "anthropic-messages".to_string(),
         "https://relay.example/v1/messages".to_string(),
-        nuo_contracts::ConnectionAuth::ApiKey,
+        nuo_wire::ConnectionAuth::ApiKey,
         false,
-        nuo_contracts::ClientIdentity::ClaudeCode,
+        nuo_wire::ClientIdentity::ClaudeCode,
     );
     assert_eq!(app.custom_protocol_wire, "anthropic-messages");
     assert_eq!(
         app.custom_client_identity,
-        nuo_contracts::ClientIdentity::ClaudeCode
+        nuo_wire::ClientIdentity::ClaudeCode
     );
     assert!(app.custom_fields.contains(&crate::CustomField::Protocol));
     assert!(
@@ -726,7 +726,7 @@ fn custom_connection_submits_with_multiple_comma_separated_models() {
 
     let req1 = rx.try_recv().expect("should send RegisterProvider request");
     match req1 {
-        nuo_contracts::AgentRequest::RegisterProvider { id, root_url, .. } => {
+        nuo_wire::AgentRequest::RegisterProvider { id, root_url, .. } => {
             assert_eq!(id, "custom-wechat-multi");
             assert_eq!(root_url, "https://chatapi.weixin.qq.com/openai/v1/chat/completions");
         }
@@ -735,7 +735,7 @@ fn custom_connection_submits_with_multiple_comma_separated_models() {
 
     let req2 = rx.try_recv().expect("should send AddConnection request");
     match req2 {
-        nuo_contracts::AgentRequest::AddConnection {
+        nuo_wire::AgentRequest::AddConnection {
             name,
             provider,
             models,
@@ -767,7 +767,7 @@ fn curated_template_submits_the_provider_id_without_a_protocol_override() {
 
     let req = rx.try_recv().expect("should send a request");
     match req {
-        nuo_contracts::AgentRequest::AddConnection {
+        nuo_wire::AgentRequest::AddConnection {
             name,
             provider,
             models,
@@ -790,7 +790,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
     app.open_dialog(crate::surfaces::DialogKind::Connections);
     app.provider_picker
         .rows
-        .push(nuo_contracts::ProviderPickerRow {
+        .push(nuo_wire::ProviderPickerRow {
             id: "my-relay".to_string(),
             name: "My Relay".to_string(),
             model: "glm-5.2".to_string(),
@@ -803,16 +803,16 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
             provider: "custom".to_string(),
             client_identity: Default::default(),
             last_used_ms: None,
-            auth: nuo_contracts::ConnectionAuth::ApiKey,
+            auth: nuo_wire::ConnectionAuth::ApiKey,
         });
     app.open_edit_provider_editor(
         "my-relay".to_string(),
         "My Relay".to_string(),
         "chat-completions".to_string(),
         "https://relay.example.com/v1".to_string(),
-        nuo_contracts::ConnectionAuth::ApiKey,
+        nuo_wire::ConnectionAuth::ApiKey,
         false,
-        nuo_contracts::ClientIdentity::Native,
+        nuo_wire::ClientIdentity::Native,
     );
     // The Name field owns the composer line; typing a new name renames.
     app.custom_field = 0;
@@ -825,7 +825,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
 
     let rename = rx.try_recv().expect("rename transaction first");
     match rename {
-        nuo_contracts::AgentRequest::RenameConnection { from, to } => {
+        nuo_wire::AgentRequest::RenameConnection { from, to } => {
             assert_eq!(from, "my-relay");
             assert_eq!(to, "My Relay Renamed");
         }
@@ -833,7 +833,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
     }
     let reg = rx.try_recv().expect("register provider second");
     match reg {
-        nuo_contracts::AgentRequest::RegisterProvider { id, root_url, .. } => {
+        nuo_wire::AgentRequest::RegisterProvider { id, root_url, .. } => {
             assert_eq!(id, "custom");
             assert_eq!(root_url, "https://relay.example.com/v1");
         }
@@ -841,7 +841,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
     }
     let edit = rx.try_recv().expect("metadata edit third");
     match edit {
-        nuo_contracts::AgentRequest::EditConnection {
+        nuo_wire::AgentRequest::EditConnection {
             name,
             provider,
             ..
@@ -874,7 +874,7 @@ async fn open_active_connection_detail_opens_standalone_and_closes_to_none() {
 
     let req = rx.try_recv().expect("should query connection detail");
     match req {
-        nuo_contracts::AgentRequest::QueryConnectionDetail { id } => {
+        nuo_wire::AgentRequest::QueryConnectionDetail { id } => {
             assert_eq!(id, "anthropic-prod");
         }
         _ => panic!("Expected QueryConnectionDetail request"),
@@ -893,7 +893,7 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
     let runtime = crate::event_loop::UiRuntime::minimal_for_test();
 
     // Initial phase 1 detail arrives with Fetching usage
-    let detail_phase1 = nuo_contracts::ConnectionDetail {
+    let detail_phase1 = nuo_wire::ConnectionDetail {
         name: "google-antigravity".to_string(),
         provider: "google-antigravity".to_string(),
         provider_label: "Google Antigravity".to_string(),
@@ -902,14 +902,14 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
         auth_type: "OAuth (AntigravityOAuth)".to_string(),
         api_key_masked: Some("ya29...".to_string()),
         api_key_source: "OAuth".to_string(),
-        client_identity: nuo_contracts::ClientIdentity::Antigravity,
+        client_identity: nuo_wire::ClientIdentity::Antigravity,
         user_agent: "antigravity".to_string(),
         models: vec!["gemini-2.5-pro".to_string()],
         model_info: vec![],
         active_model: Some("gemini-2.5-pro".to_string()),
         active_model_effort: None,
         active_model_thinking: None,
-        usage: nuo_contracts::ConnectionUsageState::Fetching,
+        usage: nuo_wire::ConnectionUsageState::Fetching,
     };
 
     crate::event_loop::apply::apply(
@@ -929,7 +929,7 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
 
     // Phase 2 quotas arrive for the same connection
     let mut detail_phase2 = detail_phase1.clone();
-    detail_phase2.usage = nuo_contracts::ConnectionUsageState::Available(Box::default());
+    detail_phase2.usage = nuo_wire::ConnectionUsageState::Available(Box::default());
 
     crate::event_loop::apply::apply(
         &mut app,
@@ -953,7 +953,7 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
 
     app.open_dialog(crate::surfaces::DialogKind::Connections);
     app.connection_info_detail = true;
-    app.connection_detail = Some(nuo_contracts::ConnectionDetail {
+    app.connection_detail = Some(nuo_wire::ConnectionDetail {
         name: "custom-relay".to_string(),
         provider: "custom".to_string(),
         provider_label: "Custom connection".to_string(),
@@ -962,14 +962,14 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
         auth_type: "API Key".to_string(),
         api_key_masked: Some("sk-...".to_string()),
         api_key_source: "credentials.toml".to_string(),
-        client_identity: nuo_contracts::ClientIdentity::Native,
+        client_identity: nuo_wire::ClientIdentity::Native,
         user_agent: "muta".to_string(),
         models: vec![],
         model_info: vec![],
         active_model: None,
         active_model_effort: None,
         active_model_thinking: None,
-        usage: nuo_contracts::ConnectionUsageState::Unsupported,
+        usage: nuo_wire::ConnectionUsageState::Unsupported,
     });
 
     let flow = crate::event_loop::actions::dispatch_action_for_test(
@@ -983,14 +983,14 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
     assert_eq!(flow, crate::event_loop::actions::ActionFlow::Handled);
     assert_eq!(
         app.connection_detail.as_ref().map(|d| &d.usage),
-        Some(&nuo_contracts::ConnectionUsageState::Fetching)
+        Some(&nuo_wire::ConnectionUsageState::Fetching)
     );
 
     let req = rx
         .try_recv()
         .expect("should query connection detail for refresh");
     match req {
-        nuo_contracts::AgentRequest::QueryConnectionDetail { id } => {
+        nuo_wire::AgentRequest::QueryConnectionDetail { id } => {
             assert_eq!(id, "custom-relay");
         }
         _ => panic!("Expected QueryConnectionDetail request"),
@@ -1024,7 +1024,7 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     let req = rx.try_recv().expect("should send refresh request");
     assert!(matches!(
         req,
-        nuo_contracts::AgentRequest::RefreshProviderModels
+        nuo_wire::AgentRequest::RefreshProviderModels
     ));
 
     // Second press while refreshing: warns already in progress, does not send duplicate request
@@ -1046,7 +1046,7 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
         &mut app,
         &runtime,
         crate::event_loop::AppMutation::ProviderPicker(
-            nuo_contracts::ProviderPickerSnapshot::default(),
+            nuo_wire::ProviderPickerSnapshot::default(),
         ),
     );
     assert!(!app.models_refreshing);

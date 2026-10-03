@@ -14,7 +14,7 @@
 
 use std::path::Path;
 
-use nuo_contracts::{
+use nuo_wire::{
     MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredSession, SessionHosting, SessionStatus,
 };
 use nuo_client::{self as client, DaemonDiagnostics, upsert_session_row, upsert_task_row};
@@ -258,9 +258,9 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
         && !health.is_healthy()
     {
         let state = match health {
-            nuo_contracts::monitor::PersistenceHealth::Recovering { .. } => "recovering",
-            nuo_contracts::monitor::PersistenceHealth::Down { .. } => "down",
-            nuo_contracts::monitor::PersistenceHealth::Healthy => unreachable!("filtered above"),
+            nuo_wire::monitor::PersistenceHealth::Recovering { .. } => "recovering",
+            nuo_wire::monitor::PersistenceHealth::Down { .. } => "down",
+            nuo_wire::monitor::PersistenceHealth::Healthy => unreachable!("filtered above"),
         };
         let detail = health.detail().unwrap_or_default();
         out.push_str(&format!(
@@ -275,13 +275,13 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
         ));
         for t in &snapshot.tasks {
             let state = match &t.state {
-                nuo_contracts::JobState::Running { .. } => "running",
-                nuo_contracts::JobState::Ready { .. } => "ready",
-                nuo_contracts::JobState::Succeeded { .. } => "done",
-                nuo_contracts::JobState::Failed { .. } => "failed",
-                nuo_contracts::JobState::Killed { .. } => "killed",
-                nuo_contracts::JobState::TimedOut { .. } => "timed out",
-                nuo_contracts::JobState::Queued => "queued",
+                nuo_wire::JobState::Running { .. } => "running",
+                nuo_wire::JobState::Ready { .. } => "ready",
+                nuo_wire::JobState::Succeeded { .. } => "done",
+                nuo_wire::JobState::Failed { .. } => "failed",
+                nuo_wire::JobState::Killed { .. } => "killed",
+                nuo_wire::JobState::TimedOut { .. } => "timed out",
+                nuo_wire::JobState::Queued => "queued",
             };
             let latest = t.latest_output.as_deref().unwrap_or("");
             let latest = if latest.chars().count() > 30 {
@@ -407,7 +407,7 @@ fn truncate(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::SessionForkKind;
+    use nuo_wire::SessionForkKind;
 
     fn row(id: &str, status: SessionStatus) -> MonitoredSession {
         MonitoredSession {
@@ -446,11 +446,11 @@ mod tests {
     #[test]
     fn table_renders_daemon_tasks_section() {
         let mut snap = snapshot(Vec::new());
-        snap.tasks = vec![nuo_contracts::MonitoredTask {
+        snap.tasks = vec![nuo_wire::MonitoredTask {
             id: "task_abc12345".into(),
             label: "rehost:svc_old".into(),
             spec: "npm run dev".into(),
-            state: nuo_contracts::JobState::Ready {
+            state: nuo_wire::JobState::Ready {
                 started_at_ms: 0,
                 ready_at_ms: 0,
             },
@@ -615,7 +615,7 @@ mod tests {
 #[cfg(test)]
 mod persistence_health_tests {
     use super::*;
-    use nuo_contracts::monitor::PersistenceHealth;
+    use nuo_wire::monitor::PersistenceHealth;
 
     #[test]
     fn table_warns_when_the_persistence_writer_is_down() {

@@ -60,7 +60,7 @@ pub(crate) struct DashboardHead {
 pub(crate) struct BtwHead {
     /// Coarse primary-session status, rendered as the left context's meta
     /// segment ("main running", …).
-    pub parent: nuo_contracts::ParentStatus,
+    pub parent: nuo_wire::ParentStatus,
 }
 
 /// Row-2 (view affordance) context for every view kind. One struct because
@@ -303,10 +303,10 @@ pub(crate) fn draw_view_header(
         ViewHeader::Btw(head)
             if matches!(
                 head.parent,
-                nuo_contracts::ParentStatus::NeedsApproval
-                    | nuo_contracts::ParentStatus::NeedsInput
-                    | nuo_contracts::ParentStatus::Failed
-                    | nuo_contracts::ParentStatus::Interrupted
+                nuo_wire::ParentStatus::NeedsApproval
+                    | nuo_wire::ParentStatus::NeedsInput
+                    | nuo_wire::ParentStatus::Failed
+                    | nuo_wire::ParentStatus::Interrupted
             ) =>
         {
             fill.fg(theme.warn()).add_modifier(Modifier::BOLD)
@@ -631,14 +631,14 @@ fn id_tail(id: &str) -> String {
     chars[chars.len() - take..].iter().collect()
 }
 
-fn parent_status_label(parent: nuo_contracts::ParentStatus) -> &'static str {
+fn parent_status_label(parent: nuo_wire::ParentStatus) -> &'static str {
     match parent {
-        nuo_contracts::ParentStatus::Idle => "[main: idle]",
-        nuo_contracts::ParentStatus::Running => "[main: running]",
-        nuo_contracts::ParentStatus::NeedsApproval => "[⚠ main: approval needed]",
-        nuo_contracts::ParentStatus::NeedsInput => "[⚠ main: input needed]",
-        nuo_contracts::ParentStatus::Failed => "[⚠ main: failed]",
-        nuo_contracts::ParentStatus::Interrupted => "[⚠ main: interrupted]",
+        nuo_wire::ParentStatus::Idle => "[main: idle]",
+        nuo_wire::ParentStatus::Running => "[main: running]",
+        nuo_wire::ParentStatus::NeedsApproval => "[⚠ main: approval needed]",
+        nuo_wire::ParentStatus::NeedsInput => "[⚠ main: input needed]",
+        nuo_wire::ParentStatus::Failed => "[⚠ main: failed]",
+        nuo_wire::ParentStatus::Interrupted => "[⚠ main: interrupted]",
     }
 }
 
@@ -668,7 +668,7 @@ mod tests {
         let row = rendered_row(
             64,
             ViewHeader::Btw(BtwHead {
-                parent: nuo_contracts::ParentStatus::NeedsApproval,
+                parent: nuo_wire::ParentStatus::NeedsApproval,
             }),
         );
         assert!(row.starts_with("   /btw Side conversation  [⚠ main: approval needed]"));

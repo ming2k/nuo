@@ -2,7 +2,7 @@
 #[allow(clippy::module_inception)]
 mod tests {
     use crate::tools::*;
-    use nuo_contracts::{
+    use nuo_wire::{
         Tool, WebConfig, WebReaderProvider, WebRuntimeConfig, WebSearchProvider, truncate_utf8,
     };
 
@@ -54,7 +54,7 @@ mod tests {
         assert_eq!(cfg.provider, WebSearchProvider::Bocha);
         let runtime = WebRuntimeConfig {
             behavior: cfg,
-            search_credential: Some(nuo_contracts::SecretString::new("sk-test-bocha")),
+            search_credential: Some(nuo_wire::SecretString::new("sk-test-bocha")),
             reader_credential: None,
         };
         assert_eq!(
@@ -94,7 +94,7 @@ mod tests {
         let full_arguments = serde_json::json!({ "path": &path }).to_string();
         let full = tool.call_structured(&full_arguments).await.unwrap();
         match full {
-            nuo_contracts::ToolOutput::Code {
+            nuo_wire::ToolOutput::Code {
                 start_line, text, ..
             } => {
                 assert_eq!(start_line, 1);
@@ -106,7 +106,7 @@ mod tests {
         let offset_arguments = serde_json::json!({ "path": &path, "offset": 3 }).to_string();
         let offset = tool.call_structured(&offset_arguments).await.unwrap();
         match offset {
-            nuo_contracts::ToolOutput::Code {
+            nuo_wire::ToolOutput::Code {
                 start_line, text, ..
             } => {
                 assert_eq!(start_line, 3);
@@ -117,9 +117,9 @@ mod tests {
     }
 
     /// Pull `(text, prefix, suffix)` out of a `Code` output for assertions.
-    fn code_parts(out: nuo_contracts::ToolOutput) -> (String, Option<String>, Option<String>) {
+    fn code_parts(out: nuo_wire::ToolOutput) -> (String, Option<String>, Option<String>) {
         match out {
-            nuo_contracts::ToolOutput::Code {
+            nuo_wire::ToolOutput::Code {
                 text,
                 prefix,
                 suffix,
@@ -434,19 +434,19 @@ mod tests {
     fn builtin_tool_surface_stays_within_its_token_budget() {
         const BUDGET_TOKENS: usize = 2_046;
 
-        let ctx = nuo_contracts::ToolContextBuilder::new().build();
-        let mut tools = nuo_contracts::collect_toolset(&ctx).default_view();
+        let ctx = nuo_wire::ToolContextBuilder::new().build();
+        let mut tools = nuo_wire::collect_toolset(&ctx).default_view();
         tools.push(std::sync::Arc::new(crate::SubagentTool::new(
             std::sync::Arc::new(crate::NoProvider),
-            nuo_contracts::ToolSet::default(),
-            &nuo_contracts::SubAgentProfile::EXPLORE,
+            nuo_wire::ToolSet::default(),
+            &nuo_wire::SubAgentProfile::EXPLORE,
         )) as std::sync::Arc<dyn Tool>);
 
-        let weights = nuo_contracts::ToolSchemaWeights::new();
+        let weights = nuo_wire::ToolSchemaWeights::new();
         let mut rows: Vec<(String, usize)> = tools
             .iter()
             .map(|tool| {
-                let spec = nuo_contracts::ToolSpec::from_tool(tool.as_ref());
+                let spec = nuo_wire::ToolSpec::new(tool.name(), tool.description(), tool.parameters());
                 let tokens = weights.weight(&spec);
                 (spec.name, tokens)
             })

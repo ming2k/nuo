@@ -14,7 +14,7 @@
 //! `searxng`) in `config.toml` if that matters.
 
 use async_trait::async_trait;
-use nuo_contracts::{WebRuntimeConfig, WebSearchProvider};
+use nuo_wire::{WebRuntimeConfig, WebSearchProvider};
 
 pub mod bocha;
 pub mod duckduckgo;
@@ -134,14 +134,14 @@ pub(super) fn format_results(query: &str, source: &str, results: Vec<SearchResul
     }
     let header = format!("Search results for '{query}' (via {source}):\n\n");
     let mut remaining =
-        MAX_RESULT_TOKENS.saturating_sub(nuo_contracts::tokenizer::count_tokens(&header));
+        MAX_RESULT_TOKENS.saturating_sub(nuo_wire::tokenizer::count_tokens(&header));
     let mut out = String::with_capacity(header.len() + 1024);
     out.push_str(&header);
     let mut dropped = 0usize;
     for (idx, result) in results.iter().enumerate() {
         // The always-kept line: title + URL. Never truncated.
         let head = format!("{}. {}\n   {}\n", idx + 1, result.title, result.url);
-        let head_tokens = nuo_contracts::tokenizer::count_tokens(&head);
+        let head_tokens = nuo_wire::tokenizer::count_tokens(&head);
         if head_tokens + 12 >= remaining {
             // Not even the title+URL line fits (12 ≈ the omitted-snippet
             // marker's cost). Drop the entry; count it in the notice.
@@ -149,7 +149,7 @@ pub(super) fn format_results(query: &str, source: &str, results: Vec<SearchResul
             break;
         }
         remaining -= head_tokens;
-        let snippet_tokens = nuo_contracts::tokenizer::count_tokens(&result.snippet);
+        let snippet_tokens = nuo_wire::tokenizer::count_tokens(&result.snippet);
         if snippet_tokens <= remaining {
             out.push_str(&head);
             out.push_str(&format!("   {}\n", result.snippet));
@@ -172,13 +172,13 @@ pub(super) fn format_results(query: &str, source: &str, results: Vec<SearchResul
 
 pub(crate) fn results_to_hits(
     results: Vec<SearchResult>,
-) -> (Vec<nuo_contracts::WebSearchHit>, bool) {
+) -> (Vec<nuo_wire::WebSearchHit>, bool) {
     let hits = results
         .into_iter()
         .map(|r| {
             let domain =
                 crate::tools::ssrf::extract_host(&r.url).unwrap_or_else(|| "web".to_string());
-            nuo_contracts::WebSearchHit {
+            nuo_wire::WebSearchHit {
                 title: r.title,
                 url: r.url,
                 domain,
@@ -193,7 +193,7 @@ pub(crate) fn blob_to_hits(
     query: &str,
     provider: &str,
     text: &str,
-) -> (Vec<nuo_contracts::WebSearchHit>, bool) {
+) -> (Vec<nuo_wire::WebSearchHit>, bool) {
     let mut hits = Vec::new();
     for block in text.split("\n\n") {
         let trimmed = block.trim();
@@ -225,7 +225,7 @@ pub(crate) fn blob_to_hits(
                     .to_string()
             };
             let snippet = rest[url_end..].trim().to_string();
-            hits.push(nuo_contracts::WebSearchHit {
+            hits.push(nuo_wire::WebSearchHit {
                 title: if title.is_empty() { url.clone() } else { title },
                 url,
                 domain,
@@ -238,7 +238,7 @@ pub(crate) fn blob_to_hits(
         }
     }
     if hits.is_empty() {
-        hits.push(nuo_contracts::WebSearchHit {
+        hits.push(nuo_wire::WebSearchHit {
             title: format!("Search results for '{query}'"),
             url: String::new(),
             domain: provider.to_lowercase(),
@@ -249,20 +249,20 @@ pub(crate) fn blob_to_hits(
 }
 
 pub(crate) fn budget_web_hits(
-    hits: Vec<nuo_contracts::WebSearchHit>,
-) -> (Vec<nuo_contracts::WebSearchHit>, bool) {
+    hits: Vec<nuo_wire::WebSearchHit>,
+) -> (Vec<nuo_wire::WebSearchHit>, bool) {
     let mut out = Vec::with_capacity(hits.len());
     let mut remaining = MAX_RESULT_TOKENS;
     let mut truncated = false;
     for hit in hits {
         let head = format!("{}\n{}", hit.title, hit.url);
-        let head_tokens = nuo_contracts::tokenizer::count_tokens(&head);
+        let head_tokens = nuo_wire::tokenizer::count_tokens(&head);
         if head_tokens + 12 >= remaining {
             truncated = true;
             break;
         }
         remaining -= head_tokens;
-        let snippet_tokens = nuo_contracts::tokenizer::count_tokens(&hit.snippet);
+        let snippet_tokens = nuo_wire::tokenizer::count_tokens(&hit.snippet);
         let snippet = if snippet_tokens <= remaining {
             remaining -= snippet_tokens;
             hit.snippet
@@ -270,7 +270,7 @@ pub(crate) fn budget_web_hits(
             remaining = remaining.saturating_sub(12);
             "[snippet omitted to fit the result budget]".to_string()
         };
-        out.push(nuo_contracts::WebSearchHit {
+        out.push(nuo_wire::WebSearchHit {
             title: hit.title,
             url: hit.url,
             domain: hit.domain,
@@ -290,11 +290,11 @@ pub(super) const MAX_RESULT_TOKENS: usize = 4_000;
 #[allow(dead_code)]
 pub(super) fn cap_output(text: &str) -> String {
     const MAX_TOKENS: usize = 4_000;
-    let total = nuo_contracts::tokenizer::count_tokens(text);
+    let total = nuo_wire::tokenizer::count_tokens(text);
     if total <= MAX_TOKENS {
         return text.to_string();
     }
-    let (prefix, kept) = nuo_contracts::tokenizer::truncate_to_tokens(text, MAX_TOKENS);
+    let (prefix, kept) = nuo_wire::tokenizer::truncate_to_tokens(text, MAX_TOKENS);
     let dropped = total - kept;
     format!("{prefix}\n\n[... {dropped} more tokens truncated ...]")
 }
@@ -421,9 +421,9 @@ mod tests {
         // Total stays inside the budget.
         let body = out.split("\n[... ").next().unwrap_or(&out).to_string();
         assert!(
-            nuo_contracts::tokenizer::count_tokens(&body) <= MAX_RESULT_TOKENS + 40,
+            nuo_wire::tokenizer::count_tokens(&body) <= MAX_RESULT_TOKENS + 40,
             "body tokens = {}",
-            nuo_contracts::tokenizer::count_tokens(&body)
+            nuo_wire::tokenizer::count_tokens(&body)
         );
     }
 
@@ -478,15 +478,15 @@ mod tests {
         // Within the budget by the exact tokenizer's own measure.
         let body = out.split("\n\n[... ").next().unwrap_or("");
         assert!(
-            nuo_contracts::tokenizer::count_tokens(body) <= 4_000,
+            nuo_wire::tokenizer::count_tokens(body) <= 4_000,
             "body tokens = {}",
-            nuo_contracts::tokenizer::count_tokens(body)
+            nuo_wire::tokenizer::count_tokens(body)
         );
     }
 
     #[test]
     fn an_unknown_provider_name_is_rejected_at_parse_time() {
-        let error = toml::from_str::<nuo_contracts::WebConfig>("provider = \"totally-bogus\"")
+        let error = toml::from_str::<nuo_wire::WebConfig>("provider = \"totally-bogus\"")
             .expect_err("unknown providers must not parse");
         assert!(
             error
@@ -498,7 +498,7 @@ mod tests {
 
     #[test]
     fn the_default_provider_is_exa() {
-        let cfg = nuo_contracts::WebRuntimeConfig::default();
+        let cfg = nuo_wire::WebRuntimeConfig::default();
         assert_eq!(build_provider(&cfg).name(), "Exa");
     }
 }

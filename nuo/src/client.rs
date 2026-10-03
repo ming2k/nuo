@@ -15,7 +15,7 @@ use crate::serve::Wire;
 use crate::serve_discovery as discovery;
 use crate::wire_channel::{BoxWireSink, BoxWireStream, native_framed_split, websocket_split};
 use futures::{SinkExt, StreamExt};
-use nuo_contracts::{
+use nuo_wire::{
     AgentRequest, AgentResponse, Message, MonitorAction, MonitorEvent, MonitoredSession,
     SessionOverview,
 };
@@ -39,18 +39,18 @@ static POSTURE_OVERRIDE: std::sync::atomic::AtomicU8 = std::sync::atomic::Atomic
 
 /// Declare this client's human-channel posture (ADR-0141). Must be called
 /// before the first attach; later attaches of the same process inherit it.
-pub fn set_posture(posture: nuo_contracts::human_request::HumanChannelPosture) {
+pub fn set_posture(posture: nuo_wire::human_request::HumanChannelPosture) {
     let code = match posture {
-        nuo_contracts::human_request::HumanChannelPosture::Interactive => 0,
-        nuo_contracts::human_request::HumanChannelPosture::Autonomous => 1,
+        nuo_wire::human_request::HumanChannelPosture::Interactive => 0,
+        nuo_wire::human_request::HumanChannelPosture::Autonomous => 1,
     };
     POSTURE_OVERRIDE.store(code, std::sync::atomic::Ordering::Relaxed);
 }
 
-fn current_posture() -> nuo_contracts::human_request::HumanChannelPosture {
+fn current_posture() -> nuo_wire::human_request::HumanChannelPosture {
     match POSTURE_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => nuo_contracts::human_request::HumanChannelPosture::Autonomous,
-        _ => nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        1 => nuo_wire::human_request::HumanChannelPosture::Autonomous,
+        _ => nuo_wire::human_request::HumanChannelPosture::Interactive,
     }
 }
 
@@ -832,18 +832,18 @@ pub enum Handshake {
         /// Durable round-interrupt records (C11) from the daemon's welcome,
         /// so an attaching TUI projects the stopped rounds into its restored
         /// transcript. Empty for older daemons.
-        round_interrupts: Vec<nuo_contracts::RoundInterrupt>,
+        round_interrupts: Vec<nuo_wire::RoundInterrupt>,
         /// Durable retry-resolution records from the daemon's welcome, so an
         /// attaching TUI projects recovered rounds into its restored
         /// transcript. Empty for older daemons.
-        retry_resolutions: Vec<nuo_contracts::RetryResolution>,
+        retry_resolutions: Vec<nuo_wire::RetryResolution>,
         /// The provider/model the session is currently serving, carried on
         /// the welcome so the TUI's hint bar shows them from the first frame
         /// instead of waiting for the next provider mutation.
         provider: String,
         model: String,
         /// Backend-owned completion/help vocabulary for this session.
-        command_catalog: nuo_contracts::CommandCatalog,
+        command_catalog: nuo_wire::CommandCatalog,
     },
     Pick(Vec<SessionOverview>),
 }
@@ -1125,12 +1125,12 @@ struct Welcome {
     model: String,
     /// Durable round-interrupt records (C11) carried on the daemon's
     /// welcome; empty for older daemons that predate the field.
-    round_interrupts: Vec<nuo_contracts::RoundInterrupt>,
+    round_interrupts: Vec<nuo_wire::RoundInterrupt>,
     /// Durable retry-resolution records (success-side mirror of the
     /// interrupts) carried on the daemon's welcome; empty for older daemons
     /// that predate the field.
-    retry_resolutions: Vec<nuo_contracts::RetryResolution>,
-    command_catalog: nuo_contracts::CommandCatalog,
+    retry_resolutions: Vec<nuo_wire::RetryResolution>,
+    command_catalog: nuo_wire::CommandCatalog,
 }
 enum Reply {
     Welcome(Welcome),
@@ -1242,8 +1242,8 @@ pub fn upsert_session_row(rows: &mut Vec<MonitoredSession>, row: MonitoredSessio
 }
 
 pub fn upsert_task_row(
-    rows: &mut Vec<nuo_contracts::MonitoredTask>,
-    row: nuo_contracts::MonitoredTask,
+    rows: &mut Vec<nuo_wire::MonitoredTask>,
+    row: nuo_wire::MonitoredTask,
 ) {
     match rows.iter_mut().find(|existing| existing.id == row.id) {
         Some(existing) => *existing = row,

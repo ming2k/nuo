@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use nuo_contracts::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent, RoundEvent};
+use nuo_wire::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent, RoundEvent};
 use nuo_persistence::session::SessionStore;
 use nuo::monitor::MonitorTracker;
 use nuo::registry::{HostedSession, SessionRegistry};
@@ -12,15 +12,15 @@ use nuo::serve::{self, AttachAction, Wire};
 use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-fn idle_base(id: String) -> nuo_contracts::MonitoredSession {
-    nuo_contracts::MonitoredSession {
+fn idle_base(id: String) -> nuo_wire::MonitoredSession {
+    nuo_wire::MonitoredSession {
         id,
         overview: String::new(),
         created_at: 0,
         updated_at: 0,
         message_count: 0,
-        status: nuo_contracts::SessionStatus::Idle,
-        hosting: nuo_contracts::SessionHosting::Hosted,
+        status: nuo_wire::SessionStatus::Idle,
+        hosting: nuo_wire::SessionHosting::Hosted,
         round: 0,
         turn: None,
         output_tokens: 0,
@@ -31,7 +31,7 @@ fn idle_base(id: String) -> nuo_contracts::MonitoredSession {
         note: None,
         project_root: String::new(),
         parent_id: None,
-        fork_kind: nuo_contracts::SessionForkKind::default(),
+        fork_kind: nuo_wire::SessionForkKind::default(),
         digest: None,
     }
 }
@@ -43,12 +43,12 @@ async fn prehosted(
     mpsc::Receiver<AgentRequest>,
     broadcast::Sender<AgentResponse>,
 ) {
-    prehosted_with_catalog(session, nuo_contracts::CommandCatalog::default()).await
+    prehosted_with_catalog(session, nuo_wire::CommandCatalog::default()).await
 }
 
 async fn prehosted_with_catalog(
     session: Arc<SessionStore>,
-    command_catalog: nuo_contracts::CommandCatalog,
+    command_catalog: nuo_wire::CommandCatalog,
 ) -> (
     Arc<SessionRegistry>,
     mpsc::Receiver<AgentRequest>,
@@ -73,7 +73,7 @@ async fn prehosted_with_catalog(
 
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         base,
-        nuo_contracts::SessionStatus::Idle,
+        nuo_wire::SessionStatus::Idle,
     )));
     // Mimic the registry's broadcast-tap: fold every emitted response into the
     // tracker, publish a monitor diff, and buffer the attach-sync events, so
@@ -105,11 +105,11 @@ async fn prehosted_with_catalog(
         .host(HostedSession {
             workspace_root: Some(std::path::PathBuf::from("/tmp/muta-test-project")),
             human_channel: std::sync::Arc::new(
-                nuo_contracts::human_request::HumanChannelAccountant::new(),
+                nuo_wire::human_request::HumanChannelAccountant::new(),
             ),
             security,
             session,
-            shared_confinement: nuo_contracts::SharedConfinement::default(),
+            shared_confinement: nuo_wire::SharedConfinement::default(),
             req_tx,
             events: bc_tx.clone(),
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -130,12 +130,12 @@ async fn prehosted_with_catalog(
 async fn completion_catalog_and_edits_round_trip_over_websocket() {
     let tmp = tempfile::tempdir().unwrap();
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
-    let command = nuo_contracts::CommandSpec {
+    let command = nuo_wire::CommandSpec {
         name: "/models".into(),
         summary: "Choose a model".into(),
         ..Default::default()
     };
-    let catalog = nuo_contracts::CommandCatalog {
+    let catalog = nuo_wire::CommandCatalog {
         commands: vec![command.clone()],
         ..Default::default()
     };
@@ -153,8 +153,8 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
             version: None,
             action: AttachAction::Attach(None),
             project: None,
-            posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_contracts::PROTOCOL_VERSION),
+            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+            protocol: Some(nuo_wire::PROTOCOL_VERSION),
         })
         .unwrap()
         .into(),
@@ -210,13 +210,13 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
         } if text == "/mod"
     ));
 
-    let item = nuo_contracts::ComposerCompletion {
+    let item = nuo_wire::ComposerCompletion {
         label: "/models".into(),
         description: "Choose a model".into(),
         insert_text: "/models ".into(),
         replace_start: 0,
         replace_end: 4,
-        kind: nuo_contracts::ComposerCompletionKind::Slash,
+        kind: nuo_wire::ComposerCompletionKind::Slash,
         alias_of: None,
         command: Some(command),
     };
@@ -268,25 +268,25 @@ async fn host_with_project(registry: &SessionRegistry, project: std::path::PathB
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(id.clone()),
-        nuo_contracts::SessionStatus::Idle,
+        nuo_wire::SessionStatus::Idle,
     )));
     registry
         .host(HostedSession {
             workspace_root: Some(project),
             human_channel: std::sync::Arc::new(
-                nuo_contracts::human_request::HumanChannelAccountant::new(),
+                nuo_wire::human_request::HumanChannelAccountant::new(),
             ),
             security: std::sync::Arc::new(
                 nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
             ),
             session,
-            shared_confinement: nuo_contracts::SharedConfinement::default(),
+            shared_confinement: nuo_wire::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
             tracker,
             sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-            command_catalog: nuo_contracts::CommandCatalog::default(),
+            command_catalog: nuo_wire::CommandCatalog::default(),
             created_at: std::time::Instant::now(),
             last_activity: tokio::sync::Mutex::new(std::time::Instant::now()),
             last_seen_tick: std::sync::atomic::AtomicU64::new(0),
@@ -318,7 +318,7 @@ async fn test_select_then_attach_round_trip() {
         version: None,
         action: AttachAction::Attach(None),
         project: None,
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -422,17 +422,17 @@ async fn attach_receives_restored_todos_after_welcome() {
 
     // Give the session content so its file persists, then a non-empty list.
     session
-        .replace_messages(vec![nuo_contracts::Message::new(
-            nuo_contracts::Role::User,
+        .replace_messages(vec![nuo_wire::Message::new(
+            nuo_wire::Role::User,
             "hello",
         )])
         .await
         .unwrap();
-    let mut todos = nuo_contracts::TodoList::new();
-    todos.items.push(nuo_contracts::TodoItem {
-        id: nuo_contracts::TodoId(1),
+    let mut todos = nuo_wire::TodoList::new();
+    todos.items.push(nuo_wire::TodoItem {
+        id: nuo_wire::TodoId(1),
         content: "restored task".to_string(),
-        status: nuo_contracts::TodoStatus::InProgress,
+        status: nuo_wire::TodoStatus::InProgress,
         created_at: 1,
         updated_at: 1,
     });
@@ -450,7 +450,7 @@ async fn attach_receives_restored_todos_after_welcome() {
         version: None,
         action: AttachAction::Attach(None),
         project: None,
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -526,7 +526,7 @@ async fn attach_receives_buffered_provider_state_after_welcome() {
             version: None,
             action: AttachAction::Attach(None),
             project: None,
-            posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
             protocol: None,
         })
         .unwrap()
@@ -584,7 +584,7 @@ async fn unknown_id_is_an_error() {
         version: None,
         action: AttachAction::Attach(Some("nope".into())),
         project: None,
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -628,7 +628,7 @@ async fn select_project_scopes_auto_attach() {
         version: None,
         action: AttachAction::Attach(None),
         project: Some(project_a),
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -709,7 +709,7 @@ async fn declared_project_is_never_auto_bound_to_a_foreign_session() {
         version: None,
         action: AttachAction::Attach(None),
         project: Some(project_a),
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -756,7 +756,7 @@ async fn monitor_handshake_yields_snapshot_then_diffs() {
             include_idle: true,
         }),
         project: None,
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -795,7 +795,7 @@ async fn monitor_handshake_yields_snapshot_then_diffs() {
             event: MonitorEvent::SessionUpdated(row),
         } => {
             assert_eq!(row.id, session_id);
-            assert_eq!(row.status, nuo_contracts::SessionStatus::Running);
+            assert_eq!(row.status, nuo_wire::SessionStatus::Running);
             assert_eq!(row.round, 1);
             assert_eq!(row.turn, Some(0));
         }
@@ -813,8 +813,8 @@ async fn rename_live_session_republishes_monitor_row() {
     // real content so it persists and appears in `list()`.
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
     session
-        .replace_messages(vec![nuo_contracts::Message::new(
-            nuo_contracts::Role::User,
+        .replace_messages(vec![nuo_wire::Message::new(
+            nuo_wire::Role::User,
             "first prompt",
         )])
         .await
@@ -893,7 +893,7 @@ async fn monitor_one_shot_closes_after_snapshot() {
             include_idle: false,
         }),
         project: None,
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -951,7 +951,7 @@ async fn attach_end_session_tears_down_and_notifies() {
             include_idle: true,
         }),
         project: None,
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -983,7 +983,7 @@ async fn attach_end_session_tears_down_and_notifies() {
         version: None,
         action: AttachAction::Attach(Some(id.clone())),
         project: None,
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -1072,7 +1072,7 @@ async fn control_create_observe_kill_roundtrip() {
             init_options: None,
         }),
         project: None,
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -1101,7 +1101,7 @@ async fn control_create_observe_kill_roundtrip() {
             session_id: "nope".into(),
         }),
         project: None,
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -1173,7 +1173,7 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
             include_idle: true,
         }),
         project: None,
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     };
     wire_sink.send(select).await.unwrap();
@@ -1254,26 +1254,26 @@ async fn host_bare(
     let base = idle_base(session.id().await);
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         base,
-        nuo_contracts::SessionStatus::Idle,
+        nuo_wire::SessionStatus::Idle,
     )));
     let id = session.id().await;
     registry
         .host(HostedSession {
             workspace_root: Some(std::env::temp_dir().join("muta-reaper-project")),
             human_channel: std::sync::Arc::new(
-                nuo_contracts::human_request::HumanChannelAccountant::new(),
+                nuo_wire::human_request::HumanChannelAccountant::new(),
             ),
             security: std::sync::Arc::new(
                 nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
             ),
             session,
-            shared_confinement: nuo_contracts::SharedConfinement::default(),
+            shared_confinement: nuo_wire::SharedConfinement::default(),
             req_tx,
             events: bc_tx.clone(),
             cancel: tokio_util::sync::CancellationToken::new(),
             tracker,
             sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-            command_catalog: nuo_contracts::CommandCatalog::default(),
+            command_catalog: nuo_wire::CommandCatalog::default(),
             created_at,
             last_activity: tokio::sync::Mutex::new(created_at),
             last_seen_tick: std::sync::atomic::AtomicU64::new(0),
@@ -1357,8 +1357,8 @@ async fn reaper_keeps_session_once_it_has_content() {
     // Give the session real content: this persists it, so it is user history
     // and must never be reaped no matter how idle.
     store
-        .replace_messages(vec![nuo_contracts::Message::new(
-            nuo_contracts::Role::User,
+        .replace_messages(vec![nuo_wire::Message::new(
+            nuo_wire::Role::User,
             "hello",
         )])
         .await
@@ -1379,8 +1379,8 @@ async fn reaper_keeps_session_once_it_has_content() {
 async fn suspension_removes_idle_persisted_session() {
     let (dir, store) = fresh_empty_store("suspend");
     store
-        .replace_messages(vec![nuo_contracts::Message::new(
-            nuo_contracts::Role::User,
+        .replace_messages(vec![nuo_wire::Message::new(
+            nuo_wire::Role::User,
             "hello",
         )])
         .await
@@ -1406,8 +1406,8 @@ async fn suspension_removes_idle_persisted_session() {
 async fn suspension_keeps_session_with_attached_client() {
     let (dir, store) = fresh_empty_store("suspend-attached");
     store
-        .replace_messages(vec![nuo_contracts::Message::new(
-            nuo_contracts::Role::User,
+        .replace_messages(vec![nuo_wire::Message::new(
+            nuo_wire::Role::User,
             "hello",
         )])
         .await
@@ -1429,8 +1429,8 @@ async fn suspension_keeps_session_with_attached_client() {
 async fn suspension_deferred_by_recent_activity() {
     let (dir, store) = fresh_empty_store("suspend-active");
     store
-        .replace_messages(vec![nuo_contracts::Message::new(
-            nuo_contracts::Role::User,
+        .replace_messages(vec![nuo_wire::Message::new(
+            nuo_wire::Role::User,
             "hello",
         )])
         .await
@@ -1482,7 +1482,7 @@ async fn shutdown_control_verb_replies_then_stops_accepting() {
         version: None,
         action: AttachAction::Control(serve::ControlRequest::Shutdown),
         project: None,
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -1535,7 +1535,7 @@ async fn version_skew_is_refused_with_both_versions() {
             version: version.map(str::to_string),
             action: AttachAction::Attach(Some("definitely-not-a-session".into())),
             project: None,
-            posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
             protocol: None,
         })
         .unwrap();
@@ -1628,7 +1628,7 @@ fn global_record_carries_the_daemon_version() {
 /// declares no number keeps the ADR-0100 product-version judgment.
 #[tokio::test]
 async fn protocol_window_governs_when_declared() {
-    use nuo_contracts::{MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
+    use nuo_wire::{MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
     let tmp = tempfile::tempdir().unwrap();
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
@@ -1645,7 +1645,7 @@ async fn protocol_window_governs_when_declared() {
             protocol,
             action: AttachAction::Attach(Some("definitely-not-a-session".into())),
             project: None,
-            posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         })
         .unwrap();
         ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -1719,7 +1719,7 @@ async fn control_roundtrip(port: u16, request: serve::ControlRequest) -> Result<
         version: None,
         action: AttachAction::Control(request),
         project: None,
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -1800,8 +1800,8 @@ async fn control_suspend_session_parks_a_contentful_session() {
     let id = session.id().await;
     // Real content → the session persists, so it is suspendable.
     session
-        .replace_messages(vec![nuo_contracts::Message::new(
-            nuo_contracts::Role::User,
+        .replace_messages(vec![nuo_wire::Message::new(
+            nuo_wire::Role::User,
             "hello",
         )])
         .await
@@ -1811,25 +1811,25 @@ async fn control_suspend_session_parks_a_contentful_session() {
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(id.clone()),
-        nuo_contracts::SessionStatus::Idle,
+        nuo_wire::SessionStatus::Idle,
     )));
     registry
         .host(HostedSession {
             workspace_root: Some(tmp.path().to_path_buf()),
             human_channel: std::sync::Arc::new(
-                nuo_contracts::human_request::HumanChannelAccountant::new(),
+                nuo_wire::human_request::HumanChannelAccountant::new(),
             ),
             security: std::sync::Arc::new(
                 nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
             ),
             session,
-            shared_confinement: nuo_contracts::SharedConfinement::default(),
+            shared_confinement: nuo_wire::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
             tracker,
             sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-            command_catalog: nuo_contracts::CommandCatalog::default(),
+            command_catalog: nuo_wire::CommandCatalog::default(),
             created_at: std::time::Instant::now(),
             last_activity: tokio::sync::Mutex::new(std::time::Instant::now()),
             last_seen_tick: std::sync::atomic::AtomicU64::new(0),
@@ -1883,17 +1883,17 @@ async fn attach_trust_workspace(
     let sync_buffer = Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new()));
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(session.id().await),
-        nuo_contracts::SessionStatus::Idle,
+        nuo_wire::SessionStatus::Idle,
     )));
     registry
         .host(HostedSession {
             workspace_root: Some(tmp.path().to_path_buf()),
             human_channel: std::sync::Arc::new(
-                nuo_contracts::human_request::HumanChannelAccountant::new(),
+                nuo_wire::human_request::HumanChannelAccountant::new(),
             ),
             security,
             session,
-            shared_confinement: nuo_contracts::SharedConfinement::default(),
+            shared_confinement: nuo_wire::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -1919,8 +1919,8 @@ async fn attach_trust_workspace(
             version: None,
             action: AttachAction::Attach(None),
             project: Some(tmp.path().to_string_lossy().into_owned().into()),
-            posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_contracts::PROTOCOL_VERSION),
+            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+            protocol: Some(nuo_wire::PROTOCOL_VERSION),
         })
         .unwrap()
         .into(),
@@ -1954,17 +1954,17 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
     let sync_buffer = Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new()));
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(session.id().await),
-        nuo_contracts::SessionStatus::Idle,
+        nuo_wire::SessionStatus::Idle,
     )));
     registry
         .host(HostedSession {
             workspace_root: Some(tmp.path().to_path_buf()),
             human_channel: std::sync::Arc::new(
-                nuo_contracts::human_request::HumanChannelAccountant::new(),
+                nuo_wire::human_request::HumanChannelAccountant::new(),
             ),
             security,
             session,
-            shared_confinement: nuo_contracts::SharedConfinement::default(),
+            shared_confinement: nuo_wire::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -1990,8 +1990,8 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
             version: None,
             action: AttachAction::Attach(None),
             project: Some(tmp.path().to_string_lossy().into_owned().into()),
-            posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_contracts::PROTOCOL_VERSION),
+            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+            protocol: Some(nuo_wire::PROTOCOL_VERSION),
         })
         .unwrap()
         .into(),
@@ -2020,7 +2020,7 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
         match event {
             RoundEvent::HarnessState(snapshot)
                 if snapshot.workspace_security.instructions
-                    == nuo_contracts::WorkspaceTrustState::Quarantined =>
+                    == nuo_wire::WorkspaceTrustState::Quarantined =>
             {
                 saw_quarantined_snapshot = true;
             }
@@ -2066,7 +2066,7 @@ async fn changed_workspace_keeps_banner_escalation_on_attach() {
         security_file.clone(),
     );
     security
-        .trust_domains(tmp.path(), &[nuo_contracts::TrustDomain::Instructions])
+        .trust_domains(tmp.path(), &[nuo_wire::TrustDomain::Instructions])
         .unwrap();
     std::fs::write(tmp.path().join("AGENTS.md"), "project instructions v2").unwrap();
     let (mut ws, _server) = attach_trust_workspace(&tmp, &security_file).await;
@@ -2089,7 +2089,7 @@ async fn changed_workspace_keeps_banner_escalation_on_attach() {
             && n.body
                 .as_deref()
                 .is_some_and(|b| b.contains("changed") || b.contains("trust"))
-            && n.kind == nuo_contracts::NoticeKind::TrustChanged
+            && n.kind == nuo_wire::NoticeKind::TrustChanged
         {
             saw_banner = true;
             break;
@@ -2129,8 +2129,8 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
             version: None,
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
-            posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_contracts::PROTOCOL_VERSION),
+            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+            protocol: Some(nuo_wire::PROTOCOL_VERSION),
         })
         .unwrap()
         .into(),
@@ -2166,8 +2166,8 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
             version: None,
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
-            posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_contracts::PROTOCOL_VERSION),
+            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+            protocol: Some(nuo_wire::PROTOCOL_VERSION),
         })
         .unwrap()
         .into(),
@@ -2219,8 +2219,8 @@ async fn bounded_request_ingress_sheds_load_with_server_busy() {
             version: None,
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
-            posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_contracts::PROTOCOL_VERSION),
+            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+            protocol: Some(nuo_wire::PROTOCOL_VERSION),
         })
         .unwrap()
         .into(),

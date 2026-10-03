@@ -12,7 +12,7 @@ fn only_high_frequency_stream_updates_are_coalesced() {
         session_id: "session".to_string(),
         event: RoundEvent::ToolStream {
             id: "call".to_string(),
-            stream: nuo_contracts::ToolStream::Stdout("line\n".to_string()),
+            stream: nuo_wire::ToolStream::Stdout("line\n".to_string()),
         },
     };
     let stream_start = AgentResponse::Round {
@@ -77,15 +77,15 @@ fn command_ledger_restores_as_non_conversational_command_rows() {
     // restores as a distinct, non-conversational command row carrying the
     // typed result as its expandable body.
     let commands = vec![
-        nuo_contracts::CommandRecord::new("search", "foo").with_result(
-            nuo_contracts::CommandResult::Search {
+        nuo_wire::CommandRecord::new("search", "foo").with_result(
+            nuo_wire::CommandResult::Search {
                 query: "foo".to_string(),
                 hits: vec![],
             },
         ),
         // A result-less record (legacy fold / command without result): the
         // invocation still restores, with an empty expandable body.
-        nuo_contracts::CommandRecord::new("compact", ""),
+        nuo_wire::CommandRecord::new("compact", ""),
     ];
     let restored = transcript_commands_from_ledger(commands);
     assert_eq!(restored.len(), 2);
@@ -105,7 +105,7 @@ fn command_ledger_restores_as_non_conversational_command_rows() {
     assert_eq!(search.round, None, "a command is not a conversation turn");
     assert_ne!(
         search.role,
-        nuo_contracts::Role::Assistant,
+        nuo_wire::Role::Assistant,
         "never assistant prose"
     );
 
@@ -126,7 +126,7 @@ fn command_error_settles_pending_command_in_place() {
     assert_eq!(message.command_result_phase(), Some(CommandPhase::Pending));
     assert_eq!(message.command_result_text(), None);
 
-    let settled = message.settle_command_result(nuo_contracts::CommandResult::Error {
+    let settled = message.settle_command_result(nuo_wire::CommandResult::Error {
         message: "Unknown /trust subcommand 'workspace'.".to_string(),
         detail: None,
     });
@@ -148,7 +148,7 @@ fn command_error_settles_pending_command_in_place() {
 fn command_rows_merge_at_their_turn_seams_on_restore() {
     use crate::model::document::TranscriptMessage;
     use crate::transcript::merge_command_rows;
-    use nuo_contracts::Role;
+    use nuo_wire::Role;
 
     // Dialogue: two rounds, timestamps 1000 and 3000.
     let dialogue = vec![
@@ -164,14 +164,14 @@ fn command_rows_merge_at_their_turn_seams_on_restore() {
     // Ledger: one command run between the rounds (2000), one after the last
     // (4000). Rebuild stamps each row with the record's timestamp.
     let commands = crate::transcript::transcript_commands_from_ledger(vec![
-        nuo_contracts::CommandRecord::new("compact", "")
-            .with_result(nuo_contracts::CommandResult::Ack {
+        nuo_wire::CommandRecord::new("compact", "")
+            .with_result(nuo_wire::CommandResult::Ack {
                 title: "Compacted".to_string(),
                 detail: None,
             })
             .with_timestamp(2000),
-        nuo_contracts::CommandRecord::new("new", "")
-            .with_result(nuo_contracts::CommandResult::Text(
+        nuo_wire::CommandRecord::new("new", "")
+            .with_result(nuo_wire::CommandResult::Text(
                 "Started new session: c3".to_string(),
             ))
             .with_timestamp(4000),
@@ -199,14 +199,14 @@ fn command_rows_merge_at_their_turn_seams_on_restore() {
 fn command_rows_tail_when_dialogue_has_no_timestamps() {
     use crate::model::document::TranscriptMessage;
     use crate::transcript::merge_command_rows;
-    use nuo_contracts::Role;
+    use nuo_wire::Role;
 
     let dialogue = vec![
         TranscriptMessage::new(Role::User, "prompt"),
         TranscriptMessage::new(Role::Assistant, "reply"),
     ];
     let commands = crate::transcript::transcript_commands_from_ledger(vec![
-        nuo_contracts::CommandRecord::new("compact", "").with_timestamp(123),
+        nuo_wire::CommandRecord::new("compact", "").with_timestamp(123),
     ]);
 
     let merged = merge_command_rows(dialogue, commands);
@@ -222,7 +222,7 @@ fn command_result_message_expands_and_round_trips_display() {
     let mut message = TranscriptMessage::command_result(
         "permissions",
         "",
-        Some(nuo_contracts::CommandResult::PermissionList {
+        Some(nuo_wire::CommandResult::PermissionList {
             allowed: vec!["run_command".to_string()],
         }),
     );
@@ -262,7 +262,7 @@ fn command_row_layout_classifies_by_result_shape() {
     let fresh = TranscriptMessage::command_result(
         "new",
         "",
-        Some(nuo_contracts::CommandResult::Text(
+        Some(nuo_wire::CommandResult::Text(
             "Started new session: a1b2c3".to_string(),
         )),
     );
@@ -279,7 +279,7 @@ fn command_row_layout_classifies_by_result_shape() {
     let permissions = TranscriptMessage::command_result(
         "permissions",
         "",
-        Some(nuo_contracts::CommandResult::PermissionList {
+        Some(nuo_wire::CommandResult::PermissionList {
             allowed: vec!["run_command".to_string(), "edit_text".to_string()],
         }),
     );
@@ -323,7 +323,7 @@ fn queued_dispatch_carries_text_and_images() {
         state: QueuedDispatchState::Waiting,
         text: "hello".to_string(),
         queued_at_ms: 0,
-        images: vec![nuo_contracts::ImagePart {
+        images: vec![nuo_wire::ImagePart {
             mime: "image/png".to_string(),
             data: "base64".to_string(),
         }],
@@ -488,7 +488,7 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
 
     // User prompt is sending in transcript
     let prompt = crate::model::document::TranscriptMessage::new(
-        nuo_contracts::Role::User,
+        nuo_wire::Role::User,
         "write a fibonacci function",
     )
     .sending();
@@ -500,7 +500,7 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
 
     // Verify interrupt request was sent to agent
     let req = rx.try_recv().expect("must send interrupt request");
-    assert!(matches!(req, nuo_contracts::AgentRequest::Interrupt));
+    assert!(matches!(req, nuo_wire::AgentRequest::Interrupt));
 
     // UI state is immediately cleared (not blocked)
     assert!(!app.running_sessions.contains("session-a"));
@@ -525,7 +525,7 @@ async fn interrupted_round_preserves_retry_history_and_appends_interrupt_entry()
 
     // 1. User prompt is delivered
     let prompt =
-        crate::model::document::TranscriptMessage::new(nuo_contracts::Role::User, "calculate pi")
+        crate::model::document::TranscriptMessage::new(nuo_wire::Role::User, "calculate pi")
             .sending();
     app.messages.push(prompt);
 
@@ -542,8 +542,8 @@ async fn interrupted_round_preserves_retry_history_and_appends_interrupt_entry()
     assert!(app.messages[1].is_provider_retry());
 
     // 3. User interrupts via Esc Esc -> RoundInterrupted event applied
-    let record = nuo_contracts::RoundInterrupt {
-        reason: nuo_contracts::RoundInterruptReason::User,
+    let record = nuo_wire::RoundInterrupt {
+        reason: nuo_wire::RoundInterruptReason::User,
         round: Some(1),
         at_ms: 1_234_567,
         detail: None,

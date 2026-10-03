@@ -4,7 +4,7 @@
 //! sibling modules.
 
 use super::*;
-use nuo_contracts::{AgentResponse, LoopStatus, Message, Role, RoundEvent, ToolCall};
+use nuo_wire::{AgentResponse, LoopStatus, Message, Role, RoundEvent, ToolCall};
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -24,11 +24,11 @@ use crate::render::Theme;
 use crate::transcript::{
     finalize_streaming_reasoning, transcript_message_from_core, transcript_messages_from_core,
 };
-use nuo_contracts::{AgentRequest, ProviderPickerSnapshot};
+use nuo_wire::{AgentRequest, ProviderPickerSnapshot};
 
 use std::collections::HashMap;
 
-fn test_command_catalog() -> nuo_contracts::CommandCatalog {
+fn test_command_catalog() -> nuo_wire::CommandCatalog {
     nuo_client::command_catalog(&[])
 }
 
@@ -102,13 +102,13 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         layout_height_cache: Default::default(),
         in_side_view: false,
         side_session_id: None,
-        parent_status: nuo_contracts::ParentStatus::Idle,
+        parent_status: nuo_wire::ParentStatus::Idle,
         btw_list: Vec::new(),
         session_chrome: std::collections::HashMap::new(),
         saved_primary_chrome: None,
         btw_scroll: 0,
         btw_modal_follow: true,
-        session_tree: nuo_contracts::SessionTree::default(),
+        session_tree: nuo_wire::SessionTree::default(),
         tree_scroll: 0,
         tree_modal_follow: true,
         scroll: 0,
@@ -192,7 +192,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         pending_inputs: std::collections::VecDeque::new(),
         subagent_permission_parent: HashMap::new(),
         subagent_question_parent: HashMap::new(),
-        workspace_security: nuo_contracts::WorkspaceSecuritySnapshot::default(),
+        workspace_security: nuo_wire::WorkspaceSecuritySnapshot::default(),
         context_tokens_by_session: HashMap::new(),
         open_sessions_signal: false,
         open_tree_signal: false,
@@ -271,7 +271,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         transcript_focused: false,
         transcript_layout: crate::render::layout::Strategy::default(),
         color_scheme: "zen".to_string(),
-        custom_color_scheme: nuo_contracts::ColorSchemeConfig::default(),
+        custom_color_scheme: nuo_wire::ColorSchemeConfig::default(),
 
         click_outside_dismiss: false,
         expand_auto_scroll: false,
@@ -289,7 +289,6 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         esc_armed_until: None,
         spinner_epoch: std::time::Instant::now(),
         carousel_epoch: std::time::Instant::now(),
-        effort_ignition_epoch: None,
         last_submit_ms: None,
         injection_stashed_input: String::new(),
         editor_target: None,
@@ -299,6 +298,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         editor_model_settings_only: false,
         editor_target_is_builtin: false,
         editor_effort: "high".to_string(),
+        editor_effort_levels: Vec::new(),
         editor_thinking_available: false,
         editor_thinking: true,
         editor_vision_override: None,
@@ -306,7 +306,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         custom_field: 0,
         custom_fields: Vec::new(),
         custom_protocol_wire: String::new(),
-        custom_client_identity: nuo_contracts::ClientIdentity::Native,
+        custom_client_identity: nuo_wire::ClientIdentity::Native,
         custom_models: Vec::new(),
         custom_url_hint: String::new(),
         custom_user_agent: None,
@@ -395,10 +395,10 @@ fn prompt_tail(messages: &[TranscriptMessage]) -> Vec<(String, bool, u64)> {
         .collect()
 }
 
-fn overview_row(id: &str) -> nuo_contracts::SessionOverview {
-    nuo_contracts::SessionOverview {
+fn overview_row(id: &str) -> nuo_wire::SessionOverview {
+    nuo_wire::SessionOverview {
         parent_id: None,
-        fork_kind: nuo_contracts::SessionForkKind::Trunk,
+        fork_kind: nuo_wire::SessionForkKind::Trunk,
         id: id.to_string(),
         overview: format!("overview-{id}"),
         created_at: 0,
@@ -438,14 +438,14 @@ fn relay_probe(
 }
 
 fn console_host_rows(app: &mut App) {
-    let row = |id: &str, created: u64| nuo_contracts::MonitoredSession {
+    let row = |id: &str, created: u64| nuo_wire::MonitoredSession {
         id: id.to_string(),
         overview: String::new(),
         created_at: created,
         updated_at: created,
         message_count: 1,
-        hosting: nuo_contracts::SessionHosting::Hosted,
-        status: nuo_contracts::SessionStatus::Idle,
+        hosting: nuo_wire::SessionHosting::Hosted,
+        status: nuo_wire::SessionStatus::Idle,
         round: 1,
         turn: None,
         output_tokens: 0,
@@ -456,7 +456,7 @@ fn console_host_rows(app: &mut App) {
         note: None,
         project_root: "/tmp/proj".to_string(),
         parent_id: None,
-        fork_kind: nuo_contracts::SessionForkKind::Trunk,
+        fork_kind: nuo_wire::SessionForkKind::Trunk,
         digest: None,
     };
     app.host_sessions = vec![row("aaa", 100), row("bbb", 200)];

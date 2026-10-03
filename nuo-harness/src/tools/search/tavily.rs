@@ -4,7 +4,7 @@
 
 use super::{ProviderOutput, SearchProvider, SearchResult};
 use async_trait::async_trait;
-use nuo_contracts::TAVILY_SEARCH_ENDPOINT;
+use nuo_wire::TAVILY_SEARCH_ENDPOINT;
 
 pub(crate) struct TavilyProvider {
     pub api_key: Option<String>,

@@ -246,6 +246,8 @@ impl WireTool {
     }
 }
 
+pub type ToolSpec = WireTool;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct WireUsage {
     pub prompt_tokens: usize,

@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use nuo_harness::{Ack, FactSink, SinkError, SinkHealth};
-use nuo_contracts::{CausalNode, SessionDelta};
+use nuo_wire::{CausalNode, SessionDelta};
 use nuo_persistence::db::{PersistenceError, get_persistence_handle};
 
 /// One instance's facts, stored in the product's SQLite engine.
@@ -148,7 +148,7 @@ pub async fn hydrate(session_id: &str) -> Result<Vec<CausalNode>, String> {
 mod tests {
     use super::*;
     use nuo_harness::{Hydrate, run_conformance};
-    use nuo_contracts::{
+    use nuo_wire::{
         ExecutionStatus, Message, NodeKind, NodePayload, Role, StateUpdate, SystemNoticePayload,
     };
 

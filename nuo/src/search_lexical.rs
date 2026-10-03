@@ -10,7 +10,7 @@
 //! the query's terms, with a length penalty so a term-stuffed blob does not
 //! drown a focused hit.
 
-use nuo_contracts::{CommandRecord, Message};
+use nuo_wire::{CommandRecord, Message};
 
 /// A scored hit: the rendered text plus its score.
 pub(crate) struct LexicalHit {
@@ -111,7 +111,7 @@ mod tests {
     use super::*;
 
     fn msg(content: &str) -> Message {
-        Message::new(nuo_contracts::Role::User, content.to_string())
+        Message::new(nuo_wire::Role::User, content.to_string())
     }
 
     #[test]
@@ -140,7 +140,7 @@ mod tests {
     fn commands_are_searched_with_their_name_and_args() {
         let record = CommandRecord::new("usage", "tokens");
         let record = CommandRecord {
-            result: Some(nuo_contracts::CommandResult::Text(
+            result: Some(nuo_wire::CommandResult::Text(
                 "daily token totals by model".into(),
             )),
             ..record

@@ -19,7 +19,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_contracts::Tool;
+use nuo_wire::Tool;
 use nuo_harness::{Agent, AgentIdentity};
 use nuo_persistence::db::{DbReader, get_persistence_handle};
 use serde_json::json;
@@ -39,7 +39,7 @@ fn read_store() -> Result<DbReader, String> {
 /// addressed as `agent://local/hypervisor/archivist` with the retrieval toolset plus the
 /// delegation channel. `fabric` is the daemon's shared ACP fabric.
 pub fn build_archivist(
-    provider: Arc<dyn nuo_contracts::Provider>,
+    provider: Arc<dyn nuo_wire::Provider>,
     fabric: Option<Fabric>,
 ) -> Arc<Agent> {
     let address = archivist_address();
@@ -65,7 +65,7 @@ pub fn build_archivist(
     );
 
     let agent = Arc::new(Agent::new(provider, tools, identity));
-    agent.set_kind(nuo_contracts::AgentKind::Root);
+    agent.set_kind(nuo_wire::AgentKind::Root);
     agent
 }
 
@@ -213,7 +213,7 @@ impl Tool for ArchivistSearchHistoryTool {
         let query = args["query"].as_str().ok_or("Missing 'query' argument")?;
         let workspace = args["workspace"].as_str();
         let limit = args["limit"].as_u64().unwrap_or(20).clamp(1, 100) as usize;
-        let filter = workspace.map(|w| nuo_contracts::WorkspaceFilter::Path(w.into()));
+        let filter = workspace.map(|w| nuo_wire::WorkspaceFilter::Path(w.into()));
 
         let reader = read_store()?;
         // Two-stage recall (ADR-0208 Layer 3, deterministic leg): strict
@@ -291,7 +291,7 @@ impl Tool for ArchivistListSessionsTool {
         let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_else(|_| json!({}));
         let workspace = args["workspace"].as_str();
         let limit = args["limit"].as_u64().unwrap_or(50).clamp(1, 500) as usize;
-        let filter = workspace.map(|w| nuo_contracts::WorkspaceFilter::Path(w.into()));
+        let filter = workspace.map(|w| nuo_wire::WorkspaceFilter::Path(w.into()));
 
         let reader = read_store()?;
         let rows = reader

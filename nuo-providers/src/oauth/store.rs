@@ -33,7 +33,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use futures::future::BoxFuture;
-use nuo_contracts::SecretString;
+use nuo_host::SecretString;
 use nuo_host::fsutil::FileLock;
 use serde::{Deserialize, Serialize};
 

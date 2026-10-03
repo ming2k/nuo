@@ -4,7 +4,7 @@
 
 use super::{ProviderOutput, SearchProvider, SearchResult};
 use async_trait::async_trait;
-use nuo_contracts::BOCHA_SEARCH_ENDPOINT;
+use nuo_wire::BOCHA_SEARCH_ENDPOINT;
 
 pub(crate) struct BochaProvider {
     pub api_key: Option<String>,

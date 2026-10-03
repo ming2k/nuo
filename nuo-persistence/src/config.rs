@@ -8,14 +8,14 @@
 
 use crate::fsutil;
 use crate::paths;
-use nuo_contracts::{
+use nuo_wire::{
     CompactionPolicy, HookEventKind, McpServerConfig, RemoteModelMetadata, SecretString,
     SkillsConfig, TrajectoryGuardConfig, VariantSelection, WebConfig, WebProviderAxis,
 };
 
 /// Re-export so server/TUI can use the config-layer path without depending on
 /// core's auth module name directly for `AddProvider`.
-pub use nuo_contracts::ConnectionAuth as ConfigChannelAuth;
+pub use nuo_wire::ConnectionAuth as ConfigChannelAuth;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -93,14 +93,14 @@ pub struct AgentConfig {
     /// `[answered by policy, not by user]` label so the model cannot
     /// mistake the recommendation for a human decision.
     #[serde(default)]
-    pub ask_user_fallback: nuo_contracts::human_request::AutonomousFallbackPolicy,
+    pub ask_user_fallback: nuo_wire::human_request::AutonomousFallbackPolicy,
     /// Trajectory-guard configuration (`nuo_harness::trajectory_guard`, ADR-0247).
     /// Default **enabled** (`window: 16`, `threshold: 4`, `cognitive_review: true`).
     #[serde(default)]
     pub trajectory_guard: TrajectoryGuardConfig,
 }
 
-// `TrajectoryGuardConfig` is defined in `nuo_contracts::trajectory_guard_config`
+// `TrajectoryGuardConfig` is defined in `nuo_wire::trajectory_guard_config`
 // and re-exported above. It is the `[agent.trajectory_guard]` TOML table.
 
 /// Declarative permission configuration — the `[permissions]` table. Lets users
@@ -258,7 +258,7 @@ fn default_scope() -> String {
 /// fetch leaves the last good values in place. Only instances created from a
 /// preset whose `RemoteCatalogSource` is an endpoint that returns capability
 /// fields (trusted official endpoints) ever carry this.
-/// See `nuo_contracts::model::FittedModel`.
+/// See `nuo_wire::model::FittedModel`.
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
 pub struct FittedModelInfo {
     /// Advertised context window in tokens (`0` = the endpoint did not say).
@@ -303,11 +303,11 @@ pub struct RouteSettings {
     /// static baseline. Unlike the derived `FittedModelInfo`, these are the
     /// user's own per-route choices and are never rebuilt from an endpoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capability_overrides: Option<nuo_contracts::CapabilityOverrides>,
+    pub capability_overrides: Option<nuo_wire::CapabilityOverrides>,
     /// Prompt-cache behavior requested for this concrete route. The exact
     /// mode and retention must be advertised by the resolved route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt_cache: Option<nuo_contracts::PromptCachePreference>,
+    pub prompt_cache: Option<nuo_wire::PromptCachePreference>,
 }
 
 impl RouteSettings {
@@ -321,7 +321,7 @@ impl RouteSettings {
             && self
                 .capability_overrides
                 .as_ref()
-                .is_none_or(nuo_contracts::CapabilityOverrides::is_empty)
+                .is_none_or(nuo_wire::CapabilityOverrides::is_empty)
             && self.prompt_cache.is_none()
     }
 }
@@ -543,13 +543,13 @@ impl Credentials {
 }
 
 pub struct ResolvedWebConfig {
-    pub runtime: nuo_contracts::WebRuntimeConfig,
-    pub search_credential: nuo_contracts::WebCredentialStatus,
-    pub reader_credential: nuo_contracts::WebCredentialStatus,
+    pub runtime: nuo_wire::WebRuntimeConfig,
+    pub search_credential: nuo_wire::WebCredentialStatus,
+    pub reader_credential: nuo_wire::WebCredentialStatus,
 }
 
 pub fn resolve_web_config(config: &WebConfig, credentials: &Credentials) -> ResolvedWebConfig {
-    use nuo_contracts::{WebCredentialRequirement as Requirement, WebCredentialStatus as Status};
+    use nuo_wire::{WebCredentialRequirement as Requirement, WebCredentialStatus as Status};
 
     fn resolve(
         axis: WebProviderAxis,
@@ -606,7 +606,7 @@ pub fn resolve_web_config(config: &WebConfig, credentials: &Credentials) -> Reso
         .unwrap_or((None, Status::NotRequired));
 
     ResolvedWebConfig {
-        runtime: nuo_contracts::WebRuntimeConfig {
+        runtime: nuo_wire::WebRuntimeConfig {
             behavior: config.clone(),
             search_credential,
             reader_credential,
@@ -804,7 +804,7 @@ pub struct Config {
     pub default_connection: String,
     pub mcp: HashMap<String, McpServerConfig>,
     /// Versioned context lifecycle and admission policy (ADR-0280).
-    pub context: nuo_contracts::context_lifecycle::ContextPolicy,
+    pub context: nuo_wire::context_lifecycle::ContextPolicy,
     /// Deprecated context-compaction thresholds, skipped on serialization (ADR-0280).
     #[serde(skip)]
     pub compaction: CompactionPolicy,
@@ -962,7 +962,7 @@ impl ToolVariantsConfig {
         self.0
             .get(model_id)
             .map(|m| &m.0)
-            .unwrap_or_else(|| nuo_contracts::empty_variant_selection())
+            .unwrap_or_else(|| nuo_wire::empty_variant_selection())
     }
 }
 
@@ -976,7 +976,7 @@ impl ToolVariantsConfig {
 /// command = ".nuo/hooks/lint.sh"
 /// ```
 ///
-/// The command receives the [`nuo_contracts::HookContext`] as JSON on stdin and
+/// The command receives the [`nuo_wire::HookContext`] as JSON on stdin and
 /// communicates a decision via exit code / stdout JSON (see the CLI subagent).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookSpec {
@@ -1005,7 +1005,7 @@ struct RawConfig {
     #[serde(default)]
     mcp: Option<HashMap<String, McpServerConfig>>,
     #[serde(default)]
-    context: Option<nuo_contracts::context_lifecycle::ContextPolicy>,
+    context: Option<nuo_wire::context_lifecycle::ContextPolicy>,
     #[serde(default)]
     compaction: Option<CompactionPolicy>,
     #[serde(default)]
@@ -1129,7 +1129,7 @@ impl Default for Config {
         Self {
             default_connection: String::new(),
             mcp: HashMap::new(),
-            context: nuo_contracts::context_lifecycle::ContextPolicy::default(),
+            context: nuo_wire::context_lifecycle::ContextPolicy::default(),
             compaction: CompactionPolicy::default(),
             connection_retry_max_attempts: 30,
             connection_retry_base_ms: 1_000,
@@ -1757,7 +1757,7 @@ mod tests {
     #[test]
     fn tool_variants_round_trip_through_serialise() {
         let mut cfg = Config::default();
-        let mut sel = nuo_contracts::VariantSelection::new();
+        let mut sel = nuo_wire::VariantSelection::new();
         sel.insert("read_text".to_string(), "terse".to_string());
         sel.insert("bash".to_string(), "strict".to_string());
         cfg.tool_variants

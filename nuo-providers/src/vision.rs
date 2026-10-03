@@ -20,7 +20,7 @@
 //! strips them silently leaves the model answering confidently about a picture
 //! it never received.
 
-use nuo_contracts::{Message, ModelCapabilities};
+use nuo_model_codec::{Message, ModelCapabilities};
 
 /// Project `messages` for a route whose image support is `capabilities`.
 ///
@@ -50,7 +50,7 @@ pub fn project_images_for_route(
 
     if dropped > 0 {
         tracing::debug!(
-            target: "nuo_contracts::provider",
+            target: "nuo_model_codec::provider",
             model = %model,
             dropped,
             "dropping images for a route that declares no image input",
@@ -62,7 +62,7 @@ pub fn project_images_for_route(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::{ImagePart, ModelCapabilities, Role};
+    use nuo_model_codec::{ImagePart, ModelCapabilities, Role};
 
     fn caps(vision: Option<bool>) -> ModelCapabilities {
         let mut capabilities = ModelCapabilities::for_channel("test-model", None);

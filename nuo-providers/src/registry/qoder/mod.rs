@@ -13,15 +13,15 @@ pub use region::{REGION_ENDPOINTS_URL, elect_infer_endpoint};
 pub use wire::*;
 
 use super::{ModelProviderSpec, RemoteCatalogSource};
-use nuo_contracts::WireProtocol;
-use nuo_contracts::model::Model;
-use nuo_contracts::reasoning::ReasoningSupport;
+use nuo_model_codec::WireProtocol;
+use nuo_model_codec::model::Model;
+use nuo_model_codec::reasoning::ReasoningSupport;
 use serde_json::Value;
 
-/// The offline seed ids, owned by `nuo_contracts` so the TUI template and the
+/// The offline seed ids, owned by `nuo_model_codec` so the TUI template and the
 /// registry cannot disagree about them (the convention every other curated
 /// provider follows).
-pub use nuo_contracts::model_providers::QODER_MODELS;
+pub use nuo_model_codec::model_providers::QODER_MODELS;
 
 /// Baseline capability metadata for the seeded models.
 ///
@@ -54,10 +54,10 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_contracts::model::BaselineModels(MODELS));
+inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_contracts::ProviderDialect::Qoder,
+    dialect: nuo_model_codec::ProviderDialect::Qoder,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: super::PromptCachePolicy::Compiled(super::unsupported_prompt_cache),
@@ -67,9 +67,9 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     user_agent: None,
     protocol: WireProtocol::ChatCompletions,
     catalog_source: RemoteCatalogSource::Endpoint(
-        nuo_contracts::provider_surface::CatalogShape::SceneMap,
+        nuo_model_codec::provider_surface::CatalogShape::SceneMap,
     ),
-    default_client_profile: nuo_contracts::ClientPreset::Native,
+    default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
     models: QODER_MODELS,
 };
@@ -249,13 +249,13 @@ fn discovered_from_scene_entry(
     // `None` otherwise — no surface may invent one (ADR-0273).
     let reason = disabled_reason(entry);
     let availability = match entry.get("enable") {
-        Some(Value::Bool(true)) => Some(nuo_contracts::Availability::usable()),
-        Some(Value::Bool(false)) => Some(nuo_contracts::Availability::locked(reason)),
+        Some(Value::Bool(true)) => Some(nuo_model_codec::Availability::usable()),
+        Some(Value::Bool(false)) => Some(nuo_model_codec::Availability::locked(reason)),
         Some(Value::Number(number)) => {
             if number.as_i64().unwrap_or(0) != 0 {
-                Some(nuo_contracts::Availability::usable())
+                Some(nuo_model_codec::Availability::usable())
             } else {
-                Some(nuo_contracts::Availability::locked(reason))
+                Some(nuo_model_codec::Availability::locked(reason))
             }
         }
         _ => None,
@@ -319,7 +319,7 @@ fn discovered_from_scene_entry(
 mod tests {
     use super::MODEL_PROVIDER_SPEC as SPEC;
     use super::{MODELS, QODER_MODELS, parse_scene_catalog};
-    use nuo_contracts::WireProtocol;
+    use nuo_model_codec::WireProtocol;
     use serde_json::json;
 
     #[test]
@@ -383,20 +383,20 @@ mod tests {
         };
         assert_eq!(
             by_id("qmodel_38max").availability,
-            Some(nuo_contracts::Availability::usable())
+            Some(nuo_model_codec::Availability::usable())
         );
         // A locked entry the payload gives no reason for stays reasonless: no
         // surface may invent one (ADR-0273).
         assert_eq!(
             by_id("gmodel").availability,
-            Some(nuo_contracts::Availability::locked(None))
+            Some(nuo_model_codec::Availability::locked(None))
         );
         // A locked entry the payload *does* explain carries the provider's own
         // key verbatim — never resolved against the vendor's text table
         // (`[INV-AVAIL-03]`).
         assert_eq!(
             by_id("kmodel").availability,
-            Some(nuo_contracts::Availability::locked(Some(
+            Some(nuo_model_codec::Availability::locked(Some(
                 "codeSafeModelReason".to_string()
             )))
         );

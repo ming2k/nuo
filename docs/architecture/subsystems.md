@@ -41,20 +41,21 @@ It is organized as a flat Cargo workspace containing 14 specialized crates arran
 ## 2. Core Subsystems and Domain Responsibilities
 
 ### 2.1 Protocols & Substrates
-- **`acp`** (*Agent Coordination Protocol*): Defines canonical inter-agent communication, addressing (`agent://`, `acp://`), tamper-evident HMAC signature envelopes, mailboxes, and multi-party channels. Natively exports standard peer-to-peer and channel collaboration tools.
+- **`nuo-wire`**: Canonical wire contracts — byte-level envelopes (`WireEnvelope`), control verbs (`ControlRequest`), streaming deltas (`StreamDelta`), barrier interception frames, and the shared zero-I/O domain contracts (capability traits, conversation/tool-output types, context-pressure model, events). Consolidated from the former `nuo-contracts` crate (ADR-0001).
+- **`nuo-acp`** (*Agent Coordination Protocol*): Defines canonical inter-agent communication, addressing (`agent://`, `acp://`), tamper-evident HMAC signature envelopes, mailboxes, and multi-party channels. Optional feature-gated capability on `nuo-server`.
 - **`nuo-agent`**: Implements the autonomous cognitive loop (think → act → observe), session turns, channel notification policies, two-tier context hygiene, and token compaction.
 - **`nuo-tool` & **`nuo-tool-derive`**: Zero-runtime tool contracts defining schema, hazard risk profiles (`RiskProfile`), execution scopes (`ToolScope`), and cancellation tokens. `nuo-tool-derive` provides compile-time derive macros for JSON schemas.
 - **`nuo-model-codec`**: Multi-vendor wire protocol serialization (OpenAI, Anthropic, Google Gemini, DeepSeek) and SSE stream demuxing. Completely decoupled from agent cognitive loops.
 - **`nuo-mcp`**: Native Model Context Protocol client and server transport over stdio and JSON-RPC 2.0.
 - **`nuotc`**: Retained-mode 2D terminal canvas, differential rendering pipeline, and Flexbox layout solver. Free of AI domain vocabulary.
 
-### 2.2 Applications & Frontends
-- **`nuo`**: The unified daemon binary and service engine. Manages daemon detachment, session registries, SQLite persistence, and dual control planes (WebSocket and Unix Domain Socket).
-- **`nuox`**: High-performance semantic terminal client and rich TUI harness built on `nuotc`. Also operates as a headless one-shot runner (`nuox run`).
-- **`web`**: Decoupled SvelteKit browser interface providing live session monitoring, streaming chat, and inline tool approval workflows.
+### 2.2 Applications & Interface Engines
+- **`nuo`**: The unified CLI application executable (ADR-0005). Dispatches interactive TUI (default), headless pipeline (`-p`), and daemon service (`serve`).
+- **`nuo-tui`**: High-performance semantic terminal presentation engine built on `nuotc`. Library-only view crate consumed by `nuo`.
+- **`nuo-client`**: Standalone client SDK providing discovery, connection management, event streaming, and command completion over IPC/WebSocket.
 
 ### 2.3 Subsystems & Host Infrastructure
-- **`nuo-client`**: Standalone client SDK and wire DTOs providing discovery, connection management, event streaming, and command completion for frontends and external integrations.
+- **`nuo-server`**: Pure service runtime managing Unix Domain Socket / WebSocket connection gateways, session registry, SQLite persistence coordination, and graceful shutdown.
 - **`nuo-harness`**: Host execution harness: manages agent identity/role projection, permission brokering, human confirmation checkpoints, execution sandboxing, tool scheduling, and causal context compaction.
 - **`nuo-persistence`**: SQLite transactional store, database migrations, configuration parsing, role memory, and full-text search indexing.
 - **`nuo-providers`**: Multi-vendor model catalog resolution, OAuth2/PKCE authentication flows, credential management, and concrete provider adapters.

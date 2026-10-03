@@ -24,7 +24,7 @@
 //! the Question sheet does for AI-initiated `ask_user` — its MVU
 //! purity keeps the input path testable without a terminal.
 
-use nuo_contracts::{WorkspaceSecuritySnapshot, WorkspaceTrustState};
+use nuo_wire::{WorkspaceSecuritySnapshot, WorkspaceTrustState};
 use nuotc::{Alignment, Block, Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 
 use crate::components::options::push_wrapped_styled;
@@ -70,7 +70,7 @@ pub struct PreAttachState {
     /// trusted snapshot round-trips.
     submitting: bool,
     /// The quarantined domains present in this workspace.
-    domains: Vec<nuo_contracts::TrustDomain>,
+    domains: Vec<nuo_wire::TrustDomain>,
 }
 
 /// The signal the listener task raises when a freshly-arrived
@@ -96,7 +96,7 @@ pub enum PreAttachDecision {
     /// User chose to trust the workspace. Direct control-plane admission
     /// request — does not route through slash commands or pollute the transcript.
     Trust {
-        domains: Vec<nuo_contracts::TrustDomain>,
+        domains: Vec<nuo_wire::TrustDomain>,
     },
     /// User chose to keep the workspace untrusted (`Keep quarantined`
     /// option or `Esc`). The TUI should quit — there is no chat
@@ -434,7 +434,7 @@ fn format_option_row(label: &str, body_width: usize, indent: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
+    use nuo_wire::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
 
     fn quarantined_snapshot() -> WorkspaceSecuritySnapshot {
         WorkspaceSecuritySnapshot {

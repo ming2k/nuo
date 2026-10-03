@@ -1,7 +1,7 @@
 //! The daemon link state (ADR-0197 D6): every outbox send is checked, and a
 //! dead link is a first-class chrome state, not noise.
 
-use nuo_contracts::AgentRequest;
+use nuo_wire::AgentRequest;
 
 use crate::app::App;
 

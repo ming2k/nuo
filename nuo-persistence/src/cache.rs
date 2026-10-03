@@ -3,7 +3,7 @@
 //!
 //! [`CachedResource`] wraps a cache file path with atomic-write + load +
 //! fallback semantics. It does not know *what* it caches (JSON, text, raw
-//! bytes) or *when* to refresh (that is the [`DynamicCatalog`](nuo_contracts::DynamicCatalog)
+//! bytes) or *when* to refresh (that is the [`DynamicCatalog`](nuo_wire::DynamicCatalog)
 //! trait's job); it only guarantees that:
 //!
 //! - Writes are atomic (a crash mid-write never leaves a corrupt file).

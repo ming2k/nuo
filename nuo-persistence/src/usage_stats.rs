@@ -1,7 +1,7 @@
 //! Authoritative request-attempt accounting and recoverable usage projections (ADR-0236).
 //! No production read imports legacy files, and no settlement rewrites a day bucket.
-use nuo_contracts::usage_stats::{UsageStatRecord, UsageStatsReport, day_key_from_epoch_ms};
-use nuo_contracts::{RequestUsageKey, RequestUsageRecord};
+use nuo_wire::usage_stats::{UsageStatRecord, UsageStatsReport, day_key_from_epoch_ms};
+use nuo_wire::{RequestUsageKey, RequestUsageRecord};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Default)]
@@ -99,7 +99,7 @@ pub fn day_key(at: u64) -> String {
 pub fn same_attempt(a: &RequestUsageKey, b: &RequestUsageKey) -> bool {
     a == b
 }
-impl nuo_contracts::UsageStatSink for UsageStatsStore {
+impl nuo_wire::UsageStatSink for UsageStatsStore {
     fn persist_usage<'a>(
         &'a self,
         at: u64,
@@ -113,7 +113,7 @@ impl nuo_contracts::UsageStatSink for UsageStatsStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::{RequestUsageKey, RequestUsageSource, RequestUsageStatus};
+    use nuo_wire::{RequestUsageKey, RequestUsageSource, RequestUsageStatus};
 
     fn sample_record(session: &str, attempt: u32, total: i64) -> RequestUsageRecord {
         RequestUsageRecord {
@@ -275,15 +275,15 @@ mod tests {
     /// wiring the daemon bootstrap performs.
     #[test]
     fn ledger_sink_end_to_end_persists_and_aggregates() {
-        use nuo_contracts::TokenUsage;
+        use nuo_wire::TokenUsage;
         use std::sync::Arc;
 
         let (root, _tmp) = temp_root();
         let store = Arc::new(UsageStatsStore::with_root(root));
-        let ledger = nuo_contracts::TokenSourceLedger::new();
-        nuo_contracts::TokenSourceLedger::install_usage_sink(
+        let ledger = nuo_wire::TokenSourceLedger::new();
+        nuo_wire::TokenSourceLedger::install_usage_sink(
             &ledger,
-            store.clone() as Arc<dyn nuo_contracts::UsageStatSink>,
+            store.clone() as Arc<dyn nuo_wire::UsageStatSink>,
         );
         ledger.set_usage_project("proj-bucket");
 

@@ -1,4 +1,4 @@
-use nuo_contracts::tool_output::{
+use nuo_wire::tool_output::{
     ShellLine, ShellStream, normalize_carriage_returns, strip_ansi, truncate_utf8,
 };
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -6,7 +6,7 @@ use tokio::process::{ChildStderr, ChildStdout};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use tokio::task::JoinHandle;
 
-pub const SHELL_COLLECT_MAX_CHARS: usize = nuo_contracts::tool_output::SHELL_MAX_OUTPUT_CHARS * 8;
+pub const SHELL_COLLECT_MAX_CHARS: usize = nuo_wire::tool_output::SHELL_MAX_OUTPUT_CHARS * 8;
 pub const SHELL_COLLECT_MAX_LINES: usize = 5_000;
 
 /// Maximum lines a foreground synchronous command may produce before StreamGuard terminates it early (ADR-0257).
@@ -171,7 +171,7 @@ impl OutputCollector {
         &mut self,
         stream: ShellStream,
         text: String,
-        on_stream: &mut (dyn FnMut(nuo_contracts::ToolStream) + Send + '_),
+        on_stream: &mut (dyn FnMut(nuo_wire::ToolStream) + Send + '_),
     ) {
         // ADR-0276: capture byte-exact raw stream before minification, ANSI stripping, or folding.
         self.raw_bytes.extend_from_slice(text.as_bytes());
@@ -228,15 +228,15 @@ impl OutputCollector {
     /// Flush any buffered streaming lines out to the UI.
     pub fn flush_stream(
         &mut self,
-        on_stream: &mut (dyn FnMut(nuo_contracts::ToolStream) + Send + '_),
+        on_stream: &mut (dyn FnMut(nuo_wire::ToolStream) + Send + '_),
     ) {
         if !self.pending_stdout.is_empty() {
-            on_stream(nuo_contracts::ToolStream::Stdout(std::mem::take(
+            on_stream(nuo_wire::ToolStream::Stdout(std::mem::take(
                 &mut self.pending_stdout,
             )));
         }
         if !self.pending_stderr.is_empty() {
-            on_stream(nuo_contracts::ToolStream::Stderr(std::mem::take(
+            on_stream(nuo_wire::ToolStream::Stderr(std::mem::take(
                 &mut self.pending_stderr,
             )));
         }
@@ -384,13 +384,13 @@ impl OutputCollector {
         }
 
         let truncated = collection_truncated
-            || nuo_contracts::tool_output::shell_inner_text(
+            || nuo_wire::tool_output::shell_inner_text(
                 &self.stdout_buf,
                 &self.stderr_buf,
                 exit,
             )
             .len()
-                > nuo_contracts::tool_output::SHELL_MAX_OUTPUT_CHARS;
+                > nuo_wire::tool_output::SHELL_MAX_OUTPUT_CHARS;
 
         (self.stdout_buf, self.stderr_buf, self.lines, truncated)
     }

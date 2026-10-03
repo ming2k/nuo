@@ -26,7 +26,7 @@ impl DatabaseEngine {
     }
 
     pub(crate) fn project_usage_batch(&self, limit: usize) -> Result<usize> {
-        use nuo_contracts::{RequestUsageSource, RequestUsageStatus};
+        use nuo_wire::{RequestUsageSource, RequestUsageStatus};
         let mut stmt = self.conn.prepare("SELECT u.payload,u.day,u.revision FROM usage_dirty d JOIN usage_records u USING(session_id,actor_id,round,turn,attempt) ORDER BY d.revision LIMIT ?1")?;
         let rows = stmt
             .query_map([limit.min(128) as i64], |r| {
@@ -46,7 +46,7 @@ impl DatabaseEngine {
             .into_iter()
             .map(|(json, day, rev)| {
                 Ok((
-                    decode_json::<nuo_contracts::RequestUsageRecord>(&json)?,
+                    decode_json::<nuo_wire::RequestUsageRecord>(&json)?,
                     day,
                     rev,
                 ))
@@ -143,13 +143,13 @@ impl DatabaseEngine {
     /// sorted by `updated_at_s` descending.
     pub(crate) fn list_sessions(
         &self,
-        filter: Option<&nuo_contracts::WorkspaceFilter>,
+        filter: Option<&nuo_wire::WorkspaceFilter>,
     ) -> Result<Vec<SessionRecord>> {
         const COLS: &str = "id, parent_id, fork_kind, title, created_at_s, updated_at_s, \
                             workspace_root, persona, msg_count, last_user_prompt, digest";
         let mut sessions = Vec::new();
         match filter {
-            Some(nuo_contracts::WorkspaceFilter::Path(path)) => {
+            Some(nuo_wire::WorkspaceFilter::Path(path)) => {
                 let sql = format!(
                     "SELECT {COLS} FROM sessions WHERE workspace_root = ?1 ORDER BY updated_at_s DESC"
                 );
@@ -159,7 +159,7 @@ impl DatabaseEngine {
                     sessions.push(session?);
                 }
             }
-            Some(nuo_contracts::WorkspaceFilter::Unbound) => {
+            Some(nuo_wire::WorkspaceFilter::Unbound) => {
                 let sql = format!(
                     "SELECT {COLS} FROM sessions WHERE workspace_root IS NULL ORDER BY updated_at_s DESC"
                 );
@@ -252,14 +252,14 @@ impl DatabaseEngine {
         &self,
         data: &crate::session::SessionData,
         force_full: bool,
-        usage_upserts: &[nuo_contracts::RequestUsageRecord],
+        usage_upserts: &[nuo_wire::RequestUsageRecord],
         guard: &CommitGuard,
     ) -> std::result::Result<u64, SaveError> {
         let fork_str = match data.fork_kind {
-            nuo_contracts::SessionForkKind::Trunk => "trunk",
-            nuo_contracts::SessionForkKind::Fork => "fork",
-            nuo_contracts::SessionForkKind::Aside => "aside",
-            nuo_contracts::SessionForkKind::Subagent => "subagent",
+            nuo_wire::SessionForkKind::Trunk => "trunk",
+            nuo_wire::SessionForkKind::Fork => "fork",
+            nuo_wire::SessionForkKind::Aside => "aside",
+            nuo_wire::SessionForkKind::Subagent => "subagent",
         };
         let digest_str = data
             .digest
@@ -473,7 +473,7 @@ impl DatabaseEngine {
                 for directive in &data.transcript.directives[directive_start..] {
                     self.insert_directive(data.id.as_str(), directive)?;
                 }
-                let new_entries: Vec<nuo_contracts::TranscriptEntry> =
+                let new_entries: Vec<nuo_wire::TranscriptEntry> =
                     new_entries.into_iter().cloned().collect();
                 self.record_blob_refs(data.id.as_str(), &new_entries, &[])?;
                 for record in usage_upserts {
@@ -527,7 +527,7 @@ impl DatabaseEngine {
     fn insert_directive(
         &self,
         session_id: &str,
-        directive: &nuo_contracts::ProjectionDirective,
+        directive: &nuo_wire::ProjectionDirective,
     ) -> Result<()> {
         let payload = serde_json::to_string(&directive.payload)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
@@ -565,13 +565,13 @@ impl DatabaseEngine {
     /// Write one entry row, offloading an oversized body to the CAS when this
     /// engine has a blob store (ADR-0187). The offload applies only to the
     /// row about to be inserted: already-durable rows keep their stored shape.
-    fn upsert_entry(&self, entry: &nuo_contracts::TranscriptEntry) -> Result<()> {
+    fn upsert_entry(&self, entry: &nuo_wire::TranscriptEntry) -> Result<()> {
         let mut payload = entry.payload.clone();
         let mut content = entry.content.clone();
         if content
             .as_ref()
             .is_some_and(|c| c.len() > CAS_THRESHOLD_BYTES)
-            && let nuo_contracts::EntryPayload::Message(message_payload) = &mut payload
+            && let nuo_wire::EntryPayload::Message(message_payload) = &mut payload
             && message_payload.content_blob.is_none()
             && let Some(blob_store) = &self.blob_store
         {
@@ -585,7 +585,7 @@ impl DatabaseEngine {
         }
         // ADR-0285: Durable CAS publication for multimodal images
         if let Some(blob_store) = &self.blob_store
-            && let nuo_contracts::EntryPayload::Message(message_payload) = &payload
+            && let nuo_wire::EntryPayload::Message(message_payload) = &payload
             && let Some(images) = &message_payload.images
         {
             use base64::{Engine, engine::general_purpose::STANDARD};
@@ -599,7 +599,7 @@ impl DatabaseEngine {
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         self.upsert_entry_row(EntryEnvelope {
             id: entry.id.as_str(),
-            kind: if entry.kind == nuo_contracts::EntryKind::State {
+            kind: if entry.kind == nuo_wire::EntryKind::State {
                 "state"
             } else {
                 "message"
@@ -656,12 +656,12 @@ impl DatabaseEngine {
     fn record_blob_refs(
         &self,
         session_id: &str,
-        entries: &[nuo_contracts::TranscriptEntry],
+        entries: &[nuo_wire::TranscriptEntry],
         unknown: &[crate::session::UnknownEntryRow],
     ) -> Result<()> {
         let mut refs: Vec<String> = Vec::new();
         for entry in entries {
-            if let nuo_contracts::EntryPayload::Message(payload) = &entry.payload {
+            if let nuo_wire::EntryPayload::Message(payload) = &entry.payload {
                 if let Some(hash) = &payload.content_blob {
                     refs.push(hash.clone());
                 }
@@ -694,7 +694,7 @@ impl DatabaseEngine {
     fn load_usage_records(
         &self,
         session_id: &str,
-    ) -> Result<Vec<nuo_contracts::RequestUsageRecord>> {
+    ) -> Result<Vec<nuo_wire::RequestUsageRecord>> {
         let mut stmt = self.conn.prepare(
             "SELECT payload FROM usage_records WHERE session_id = ?1
              ORDER BY round ASC, turn ASC, attempt ASC, actor_id ASC",
@@ -812,17 +812,17 @@ impl DatabaseEngine {
             })?;
             for row in rows {
                 let (eid, seq, kind, role, content, origin, hidden, created_at_ms, payload) = row?;
-                let decoded = (|| -> Option<nuo_contracts::TranscriptEntry> {
+                let decoded = (|| -> Option<nuo_wire::TranscriptEntry> {
                     let kind = if kind == "state" {
-                        nuo_contracts::EntryKind::State
+                        nuo_wire::EntryKind::State
                     } else {
-                        nuo_contracts::EntryKind::Message
+                        nuo_wire::EntryKind::Message
                     };
                     let role = role.as_deref().and_then(role_from_str);
                     let origin = origin.as_deref().and_then(origin_from_str);
-                    let payload: nuo_contracts::EntryPayload =
+                    let payload: nuo_wire::EntryPayload =
                         serde_json::from_str(&payload).ok()?;
-                    Some(nuo_contracts::TranscriptEntry {
+                    Some(nuo_wire::TranscriptEntry {
                         id: eid.clone(),
                         seq: seq.max(0) as u64,
                         kind,
@@ -874,16 +874,16 @@ impl DatabaseEngine {
             })?;
             for row in rows {
                 let (seq, kind, up_to_seq, payload) = row?;
-                let decoded = (|| -> Option<nuo_contracts::ProjectionDirective> {
+                let decoded = (|| -> Option<nuo_wire::ProjectionDirective> {
                     let kind = match kind.as_str() {
-                        "prune" => nuo_contracts::DirectiveKind::Prune,
-                        "compact" => nuo_contracts::DirectiveKind::Compact,
-                        "freeze" => nuo_contracts::DirectiveKind::Freeze,
+                        "prune" => nuo_wire::DirectiveKind::Prune,
+                        "compact" => nuo_wire::DirectiveKind::Compact,
+                        "freeze" => nuo_wire::DirectiveKind::Freeze,
                         _ => return None,
                     };
-                    let payload: nuo_contracts::DirectivePayload =
+                    let payload: nuo_wire::DirectivePayload =
                         serde_json::from_str(&payload).ok()?;
-                    Some(nuo_contracts::ProjectionDirective {
+                    Some(nuo_wire::ProjectionDirective {
                         seq: seq.max(0) as u64,
                         kind,
                         up_to_seq: up_to_seq.max(0) as u64,
@@ -908,7 +908,7 @@ impl DatabaseEngine {
             }
         }
 
-        let digest: Option<nuo_contracts::SessionDigest> = match digest.as_deref() {
+        let digest: Option<nuo_wire::SessionDigest> = match digest.as_deref() {
             Some(raw) => match serde_json::from_str(raw) {
                 Ok(parsed) => Some(parsed),
                 Err(error) => {
@@ -927,7 +927,7 @@ impl DatabaseEngine {
         };
 
         let data = crate::session::SessionData {
-            transcript: nuo_contracts::Transcript {
+            transcript: nuo_wire::Transcript {
                 min_next_seq: entries
                     .iter()
                     .map(|entry| entry.seq + 1)
@@ -951,10 +951,10 @@ impl DatabaseEngine {
             id,
             parent_id,
             fork_kind: match fork_kind.as_str() {
-                "fork" => nuo_contracts::SessionForkKind::Fork,
-                "aside" => nuo_contracts::SessionForkKind::Aside,
-                "subagent" => nuo_contracts::SessionForkKind::Subagent,
-                _ => nuo_contracts::SessionForkKind::Trunk,
+                "fork" => nuo_wire::SessionForkKind::Fork,
+                "aside" => nuo_wire::SessionForkKind::Aside,
+                "subagent" => nuo_wire::SessionForkKind::Subagent,
+                _ => nuo_wire::SessionForkKind::Trunk,
             },
             title,
             created_at: created_at_s.max(0) as u64,
@@ -963,7 +963,7 @@ impl DatabaseEngine {
             role_manifest: role_manifest
                 .as_deref()
                 .and_then(|raw| serde_json::from_str(raw).ok()),
-            workspace: workspace_root.map(|root| nuo_contracts::WorkspaceBinding {
+            workspace: workspace_root.map(|root| nuo_wire::WorkspaceBinding {
                 root: PathBuf::from(root),
                 additional_roots: serde_json::from_str(&additional_roots).unwrap_or_else(|error| {
                     tracing::warn!(session = %session_id, error = %error, "additional_roots column undecodable; treated as empty");
@@ -1050,12 +1050,12 @@ impl DatabaseEngine {
     pub(crate) fn resolve_session_prefix(
         &self,
         prefix: &str,
-        filter: Option<&nuo_contracts::WorkspaceFilter>,
+        filter: Option<&nuo_wire::WorkspaceFilter>,
     ) -> Result<Vec<String>> {
         let pattern = format!("{prefix}%");
         let mut matches = Vec::new();
         match filter {
-            Some(nuo_contracts::WorkspaceFilter::Path(path)) => {
+            Some(nuo_wire::WorkspaceFilter::Path(path)) => {
                 let mut stmt = self.conn.prepare(
                     "SELECT id FROM sessions WHERE id LIKE ?1 AND workspace_root = ?2 ORDER BY updated_at_s DESC",
                 )?;
@@ -1065,7 +1065,7 @@ impl DatabaseEngine {
                     matches.push(id?);
                 }
             }
-            Some(nuo_contracts::WorkspaceFilter::Unbound) => {
+            Some(nuo_wire::WorkspaceFilter::Unbound) => {
                 let mut stmt = self.conn.prepare(
                     "SELECT id FROM sessions WHERE id LIKE ?1 AND workspace_root IS NULL ORDER BY updated_at_s DESC",
                 )?;
@@ -1094,7 +1094,7 @@ impl DatabaseEngine {
     pub(crate) fn lookup_session_workspace(
         &self,
         session_id: &str,
-    ) -> Result<Option<(Option<nuo_contracts::WorkspaceBinding>, Option<String>)>> {
+    ) -> Result<Option<(Option<nuo_wire::WorkspaceBinding>, Option<String>)>> {
         let row = self
             .conn
             .query_row(
@@ -1112,7 +1112,7 @@ impl DatabaseEngine {
         let Some((workspace_root, additional_roots, persona)) = row else {
             return Ok(None);
         };
-        let workspace = workspace_root.map(|root| nuo_contracts::WorkspaceBinding {
+        let workspace = workspace_root.map(|root| nuo_wire::WorkspaceBinding {
             root: PathBuf::from(root),
             additional_roots: serde_json::from_str(&additional_roots).unwrap_or_default(),
         });
@@ -1123,7 +1123,7 @@ impl DatabaseEngine {
     pub(crate) fn lookup_session_manifest(
         &self,
         session_id: &str,
-    ) -> Result<Option<nuo_contracts::SessionRoleManifest>> {
+    ) -> Result<Option<nuo_wire::SessionRoleManifest>> {
         let row: Option<Option<String>> = self
             .conn
             .query_row(
@@ -1144,14 +1144,14 @@ impl DatabaseEngine {
     /// excluding the active session (ADR-0250).
     pub(crate) fn list_switch_candidates(
         &self,
-        partition: &nuo_contracts::SessionPartition,
+        partition: &nuo_wire::SessionPartition,
         active_id: &str,
     ) -> Result<Vec<crate::session::SessionSummary>> {
         const COLS: &str = "id, parent_id, fork_kind, title, created_at_s, updated_at_s, \
                             msg_count, last_user_prompt, digest";
         let mut summaries = Vec::new();
         match partition {
-            nuo_contracts::SessionPartition::Workspace(path) => {
+            nuo_wire::SessionPartition::Workspace(path) => {
                 let sql = format!(
                     "SELECT {COLS} FROM sessions \
                      WHERE workspace_root = ?1 AND id <> ?2 AND fork_kind <> 'subagent' \
@@ -1164,7 +1164,7 @@ impl DatabaseEngine {
                     push_summary(&mut summaries, item?, active_id);
                 }
             }
-            nuo_contracts::SessionPartition::Role(role_id) => {
+            nuo_wire::SessionPartition::Role(role_id) => {
                 let sql = format!(
                     "SELECT {COLS} FROM sessions \
                      WHERE workspace_root IS NULL AND persona = ?1 AND id <> ?2 AND fork_kind <> 'subagent' \
@@ -1184,14 +1184,14 @@ impl DatabaseEngine {
     /// List session summaries for a domain partition, with active session tagged (ADR-0250).
     pub(crate) fn list_session_summaries_in_partition(
         &self,
-        partition: &nuo_contracts::SessionPartition,
+        partition: &nuo_wire::SessionPartition,
         active_id: &str,
     ) -> Result<Vec<crate::session::SessionSummary>> {
         const COLS: &str = "id, parent_id, fork_kind, title, created_at_s, updated_at_s, \
                             msg_count, last_user_prompt, digest";
         let mut summaries = Vec::new();
         match partition {
-            nuo_contracts::SessionPartition::Workspace(path) => {
+            nuo_wire::SessionPartition::Workspace(path) => {
                 let sql = format!(
                     "SELECT {COLS} FROM sessions \
                      WHERE workspace_root = ?1 AND fork_kind <> 'subagent' \
@@ -1203,7 +1203,7 @@ impl DatabaseEngine {
                     push_summary(&mut summaries, item?, active_id);
                 }
             }
-            nuo_contracts::SessionPartition::Role(role_id) => {
+            nuo_wire::SessionPartition::Role(role_id) => {
                 let sql = format!(
                     "SELECT {COLS} FROM sessions \
                      WHERE workspace_root IS NULL AND persona = ?1 AND fork_kind <> 'subagent' \
@@ -1222,14 +1222,14 @@ impl DatabaseEngine {
 
     pub(crate) fn list_session_summaries(
         &self,
-        filter: Option<&nuo_contracts::WorkspaceFilter>,
+        filter: Option<&nuo_wire::WorkspaceFilter>,
         active_id: &str,
     ) -> Result<Vec<crate::session::SessionSummary>> {
         const COLS: &str = "id, parent_id, fork_kind, title, created_at_s, updated_at_s, \
                             msg_count, last_user_prompt, digest";
         let mut summaries = Vec::new();
         match filter {
-            Some(nuo_contracts::WorkspaceFilter::Path(path)) => {
+            Some(nuo_wire::WorkspaceFilter::Path(path)) => {
                 let sql = format!(
                     "SELECT {COLS} FROM sessions WHERE workspace_root = ?1 AND fork_kind <> 'subagent' ORDER BY updated_at_s DESC;"
                 );
@@ -1239,7 +1239,7 @@ impl DatabaseEngine {
                     push_summary(&mut summaries, item?, active_id);
                 }
             }
-            Some(nuo_contracts::WorkspaceFilter::Unbound) => {
+            Some(nuo_wire::WorkspaceFilter::Unbound) => {
                 let sql = format!(
                     "SELECT {COLS} FROM sessions WHERE workspace_root IS NULL AND fork_kind <> 'subagent' ORDER BY updated_at_s DESC;"
                 );
@@ -1268,10 +1268,10 @@ impl DatabaseEngine {
     /// restricted to a staffing persona (ADR-0226). Backs `--resume`.
     pub(crate) fn latest_session(
         &self,
-        filter: &nuo_contracts::WorkspaceFilter,
+        filter: &nuo_wire::WorkspaceFilter,
         persona: Option<&str>,
     ) -> Result<Option<String>> {
-        use nuo_contracts::WorkspaceFilter;
+        use nuo_wire::WorkspaceFilter;
         let base = "SELECT id FROM sessions WHERE fork_kind <> 'subagent'";
         let (sql, bind_path) = match (filter, persona.is_some()) {
             (WorkspaceFilter::Path(_), true) => (
@@ -1327,19 +1327,19 @@ impl DatabaseEngine {
     /// The most recent non-subagent session in a partition (ADR-0250). Backs `--resume`.
     pub(crate) fn latest_session_in_partition(
         &self,
-        partition: &nuo_contracts::SessionPartition,
+        partition: &nuo_wire::SessionPartition,
     ) -> Result<Option<String>> {
         let base = "SELECT id FROM sessions WHERE fork_kind <> 'subagent'";
         let get = |row: &Row| row.get::<_, String>(0);
         let found = match partition {
-            nuo_contracts::SessionPartition::Workspace(path) => {
+            nuo_wire::SessionPartition::Workspace(path) => {
                 let sql =
                     format!("{base} AND workspace_root = ?1 ORDER BY updated_at_s DESC LIMIT 1");
                 let mut stmt = self.conn.prepare(&sql)?;
                 stmt.query_row(params![path.to_string_lossy()], get)
                     .optional()?
             }
-            nuo_contracts::SessionPartition::Role(role_id) => {
+            nuo_wire::SessionPartition::Role(role_id) => {
                 let sql = format!(
                     "{base} AND workspace_root IS NULL AND persona = ?1 ORDER BY updated_at_s DESC LIMIT 1"
                 );
@@ -1355,10 +1355,10 @@ impl DatabaseEngine {
         &self,
         session_id: &str,
         active_id: &str,
-    ) -> Result<Option<nuo_contracts::SessionDetail>> {
+    ) -> Result<Option<nuo_wire::SessionDetail>> {
         if let Some(data) = self.load_session_full(session_id)? {
             let last_prompt = crate::session::last_effective_prompt_from_data(&data);
-            Ok(Some(nuo_contracts::SessionDetail {
+            Ok(Some(nuo_wire::SessionDetail {
                 id: data.id.clone(),
                 title: data.title.clone(),
                 digest: data.digest.clone(),
@@ -1424,12 +1424,12 @@ impl DatabaseEngine {
     }
 
     /// Record a slash-command invocation in the durable command ledger.
-    pub(crate) fn record_command(&self, cmd: &nuo_contracts::CommandRecord) -> Result<()> {
+    pub(crate) fn record_command(&self, cmd: &nuo_wire::CommandRecord) -> Result<()> {
         let id = format!(
             "{}:{}:{}",
             cmd.name,
             cmd.timestamp,
-            nuo_contracts::todos::unix_now()
+            nuo_wire::todos::unix_now()
         );
         self.conn.execute(
             r#"
@@ -1445,9 +1445,9 @@ impl DatabaseEngine {
                     .as_ref()
                     .and_then(|r| serde_json::to_string(r).ok()),
                 match cmd.status {
-                    nuo_contracts::CommandStatus::Success => "ok",
-                    nuo_contracts::CommandStatus::Error => "failed",
-                    nuo_contracts::CommandStatus::UserCancelled => "cancelled",
+                    nuo_wire::CommandStatus::Success => "ok",
+                    nuo_wire::CommandStatus::Error => "failed",
+                    nuo_wire::CommandStatus::UserCancelled => "cancelled",
                 },
                 cmd.timestamp as i64,
             ],
@@ -1462,7 +1462,7 @@ impl DatabaseEngine {
     pub(crate) fn insert_request_projection(
         &self,
         session_id: &str,
-        record: &nuo_contracts::RequestProjection,
+        record: &nuo_wire::RequestProjection,
     ) -> Result<()> {
         let payload = serde_json::to_string(record)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
@@ -1499,7 +1499,7 @@ impl DatabaseEngine {
         &self,
         session_id: &str,
         limit: usize,
-    ) -> Result<Vec<nuo_contracts::RequestProjection>> {
+    ) -> Result<Vec<nuo_wire::RequestProjection>> {
         let mut stmt = self.conn.prepare(
             "SELECT payload FROM request_projections WHERE session_id = ?1
              ORDER BY created_at_ms ASC, rowid ASC LIMIT ?2",
@@ -1555,7 +1555,7 @@ impl DatabaseEngine {
     pub(crate) fn search_history(
         &self,
         query: &str,
-        filter: Option<&nuo_contracts::WorkspaceFilter>,
+        filter: Option<&nuo_wire::WorkspaceFilter>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
         self.search_history_inner(query, filter, limit, false)
@@ -1571,7 +1571,7 @@ impl DatabaseEngine {
     pub(crate) fn search_history_relaxed(
         &self,
         query: &str,
-        filter: Option<&nuo_contracts::WorkspaceFilter>,
+        filter: Option<&nuo_wire::WorkspaceFilter>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
         self.search_history_inner(query, filter, limit, true)
@@ -1580,7 +1580,7 @@ impl DatabaseEngine {
     fn search_history_inner(
         &self,
         query: &str,
-        filter: Option<&nuo_contracts::WorkspaceFilter>,
+        filter: Option<&nuo_wire::WorkspaceFilter>,
         limit: usize,
         match_any: bool,
     ) -> Result<Vec<HistorySearchResult>> {
@@ -1594,7 +1594,7 @@ impl DatabaseEngine {
                     bm25(fts_entries) AS score";
         let mut results = Vec::new();
         match filter {
-            Some(nuo_contracts::WorkspaceFilter::Path(path)) => {
+            Some(nuo_wire::WorkspaceFilter::Path(path)) => {
                 let sql = format!(
                     "SELECT {cols} FROM fts_entries f JOIN sessions s ON f.session_id = s.id \
                      WHERE fts_entries MATCH ?1 AND s.workspace_root = ?2 ORDER BY score ASC LIMIT ?3;"
@@ -1608,7 +1608,7 @@ impl DatabaseEngine {
                     results.push(item?);
                 }
             }
-            Some(nuo_contracts::WorkspaceFilter::Unbound) => {
+            Some(nuo_wire::WorkspaceFilter::Unbound) => {
                 let sql = format!(
                     "SELECT {cols} FROM fts_entries f JOIN sessions s ON f.session_id = s.id \
                      WHERE fts_entries MATCH ?1 AND s.workspace_root IS NULL ORDER BY score ASC LIMIT ?2;"
@@ -1657,7 +1657,7 @@ impl DatabaseEngine {
     /// Record a prompt into `input_history`, respecting `dedup` and the global `HISTORY_CAP`.
     pub(crate) fn record_input_history(
         &self,
-        entry: &nuo_contracts::HistoryEntry,
+        entry: &nuo_wire::HistoryEntry,
         dedup: bool,
     ) -> Result<()> {
         self.conn.execute("BEGIN IMMEDIATE", [])?;
@@ -1700,7 +1700,7 @@ impl DatabaseEngine {
                     SELECT id FROM input_history ORDER BY created_at_ms DESC, id DESC LIMIT ?1
                 )
                 "#,
-                params![nuo_contracts::HISTORY_CAP as i64],
+                params![nuo_wire::HISTORY_CAP as i64],
             )?;
 
             Ok(())
@@ -1722,7 +1722,7 @@ impl DatabaseEngine {
     pub(crate) fn load_input_history(
         &self,
         limit: usize,
-    ) -> Result<Vec<nuo_contracts::HistoryEntry>> {
+    ) -> Result<Vec<nuo_wire::HistoryEntry>> {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT text, session_id, workspace, created_at_ms
@@ -1736,7 +1736,7 @@ impl DatabaseEngine {
             let session_id: Option<String> = row.get(1)?;
             let workspace: Option<String> = row.get(2)?;
             let created_at_ms: i64 = row.get(3)?;
-            Ok(nuo_contracts::HistoryEntry {
+            Ok(nuo_wire::HistoryEntry {
                 text,
                 session_id,
                 workspace,
@@ -1754,7 +1754,7 @@ impl DatabaseEngine {
     /// Persist or batch-merge a list of history entries into SQLite.
     pub(crate) fn save_input_history(
         &self,
-        entries: &[nuo_contracts::HistoryEntry],
+        entries: &[nuo_wire::HistoryEntry],
         dedup: bool,
     ) -> Result<()> {
         if entries.is_empty() {
@@ -1800,7 +1800,7 @@ impl DatabaseEngine {
                     SELECT id FROM input_history ORDER BY created_at_ms DESC, id DESC LIMIT ?1
                 )
                 "#,
-                params![nuo_contracts::HISTORY_CAP as i64],
+                params![nuo_wire::HISTORY_CAP as i64],
             )?;
 
             Ok(())
@@ -1879,7 +1879,7 @@ impl DatabaseEngine {
             let Ok(content) = std::fs::read_to_string(&file) else {
                 continue;
             };
-            let Ok(entries) = serde_json::from_str::<Vec<nuo_contracts::HistoryEntry>>(&content)
+            let Ok(entries) = serde_json::from_str::<Vec<nuo_wire::HistoryEntry>>(&content)
             else {
                 let _ = std::fs::remove_file(&file);
                 continue;

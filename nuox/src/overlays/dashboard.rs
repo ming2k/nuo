@@ -28,7 +28,7 @@
 //! / new session); `k` kills the selection (confirm step); `s` suspends
 //! it; `Esc` backs out of the preview, then the dashboard.
 
-use nuo_contracts::{MonitoredSession, SessionHosting, SessionStatus};
+use nuo_wire::{MonitoredSession, SessionHosting, SessionStatus};
 use nuotc::{
     Constraint, Direction, Frame, Layout, Line, Modifier, Rect, Span, Style,
     {Block as RtBlock, Clear, Paragraph},
@@ -539,12 +539,12 @@ fn dock_card_line(
     // branches marked, not as N independent sessions. A trunk keeps the
     // plain name (the main line needs no badge: there is exactly one).
     let lineage = match row.fork_kind {
-        nuo_contracts::SessionForkKind::Trunk => String::new(),
-        nuo_contracts::SessionForkKind::Aside => "⑂aside ".to_string(),
-        nuo_contracts::SessionForkKind::Fork => "⑂fork ".to_string(),
+        nuo_wire::SessionForkKind::Trunk => String::new(),
+        nuo_wire::SessionForkKind::Aside => "⑂aside ".to_string(),
+        nuo_wire::SessionForkKind::Fork => "⑂fork ".to_string(),
         // Subagent sessions never surface in the dashboard (filtered at the
         // listing layer), but the pattern must stay exhaustive.
-        nuo_contracts::SessionForkKind::Subagent => String::new(),
+        nuo_wire::SessionForkKind::Subagent => String::new(),
     };
     let lineage_w = lineage.chars().count();
     let name_budget = name_w.saturating_sub(lineage_w);
@@ -1481,7 +1481,7 @@ mod tests {
             note: None,
             project_root: project_root.into(),
             parent_id: None,
-            fork_kind: nuo_contracts::SessionForkKind::Trunk,
+            fork_kind: nuo_wire::SessionForkKind::Trunk,
             digest: None,
         }
     }
@@ -1585,7 +1585,7 @@ mod tests {
         let now = 1_000u64;
 
         let mut trunk = row("t", 1, "/work/main", SessionStatus::Running);
-        trunk.fork_kind = nuo_contracts::SessionForkKind::Trunk;
+        trunk.fork_kind = nuo_wire::SessionForkKind::Trunk;
         let entries = dock_entries(std::slice::from_ref(&trunk));
         let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -1596,7 +1596,7 @@ mod tests {
 
         let mut aside = row("a", 2, "/work/main", SessionStatus::Running);
         aside.parent_id = Some("t".into());
-        aside.fork_kind = nuo_contracts::SessionForkKind::Aside;
+        aside.fork_kind = nuo_wire::SessionForkKind::Aside;
         let entries = dock_entries(std::slice::from_ref(&aside));
         let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -1604,7 +1604,7 @@ mod tests {
 
         let mut fork = row("f", 3, "/work/main", SessionStatus::Idle);
         fork.parent_id = Some("t".into());
-        fork.fork_kind = nuo_contracts::SessionForkKind::Fork;
+        fork.fork_kind = nuo_wire::SessionForkKind::Fork;
         let entries = dock_entries(std::slice::from_ref(&fork));
         let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -1836,7 +1836,7 @@ mod tests {
     fn session_detail_lines_renders_cognitive_digest_intent_and_milestones() {
         let theme = Theme::default();
         let mut r = row("s-123", 1000, "/work/muta", SessionStatus::Running);
-        r.digest = Some(nuo_contracts::SessionDigest {
+        r.digest = Some(nuo_wire::SessionDigest {
             title: "Refactor Auth Middleware".to_string(),
             intent: "Rewrite token validator to support ECDSA signatures.".to_string(),
             history: vec![

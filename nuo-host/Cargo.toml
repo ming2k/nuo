@@ -10,6 +10,7 @@ arboard = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 dirs = { workspace = true }
+ts-rs = { workspace = true }
 directories = { workspace = true }
 glob = { workspace = true }
 ignore = { workspace = true }
@@ -39,6 +40,7 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+toml = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "process", "time"] }
 uuid = { workspace = true }

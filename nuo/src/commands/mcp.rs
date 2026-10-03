@@ -1,5 +1,5 @@
 use crate::cli::McpAction;
-use nuo_contracts::mcp::McpServerConfig;
+use nuo_wire::mcp::McpServerConfig;
 use nuo_persistence::config::Config;
 
 /// `muta mcp …` — read-only discovery and inspection for MCP servers (ADR-0252).

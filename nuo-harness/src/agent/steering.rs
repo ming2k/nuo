@@ -59,11 +59,11 @@ impl Agent {
         self.confinement.set_confined(confined);
     }
 
-    pub fn shared_confinement(&self) -> nuo_contracts::SharedConfinement {
+    pub fn shared_confinement(&self) -> nuo_wire::SharedConfinement {
         self.confinement.clone()
     }
 
-    pub fn bind_shared_confinement(&mut self, confinement: nuo_contracts::SharedConfinement) {
+    pub fn bind_shared_confinement(&mut self, confinement: nuo_wire::SharedConfinement) {
         self.confinement = confinement;
     }
 
@@ -72,7 +72,7 @@ impl Agent {
     /// is reachable and parked requests settle by labeled policy. With a
     /// channel accountant bound (hosted sessions), this is the live OR over
     /// attached clients; otherwise the static declared posture.
-    pub fn human_posture(&self) -> nuo_contracts::human_request::HumanChannelPosture {
+    pub fn human_posture(&self) -> nuo_wire::human_request::HumanChannelPosture {
         self.interaction.human_posture()
     }
 
@@ -80,7 +80,7 @@ impl Agent {
     /// posture then tracks attached clients instead of a static flag.
     pub fn set_human_channel_accountant(
         &self,
-        accountant: std::sync::Arc<nuo_contracts::human_request::HumanChannelAccountant>,
+        accountant: std::sync::Arc<nuo_wire::human_request::HumanChannelAccountant>,
     ) {
         self.interaction.set_human_channel(Some(accountant));
     }
@@ -101,7 +101,7 @@ impl Agent {
     /// ADR-0141: declare this agent's human-channel posture. Attaching
     /// clients' declarations are OR-ed at the session level; subagents inherit
     /// their parent's posture at spawn.
-    pub fn set_human_posture(&self, posture: nuo_contracts::human_request::HumanChannelPosture) {
+    pub fn set_human_posture(&self, posture: nuo_wire::human_request::HumanChannelPosture) {
         self.interaction.set_human_posture(posture);
     }
 
@@ -110,7 +110,7 @@ impl Agent {
         self.interaction.set_unattended(enabled);
     }
 
-    pub fn set_workspace_security(&self, snapshot: nuo_contracts::WorkspaceSecuritySnapshot) {
+    pub fn set_workspace_security(&self, snapshot: nuo_wire::WorkspaceSecuritySnapshot) {
         *self
             .workspace_security
             .lock()
@@ -123,7 +123,7 @@ impl Agent {
         }
     }
 
-    pub fn workspace_security(&self) -> nuo_contracts::WorkspaceSecuritySnapshot {
+    pub fn workspace_security(&self) -> nuo_wire::WorkspaceSecuritySnapshot {
         self.workspace_security
             .lock()
             .map(|snapshot| snapshot.clone())
@@ -132,7 +132,7 @@ impl Agent {
 
     pub fn workspace_security_handle(
         &self,
-    ) -> Arc<std::sync::Mutex<nuo_contracts::WorkspaceSecuritySnapshot>> {
+    ) -> Arc<std::sync::Mutex<nuo_wire::WorkspaceSecuritySnapshot>> {
         Arc::clone(&self.workspace_security)
     }
 
@@ -141,61 +141,61 @@ impl Agent {
     /// through `Arc`, its authority master cannot be swapped.
     pub fn bind_workspace_security_handle(
         &mut self,
-        handle: Arc<std::sync::Mutex<nuo_contracts::WorkspaceSecuritySnapshot>>,
+        handle: Arc<std::sync::Mutex<nuo_wire::WorkspaceSecuritySnapshot>>,
     ) {
         self.workspace_security = handle;
     }
 
     /// Apply a declarative agent preset (ADR-0053) — set every knob an
-    /// [`nuo_contracts::AgentRoleProfile`] declares in one call.
+    /// [`nuo_wire::AgentRoleProfile`] declares in one call.
     ///
     /// Sets: the capability scope ([`Self::set_tools`]) and the runtime
     /// execution knobs (`hard_stop` / trajectory guard / model-stdin /
-    /// attended flag). The preset's [`nuo_contracts::AgentIdentity`] is **not**
+    /// attended flag). The preset's [`nuo_wire::AgentIdentity`] is **not**
     /// re-applied here — identity is immutable past construction (it feeds the
     /// system-prompt preamble), so the embedding supplies it to `Agent::new` /
     /// `from_toolset`. A role whose identity should differ per instance composes
-    /// [`nuo_contracts::AgentRoleProfile::with_identity`] before construction.
+    /// [`nuo_wire::AgentRoleProfile::with_identity`] before construction.
     ///
     /// The archetype / kind of this agent, derived purely from its [`ExecutionPolicy`] (ADR-0183).
-    pub fn kind(&self) -> nuo_contracts::AgentKind {
+    pub fn kind(&self) -> nuo_wire::AgentKind {
         if self.is_root() {
-            nuo_contracts::AgentKind::Root
+            nuo_wire::AgentKind::Root
         } else {
-            nuo_contracts::AgentKind::Subagent
+            nuo_wire::AgentKind::Subagent
         }
     }
 
     /// Set this agent's archetype posture. Updates [`ExecutionPolicy`] accordingly.
-    pub fn set_kind(&self, kind: nuo_contracts::AgentKind) {
+    pub fn set_kind(&self, kind: nuo_wire::AgentKind) {
         let mut policy = self.execution_policy();
         match kind {
-            nuo_contracts::AgentKind::Root => {
+            nuo_wire::AgentKind::Root => {
                 policy.depth = 0;
                 policy.allow_human_interaction = true;
-                policy.lifecycle = nuo_contracts::ContextLifecycle::DurableSession;
+                policy.lifecycle = nuo_wire::ContextLifecycle::DurableSession;
             }
-            nuo_contracts::AgentKind::Subagent => {
+            nuo_wire::AgentKind::Subagent => {
                 if policy.depth == 0 {
                     policy.depth = 1;
                 }
                 policy.allow_human_interaction = false;
-                policy.lifecycle = nuo_contracts::ContextLifecycle::EphemeralScratchpad;
+                policy.lifecycle = nuo_wire::ContextLifecycle::EphemeralScratchpad;
             }
         }
         self.set_execution_policy(policy);
     }
 
     /// Execution policy governing this agent's runtime posture, delegation limits, and depth (ADR-0183).
-    pub fn execution_policy(&self) -> nuo_contracts::ExecutionPolicy {
+    pub fn execution_policy(&self) -> nuo_wire::ExecutionPolicy {
         self.execution_policy
             .read()
             .map(|p| p.clone())
-            .unwrap_or_else(|_| nuo_contracts::ExecutionPolicy::root_default())
+            .unwrap_or_else(|_| nuo_wire::ExecutionPolicy::root_default())
     }
 
     /// Set this agent's execution policy.
-    pub fn set_execution_policy(&self, policy: nuo_contracts::ExecutionPolicy) {
+    pub fn set_execution_policy(&self, policy: nuo_wire::ExecutionPolicy) {
         if let Ok(mut guard) = self.execution_policy.write() {
             *guard = policy;
         }
@@ -212,29 +212,29 @@ impl Agent {
     }
 
     /// Shared handle to the agent's tool pool.
-    pub fn tool_pool(&self) -> Arc<std::sync::RwLock<nuo_contracts::ToolPool>> {
+    pub fn tool_pool(&self) -> Arc<std::sync::RwLock<nuo_wire::ToolPool>> {
         self.pool.clone()
     }
 
     /// Record an agent's requirement declaration against the pool.
-    pub fn declare_tools(&self, declaration: &nuo_contracts::ToolDeclaration) {
+    pub fn declare_tools(&self, declaration: &nuo_wire::ToolDeclaration) {
         if let Ok(pool_guard) = self.pool.read() {
             pool_guard.declare(declaration.clone());
         }
     }
 
     /// Apply an agent delegation policy (ADR-0183) to adjust declared tool availability.
-    pub fn apply_delegation(&self, delegation: &nuo_contracts::DelegationPolicy) {
+    pub fn apply_delegation(&self, delegation: &nuo_wire::DelegationPolicy) {
         self.set_tools(delegation.selection());
     }
 
     /// Apply a declarative agent preset (ADR-0183).
-    pub fn apply_preset(&self, preset: &nuo_contracts::AgentRoleProfile) {
+    pub fn apply_preset(&self, preset: &nuo_wire::AgentRoleProfile) {
         self.apply_profile(preset);
     }
 
-    /// Idempotent over defaults: applies an [`nuo_contracts::AgentRoleProfile`].
-    pub fn apply_profile(&self, profile: &nuo_contracts::AgentRoleProfile) {
+    /// Idempotent over defaults: applies an [`nuo_wire::AgentRoleProfile`].
+    pub fn apply_profile(&self, profile: &nuo_wire::AgentRoleProfile) {
         *self.active_role.write().unwrap_or_else(|e| e.into_inner()) =
             Some(profile.name.to_string());
         self.set_identity(profile.identity.clone());
@@ -261,16 +261,16 @@ impl Agent {
     /// Equip a role profile with its preset extensions (ADR-0224).
     fn equip_preset_extensions(
         &self,
-        profile: &mut nuo_contracts::AgentRoleProfile,
-        preset: nuo_contracts::MainAgentRole,
+        profile: &mut nuo_wire::AgentRoleProfile,
+        preset: nuo_wire::MainAgentRole,
     ) {
         match preset {
-            nuo_contracts::MainAgentRole::Developer => {
+            nuo_wire::MainAgentRole::Developer => {
                 profile
                     .extensions
                     .push(Arc::new(crate::extension::CodeIntelligenceExtension::new()));
             }
-            nuo_contracts::MainAgentRole::Philosophist | nuo_contracts::MainAgentRole::Ops => {}
+            nuo_wire::MainAgentRole::Philosophist | nuo_wire::MainAgentRole::Ops => {}
         }
     }
 
@@ -285,11 +285,11 @@ impl Agent {
         );
         if let Some(user_role) = roles_config.get(trimmed) {
             let identity = user_role.identity();
-            let mut profile = nuo_contracts::AgentRoleProfile::with_identity(
+            let mut profile = nuo_wire::AgentRoleProfile::with_identity(
                 trimmed.to_string(),
                 identity.clone(),
             );
-            profile.tools = nuo_contracts::ToolSelection::from_allowlist(&user_role.tools);
+            profile.tools = nuo_wire::ToolSelection::from_allowlist(&user_role.tools);
             profile.admit_mcp = user_role.admit_mcp.clone();
             if user_role.resolved_workspace().requires_binding() {
                 profile
@@ -308,9 +308,9 @@ impl Agent {
             });
         }
 
-        let resolved = nuo_contracts::MainAgentRole::parse(trimmed)?;
+        let resolved = nuo_wire::MainAgentRole::parse(trimmed)?;
         let base = self.identity();
-        let mut profile = nuo_contracts::AgentRoleProfile::from_role(resolved, &base);
+        let mut profile = nuo_wire::AgentRoleProfile::from_role(resolved, &base);
         self.equip_preset_extensions(&mut profile, resolved);
         self.apply_profile(&profile);
         *self.extensions.write().unwrap_or_else(|e| e.into_inner()) = profile.extensions;
@@ -507,12 +507,12 @@ impl Agent {
     }
 
     /// Steering mode currently configured on this agent.
-    pub fn steering_mode(&self) -> nuo_contracts::QueueMode {
+    pub fn steering_mode(&self) -> nuo_wire::QueueMode {
         *self.steering_mode.read().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Set the steering mode.
-    pub fn set_steering_mode(&self, mode: nuo_contracts::QueueMode) {
+    pub fn set_steering_mode(&self, mode: nuo_wire::QueueMode) {
         *self
             .steering_mode
             .write()
@@ -520,7 +520,7 @@ impl Agent {
     }
 
     /// Follow-up mode currently configured on this agent.
-    pub fn follow_up_mode(&self) -> nuo_contracts::QueueMode {
+    pub fn follow_up_mode(&self) -> nuo_wire::QueueMode {
         *self
             .follow_up_mode
             .read()
@@ -528,7 +528,7 @@ impl Agent {
     }
 
     /// Set the follow-up mode.
-    pub fn set_follow_up_mode(&self, mode: nuo_contracts::QueueMode) {
+    pub fn set_follow_up_mode(&self, mode: nuo_wire::QueueMode) {
         *self
             .follow_up_mode
             .write()
@@ -543,8 +543,8 @@ impl Agent {
         session_id: impl Into<String>,
         generation: u64,
     ) -> (
-        Vec<nuo_contracts::QueuedMessage>,
-        Vec<nuo_contracts::QueuedMessage>,
+        Vec<nuo_wire::QueuedMessage>,
+        Vec<nuo_wire::QueuedMessage>,
     ) {
         let steering_mode = self.steering_mode();
         let follow_up_mode = self.follow_up_mode();
@@ -567,7 +567,7 @@ impl Agent {
 
     /// Queue human-authored steering input for the next safe turn boundary. Returns
     /// `false` once the round has atomically closed its admission gate.
-    pub fn steer(&self, session_id: &str, input: nuo_contracts::QueuedMessage) -> bool {
+    pub fn steer(&self, session_id: &str, input: nuo_wire::QueuedMessage) -> bool {
         let mut queues = self
             .session_queues
             .lock()
@@ -581,7 +581,7 @@ impl Agent {
 
     /// Queue follow-up input to run when the agent finishes active work. Returns
     /// `false` once the round has atomically closed its admission gate.
-    pub fn follow_up(&self, session_id: &str, input: nuo_contracts::QueuedMessage) -> bool {
+    pub fn follow_up(&self, session_id: &str, input: nuo_wire::QueuedMessage) -> bool {
         let mut queues = self
             .session_queues
             .lock()
@@ -600,7 +600,7 @@ impl Agent {
         &self,
         session_id: &str,
         input_id: &str,
-    ) -> Option<nuo_contracts::QueuedMessage> {
+    ) -> Option<nuo_wire::QueuedMessage> {
         let mut queues = self
             .session_queues
             .lock()
@@ -614,7 +614,7 @@ impl Agent {
         &self,
         session_id: &str,
         input_id: &str,
-    ) -> Option<nuo_contracts::QueuedMessage> {
+    ) -> Option<nuo_wire::QueuedMessage> {
         let mut queues = self
             .session_queues
             .lock()
@@ -663,8 +663,8 @@ impl Agent {
         &self,
         generation: u64,
     ) -> (
-        Vec<nuo_contracts::QueuedMessage>,
-        Vec<nuo_contracts::QueuedMessage>,
+        Vec<nuo_wire::QueuedMessage>,
+        Vec<nuo_wire::QueuedMessage>,
     ) {
         let mut queues = self
             .session_queues
@@ -839,7 +839,7 @@ mod tests {
         assert_eq!(agent.extensions().len(), 1);
         assert_eq!(agent.extensions()[0].id(), "code_intelligence");
         let tools_scope = agent.tools.lock().unwrap().scope.clone();
-        let nuo_contracts::ToolScope::Only(names) = tools_scope else {
+        let nuo_wire::ToolScope::Only(names) = tools_scope else {
             panic!("developer role must have explicit scoped tools");
         };
         assert!(!names.contains("code_query"));

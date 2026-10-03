@@ -1,8 +1,8 @@
 //! The `zai-code` provider template and its legacy registry preset: Z.AI /
 //! Zhipu BigModel coding-plan platform (`open.bigmodel.cn/api/coding/paas/v4`).
 
-use nuo_contracts::reasoning::ReasoningSupport;
-use nuo_contracts::{Model, WireProtocol};
+use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_model_codec::{Model, WireProtocol};
 
 use super::{effort_ladders, CatalogShape, ModelProviderSpec, RemoteCatalogSource};
 
@@ -10,7 +10,7 @@ use super::{effort_ladders, CatalogShape, ModelProviderSpec, RemoteCatalogSource
 /// order — the first entry is the initial active channel. `glm-5.3-flash`
 /// joined the plan alongside the flagship (native multimodal, 1M context,
 /// ~1/3 the credit burn), so it is offered ahead of the older flagships.
-pub use nuo_contracts::model_providers::ZAI_CODE_MODELS;
+pub use nuo_model_codec::model_providers::ZAI_CODE_MODELS;
 
 // ZAI Code (CN) — Zhipu BigModel / Z.AI coding-plan platform
 // (open.bigmodel.cn/api/coding/paas/v4). A coding-agent membership endpoint
@@ -20,8 +20,8 @@ pub use nuo_contracts::model_providers::ZAI_CODE_MODELS;
 // Zhipu ecosystem, while ZAI_API_KEY is the preferred alias.
 
 /// Baseline capability metadata for the models this provider serves,
-/// submitted to `nuo_contracts`'s registry at link time (see
-/// [`nuo_contracts::model::BaselineModels`]).
+/// submitted to `nuo_model_codec`'s registry at link time (see
+/// [`nuo_model_codec::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // GLM family (Zhipu / Z.AI / opencode-go)
     Model {
@@ -120,10 +120,10 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_contracts::model::BaselineModels(MODELS));
+inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
 pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_contracts::ProviderDialect::Standard,
+    dialect: nuo_model_codec::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: super::PromptCachePolicy::Compiled(super::unsupported_prompt_cache),
@@ -140,7 +140,7 @@ pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // the picker. Baselines stay the single source of capability truth either
     // way (capability overlay is unavailable here).
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_contracts::ClientPreset::ZCode,
+    default_client_profile: nuo_model_codec::ClientPreset::ZCode,
     client_profile_sensitive: false,
     models: ZAI_CODE_MODELS,
 };

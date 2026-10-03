@@ -2,8 +2,8 @@
 //!
 //! Query endpoint: `GET https://api.siliconflow.cn/v1/user/info`
 
-use nuo_contracts::async_trait;
-use nuo_contracts::{BalanceQuota, ProviderQuotaData, ProviderUsage, UsageMetric};
+use nuo_wire::async_trait;
+use nuo_wire::{BalanceQuota, ProviderQuotaData, ProviderUsage, UsageMetric};
 use serde::Deserialize;
 
 use super::ProviderUsageFetcher;

@@ -613,59 +613,6 @@ fn model_bar_full_cluster_orders_model_effort_instance() {
     );
 }
 
-#[test]
-fn model_bar_ignition_label_takes_over_the_identity_cluster() {
-    // During the ignition's label phase the right cluster swaps the
-    // whole `model effort @instance` identity for the converging `M A X`
-    // label; once the phase ends the normal cluster returns.
-    fn row_text(elapsed_ms: Option<u128>) -> String {
-        let mut terminal = nuotc::TestTerminal::new(100, 1);
-        terminal.draw(|f| {
-            draw_model_bar(
-                f,
-                Rect::new(0, 0, 100, 1),
-                ModelBarProps {
-                    current_model: "k3",
-                    provider_name: Some("kimi-code"),
-                    reasoning_effort: Some("max"),
-                    context_tokens: Some(12_400),
-                    ignition_elapsed_ms: elapsed_ms,
-                    ..Default::default()
-                },
-                &Theme::default(),
-                &crate::keymap::GlobalOverrides::default(),
-            );
-        });
-        let buf = terminal.buffer();
-        (0..buf.area().width as usize)
-            .map(|x| buf.content[x].symbol().to_string())
-            .collect::<String>()
-    }
-
-    // Mid-label-phase: the `M A X` label replaces the identity cluster.
-    let label = row_text(Some(900));
-    assert!(
-        label.contains('M') && label.contains('A') && label.contains('X'),
-        "label phase must render M A X: {label:?}"
-    );
-    assert!(
-        !label.contains("@kimi-code"),
-        "instance cluster is hidden during the label takeover: {label:?}"
-    );
-
-    // After the label phase the identity cluster is back, effort included.
-    let settled = row_text(Some(1250));
-    assert!(settled.contains("max"), "effort returns: {settled:?}");
-    assert!(
-        settled.contains("@kimi-code"),
-        "instance returns: {settled:?}"
-    );
-
-    // No ignition at all renders the ordinary cluster.
-    let plain = row_text(None);
-    assert!(plain.contains("k3"), "model id renders: {plain:?}");
-}
-
 /// Paint the completion menu into a test buffer and return the rect the
 /// popup actually occupied (found by scanning for the popup background),
 /// so assertions can check alignment and full-width highlighting without

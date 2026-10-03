@@ -11,8 +11,8 @@ use super::{
     build_catalog, build_picker_state, refresh_connection_models_for_etag, sync_connection_catalog,
     sync_fitted_model_registry, sync_remote_catalog,
 };
-use nuo_contracts::catalog::Transport;
-use nuo_contracts::{
+use nuo_wire::catalog::Transport;
+use nuo_wire::{
     ConnectionAuth, ConnectionFilterPolicy, Effort, NamedFilterPolicy, OpenAiResponsesDialect,
     ReasoningMode, WireProtocol,
 };
@@ -193,7 +193,7 @@ fn register_mock_provider(
     );
     store.get_or_create_mut(id).include = models
         .iter()
-        .map(|id| nuo_contracts::DeclaredModel {
+        .map(|id| nuo_wire::DeclaredModel {
             id: id.to_string(),
             ..Default::default()
         })
@@ -207,7 +207,7 @@ fn register_mock_provider(
 
 #[test]
 fn provider_dialect_is_inherited_independently_of_auth_and_remote_protocol() {
-    use nuo_contracts::{GoogleGenerateContentDialect, ProviderDialect};
+    use nuo_wire::{GoogleGenerateContentDialect, ProviderDialect};
     let _sandbox = sandboxed_paths();
     for auth in [
         ConnectionAuth::ApiKey,
@@ -225,7 +225,7 @@ fn provider_dialect_is_inherited_independently_of_auth_and_remote_protocol() {
                 .or_default()
                 .insert(
                     model.into(),
-                    nuo_contracts::RemoteModelMetadata {
+                    nuo_wire::RemoteModelMetadata {
                         protocol: remote_protocol,
                         ..Default::default()
                     },
@@ -283,7 +283,7 @@ fn provider_dialect_follows_model_protocol_across_service_families() {
             .or_default()
             .insert(
                 "remote-model".into(),
-                nuo_contracts::RemoteModelMetadata {
+                nuo_wire::RemoteModelMetadata {
                     protocol: Some(wire),
                     ..Default::default()
                 },
@@ -316,7 +316,7 @@ fn provider_dialect_follows_model_protocol_across_service_families() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn declared_antigravity_provider_sends_internal_requests_from_derived_channel() {
-    use nuo_contracts::{ModelRequest, ProviderDialect};
+    use nuo_wire::{ModelRequest, ProviderDialect};
     let _sandbox = sandboxed_paths();
     let mut server = mockito::Server::new_async().await;
     let model = "gemini-3.8-flash-tiered";
@@ -332,7 +332,7 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
             dialect: Some(ProviderDialect::Antigravity),
             client_profile: None,
             user_agent: None,
-            catalog: Some(nuo_contracts::RemoteCatalogSource::None),
+            catalog: Some(nuo_wire::RemoteCatalogSource::None),
             protocol_roots: vec![],
             catalog_root_url: None,
             prompt_cache: None,
@@ -432,7 +432,7 @@ fn openrouter_connection_derives_gateway_dialect_and_nex_seed() {
     assert!(matches!(
         channel.transport,
         Transport::OpenAi {
-            dialect: nuo_contracts::OpenAiChatDialect::OpenRouter,
+            dialect: nuo_wire::OpenAiChatDialect::OpenRouter,
             ref base_url,
             ..
         } if base_url == "https://openrouter.ai/api/v1/chat/completions"
@@ -541,11 +541,11 @@ fn custom_instance_serves_its_declared_models() {
     );
     let mut custom = instance("relay", Some("test-relay-declared"));
     custom.models.include = vec![
-        nuo_contracts::model::DeclaredModel {
+        nuo_wire::model::DeclaredModel {
             id: "a".to_string(),
             ..Default::default()
         },
-        nuo_contracts::model::DeclaredModel {
+        nuo_wire::model::DeclaredModel {
             id: "b".to_string(),
             ..Default::default()
         },
@@ -569,7 +569,7 @@ fn custom_instance_serves_its_declared_models() {
 
 #[test]
 fn adr0203_connection_pipe_valve_algebra() {
-    use nuo_contracts::{ConnectionFilterPolicy, NamedFilterPolicy};
+    use nuo_wire::{ConnectionFilterPolicy, NamedFilterPolicy};
     let mut cache = RemoteCatalogCache::default();
     cache.connection_models.insert(
         "my-openai".to_string(),
@@ -653,7 +653,7 @@ fn catalog_cache_identity_tracks_client_emulation() {
     let mut connection = instance("chatgpt", Some("openai-subscription"));
     let codex_identity = source_identity_for_connection(&connection, &cache).unwrap();
 
-    connection.client_identity = nuo_contracts::ClientProfile::custom(
+    connection.client_identity = nuo_wire::ClientProfile::custom(
         "codex_cli_rs/future",
         vec![(
             "openai-intent".to_string(),
@@ -687,7 +687,7 @@ fn opencode_go_routes_models_by_wire_format() {
     let glm = derive_channel(&go, "glm-5.2", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
     .unwrap();
     assert!(
-        matches!(&glm.transport, Transport::OpenAi { base_url, client_profile, .. } if base_url == "https://opencode.ai/zen/go/v1/chat/completions" && *client_profile == nuo_contracts::ClientProfile::OpenCode),
+        matches!(&glm.transport, Transport::OpenAi { base_url, client_profile, .. } if base_url == "https://opencode.ai/zen/go/v1/chat/completions" && *client_profile == nuo_wire::ClientProfile::OpenCode),
         "glm-5.2 must route to OpenAI chat-completions on zen/go relay with OpenCode client profile"
     );
     let minimax = derive_channel(&go, "minimax-m3", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
@@ -717,7 +717,7 @@ fn opencode_console_routes_models_by_wire_format() {
     let deepseek = derive_channel(&console, "deepseek-v4-flash", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
     .unwrap();
     assert!(
-        matches!(&deepseek.transport, Transport::OpenAi { base_url, client_profile, .. } if base_url == "https://opencode.ai/inference/openai/v1/chat/completions" && *client_profile == nuo_contracts::ClientProfile::OpenCode),
+        matches!(&deepseek.transport, Transport::OpenAi { base_url, client_profile, .. } if base_url == "https://opencode.ai/inference/openai/v1/chat/completions" && *client_profile == nuo_wire::ClientProfile::OpenCode),
         "deepseek-v4-flash must route to OpenAI chat-completions on Console inference surface"
     );
     let claude = derive_channel(&console, "claude-sonnet-4-6", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
@@ -864,7 +864,7 @@ fn copilot_route_uses_remote_endpoint_metadata() {
         let mut m = std::collections::BTreeMap::new();
         m.insert(
             "gpt-5".to_string(),
-            nuo_contracts::RemoteModelMetadata {
+            nuo_wire::RemoteModelMetadata {
                 protocol: Some(WireProtocol::Responses),
                 ..Default::default()
             },
@@ -874,7 +874,7 @@ fn copilot_route_uses_remote_endpoint_metadata() {
     let copilot = Connection {
         name: "copilot".to_string(),
         provider: "github-copilot".to_string(),
-        auth: nuo_contracts::ConnectionAuth::subscription("copilot"),
+        auth: nuo_wire::ConnectionAuth::subscription("copilot"),
         ..Default::default()
     };
     let channel = derive_channel(&copilot, "gpt-5", &inputs_of(&cache, &RouteSettingsStore::default(), &Credentials::default()))
@@ -900,7 +900,7 @@ fn model_level_protocol_cascade_resolution() {
         let mut m = std::collections::BTreeMap::new();
         m.insert(
             "claude-custom".to_string(),
-            nuo_contracts::RemoteModelMetadata {
+            nuo_wire::RemoteModelMetadata {
                 protocol: Some(WireProtocol::AnthropicMessages),
                 ..Default::default()
             },
@@ -925,7 +925,7 @@ fn model_level_protocol_cascade_resolution() {
         matches!(
             &channel.transport,
             Transport::Anthropic {
-                dialect: nuo_contracts::catalog::AnthropicMessagesDialect::Standard,
+                dialect: nuo_wire::catalog::AnthropicMessagesDialect::Standard,
                 ..
             }
         ),
@@ -966,21 +966,21 @@ fn build_picker_state_reflects_instances() {
 fn channel_model_info_effort_ladders_survive() {
     // A Gemini model advertises an effort ladder, so its picker row exposes an
     // effort defaulting to `high` (the ladder's top rung) when unset.
-    let gemini37 = nuo_contracts::catalog::Channel {
+    let gemini37 = nuo_wire::catalog::Channel {
         id: "default".to_string(),
         label: "gemini-3.7-flash".to_string(),
         transport: Transport::Google {
             base_url: "https://cloudcode-pa.googleapis.com".to_string(),
-            client_profile: nuo_contracts::ClientProfile::Antigravity,
+            client_profile: nuo_wire::ClientProfile::Antigravity,
             effort: None,
             dialect: Default::default(),
         },
-        credentials: nuo_contracts::static_credential(""),
+        credentials: nuo_wire::static_credential(""),
         model: "gemini-3.7-flash".to_string(),
         remote: None,
         user_overrides: None,
-        prompt_cache_preference: nuo_contracts::PromptCachePreference::default(),
-        prompt_cache: nuo_contracts::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_wire::PromptCachePreference::default(),
+        prompt_cache: nuo_wire::PromptCacheCapabilities::unsupported(),
     };
     let info = channel_model_info(&gemini37);
     assert_eq!(info.protocol, WireProtocol::GoogleGemini.as_str());
@@ -1460,8 +1460,8 @@ async fn successful_empty_remote_catalog_clears_previous_models() {
         provider: provider_id.to_string(),
         ..Default::default()
     };
-    connection.models.filter = Some(nuo_contracts::ConnectionFilterPolicy::Named(
-        nuo_contracts::NamedFilterPolicy::All,
+    connection.models.filter = Some(nuo_wire::ConnectionFilterPolicy::Named(
+        nuo_wire::NamedFilterPolicy::All,
     ));
     Connections {
         connections: vec![connection],
@@ -1544,7 +1544,7 @@ fn sync_fitted_model_registry_overlays_fitted_ids() {
     cache.save().unwrap();
 
     sync_fitted_model_registry();
-    let resolved = nuo_contracts::model::resolve("kimi-for-coding");
+    let resolved = nuo_wire::model::resolve("kimi-for-coding");
     assert_eq!(resolved.context_window, 262_144);
     assert!(resolved.reasoning());
 }
@@ -1569,7 +1569,7 @@ fn catalog_builds_from_the_state_store_only() {
 fn antigravity_models_derivation_and_hidden_filter() {
     let _sandbox = sandboxed_paths();
     let mut conn = instance("g11", Some("google-antigravity"));
-    conn.auth = nuo_contracts::ConnectionAuth::subscription("google-antigravity");
+    conn.auth = nuo_wire::ConnectionAuth::subscription("google-antigravity");
     let connections = Connections {
         connections: vec![conn],
     };
@@ -1624,11 +1624,11 @@ fn prune_stale_models_prunes_favorites_and_usage_and_default_model() {
     );
     let mut conn = instance("my-custom", Some("test-open-relay-prune"));
     conn.models.include = vec![
-        nuo_contracts::model::DeclaredModel {
+        nuo_wire::model::DeclaredModel {
             id: "model-a".to_string(),
             ..Default::default()
         },
-        nuo_contracts::model::DeclaredModel {
+        nuo_wire::model::DeclaredModel {
             id: "model-b".to_string(),
             ..Default::default()
         },
@@ -1684,13 +1684,13 @@ fn model_recency_isolation_across_same_preset_connections() {
         nuo_providers::CatalogShape::OpenAi,
     );
     let mut conn1 = instance("conn-1", Some("test-open-relay-recency"));
-    conn1.models.include = vec![nuo_contracts::model::DeclaredModel {
+    conn1.models.include = vec![nuo_wire::model::DeclaredModel {
         id: "shared-model".to_string(),
         ..Default::default()
     }];
 
     let mut conn2 = instance("conn-2", Some("test-open-relay-recency"));
-    conn2.models.include = vec![nuo_contracts::model::DeclaredModel {
+    conn2.models.include = vec![nuo_wire::model::DeclaredModel {
         id: "shared-model".to_string(),
         ..Default::default()
     }];
@@ -1808,7 +1808,7 @@ fn adr0199_preset_scope_and_instance_scope_cascade() {
     let ds_preset = providers.get_or_create_mut("deepseek");
     ds_preset
         .include
-        .push(nuo_contracts::model::DeclaredModel {
+        .push(nuo_wire::model::DeclaredModel {
             id: "deepseek-preset-preview".to_string(),
             ..Default::default()
         });
@@ -1822,7 +1822,7 @@ fn adr0199_preset_scope_and_instance_scope_cascade() {
     conn1
         .models
         .include
-        .push(nuo_contracts::model::DeclaredModel {
+        .push(nuo_wire::model::DeclaredModel {
             id: "deepseek-instance-private".to_string(),
             ..Default::default()
         });
@@ -1870,7 +1870,7 @@ fn provider_dialect_rejects_incompatible_remote_protocol_without_panicking() {
             .or_default()
             .insert(
                 "remote-model".into(),
-                nuo_contracts::RemoteModelMetadata {
+                nuo_wire::RemoteModelMetadata {
                     protocol: Some(protocol),
                     ..Default::default()
                 },
@@ -1902,7 +1902,7 @@ fn provider_dialect_selects_endpoint_after_remote_protocol_override() {
         .or_default()
         .insert(
             "glm-5.2".into(),
-            nuo_contracts::RemoteModelMetadata {
+            nuo_wire::RemoteModelMetadata {
                 protocol: Some(WireProtocol::AnthropicMessages),
                 ..Default::default()
             },
@@ -1928,7 +1928,7 @@ fn catalog_advertised_root_replaces_the_compiled_spec_route() {
         .or_default()
         .insert(
             "glm-5.3".into(),
-            nuo_contracts::RemoteModelMetadata {
+            nuo_wire::RemoteModelMetadata {
                 protocol: Some(WireProtocol::GoogleGemini),
                 endpoint: Some("https://opencode.ai/inference/google/v1beta".to_string()),
                 ..Default::default()
@@ -1969,7 +1969,7 @@ fn declared_unavailable_model_is_listed_but_refused_by_the_daemon() {
     let qoder = Connection {
         name: "qoder".to_string(),
         provider: "qoder".to_string(),
-        auth: nuo_contracts::ConnectionAuth::subscription("qoder"),
+        auth: nuo_wire::ConnectionAuth::subscription("qoder"),
         ..Default::default()
     };
     Connections {
@@ -1987,15 +1987,15 @@ fn declared_unavailable_model_is_listed_but_refused_by_the_daemon() {
         let mut m = std::collections::BTreeMap::new();
         m.insert(
             "qfmodel".to_string(),
-            nuo_contracts::RemoteModelMetadata {
-                availability: Some(nuo_contracts::Availability::usable()),
+            nuo_wire::RemoteModelMetadata {
+                availability: Some(nuo_wire::Availability::usable()),
                 ..Default::default()
             },
         );
         m.insert(
             "gmodel".to_string(),
-            nuo_contracts::RemoteModelMetadata {
-                availability: Some(nuo_contracts::Availability::locked(None)),
+            nuo_wire::RemoteModelMetadata {
+                availability: Some(nuo_wire::Availability::locked(None)),
                 ..Default::default()
             },
         );
@@ -2022,7 +2022,7 @@ fn declared_unavailable_model_is_listed_but_refused_by_the_daemon() {
         .expect("the locked model is still listed, not dropped");
     assert_eq!(
         locked.availability,
-        Some(nuo_contracts::Availability::locked(None)),
+        Some(nuo_wire::Availability::locked(None)),
         "the declaration reaches the picker so it can dim the row"
     );
     assert!(
@@ -2046,7 +2046,7 @@ fn declared_unavailable_model_is_listed_but_refused_by_the_daemon() {
     // An explicit filter keeps the connection out of the legacy-policy
     // migration path, which folds only `extra_models` back into the scope.
     injected.models.filter = Some(ConnectionFilterPolicy::Named(NamedFilterPolicy::All));
-    injected.models.include = vec![nuo_contracts::DeclaredModel {
+    injected.models.include = vec![nuo_wire::DeclaredModel {
         id: "gmodel".to_string(),
         ..Default::default()
     }];
@@ -2073,7 +2073,7 @@ fn declared_unavailable_model_is_listed_but_refused_by_the_daemon() {
     assert!(overridden.availability_overridden);
     assert_eq!(
         overridden.availability,
-        Some(nuo_contracts::Availability::usable()),
+        Some(nuo_wire::Availability::usable()),
         "the effective verdict is usable after the override"
     );
 }

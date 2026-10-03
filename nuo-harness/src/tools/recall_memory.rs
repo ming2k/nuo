@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_contracts::Tool;
+use nuo_wire::Tool;
 use serde_json::json;
 
 use crate::host::{NoRoleMemory, RoleMemory};
@@ -165,7 +165,7 @@ fn capitalize(s: &str) -> String {
     }
 }
 
-nuo_contracts::register_tool!(RecallMemoryFactory => |ctx| {
+nuo_wire::register_tool!(RecallMemoryFactory => |ctx| {
     // The host's dialogue memory arrives as a service (ADR-0300 §1); a context
     // that provides none gets the no-memory tool, whose recall is an empty set.
     let memory = ctx

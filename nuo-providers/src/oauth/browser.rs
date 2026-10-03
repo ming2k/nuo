@@ -6,7 +6,7 @@
 //! - Modern HTML success & error response pages.
 //! - Manual code/URL injection support for seamless CLI paste integration.
 
-use nuo_contracts::provider_auth::{OAuthConfig, PortMode};
+use nuo_model_codec::provider_auth::{OAuthConfig, PortMode};
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::sync::{Arc, Mutex};

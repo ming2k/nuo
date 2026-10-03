@@ -23,12 +23,12 @@ use crate::primitives::{ContentModalSpec, FooterHint, keyvocab};
 use crate::render::Theme;
 
 /// Inputs for [`draw_btw_modal`]. `asides` is the mirrored
-/// [`nuo_contracts::BtwAsideSummary`] list, newest first; `running` is a
+/// [`nuo_wire::BtwAsideSummary`] list, newest first; `running` is a
 /// parallel per-row liveness vector (derived from the TUI's per-session
 /// running set, fresher than the list snapshot); `active_id` is the
 /// currently-viewed aside (rendered with an `open` marker), if any.
 pub struct BtwModalProps<'a> {
-    pub asides: &'a [nuo_contracts::BtwAsideSummary],
+    pub asides: &'a [nuo_wire::BtwAsideSummary],
     pub running: &'a [bool],
     pub active_id: Option<&'a str>,
 }

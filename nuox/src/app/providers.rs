@@ -50,8 +50,8 @@ impl App {
         self.custom_protocol_wire = template.protocol.to_string();
         self.custom_client_identity = template
             .user_agent
-            .map(nuo_contracts::ClientIdentity::from_user_agent)
-            .unwrap_or(nuo_contracts::ClientIdentity::Native);
+            .map(nuo_wire::ClientIdentity::from_user_agent)
+            .unwrap_or(nuo_wire::ClientIdentity::Native);
         self.custom_models = template.models.iter().map(|m| m.to_string()).collect();
         self.custom_url_hint = template.url_hint.to_string();
         self.custom_user_agent = template.user_agent.map(str::to_string);
@@ -77,7 +77,7 @@ impl App {
     pub fn begin_oauth_add(
         &mut self,
         template: &ConnectionTemplate,
-        method: nuo_contracts::LoginMethod,
+        method: nuo_wire::LoginMethod,
     ) {
         self.seed_custom_provider_from_template(template);
         self.awaiting_oauth_add = true;
@@ -87,8 +87,8 @@ impl App {
         // overwrites this with the live URL/code as soon as the device-code
         // request returns.
         self.oauth_pending_message = match method {
-            nuo_contracts::LoginMethod::Device => "Requesting device code…".to_string(),
-            nuo_contracts::LoginMethod::Browser => {
+            nuo_wire::LoginMethod::Device => "Requesting device code…".to_string(),
+            nuo_wire::LoginMethod::Browser => {
                 "Complete authorization in your browser (or open the link below).".to_string()
             }
         };
@@ -118,7 +118,7 @@ impl App {
         self.custom_field = 0;
         self.custom_edit_id = None;
         let default_name = match &self.custom_auth {
-            nuo_contracts::ConnectionAuth::Subscription { provider } => match provider.as_ref() {
+            nuo_wire::ConnectionAuth::Subscription { provider } => match provider.as_ref() {
                 "chatgpt" => "ChatGPT Subscription",
                 "copilot" => "Copilot",
                 "google-antigravity" => "Google Antigravity",
@@ -126,7 +126,7 @@ impl App {
                 "opencode" | "opencode-go" => "OpenCode Go",
                 _ => "xAI",
             },
-            nuo_contracts::ConnectionAuth::ApiKey => "Custom",
+            nuo_wire::ConnectionAuth::ApiKey => "Custom",
         };
         self.custom_name = default_name.to_string();
         self.input = default_name.to_string();
@@ -152,7 +152,7 @@ impl App {
     }
 
     /// Auth mode of a provider picker row (for OAuth re-connect routing).
-    pub fn provider_row_auth(&self, id: &str) -> nuo_contracts::ConnectionAuth {
+    pub fn provider_row_auth(&self, id: &str) -> nuo_wire::ConnectionAuth {
         self.provider_picker
             .rows
             .iter()
@@ -181,7 +181,7 @@ impl App {
         base_url: String,
         auth: ConnectionAuth,
         curated: bool,
-        client_identity: nuo_contracts::ClientIdentity,
+        client_identity: nuo_wire::ClientIdentity,
     ) {
         self.surfaces
             .present_sheet(crate::surfaces::SheetKind::CustomProvider);
@@ -235,15 +235,15 @@ impl App {
     pub fn cycle_custom_choice(&mut self, forward: bool) {
         match self.current_custom_field() {
             Some(CustomField::Protocol) => {
-                const PROTOCOLS: &[nuo_contracts::WireProtocol] = &[
-                    nuo_contracts::WireProtocol::ChatCompletions,
-                    nuo_contracts::WireProtocol::Responses,
-                    nuo_contracts::WireProtocol::AnthropicMessages,
-                    nuo_contracts::WireProtocol::GoogleGemini,
+                const PROTOCOLS: &[nuo_wire::WireProtocol] = &[
+                    nuo_wire::WireProtocol::ChatCompletions,
+                    nuo_wire::WireProtocol::Responses,
+                    nuo_wire::WireProtocol::AnthropicMessages,
+                    nuo_wire::WireProtocol::GoogleGemini,
                 ];
                 let current = self
                     .custom_protocol_wire
-                    .parse::<nuo_contracts::WireProtocol>()
+                    .parse::<nuo_wire::WireProtocol>()
                     .unwrap_or_default();
                 let index = PROTOCOLS
                     .iter()
@@ -257,7 +257,7 @@ impl App {
                 self.custom_protocol_wire = PROTOCOLS[next].to_string();
             }
             Some(CustomField::ClientIdentity) => {
-                let choices = nuo_contracts::ClientIdentity::PRESETS;
+                let choices = nuo_wire::ClientIdentity::PRESETS;
                 let index = choices
                     .iter()
                     .position(|value| value == &self.custom_client_identity)
@@ -344,7 +344,7 @@ impl App {
 
     /// Return the authoritative model info for the currently active route
     /// (current_provider, current_model) as projected by the daemon (ADR-0182).
-    pub fn active_model_info(&self) -> Option<&nuo_contracts::ProviderModelInfo> {
+    pub fn active_model_info(&self) -> Option<&nuo_wire::ProviderModelInfo> {
         self.provider_picker
             .rows
             .iter()
@@ -357,7 +357,7 @@ impl App {
     }
 
     /// Return the authoritative route capabilities for the active route (ADR-0182).
-    pub fn active_route_capabilities(&self) -> nuo_contracts::RouteCapabilities {
+    pub fn active_route_capabilities(&self) -> nuo_wire::RouteCapabilities {
         self.active_model_info()
             .map(|info| info.route_capabilities())
             .unwrap_or_else(|| {
@@ -366,7 +366,7 @@ impl App {
                 // same three-valued merge the daemon uses, so an id no layer
                 // knows stays *undeclared* rather than being reported as a
                 // text-only claim (ADR-0230).
-                nuo_contracts::ModelCapabilities::for_channel(&self.current_model, None)
+                nuo_wire::ModelCapabilities::for_channel(&self.current_model, None)
                     .to_route_capabilities()
             })
     }
@@ -379,7 +379,7 @@ impl App {
         if cw > 0 {
             cw
         } else {
-            nuo_contracts::model::resolve(&self.current_model).context_window
+            nuo_wire::model::resolve(&self.current_model).context_window
         }
     }
 

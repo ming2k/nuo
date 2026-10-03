@@ -1,7 +1,7 @@
 use std::sync::RwLock;
 
 use async_trait::async_trait;
-use nuo_contracts::{SharedWebConfig, Tool, WebReaderProvider, WebRuntimeConfig};
+use nuo_wire::{SharedWebConfig, Tool, WebReaderProvider, WebRuntimeConfig};
 use nuo_tool::ToolSchema;
 use serde::Deserialize;
 
@@ -130,7 +130,7 @@ impl Tool for WebReaderTool {
             .await
             .map(|out| out.to_text())
     }
-    async fn call_structured(&self, arguments: &str) -> Result<nuo_contracts::ToolOutput, String> {
+    async fn call_structured(&self, arguments: &str) -> Result<nuo_wire::ToolOutput, String> {
         let args: WebReaderArgs =
             serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {}", e))?;
         let url = &args.url;
@@ -147,16 +147,16 @@ impl Tool for WebReaderTool {
         let body = output.text;
         let domain = crate::tools::ssrf::extract_host(url).unwrap_or_else(|| "web".to_string());
         let title = extract_page_title(&body);
-        let tokens = nuo_contracts::tokenizer::count_tokens(&body);
+        let tokens = nuo_wire::tokenizer::count_tokens(&body);
         let (markdown, truncated) = if tokens > WEB_READER_MAX_TOKENS {
             let (keep, _kept) =
-                nuo_contracts::tokenizer::truncate_to_tokens(&body, WEB_READER_MAX_TOKENS / 2);
+                nuo_wire::tokenizer::truncate_to_tokens(&body, WEB_READER_MAX_TOKENS / 2);
             (keep.to_string(), true)
         } else {
             (body, false)
         };
 
-        Ok(nuo_contracts::ToolOutput::WebArticle {
+        Ok(nuo_wire::ToolOutput::WebArticle {
             url: url.to_string(),
             title,
             domain,

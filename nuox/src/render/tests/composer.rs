@@ -1265,7 +1265,7 @@ fn user_message_and_composer_keep_symmetric_panel_padding() {
     // A long user message fills the first wrapped line edge to edge, so the
     // right-side padding is only present if the wrap width reserves it.
     let messages = vec![TranscriptMessage::new(
-        nuo_contracts::Role::User,
+        nuo_wire::Role::User,
         "x".repeat(200),
     )];
     let long_input = "y".repeat(200);
@@ -1533,8 +1533,8 @@ fn queued_user_message_renders_badge_and_dimmer_bg() {
     let mut terminal = nuotc::TestTerminal::new(width, 20);
 
     let messages = vec![
-        TranscriptMessage::new(nuo_contracts::Role::User, "first steer message").queued(),
-        TranscriptMessage::new(nuo_contracts::Role::User, "second steer message").queued(),
+        TranscriptMessage::new(nuo_wire::Role::User, "first steer message").queued(),
+        TranscriptMessage::new(nuo_wire::Role::User, "second steer message").queued(),
     ];
     terminal.draw(|f| {
         let mut layout_map = LayoutMap::new();
@@ -1624,7 +1624,7 @@ fn held_insert_renders_the_held_label_and_dimmer_bg() {
     let width = 56u16;
     let mut terminal = nuotc::TestTerminal::new(width, 16);
 
-    let mut held = TranscriptMessage::new(nuo_contracts::Role::User, "held steer");
+    let mut held = TranscriptMessage::new(nuo_wire::Role::User, "held steer");
     held.delivery = DeliveryStatus::HeldNextRound;
     held.origin = crate::model::document::UserMessageOrigin::Steer;
     let messages = vec![held];
@@ -1709,11 +1709,11 @@ fn held_insert_renders_the_held_label_and_dimmer_bg() {
 #[test]
 fn history_panel_uses_composer_padding_not_brand_column() {
     let theme = Theme::default();
-    let history: Vec<nuo_contracts::HistoryEntry> = ["one", "two", "three"]
+    let history: Vec<nuo_wire::HistoryEntry> = ["one", "two", "three"]
         .into_iter()
         .enumerate()
         .map(|(i, text)| {
-            nuo_contracts::HistoryEntry::new(
+            nuo_wire::HistoryEntry::new(
                 text.to_string(),
                 Some(format!("s{i}")),
                 None,
@@ -1793,7 +1793,7 @@ fn h1_underline_clamps_with_emoji_grapheme() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(60, 12);
     let messages = vec![TranscriptMessage::new(
-        nuo_contracts::Role::Assistant,
+        nuo_wire::Role::Assistant,
         "# 👨‍👩‍👧 OKX\n\nbody\n",
     )];
     terminal.draw(|f| {

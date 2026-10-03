@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use acp::{AgentAddress, AgentEnvelope, AgentManifest, Fabric, MessageIntent, SteerAction};
-use nuo_contracts::{MonitorAction, Tool};
+use nuo_wire::{MonitorAction, Tool};
 use nuo_harness::{Agent, AgentIdentity};
 
 use crate::registry::SessionRegistry;
@@ -27,7 +27,7 @@ pub struct Hypervisor {
 impl Hypervisor {
     /// Create the singleton hypervisor station for the daemon.
     pub async fn new(
-        provider: Arc<dyn nuo_contracts::Provider>,
+        provider: Arc<dyn nuo_wire::Provider>,
         registry: SessionRegistry,
         fabric: Fabric,
     ) -> Self {
@@ -65,7 +65,7 @@ impl Hypervisor {
         );
 
         let agent = Arc::new(Agent::new(provider, tools, identity));
-        agent.set_kind(nuo_contracts::AgentKind::Root);
+        agent.set_kind(nuo_wire::AgentKind::Root);
 
         Self {
             agent,

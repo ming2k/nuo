@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use nuo_contracts::Tool;
+use nuo_wire::Tool;
 use nuo_tool::ToolSchema;
 use serde_json::json;
 
@@ -29,7 +29,7 @@ struct ReadArgs {
 /// project.
 pub struct ReadTextTool {
     pub(crate) root: WorkspaceBase,
-    pub(crate) env: Option<std::sync::Arc<dyn nuo_contracts::ExecutionEnvironment>>,
+    pub(crate) env: Option<std::sync::Arc<dyn nuo_wire::ExecutionEnvironment>>,
 }
 
 impl ReadTextTool {
@@ -37,7 +37,7 @@ impl ReadTextTool {
         Self { root, env: None }
     }
 
-    pub fn with_env(env: std::sync::Arc<dyn nuo_contracts::ExecutionEnvironment>) -> Self {
+    pub fn with_env(env: std::sync::Arc<dyn nuo_wire::ExecutionEnvironment>) -> Self {
         let root = Some(env.workspace_root().to_path_buf());
         Self {
             root,
@@ -63,7 +63,7 @@ impl Tool for ReadTextTool {
         self.call_structured(arguments).await.map(|o| o.to_text())
     }
 
-    async fn call_structured(&self, arguments: &str) -> Result<nuo_contracts::ToolOutput, String> {
+    async fn call_structured(&self, arguments: &str) -> Result<nuo_wire::ToolOutput, String> {
         let args: ReadArgs =
             serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {}", e))?;
         let path = &args.path;
@@ -129,7 +129,7 @@ impl Tool for ReadTextTool {
         // draws nothing) and the note explains why via `to_text()`.
         let start = offset - 1;
         if total_lines == 0 {
-            return Ok(nuo_contracts::ToolOutput::Code {
+            return Ok(nuo_wire::ToolOutput::Code {
                 lang,
                 text: String::new(),
                 start_line: offset,
@@ -138,7 +138,7 @@ impl Tool for ReadTextTool {
             });
         }
         if start >= total_lines {
-            return Ok(nuo_contracts::ToolOutput::Code {
+            return Ok(nuo_wire::ToolOutput::Code {
                 lang,
                 text: String::new(),
                 start_line: offset,
@@ -231,7 +231,7 @@ impl Tool for ReadTextTool {
             (Some(header), suffix)
         };
 
-        Ok(nuo_contracts::ToolOutput::Code {
+        Ok(nuo_wire::ToolOutput::Code {
             lang,
             text,
             start_line: offset,
@@ -240,7 +240,7 @@ impl Tool for ReadTextTool {
         })
     }
 }
-nuo_contracts::register_tool!(ReadTextFactory => |ctx| ReadTextTool {
+nuo_wire::register_tool!(ReadTextFactory => |ctx| ReadTextTool {
     root: workspace_base(ctx),
     env: Some(execution_environment(ctx)),
 });
@@ -259,7 +259,7 @@ nuo_contracts::register_tool!(ReadTextFactory => |ctx| ReadTextTool {
 /// workspace root so both variants resolve paths identically.
 pub struct ReadTextTerseTool {
     pub(crate) root: WorkspaceBase,
-    pub(crate) env: Option<std::sync::Arc<dyn nuo_contracts::ExecutionEnvironment>>,
+    pub(crate) env: Option<std::sync::Arc<dyn nuo_wire::ExecutionEnvironment>>,
 }
 
 #[async_trait]
@@ -294,7 +294,7 @@ impl Tool for ReadTextTerseTool {
         .call(arguments)
         .await
     }
-    async fn call_structured(&self, arguments: &str) -> Result<nuo_contracts::ToolOutput, String> {
+    async fn call_structured(&self, arguments: &str) -> Result<nuo_wire::ToolOutput, String> {
         ReadTextTool {
             root: self.root.clone(),
             env: self.env.clone(),
@@ -303,7 +303,7 @@ impl Tool for ReadTextTerseTool {
         .await
     }
 }
-nuo_contracts::register_tool!(ReadTextTerseFactory => |ctx| ReadTextTerseTool {
+nuo_wire::register_tool!(ReadTextTerseFactory => |ctx| ReadTextTerseTool {
     root: workspace_base(ctx),
     env: Some(execution_environment(ctx)),
 });

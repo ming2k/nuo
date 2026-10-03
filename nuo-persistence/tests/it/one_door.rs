@@ -214,7 +214,7 @@ fn a_sync_write_round_trips() {
         .expect("set_kv_blocking must not deadlock");
     handle
         .save_input_history_blocking(
-            vec![nuo_contracts::HistoryEntry {
+            vec![nuo_wire::HistoryEntry {
                 text: "probe".to_string(),
                 session_id: None,
                 workspace: None,

@@ -14,7 +14,7 @@
 //! line was redundant noise and was removed. `Enter` inserts the focused entry
 //! into the composer.
 
-use nuo_contracts::HistoryEntry;
+use nuo_wire::HistoryEntry;
 use nuotc::{
     Clear as RtClear, Frame, Modifier, Paragraph, Rect, Style, {Line, Span},
 };

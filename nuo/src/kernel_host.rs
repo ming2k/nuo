@@ -20,7 +20,7 @@ use nuo_harness::{
     CatalogMaintenance, KernelHost, ProjectPaths, RecalledMemory, RoleCatalog, RoleMemory,
     TitleSink,
 };
-use nuo_contracts::CustomRole;
+use nuo_wire::CustomRole;
 use nuo_persistence::paths;
 use nuo_persistence::roles::RolesConfig;
 use nuo_persistence::session::SessionStore;
@@ -194,7 +194,7 @@ impl CatalogMaintenance for ProductCatalogMaintenance {
         })
     }
 
-    fn picker_snapshot(&self) -> Option<nuo_contracts::ProviderPickerSnapshot> {
+    fn picker_snapshot(&self) -> Option<nuo_wire::ProviderPickerSnapshot> {
         let config = nuo_persistence::config::Config::load();
         let usage = nuo_persistence::connection_usage::ConnectionUsage::load();
         Some(crate::catalog::build_picker_state(&config, &usage))

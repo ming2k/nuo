@@ -14,7 +14,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use nuo_contracts::WorkspaceTrustState;
+use nuo_wire::WorkspaceTrustState;
 use nuo_persistence::paths;
 use nuo_persistence::workspace_security::WorkspaceSecurityStore;
 use nuo_harness::skills::{SkillHost, SkillRoots, SkillTrust};

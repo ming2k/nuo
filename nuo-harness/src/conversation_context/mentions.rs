@@ -7,7 +7,7 @@
 //! resolution must be consumed.
 //!
 //! It is a *rewriting* policy over the shared grammar kernel
-//! ([`nuo_contracts::mention`]): the kernel recognizes and segments
+//! ([`nuo_wire::mention`]): the kernel recognizes and segments
 //! references; this module decides what an accepted reference becomes in the
 //! request view. No scanning logic lives here.
 //!
@@ -17,7 +17,7 @@
 //! fragment, and rewriting it would corrupt ordinary prose (ADR-0288 rejected
 //! alternatives).
 
-use nuo_contracts::mention::{Form, Namespace, scan_references};
+use nuo_wire::mention::{Form, Namespace, scan_references};
 
 /// Whether a message's content is a place where `@`-references are written by
 /// the user and therefore subject to canonicalization (`[INV-REF-03]`).
@@ -88,7 +88,7 @@ pub(crate) fn canonicalize_addresses(text: &str) -> String {
 
 /// Whether a reference is a rewrite target (qualified, or a bare-name
 /// `skill://`). Bare `@name` mentions are not.
-fn is_rewrite_target(reference: &nuo_contracts::mention::Reference<'_>) -> bool {
+fn is_rewrite_target(reference: &nuo_wire::mention::Reference<'_>) -> bool {
     match reference.form {
         Form::Qualified => true,
         Form::Uri => !reference.target.contains('/'),
@@ -98,7 +98,7 @@ fn is_rewrite_target(reference: &nuo_contracts::mention::Reference<'_>) -> bool 
 
 /// The canonical replacement for a rewrite target, or `None` if the reference
 /// stays as written.
-fn canonical_of(reference: &nuo_contracts::mention::Reference<'_>) -> Option<String> {
+fn canonical_of(reference: &nuo_wire::mention::Reference<'_>) -> Option<String> {
     match reference.namespace {
         Namespace::File => Some(format!("@file:{}", reference.target)),
         Namespace::Skill => match reference.form {

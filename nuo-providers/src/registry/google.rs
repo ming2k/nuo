@@ -1,7 +1,7 @@
 //! The built-in `google` provider preset: the native Google API, one key.
 
-use nuo_contracts::reasoning::ReasoningSupport;
-use nuo_contracts::{Model, WireProtocol};
+use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_model_codec::{Model, WireProtocol};
 
 use super::{effort_ladders, CatalogShape, ModelProviderSpec, RemoteCatalogSource};
 
@@ -10,11 +10,11 @@ use super::{effort_ladders, CatalogShape, ModelProviderSpec, RemoteCatalogSource
 /// canonical text-generation family that Google plus common relays/中转站
 /// advertise — image/embedding/video/audio-only models are excluded since an
 /// agent only consumes the `generateContent` text surface.
-pub use nuo_contracts::model_providers::GOOGLE_BUILTIN_MODELS;
+pub use nuo_model_codec::model_providers::GOOGLE_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
-/// submitted to `nuo_contracts`'s registry at link time (see
-/// [`nuo_contracts::model::BaselineModels`]).
+/// submitted to `nuo_model_codec`'s registry at link time (see
+/// [`nuo_model_codec::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // Google (native)
     // Native Google REST surface (`generateContent`/`streamGenerateContent`).
@@ -146,12 +146,12 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_contracts::model::BaselineModels(MODELS));
+inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
-fn prompt_cache_for_model(_: &str) -> nuo_contracts::PromptCacheSpec {
-    nuo_contracts::PromptCacheSpec {
-        modes: &[nuo_contracts::PromptCacheMode::Implicit],
-        default_mode: Some(nuo_contracts::PromptCacheMode::Implicit),
+fn prompt_cache_for_model(_: &str) -> nuo_model_codec::PromptCacheSpec {
+    nuo_model_codec::PromptCacheSpec {
+        modes: &[nuo_model_codec::PromptCacheMode::Implicit],
+        default_mode: Some(nuo_model_codec::PromptCacheMode::Implicit),
         supported_retentions: &[],
         default_retention: None,
         disable_supported: false,
@@ -165,7 +165,7 @@ fn prompt_cache_for_model(_: &str) -> nuo_contracts::PromptCacheSpec {
 }
 
 pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_contracts::ProviderDialect::Standard,
+    dialect: nuo_model_codec::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: super::PromptCachePolicy::Compiled(prompt_cache_for_model),
@@ -176,6 +176,6 @@ pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol: WireProtocol::GoogleGemini,
     models: GOOGLE_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::Google),
-    default_client_profile: nuo_contracts::ClientPreset::Native,
+    default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
 };

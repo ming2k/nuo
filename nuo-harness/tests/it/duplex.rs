@@ -35,7 +35,7 @@ use nuo_harness::{
     Agent, AgentEvent, AgentOp, Message, Provider, ProviderStreamEvent, Role, SubagentEvent,
     SubagentTool,
 };
-use nuo_contracts::{PermissionDecision, SubAgentProfile, Tool, ToolOutput, ToolPolicy};
+use nuo_wire::{PermissionDecision, SubAgentProfile, Tool, ToolOutput, ToolPolicy};
 
 /// `stream_chat` emits "done" with no tool calls (the default
 /// `stream_chat_events` wraps it into one `TextDelta`). Used by the inject
@@ -46,19 +46,19 @@ struct IdleProvider;
 impl Provider for IdleProvider {
     async fn chat(
         &self,
-        _request: nuo_contracts::ModelRequest,
-    ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
-        Ok(nuo_contracts::ProviderCompletion::message(Message::new(
+        _request: nuo_wire::ModelRequest,
+    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+        Ok(nuo_wire::ProviderCompletion::message(Message::new(
             Role::Assistant,
             "done",
         )))
     }
     async fn stream_chat(
         &self,
-        _request: nuo_contracts::ModelRequest,
+        _request: nuo_wire::ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-        nuo_contracts::ProviderError,
+        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+        nuo_wire::ProviderError,
     > {
         Ok(Box::pin(stream::once(async { Ok("done".to_string()) })))
     }
@@ -112,8 +112,8 @@ impl Tool for BrokerGatedTool {
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
-    fn scope_target(&self, _arguments: &str) -> nuo_contracts::ScopeTarget {
-        nuo_contracts::ScopeTarget::Path(std::path::PathBuf::from("/tmp/gated"))
+    fn scope_target(&self, _arguments: &str) -> nuo_wire::ScopeTarget {
+        nuo_wire::ScopeTarget::Path(std::path::PathBuf::from("/tmp/gated"))
     }
     async fn call(&self, _arguments: &str) -> Result<String, String> {
         self.0.fetch_add(1, Ordering::SeqCst);
@@ -140,7 +140,7 @@ async fn handle_reply_permission_unblocks_parked_write_tool() {
     ));
     let handle = agent.install_inbox();
 
-    let (req_tx, mut req_rx) = mpsc::unbounded_channel::<nuo_contracts::PermissionRequest>();
+    let (req_tx, mut req_rx) = mpsc::unbounded_channel::<nuo_wire::PermissionRequest>();
     let run_agent = Arc::clone(&agent);
     let task = tokio::spawn(async move {
         let mut messages = vec![Message::new(Role::User, "run the write tool")];
@@ -212,29 +212,29 @@ struct StreamWriteCallProvider(AtomicUsize);
 impl Provider for StreamWriteCallProvider {
     async fn chat(
         &self,
-        _: nuo_contracts::ModelRequest,
-    ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
-        Err(nuo_contracts::ProviderError::new(
+        _: nuo_wire::ModelRequest,
+    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+        Err(nuo_wire::ProviderError::new(
             "mock",
-            nuo_contracts::ProviderErrorKind::Other,
+            nuo_wire::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
     async fn stream_chat(
         &self,
-        _: nuo_contracts::ModelRequest,
+        _: nuo_wire::ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-        nuo_contracts::ProviderError,
+        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+        nuo_wire::ProviderError,
     > {
         Ok(Box::pin(stream::empty()))
     }
     async fn stream_chat_events(
         &self,
-        _: nuo_contracts::ModelRequest,
+        _: nuo_wire::ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_contracts::ProviderError>>,
-        nuo_contracts::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
+        nuo_wire::ProviderError,
     > {
         let round = self.0.fetch_add(1, Ordering::SeqCst);
         let events = if round == 0 {
@@ -246,14 +246,14 @@ impl Provider for StreamWriteCallProvider {
                     arguments: "{}".to_string(),
                 }),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_contracts::ProviderCompletionMeta::default(),
+                    nuo_wire::ProviderCompletionMeta::default(),
                 )),
             ]
         } else {
             vec![
                 Ok(ProviderStreamEvent::TextDelta("done".to_string())),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_contracts::ProviderCompletionMeta::default(),
+                    nuo_wire::ProviderCompletionMeta::default(),
                 )),
             ]
         };
@@ -329,7 +329,7 @@ async fn subagent_tool_registry_routes_reply_into_live_subagent() {
     let ran = Arc::new(AtomicUsize::new(0));
     let subagent_tool = Arc::new(SubagentTool::new(
         Arc::new(StreamWriteCallProvider(AtomicUsize::new(0))),
-        nuo_contracts::ToolSet::from_tools([
+        nuo_wire::ToolSet::from_tools([
             Arc::new(BrokerGatedTool(Arc::clone(&ran))) as Arc<dyn Tool>
         ]),
         &INTERACTIVE,
@@ -341,10 +341,10 @@ async fn subagent_tool_registry_routes_reply_into_live_subagent() {
     let task = tokio::spawn(async move {
         let mut on_stream = |_: nuo_harness::ToolStream| ();
         tool.call_structured_with_events(
-            nuo_contracts::ToolInvocation {
+            nuo_wire::ToolInvocation {
                 call_id: "parent_call_7",
                 arguments: r#"{"description":"d","prompt":"run the write tool"}"#,
-                input: nuo_contracts::InputContract::default(),
+                input: nuo_wire::InputContract::default(),
                 input_handler: None,
             },
             Box::new(move |e| {

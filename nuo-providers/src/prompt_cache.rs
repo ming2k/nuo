@@ -1,6 +1,6 @@
 //! Shared resolution of route defaults and per-request prompt-cache intent.
 
-use nuo_contracts::{
+use nuo_model_codec::{
     ModelRequest, PromptCacheCapabilities, PromptCacheModePreference, PromptCachePreference,
     ResolvedCachePolicy,
 };
@@ -64,7 +64,7 @@ impl PromptCacheConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::{CacheRetention, PromptCacheMode};
+    use nuo_model_codec::{CacheRetention, PromptCacheMode};
 
     #[test]
     fn request_retention_overrides_route_retention_without_losing_route_mode() {

@@ -20,7 +20,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures::stream::BoxStream;
 use http::{HeaderMap, Method, StatusCode};
-use nuo_contracts::{ProviderError, ProviderErrorKind};
+use nuo_model_codec::{ProviderError, ProviderErrorKind};
 
 /// A request in transport-neutral form.
 #[derive(Debug, Clone)]
@@ -41,7 +41,7 @@ pub struct RequestParts {
     /// publishes into it and never needs to know which attempt it was serving.
     /// A default handle absorbs the timings harmlessly, so a caller that does
     /// not care about telemetry (a test, a probe) needs no ceremony.
-    pub telemetry: nuo_contracts::TransportTelemetry,
+    pub telemetry: nuo_model_codec::TransportTelemetry,
 }
 
 /// A response: status, headers, and a body that has not been read yet.
@@ -129,7 +129,7 @@ mod owned {
     use bytes::Bytes;
     use futures::StreamExt;
     use futures::stream::BoxStream;
-    use nuo_contracts::{ProviderError, TransportObservation, TransportTimings};
+    use nuo_model_codec::{ProviderError, TransportObservation, TransportTimings};
     use netune::{Connector, TcpConnector, TlsConnector};
     use netune_trace::{
         AttemptRef, ConnectionInfo, EndpointRef, EventKind, Fidelity, Recorder, RequestTrace,
@@ -160,7 +160,7 @@ mod owned {
         /// writer never consults which attempt that was: it publishes into the
         /// handle it was handed, which is what keeps concurrent attempts on one
         /// shared transport from aliasing (ADR-0232).
-        telemetry: nuo_contracts::TransportTelemetry,
+        telemetry: nuo_model_codec::TransportTelemetry,
         recorder: Arc<Mutex<Recorder>>,
         dispatch_at: std::time::Instant,
         endpoint: EndpointRef,

@@ -3,7 +3,7 @@ use crate::bootstrap::{self, BootstrapParams};
 use crate::monitor::MonitorTracker;
 use crate::serve::{AttachAction, AttachSyncBuffer, is_attach_sync_event};
 use nuo_harness::{Agent, AgentIdentity, AgentRoleProfile};
-use nuo_contracts::{
+use nuo_wire::{
     AgentRequest, AgentResponse, MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredSession,
     PermissionDecision, SessionHosting, SessionOverview, SessionStatus,
 };
@@ -35,12 +35,12 @@ pub struct HostedSession {
     /// persona has none).
     pub workspace_root: Option<PathBuf>,
     /// ADR-0141: channel accounting shared with the assembled agent.
-    pub human_channel: Arc<nuo_contracts::human_request::HumanChannelAccountant>,
+    pub human_channel: Arc<nuo_wire::human_request::HumanChannelAccountant>,
     pub session: Arc<SessionStore>,
     pub req_tx: mpsc::Sender<AgentRequest>,
     pub events: broadcast::Sender<AgentResponse>,
     pub cancel: CancellationToken,
-    pub shared_confinement: nuo_contracts::SharedConfinement,
+    pub shared_confinement: nuo_wire::SharedConfinement,
     /// The panel-facing tracker folding this session's event stream
     /// (ADR-0093). Owned here so the broadcast-tap task can fold events in
     /// and the registry can read rows out for snapshots.
@@ -57,7 +57,7 @@ pub struct HostedSession {
     /// each attaching client so it hydrates immediately.
     pub sync_buffer: Arc<Mutex<AttachSyncBuffer>>,
     /// Backend-owned slash-command vocabulary for every attached frontend.
-    pub command_catalog: nuo_contracts::CommandCatalog,
+    pub command_catalog: nuo_wire::CommandCatalog,
     /// When this hosted session was created (wall-clock, monotonic). Drives
     /// the idle reaper: a session that stays `is_empty_unpersisted` (no real
     /// content, never written to disk) past the idle TTL is reclaimed so
@@ -100,9 +100,9 @@ pub struct BoundSession {
     /// The WS attach layer ORs each client's declared posture in (attach /
     /// detach); the assembled agent's posture gate reads the effective
     /// value before parking any human request.
-    pub human_channel: Arc<nuo_contracts::human_request::HumanChannelAccountant>,
+    pub human_channel: Arc<nuo_wire::human_request::HumanChannelAccountant>,
     pub session: Arc<SessionStore>,
-    pub shared_confinement: nuo_contracts::SharedConfinement,
+    pub shared_confinement: nuo_wire::SharedConfinement,
     pub req_tx: mpsc::Sender<AgentRequest>,
     pub events: broadcast::Sender<AgentResponse>,
     /// Attach-time state-sync events buffered for this session (see
@@ -114,7 +114,7 @@ pub struct BoundSession {
     /// buffer's picker at attach time so a new client hydrates the current
     /// *global* model ordering, not this session's last local one.
     pub daemon_picker: Arc<Mutex<Option<AgentResponse>>>,
-    pub command_catalog: nuo_contracts::CommandCatalog,
+    pub command_catalog: nuo_wire::CommandCatalog,
     /// Durable workspace trust store for this session's project. The
     /// WS attach path reads it to detect unreviewed workspace contributions
     /// (`WorkspaceTrustState::Quarantined`) and push the trust decision
@@ -130,10 +130,10 @@ impl BoundSession {
 
     /// Current project-asset trust snapshot. An unbound session has no project
     /// assets, so every domain is `Absent`.
-    pub fn security_snapshot(&self) -> nuo_contracts::WorkspaceSecuritySnapshot {
+    pub fn security_snapshot(&self) -> nuo_wire::WorkspaceSecuritySnapshot {
         match self.workspace_root() {
             Some(root) => self.security.snapshot(root),
-            None => nuo_contracts::WorkspaceSecuritySnapshot::new("workspace-free"),
+            None => nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free"),
         }
     }
 }
@@ -141,14 +141,14 @@ impl BoundSession {
 /// A resolved session binding: an optional workspace plus the staffing role.
 #[derive(Clone)]
 pub struct SessionBinding {
-    pub workspace: Option<nuo_contracts::WorkspaceBinding>,
+    pub workspace: Option<nuo_wire::WorkspaceBinding>,
     pub role: Option<String>,
 }
 
 impl SessionBinding {
     pub fn workspace(root: PathBuf) -> Self {
         Self {
-            workspace: Some(nuo_contracts::WorkspaceBinding::new(root)),
+            workspace: Some(nuo_wire::WorkspaceBinding::new(root)),
             role: None,
         }
     }
@@ -189,11 +189,11 @@ pub struct SessionRegistry {
     /// `TaskUpdated`/`TaskRemoved` diffs and folded into monitor snapshots.
     daemon_tasks: Arc<crate::background_jobs::BackgroundJobManager>,
     /// The live daemon-task rows folded for snapshots (id → row).
-    daemon_task_rows: Arc<std::sync::Mutex<HashMap<String, nuo_contracts::MonitoredTask>>>,
+    daemon_task_rows: Arc<std::sync::Mutex<HashMap<String, nuo_wire::MonitoredTask>>>,
     /// Latest durability-health state (ADR-0196 D4): folded from the
     /// persistence supervisor's transitions for monitor snapshots and
     /// published as `PersistenceHealth` diffs. `None` = never degraded.
-    persistence_health: Arc<std::sync::Mutex<Option<nuo_contracts::monitor::PersistenceHealth>>>,
+    persistence_health: Arc<std::sync::Mutex<Option<nuo_wire::monitor::PersistenceHealth>>>,
     /// Daemon-level latest picker snapshot (cross-session model ordering).
     /// The picker's recency data lives in the shared SQLite `ConnectionUsage`,
     /// so a snapshot built by any one session's driver is global truth — but
@@ -299,8 +299,8 @@ impl SessionRegistry {
         &self,
         command: String,
         label: Option<String>,
-        kind: nuo_contracts::JobKind,
-    ) -> Result<nuo_contracts::BackgroundJobInfo, String> {
+        kind: nuo_wire::JobKind,
+    ) -> Result<nuo_wire::BackgroundJobInfo, String> {
         let mgr = self.daemon_tasks.clone();
         let roots: Vec<std::path::PathBuf> = Vec::new();
         let workspace = std::env::temp_dir();
@@ -316,7 +316,7 @@ impl SessionRegistry {
                 owner_session: None,
             },
             kind,
-            Some(nuo_contracts::Readiness::FirstOutput),
+            Some(nuo_wire::Readiness::FirstOutput),
             None,
         )
         .await
@@ -326,7 +326,7 @@ impl SessionRegistry {
     /// drive).
     pub fn stop_daemon_task(&self, task_id: &str) -> Result<(), String> {
         self.daemon_tasks
-            .kill_job(&nuo_contracts::JobId::from(task_id))
+            .kill_job(&nuo_wire::JobId::from(task_id))
     }
 
     /// Subscribe the durability-health tap (ADR-0196 D4): the persistence
@@ -382,7 +382,7 @@ impl SessionRegistry {
     /// session the round runs on the last-bound channel or refuses via the
     /// `NoProvider` sentinel.
     pub async fn ask_archivist(&self, text: String) -> crate::archivist_service::ArchivistAnswer {
-        let provider: Option<Arc<dyn nuo_contracts::Provider>> = {
+        let provider: Option<Arc<dyn nuo_wire::Provider>> = {
             let map = self.sessions.lock().await;
             map.values()
                 .find_map(|e| e.agent_for_session_end.as_ref())
@@ -478,7 +478,7 @@ impl SessionRegistry {
                         let changed = {
                             let mut guard = rows.lock().unwrap();
                             if let Some(row) = guard.get_mut(&job_id.0) {
-                                row.state = nuo_contracts::JobState::Ready {
+                                row.state = nuo_wire::JobState::Ready {
                                     started_at_ms: row.created_at_ms,
                                     ready_at_ms: crate::registry::unix_epoch_ms(),
                                 };
@@ -513,14 +513,14 @@ impl SessionRegistry {
 
     #[allow(clippy::unwrap_used)] // A poisoned task-row mutex is an unrecoverable registry invariant.
     fn upsert_task_row(
-        rows: &Arc<std::sync::Mutex<HashMap<String, nuo_contracts::MonitoredTask>>>,
-        info: &nuo_contracts::BackgroundJobInfo,
-        outcome: Option<&nuo_contracts::BackgroundJobOutcome>,
+        rows: &Arc<std::sync::Mutex<HashMap<String, nuo_wire::MonitoredTask>>>,
+        info: &nuo_wire::BackgroundJobInfo,
+        outcome: Option<&nuo_wire::BackgroundJobOutcome>,
     ) {
         let mut guard = rows.lock().unwrap();
         let row = guard.entry(info.id.0.clone()).or_insert_with(|| {
             let (label, spec) = match &info.spec {
-                nuo_contracts::JobSpec::Process { command, label, .. } => (
+                nuo_wire::JobSpec::Process { command, label, .. } => (
                     label.clone().unwrap_or_else(|| {
                         command
                             .split_whitespace()
@@ -530,13 +530,13 @@ impl SessionRegistry {
                     }),
                     command.clone(),
                 ),
-                nuo_contracts::JobSpec::Timer { label, prompt, .. } => (
+                nuo_wire::JobSpec::Timer { label, prompt, .. } => (
                     label.clone().unwrap_or_else(|| "timer".to_string()),
                     prompt.clone(),
                 ),
             };
             let log_path = None;
-            nuo_contracts::MonitoredTask {
+            nuo_wire::MonitoredTask {
                 id: info.id.0.clone(),
                 label,
                 spec,
@@ -624,19 +624,19 @@ impl SessionRegistry {
                         match role_entry.resolved_workspace() {
                             nuo_persistence::roles::RoleWorkspace::None => None,
                             nuo_persistence::roles::RoleWorkspace::Inherit => Some(
-                                nuo_contracts::WorkspaceBinding::new(caller_project.to_path_buf()),
+                                nuo_wire::WorkspaceBinding::new(caller_project.to_path_buf()),
                             ),
                             nuo_persistence::roles::RoleWorkspace::Fixed(root) => {
-                                Some(nuo_contracts::WorkspaceBinding::new(root))
+                                Some(nuo_wire::WorkspaceBinding::new(root))
                             }
                         }
                     } else {
-                        Some(nuo_contracts::WorkspaceBinding::new(
+                        Some(nuo_wire::WorkspaceBinding::new(
                             caller_project.to_path_buf(),
                         ))
                     }
                 } else {
-                    Some(nuo_contracts::WorkspaceBinding::new(
+                    Some(nuo_wire::WorkspaceBinding::new(
                         caller_project.to_path_buf(),
                     ))
                 };
@@ -1022,8 +1022,8 @@ impl SessionRegistry {
         // driver too).
         let status = e.tracker.lock().await.row().status;
         if status.is_active() {
-            let record = nuo_contracts::RoundInterrupt {
-                reason: nuo_contracts::RoundInterruptReason::Terminated,
+            let record = nuo_wire::RoundInterrupt {
+                reason: nuo_wire::RoundInterruptReason::Terminated,
                 at_ms: unix_epoch_ms(),
                 round: Some(e.session.round_counter().await),
                 detail: None,
@@ -1367,7 +1367,7 @@ impl SessionRegistry {
         // of a fresh one, partitioned truthfully by Workspace or Role.
         let mut startup = startup;
         if init_options.resume && matches!(startup, crate::startup::SessionStart::Fresh) {
-            let partition = nuo_contracts::SessionPartition::from_binding(
+            let partition = nuo_wire::SessionPartition::from_binding(
                 workspace.as_ref(),
                 role_id.as_deref(),
             );
@@ -1387,11 +1387,11 @@ impl SessionRegistry {
 
         if let Some(manifest) = manifest {
             let role_identity = manifest.identity;
-            let mut role = nuo_contracts::AgentRoleProfile::with_identity(
+            let mut role = nuo_wire::AgentRoleProfile::with_identity(
                 manifest.role_id.clone(),
                 role_identity.clone(),
             );
-            role.tools = nuo_contracts::ToolSelection::from_allowlist(&manifest.tools);
+            role.tools = nuo_wire::ToolSelection::from_allowlist(&manifest.tools);
             role.admit_mcp = manifest.admit_mcp.clone();
             identity = role_identity;
             preset = role;
@@ -1404,24 +1404,24 @@ impl SessionRegistry {
                         nuo_persistence::roles::RoleWorkspace::None => None,
                         nuo_persistence::roles::RoleWorkspace::Inherit => workspace,
                         nuo_persistence::roles::RoleWorkspace::Fixed(root) => {
-                            Some(nuo_contracts::WorkspaceBinding::new(root))
+                            Some(nuo_wire::WorkspaceBinding::new(root))
                         }
                     };
                 }
                 let role_identity = role_entry.identity();
-                let mut role = nuo_contracts::AgentRoleProfile::with_identity(
+                let mut role = nuo_wire::AgentRoleProfile::with_identity(
                     role_id.to_string(),
                     role_identity.clone(),
                 );
-                role.tools = nuo_contracts::ToolSelection::from_allowlist(&role_entry.tools);
+                role.tools = nuo_wire::ToolSelection::from_allowlist(&role_entry.tools);
                 role.admit_mcp = role_entry.admit_mcp.clone();
                 identity = role_identity;
                 preset = role;
-            } else if let Some(builtin) = nuo_contracts::MainAgentRole::parse(role_id) {
+            } else if let Some(builtin) = nuo_wire::MainAgentRole::parse(role_id) {
                 if role_selected.is_some() && !builtin.requires_workspace() {
                     workspace = None;
                 }
-                let role = nuo_contracts::AgentRoleProfile::from_role(builtin, &identity);
+                let role = nuo_wire::AgentRoleProfile::from_role(builtin, &identity);
                 identity = role.identity.clone();
                 preset = role;
             } else {
@@ -1434,7 +1434,7 @@ impl SessionRegistry {
         let workspace_root = workspace.as_ref().map(|binding| binding.root.clone());
         let effective_confined = if let Some(builtin) = role_id
             .as_deref()
-            .and_then(nuo_contracts::MainAgentRole::parse)
+            .and_then(nuo_wire::MainAgentRole::parse)
         {
             if !builtin.requires_workspace() {
                 builtin.default_confined() && init_options.confined
@@ -1452,7 +1452,7 @@ impl SessionRegistry {
         let cancel = CancellationToken::new();
         // ADR-0141: per-session channel accounting — attach/detach on the
         // WS layer keeps this fresh; the agent reads it live.
-        let human_channel = Arc::new(nuo_contracts::human_request::HumanChannelAccountant::new());
+        let human_channel = Arc::new(nuo_wire::human_request::HumanChannelAccountant::new());
         let boot = bootstrap::assemble(BootstrapParams {
             identity,
             preset,
@@ -1819,12 +1819,12 @@ async fn overview_of(session: &SessionStore, active: bool) -> SessionOverview {
         active,
         // Not on disk yet (never persisted or empty): no lineage to report.
         parent_id: None,
-        fork_kind: nuo_contracts::SessionForkKind::Trunk,
+        fork_kind: nuo_wire::SessionForkKind::Trunk,
         digest,
     }
 }
 fn lookup_latest_session_in_partition(
-    partition: &nuo_contracts::SessionPartition,
+    partition: &nuo_wire::SessionPartition,
 ) -> Option<String> {
     nuo_persistence::db::get_persistence_handle()
         .reader()
@@ -1846,7 +1846,7 @@ fn lookup_session_workspace(id: &str) -> Option<SessionBinding> {
     Some(SessionBinding { workspace, role })
 }
 
-fn lookup_session_manifest(id: &str) -> Option<nuo_contracts::SessionRoleManifest> {
+fn lookup_session_manifest(id: &str) -> Option<nuo_wire::SessionRoleManifest> {
     nuo_persistence::db::get_persistence_handle()
         .reader()
         .ok()?

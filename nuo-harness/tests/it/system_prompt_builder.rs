@@ -16,9 +16,9 @@ struct IdleProvider;
 impl Provider for IdleProvider {
     async fn chat(
         &self,
-        _request: nuo_contracts::ModelRequest,
-    ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
-        Ok(nuo_contracts::ProviderCompletion::message(Message::new(
+        _request: nuo_wire::ModelRequest,
+    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+        Ok(nuo_wire::ProviderCompletion::message(Message::new(
             Role::Assistant,
             "done",
         )))
@@ -26,10 +26,10 @@ impl Provider for IdleProvider {
 
     async fn stream_chat(
         &self,
-        _request: nuo_contracts::ModelRequest,
+        _request: nuo_wire::ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-        nuo_contracts::ProviderError,
+        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+        nuo_wire::ProviderError,
     > {
         Ok(Box::pin(stream::once(async { Ok("done".to_owned()) })))
     }

@@ -8,7 +8,7 @@
 //! queues, projecting viewed-session data, and the scroll-relevant
 //! transcript-change bookkeeping — all reading and writing `App` alone.
 
-use nuo_contracts::Role;
+use nuo_wire::Role;
 
 use crate::app::App;
 use crate::event_loop::runtime::{UiRuntime, now_epoch_ms};

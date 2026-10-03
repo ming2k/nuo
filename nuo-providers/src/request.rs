@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use http::{HeaderMap, HeaderName, HeaderValue, Method};
-use nuo_contracts::{ProviderError, ProviderErrorKind};
+use nuo_model_codec::{ProviderError, ProviderErrorKind};
 
 use crate::egress::RequestParts;
 
@@ -26,7 +26,7 @@ pub struct RequestBuilder {
     headers: HeaderMap,
     body: Option<Bytes>,
     timeout: Option<Duration>,
-    telemetry: nuo_contracts::TransportTelemetry,
+    telemetry: nuo_model_codec::TransportTelemetry,
 }
 
 impl RequestBuilder {
@@ -37,7 +37,7 @@ impl RequestBuilder {
             headers: HeaderMap::new(),
             body: None,
             timeout: None,
-            telemetry: nuo_contracts::TransportTelemetry::new(),
+            telemetry: nuo_model_codec::TransportTelemetry::new(),
         }
     }
 
@@ -47,7 +47,7 @@ impl RequestBuilder {
     /// belongs to whoever issued the attempt. A builder left without one carries
     /// a fresh empty handle, so its timings are simply unobserved rather than
     /// attributed somewhere unintended.
-    pub fn with_telemetry(mut self, telemetry: nuo_contracts::TransportTelemetry) -> Self {
+    pub fn with_telemetry(mut self, telemetry: nuo_model_codec::TransportTelemetry) -> Self {
         self.telemetry = telemetry;
         self
     }

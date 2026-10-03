@@ -2,7 +2,7 @@
 
 use super::{SkillRegistry, SkillScope};
 use async_trait::async_trait;
-use nuo_contracts::Tool;
+use nuo_wire::Tool;
 use serde_json::json;
 use std::sync::Arc;
 

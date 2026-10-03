@@ -127,13 +127,13 @@ pub(crate) fn extract_focused_target_text(
 
 /// Format the current loop status into human-readable text.
 pub(crate) fn display_status(
-    loop_status: nuo_contracts::LoopStatus,
+    loop_status: nuo_wire::LoopStatus,
     phase: Option<&crate::phase::Phase>,
 ) -> String {
     match (loop_status, phase) {
-        (nuo_contracts::LoopStatus::Idle, None) => "idle".to_string(),
-        (nuo_contracts::LoopStatus::Running, None) => "preparing".to_string(),
-        (nuo_contracts::LoopStatus::Idle, Some(phase))
-        | (nuo_contracts::LoopStatus::Running, Some(phase)) => phase.label().into_owned(),
+        (nuo_wire::LoopStatus::Idle, None) => "idle".to_string(),
+        (nuo_wire::LoopStatus::Running, None) => "preparing".to_string(),
+        (nuo_wire::LoopStatus::Idle, Some(phase))
+        | (nuo_wire::LoopStatus::Running, Some(phase)) => phase.label().into_owned(),
     }
 }

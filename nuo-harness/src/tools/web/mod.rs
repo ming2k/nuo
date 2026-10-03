@@ -13,26 +13,26 @@ pub use reader::WebReaderTool;
 pub use search::WebSearchTool;
 pub use snapshot::{WebPageSnapshot, WebSnapshotResult};
 
-nuo_contracts::register_tool!(WebReaderFactory => |ctx| {
-    ctx.get::<nuo_contracts::SharedWebConfig>()
+nuo_wire::register_tool!(WebReaderFactory => |ctx| {
+    ctx.get::<nuo_wire::SharedWebConfig>()
         .cloned()
         .map(WebReaderTool::with_shared_config)
         .unwrap_or_else(|| {
             WebReaderTool::with_config(
-                ctx.get::<nuo_contracts::WebRuntimeConfig>()
+                ctx.get::<nuo_wire::WebRuntimeConfig>()
                     .cloned()
                     .unwrap_or_default(),
             )
         })
 });
 
-nuo_contracts::register_tool!(WebSearchFactory => |ctx| {
-    ctx.get::<nuo_contracts::SharedWebConfig>()
+nuo_wire::register_tool!(WebSearchFactory => |ctx| {
+    ctx.get::<nuo_wire::SharedWebConfig>()
         .cloned()
         .map(WebSearchTool::with_shared_config)
         .unwrap_or_else(|| {
             WebSearchTool::with_config(
-                ctx.get::<nuo_contracts::WebRuntimeConfig>()
+                ctx.get::<nuo_wire::WebRuntimeConfig>()
                     .cloned()
                     .unwrap_or_default(),
             )

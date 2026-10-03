@@ -87,7 +87,7 @@ fn humanize_command_name(name: &str) -> String {
 /// Filter and rank commands for display in the Command Palette.
 pub(crate) fn filter_palette_commands(
     query: &str,
-    catalog: &nuo_contracts::CommandCatalog,
+    catalog: &nuo_wire::CommandCatalog,
     recent: &[String],
     ctx: &AppContext,
 ) -> Vec<PaletteEntry> {
@@ -413,7 +413,7 @@ pub(crate) fn draw_command_palette(
 mod tests {
     use super::*;
 
-    fn sample_catalog() -> nuo_contracts::CommandCatalog {
+    fn sample_catalog() -> nuo_wire::CommandCatalog {
         nuo_client::command_catalog(&[("/custom-check".into(), "Custom health check".into())])
     }
 

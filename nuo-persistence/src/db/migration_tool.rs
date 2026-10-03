@@ -21,7 +21,7 @@
 //! runtime) does not apply to it. The module lives under `db::` so the
 //! one-door source guard, which only scans the live crates, is not tripped.
 
-use nuo_contracts::context_lifecycle::{
+use nuo_wire::context_lifecycle::{
     FactId, FactNode, FactPayload, RoundId, Sensitivity, SourceAuthority, TurnId,
 };
 use rusqlite::{Connection, OptionalExtension, params};

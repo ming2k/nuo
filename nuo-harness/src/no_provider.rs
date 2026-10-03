@@ -7,12 +7,12 @@
 //! `Arc<dyn Provider>`. The chat dispatch in `muta-runtime` checks
 //! [`NoProvider::ID`] up-front and refuses the send with a user-facing
 //! notification, so a [`NoProvider`] should never actually be invoked — its
-//! [`nuo_contracts::Provider`] impl is a defensive backstop that
+//! [`nuo_wire::Provider`] impl is a defensive backstop that
 //! returns a clear error if it ever is.
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
-use nuo_contracts::{ModelRequest, Provider, ProviderCompletion};
+use nuo_wire::{ModelRequest, Provider, ProviderCompletion};
 
 /// The provider id reported by [`NoProvider`]. Callers that need to gate on
 /// "is there a real provider installed?" compare against this constant (or
@@ -45,10 +45,10 @@ impl Provider for NoProvider {
     async fn chat(
         &self,
         _request: ModelRequest,
-    ) -> Result<ProviderCompletion, nuo_contracts::ProviderError> {
-        Err(nuo_contracts::ProviderError::new(
+    ) -> Result<ProviderCompletion, nuo_wire::ProviderError> {
+        Err(nuo_wire::ProviderError::new(
             "none",
-            nuo_contracts::ProviderErrorKind::Unavailable,
+            nuo_wire::ProviderErrorKind::Unavailable,
             no_provider_message(),
         ))
     }
@@ -57,12 +57,12 @@ impl Provider for NoProvider {
         &self,
         _request: ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-        nuo_contracts::ProviderError,
+        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+        nuo_wire::ProviderError,
     > {
-        Err(nuo_contracts::ProviderError::new(
+        Err(nuo_wire::ProviderError::new(
             "none",
-            nuo_contracts::ProviderErrorKind::Unavailable,
+            nuo_wire::ProviderErrorKind::Unavailable,
             no_provider_message(),
         ))
     }
@@ -100,7 +100,7 @@ mod tests {
             async fn chat(
                 &self,
                 _request: ModelRequest,
-            ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError>
+            ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError>
             {
                 unreachable!()
             }
@@ -108,8 +108,8 @@ mod tests {
                 &self,
                 _request: ModelRequest,
             ) -> Result<
-                BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-                nuo_contracts::ProviderError,
+                BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+                nuo_wire::ProviderError,
             > {
                 unreachable!()
             }

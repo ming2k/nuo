@@ -38,7 +38,7 @@ pub use device_identity::{DeviceIdentity, FileDeviceIdentity, PerProcessIdentity
 pub use host::CredentialHost;
 pub use enricher::*;
 pub use manual::parse_authorization_response;
-pub use nuo_contracts::provider_auth::{
+pub use nuo_model_codec::provider_auth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, OAuthConfigBuilder, PkceMode, PortMode,
     TokenRequestFormat,
 };
@@ -84,8 +84,8 @@ pub use token::{
     resolve_antigravity_project,
 };
 
-pub use nuo_contracts::LoginMethod;
-use nuo_contracts::SecretString;
+pub use nuo_model_codec::LoginMethod;
+use nuo_host::SecretString;
 use std::sync::{Arc, Mutex};
 
 const OAUTH_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);

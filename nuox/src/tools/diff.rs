@@ -126,7 +126,7 @@ struct CachedDiff {
 
 /// Bounded render-layer cache for completed edit diffs.
 ///
-/// The durable transcript keeps the canonical [`ToolOutput::Patch`](nuo_contracts::ToolOutput)
+/// The durable transcript keeps the canonical [`ToolOutput::Patch`](nuo_wire::ToolOutput)
 /// only. Myers/word diffing and context collapsing are presentation work, so
 /// their derived rows live here and are reused across animation frames. A
 /// source equality check, rather than a hash alone, makes reuse collision-free

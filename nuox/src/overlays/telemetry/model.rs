@@ -1,13 +1,13 @@
 //! Telemetry data extraction, aggregation models, and rate calculations.
 
-use nuo_contracts::{RequestPerformance, RequestUsageStatus, TokenSourceReport};
+use nuo_wire::{RequestPerformance, RequestUsageStatus, TokenSourceReport};
 use std::collections::BTreeMap;
 
 /// View properties for contextual tokens when displaying context limits.
 #[derive(Debug, Clone, Copy, Default)]
 #[allow(dead_code)]
 pub struct ContextUsageProps {
-    pub snapshot: Option<nuo_contracts::ContextTokenSnapshot>,
+    pub snapshot: Option<nuo_wire::ContextTokenSnapshot>,
     pub window_tokens: Option<usize>,
     pub draft_content_tokens: usize,
     pub draft_tokens: usize,
@@ -35,14 +35,14 @@ pub struct TelemetryAttempt {
 }
 
 impl TelemetryAttempt {
-    pub fn snapshot(&self) -> Option<nuo_contracts::TurnPerformanceSnapshot> {
+    pub fn snapshot(&self) -> Option<nuo_wire::TurnPerformanceSnapshot> {
         let perf = self.performance?;
-        Some(nuo_contracts::TurnPerformanceSnapshot {
+        Some(nuo_wire::TurnPerformanceSnapshot {
             round: self.round,
             turn: self.turn,
             attempt: self.attempt,
             completion_tokens: self.completion_tokens,
-            usage_source: nuo_contracts::RequestUsageSource::Reported,
+            usage_source: nuo_wire::RequestUsageSource::Reported,
             performance: perf,
         })
     }
@@ -104,7 +104,7 @@ impl TelemetryRound {
             return None;
         }
         let tps = tokens as f64 * 1_000_000.0 / span_us as f64;
-        (tps.is_finite() && tps > 0.0 && tps <= nuo_contracts::MAX_PLAUSIBLE_STREAM_TPS)
+        (tps.is_finite() && tps > 0.0 && tps <= nuo_wire::MAX_PLAUSIBLE_STREAM_TPS)
             .then_some(tps)
     }
 }
@@ -269,7 +269,7 @@ pub(crate) fn fmt_tps(tps: Option<f64>) -> String {
         Some(rate)
             if rate > 0.0
                 && rate.is_finite()
-                && rate <= nuo_contracts::MAX_PLAUSIBLE_STREAM_TPS =>
+                && rate <= nuo_wire::MAX_PLAUSIBLE_STREAM_TPS =>
         {
             format!("{rate:.1} tok/s")
         }

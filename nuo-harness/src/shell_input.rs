@@ -2,7 +2,7 @@
 //!
 //! This advisory classifier belongs beside tool dispatch: it decides whether
 //! the agent should open its input-injection path and whether that input must
-//! be masked. The shell result DTO and formatting remain in `nuo-contracts`.
+//! be masked. The shell result DTO and formatting remain in `nuo-wire`.
 
 /// The kind of operator input a shell command is expected to request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,8 +20,8 @@ impl ShellInputKind {
 /// Build the advisory [`InputExpectation`] for a command the classifier
 /// recognized. Used to seed the operator input panel's prompt text and masking
 /// before the runtime examiner confirms the wait.
-pub(crate) fn expectation(command: &str, kind: ShellInputKind) -> nuo_contracts::InputExpectation {
-    nuo_contracts::InputExpectation {
+pub(crate) fn expectation(command: &str, kind: ShellInputKind) -> nuo_wire::InputExpectation {
+    nuo_wire::InputExpectation {
         prompt: if kind.is_secret() {
             "Enter the secret this command is waiting for:".to_string()
         } else {

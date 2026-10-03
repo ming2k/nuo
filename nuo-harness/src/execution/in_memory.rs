@@ -1,7 +1,7 @@
 //! In-memory execution environment for fast, deterministic unit testing without OS/disk side effects.
 
 use async_trait::async_trait;
-use nuo_contracts::execution::{
+use nuo_wire::execution::{
     DirEntry, ExecutionEnvironment, FsError, FsMetadata, FsProvider, ProcessOutput, ProcessRunner,
 };
 use std::collections::{BTreeMap, HashMap};

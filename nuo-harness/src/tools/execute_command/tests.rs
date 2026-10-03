@@ -65,7 +65,7 @@ async fn execute_command_captures_stdout_and_exits() {
         .await
         .expect("ok");
     match out {
-        nuo_contracts::ToolOutput::Shell {
+        nuo_wire::ToolOutput::Shell {
             stdout,
             exit,
             termination,
@@ -75,7 +75,7 @@ async fn execute_command_captures_stdout_and_exits() {
             assert_eq!(exit, Some(0));
             assert_eq!(
                 termination,
-                nuo_contracts::tool_output::ShellTermination::Exited
+                nuo_wire::tool_output::ShellTermination::Exited
             );
         }
         other => panic!("expected Shell, got {:?}", other),
@@ -99,7 +99,7 @@ async fn execute_command_closed_stdin_means_eof_not_hang() {
     .await
     .expect("closed stdin must NOT hang past 5s");
     match out.expect("ok") {
-        nuo_contracts::ToolOutput::Shell { exit, .. } => {
+        nuo_wire::ToolOutput::Shell { exit, .. } => {
             assert_ne!(exit, Some(0));
         }
         other => panic!("expected Shell, got {:?}", other),
@@ -111,16 +111,16 @@ async fn execute_command_closed_stdin_means_eof_not_hang() {
 #[tokio::test]
 async fn execute_command_prefilled_stdin_feeds_the_child() {
     let tool = ExecuteCommandTool::new(None);
-    let mut on_stream = |_: nuo_contracts::ToolStream| ();
+    let mut on_stream = |_: nuo_wire::ToolStream| ();
     let out = tool
         .call_structured_with_events(
-            nuo_contracts::ToolInvocation {
+            nuo_wire::ToolInvocation {
                 call_id: "",
                 arguments: &arguments(native_command(
                     "cat",
                     "[Console]::Out.Write([Console]::In.ReadToEnd())",
                 )),
-                input: nuo_contracts::InputContract::Prefilled {
+                input: nuo_wire::InputContract::Prefilled {
                     data: "injected\n".into(),
                 },
                 input_handler: None,
@@ -131,7 +131,7 @@ async fn execute_command_prefilled_stdin_feeds_the_child() {
         .await
         .expect("ok");
     match out {
-        nuo_contracts::ToolOutput::Shell { stdout, exit, .. } => {
+        nuo_wire::ToolOutput::Shell { stdout, exit, .. } => {
             assert_eq!(stdout, "injected\n");
             assert_eq!(exit, Some(0));
         }
@@ -150,7 +150,7 @@ async fn execute_command_child_runs_in_its_own_process_group() {
         .await
         .expect("ok");
     match out {
-        nuo_contracts::ToolOutput::Shell { stdout, exit, .. } => {
+        nuo_wire::ToolOutput::Shell { stdout, exit, .. } => {
             let _ = stdout;
             let _ = exit;
         }
@@ -168,7 +168,7 @@ async fn execute_command_hermetic_headless_environment_prevents_interactive_edit
         .await
         .expect("ok");
     match out {
-        nuo_contracts::ToolOutput::Shell { stdout, .. } => {
+        nuo_wire::ToolOutput::Shell { stdout, .. } => {
             assert!(stdout.contains("editor_failed"));
         }
         other => panic!("expected Shell, got {:?}", other),
@@ -185,7 +185,7 @@ async fn execute_command_detaches_controlling_terminal() {
         .await
         .expect("ok");
     match out {
-        nuo_contracts::ToolOutput::Shell { stdout, .. } => {
+        nuo_wire::ToolOutput::Shell { stdout, .. } => {
             assert!(stdout.contains("cannot_open_tty") || stdout.contains("No such device or address"));
         }
         other => panic!("expected Shell, got {:?}", other),
@@ -210,7 +210,7 @@ async fn execute_command_git_tag_fails_fast_when_gpgsign_enabled() {
         .await
         .expect("ok");
     match out {
-        nuo_contracts::ToolOutput::Shell { stdout, .. } => {
+        nuo_wire::ToolOutput::Shell { stdout, .. } => {
             assert!(
                 stdout.contains("problem with the editor")
                     || stdout.contains("git_tag_failed_fast")
@@ -236,15 +236,15 @@ async fn execute_command_sleep_is_not_mistaken_for_an_input_wait() {
         .expect("ok");
     let elapsed = start.elapsed();
     match out {
-        nuo_contracts::ToolOutput::Shell { termination, .. } => {
+        nuo_wire::ToolOutput::Shell { termination, .. } => {
             assert_ne!(
                 termination,
-                nuo_contracts::tool_output::ShellTermination::InputUnanswered,
+                nuo_wire::tool_output::ShellTermination::InputUnanswered,
                 "a sleep must not be classified as an input wait"
             );
             assert_eq!(
                 termination,
-                nuo_contracts::tool_output::ShellTermination::IdleBlocked
+                nuo_wire::tool_output::ShellTermination::IdleBlocked
             );
             assert!(elapsed.as_secs() < 25, "took too long: {elapsed:?}");
         }
@@ -261,13 +261,13 @@ async fn execute_command_sleep_is_not_mistaken_for_an_input_wait() {
 async fn execute_command_detected_input_wait_fast_fails_without_a_supervisor() {
     let tool = ExecuteCommandTool::new(None);
     let start = std::time::Instant::now();
-    let mut on_stream = |_: nuo_contracts::ToolStream| ();
+    let mut on_stream = |_: nuo_wire::ToolStream| ();
     let out = tool
         .call_structured_with_events(
-            nuo_contracts::ToolInvocation {
+            nuo_wire::ToolInvocation {
                 call_id: "",
                 arguments: r#"{"command":"read x; echo never", "timeout": 120}"#,
-                input: nuo_contracts::InputContract::Supervised { expectation: None },
+                input: nuo_wire::InputContract::Supervised { expectation: None },
                 input_handler: None,
             },
             Box::new(|_| {}),
@@ -277,10 +277,10 @@ async fn execute_command_detected_input_wait_fast_fails_without_a_supervisor() {
         .expect("ok");
     let elapsed = start.elapsed();
     match out {
-        nuo_contracts::ToolOutput::Shell { termination, .. } => {
+        nuo_wire::ToolOutput::Shell { termination, .. } => {
             assert_eq!(
                 termination,
-                nuo_contracts::tool_output::ShellTermination::InputUnanswered,
+                nuo_wire::tool_output::ShellTermination::InputUnanswered,
                 "a genuine stdin read must be detected and fast-failed"
             );
             // ~5s examiner floor + 2s stability, well under the 40s idle budget.
@@ -290,7 +290,7 @@ async fn execute_command_detected_input_wait_fast_fails_without_a_supervisor() {
     }
 }
 
-/// A test [`InputHandler`](nuo_contracts::InputHandler) that always answers
+/// A test [`InputHandler`](nuo_wire::InputHandler) that always answers
 /// with a fixed line, counting how many prompts it served.
 struct ScriptedHandler {
     answer: String,
@@ -298,8 +298,8 @@ struct ScriptedHandler {
 }
 
 #[async_trait::async_trait]
-impl nuo_contracts::InputHandler for ScriptedHandler {
-    async fn resolve(&self, _prompt: nuo_contracts::InputPrompt) -> Option<String> {
+impl nuo_wire::InputHandler for ScriptedHandler {
+    async fn resolve(&self, _prompt: nuo_wire::InputPrompt) -> Option<String> {
         self.served
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Some(self.answer.clone())
@@ -317,13 +317,13 @@ async fn supervised_command_receives_injected_stdin() {
         answer: "injected-value".to_string(),
         served: std::sync::atomic::AtomicUsize::new(0),
     };
-    let mut on_stream = |_: nuo_contracts::ToolStream| ();
+    let mut on_stream = |_: nuo_wire::ToolStream| ();
     let out = tool
         .call_structured_with_events(
-            nuo_contracts::ToolInvocation {
+            nuo_wire::ToolInvocation {
                 call_id: "",
                 arguments: &arguments("read x; printf 'GOT:%s' \"$x\""),
-                input: nuo_contracts::InputContract::Supervised { expectation: None },
+                input: nuo_wire::InputContract::Supervised { expectation: None },
                 input_handler: Some(&handler),
             },
             Box::new(|_| {}),
@@ -337,7 +337,7 @@ async fn supervised_command_receives_injected_stdin() {
         "the runtime examiner must have parked exactly one prompt"
     );
     match out {
-        nuo_contracts::ToolOutput::Shell {
+        nuo_wire::ToolOutput::Shell {
             stdout,
             exit,
             termination,
@@ -345,7 +345,7 @@ async fn supervised_command_receives_injected_stdin() {
         } => {
             assert_eq!(
                 termination,
-                nuo_contracts::tool_output::ShellTermination::Exited
+                nuo_wire::tool_output::ShellTermination::Exited
             );
             assert_eq!(exit, Some(0));
             assert_eq!(stdout, "GOT:injected-value\n");
@@ -365,13 +365,13 @@ async fn supervised_command_receives_injected_controlling_tty_input() {
         answer: "tty-secret".to_string(),
         served: std::sync::atomic::AtomicUsize::new(0),
     };
-    let mut on_stream = |_: nuo_contracts::ToolStream| ();
+    let mut on_stream = |_: nuo_wire::ToolStream| ();
     let out = tool
         .call_structured_with_events(
-            nuo_contracts::ToolInvocation {
+            nuo_wire::ToolInvocation {
                 call_id: "",
                 arguments: &arguments("read x < /dev/tty; printf 'GOT:%s' \"$x\""),
-                input: nuo_contracts::InputContract::Supervised { expectation: None },
+                input: nuo_wire::InputContract::Supervised { expectation: None },
                 input_handler: Some(&handler),
             },
             Box::new(|_| {}),
@@ -380,14 +380,14 @@ async fn supervised_command_receives_injected_controlling_tty_input() {
         .await
         .expect("ok");
     match out {
-        nuo_contracts::ToolOutput::Shell {
+        nuo_wire::ToolOutput::Shell {
             stdout,
             termination,
             ..
         } => {
             assert_ne!(
                 termination,
-                nuo_contracts::tool_output::ShellTermination::InputUnanswered,
+                nuo_wire::tool_output::ShellTermination::InputUnanswered,
                 "the /dev/tty prompt must have been answered, not refused"
             );
             assert_eq!(stdout, "GOT:tty-secret\n");
@@ -404,20 +404,20 @@ async fn supervised_command_receives_injected_controlling_tty_input() {
 async fn supervised_command_declined_input_is_unanswered() {
     struct DecliningHandler;
     #[async_trait::async_trait]
-    impl nuo_contracts::InputHandler for DecliningHandler {
-        async fn resolve(&self, _prompt: nuo_contracts::InputPrompt) -> Option<String> {
+    impl nuo_wire::InputHandler for DecliningHandler {
+        async fn resolve(&self, _prompt: nuo_wire::InputPrompt) -> Option<String> {
             None
         }
     }
     let tool = ExecuteCommandTool::new(None);
     let handler = DecliningHandler;
-    let mut on_stream = |_: nuo_contracts::ToolStream| ();
+    let mut on_stream = |_: nuo_wire::ToolStream| ();
     let out = tool
         .call_structured_with_events(
-            nuo_contracts::ToolInvocation {
+            nuo_wire::ToolInvocation {
                 call_id: "",
                 arguments: &arguments("read x; echo never"),
-                input: nuo_contracts::InputContract::Supervised { expectation: None },
+                input: nuo_wire::InputContract::Supervised { expectation: None },
                 input_handler: Some(&handler),
             },
             Box::new(|_| {}),
@@ -426,9 +426,9 @@ async fn supervised_command_declined_input_is_unanswered() {
         .await
         .expect("ok");
     match out {
-        nuo_contracts::ToolOutput::Shell { termination, .. } => assert_eq!(
+        nuo_wire::ToolOutput::Shell { termination, .. } => assert_eq!(
             termination,
-            nuo_contracts::tool_output::ShellTermination::InputUnanswered
+            nuo_wire::tool_output::ShellTermination::InputUnanswered
         ),
         other => panic!("expected Shell, got {other:?}"),
     }
@@ -450,13 +450,13 @@ async fn supervised_separate_fd_tty_prompt_is_detected_and_answered() {
     };
     // python3 opens /dev/tty as a new fd; fd 0 stays whatever the harness gave.
     let script = "python3 -c \"import sys; f=open('/dev/tty'); print('GOT:'+f.readline().strip())\"";
-    let mut on_stream = |_: nuo_contracts::ToolStream| ();
+    let mut on_stream = |_: nuo_wire::ToolStream| ();
     let out = tool
         .call_structured_with_events(
-            nuo_contracts::ToolInvocation {
+            nuo_wire::ToolInvocation {
                 call_id: "",
                 arguments: &arguments(script),
-                input: nuo_contracts::InputContract::Supervised { expectation: None },
+                input: nuo_wire::InputContract::Supervised { expectation: None },
                 input_handler: Some(&handler),
             },
             Box::new(|_| {}),
@@ -465,14 +465,14 @@ async fn supervised_separate_fd_tty_prompt_is_detected_and_answered() {
         .await
         .expect("ok");
     match out {
-        nuo_contracts::ToolOutput::Shell {
+        nuo_wire::ToolOutput::Shell {
             stdout,
             termination,
             ..
         } => {
             assert_ne!(
                 termination,
-                nuo_contracts::tool_output::ShellTermination::InputUnanswered,
+                nuo_wire::tool_output::ShellTermination::InputUnanswered,
                 "a separate-fd /dev/tty prompt must be answered, not refused"
             );
             assert!(
@@ -503,7 +503,7 @@ async fn execute_command_many_lines_do_not_incur_per_line_proc_scans() {
         .expect("ok");
     let elapsed = start.elapsed();
     match out {
-        nuo_contracts::ToolOutput::Shell { lines, .. } => {
+        nuo_wire::ToolOutput::Shell { lines, .. } => {
             assert_eq!(lines.len(), 900, "all lines must be captured");
         }
         other => panic!("expected Shell, got {other:?}"),
@@ -532,8 +532,8 @@ async fn execute_command_timeout_kills_grandchildren() {
         .await;
     assert!(matches!(
         &out,
-        Ok(nuo_contracts::ToolOutput::Shell {
-            termination: nuo_contracts::tool_output::ShellTermination::Timeout,
+        Ok(nuo_wire::ToolOutput::Shell {
+            termination: nuo_wire::tool_output::ShellTermination::Timeout,
             ..
         })
     ));
@@ -581,8 +581,8 @@ async fn execute_command_timeout_kills_grandchildren() {
         .await;
     assert!(matches!(
         &out,
-        Ok(nuo_contracts::ToolOutput::Shell {
-            termination: nuo_contracts::tool_output::ShellTermination::Timeout,
+        Ok(nuo_wire::ToolOutput::Shell {
+            termination: nuo_wire::tool_output::ShellTermination::Timeout,
             ..
         })
     ));
@@ -618,7 +618,7 @@ async fn execute_command_caps_huge_output_in_memory() {
         .await
         .expect("ok");
     match out {
-        nuo_contracts::ToolOutput::Shell {
+        nuo_wire::ToolOutput::Shell {
             stdout, truncated, ..
         } => {
             assert!(truncated, "collection cap must set the hint");
@@ -650,7 +650,7 @@ async fn execute_command_captures_expanded_tabs() {
         .await
         .expect("ok");
     match out {
-        nuo_contracts::ToolOutput::Shell { stdout, .. } => {
+        nuo_wire::ToolOutput::Shell { stdout, .. } => {
             assert_eq!(stdout, "a       b\n");
         }
         other => panic!("expected Shell, got {:?}", other),
@@ -668,7 +668,7 @@ async fn execute_command_runs_in_the_session_workspace_root() {
         .await
         .expect("ok");
     match out {
-        nuo_contracts::ToolOutput::Shell { stdout, .. } => {
+        nuo_wire::ToolOutput::Shell { stdout, .. } => {
             let expected = marker.canonicalize().expect("canonical workspace root");
             assert_eq!(stdout.trim(), expected.as_os_str().to_string_lossy());
         }
@@ -708,7 +708,7 @@ async fn workspace_shell_sees_only_runtime_and_exact_workspace() {
         .expect("sandbox command");
     assert!(matches!(
         output,
-        nuo_contracts::ToolOutput::Shell { exit: Some(0), .. }
+        nuo_wire::ToolOutput::Shell { exit: Some(0), .. }
     ));
     assert_eq!(
         std::fs::read_to_string(workspace.join("created")).unwrap(),
@@ -800,7 +800,7 @@ fn execute_command_schema_documents_1800s_default_timeout() {
 #[test]
 fn semantic_folding_collapses_pure_green_ninja_test_runs() {
     use super::pipes::{OutputCollector, is_pure_green_test_line};
-    use nuo_contracts::tool_output::{ShellLine, ShellStream};
+    use nuo_wire::tool_output::{ShellLine, ShellStream};
 
     // Verify pattern matching
     assert!(is_pure_green_test_line("[1/134] test_alpha OK 0.01s"));
@@ -852,7 +852,7 @@ fn semantic_folding_collapses_pure_green_ninja_test_runs() {
 #[test]
 fn semantic_folding_bypassed_when_raw_is_true() {
     use super::pipes::OutputCollector;
-    use nuo_contracts::tool_output::{ShellLine, ShellStream};
+    use nuo_wire::tool_output::{ShellLine, ShellStream};
 
     let mut collector = OutputCollector::new();
     for i in 1..=5 {
@@ -875,7 +875,7 @@ fn semantic_folding_bypassed_when_raw_is_true() {
 #[test]
 fn output_collector_detects_stream_flooding() {
     use super::pipes::{OutputCollector, SHELL_STREAM_FLOOD_LINES};
-    use nuo_contracts::tool_output::{ShellLine, ShellStream};
+    use nuo_wire::tool_output::{ShellLine, ShellStream};
 
     let mut collector = OutputCollector::new();
     assert!(!collector.is_stream_flooded(false));
@@ -972,7 +972,7 @@ async fn execute_command_stream_guard_cuts_off_unbounded_stream() {
         .expect("command execution succeeded with structured output");
 
     match &out {
-        nuo_contracts::ToolOutput::Shell {
+        nuo_wire::ToolOutput::Shell {
             termination,
             exit,
             stdout,
@@ -980,7 +980,7 @@ async fn execute_command_stream_guard_cuts_off_unbounded_stream() {
         } => {
             assert_eq!(
                 *termination,
-                nuo_contracts::tool_output::ShellTermination::StreamGuard,
+                nuo_wire::tool_output::ShellTermination::StreamGuard,
                 "Expected StreamGuard termination for infinite streaming command"
             );
             assert_eq!(*exit, None);
@@ -1016,7 +1016,7 @@ async fn execute_command_suppresses_long_minified_line() {
 
     let out = tool.call_structured(&args).await.expect("command succeeds");
     match out {
-        nuo_contracts::ToolOutput::Shell {
+        nuo_wire::ToolOutput::Shell {
             stdout, truncated, ..
         } => {
             assert!(truncated, "single massive minified line must flag truncation");

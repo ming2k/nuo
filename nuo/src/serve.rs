@@ -2,7 +2,7 @@ use futures::{SinkExt, StreamExt};
 use nuo_client::wire::{
     ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, protocol_accepts,
 };
-use nuo_contracts::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
+use nuo_wire::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -70,13 +70,13 @@ impl AttachSyncBuffer {
                 self.provider_picker = Some(response.clone());
             }
             AgentResponse::Round {
-                event: nuo_contracts::RoundEvent::ContextTokens(_),
+                event: nuo_wire::RoundEvent::ContextTokens(_),
                 ..
             } => {
                 self.context_tokens = Some(response.clone());
             }
             AgentResponse::Round {
-                event: nuo_contracts::RoundEvent::HarnessState(_),
+                event: nuo_wire::RoundEvent::HarnessState(_),
                 ..
             } => {
                 self.harness_state = Some(response.clone());
@@ -158,9 +158,9 @@ pub(crate) async fn snapshot_attach_sync(
 /// dialog fed from the attach-sync `HarnessState`.
 fn workspace_trust_notice(
     session_id: &str,
-    snapshot: &nuo_contracts::WorkspaceSecuritySnapshot,
+    snapshot: &nuo_wire::WorkspaceSecuritySnapshot,
 ) -> AgentResponse {
-    let round = |event: nuo_contracts::RoundEvent| AgentResponse::Round {
+    let round = |event: nuo_wire::RoundEvent| AgentResponse::Round {
         session_id: session_id.to_string(),
         event,
     };
@@ -176,7 +176,7 @@ fn workspace_trust_notice(
     ]
     .into_iter()
     .filter_map(|(name, state)| {
-        (state == nuo_contracts::WorkspaceTrustState::Changed).then_some(name)
+        (state == nuo_wire::WorkspaceTrustState::Changed).then_some(name)
     })
     .collect::<Vec<_>>();
 
@@ -186,9 +186,9 @@ fn workspace_trust_notice(
         changed.join(", ")
     };
 
-    round(nuo_contracts::RoundEvent::Notice(
-        nuo_contracts::AgentNotice::trust_changed("Workspace configurations changed")
-            .with_surface(nuo_contracts::NoticeSurface::Banner)
+    round(nuo_wire::RoundEvent::Notice(
+        nuo_wire::AgentNotice::trust_changed("Workspace configurations changed")
+            .with_surface(nuo_wire::NoticeSurface::Banner)
             .with_body(format!(
                 "Changed on disk: {changed_desc} — quarantined pending review.\n\n\
                  /trust re-trusts all; /trust <domain> (e.g. /trust instructions) re-trusts one.",
@@ -208,8 +208,8 @@ pub(crate) fn is_attach_sync_event(response: &AgentResponse) -> bool {
         | AgentResponse::ProviderPicker(_) => true,
         AgentResponse::Round { event, .. } => matches!(
             event,
-            nuo_contracts::RoundEvent::ContextTokens(_)
-                | nuo_contracts::RoundEvent::HarnessState(_)
+            nuo_wire::RoundEvent::ContextTokens(_)
+                | nuo_wire::RoundEvent::HarnessState(_)
         ),
         _ => false,
     }
@@ -1073,7 +1073,7 @@ async fn handle_wire_stream(
     let todos_frame = Wire::Response {
         response: AgentResponse::Round {
             session_id: bound.session.id().await,
-            event: nuo_contracts::RoundEvent::TodosUpdated(todos),
+            event: nuo_wire::RoundEvent::TodosUpdated(todos),
         },
     };
     wire_sink
@@ -1100,8 +1100,8 @@ async fn handle_wire_stream(
         // so the trust dialog opens before the first frame becomes
         // interactive — instead of a passive banner arriving after the
         // user already started typing into the composer.
-        let snapshot = nuo_contracts::HarnessSnapshot {
-            loop_status: nuo_contracts::LoopStatus::Idle,
+        let snapshot = nuo_wire::HarnessSnapshot {
+            loop_status: nuo_wire::LoopStatus::Idle,
             round_counter: bound.session.round_counter().await,
             unattended: bound.session.unattended().await,
             confined: bound.shared_confinement.is_confined(),
@@ -1116,7 +1116,7 @@ async fn handle_wire_stream(
         let frame = Wire::Response {
             response: AgentResponse::Round {
                 session_id: bound.session.id().await,
-                event: nuo_contracts::RoundEvent::HarnessState(snapshot),
+                event: nuo_wire::RoundEvent::HarnessState(snapshot),
             },
         };
         wire_sink
@@ -1124,12 +1124,12 @@ async fn handle_wire_stream(
             .await
             .map_err(|e| format!("send retry-pending restore: {e}"))?;
         if let Some(performance) =
-            nuo_contracts::latest_turn_performance(&bound.session.request_usage_records().await)
+            nuo_wire::latest_turn_performance(&bound.session.request_usage_records().await)
         {
             let frame = Wire::Response {
                 response: AgentResponse::Round {
                     session_id: bound.session.id().await,
-                    event: nuo_contracts::RoundEvent::TurnPerformance(performance),
+                    event: nuo_wire::RoundEvent::TurnPerformance(performance),
                 },
             };
             wire_sink
@@ -1179,7 +1179,7 @@ async fn handle_wire_stream(
     let snap = bound.security_snapshot();
     if matches!(
         snap.aggregate(),
-        nuo_contracts::WorkspaceTrustState::Changed
+        nuo_wire::WorkspaceTrustState::Changed
     ) {
         let session_id = bound.session.id().await;
         let response = workspace_trust_notice(&session_id, &snap);
@@ -1841,10 +1841,10 @@ mod tests {
         for i in 1..=10 {
             let tokens = AgentResponse::Round {
                 session_id: "s1".to_string(),
-                event: nuo_contracts::RoundEvent::ContextTokens(
-                    nuo_contracts::ContextTokenSnapshot::new(
+                event: nuo_wire::RoundEvent::ContextTokens(
+                    nuo_wire::ContextTokenSnapshot::new(
                         i * 100,
-                        nuo_contracts::ContextTokenSource::Projection,
+                        nuo_wire::ContextTokenSource::Projection,
                     ),
                 ),
             };

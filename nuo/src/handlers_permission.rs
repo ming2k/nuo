@@ -8,7 +8,7 @@
 
 use crate::session_driver::send_harness_state_for_session;
 use nuo_harness::{Agent, RoundLifecycle, SubagentRegistry};
-use nuo_contracts::{AgentResponse, LoopStatus, PermissionDecision};
+use nuo_wire::{AgentResponse, LoopStatus, PermissionDecision};
 use nuo_persistence::session::SessionStore;
 use std::sync::Arc;
 use tokio::sync::{RwLock as AsyncRwLock, mpsc};
@@ -31,7 +31,7 @@ pub async fn interrupt(
     // Park the reason before anything else so the unwinding round's tail can
     // label its own terminal event + durable record (C11): this stop is the
     // user's explicit Esc Esc (or the control-plane Interrupt equivalent).
-    lifecycle.record_interrupt(nuo_contracts::RoundInterruptReason::User);
+    lifecycle.record_interrupt(nuo_wire::RoundInterruptReason::User);
     agent.reject_pending_permissions();
     agent.reject_pending_user_questions();
     agent.reject_pending_inputs();

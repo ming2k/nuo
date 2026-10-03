@@ -40,7 +40,7 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 │  Cluster C: Application & Subsystem Host Suite         │
 │  • nuo (daemon), nuox (terminal client)                │
 │  • nuo-client (SDK), nuo-host (host environment)       │
-│  • nuo-agent (cognitive loop), nuo-contracts (domain)  │
+│  • nuo-agent (cognitive loop), nuo-wire (domain & wire) │
 │  • nuo-tool, nuo-tool-derive (tool specifications)     │
 │  • nuo-model-codec (dialect translation & streaming)   │
 │  • nuo-harness (orchestrator), nuo-persistence (store) │
@@ -60,7 +60,7 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 | **`nuox`** | **Cluster C** | Semantic terminal interactive client (TUI) | `version.workspace = true` | Binary distribution |
 | **`nuo-agent`** | **Cluster C** | Cognitive loop, session turns & token compaction | `version.workspace = true` | crates.io package |
 | **`nuo-client`** | **Cluster C** | Standalone Rust Client SDK & Wire DTOs | `version.workspace = true` | crates.io package |
-| **`nuo-contracts`**| **Cluster C**| Pure domain contracts, events & zero-I/O traits | `version.workspace = true` | crates.io package |
+| **`nuo-wire`** | **Cluster C** | Wire envelopes, session entities & shared domain contracts | `version.workspace = true` | crates.io package |
 | **`nuo-host`** | **Cluster C** | Host environment, sandboxing & native tools | `version.workspace = true` | crates.io package |
 | **`nuo-tool`** | **Cluster C** | Zero-agent-runtime tool specification & schemas | `version.workspace = true` | crates.io package |
 | **`nuo-tool-derive`** | **Cluster C** | Compile-time JSON schema derive macro | Direct path companion to `nuo-tool` | crates.io package |

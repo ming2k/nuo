@@ -32,7 +32,7 @@
 //! as picking the option — which mirrors how the old banner left the
 //! workspace untrusted, just with a decision the user actually made.
 
-use nuo_contracts::{
+use nuo_wire::{
     TrustDomain, UserQuestion, UserQuestionOption, UserQuestionRequest, WorkspaceSecuritySnapshot,
     WorkspaceTrustState,
 };

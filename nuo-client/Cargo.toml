@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
-nuo-contracts = { workspace = true }
+nuo-wire = { workspace = true }
 nuo-host = { workspace = true }
 libc = { workspace = true }
 bytes = { workspace = true }

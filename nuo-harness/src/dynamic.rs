@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use nuo_contracts::DynamicCatalog;
+use nuo_wire::DynamicCatalog;
 /// Spawn a background task that refreshes a [`DynamicCatalog`] on its declared
 /// cadence. The first tick fires **immediately** (so a catalog that was not
 /// refreshed eagerly at startup gets its first refresh within seconds);

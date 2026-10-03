@@ -14,7 +14,7 @@ use std::sync::atomic::AtomicBool;
 
 use tokio::sync::mpsc;
 
-use nuo_contracts::{
+use nuo_wire::{
     AgentRequest, ConnectionAuth, ImagePart, LoopStatus, ParentStatus, PermissionRequest,
     ProviderPickerSnapshot, SessionOverview, UserQuestionRequest,
 };
@@ -88,7 +88,7 @@ pub struct QueuedDispatch {
 /// The attachments staged behind a recorded history entry, retained **in
 /// memory** so ↑/↓ and Ctrl+R recall can restore a just-sent / interrupted
 /// message's images and large pastes. Keyed by the same `(text, session_id)`
-/// identity [`nuo_contracts::merge_history`] uses, so a recall finds the
+/// identity [`nuo_wire::merge_history`] uses, so a recall finds the
 /// payloads that shipped with the exact prompt text.
 ///
 /// Deliberately **not** persisted: input history in SQLite is rebuildable cosmetic
@@ -246,7 +246,7 @@ pub struct SessionChrome {
     /// Latest completed principal ReAct turn's performance sample. Kept
     /// session-scoped so primary and `/btw` views never borrow each other's
     /// hint-bar measurement.
-    pub last_turn_performance: Option<nuo_contracts::TurnPerformanceSnapshot>,
+    pub last_turn_performance: Option<nuo_wire::TurnPerformanceSnapshot>,
     /// The transport setback this session's in-flight model request reported
     /// (`RetryScheduled`): a retry countdown rendered as a clause beside the
     /// activity label, never as the label itself (see `crate::phase` rule 2).
@@ -353,7 +353,7 @@ pub struct App {
     /// `AgentResponse::BtwList`. Drives the asides modal and the main view's
     /// header aside count. Kept even while inside an aside view so jumping
     /// back never needs a round trip.
-    pub btw_list: Vec<nuo_contracts::BtwAsideSummary>,
+    pub btw_list: Vec<nuo_wire::BtwAsideSummary>,
     /// Per-session chrome (activity text, responding flag, round/turn
     /// counters) for every session this client has observed, keyed by
     /// `session_id` — the primary **and** every live aside. A view renders
@@ -389,20 +389,20 @@ pub struct App {
     /// in-process harness shares this ledger); `None` in attach mode, where
     /// the accounting lives daemon-side and the modal renders the on-demand
     /// [`Self::token_report`] snapshot instead.
-    pub token_ledger: Option<Arc<nuo_contracts::TokenSourceLedger>>,
+    pub token_ledger: Option<Arc<nuo_wire::TokenSourceLedger>>,
     /// Token-source report fetched on demand from the harness for the viewed
     /// session. Populated by a `QueryTokenUsage` round-trip when the
     /// Telemetry modal opens in attach mode (`token_ledger` is `None`);
     /// `None` while the round-trip is in flight (the modal renders a loading
     /// placeholder). Cleared when the viewed session switches.
-    pub token_report: Option<nuo_contracts::TokenSourceReport>,
+    pub token_report: Option<nuo_wire::TokenSourceReport>,
     /// Latest session-scoped AI context snapshot from the harness. This is a
     /// provider usage/projection value, never a persisted transcript estimate.
-    pub context_tokens: Option<nuo_contracts::ContextTokenSnapshot>,
+    pub context_tokens: Option<nuo_wire::ContextTokenSnapshot>,
     /// Per-session context snapshots (ADR-0197 M1): the applier keys them by
     /// session; the render loop projects the *viewed* session's value into
     /// `context_tokens` each frame.
-    pub context_tokens_by_session: HashMap<String, nuo_contracts::ContextTokenSnapshot>,
+    pub context_tokens_by_session: HashMap<String, nuo_wire::ContextTokenSnapshot>,
     /// The **live primary session id** (ADR-0197 M1): the harness repoints
     /// its shared store on `/new`, `/session open`, `/resume`, and `/fork`;
     /// the translator reports each repoint here and session-scoped client
@@ -413,14 +413,14 @@ pub struct App {
     /// remain the *mounted front* projections the sheets render.
     pub pending_permissions: std::collections::VecDeque<PermissionRequest>,
     pub pending_questions: std::collections::VecDeque<UserQuestionRequest>,
-    pub pending_inputs: std::collections::VecDeque<nuo_contracts::InputRequest>,
+    pub pending_inputs: std::collections::VecDeque<nuo_wire::InputRequest>,
     /// Full-duplex (ADR-0029): which subagent (by parent tool-call id)
     /// surfaced a given permission / ask_user request, so the modal's reply
     /// can be tagged for down-routing.
     pub subagent_permission_parent: HashMap<String, String>,
     pub subagent_question_parent: HashMap<String, String>,
     /// The latest harness workspace-security snapshot (trust-gate state).
-    pub workspace_security: nuo_contracts::WorkspaceSecuritySnapshot,
+    pub workspace_security: nuo_wire::WorkspaceSecuritySnapshot,
     /// One-shot backend navigation signals (ADR-0197 M1): the applier latches
     /// them; the loop consumes and clears when it mounts the surface.
     pub open_sessions_signal: bool,
@@ -459,7 +459,7 @@ pub struct App {
     /// aggregates the durable store under `data/usage/`, which survives
     /// session cleanup. `None` while the round-trip is in flight (the
     /// overlay renders a loading placeholder).
-    pub usage_stats: Option<nuo_contracts::usage_stats::UsageStatsReport>,
+    pub usage_stats: Option<nuo_wire::usage_stats::UsageStatsReport>,
     /// Scroll offset of the usage-statistics overlay body.
     pub usage_stats_scroll: usize,
     /// Whether the active dialog is currently displaying its localized in-dialog key reference sub-view.
@@ -516,9 +516,9 @@ pub struct App {
     /// **not** latch — Tab is meant to keep cycling path candidates.
     pub completion_dismissed: bool,
     /// Backend-owned slash-command vocabulary published by the daemon.
-    pub command_catalog: nuo_contracts::CommandCatalog,
+    pub command_catalog: nuo_wire::CommandCatalog,
     /// Latest race-checked completion rows returned by the daemon.
-    pub backend_completions: Vec<nuo_contracts::InputCompletion>,
+    pub backend_completions: Vec<nuo_wire::InputCompletion>,
     pub completion_response_input: Option<String>,
     pub completion_response_cursor: usize,
     pub completion_requested: Option<(String, usize)>,
@@ -575,7 +575,7 @@ pub struct App {
     /// re-set the moment they navigate again.
     pub session_modal_follow: bool,
     /// Session DAG tree representation for `/tree` visualization.
-    pub session_tree: nuo_contracts::SessionTree,
+    pub session_tree: nuo_wire::SessionTree,
     /// Scroll offset for the `/tree` modal body.
     pub tree_scroll: usize,
     /// Auto-follow selection in `/tree` modal.
@@ -589,7 +589,7 @@ pub struct App {
     /// an on-demand `QuerySessionDetail` round-trip when the sub-view opens
     /// (`i`) and refreshed whenever the selection moves while in the sub-view.
     /// `None` while the round-trip is in flight.
-    pub session_detail: Option<nuo_contracts::SessionDetail>,
+    pub session_detail: Option<nuo_wire::SessionDetail>,
     /// Body scroll offset of the session-info sub-view. Reset to 0 on open and
     /// when the detail changes; reused (not the list's `session_scroll`).
     pub session_info_scroll: usize,
@@ -604,7 +604,7 @@ pub struct App {
     /// Full detail and usage for the connection under the detail sub-view. Populated by
     /// an on-demand `QueryConnectionDetail` round-trip when the sub-view opens (Enter).
     /// `None` while the round-trip is in flight.
-    pub connection_detail: Option<nuo_contracts::ConnectionDetail>,
+    pub connection_detail: Option<nuo_wire::ConnectionDetail>,
     /// Body scroll offset of the connection detail sub-view.
     pub connection_info_scroll: usize,
     /// Whether the served models list is expanded in the connection detail sub-view.
@@ -626,7 +626,7 @@ pub struct App {
     /// Latest authoritative `[web]` selection/readiness snapshot from the harness.
     /// Refreshed when the Settings view opens (`QueryWebSearchConfig`) and
     /// on every `WebSearchConfigUpdated` ack.
-    pub websearch_config: Option<nuo_contracts::WebSearchConfigView>,
+    pub websearch_config: Option<nuo_wire::WebSearchConfigView>,
     /// Floating dropdown state and anchor for settings popup selectors (e.g.
     /// Web Search provider and Web Fetch reader selectors).
     pub config_dropdown: Option<(
@@ -674,7 +674,7 @@ pub struct App {
     /// Latest session-context snapshot for the Tools / Mcp / Skills /
     /// Permissions managers, or `None` before the first `QuerySessionContext`
     /// round-trip completes. Refreshed each frame from the response listener.
-    pub session_context: Option<nuo_contracts::SessionContextSnapshot>,
+    pub session_context: Option<nuo_wire::SessionContextSnapshot>,
     pub loop_status: LoopStatus,
     /// Whether the primary session has a stopped round parked for `/retry`
     /// (ADR-0128). Mirrored from the session-scoped harness snapshot — the
@@ -695,7 +695,7 @@ pub struct App {
     /// Durability-health banner state (ADR-0196 D4): the daemon's
     /// persistence-writer degradation, folded from the monitor stream.
     /// `None` / `Healthy` renders no banner.
-    pub persistence_health: Option<nuo_contracts::monitor::PersistenceHealth>,
+    pub persistence_health: Option<nuo_wire::monitor::PersistenceHealth>,
     /// Whether all tool permissions are auto-approved this session
     /// (`--unattended` / `/unattended on`). Mirrored from the harness snapshot.
     pub unattended: bool,
@@ -739,7 +739,7 @@ pub struct App {
     /// The pending interactive-input request (L3.5 β) from an interactive
     /// `bash` command, or `None`. Set when a `RoundEvent::InputRequest` arrives;
     /// the input-injection modal reads it for its prompt/command/secret.
-    pub pending_input: Option<nuo_contracts::InputRequest>,
+    pub pending_input: Option<nuo_wire::InputRequest>,
     /// The open question (ask_user) modal's self-contained MVU state, or
     /// `None` when no question modal is open. Replaces the four separate
     /// `question_*` fields that previously scattered the modal's state across
@@ -766,7 +766,7 @@ pub struct App {
     pub switching_session: Option<String>,
     /// Live monitor snapshot for the `/host` daemon control panel
     /// (ADR-0096), mirrored from `UiRuntime::host_sessions` each frame.
-    pub host_sessions: Vec<nuo_contracts::MonitoredSession>,
+    pub host_sessions: Vec<nuo_wire::MonitoredSession>,
     /// Scroll slot + selection-follow for the `/host` panel body.
     pub host_scroll: usize,
     pub host_modal_follow: bool,
@@ -827,7 +827,7 @@ pub struct App {
     pub permission_show_details: bool,
     pub permission_scroll: usize,
     pub permission_max_scroll: usize,
-    pub input_history: Vec<nuo_contracts::HistoryEntry>,
+    pub input_history: Vec<nuo_wire::HistoryEntry>,
     /// **Derived** prompt rows for the viewed session, reconstructed from the
     /// transcript (see [`Self::backfill_session_history`]). Never persisted:
     /// the session file is the durable source of truth for conversation
@@ -837,7 +837,7 @@ pub struct App {
     /// [`Self::current_session_history`] — see [`Self::history_entry`].
     /// Ordered oldest-first (transcript append order) so growth never shifts
     /// existing indices.
-    pub session_history_backfill: Vec<nuo_contracts::HistoryEntry>,
+    pub session_history_backfill: Vec<nuo_wire::HistoryEntry>,
     /// How many transcript messages [`Self::backfill_session_history`] has
     /// already consumed for the current session, so a long streaming session
     /// rescans only its tail. Reset to `0` on every viewed-session change.
@@ -969,7 +969,7 @@ pub struct App {
     pub color_scheme: String,
     /// Last persisted custom semantic palette. Retained while a preset is
     /// active so switching schemes never discards the user's colors.
-    pub custom_color_scheme: nuo_contracts::ColorSchemeConfig,
+    pub custom_color_scheme: nuo_wire::ColorSchemeConfig,
 
     /// Whether clicking outside a dismissable modal closes it (mirroring Esc).
     /// From `[tui] click_outside_dismiss` (default `true`): when true, an
@@ -1044,13 +1044,6 @@ pub struct App {
     /// (same pattern as [`Self::spinner_epoch`]) so the rotation cadence stays
     /// constant regardless of draw frequency.
     pub carousel_epoch: std::time::Instant,
-    /// Epoch the effort-ignition celebration is timed against. Set when the
-    /// model's top reasoning tier (`max`) is selected; `None` once the
-    /// animation completes. Wall-clock based (like `spinner_epoch`) so the
-    /// wave cadence survives the loop's irregular wakeups. Drives the
-    /// composer's background wave tint, the hint bar's `M A X` label
-    /// takeover, and the prompt's charge — see `crate::effort_ignition`.
-    pub effort_ignition_epoch: Option<std::time::Instant>,
     /// Epoch milliseconds of the last composer submission. The ledger records
     /// when the provider was dispatched; together they let the latency timeline
     /// show what happened *before* dispatch (queue, context projection, hooks).
@@ -1091,6 +1084,14 @@ pub struct App {
     /// string. Defaults to `"high"`; cycled with ←/→ over the selected model's
     /// supported levels.
     pub editor_effort: String,
+    /// The effort ladder the edited route actually supports, as wire strings in
+    /// ascending depth. Captured from the picker snapshot when the editor opens
+    /// (the daemon's ADR-0149 resolution), **not** re-derived client-side: this
+    /// binary does not link `nuo-providers`, so `resolve_model` sees no
+    /// baseline table and would render an empty ladder (the node slider would
+    /// collapse to a bare value row). Empty means the route exposes no effort
+    /// knob, and the editor shows the value-only fallback.
+    pub editor_effort_levels: Vec<String>,
     /// Whether the selected model exposes a separate thinking on/off switch.
     /// OpenAI GPT effort has no separate thinking field, so this is false
     /// there; Anthropic adaptive channels set it true.
@@ -1122,7 +1123,7 @@ pub struct App {
     pub custom_protocol_wire: String,
     /// Client identity (User-Agent and impersonation headers) selected for a
     /// connection. Curated providers keep their provider-defined identity.
-    pub custom_client_identity: nuo_contracts::ClientIdentity,
+    pub custom_client_identity: nuo_wire::ClientIdentity,
     /// Models seeded by the active template (create mode). Submitted as the
     /// provider's model list unless the editor exposes a free-text Model field
     /// (then the single typed model is submitted instead). Empty in edit mode.
@@ -1132,7 +1133,7 @@ pub struct App {
     /// Template-specific user agent carried into newly-created channels.
     pub custom_user_agent: Option<String>,
     /// How newly-created connections authenticate (from the selected template).
-    pub custom_auth: nuo_contracts::ConnectionAuth,
+    pub custom_auth: nuo_wire::ConnectionAuth,
     /// The **model provider id** the active create flow was seeded from, or
     /// `None` in edit mode / when no template is active. Sent as
     /// `AddConnection::provider` (the wire field, ADR-0201): it is the

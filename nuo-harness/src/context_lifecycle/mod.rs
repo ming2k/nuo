@@ -7,11 +7,11 @@
 
 pub mod checkpoint;
 
-use nuo_contracts::context_lifecycle::{
+use nuo_wire::context_lifecycle::{
     AdmissionError, Budget, BudgetComponent, FactId, Representation, RequestBlock, RequestId,
     RequestManifest, Validity,
 };
-use nuo_contracts::{Message, tokenizer};
+use nuo_wire::{Message, tokenizer};
 use sha2::{Digest, Sha256};
 
 /// The fixed block order of a compiled request (ADR-0277 §2 protection order).
@@ -99,7 +99,7 @@ pub struct ContextPlan {
     /// The request class.
     pub scope: RequestScope,
     /// Iterations the planner ran (bounded by
-    /// [`nuo_contracts::context_lifecycle::PLANNING_MAX_ITERATIONS`]).
+    /// [`nuo_wire::context_lifecycle::PLANNING_MAX_ITERATIONS`]).
     pub iterations: u32,
 }
 
@@ -362,7 +362,7 @@ impl RequestCompiler {
 
         let manifest = RequestManifest {
             request_id: request_id.clone(),
-            branch_id: nuo_contracts::context_lifecycle::BranchId::from(""),
+            branch_id: nuo_wire::context_lifecycle::BranchId::from(""),
             basis_revision: 0,
             policy_revision: 0,
             blocks: blocks
@@ -383,8 +383,8 @@ impl RequestCompiler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::Role;
-    use nuo_contracts::context_lifecycle::{FramingReserve, ModelWindow, OutputReserve};
+    use nuo_wire::Role;
+    use nuo_wire::context_lifecycle::{FramingReserve, ModelWindow, OutputReserve};
 
     fn budget(window: u64, visible: u64, reasoning: u64, framing: u64) -> Budget {
         Budget::resolve(

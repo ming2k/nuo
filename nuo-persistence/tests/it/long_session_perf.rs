@@ -7,7 +7,7 @@
 
 use std::time::Instant;
 
-use nuo_contracts::{Message, Role};
+use nuo_wire::{Message, Role};
 use nuo_persistence::session::{CommitTurn, SessionStore};
 
 #[tokio::test]

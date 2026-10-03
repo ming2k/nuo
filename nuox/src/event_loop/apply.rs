@@ -8,7 +8,7 @@
 //! the height-cache invalidation and the "transcript changed" flag that
 //! drives bottom-follow scrolling.
 
-use nuo_contracts::Role;
+use nuo_wire::Role;
 
 use crate::app::App;
 use crate::event_loop::mutations::{AppMutation, Buffer, ChromeEdit, TranscriptEdit};

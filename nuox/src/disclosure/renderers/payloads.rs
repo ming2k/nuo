@@ -543,7 +543,7 @@ pub(crate) fn draw_web_search_content(
     block_idx: usize,
     output: &str,
     arguments: &str,
-    structured: Option<&nuo_contracts::ToolOutput>,
+    structured: Option<&nuo_wire::ToolOutput>,
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
@@ -553,7 +553,7 @@ pub(crate) fn draw_web_search_content(
     let _sel_range = block_selection_range(selection, mi, block_idx);
 
     let (query, _provider, hits, truncated) = match structured {
-        Some(nuo_contracts::ToolOutput::WebSearch {
+        Some(nuo_wire::ToolOutput::WebSearch {
             query,
             provider,
             results,
@@ -700,7 +700,7 @@ pub(crate) fn draw_web_article_content(
     block_idx: usize,
     output: &str,
     arguments: &str,
-    structured: Option<&nuo_contracts::ToolOutput>,
+    structured: Option<&nuo_wire::ToolOutput>,
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
@@ -710,7 +710,7 @@ pub(crate) fn draw_web_article_content(
     let _sel_range = block_selection_range(selection, mi, block_idx);
 
     let (url, title, _domain, markdown, reader, tokens, truncated) = match structured {
-        Some(nuo_contracts::ToolOutput::WebArticle {
+        Some(nuo_wire::ToolOutput::WebArticle {
             url,
             title,
             domain,
@@ -952,7 +952,7 @@ pub(crate) fn draw_web_article_content(
 pub(crate) fn parse_fallback_web_search(
     output: &str,
     arguments: &str,
-) -> (String, String, Vec<nuo_contracts::WebSearchHit>, bool) {
+) -> (String, String, Vec<nuo_wire::WebSearchHit>, bool) {
     let query = serde_json::from_str::<serde_json::Value>(arguments)
         .ok()
         .and_then(|v| {
@@ -987,7 +987,7 @@ pub(crate) fn parse_fallback_web_search(
         if is_numbered {
             if let (Some(title), Some(url)) = (current_title.take(), current_url.take()) {
                 let domain = extract_url_host(&url);
-                hits.push(nuo_contracts::WebSearchHit {
+                hits.push(nuo_wire::WebSearchHit {
                     title,
                     url,
                     domain,
@@ -1012,7 +1012,7 @@ pub(crate) fn parse_fallback_web_search(
 
     if let (Some(title), Some(url)) = (current_title, current_url) {
         let domain = extract_url_host(&url);
-        hits.push(nuo_contracts::WebSearchHit {
+        hits.push(nuo_wire::WebSearchHit {
             title,
             url,
             domain,
@@ -1044,7 +1044,7 @@ pub(crate) fn parse_fallback_web_article(
         cleaned = &cleaned[..idx];
     }
     let trimmed = cleaned.trim();
-    let tokens = nuo_contracts::tokenizer::count_tokens(trimmed);
+    let tokens = nuo_wire::tokenizer::count_tokens(trimmed);
     let truncated = output.contains("kept the first") || output.contains("truncated to fit");
     (
         url,
@@ -1299,10 +1299,10 @@ pub(crate) fn draw_matches_content(
 /// reuse the block-level design contract: `warn()` for the blocked/timeout
 /// family, `err()` for cancellation, all on the code surface.
 fn termination_footer(
-    term: nuo_contracts::tool_output::ShellTermination,
+    term: nuo_wire::tool_output::ShellTermination,
     theme: &Theme,
 ) -> Option<(String, Style)> {
-    use nuo_contracts::tool_output::ShellTermination as T;
+    use nuo_wire::tool_output::ShellTermination as T;
     let bg = theme.code_surface();
     let warn_style = Style::default()
         .bg(bg)
@@ -1315,41 +1315,28 @@ fn termination_footer(
     match term {
         T::Exited => None,
         T::IdleBlocked => Some((
-            "killed by harness: no output within the idle-guard window — likely \
-             compiling, pipe-buffered output, or a stdin prompt."
-                .to_string(),
+            "[process killed]   idle timeout detected".to_string(),
             warn_style,
         )),
         T::InteractiveBlocked => Some((
-            "interactive command not executed — supply the input \
-             non-interactively on the command line and retry."
-                .to_string(),
+            "[process blocked]  interactive prompt detected".to_string(),
             warn_style,
         )),
         T::InputUnanswered => Some((
-            "killed by harness: the command was waiting for input and no \
-             answer was supplied — pass it non-interactively (flags, stdin \
-             flags, or env) and retry."
-                .to_string(),
+            "[process killed]   unanswered input prompt".to_string(),
             warn_style,
         )),
         T::Timeout => Some((
-            "killed by harness: overall timeout reached (command was still \
-             producing output)."
-                .to_string(),
+            "[process killed]   overall timeout reached".to_string(),
             warn_style,
         )),
-        T::Cancelled => Some(("command cancelled (interrupted).".to_string(), err_style)),
+        T::Cancelled => Some(("[process killed]   cancelled by operator".to_string(), err_style)),
         T::StreamGuard => Some((
-            "killed by harness: continuous streaming output exceeded limit — \
-             foreground commands must be finite or run with service/background."
-                .to_string(),
+            "[process killed]   runaway stream detected".to_string(),
             warn_style,
         )),
         T::Detached => Some((
-            "still running: adopted by the background fabric at the sync \
-             budget — completion will be reported automatically."
-                .to_string(),
+            "[process detached] adopted by background fabric".to_string(),
             warn_style,
         )),
     }
@@ -1367,7 +1354,7 @@ pub(crate) fn draw_command_content(
     mi: usize,
     block_idx: usize,
     content: &str,
-    structured: Option<&nuo_contracts::ToolOutput>,
+    structured: Option<&nuo_wire::ToolOutput>,
     command: &str,
     selection: &SelectionState,
     indent: usize,
@@ -1413,7 +1400,7 @@ pub(crate) fn draw_command_content(
         }
     }
 
-    if let Some(nuo_contracts::ToolOutput::Shell {
+    if let Some(nuo_wire::ToolOutput::Shell {
         stdout,
         stderr,
         lines,
@@ -1455,7 +1442,7 @@ pub(crate) fn draw_command_content(
                 wrap_w,
                 pad,
                 sel_range,
-                "[output truncated]",
+                "[stream truncated] output cap reached",
                 marker_style,
                 byte_offset,
             );
@@ -1537,6 +1524,11 @@ pub(crate) fn draw_command_content(
             || trimmed == "STDERR:"
             || trimmed.starts_with("(success, stderr):")
             || trimmed.starts_with("[Output truncated")
+            || trimmed.starts_with("[output truncated")
+            || trimmed.starts_with("[stream truncated")
+            || trimmed.starts_with("[process killed")
+            || trimmed.starts_with("[process blocked")
+            || trimmed.starts_with("[process detached")
             || trimmed.starts_with("[Output was large")
             || trimmed.starts_with("[killed by harness")
             || trimmed.starts_with("[not executed");
@@ -1587,7 +1579,7 @@ fn emit_command_lines(
         // raw `\r`s, so resolve them here too — with the *same* function the
         // capture layer uses, so both paths agree instead of the renderer
         // doing a cruder "keep only the last segment" approximation.
-        let logical_line = nuo_contracts::tool_output::normalize_carriage_returns(logical_line);
+        let logical_line = nuo_wire::tool_output::normalize_carriage_returns(logical_line);
         let wrapped = nonempty_wrapped(wrap_text(&logical_line, wrap_w));
         for wl in &wrapped {
             let block_wl = WrappedLine {
@@ -1622,7 +1614,7 @@ fn emit_command_lines(
 /// view), falling back to the all-stdout-then-all-stderr flat strings for the
 /// legacy / live-seed / restored-session path. Empty bands contribute nothing.
 fn command_structured_lines(
-    lines: &[nuo_contracts::tool_output::ShellLine],
+    lines: &[nuo_wire::tool_output::ShellLine],
     stdout: &str,
     stderr: &str,
     base: Style,
@@ -1765,7 +1757,7 @@ pub(crate) fn draw_tool_result(
     name: &str,
     arguments: &str,
     output: &str,
-    structured: Option<&nuo_contracts::ToolOutput>,
+    structured: Option<&nuo_wire::ToolOutput>,
     diff_cache: &mut DiffCache,
     selection: &SelectionState,
     indent: usize,
@@ -1779,8 +1771,8 @@ pub(crate) fn draw_tool_result(
     if matches!(
         structured,
         Some(
-            nuo_contracts::ToolOutput::Error { .. }
-                | nuo_contracts::ToolOutput::PermissionDenied { .. }
+            nuo_wire::ToolOutput::Error { .. }
+                | nuo_wire::ToolOutput::PermissionDenied { .. }
         )
     ) {
         draw_tool_error(ctx, mi, block_idx, output, selection, indent, inner_w);
@@ -1811,13 +1803,13 @@ pub(crate) fn draw_tool_result(
             // flattened `output` string with `start_line = 0` (slice-relative
             // 1-based numbering).
             let (content, start_line, explicit_lang) = match structured {
-                Some(nuo_contracts::ToolOutput::Code {
+                Some(nuo_wire::ToolOutput::Code {
                     text,
                     start_line,
                     lang,
                     ..
                 }) => (text.as_str(), *start_line, lang.as_deref()),
-                Some(nuo_contracts::ToolOutput::Patch {
+                Some(nuo_wire::ToolOutput::Patch {
                     new, start_line, ..
                 }) => (new.as_str(), *start_line, None),
                 _ => (output, 0, None),
@@ -1854,7 +1846,7 @@ pub(crate) fn draw_tool_result(
             // completed steps. Both paths are cached by stable message id and
             // exact source, so animation frames never repeat Myers/word diffing.
             let path_buf: Option<String> = match structured {
-                Some(nuo_contracts::ToolOutput::Patch { .. }) => None,
+                Some(nuo_wire::ToolOutput::Patch { .. }) => None,
                 _ => serde_json::from_str::<serde_json::Value>(arguments)
                     .ok()
                     .and_then(|v| {
@@ -1864,7 +1856,7 @@ pub(crate) fn draw_tool_result(
                     }),
             };
             let path_ref = match structured {
-                Some(nuo_contracts::ToolOutput::Patch { path, .. }) => Some(path.as_str()),
+                Some(nuo_wire::ToolOutput::Patch { path, .. }) => Some(path.as_str()),
                 _ => path_buf.as_deref(),
             };
             let lang = path_ref
@@ -1872,7 +1864,7 @@ pub(crate) fn draw_tool_result(
                 .unwrap_or(crate::syntax::Language::Plain);
 
             let hunks = match structured {
-                Some(nuo_contracts::ToolOutput::Patch {
+                Some(nuo_wire::ToolOutput::Patch {
                     old,
                     new,
                     start_line,
@@ -1880,7 +1872,7 @@ pub(crate) fn draw_tool_result(
                 }) => diff_cache.patch(message_id, old, new, *start_line),
                 _ => diff_cache.legacy_arguments(message_id, name, arguments),
             };
-            if let Some(nuo_contracts::ToolOutput::Patch { warnings, .. }) = structured {
+            if let Some(nuo_wire::ToolOutput::Patch { warnings, .. }) = structured {
                 for warning in warnings {
                     let text = format!("Warning: {warning}");
                     let bg = ctx.theme.code_surface();
@@ -1953,12 +1945,12 @@ pub(crate) fn draw_tool_error(
 }
 
 /// Resolve the shell command for a `bash` step: prefer the structured
-/// [`ToolOutput::Shell`](nuo_contracts::ToolOutput) payload (set as soon as the
+/// [`ToolOutput::Shell`](nuo_wire::ToolOutput) payload (set as soon as the
 /// call starts, so it is available even while streaming), falling back to
 /// parsing the JSON arguments for legacy / restored sessions without a
 /// structured payload.
-fn command_for(structured: Option<&nuo_contracts::ToolOutput>, arguments: &str) -> String {
-    if let Some(nuo_contracts::ToolOutput::Shell { command, .. }) = structured
+fn command_for(structured: Option<&nuo_wire::ToolOutput>, arguments: &str) -> String {
+    if let Some(nuo_wire::ToolOutput::Shell { command, .. }) = structured
         && !command.is_empty()
     {
         return command.clone();
@@ -2379,7 +2371,7 @@ fn code_gutter_line_syntax(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::tool_output::ShellTermination;
+    use nuo_wire::tool_output::ShellTermination;
 
     #[test]
     fn termination_footer_renders_stream_guard_warning() {
@@ -2387,7 +2379,7 @@ mod tests {
         let footer = termination_footer(ShellTermination::StreamGuard, &theme);
         assert!(footer.is_some());
         let (text, style) = footer.unwrap();
-        assert!(text.contains("continuous streaming output exceeded limit"));
+        assert_eq!(text, "[process killed]   runaway stream detected");
         assert_eq!(style.fg, theme.warn());
     }
 }

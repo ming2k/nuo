@@ -608,7 +608,7 @@ impl SelectionDrag {
 mod tests {
     use super::*;
     use crate::model::document::{Block, Inline, TranscriptMessage};
-    use nuo_contracts::Role;
+    use nuo_wire::Role;
 
     #[test]
     fn test_block_selection() {
@@ -722,7 +722,7 @@ mod tests {
         message.finish_tool_step(
             "call_1",
             "file contents",
-            nuo_contracts::ToolOutput::text("file contents"),
+            nuo_wire::ToolOutput::text("file contents"),
             42,
         );
         message.set_tool_step_expanded(true);

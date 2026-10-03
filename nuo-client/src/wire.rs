@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
-pub use nuo_contracts::{MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
+pub use nuo_wire::{MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
 /// Stable machine-readable error codes.
 pub const ERR_PROTOCOL_MISMATCH: &str = "protocol_mismatch";
@@ -85,7 +85,7 @@ pub enum AttachAction {
     Attach(Option<String>),
     Picker(Option<SessionInitOptions>),
     Control(ControlRequest),
-    Monitor(nuo_contracts::MonitorAction),
+    Monitor(nuo_wire::MonitorAction),
 }
 
 impl Serialize for AttachAction {
@@ -142,7 +142,7 @@ impl<'de> Deserialize<'de> for AttachAction {
             Attach(Option<String>),
             Picker(Option<SessionInitOptions>),
             Control(ControlRequest),
-            Monitor(nuo_contracts::MonitorAction),
+            Monitor(nuo_wire::MonitorAction),
         }
 
         #[derive(Deserialize)]
@@ -191,7 +191,7 @@ pub enum ControlRequest {
     ResolvePermission {
         session_id: String,
         request_id: String,
-        decision: nuo_contracts::PermissionDecision,
+        decision: nuo_wire::PermissionDecision,
     },
     KillSession {
         session_id: String,
@@ -215,7 +215,7 @@ pub enum Wire {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         project: Option<std::path::PathBuf>,
         #[serde(default)]
-        posture: nuo_contracts::human_request::HumanChannelPosture,
+        posture: nuo_wire::human_request::HumanChannelPosture,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         version: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -225,21 +225,21 @@ pub enum Wire {
     Welcome {
         session_id: String,
         round_counter: u64,
-        messages: Vec<nuo_contracts::Message>,
+        messages: Vec<nuo_wire::Message>,
         #[serde(default)]
         provider: String,
         #[serde(default)]
         model: String,
         #[serde(default)]
-        round_interrupts: Vec<nuo_contracts::RoundInterrupt>,
+        round_interrupts: Vec<nuo_wire::RoundInterrupt>,
         #[serde(default)]
-        retry_resolutions: Vec<nuo_contracts::RetryResolution>,
+        retry_resolutions: Vec<nuo_wire::RetryResolution>,
         #[serde(default)]
-        command_catalog: nuo_contracts::CommandCatalog,
+        command_catalog: nuo_wire::CommandCatalog,
     },
     /// Daemon response to ambiguous attach / picker.
     Pick {
-        sessions: Vec<nuo_contracts::SessionOverview>,
+        sessions: Vec<nuo_wire::SessionOverview>,
     },
     /// Reply to single-shot control verb.
     ControlReply {
@@ -253,17 +253,17 @@ pub enum Wire {
     /// Full-duplex client agent request envelope.
     Request {
         #[serde(flatten)]
-        request: nuo_contracts::AgentRequest,
+        request: nuo_wire::AgentRequest,
     },
     /// Full-duplex daemon agent response envelope.
     Response {
         #[serde(flatten)]
-        response: nuo_contracts::AgentResponse,
+        response: nuo_wire::AgentResponse,
     },
     /// Daemon observability event envelope.
     Monitor {
         #[serde(flatten)]
-        event: nuo_contracts::MonitorEvent,
+        event: nuo_wire::MonitorEvent,
     },
     /// Connection-level error envelope.
     Error {

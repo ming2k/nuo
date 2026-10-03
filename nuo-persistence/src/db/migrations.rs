@@ -759,7 +759,7 @@ pub fn apply_usage_ledger_schema(tx: &rusqlite::Transaction) -> Result<()> {
         .collect::<Vec<_>>();
     drop(stmt);
     for (session_id, json) in rows {
-        let Ok(records) = serde_json::from_str::<Vec<nuo_contracts::RequestUsageRecord>>(&json)
+        let Ok(records) = serde_json::from_str::<Vec<nuo_wire::RequestUsageRecord>>(&json)
         else {
             continue;
         };
@@ -1103,7 +1103,7 @@ pub fn apply_session_ir_clean_break_schema(tx: &rusqlite::Transaction) -> Result
 pub fn insert_legacy_usage_record_tx(
     tx: &rusqlite::Connection,
     session_id: &str,
-    record: &nuo_contracts::RequestUsageRecord,
+    record: &nuo_wire::RequestUsageRecord,
 ) -> rusqlite::Result<()> {
     let payload = serde_json::to_string(record)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
@@ -1215,7 +1215,7 @@ pub fn apply_causal_nodes_composite_pk_schema(tx: &rusqlite::Transaction) -> Res
 pub fn insert_usage_record_tx(
     conn: &Connection,
     session_id: &str,
-    record: &nuo_contracts::RequestUsageRecord,
+    record: &nuo_wire::RequestUsageRecord,
 ) -> Result<()> {
     if record.key.session_id != session_id {
         return Err(rusqlite::Error::InvalidParameterName(
@@ -1240,8 +1240,8 @@ pub fn insert_usage_record_tx(
     };
     upsert_attempt(
         conn,
-        &nuo_contracts::usage_stats::UsageStatRecord {
-            day: nuo_contracts::usage_stats::day_key_from_epoch_ms(at),
+        &nuo_wire::usage_stats::UsageStatRecord {
+            day: nuo_wire::usage_stats::day_key_from_epoch_ms(at),
             recorded_at_ms: at,
             project,
             record: record.clone(),
@@ -1414,9 +1414,9 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                                 .chain(probe.archived_transcript.iter().rev())
                                 .find(|m| {
                                     let is_echo = m.origin.as_ref().is_some_and(|o| {
-                                        o.kind == nuo_contracts::InjectionKind::CommandEcho
+                                        o.kind == nuo_wire::InjectionKind::CommandEcho
                                     });
-                                    m.role == nuo_contracts::Role::User && !m.hidden && !is_echo
+                                    m.role == nuo_wire::Role::User && !m.hidden && !is_echo
                                 })
                                 .map(|m| m.content.clone());
                             let digest_json = probe
@@ -1578,7 +1578,7 @@ pub struct HistorySearchResult {
 pub struct SessionTranscriptView {
     pub id: String,
     pub title: Option<String>,
-    pub digest: Option<nuo_contracts::SessionDigest>,
+    pub digest: Option<nuo_wire::SessionDigest>,
     pub workspace_root: Option<String>,
     pub message_count: usize,
     pub messages: Vec<SessionMessageView>,

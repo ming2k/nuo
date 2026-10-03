@@ -8,10 +8,10 @@
 //!
 //! This module defines an extensible trait [`ProviderUsageFetcher`] and a unified dispatcher
 //! [`fetch_provider_usage`] that translates provider-specific responses into the generic
-//! [`nuo_contracts::ProviderUsage`] model.
+//! [`nuo_wire::ProviderUsage`] model.
 
-use nuo_contracts::async_trait;
-use nuo_contracts::{ConnectionUsageState, ProviderUsage};
+use nuo_wire::async_trait;
+use nuo_wire::{ConnectionUsageState, ProviderUsage};
 
 mod antigravity;
 mod deepseek;

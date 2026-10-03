@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 acp = { workspace = true }
 nuo-client = { workspace = true }
-nuo-contracts = { workspace = true }
+nuo-wire = { workspace = true }
 nuo-persistence = { workspace = true }
 nuo-host = { workspace = true }
 nuo-providers = { workspace = true }

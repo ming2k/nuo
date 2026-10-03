@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use nuo_contracts::CustomRole;
+use nuo_wire::CustomRole;
 
 /// The user's declared roles (`roles.toml` and workspace overrides).
 ///
@@ -186,7 +186,7 @@ pub trait CatalogMaintenance: Send + Sync + 'static {
     /// `None` means "this host publishes no picker" — an embedding with no model
     /// picker UI. The kernel forwards whatever the host says and never assembles
     /// a snapshot itself: a picker is a product surface over product stores.
-    fn picker_snapshot(&self) -> Option<nuo_contracts::ProviderPickerSnapshot> {
+    fn picker_snapshot(&self) -> Option<nuo_wire::ProviderPickerSnapshot> {
         None
     }
 }

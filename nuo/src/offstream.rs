@@ -8,9 +8,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_contracts::{
-    NodePayload, OffstreamEntry, OffstreamRegistry, OffstreamSource, OffstreamStatus,
-    PagedOffstreamContent, Role,
+use nuo_wire::{NodePayload, Role};
+use nuo_harness::offstream::{
+    OffstreamEntry, OffstreamRegistry, OffstreamSource, OffstreamStatus, PagedOffstreamContent,
 };
 use nuo_persistence::blobs::BlobStore;
 use nuo_persistence::db::get_persistence_handle;
@@ -54,7 +54,7 @@ pub fn paginate_text(
             line.to_string()
         };
 
-        let line_tokens = nuo_contracts::tokenizer::count_tokens(&line_fmt).max(1);
+        let line_tokens = nuo_wire::tokenizer::count_tokens(&line_fmt).max(1);
         if accumulated_tokens + line_tokens > budget_tokens && !collected.is_empty() {
             next_cursor = Some(pos.to_string());
             break;
@@ -123,10 +123,10 @@ impl OffstreamSource for SubagentSource {
                 for node in child_ir.history.nodes.values() {
                     if let NodePayload::Termination { reason, .. } = &node.payload {
                         status = match reason {
-                            nuo_contracts::TerminationReason::UserInterrupt => {
+                            nuo_wire::TerminationReason::UserInterrupt => {
                                 OffstreamStatus::Interrupted
                             }
-                            nuo_contracts::TerminationReason::FatalError { .. } => {
+                            nuo_wire::TerminationReason::FatalError { .. } => {
                                 OffstreamStatus::Failed
                             }
                             _ => OffstreamStatus::Ready,
@@ -242,7 +242,7 @@ impl OffstreamSource for PrunedToolSource {
         // 1. Scan transcript directives and entries
         if let Ok(Some(data)) = reader.load_session_full(sid) {
             for dir in &data.transcript().directives {
-                if let nuo_contracts::DirectivePayload::Prune { elided, pruned_media } = &dir.payload {
+                if let nuo_wire::DirectivePayload::Prune { elided, pruned_media } = &dir.payload {
                     for item in elided {
                         if seen_calls.insert(item.tool_call_id.clone()) {
                             entries.push(OffstreamEntry {
@@ -274,11 +274,11 @@ impl OffstreamSource for PrunedToolSource {
             }
 
             for entry in &data.transcript().entries {
-                if let nuo_contracts::EntryPayload::Message(payload) = &entry.payload
+                if let nuo_wire::EntryPayload::Message(payload) = &entry.payload
                     && let Some(call_id) = &payload.tool_call_id
                 {
                     let content = entry.content.as_deref().unwrap_or("");
-                    if (content.starts_with(nuo_contracts::pressure::CLEARED_TOOL_PREFIX)
+                    if (content.starts_with(nuo_wire::pressure::CLEARED_TOOL_PREFIX)
                         || content.contains("[Epistemic virtual memory: inspect full output with handle")
                         || content.contains("[Output truncated:")
                         || payload.content_blob.is_some())
@@ -303,7 +303,7 @@ impl OffstreamSource for PrunedToolSource {
                     && let Some(call_id) = &message.tool_call_id
                 {
                     let content = &message.content;
-                    if (content.starts_with(nuo_contracts::pressure::CLEARED_TOOL_PREFIX)
+                    if (content.starts_with(nuo_wire::pressure::CLEARED_TOOL_PREFIX)
                         || content.contains("[Epistemic virtual memory: inspect full output with handle")
                         || content.contains("[Output truncated:")
                         || message.content_blob.is_some())
@@ -339,7 +339,7 @@ impl OffstreamSource for PrunedToolSource {
         if let Ok(Some(data)) = reader.load_session_full(&self.session_id) {
             let entries = &data.transcript().entries;
             for (idx, entry) in entries.iter().enumerate() {
-                if let nuo_contracts::EntryPayload::Message(payload) = &entry.payload
+                if let nuo_wire::EntryPayload::Message(payload) = &entry.payload
                     && payload.tool_call_id.as_deref() == Some(key)
                 {
                     // ADR-0285: Check if tool entry itself has images
@@ -355,11 +355,11 @@ impl OffstreamSource for PrunedToolSource {
 
                     // ADR-0285: Check companion ToolImage message immediately following
                     if let Some(next_entry) = entries.get(idx + 1)
-                        && let nuo_contracts::EntryPayload::Message(next_payload) = &next_entry.payload
+                        && let nuo_wire::EntryPayload::Message(next_payload) = &next_entry.payload
                         && next_payload
                             .injection
                             .as_ref()
-                            .is_some_and(|o| o.kind == nuo_contracts::InjectionKind::ToolImage)
+                            .is_some_and(|o| o.kind == nuo_wire::InjectionKind::ToolImage)
                         && let Some(images) = &next_payload.images
                         && let Some(first_img) = images.first()
                     {
@@ -377,7 +377,7 @@ impl OffstreamSource for PrunedToolSource {
                         return Ok(paginate_text(&text, cursor, query, budget_tokens));
                     }
                     if let Some(content) = &entry.content {
-                        if !content.starts_with(nuo_contracts::pressure::CLEARED_TOOL_PREFIX) {
+                        if !content.starts_with(nuo_wire::pressure::CLEARED_TOOL_PREFIX) {
                             return Ok(paginate_text(content, cursor, query, budget_tokens));
                         }
                     }
@@ -408,7 +408,7 @@ impl OffstreamSource for PrunedToolSource {
                     {
                         return Ok(paginate_text(&text, cursor, query, budget_tokens));
                     }
-                    if !message.content.starts_with(nuo_contracts::pressure::CLEARED_TOOL_PREFIX) {
+                    if !message.content.starts_with(nuo_wire::pressure::CLEARED_TOOL_PREFIX) {
                         return Ok(paginate_text(&message.content, cursor, query, budget_tokens));
                     }
                 }
@@ -596,7 +596,7 @@ impl OffstreamSource for ArtifactSource {
                 format!("[Rehydrated visual artifact: mime={mime} ({} bytes) | handle: artifact:{key}]", bytes.len()),
                 None,
                 1,
-            ).with_media(nuo_contracts::ImagePart {
+            ).with_media(nuo_wire::ImagePart {
                 mime: mime.to_string(),
                 data: b64,
             }));

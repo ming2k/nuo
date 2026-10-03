@@ -297,8 +297,8 @@ fn handle_config_dropdown(app: &mut App, event: &Event) -> Option<input::InputAc
             match ctx {
                 "websearch_provider" => {
                     if let (Some(revision), Ok(provider)) = (revision, payload.parse()) {
-                        app.send_intent(nuo_contracts::AgentRequest::UpdateWebSearchConfig(
-                            Box::new(nuo_contracts::WebSearchConfigUpdate {
+                        app.send_intent(nuo_wire::AgentRequest::UpdateWebSearchConfig(
+                            Box::new(nuo_wire::WebSearchConfigUpdate {
                                 expected_revision: revision,
                                 provider: Some(provider),
                                 ..Default::default()
@@ -308,8 +308,8 @@ fn handle_config_dropdown(app: &mut App, event: &Event) -> Option<input::InputAc
                 }
                 "websearch_reader" => {
                     if let (Some(revision), Ok(reader)) = (revision, payload.parse()) {
-                        app.send_intent(nuo_contracts::AgentRequest::UpdateWebSearchConfig(
-                            Box::new(nuo_contracts::WebSearchConfigUpdate {
+                        app.send_intent(nuo_wire::AgentRequest::UpdateWebSearchConfig(
+                            Box::new(nuo_wire::WebSearchConfigUpdate {
                                 expected_revision: revision,
                                 reader: Some(reader),
                                 ..Default::default()

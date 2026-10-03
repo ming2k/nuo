@@ -21,7 +21,7 @@
 use crate::catalog;
 use nuo_harness::orchestration::{ProxyProvider, round_response};
 use nuo_harness::{Agent, AgentIdentity, AgentRoleProfile, RoundLifecycle, SubagentTool};
-use nuo_contracts::{
+use nuo_wire::{
     AgentNotice, AgentRequest, AgentResponse, Message, NoticeKind, NoticeSeverity, NoticeSource,
     NoticeSurface, Provider, RoundEvent, SubAgentProfile, ToolContextBuilder, ToolSet,
     WorkspaceTrustState, collect_toolset,
@@ -70,7 +70,7 @@ pub struct BootstrapParams {
     /// Attach/detach on the WS layer ORs client postures into it; the
     /// harness's posture gate reads it before parking a human request.
     /// `None` on one-shot CLI paths that never attach.
-    pub human_channel: Option<Arc<nuo_contracts::human_request::HumanChannelAccountant>>,
+    pub human_channel: Option<Arc<nuo_wire::human_request::HumanChannelAccountant>>,
     /// Session-lifetime cancellation token (ADR-0125): passed through to the
     /// background `/schedule` scheduler so it stops when the harness is torn
     /// down (suspension, kill, daemon drain) instead of ticking forever.
@@ -101,7 +101,7 @@ pub struct Bootstrap {
     pub session: Arc<SessionStore>,
     /// Shared token-source ledger, shared with the driver; the frontend reads
     /// it for the token-source report.
-    pub token_ledger: Arc<nuo_contracts::TokenSourceLedger>,
+    pub token_ledger: Arc<nuo_wire::TokenSourceLedger>,
     /// The provider name the UI should display at startup.
     pub initial_provider_name: String,
     /// The model name the UI should display at startup.
@@ -109,7 +109,7 @@ pub struct Bootstrap {
     /// The session's restored transcript (empty for a fresh session).
     pub restored_messages: Vec<Message>,
     /// Complete daemon-owned command/completion vocabulary for this session.
-    pub command_catalog: nuo_contracts::CommandCatalog,
+    pub command_catalog: nuo_wire::CommandCatalog,
     /// The primary agent (same `Arc` as `agent_for_session_end`), exposed so
     /// the registry can publish session-scoped tools onto it.
     pub agent: Arc<Agent>,
@@ -125,9 +125,9 @@ pub struct Bootstrap {
     /// Live additional-roots handle sharing state with the execution
     /// environment. `/trust` grant/revoke and `/settings reload` recompute
     /// the admitted set through it — effective on the next tool call.
-    pub shared_additional_roots: nuo_contracts::SharedAdditionalRoots,
+    pub shared_additional_roots: nuo_wire::SharedAdditionalRoots,
     /// Live handle for toggling session-level workspace confinement.
-    pub shared_confinement: nuo_contracts::SharedConfinement,
+    pub shared_confinement: nuo_wire::SharedConfinement,
 }
 
 /// Ensure the four XDG application roots exist. Best-effort.
@@ -232,7 +232,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     let workspace_root: Option<PathBuf> = project_override;
     let workspace = workspace_root
         .as_ref()
-        .map(nuo_contracts::WorkspaceBinding::new);
+        .map(nuo_wire::WorkspaceBinding::new);
 
     // Initialize Agent logic. The provider is resolved through the model
     // catalog (`build_provider_for`), the single source of truth for the
@@ -361,7 +361,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // here from a single opaque context. Tools that need runtime state (the web
     // tools' search config, the shared skill registry, the embedding index +
     // session store) pull it out of the context by type — see
-    // `nuo_contracts::tool_registry`. Stateful/meta tools that genuinely depend on the
+    // `nuo_wire::tool_registry`. Stateful/meta tools that genuinely depend on the
     // *rest* of the toolset (the subagent dispatch `task`) cannot
     // self-register and are assembled explicitly below. MCP tools are
     // discovered at runtime and published directly to the master Agent;
@@ -370,7 +370,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     let workspace_security = Arc::new(WorkspaceSecurityStore::load());
     let mut security_snapshot = match &workspace_root {
         Some(root) => workspace_security.snapshot(root),
-        None => nuo_contracts::WorkspaceSecuritySnapshot::new("workspace-free"),
+        None => nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free"),
     };
     security_snapshot.user_assets =
         crate::handlers_slash::security_ops::compute_user_assets_trust();
@@ -402,11 +402,11 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         &config.web,
         &nuo_persistence::config::Credentials::load(),
     );
-    let websearch_shared = nuo_contracts::SharedWebConfig::new(resolved_web.runtime);
+    let websearch_shared = nuo_wire::SharedWebConfig::new(resolved_web.runtime);
     let (execution_env, shared_additional_roots, shared_confinement): (
-        Arc<dyn nuo_contracts::ExecutionEnvironment>,
-        nuo_contracts::SharedAdditionalRoots,
-        nuo_contracts::SharedConfinement,
+        Arc<dyn nuo_wire::ExecutionEnvironment>,
+        nuo_wire::SharedAdditionalRoots,
+        nuo_wire::SharedConfinement,
     ) = match &workspace_root {
         Some(root) => {
             let env = Arc::new(
@@ -418,7 +418,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
             let additional = env.shared_additional_roots();
             let confinement = env.shared_confinement();
             (
-                env as Arc<dyn nuo_contracts::ExecutionEnvironment>,
+                env as Arc<dyn nuo_wire::ExecutionEnvironment>,
                 additional,
                 confinement,
             )
@@ -436,7 +436,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
             let additional = env.shared_additional_roots();
             let confinement = env.shared_confinement();
             (
-                env as Arc<dyn nuo_contracts::ExecutionEnvironment>,
+                env as Arc<dyn nuo_wire::ExecutionEnvironment>,
                 additional,
                 confinement,
             )
@@ -472,8 +472,8 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         // A workspace-free session (ADR-0220) provides no root, so
         // workspace-relative tools are not admitted against a directory.
         if let Some(root) = &workspace_root {
-            builder.provide(nuo_contracts::WorkspaceRoot(root.clone()));
-            builder.provide(nuo_contracts::WorkspaceRoots::new(
+            builder.provide(nuo_wire::WorkspaceRoot(root.clone()));
+            builder.provide(nuo_wire::WorkspaceRoots::new(
                 root.clone(),
                 additional_roots.clone(),
             ));
@@ -489,13 +489,13 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     if let Some(root) = &workspace_root {
         let sys_ctx = Arc::new(nuo_host::SystemToolContext::new(root.clone()));
         let sys_tools = nuo_host::create_system_tools(sys_ctx);
-        for bridged in nuo_contracts::bridge_substrate_tools(sys_tools) {
+        for bridged in nuo_harness::bridge_substrate_tools(sys_tools) {
             toolset.upsert(bridged);
         }
     }
     if let Ok(store) = nuo_persistence::get_role_memory_store() {
         let p_tools = nuo_persistence::create_persistence_tools(Arc::new(store));
-        for bridged in nuo_contracts::bridge_substrate_tools(p_tools) {
+        for bridged in nuo_harness::bridge_substrate_tools(p_tools) {
             toolset.upsert(bridged);
         }
     }
@@ -506,7 +506,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // `SubagentTool` is layered on. A `/btw` side session (ADR-0017) rebuilds
     // its `Agent` from this same snapshot — minus its own `SubagentTool` and
     // without inheriting the master's session-scoped connector sources.
-    let base_tools: Arc<Vec<Arc<dyn nuo_contracts::Tool>>> = Arc::new(toolset.default_view());
+    let base_tools: Arc<Vec<Arc<dyn nuo_wire::Tool>>> = Arc::new(toolset.default_view());
     // SubagentTool gets the static capability set (excluding itself) so spawned
     // subagents cannot recurse and inherit the live provider. Dynamic connector
     // sources are master-only unless a future policy explicitly delegates
@@ -674,7 +674,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     crate::mcp::set_trust_verifier(Arc::new(move |root| {
         ws_security_for_mcp
             .snapshot(root)
-            .is_trusted(nuo_contracts::TrustDomain::Mcp)
+            .is_trusted(nuo_wire::TrustDomain::Mcp)
     }));
     // Connect every configured MCP server in the BACKGROUND so a slow/unreachable
     // server (8s connect timeout each) never delays the first frame. The
@@ -717,12 +717,12 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
             &session.id().await,
             RoundEvent::Notice(
                 AgentNotice::new(
-                    nuo_contracts::NoticeKind::CommandAck,
-                    nuo_contracts::NoticeSeverity::Info,
+                    nuo_wire::NoticeKind::CommandAck,
+                    nuo_wire::NoticeSeverity::Info,
                     "Unattended mode ON",
-                    nuo_contracts::NoticeSource::Harness,
+                    nuo_wire::NoticeSource::Harness,
                 )
-                .with_surface(nuo_contracts::NoticeSurface::Toast)
+                .with_surface(nuo_wire::NoticeSurface::Toast)
                 .with_body(
                     "All tool permissions are auto-approved this session.\n\
                      Use `/unattended off` to return to interactive mode.",
@@ -740,12 +740,12 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
             &session.id().await,
             RoundEvent::Notice(
                 AgentNotice::new(
-                    nuo_contracts::NoticeKind::CommandAck,
-                    nuo_contracts::NoticeSeverity::Warning,
+                    nuo_wire::NoticeKind::CommandAck,
+                    nuo_wire::NoticeSeverity::Warning,
                     "Workspace Confinement OFF",
-                    nuo_contracts::NoticeSource::Harness,
+                    nuo_wire::NoticeSource::Harness,
                 )
-                .with_surface(nuo_contracts::NoticeSurface::Toast)
+                .with_surface(nuo_wire::NoticeSurface::Toast)
                 .with_body(
                     "Tools may access and edit any file on the host system.\n\
                      Use `/confinement on` to restore workspace confinement.",
@@ -800,7 +800,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     } else {
         // One-shot paths: a TUI bootstrap is interactive by construction;
         // headless (`-p` runs, remote automation) declares Autonomous.
-        agent.set_human_posture(nuo_contracts::human_request::HumanChannelPosture::Interactive);
+        agent.set_human_posture(nuo_wire::human_request::HumanChannelPosture::Interactive);
     }
     agent.set_hard_stop_turns(config.agent.hard_stop_turns);
     agent.set_trajectory_guard_config(config.agent.trajectory_guard);
@@ -862,8 +862,8 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         // round. Resume vs fresh start is surfaced so a hook can branch.
         {
             let source = match &startup {
-                SessionStart::Resume(_) => nuo_contracts::SessionSource::Resume,
-                _ => nuo_contracts::SessionSource::Startup,
+                SessionStart::Resume(_) => nuo_wire::SessionSource::Resume,
+                _ => nuo_wire::SessionSource::Startup,
             };
             let mut messages = session.model_window().await;
             let before_len = messages.len();
@@ -910,7 +910,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // Shared token-source ledger: the agent books each turn's token usage
     // (reported vs. estimated) into it, and the frontend reads it for the
     // token-source report.
-    let token_ledger = nuo_contracts::TokenSourceLedger::shared();
+    let token_ledger = nuo_wire::TokenSourceLedger::shared();
     // Durable cross-session usage mirror (ADR-0122): every terminal settle is
     // forwarded into the day-partitioned store under `data/usage/` — a
     // sibling of `projects/`, so session cleanup can never touch it.
@@ -1098,26 +1098,26 @@ fn spawn_mcp_config_watcher(
             let mcp_trust = workspace_root
                 .as_ref()
                 .map(|root| workspace_security.snapshot(root).mcp)
-                .unwrap_or(nuo_contracts::WorkspaceTrustState::Trusted);
+                .unwrap_or(nuo_wire::WorkspaceTrustState::Trusted);
 
             if is_workspace_event
                 && has_project_mcp
                 && matches!(
                     mcp_trust,
-                    nuo_contracts::WorkspaceTrustState::Quarantined
-                        | nuo_contracts::WorkspaceTrustState::Changed
+                    nuo_wire::WorkspaceTrustState::Quarantined
+                        | nuo_wire::WorkspaceTrustState::Changed
                 )
             {
                 let _ = resp_tx.send(round_response(
                     &session_id,
                     RoundEvent::Notice(
                         AgentNotice::new(
-                            nuo_contracts::NoticeKind::TrustChanged,
-                            nuo_contracts::NoticeSeverity::Warning,
+                            nuo_wire::NoticeKind::TrustChanged,
+                            nuo_wire::NoticeSeverity::Warning,
                             "Workspace MCP configuration changed",
-                            nuo_contracts::NoticeSource::Harness,
+                            nuo_wire::NoticeSource::Harness,
                         )
-                        .with_surface(nuo_contracts::NoticeSurface::Toast)
+                        .with_surface(nuo_wire::NoticeSurface::Toast)
                         .with_body(
                             "Untrusted workspace MCP configuration detected. Run `/trust mcp` to review and enable.",
                         ),
@@ -1141,12 +1141,12 @@ fn spawn_mcp_config_watcher(
                     &session_id,
                     RoundEvent::Notice(
                         AgentNotice::new(
-                            nuo_contracts::NoticeKind::CommandAck,
-                            nuo_contracts::NoticeSeverity::Info,
+                            nuo_wire::NoticeKind::CommandAck,
+                            nuo_wire::NoticeSeverity::Info,
                             "MCP configuration reloaded",
-                            nuo_contracts::NoticeSource::Harness,
+                            nuo_wire::NoticeSource::Harness,
                         )
-                        .with_surface(nuo_contracts::NoticeSurface::Toast)
+                        .with_surface(nuo_wire::NoticeSurface::Toast)
                         .with_body(format!(
                             "Hot-reload complete: {connected_count} connected, {removed_count} removed."
                         )),
@@ -1182,7 +1182,7 @@ mod tests {
         let agent = Arc::new(Agent::new(
             Arc::new(nuo_harness::NoProvider),
             vec![],
-            nuo_contracts::AgentIdentity::default(),
+            nuo_wire::AgentIdentity::default(),
         ));
         let mcp = Arc::new(McpRuntime::start_background(
             Default::default(),
@@ -1236,7 +1236,7 @@ mod tests {
         let agent = Arc::new(Agent::new(
             Arc::new(nuo_harness::NoProvider),
             vec![],
-            nuo_contracts::AgentIdentity::default(),
+            nuo_wire::AgentIdentity::default(),
         ));
         let mcp = Arc::new(McpRuntime::start_background(
             Default::default(),
@@ -1272,7 +1272,7 @@ mod tests {
                 event: RoundEvent::Notice(n),
                 ..
             } = resp
-                && n.kind == nuo_contracts::NoticeKind::TrustChanged
+                && n.kind == nuo_wire::NoticeKind::TrustChanged
             {
                 got_warning = true;
                 break;
@@ -1300,7 +1300,7 @@ mod tests {
         let agent = Arc::new(Agent::new(
             Arc::new(nuo_harness::NoProvider),
             vec![],
-            nuo_contracts::AgentIdentity::default(),
+            nuo_wire::AgentIdentity::default(),
         ));
         let mcp = Arc::new(McpRuntime::start_background(
             Default::default(),
@@ -1331,7 +1331,7 @@ mod tests {
             event: RoundEvent::Notice(n),
             ..
         })) = notice
-            && n.kind == nuo_contracts::NoticeKind::TrustChanged
+            && n.kind == nuo_wire::NoticeKind::TrustChanged
         {
             panic!("User config modification must not trigger TrustChanged warning!");
         }
@@ -1339,8 +1339,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_user_assets_zero_bypass_and_ttl_lifecycle() {
-        use nuo_contracts::WorkspaceTrustState;
-        use nuo_contracts::security::{AssetLocator, AssetSpec, AttestationStatus};
+        use nuo_wire::WorkspaceTrustState;
+        use nuo_wire::security::{AssetLocator, AssetSpec, AttestationStatus};
 
         let tmp = tempfile::tempdir().unwrap();
         let handle =
@@ -1403,7 +1403,7 @@ mod tests {
         assert!(!ledger.is_trusted(&locator, &spec_v2));
 
         // 6. Snapshot aggregate reflects user-level quarantine even in workspace-free sessions
-        let mut snapshot = nuo_contracts::WorkspaceSecuritySnapshot::new("workspace-free");
+        let mut snapshot = nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free");
         assert_eq!(snapshot.aggregate(), WorkspaceTrustState::Absent);
         snapshot.user_assets = WorkspaceTrustState::Quarantined;
         assert_eq!(snapshot.aggregate(), WorkspaceTrustState::Quarantined);

@@ -33,7 +33,7 @@
 
 use std::sync::Arc;
 
-use nuo_contracts::{
+use nuo_wire::{
     CausalGraph, CausalNode, ExecutionStatus, Message, NodeKind, NodePayload, SessionDelta,
     SessionPolicy, StateUpdate, SystemNoticePayload,
 };
@@ -62,15 +62,15 @@ pub struct GraphState {
     /// Budget-driven pruning gave up for this instance.
     pub pruning_exhausted: bool,
     /// The unified task list the model last saw.
-    pub todos: nuo_contracts::TodoList,
+    pub todos: nuo_wire::TodoList,
     /// Tools switched off for this instance (ADR-0048 Phase 2).
     pub disabled_tools: std::collections::HashSet<String>,
     /// The `/retry` point a stopped round left behind, if any.
-    pub retry_pending: Option<nuo_contracts::RetryPoint>,
+    pub retry_pending: Option<nuo_wire::RetryPoint>,
     /// Per-request token accounting for this instance.
-    pub usage_records: Vec<nuo_contracts::RequestUsageRecord>,
+    pub usage_records: Vec<nuo_wire::RequestUsageRecord>,
     /// Stats of the most recent model-context projection (prune or compaction).
-    pub last_projection: Option<nuo_contracts::ContextProjectionCheckpoint>,
+    pub last_projection: Option<nuo_wire::ContextProjectionCheckpoint>,
 }
 
 /// The kernel's record for one agent instance.
@@ -165,7 +165,7 @@ impl ExecutionRecord {
         instance_id: impl Into<String>,
         policy: SessionPolicy,
         sink: Arc<dyn FactSink>,
-        ir: nuo_contracts::SessionIR,
+        ir: nuo_wire::SessionIR,
     ) -> Self {
         let nodes: Vec<CausalNode> = ir.history.nodes.into_values().collect();
         let state = GraphState {
@@ -284,7 +284,7 @@ impl ExecutionRecord {
                 // A compaction's summary is itself context: it replaces the
                 // rounds it folded.
                 NodePayload::Compaction { summary, .. } => {
-                    Some(Message::new(nuo_contracts::Role::System, summary.clone()))
+                    Some(Message::new(nuo_wire::Role::System, summary.clone()))
                 }
                 // Observations and notices are not dialogue; a request that
                 // needs them reads them by claim-check (ADR-0282).
@@ -358,21 +358,21 @@ impl ExecutionRecord {
     }
 
     /// The `/retry` point a stopped round left behind.
-    pub fn retry_pending(&self) -> Option<&nuo_contracts::RetryPoint> {
+    pub fn retry_pending(&self) -> Option<&nuo_wire::RetryPoint> {
         self.state.retry_pending.as_ref()
     }
 
     /// Arm a `/retry` point.
-    pub fn set_retry_pending(&mut self, point: Option<nuo_contracts::RetryPoint>) {
+    pub fn set_retry_pending(&mut self, point: Option<nuo_wire::RetryPoint>) {
         self.state.retry_pending = point;
     }
 
     /// The unified task list the model last saw.
-    pub fn todos(&self) -> &nuo_contracts::TodoList {
+    pub fn todos(&self) -> &nuo_wire::TodoList {
         &self.state.todos
     }
 
-    pub fn set_todos(&mut self, todos: nuo_contracts::TodoList) {
+    pub fn set_todos(&mut self, todos: nuo_wire::TodoList) {
         self.state.todos = todos;
     }
 
@@ -386,23 +386,23 @@ impl ExecutionRecord {
     }
 
     /// Per-request token accounting.
-    pub fn usage_records(&self) -> &[nuo_contracts::RequestUsageRecord] {
+    pub fn usage_records(&self) -> &[nuo_wire::RequestUsageRecord] {
         &self.state.usage_records
     }
 
-    pub fn set_usage_records(&mut self, records: Vec<nuo_contracts::RequestUsageRecord>) {
+    pub fn set_usage_records(&mut self, records: Vec<nuo_wire::RequestUsageRecord>) {
         self.state.usage_records = records;
     }
 
     /// Stats of the most recent projection.
-    pub fn last_projection(&self) -> Option<&nuo_contracts::ContextProjectionCheckpoint> {
+    pub fn last_projection(&self) -> Option<&nuo_wire::ContextProjectionCheckpoint> {
         self.state.last_projection.as_ref()
     }
 
     /// Record a projection's checkpoint.
     pub fn set_last_projection(
         &mut self,
-        checkpoint: Option<nuo_contracts::ContextProjectionCheckpoint>,
+        checkpoint: Option<nuo_wire::ContextProjectionCheckpoint>,
     ) {
         self.state.last_projection = checkpoint;
     }
@@ -442,14 +442,14 @@ impl ExecutionRecord {
     /// projection exists because the compactor was written against the IR
     /// aggregate. It is a view, not a second authority: nothing is written back
     /// except through [`Self::apply_compacted_ir`].
-    pub fn as_ir(&self) -> nuo_contracts::SessionIR {
-        nuo_contracts::SessionIR {
+    pub fn as_ir(&self) -> nuo_wire::SessionIR {
+        nuo_wire::SessionIR {
             session_id: self.instance_id.clone(),
             parent_session_id: None,
             created_at_s: 0,
             updated_at_s: 0,
             history: self.history.clone(),
-            state: nuo_contracts::SessionState {
+            state: nuo_wire::SessionState {
                 active_leaf: self.state.cursor.clone(),
                 active_timeline: "main".to_string(),
                 timelines: std::collections::HashMap::new(),
@@ -469,7 +469,7 @@ impl ExecutionRecord {
     /// rewriting any, so this is an append of what is new plus a register update —
     /// which is exactly what keeps the record's history immutable while its view
     /// moves (ADR-0275).
-    pub fn apply_compacted_ir(&mut self, ir: &nuo_contracts::SessionIR) {
+    pub fn apply_compacted_ir(&mut self, ir: &nuo_wire::SessionIR) {
         for node in ir.history.nodes.values() {
             if self.history.get_node(&node.id).is_none() {
                 self.history.insert_node(node.clone());
@@ -486,7 +486,7 @@ mod tests {
     use super::*;
     use crate::durability::NullSink;
     use crate::durability_conformance::MemorySink;
-    use nuo_contracts::Role;
+    use nuo_wire::Role;
 
     fn record(sink: Arc<dyn FactSink>) -> ExecutionRecord {
         ExecutionRecord::new("instance-a", SessionPolicy::default(), sink)
@@ -558,8 +558,8 @@ mod tests {
                 call_id: "call-1".into(),
                 tool_name: "read_text".into(),
                 blob_hash: "sha".into(),
-                metrics: nuo_contracts::ObservationMetrics::default(),
-                lifecycle: nuo_contracts::ObservationLifecycle::Raw {
+                metrics: nuo_wire::ObservationMetrics::default(),
+                lifecycle: nuo_wire::ObservationLifecycle::Raw {
                     content: "…".into(),
                 },
             },
@@ -689,7 +689,7 @@ mod tests {
     async fn registers_are_the_kernels_own() {
         let mut record = record(Arc::new(NullSink));
         record.state_mut().steps = 7;
-        record.state_mut().retry_pending = Some(nuo_contracts::RetryPoint {
+        record.state_mut().retry_pending = Some(nuo_wire::RetryPoint {
             round: 7,
             turns_committed: 2,
             history_watermark: 12,
@@ -700,7 +700,7 @@ mod tests {
             .state_mut()
             .disabled_tools
             .insert("execute_command".to_string());
-        record.state_mut().todos = nuo_contracts::TodoList::default();
+        record.state_mut().todos = nuo_wire::TodoList::default();
 
         assert_eq!(record.state().steps, 7);
         assert!(record.state().retry_pending.is_some());

@@ -9,13 +9,13 @@
 //! endpoint family and model universe differ, so they are separate model
 //! providers (ADR-0201 INV-1); authentication mode never selects the route.
 
-use nuo_contracts::reasoning::ReasoningSupport;
-use nuo_contracts::{Model, WireProtocol};
+use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_model_codec::{Model, WireProtocol};
 
 use super::{CatalogShape, ModelProviderSpec, RemoteCatalogSource, effort_ladders};
 
 /// Curated seed models offered by the OpenCode Zen preset.
-pub use nuo_contracts::model_providers::OPENCODE_ZEN_MODELS;
+pub use nuo_model_codec::model_providers::OPENCODE_ZEN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves.
 pub const MODELS: &[Model] = &[
@@ -54,10 +54,10 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_contracts::model::BaselineModels(MODELS));
+inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
 pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_contracts::ProviderDialect::Standard,
+    dialect: nuo_model_codec::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: Some(std::borrow::Cow::Borrowed("https://opencode.ai/zen/v1")),
     prompt_cache: super::PromptCachePolicy::Compiled(super::unsupported_prompt_cache),
@@ -67,12 +67,12 @@ pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // instance-level default is the OpenAI chat-completions surface.
     root_url: std::borrow::Cow::Borrowed("https://opencode.ai/zen/v1"),
     user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_contracts::client_identity::OPENCODE_USER_AGENT,
+        nuo_model_codec::client_identity::OPENCODE_USER_AGENT,
     )),
     protocol: WireProtocol::ChatCompletions,
     // Served models come from the live /zen/v1/models endpoint.
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_contracts::ClientPreset::Native,
+    default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
     models: OPENCODE_ZEN_MODELS,
 };

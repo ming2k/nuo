@@ -17,14 +17,14 @@
 //! - Roles are only `user` and `model` (assistant). Tool calls are assistant
 //!   `functionCall` parts; tool results are user `functionResponse` parts.
 
-use nuo_contracts::{Message, Role};
+use nuo_model_codec::{Message, Role};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
 use super::response::{TEXT_THOUGHT_SIGNATURE_META_KEY, THOUGHT_SIGNATURES_META_KEY};
 
 /// The resolved reasoning-depth directive to stamp into `thinkingConfig` — the
-/// wire form of a channel's [`nuo_contracts::Effort`] override once it has been
+/// wire form of a channel's [`nuo_model_codec::Effort`] override once it has been
 /// clamped and translated for this Gemini model.
 ///
 /// Gemini exposes **two mutually exclusive** depth surfaces, so a single field
@@ -40,11 +40,11 @@ pub enum GoogleThinking {
     /// `thinkingLevel` for a Gemini 3.x model: one of `minimal`/`low`/
     /// `medium`/`high`. Never `none`/`xhigh`/`max` (Gemini 3.x rejects them);
     /// the resolver clamps those down before constructing this variant.
-    Level(nuo_contracts::Effort),
+    Level(nuo_model_codec::Effort),
     /// `thinkingBudget` for a Gemini 2.5 model: a token count in the model's
     /// supported range. `0` disables thinking (Flash/Lite only — Pro's floor is
     /// `128`, so the resolver only emits `0` when the model's ladder allows
-    /// [`nuo_contracts::Effort::None`]).
+    /// [`nuo_model_codec::Effort::None`]).
     Budget(i64),
 }
 
@@ -62,8 +62,8 @@ pub enum GoogleThinking {
 /// `max_budget` is only consulted for the budget surface; pass any value for a
 /// level-only model.
 pub fn resolve_thinking(
-    effort: Option<nuo_contracts::Effort>,
-    effort_levels: &[nuo_contracts::EffortLevel],
+    effort: Option<nuo_model_codec::Effort>,
+    effort_levels: &[nuo_model_codec::EffortLevel],
     max_budget: u32,
 ) -> Option<GoogleThinking> {
     // A model that does not advertise a depth ladder has no thinking surface to
@@ -77,15 +77,15 @@ pub fn resolve_thinking(
     // Gemini's ladders are always compiled-in known rungs, so extract the known
     // subset for ranking; `Other` (a provider tier outside the vocabulary) has
     // no Gemini surface to map onto and is ignored here.
-    let known: Vec<nuo_contracts::Effort> = effort_levels
+    let known: Vec<nuo_model_codec::Effort> = effort_levels
         .iter()
-        .filter_map(nuo_contracts::EffortLevel::as_known)
+        .filter_map(nuo_model_codec::EffortLevel::as_known)
         .collect();
     let clamped = requested.clamp_to(&known);
     // Decide the surface from the ladder's deepest rung: the budget ladder tops
     // out at `max`, the level ladder at `high`. This keeps the model-specific
     // choice in one place and never inspects the free-form model id string.
-    let is_budget = known.contains(&nuo_contracts::Effort::Max);
+    let is_budget = known.contains(&nuo_model_codec::Effort::Max);
     Some(if is_budget {
         GoogleThinking::Budget(clamped.gemini_thinking_budget(max_budget))
     } else {
@@ -97,8 +97,8 @@ pub fn resolve_thinking(
 /// shape, if any.
 pub struct BodyInput<'a> {
     /// Structured instructions from the instruction manifest.
-    pub instructions: Option<&'a nuo_contracts::InstructionBundle>,
-    pub tool_specs: Option<&'a [nuo_contracts::ToolSpec]>,
+    pub instructions: Option<&'a nuo_model_codec::InstructionBundle>,
+    pub tool_specs: Option<&'a [nuo_model_codec::ToolSpec]>,
     /// Stamp `generationConfig.thinkingConfig.includeThoughts`. The Google API
     /// only returns reasoning *text* when the request asks for it, and rejects
     /// the flag with HTTP 400 on models that do not think — so this MUST be
@@ -125,7 +125,7 @@ pub fn body_with_capabilities(
     model: &str,
     messages: Vec<Message>,
     input: BodyInput<'_>,
-    capabilities: &nuo_contracts::ModelCapabilities,
+    capabilities: &nuo_model_codec::ModelCapabilities,
 ) -> Value {
     let (messages, _dropped_images) =
         crate::vision::project_images_for_route(model, messages, capabilities);
@@ -429,7 +429,7 @@ fn tool_result_parts(
 
 fn text_and_image_parts(
     text: String,
-    images: Vec<nuo_contracts::ImagePart>,
+    images: Vec<nuo_model_codec::ImagePart>,
     include_empty_text: bool,
 ) -> Vec<Value> {
     let mut parts = Vec::new();
@@ -447,7 +447,7 @@ fn text_and_image_parts(
     parts
 }
 
-fn google_tools(tool_specs: Option<&[nuo_contracts::ToolSpec]>) -> Option<Value> {
+fn google_tools(tool_specs: Option<&[nuo_model_codec::ToolSpec]>) -> Option<Value> {
     let specs = tool_specs?;
     if specs.is_empty() {
         return None;
@@ -800,7 +800,7 @@ pub fn stream_url(base_url: &str, model: &str, api_key: Option<&str>) -> String 
 }
 
 /// The maximum `thinkingBudget` a Gemini 2.5 model accepts, in tokens — the cap
-/// [`nuo_contracts::Effort::gemini_thinking_budget`] buckets against. Gemini 2.5 Flash tops
+/// [`nuo_model_codec::Effort::gemini_thinking_budget`] buckets against. Gemini 2.5 Flash tops
 /// out at `24576`; Pro at `32768`; Flash-Lite (floor `512`) also at `24576`.
 /// Any other model id (Gemini 3.x, non-reasoning) returns `0`, signaling "no
 /// budget surface" so [`resolve_thinking`] never constructs a `Budget` for it.
@@ -824,7 +824,7 @@ mod tests {
     use super::*;
 
     fn test_body_input<'a>(
-        tool_specs: Option<&'a [nuo_contracts::ToolSpec]>,
+        tool_specs: Option<&'a [nuo_model_codec::ToolSpec]>,
         include_thoughts: bool,
         thinking: Option<GoogleThinking>,
     ) -> BodyInput<'a> {
@@ -837,12 +837,12 @@ mod tests {
     }
 
     /// Route capabilities with only the vision declaration varied.
-    fn caps_with_vision(vision: Option<bool>) -> nuo_contracts::ModelCapabilities {
-        nuo_contracts::ModelCapabilities {
+    fn caps_with_vision(vision: Option<bool>) -> nuo_model_codec::ModelCapabilities {
+        nuo_model_codec::ModelCapabilities {
             family: "google".into(),
             context_window: 1_000_000,
             max_output_tokens: None,
-            thinking: nuo_contracts::ReasoningSupport::None,
+            thinking: nuo_model_codec::ReasoningSupport::None,
             tool_call: true,
             vision,
             effort_levels: Vec::new(),
@@ -850,7 +850,7 @@ mod tests {
     }
 
     fn image_message(text: &str) -> Message {
-        Message::new(Role::User, text).with_images(vec![nuo_contracts::ImagePart {
+        Message::new(Role::User, text).with_images(vec![nuo_model_codec::ImagePart {
             mime: "image/png".to_string(),
             data: "aGk=".to_string(),
         }])
@@ -924,7 +924,7 @@ mod tests {
         let body = body(
             vec![Message::new(Role::User, "list files")],
             test_body_input(
-                Some(&[nuo_contracts::ToolSpec {
+                Some(&[nuo_model_codec::ToolSpec {
                     name: "list_dir".to_string(),
                     description: "List files".to_string(),
                     parameters: json!({
@@ -973,7 +973,7 @@ mod tests {
 
     #[test]
     fn replays_tool_calls_and_results_as_function_parts() {
-        let call = nuo_contracts::ToolCall {
+        let call = nuo_model_codec::ToolCall {
             id: "call_1".to_string(),
             name: "list_dir".to_string(),
             arguments: r#"{"path":"."}"#.to_string(),
@@ -1025,12 +1025,12 @@ mod tests {
 
     #[test]
     fn strips_unanswered_tool_calls_and_orphan_results() {
-        let answered = nuo_contracts::ToolCall {
+        let answered = nuo_model_codec::ToolCall {
             id: "answered".to_string(),
             name: "list_dir".to_string(),
             arguments: "{}".to_string(),
         };
-        let unanswered = nuo_contracts::ToolCall {
+        let unanswered = nuo_model_codec::ToolCall {
             id: "unanswered".to_string(),
             name: "grep".to_string(),
             arguments: "{}".to_string(),
@@ -1069,7 +1069,7 @@ mod tests {
 
     #[test]
     fn degrades_unsigned_foreign_tool_calls_to_safe_dialogue_facts() {
-        let call = nuo_contracts::ToolCall {
+        let call = nuo_model_codec::ToolCall {
             id: "call_foreign".to_string(),
             name: "write_todos".to_string(),
             arguments: r#"{"items":[{"content":"design","status":"in_progress"}]}"#.to_string(),
@@ -1113,12 +1113,12 @@ mod tests {
 
     #[test]
     fn mixed_signed_and_unsigned_tool_calls_degrade_granularly() {
-        let signed_call = nuo_contracts::ToolCall {
+        let signed_call = nuo_model_codec::ToolCall {
             id: "call_signed".to_string(),
             name: "list_dir".to_string(),
             arguments: r#"{"path":"."}"#.to_string(),
         };
-        let unsigned_call = nuo_contracts::ToolCall {
+        let unsigned_call = nuo_model_codec::ToolCall {
             id: "call_unsigned".to_string(),
             name: "default_api:run_command".to_string(),
             arguments: r#"{"command":"cargo test"}"#.to_string(),
@@ -1189,14 +1189,14 @@ mod tests {
     fn resolve_thinking_level_for_gemini_3x() {
         // Gemini 3.x uses a level ladder; each rung maps to thinkingLevel,
         // clamping down from unsupported depths.
-        use nuo_contracts::effort::Effort;
+        use nuo_model_codec::effort::Effort;
         let gemini_level: &[Effort] = &[
             Effort::Minimal,
             Effort::Low,
             Effort::Medium,
             Effort::High,
         ];
-        let level: Vec<nuo_contracts::EffortLevel> = gemini_level
+        let level: Vec<nuo_model_codec::EffortLevel> = gemini_level
             .iter()
             .copied()
             .map(Into::into)
@@ -1222,7 +1222,7 @@ mod tests {
     fn resolve_thinking_budget_for_gemini_2_5() {
         // Gemini 2.5 uses a budget ladder; rungs map to token buckets against
         // the model's max (Flash: 24576).
-        use nuo_contracts::effort::Effort;
+        use nuo_model_codec::effort::Effort;
         let gemini_budget: &[Effort] = &[
             Effort::Minimal,
             Effort::Low,
@@ -1230,7 +1230,7 @@ mod tests {
             Effort::High,
             Effort::Max,
         ];
-        let budget: Vec<nuo_contracts::EffortLevel> = gemini_budget
+        let budget: Vec<nuo_model_codec::EffortLevel> = gemini_budget
             .iter()
             .copied()
             .map(Into::into)
@@ -1254,7 +1254,7 @@ mod tests {
     fn resolve_thinking_empty_ladder_is_no_override() {
         // A non-reasoning / unknown model (empty ladder) never stamps thinking.
         assert_eq!(
-            resolve_thinking(Some(nuo_contracts::Effort::High), &[], 24576),
+            resolve_thinking(Some(nuo_model_codec::Effort::High), &[], 24576),
             None
         );
     }
@@ -1267,7 +1267,7 @@ mod tests {
             test_body_input(
                 None,
                 false,
-                Some(GoogleThinking::Level(nuo_contracts::Effort::Medium)),
+                Some(GoogleThinking::Level(nuo_model_codec::Effort::Medium)),
             ),
         );
         assert_eq!(

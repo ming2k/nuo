@@ -7,7 +7,8 @@ license.workspace = true
 
 [dependencies]
 nuo-model-codec = { workspace = true }
-nuo-contracts = { workspace = true }
+nuo-wire = { workspace = true }
+nuo-tool = { workspace = true }
 bytes = { workspace = true }
 http = "1.4"
 httpdate = { workspace = true }

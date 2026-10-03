@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use nuo_contracts::{MAX_TODOS, TodoList, TodoStatus, Tool};
+use nuo_wire::{MAX_TODOS, TodoList, TodoStatus, Tool};
 
 const TODO_DESCRIPTION: &str = "Update the task list. Two modes, mutually exclusive: \
 (1) full replace — provide `items`, the full array ({content, status: \
@@ -124,7 +124,7 @@ impl TodoTool {
             }
         }
 
-        let now = nuo_contracts::todos::unix_now();
+        let now = nuo_wire::todos::unix_now();
         let turn = self.context.current_round();
         let mut list = self.context.todos();
         let prev_ids: HashSet<u64> = list.items.iter().map(|i| i.id.0).collect();
@@ -191,7 +191,7 @@ impl TodoTool {
             )
         })?;
 
-        let now = nuo_contracts::todos::unix_now();
+        let now = nuo_wire::todos::unix_now();
         let turn = self.context.current_round();
         let mut list = self.context.todos();
         if list.is_empty() {
@@ -306,7 +306,7 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
-    use nuo_contracts::TodoList;
+    use nuo_wire::TodoList;
 
     fn ctx() -> (TodoToolContext, Arc<Mutex<TodoList>>) {
         let list = Arc::new(Mutex::new(TodoList::new()));

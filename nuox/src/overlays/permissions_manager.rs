@@ -20,7 +20,7 @@ use crate::render::Theme;
 /// (the same one the `/session` modal used), refreshed after each mutation.
 pub fn draw_permissions_manager(
     frame: &mut Frame,
-    session_context: Option<&nuo_contracts::SessionContextSnapshot>,
+    session_context: Option<&nuo_wire::SessionContextSnapshot>,
     modal_index: usize,
     scroll: &mut usize,
     theme: &Theme,

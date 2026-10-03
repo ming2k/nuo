@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::tools::{EditTextTool, ListDirTool, ReadTextTool, WriteFileTool};
-use nuo_contracts::execution::{ExecutionEnvironment, ToolMiddleware};
-use nuo_contracts::{Tool, ToolOutput};
+use nuo_wire::execution::{ExecutionEnvironment, ToolMiddleware};
+use nuo_wire::{Tool, ToolOutput};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -49,7 +49,7 @@ async fn mock_process_subagent_scripted_response() {
     subagent
         .register(
             "cargo build",
-            nuo_contracts::execution::ProcessOutput {
+            nuo_wire::execution::ProcessOutput {
                 exit_code: Some(0),
                 stdout: b"Compiling muta v0.1.0\nFinished dev target(s)".to_vec(),
                 stderr: Vec::new(),
@@ -149,7 +149,7 @@ async fn secret_scrub_middleware_redacts_credentials() {
         lines: Vec::new(),
         exit: Some(0),
         truncated: false,
-        termination: nuo_contracts::ShellTermination::Exited,
+        termination: nuo_wire::ShellTermination::Exited,
         detached_job_id: None,
     };
 

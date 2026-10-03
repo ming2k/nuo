@@ -1,6 +1,6 @@
 //! Durable state and configuration for the muta agent stack.
 //!
-//! `nuo-contracts` holds the pure domain (types & traits), zero I/O. This
+//! `nuo-wire` holds the pure domain (types & traits), zero I/O. This
 //! crate sits one layer above it: the durable state and configuration a
 //! frontend needs to actually run a session — config loading and validation,
 //! path resolution, the event-sourced session store (which carries the
@@ -13,9 +13,9 @@
 //! cross-process writes to shared files serialise through companion
 //! `.lock` flocks (ADR-0018). Other scenarios the project may grow
 //! (group-chat with multi-tenancy) will not fit this layer and should spawn
-//! sibling crates sharing only `nuo-contracts`. See ADR-0005.
+//! sibling crates sharing only `nuo-wire`. See ADR-0005.
 //!
-//! Frontends depend on `nuo-contracts` + `nuo-persistence` and add their own
+//! Frontends depend on `nuo-wire` + `nuo-persistence` and add their own
 //! presentation layer. They must never need to reach into a sibling
 //! frontend's crate; this is what keeps the CLI self-contained today and
 //! a GUI reachable tomorrow.

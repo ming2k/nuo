@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 
 /// Add the concrete tools whose lifetime is tied to one agent instance.
 pub(crate) fn install_agent_owned_tools(
-    toolset: &mut nuo_contracts::ToolSet,
-    todos: Arc<Mutex<nuo_contracts::TodoList>>,
+    toolset: &mut nuo_wire::ToolSet,
+    todos: Arc<Mutex<nuo_wire::TodoList>>,
     round_counter: Arc<Mutex<u64>>,
 ) {
     let context = crate::tools::TodoToolContext::new(todos, round_counter);

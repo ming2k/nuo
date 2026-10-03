@@ -26,7 +26,7 @@ use crate::render::Theme;
 /// replies with a fresh snapshot that re-renders the list.
 pub fn draw_mcp_modal(
     frame: &mut Frame,
-    session_context: Option<&nuo_contracts::SessionContextSnapshot>,
+    session_context: Option<&nuo_wire::SessionContextSnapshot>,
     modal_index: usize,
     scroll: &mut usize,
     follow_selection: bool,

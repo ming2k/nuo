@@ -30,7 +30,7 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use nuo_harness::{Agent, RoundLifecycle};
-use nuo_contracts::{AgentRequest, AgentResponse, Provider, Tool};
+use nuo_wire::{AgentRequest, AgentResponse, Provider, Tool};
 use nuo_persistence::{config::Config, connection_usage::ConnectionUsage, session::SessionStore};
 use nuo_harness::skills::SkillRegistry;
 

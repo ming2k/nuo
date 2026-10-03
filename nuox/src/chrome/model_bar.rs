@@ -18,7 +18,6 @@ pub struct ModelBarProps<'a> {
     pub reasoning_effort: Option<&'a str>,
     pub context_tokens: Option<usize>,
     pub context_window: usize,
-    pub ignition_elapsed_ms: Option<u128>,
 }
 
 impl<'a> Default for ModelBarProps<'a> {
@@ -30,7 +29,6 @@ impl<'a> Default for ModelBarProps<'a> {
             reasoning_effort: None,
             context_tokens: None,
             context_window: 0,
-            ignition_elapsed_ms: None,
         }
     }
 }
@@ -103,7 +101,6 @@ pub fn draw_model_bar(
         reasoning_effort,
         context_tokens,
         context_window,
-        ignition_elapsed_ms,
     } = props;
 
     let bg = theme.surface();
@@ -113,7 +110,7 @@ pub fn draw_model_bar(
     let context_max = if context_window > 0 {
         context_window
     } else {
-        nuo_contracts::model::resolve(current_model).context_window
+        nuo_wire::model::resolve(current_model).context_window
     };
 
     let (model_label, model_style) = if current_model.is_empty() {
@@ -272,16 +269,6 @@ pub fn draw_model_bar(
         show_connection_keycap = false;
     }
 
-    let label_budget = identity_width_for(
-        show_model,
-        show_reasoning,
-        show_instance,
-        show_connection_keycap,
-    );
-    let label_spans = ignition_elapsed_ms
-        .and_then(|ms| crate::effort_ignition::label_cluster(label_budget, ms, bg, theme));
-    let ignition_label_active = label_spans.is_some();
-
     let mut left_spans: Vec<Span<'static>> = Vec::new();
     if show_context {
         left_spans.extend(context_spans);
@@ -295,33 +282,29 @@ pub fn draw_model_bar(
     }
 
     let mut right_spans: Vec<Span<'static>> = Vec::new();
-    if let Some(label) = label_spans {
-        right_spans = label;
-    } else {
-        let identity_separator =
-            || Span::styled(" ".repeat(MODEL_BAR_MODEL_GAP), Style::default().bg(bg));
-        let mut identity_started = false;
-        for segment in [
-            show_model.then_some(model_spans),
-            show_reasoning.then_some(reasoning_spans),
-            show_instance.then_some(instance_spans),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            if identity_started {
-                right_spans.push(identity_separator());
-            }
-            identity_started = true;
-            right_spans.extend(segment);
+    let identity_separator =
+        || Span::styled(" ".repeat(MODEL_BAR_MODEL_GAP), Style::default().bg(bg));
+    let mut identity_started = false;
+    for segment in [
+        show_model.then_some(model_spans),
+        show_reasoning.then_some(reasoning_spans),
+        show_instance.then_some(instance_spans),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if identity_started {
+            right_spans.push(identity_separator());
         }
-        if (show_model || show_instance)
-            && show_connection_keycap
-            && let Some(key) = connection_key
-        {
-            right_spans.push(Span::styled(" ", Style::default().bg(bg)));
-            right_spans.push(keycap_badge(key.display()));
-        }
+        identity_started = true;
+        right_spans.extend(segment);
+    }
+    if (show_model || show_instance)
+        && show_connection_keycap
+        && let Some(key) = connection_key
+    {
+        right_spans.push(Span::styled(" ", Style::default().bg(bg)));
+        right_spans.push(keycap_badge(key.display()));
     }
 
     let left_rendered_width: usize = left_spans.iter().map(|s| s.content.width()).sum();
@@ -348,25 +331,23 @@ pub fn draw_model_bar(
 
     let mut context_rect: Option<Rect> = None;
     let mut connection_rect: Option<Rect> = None;
-    if !ignition_label_active {
-        if show_context {
-            let keycap_extra = if show_telemetry_keycap {
-                telemetry_keycap_width
-            } else {
-                0
-            };
-            let width = (context_seg_width + keycap_extra) as u16;
-            context_rect = Some(Rect::new(rect.x + inner as u16, rect.y, width, rect.height));
-        }
-        if right_rendered_width > 0 {
-            let right_x = (inner + left_rendered_width + gap) as u16;
-            connection_rect = Some(Rect::new(
-                rect.x + right_x,
-                rect.y,
-                right_rendered_width as u16,
-                rect.height,
-            ));
-        }
+    if show_context {
+        let keycap_extra = if show_telemetry_keycap {
+            telemetry_keycap_width
+        } else {
+            0
+        };
+        let width = (context_seg_width + keycap_extra) as u16;
+        context_rect = Some(Rect::new(rect.x + inner as u16, rect.y, width, rect.height));
+    }
+    if right_rendered_width > 0 {
+        let right_x = (inner + left_rendered_width + gap) as u16;
+        connection_rect = Some(Rect::new(
+            rect.x + right_x,
+            rect.y,
+            right_rendered_width as u16,
+            rect.height,
+        ));
     }
     ModelBarRects {
         context: context_rect,

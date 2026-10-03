@@ -24,7 +24,7 @@
 use futures::StreamExt;
 use futures::stream::BoxStream;
 
-use nuo_contracts::{ProviderError, ProviderErrorKind};
+use nuo_model_codec::{ProviderError, ProviderErrorKind};
 
 /// Decode a streaming SSE response into a flat stream of `data:` payload
 /// strings (the `data:` prefix and surrounding whitespace stripped; the
@@ -233,7 +233,7 @@ mod tests {
         assert!(error.message().contains("invalid UTF-8"), "{error}");
         assert!(matches!(
             error.retry_disposition(),
-            nuo_contracts::RetryDisposition::Retry { .. }
+            nuo_model_codec::RetryDisposition::Retry { .. }
         ));
         assert_eq!(lines[2], Ok("data: after".to_string()));
         assert!(buffer.is_empty(), "corrupt line must not wedge the stream");
@@ -263,7 +263,7 @@ mod tests {
         assert!(error.message().contains("incomplete SSE event"), "{error}");
         assert!(matches!(
             error.retry_disposition(),
-            nuo_contracts::RetryDisposition::Retry { .. }
+            nuo_model_codec::RetryDisposition::Retry { .. }
         ));
     }
 }

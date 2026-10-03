@@ -390,7 +390,7 @@ fn mention_range_handles_multibyte_before_at() {
 fn delete_provider_stages_overlay_without_deleting() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Connections);
-    let custom = |id: &str| nuo_contracts::ProviderPickerRow {
+    let custom = |id: &str| nuo_wire::ProviderPickerRow {
         id: id.to_string(),
         name: id.to_string(),
         model: "m".to_string(),
@@ -405,7 +405,7 @@ fn delete_provider_stages_overlay_without_deleting() {
         last_used_ms: None,
         auth: Default::default(),
     };
-    app.provider_picker = nuo_contracts::ProviderPickerSnapshot {
+    app.provider_picker = nuo_wire::ProviderPickerSnapshot {
         default_id: "my-custom".to_string(),
         rows: vec![custom("my-custom")],
     };
@@ -433,7 +433,7 @@ fn delete_provider_stages_overlay_without_deleting() {
 fn delete_provider_ignores_builtin() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Connections);
-    let builtin = |id: &str| nuo_contracts::ProviderPickerRow {
+    let builtin = |id: &str| nuo_wire::ProviderPickerRow {
         id: id.to_string(),
         name: id.to_string(),
         model: "m".to_string(),
@@ -448,7 +448,7 @@ fn delete_provider_ignores_builtin() {
         last_used_ms: None,
         auth: Default::default(),
     };
-    app.provider_picker = nuo_contracts::ProviderPickerSnapshot {
+    app.provider_picker = nuo_wire::ProviderPickerSnapshot {
         default_id: "kimi-code".to_string(),
         rows: vec![builtin("kimi-code")],
     };
@@ -566,13 +566,13 @@ fn two_stage_skill_completion_descends_and_terminates() {
     assert_eq!(app.input, "@skill:");
 
     // Simulate backend skill arrival for Stage 2
-    let item = nuo_contracts::InputCompletion {
+    let item = nuo_wire::InputCompletion {
         label: "@skill:rust-expert".to_string(),
         description: "Expert Rust developer".to_string(),
         insert_text: "@skill:rust-expert ".to_string(),
         replace_start: 0,
         replace_end: 7,
-        kind: nuo_contracts::InputCompletionKind::PathExplicit,
+        kind: nuo_wire::InputCompletionKind::PathExplicit,
         alias_of: None,
         command: None,
     };
@@ -610,13 +610,13 @@ fn bare_at_query_does_not_pass_through_to_stage2_content() {
     // Stage-2 content IS reachable — but only after the namespace is committed.
     app.input = "@skill:wright".to_string();
     app.cursor_position = app.input.chars().count();
-    let item = nuo_contracts::InputCompletion {
+    let item = nuo_wire::InputCompletion {
         label: "@skill:wright-plan-authoring".to_string(),
         description: "Author and write wright plan.toml manifests".to_string(),
         insert_text: "@skill:wright-plan-authoring ".to_string(),
         replace_start: 0,
         replace_end: app.input.chars().count(),
-        kind: nuo_contracts::InputCompletionKind::PathExplicit,
+        kind: nuo_wire::InputCompletionKind::PathExplicit,
         alias_of: None,
         command: None,
     };
@@ -695,7 +695,7 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
     app.startup_overlay = crate::StartupOverlay::SessionsPicker;
     app.open_dialog(crate::surfaces::DialogKind::Sessions);
     app.session_info_detail = true;
-    app.session_detail = Some(nuo_contracts::SessionDetail {
+    app.session_detail = Some(nuo_wire::SessionDetail {
         id: "x".to_string(),
         ..Default::default()
     });
@@ -1352,13 +1352,13 @@ fn adr0162_swr_retains_backend_completions_during_path_mention_typing() {
     app.cursor_position = app.input.len();
 
     // Simulate backend response arriving for @src/
-    let item = nuo_contracts::InputCompletion {
+    let item = nuo_wire::InputCompletion {
         label: "src/main.rs".to_string(),
         description: "main entrypoint".to_string(),
         insert_text: "src/main.rs".to_string(),
         replace_start: 8,
         replace_end: 13,
-        kind: nuo_contracts::InputCompletionKind::PathFile,
+        kind: nuo_wire::InputCompletionKind::PathFile,
         alias_of: None,
         command: None,
     };

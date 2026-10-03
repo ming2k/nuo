@@ -1,6 +1,6 @@
 //! Web settings: one compiled provider for search and one for page reading.
 
-use nuo_contracts::{
+use nuo_wire::{
     WebCredentialRequirement, WebCredentialStatus, WebProviderAxis, WebSearchConfigView,
 };
 use nuotc::{Frame, Line, Modifier, Rect, Span, Style};
@@ -95,7 +95,7 @@ pub fn reader_item_count(ws: Option<&WebSearchConfigView>) -> usize {
 fn setup_capability(
     ws: Option<&WebSearchConfigView>,
     axis: WebProviderAxis,
-) -> Option<&nuo_contracts::WebProviderCapability> {
+) -> Option<&nuo_wire::WebProviderCapability> {
     let ws = ws?;
     let id = match axis {
         WebProviderAxis::Search => ws.provider.id(),
@@ -105,7 +105,7 @@ fn setup_capability(
         capability.axis == axis
             && capability.id == id
             && (capability.credential != WebCredentialRequirement::None
-                || capability.endpoint == nuo_contracts::WebEndpointRequirement::UserSupplied)
+                || capability.endpoint == nuo_wire::WebEndpointRequirement::UserSupplied)
     })
 }
 
@@ -212,7 +212,7 @@ fn draw_web_detail(
     );
 
     if let Some(capability) = setup_capability(Some(ws), axis) {
-        if capability.endpoint == nuo_contracts::WebEndpointRequirement::UserSupplied {
+        if capability.endpoint == nuo_wire::WebEndpointRequirement::UserSupplied {
             push_row(
                 &mut lines,
                 &mut selected_line,

@@ -6,7 +6,7 @@
 //! - LLM structured summarization into dense context checkpoints.
 
 use super::file_tracker::FileOperations;
-use nuo_contracts::{CausalNode, Message, ModelRequest, NodePayload, Provider, Role};
+use nuo_wire::{CausalNode, Message, ModelRequest, NodePayload, Provider, Role};
 use std::sync::Arc;
 use tokio::time::Duration;
 
@@ -66,13 +66,13 @@ pub fn estimate_causal_node_tokens(node: &CausalNode) -> usize {
         }
         NodePayload::Compaction { summary, .. } => summary.len().div_ceil(4),
         NodePayload::Observation { lifecycle, .. } => match lifecycle {
-            nuo_contracts::ObservationLifecycle::Raw { content } => content.len().div_ceil(4),
-            nuo_contracts::ObservationLifecycle::ActiveTruncated {
+            nuo_wire::ObservationLifecycle::Raw { content } => content.len().div_ceil(4),
+            nuo_wire::ObservationLifecycle::ActiveTruncated {
                 head_preview,
                 tail_preview,
                 ..
             } => (head_preview.len() + tail_preview.len() + 100).div_ceil(4),
-            nuo_contracts::ObservationLifecycle::Retired { .. } => 32,
+            nuo_wire::ObservationLifecycle::Retired { .. } => 32,
         },
         NodePayload::Termination { partial_output, .. } => partial_output
             .as_ref()
@@ -245,10 +245,10 @@ pub fn serialize_nodes_for_summary(nodes: &[&CausalNode]) -> String {
                 ..
             } => {
                 let reason_str = match reason {
-                    nuo_contracts::TerminationReason::UserInterrupt => "Interrupted by user",
-                    nuo_contracts::TerminationReason::Timeout => "Execution timed out",
-                    nuo_contracts::TerminationReason::FatalError { error } => error.as_str(),
-                    nuo_contracts::TerminationReason::Superseded => "Superseded by user message",
+                    nuo_wire::TerminationReason::UserInterrupt => "Interrupted by user",
+                    nuo_wire::TerminationReason::Timeout => "Execution timed out",
+                    nuo_wire::TerminationReason::FatalError { error } => error.as_str(),
+                    nuo_wire::TerminationReason::Superseded => "Superseded by user message",
                 };
                 let output = partial_output.as_deref().unwrap_or("");
                 out.push_str(&format!(
@@ -312,9 +312,9 @@ pub async fn compact_causal_nodes(
     }
     prompt_body.push_str(COMPACTION_USER_INSTRUCTIONS);
 
-    let instructions = nuo_contracts::InstructionBundle::from_single(
+    let instructions = nuo_wire::InstructionBundle::from_single(
         "compaction.split",
-        nuo_contracts::InstructionTier::Task,
+        nuo_wire::InstructionTier::Task,
         COMPACTION_SYSTEM_PROMPT,
     );
     let messages = vec![Message::new(Role::User, prompt_body)];
@@ -354,7 +354,7 @@ mod tests {
             parent_id: None,
             seq: 1,
             timestamp_ms: 100,
-            kind: nuo_contracts::NodeKind::Dialogue,
+            kind: nuo_wire::NodeKind::Dialogue,
             payload: NodePayload::Message {
                 message: Message::new(Role::User, "run test"),
             },
@@ -364,7 +364,7 @@ mod tests {
             parent_id: Some("1".into()),
             seq: 2,
             timestamp_ms: 101,
-            kind: nuo_contracts::NodeKind::Dialogue,
+            kind: nuo_wire::NodeKind::Dialogue,
             payload: NodePayload::Message {
                 message: Message::new(Role::Assistant, "calling bash"),
             },
@@ -374,7 +374,7 @@ mod tests {
             parent_id: Some("2".into()),
             seq: 3,
             timestamp_ms: 102,
-            kind: nuo_contracts::NodeKind::Dialogue,
+            kind: nuo_wire::NodeKind::Dialogue,
             payload: NodePayload::Message {
                 message: Message::new(Role::Tool, "output of bash"),
             },
@@ -384,7 +384,7 @@ mod tests {
             parent_id: Some("3".into()),
             seq: 4,
             timestamp_ms: 103,
-            kind: nuo_contracts::NodeKind::Dialogue,
+            kind: nuo_wire::NodeKind::Dialogue,
             payload: NodePayload::Message {
                 message: Message::new(Role::Assistant, "all done"),
             },
@@ -403,7 +403,7 @@ mod tests {
             parent_id: None,
             seq: 1,
             timestamp_ms: 100,
-            kind: nuo_contracts::NodeKind::Dialogue,
+            kind: nuo_wire::NodeKind::Dialogue,
             payload: NodePayload::Message {
                 message: Message::new(Role::User, "round 1 question"),
             },
@@ -413,7 +413,7 @@ mod tests {
             parent_id: Some("1".into()),
             seq: 2,
             timestamp_ms: 101,
-            kind: nuo_contracts::NodeKind::Dialogue,
+            kind: nuo_wire::NodeKind::Dialogue,
             payload: NodePayload::Message {
                 message: Message::new(Role::Assistant, "round 1 answer"),
             },
@@ -424,7 +424,7 @@ mod tests {
             parent_id: Some("2".into()),
             seq: 3,
             timestamp_ms: 102,
-            kind: nuo_contracts::NodeKind::Dialogue,
+            kind: nuo_wire::NodeKind::Dialogue,
             payload: NodePayload::Message {
                 message: Message::new(Role::User, "round 2 question"),
             },
@@ -434,7 +434,7 @@ mod tests {
             parent_id: Some("3".into()),
             seq: 4,
             timestamp_ms: 103,
-            kind: nuo_contracts::NodeKind::Dialogue,
+            kind: nuo_wire::NodeKind::Dialogue,
             payload: NodePayload::Message {
                 message: Message::new(Role::Assistant, "round 2 answer"),
             },

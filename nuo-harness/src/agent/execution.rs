@@ -68,7 +68,7 @@ impl Agent {
         {
             Some(t) => matches!(
                 t.scope_target(arguments),
-                nuo_contracts::ScopeTarget::Unspecified
+                nuo_wire::ScopeTarget::Unspecified
             ),
             None => true,
         }
@@ -145,7 +145,7 @@ impl Agent {
     /// canonical use is a fire-and-forget notification so the user notices the
     /// agent is parked); outcomes are ignored by the registry. No-op without a
     /// `[hooks]` config.
-    async fn fire_permission_request_hooks(&self, request: &nuo_contracts::PermissionRequest) {
+    async fn fire_permission_request_hooks(&self, request: &nuo_wire::PermissionRequest) {
         let registry = self.hooks();
         if registry.is_empty() {
             return;
@@ -158,7 +158,7 @@ impl Agent {
     /// Fire `UserQuestion` hooks at the moment the agent is about to block on
     /// an `ask_user` question. Observe-only, same contract as
     /// [`Self::fire_permission_request_hooks`].
-    async fn fire_user_question_hooks(&self, request: &nuo_contracts::UserQuestionRequest) {
+    async fn fire_user_question_hooks(&self, request: &nuo_wire::UserQuestionRequest) {
         let registry = self.hooks();
         if registry.is_empty() {
             return;
@@ -263,9 +263,9 @@ impl Agent {
         // with `allow_user_interaction: false`) never fabricate a user —
         // they settle by the configured fallback policy, labeled as such.
         let posture = self.human_posture();
-        if posture == nuo_contracts::human_request::HumanChannelPosture::Autonomous {
+        if posture == nuo_wire::human_request::HumanChannelPosture::Autonomous {
             return match self.autonomous_fallback_policy() {
-                nuo_contracts::human_request::AutonomousFallbackPolicy::FailClosed => {
+                nuo_wire::human_request::AutonomousFallbackPolicy::FailClosed => {
                     self.human_broker
                         .metrics_note_refused(HumanRequestKind::Question);
                     ToolOutput::Text(
@@ -276,7 +276,7 @@ impl Agent {
                             .to_string(),
                     )
                 }
-                nuo_contracts::human_request::AutonomousFallbackPolicy::RecommendedLabeled => {
+                nuo_wire::human_request::AutonomousFallbackPolicy::RecommendedLabeled => {
                     // Take each question's first option — the schema's
                     // "recommended" convention — and label the source so the
                     // model can never mistake it for a human decision.
@@ -297,7 +297,7 @@ impl Agent {
                     let settled = self.human_broker.settle_by_policy_owned(
                         request.id.clone(),
                         HumanReply::Question(Some(reply.clone())),
-                        nuo_contracts::human_request::AutonomousFallbackPolicy::RecommendedLabeled,
+                        nuo_wire::human_request::AutonomousFallbackPolicy::RecommendedLabeled,
                     );
                     debug_assert!(settled, "policy settlement on a fresh request must succeed");
                     let _ = settled;
@@ -361,7 +361,7 @@ impl Agent {
     /// command → `ShellTermination::InputUnanswered`).
     async fn collect_runtime_input(
         &self,
-        prompt: &nuo_contracts::InputPrompt,
+        prompt: &nuo_wire::InputPrompt,
         event_tx: &mpsc::UnboundedSender<AgentEvent>,
     ) -> Option<String> {
         // ADR-0141 posture gate: with no human channel there is nobody to type
@@ -390,7 +390,7 @@ impl Agent {
         }
     }
 
-    /// Decide the [`InputContract`](nuo_contracts::InputContract) for a command
+    /// Decide the [`InputContract`](nuo_wire::InputContract) for a command
     /// call (before spawn). The three-way decision, in order:
     ///
     /// 1. **Model stdin** (opt-in): `allow_model_stdin` on AND the model
@@ -403,14 +403,14 @@ impl Agent {
     /// 3. **Sealed** (default hard floor): everything else.
     ///
     /// `arguments` is the raw JSON tool arguments.
-    pub(super) fn decide_command_input(&self, arguments: &str) -> nuo_contracts::InputContract {
+    pub(super) fn decide_command_input(&self, arguments: &str) -> nuo_wire::InputContract {
         // (α) opt-in model stdin.
         if self.allow_model_stdin()
             && let Ok(v) = serde_json::from_str::<serde_json::Value>(arguments)
             && let Some(data) = v.get("stdin").and_then(|s| s.as_str())
             && !data.is_empty()
         {
-            return nuo_contracts::InputContract::Prefilled {
+            return nuo_wire::InputContract::Prefilled {
                 data: data.to_string(),
             };
         }
@@ -428,13 +428,13 @@ impl Agent {
                 || nuo_host::supervised::input_supervision()
                     != nuo_host::supervised::InputSupervision::Supervised
             {
-                return nuo_contracts::InputContract::Sealed;
+                return nuo_wire::InputContract::Sealed;
             }
-            return nuo_contracts::InputContract::Supervised {
+            return nuo_wire::InputContract::Supervised {
                 expectation: Some(crate::shell_input::expectation(&command, kind)),
             };
         }
-        nuo_contracts::InputContract::Sealed
+        nuo_wire::InputContract::Sealed
     }
 
     pub(crate) async fn execute_tool(
@@ -507,7 +507,7 @@ impl Agent {
                     // distinguishes them. Fill the request id, emit, fire
                     // observe hooks, await the user's decision.
                     let one_off = request.one_off;
-                    let request = nuo_contracts::PermissionRequest {
+                    let request = nuo_wire::PermissionRequest {
                         id: format!("permission_{}", uuid::Uuid::new_v4()),
                         ..*request
                     };
@@ -605,7 +605,7 @@ impl Agent {
         let input = if call.name == "run_command" {
             self.decide_command_input(&call.arguments)
         } else {
-            nuo_contracts::InputContract::default()
+            nuo_wire::InputContract::default()
         };
 
         // The Subagent / ToolStream events must carry the same id as the
@@ -630,7 +630,7 @@ impl Agent {
             agent: self,
             event_tx: event_tx.clone(),
         };
-        let invocation = nuo_contracts::ToolInvocation {
+        let invocation = nuo_wire::ToolInvocation {
             call_id,
             arguments: &call.arguments,
             input,
@@ -767,7 +767,7 @@ impl Agent {
     /// yields [`ToolAccesses::none`] (freely parallel) — it will report its
     /// own "not found" error inside `execute_tool`; there's no point
     /// serializing an error.
-    pub(crate) fn accesses_for_call(&self, call: &ToolCall) -> nuo_contracts::ToolAccesses {
+    pub(crate) fn accesses_for_call(&self, call: &ToolCall) -> nuo_wire::ToolAccesses {
         let tool: Option<Arc<dyn Tool>> = self
             .resolved_tools
             .read()
@@ -778,12 +778,12 @@ impl Agent {
             .or_else(|| self.dynamic_tools.find(&call.name));
         match tool {
             Some(tool) => tool.accesses(&call.arguments),
-            None => nuo_contracts::ToolAccesses::none(),
+            None => nuo_wire::ToolAccesses::none(),
         }
     }
 }
 
-/// Per-invocation [`InputHandler`](nuo_contracts::InputHandler): bridges the
+/// Per-invocation [`InputHandler`](nuo_wire::InputHandler): bridges the
 /// command tool's runtime examiner back into the agent's human-input channel.
 /// Constructed in [`Agent::execute_tool`] for the duration of one call, so it
 /// captures that call's event channel and emits the TUI's input panel request
@@ -794,8 +794,8 @@ struct AgentInputSupervisor<'a> {
 }
 
 #[async_trait::async_trait]
-impl nuo_contracts::InputHandler for AgentInputSupervisor<'_> {
-    async fn resolve(&self, prompt: nuo_contracts::InputPrompt) -> Option<String> {
+impl nuo_wire::InputHandler for AgentInputSupervisor<'_> {
+    async fn resolve(&self, prompt: nuo_wire::InputPrompt) -> Option<String> {
         self.agent
             .collect_runtime_input(&prompt, &self.event_tx)
             .await

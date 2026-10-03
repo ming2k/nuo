@@ -4,29 +4,47 @@
 //! This crate provides zero-agent-runtime contracts allowing independent development
 //! and integration of tools, dynamic closures, MCP bridges, and security policies.
 
+pub mod access;
 pub mod approval;
 pub mod command;
+pub mod completion;
 pub mod context;
 pub mod dynamic;
 pub mod error;
+pub mod guard;
 pub mod mcp;
+pub mod mention;
 pub mod output;
 pub mod policy;
 pub mod registry;
 pub mod risk;
 pub mod scope;
+pub mod skills_config;
+pub mod todos;
+pub mod validation;
 
+pub use access::{ToolAccess, ToolAccesses, ToolFileAccessOperation};
 pub use approval::{AlwaysApprove, ApprovalDecision, ApprovalHandler, ToolCallRequest};
+pub use guard::TrajectoryGuardConfig;
 pub use command::{CommandTool, ShellKind};
+pub use completion::{
+    CommandAlias, CommandCatalog, CommandExample, CommandSpec, CommandSubcommandSpec,
+    CommandSuggestion, ComposerCompletion, ComposerCompletionKind, InputCompletion,
+    InputCompletionKind,
+};
 pub use context::ToolContext;
 pub use dynamic::DynamicTool;
 pub use error::{Result, ToolError};
 pub use mcp::McpTool;
+pub use mention::*;
 pub use output::ToolOutput;
 pub use policy::ToolPolicy;
 pub use registry::ToolRegistry;
 pub use risk::RiskProfile;
 pub use scope::ToolScope;
+pub use skills_config::SkillsConfig;
+pub use todos::{MAX_TODOS, TodoId, TodoItem, TodoList, TodoStatus, unix_now};
+pub use validation::validate_tool_arguments;
 
 pub use nuo_tool_derive::ToolSchema;
 
@@ -77,3 +95,6 @@ pub trait Tool: Send + Sync {
         self.execute(&ToolContext::default(), arguments).await
     }
 }
+
+pub mod hazard;
+pub use hazard::{HazardLevel, HazardTier, ProcessKillSpec, ToolPermissionPayload, ToolPermissionSubmission};

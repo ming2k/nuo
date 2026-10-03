@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use super::sandbox_once;
 use nuo::session_driver::send_harness_state_for_session;
-use nuo_contracts::{AgentResponse, LoopStatus, RetryPoint, RoundEvent};
+use nuo_wire::{AgentResponse, LoopStatus, RetryPoint, RoundEvent};
 use nuo_persistence::session::SessionStore;
 use nuo::UiBridge;
 use nuo::bootstrap::{self, BootstrapParams};
@@ -24,11 +24,11 @@ impl UiBridge for HeadlessProbe {
 }
 
 fn params(project_root: std::path::PathBuf, startup: SessionStart) -> BootstrapParams {
-    let identity = nuo_contracts::AgentIdentity::new("probe", "retry probe");
+    let identity = nuo_wire::AgentIdentity::new("probe", "retry probe");
     BootstrapParams {
         human_channel: None,
         identity: identity.clone(),
-        preset: nuo_contracts::AgentRoleProfile::with_identity("probe", identity),
+        preset: nuo_wire::AgentRoleProfile::with_identity("probe", identity),
         ui: Arc::new(HeadlessProbe),
         startup,
         project_root: Some(project_root),
@@ -59,8 +59,8 @@ async fn retry_point_survives_process_death_and_projects_accurate_harness_state(
     let store = Arc::new(SessionStore::load_for_project(project.clone()));
     store
         .replace_messages(vec![
-            nuo_contracts::Message::new(nuo_contracts::Role::User, "run task"),
-            nuo_contracts::Message::new(nuo_contracts::Role::Assistant, "partial progress"),
+            nuo_wire::Message::new(nuo_wire::Role::User, "run task"),
+            nuo_wire::Message::new(nuo_wire::Role::Assistant, "partial progress"),
         ])
         .await
         .unwrap();
@@ -118,11 +118,11 @@ async fn retry_point_survives_process_death_and_projects_accurate_harness_state(
 #[tokio::test]
 async fn workspace_free_scope_assembles_without_a_workspace() {
     sandbox_once();
-    let identity = nuo_contracts::AgentIdentity::new("practice", "a language practice partner");
+    let identity = nuo_wire::AgentIdentity::new("practice", "a language practice partner");
     let boot = bootstrap::assemble(BootstrapParams {
         human_channel: None,
         identity: identity.clone(),
-        preset: nuo_contracts::AgentRoleProfile::with_identity("practice", identity),
+        preset: nuo_wire::AgentRoleProfile::with_identity("practice", identity),
         ui: Arc::new(HeadlessProbe),
         startup: SessionStart::Fresh,
         project_root: None,
@@ -173,7 +173,7 @@ admit_mcp = ["security-scan"]
     let store = Arc::new(SessionStore::load_for_project(project.clone()));
     let session_id = store
         .reset_with(
-            Some(nuo_contracts::WorkspaceBinding::new(project.clone())),
+            Some(nuo_wire::WorkspaceBinding::new(project.clone())),
             Some("sec-auditor".to_string()),
         )
         .await
@@ -181,8 +181,8 @@ admit_mcp = ["security-scan"]
 
     // Persist a turn into SQLite so the session is written with its manifest
     let turn = vec![
-        nuo_contracts::Message::new(nuo_contracts::Role::User, "audit this codebase"),
-        nuo_contracts::Message::new(nuo_contracts::Role::Assistant, "auditing now"),
+        nuo_wire::Message::new(nuo_wire::Role::User, "audit this codebase"),
+        nuo_wire::Message::new(nuo_wire::Role::Assistant, "auditing now"),
     ];
     store.append_turn(&turn).await.unwrap();
 

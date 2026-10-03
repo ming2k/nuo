@@ -13,7 +13,9 @@ pub use nuo_model_codec as wire;
 pub use nuo_tool as tool;
 
 pub mod agent;
+pub mod agent_kind;
 pub mod collaboration;
+pub mod identity;
 pub mod error;
 pub mod memory;
 pub mod message;
@@ -24,6 +26,8 @@ pub mod token;
 pub mod tools;
 
 pub use agent::{Agent, AgentBuilder, ChannelWake};
+pub use agent_kind::AgentKind;
+pub use identity::AgentIdentity;
 pub use collaboration::{
     Collaboration, CollaborationMode, CollaborationTool, DelegateToPeerTool, DelegationContext,
     ListChannelsTool, ListPeersTool, OpenChannelTool, PublishToChannelTool, ReadChannelTool,

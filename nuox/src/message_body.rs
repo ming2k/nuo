@@ -47,18 +47,18 @@ fn display_width_u16(s: &str) -> u16 {
 fn sent_header_anchor(msg: &TranscriptMessage) -> String {
     if let Some(ref origin) = msg.injection_origin {
         match origin.kind {
-            nuo_contracts::InjectionKind::Hook(event) => {
+            nuo_wire::InjectionKind::Hook(event) => {
                 return format!("hook:{}", format!("{event:?}").to_lowercase());
             }
-            nuo_contracts::InjectionKind::InterAgent => return "inter-agent".to_string(),
-            nuo_contracts::InjectionKind::SubagentSteer => return "subagent steer".to_string(),
-            nuo_contracts::InjectionKind::SubagentTask => return "subagent task".to_string(),
-            nuo_contracts::InjectionKind::UserSteer => return "steer".to_string(),
-            nuo_contracts::InjectionKind::LoopReviewNudge => return "guard:loop".to_string(),
-            nuo_contracts::InjectionKind::SystemReminder => return "system:reminder".to_string(),
-            nuo_contracts::InjectionKind::CompactionCheckpoint => return "checkpoint".to_string(),
-            nuo_contracts::InjectionKind::ImplicitSkill => return "skill:inject".to_string(),
-            nuo_contracts::InjectionKind::ImplicitFile => return "file:inject".to_string(),
+            nuo_wire::InjectionKind::InterAgent => return "inter-agent".to_string(),
+            nuo_wire::InjectionKind::SubagentSteer => return "subagent steer".to_string(),
+            nuo_wire::InjectionKind::SubagentTask => return "subagent task".to_string(),
+            nuo_wire::InjectionKind::UserSteer => return "steer".to_string(),
+            nuo_wire::InjectionKind::LoopReviewNudge => return "guard:loop".to_string(),
+            nuo_wire::InjectionKind::SystemReminder => return "system:reminder".to_string(),
+            nuo_wire::InjectionKind::CompactionCheckpoint => return "checkpoint".to_string(),
+            nuo_wire::InjectionKind::ImplicitSkill => return "skill:inject".to_string(),
+            nuo_wire::InjectionKind::ImplicitFile => return "file:inject".to_string(),
             _ => {}
         }
     }
@@ -275,7 +275,7 @@ pub fn draw_message_body(
                     math_ranges,
                     link_ranges,
                 } = inline;
-                let is_user = msg.role == nuo_contracts::Role::User;
+                let is_user = msg.role == nuo_wire::Role::User;
                 // Both pending deliveries render as a waiting panel: a
                 // busy-Enter steer blocked on the running turn
                 // (`Queued`), and one whose round ended first and now
@@ -291,9 +291,9 @@ pub fn draw_message_body(
                 // reads one step quieter than assistant text. Tool *steps*
                 // never take this path (they render via `draw_tool_step`).
                 let base = match msg.role {
-                    nuo_contracts::Role::User => Style::default().fg(theme.user_text()),
-                    nuo_contracts::Role::System => Style::default().fg(theme.system_text()),
-                    nuo_contracts::Role::Tool => Style::default().fg(theme.muted()),
+                    nuo_wire::Role::User => Style::default().fg(theme.user_text()),
+                    nuo_wire::Role::System => Style::default().fg(theme.system_text()),
+                    nuo_wire::Role::Tool => Style::default().fg(theme.muted()),
                     _ => Style::default().fg(theme.fg()),
                 };
                 let full_width = area.width as usize;
@@ -1548,7 +1548,7 @@ mod tests {
         // A `**bold**` span must not consume column budget when wrapping a
         // quote: the delimiters are painted zero-width, so a quote whose
         // *visible* text fits on one line must not wrap early.
-        let msg = TranscriptMessage::new(nuo_contracts::Role::Assistant, "> **abcd** ef");
+        let msg = TranscriptMessage::new(nuo_wire::Role::Assistant, "> **abcd** ef");
         let theme = Theme::default();
         let mut grid = nuotc::Grid::new(12, 4);
         let mut frame = nuotc::Frame::new(&mut grid);
@@ -1595,7 +1595,7 @@ mod tests {
     fn rule_aligns_with_transcript_body_leading_indent() {
         let mut grid = nuotc::Grid::new(20, 3);
         let mut frame = nuotc::Frame::new(&mut grid);
-        let msg = TranscriptMessage::new(nuo_contracts::Role::Assistant, "---");
+        let msg = TranscriptMessage::new(nuo_wire::Role::Assistant, "---");
         let selection = SelectionState::None;
         let theme = Theme::default();
         let mut layout_map = LayoutMap::new();

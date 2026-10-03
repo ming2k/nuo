@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tokio::sync::mpsc;
 
-use nuo_contracts::{AgentRequest, Role};
+use nuo_wire::{AgentRequest, Role};
 
 use crate::model::document::{DeliveryStatus, TranscriptMessage};
 use crate::model::selection::SelectionState;
@@ -94,7 +94,7 @@ pub(super) async fn handle_send_chat(
                     app.transcript_changed_pending = true;
                     app.send_intent(AgentRequest::Steer {
                         session_id: viewed_session_id.to_string(),
-                        message: nuo_contracts::QueuedMessage {
+                        message: nuo_wire::QueuedMessage {
                             id,
                             text: expanded,
                             display_text: Some(text),
@@ -129,7 +129,7 @@ pub(super) async fn handle_send_chat(
                     app.pin_summary_line = None;
                     app.send_intent(AgentRequest::FollowUp {
                         session_id: viewed_session_id.to_string(),
-                        message: nuo_contracts::QueuedMessage {
+                        message: nuo_wire::QueuedMessage {
                             id,
                             text: expanded,
                             display_text: Some(text),

@@ -9,7 +9,7 @@
 //!   Phase 3: `RequestSignerPhase` (Final immutable request inspection and cryptographic signing)
 
 use crate::request::RequestBuilder;
-use nuo_contracts::{
+use nuo_model_codec::{
     OpenAiChatDialect, PreflightValidator, ProviderError, ProviderErrorKind, ResolvedAuth,
 };
 use std::fmt;

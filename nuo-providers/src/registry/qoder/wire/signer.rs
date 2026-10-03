@@ -3,7 +3,7 @@
 use base64::Engine as _;
 use cbc::cipher::{BlockEncryptMut, KeyIvInit};
 use md5::Md5;
-use nuo_contracts::{PreflightValidator, ProviderError, ProviderErrorKind, ResolvedAuth};
+use nuo_model_codec::{PreflightValidator, ProviderError, ProviderErrorKind, ResolvedAuth};
 use crate::pipeline::RequestSignerPhase;
 use crate::request::RequestBuilder;
 use sha2::Digest;

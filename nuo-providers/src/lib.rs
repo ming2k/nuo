@@ -84,23 +84,23 @@ pub use usage::{
 pub fn build_credential_source(
     host: &CredentialHost,
     connection_name: &str,
-    auth: &nuo_contracts::ConnectionAuth,
-    api_key: nuo_contracts::SecretString,
-    dialect: nuo_contracts::ProviderDialect,
-) -> std::sync::Arc<dyn nuo_contracts::CredentialSource> {
+    auth: &nuo_model_codec::ConnectionAuth,
+    api_key: nuo_host::SecretString,
+    dialect: nuo_model_codec::ProviderDialect,
+) -> std::sync::Arc<dyn nuo_model_codec::CredentialSource> {
     if auth.is_oauth() {
         std::sync::Arc::new(oauth::OAuthCredentialSource::new(
             host,
             connection_name,
             auth.clone(),
         ))
-    } else if dialect == nuo_contracts::ProviderDialect::Qoder {
+    } else if dialect == nuo_model_codec::ProviderDialect::Qoder {
         std::sync::Arc::new(oauth::qoder::QoderApiKeyCredentialSource::new(
             host,
             connection_name,
             api_key,
         ))
     } else {
-        nuo_contracts::static_credential(api_key)
+        nuo_model_codec::static_credential(api_key)
     }
 }

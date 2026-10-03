@@ -15,7 +15,7 @@
 
 use super::ReaderOutput;
 use async_trait::async_trait;
-use nuo_contracts::JINA_READER_ENDPOINT;
+use nuo_wire::JINA_READER_ENDPOINT;
 
 pub(crate) struct JinaReader {
     pub api_key: Option<String>,

@@ -2,7 +2,7 @@
 //! is allowed to claim about it (ADR-0303 §2).
 
 use futures::future::BoxFuture;
-use nuo_contracts::SessionDelta;
+use nuo_wire::SessionDelta;
 
 /// What a sink acknowledges after an append.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -581,13 +581,13 @@ fn preset_chooser_highlights_the_focused_row_with_a_background_fill() {
 /// A snapshot with one favorite, two used models, and two plain models,
 /// so all three sections render and RECENT has a meaningful internal
 /// order (gpt-5.5 newer than claude-opus-4-8).
-fn sectioned_snapshot() -> nuo_contracts::ProviderPickerSnapshot {
+fn sectioned_snapshot() -> nuo_wire::ProviderPickerSnapshot {
     // `enabled` is the provider's picker declaration: `true` = an ordinary
     // selectable row, `false` = a subscription-locked one. The lock case has
     // its own test (`models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag`)
     // and builds its own rows; everything here is the normal path.
     let info = |model: &str, favorite: bool, used: Option<u64>, enabled: bool| {
-        nuo_contracts::ProviderModelInfo {
+        nuo_wire::ProviderModelInfo {
             model: model.to_string(),
             name: None,
             protocol: String::new(),
@@ -600,17 +600,17 @@ fn sectioned_snapshot() -> nuo_contracts::ProviderPickerSnapshot {
             context_window: 128_000,
             max_output_tokens: None,
             availability: Some(if enabled {
-                nuo_contracts::Availability::usable()
+                nuo_wire::Availability::usable()
             } else {
-                nuo_contracts::Availability::locked(None)
+                nuo_wire::Availability::locked(None)
             }),
             availability_overridden: false,
             advertised: None,
             availability_stale: false,
         }
     };
-    let row = |id: &str, name: &str, models: Vec<nuo_contracts::ProviderModelInfo>| {
-        nuo_contracts::ProviderPickerRow {
+    let row = |id: &str, name: &str, models: Vec<nuo_wire::ProviderModelInfo>| {
+        nuo_wire::ProviderPickerRow {
             id: id.to_string(),
             name: name.to_string(),
             model: models.first().map(|m| m.model.clone()).unwrap_or_default(),
@@ -626,7 +626,7 @@ fn sectioned_snapshot() -> nuo_contracts::ProviderPickerSnapshot {
             auth: Default::default(),
         }
     };
-    nuo_contracts::ProviderPickerSnapshot {
+    nuo_wire::ProviderPickerSnapshot {
         default_id: "openai".into(),
         rows: vec![
             row(
@@ -720,8 +720,8 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
     // upgrade unlocks) with a leading `locked` tag instead of being dropped.
     let theme = Theme::default();
     let mut picker = sectioned_snapshot();
-    let info = |model: &str, availability: Option<nuo_contracts::Availability>| {
-        nuo_contracts::ProviderModelInfo {
+    let info = |model: &str, availability: Option<nuo_wire::Availability>| {
+        nuo_wire::ProviderModelInfo {
             model: model.to_string(),
             name: None,
             protocol: String::new(),
@@ -739,14 +739,14 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
             availability_stale: false,
         }
     };
-    picker.rows.push(nuo_contracts::ProviderPickerRow {
+    picker.rows.push(nuo_wire::ProviderPickerRow {
         id: "qoder".into(),
         name: "Qoder".into(),
         model: "gmodel".into(),
         models: vec!["qfmodel".into(), "gmodel".into()],
         model_info: vec![
-            info("qfmodel", Some(nuo_contracts::Availability::usable())),
-            info("gmodel", Some(nuo_contracts::Availability::locked(None))),
+            info("qfmodel", Some(nuo_wire::Availability::usable())),
+            info("gmodel", Some(nuo_wire::Availability::locked(None))),
         ],
         builtin: true,
         protocol: String::new(),
@@ -798,8 +798,8 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
 fn models_modal_shows_the_providers_own_reason_verbatim() {
     let theme = Theme::default();
     let mut picker = sectioned_snapshot();
-    let info = |model: &str, availability: Option<nuo_contracts::Availability>| {
-        nuo_contracts::ProviderModelInfo {
+    let info = |model: &str, availability: Option<nuo_wire::Availability>| {
+        nuo_wire::ProviderModelInfo {
             model: model.to_string(),
             name: None,
             protocol: String::new(),
@@ -817,7 +817,7 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
             availability_stale: false,
         }
     };
-    picker.rows.push(nuo_contracts::ProviderPickerRow {
+    picker.rows.push(nuo_wire::ProviderPickerRow {
         id: "qoder".into(),
         name: "Qoder".into(),
         model: "degraded".into(),
@@ -825,12 +825,12 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
         model_info: vec![
             info(
                 "degraded",
-                Some(nuo_contracts::Availability::locked(Some(
+                Some(nuo_wire::Availability::locked(Some(
                     "Billing daily count exceeded".to_string(),
                 ))),
             ),
-            nuo_contracts::ProviderModelInfo {
-                availability: Some(nuo_contracts::Availability::usable()),
+            nuo_wire::ProviderModelInfo {
+                availability: Some(nuo_wire::Availability::usable()),
                 availability_overridden: true,
                 ..info("overridden", None)
             },
@@ -992,9 +992,9 @@ fn render_labelled_models_modal(width: u16) -> String {
 fn qoder_model_info(
     model: &str,
     name: &str,
-    availability: Option<nuo_contracts::Availability>,
-) -> nuo_contracts::ProviderModelInfo {
-    nuo_contracts::ProviderModelInfo {
+    availability: Option<nuo_wire::Availability>,
+) -> nuo_wire::ProviderModelInfo {
+    nuo_wire::ProviderModelInfo {
         model: model.to_string(),
         name: Some(name.to_string()),
         protocol: String::new(),
@@ -1017,9 +1017,9 @@ fn qoder_model_info(
 /// (`qfmodel`) carrying the provider's real model names (`Qwen3.8-Flash`).
 fn render_qoder_models_modal(width: u16, query: &str) -> String {
     let theme = Theme::default();
-    let picker = nuo_contracts::ProviderPickerSnapshot {
+    let picker = nuo_wire::ProviderPickerSnapshot {
         default_id: "qoder".into(),
-        rows: vec![nuo_contracts::ProviderPickerRow {
+        rows: vec![nuo_wire::ProviderPickerRow {
             id: "qoder".into(),
             name: "Qoder".into(),
             model: "qfmodel".into(),
@@ -1029,12 +1029,12 @@ fn render_qoder_models_modal(width: u16, query: &str) -> String {
                 qoder_model_info(
                     "qfmodel",
                     "Qwen3.8-Flash",
-                    Some(nuo_contracts::Availability::usable()),
+                    Some(nuo_wire::Availability::usable()),
                 ),
                 qoder_model_info(
                     "gmodel",
                     "GLM-5.3",
-                    Some(nuo_contracts::Availability::locked(None)),
+                    Some(nuo_wire::Availability::locked(None)),
                 ),
             ],
             builtin: true,
@@ -1448,7 +1448,7 @@ fn connections_modal_search_empty_state() {
 fn connections_modal_detail_view_renders_info_and_usage() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 30);
-    let detail = nuo_contracts::ConnectionDetail {
+    let detail = nuo_wire::ConnectionDetail {
         name: "DeepSeek Production".to_string(),
         provider: "deepseek".to_string(),
         provider_label: "DeepSeek".to_string(),
@@ -1457,19 +1457,19 @@ fn connections_modal_detail_view_renders_info_and_usage() {
         auth_type: "API Key".to_string(),
         api_key_masked: Some("sk-12...abcd".to_string()),
         api_key_source: "credentials.toml".to_string(),
-        client_identity: nuo_contracts::ClientIdentity::Native,
+        client_identity: nuo_wire::ClientIdentity::Native,
         user_agent: "muta/0.37.21".to_string(),
         models: vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
         model_info: Vec::new(),
         active_model: Some("deepseek-chat".to_string()),
         active_model_effort: None,
         active_model_thinking: None,
-        usage: nuo_contracts::ConnectionUsageState::Available(Box::new(
-            nuo_contracts::ProviderUsage {
+        usage: nuo_wire::ConnectionUsageState::Available(Box::new(
+            nuo_wire::ProviderUsage {
                 plan: Some("Pay-as-you-go".to_string()),
                 description: None,
-                quota: Some(nuo_contracts::ProviderQuotaData::Balance(
-                    nuo_contracts::BalanceQuota {
+                quota: Some(nuo_wire::ProviderQuotaData::Balance(
+                    nuo_wire::BalanceQuota {
                         currency: "CNY".to_string(),
                         total_balance: Some(100.50),
                         cash_balance: Some(100.50),
@@ -1480,7 +1480,7 @@ fn connections_modal_detail_view_renders_info_and_usage() {
                     },
                 )),
                 primary_balance: Some("¥100.50".to_string()),
-                metrics: vec![nuo_contracts::UsageMetric {
+                metrics: vec![nuo_wire::UsageMetric {
                     label: "Total Balance".to_string(),
                     value: "100.50".to_string(),
                     unit: Some("CNY".to_string()),
@@ -1574,7 +1574,7 @@ fn connections_modal_detail_view_renders_info_and_usage() {
 fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 30);
-    let detail = nuo_contracts::ConnectionDetail {
+    let detail = nuo_wire::ConnectionDetail {
         name: "Google Antigravity".to_string(),
         provider: "google-antigravity".to_string(),
         provider_label: "Google Antigravity".to_string(),
@@ -1583,22 +1583,22 @@ fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
         auth_type: "OAuth".to_string(),
         api_key_masked: None,
         api_key_source: "OAuth".to_string(),
-        client_identity: nuo_contracts::ClientIdentity::Native,
+        client_identity: nuo_wire::ClientIdentity::Native,
         user_agent: "muta/0.37.25".to_string(),
         models: vec!["gemini-3.7-flash".to_string(), "gemini-3.1-pro".to_string()],
         model_info: Vec::new(),
         active_model: Some("gemini-3.7-flash".to_string()),
         active_model_effort: None,
         active_model_thinking: None,
-        usage: nuo_contracts::ConnectionUsageState::Available(Box::new(
-            nuo_contracts::ProviderUsage {
+        usage: nuo_wire::ConnectionUsageState::Available(Box::new(
+            nuo_wire::ProviderUsage {
                 plan: Some("Google One AI Premium".to_string()),
                 description: None,
-                quota: Some(nuo_contracts::ProviderQuotaData::Periodic(
-                    nuo_contracts::PeriodicQuota {
+                quota: Some(nuo_wire::ProviderQuotaData::Periodic(
+                    nuo_wire::PeriodicQuota {
                         buckets: vec![
-                            nuo_contracts::QuotaWindowBucket {
-                                window: Some(nuo_contracts::QuotaWindowKind::Daily),
+                            nuo_wire::QuotaWindowBucket {
+                                window: Some(nuo_wire::QuotaWindowKind::Daily),
                                 label: "Gemini 3.7 Flash".to_string(),
                                 group: None,
                                 used_fraction: 0.15,
@@ -1608,8 +1608,8 @@ fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
                                 reset_at_ms: None,
                                 reset_time_str: Some("12:00".to_string()),
                             },
-                            nuo_contracts::QuotaWindowBucket {
-                                window: Some(nuo_contracts::QuotaWindowKind::Rolling5Hour),
+                            nuo_wire::QuotaWindowBucket {
+                                window: Some(nuo_wire::QuotaWindowKind::Rolling5Hour),
                                 label: "Gemini 3.1 Pro".to_string(),
                                 group: None,
                                 used_fraction: 0.40,
@@ -1672,7 +1672,7 @@ fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
 fn connections_modal_detail_view_renders_inline_fetching_spinner() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 30);
-    let detail = nuo_contracts::ConnectionDetail {
+    let detail = nuo_wire::ConnectionDetail {
         name: "DeepSeek Production".to_string(),
         provider: "deepseek".to_string(),
         provider_label: "DeepSeek".to_string(),
@@ -1681,14 +1681,14 @@ fn connections_modal_detail_view_renders_inline_fetching_spinner() {
         auth_type: "API Key".to_string(),
         api_key_masked: Some("sk-12...abcd".to_string()),
         api_key_source: "credentials.toml".to_string(),
-        client_identity: nuo_contracts::ClientIdentity::Native,
+        client_identity: nuo_wire::ClientIdentity::Native,
         user_agent: "muta/0.37.21".to_string(),
         models: vec!["deepseek-chat".to_string()],
         model_info: Vec::new(),
         active_model: Some("deepseek-chat".to_string()),
         active_model_effort: None,
         active_model_thinking: None,
-        usage: nuo_contracts::ConnectionUsageState::Fetching,
+        usage: nuo_wire::ConnectionUsageState::Fetching,
     };
 
     terminal.draw(|f| {
@@ -1765,7 +1765,7 @@ fn connections_modal_detail_view_renders_inline_fetching_spinner() {
 fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 35);
-    let detail = nuo_contracts::ConnectionDetail {
+    let detail = nuo_wire::ConnectionDetail {
         name: "Google Antigravity".to_string(),
         provider: "google-antigravity".to_string(),
         provider_label: "Google Antigravity".to_string(),
@@ -1774,7 +1774,7 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
         auth_type: "OAuth".to_string(),
         api_key_masked: None,
         api_key_source: "OAuth".to_string(),
-        client_identity: nuo_contracts::ClientIdentity::Native,
+        client_identity: nuo_wire::ClientIdentity::Native,
         user_agent: "muta/0.37.25".to_string(),
         models: vec![
             "gemini-3.7-flash".to_string(),
@@ -1782,7 +1782,7 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
             "claude-3-7-sonnet".to_string(),
         ],
         model_info: vec![
-            nuo_contracts::ProviderModelInfo {
+            nuo_wire::ProviderModelInfo {
                 model: "gemini-3.7-flash".to_string(),
                 name: None,
                 protocol: "google".to_string(),
@@ -1801,7 +1801,7 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
                 advertised: None,
                 availability_stale: false,
             },
-            nuo_contracts::ProviderModelInfo {
+            nuo_wire::ProviderModelInfo {
                 model: "gemini-3.1-pro".to_string(),
                 name: None,
                 protocol: "google".to_string(),
@@ -1820,7 +1820,7 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
                 advertised: None,
                 availability_stale: false,
             },
-            nuo_contracts::ProviderModelInfo {
+            nuo_wire::ProviderModelInfo {
                 model: "claude-3-7-sonnet".to_string(),
                 name: None,
                 protocol: "anthropic".to_string(),
@@ -1843,18 +1843,18 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
         active_model: Some("gemini-3.7-flash".to_string()),
         active_model_effort: Some("high".to_string()),
         active_model_thinking: None,
-        usage: nuo_contracts::ConnectionUsageState::Available(Box::new(
-            nuo_contracts::ProviderUsage {
+        usage: nuo_wire::ConnectionUsageState::Available(Box::new(
+            nuo_wire::ProviderUsage {
                 plan: Some("Antigravity Quota".to_string()),
                 description: Some(
                     "Within each group, models share a weekly limit and a 5-hour limit."
                         .to_string(),
                 ),
-                quota: Some(nuo_contracts::ProviderQuotaData::Periodic(
-                    nuo_contracts::PeriodicQuota {
+                quota: Some(nuo_wire::ProviderQuotaData::Periodic(
+                    nuo_wire::PeriodicQuota {
                         buckets: vec![
-                            nuo_contracts::QuotaWindowBucket {
-                                window: Some(nuo_contracts::QuotaWindowKind::Weekly),
+                            nuo_wire::QuotaWindowBucket {
+                                window: Some(nuo_wire::QuotaWindowKind::Weekly),
                                 label: "Weekly Limit Remaining".to_string(),
                                 group: Some("Claude Models".to_string()),
                                 used_fraction: 0.99,
@@ -1864,8 +1864,8 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
                                 reset_at_ms: None,
                                 reset_time_str: Some("80h 6m".to_string()),
                             },
-                            nuo_contracts::QuotaWindowBucket {
-                                window: Some(nuo_contracts::QuotaWindowKind::Rolling5Hour),
+                            nuo_wire::QuotaWindowBucket {
+                                window: Some(nuo_wire::QuotaWindowKind::Rolling5Hour),
                                 label: "Five Hour Limit Remaining".to_string(),
                                 group: Some("Claude Models".to_string()),
                                 used_fraction: 0.46,
@@ -1875,8 +1875,8 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
                                 reset_at_ms: None,
                                 reset_time_str: Some("3h 16m".to_string()),
                             },
-                            nuo_contracts::QuotaWindowBucket {
-                                window: Some(nuo_contracts::QuotaWindowKind::Weekly),
+                            nuo_wire::QuotaWindowBucket {
+                                window: Some(nuo_wire::QuotaWindowKind::Weekly),
                                 label: "Weekly Limit Remaining".to_string(),
                                 group: Some("Chat Models (Gemini)".to_string()),
                                 used_fraction: 0.0,
@@ -1886,8 +1886,8 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
                                 reset_at_ms: None,
                                 reset_time_str: Some("167h 59m".to_string()),
                             },
-                            nuo_contracts::QuotaWindowBucket {
-                                window: Some(nuo_contracts::QuotaWindowKind::Rolling5Hour),
+                            nuo_wire::QuotaWindowBucket {
+                                window: Some(nuo_wire::QuotaWindowKind::Rolling5Hour),
                                 label: "Five Hour Limit Remaining".to_string(),
                                 group: Some("Chat Models (Gemini)".to_string()),
                                 used_fraction: 0.0,
@@ -1996,7 +1996,7 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
 fn connections_modal_standalone_detail_renders_single_level_header() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
-    let detail = nuo_contracts::ConnectionDetail {
+    let detail = nuo_wire::ConnectionDetail {
         name: "Anthropic".to_string(),
         provider: "anthropic".to_string(),
         provider_label: "Anthropic".to_string(),
@@ -2005,14 +2005,14 @@ fn connections_modal_standalone_detail_renders_single_level_header() {
         auth_type: "API Key".to_string(),
         api_key_masked: Some("sk-ant-...1234".to_string()),
         api_key_source: "credentials.toml".to_string(),
-        client_identity: nuo_contracts::ClientIdentity::Native,
+        client_identity: nuo_wire::ClientIdentity::Native,
         user_agent: "muta/0.37.21".to_string(),
         models: vec!["claude-3-7-sonnet".to_string()],
         model_info: Vec::new(),
         active_model: Some("claude-3-7-sonnet".to_string()),
         active_model_effort: Some("high".to_string()),
         active_model_thinking: Some(true),
-        usage: nuo_contracts::ConnectionUsageState::Fetching,
+        usage: nuo_wire::ConnectionUsageState::Fetching,
     };
 
     terminal.draw(|f| {
@@ -2058,7 +2058,7 @@ fn connections_modal_standalone_detail_renders_single_level_header() {
 fn connections_modal_detail_wraps_second_column_with_indent() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(76, 30);
-    let detail = nuo_contracts::ConnectionDetail {
+    let detail = nuo_wire::ConnectionDetail {
         name: "ggl-fox".to_string(),
         provider: "google-antigravity".to_string(),
         provider_label: "google-antigravity".to_string(),
@@ -2067,7 +2067,7 @@ fn connections_modal_detail_wraps_second_column_with_indent() {
         auth_type: "OAuth (AntigravityOAuth)".to_string(),
         api_key_masked: Some("ya29...0213".to_string()),
         api_key_source: "OAuth".to_string(),
-        client_identity: nuo_contracts::ClientIdentity::Native,
+        client_identity: nuo_wire::ClientIdentity::Native,
         user_agent: "antigravity/1.23.2".to_string(),
         models: vec![
             "claude-opus-4-6-thinking".to_string(),
@@ -2077,7 +2077,7 @@ fn connections_modal_detail_wraps_second_column_with_indent() {
         active_model: Some("claude-opus-4-6-thinking".to_string()),
         active_model_effort: None,
         active_model_thinking: None,
-        usage: nuo_contracts::ConnectionUsageState::Unsupported,
+        usage: nuo_wire::ConnectionUsageState::Unsupported,
     };
 
     terminal.draw(|f| {
@@ -2196,7 +2196,7 @@ fn connections_modal_detail_served_models_collapsed_by_default_and_expands() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 50);
     let models: Vec<String> = (1..=17).map(|i| format!("model-{i:02}")).collect();
-    let detail = nuo_contracts::ConnectionDetail {
+    let detail = nuo_wire::ConnectionDetail {
         name: "google-antigravity".to_string(),
         provider: "google-antigravity".to_string(),
         provider_label: "Google Antigravity".to_string(),
@@ -2205,14 +2205,14 @@ fn connections_modal_detail_served_models_collapsed_by_default_and_expands() {
         auth_type: "OAuth".to_string(),
         api_key_masked: None,
         api_key_source: "OAuth".to_string(),
-        client_identity: nuo_contracts::ClientIdentity::Native,
+        client_identity: nuo_wire::ClientIdentity::Native,
         user_agent: "antigravity/1.0.0".to_string(),
         models: models.clone(),
         model_info: Vec::new(),
         active_model: Some("model-05".to_string()),
         active_model_effort: None,
         active_model_thinking: None,
-        usage: nuo_contracts::ConnectionUsageState::Unsupported,
+        usage: nuo_wire::ConnectionUsageState::Unsupported,
     };
 
     // 1. Collapsed mode (default)
@@ -2301,7 +2301,7 @@ fn connections_modal_detail_served_models_collapsed_by_default_and_expands() {
 fn connections_modal_quota_bucket_used_percentage_and_separate_reset_line() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 40);
-    let detail = nuo_contracts::ConnectionDetail {
+    let detail = nuo_wire::ConnectionDetail {
         name: "google-antigravity".to_string(),
         provider: "google-antigravity".to_string(),
         provider_label: "Google Antigravity".to_string(),
@@ -2310,26 +2310,26 @@ fn connections_modal_quota_bucket_used_percentage_and_separate_reset_line() {
         auth_type: "OAuth".to_string(),
         api_key_masked: None,
         api_key_source: "OAuth".to_string(),
-        client_identity: nuo_contracts::ClientIdentity::Native,
+        client_identity: nuo_wire::ClientIdentity::Native,
         user_agent: "antigravity/1.0.0".to_string(),
         models: vec!["gemini-2.5-pro".to_string()],
         model_info: Vec::new(),
         active_model: Some("gemini-2.5-pro".to_string()),
         active_model_effort: None,
         active_model_thinking: None,
-        usage: nuo_contracts::ConnectionUsageState::Available(Box::new(
-            nuo_contracts::ProviderUsage {
+        usage: nuo_wire::ConnectionUsageState::Available(Box::new(
+            nuo_wire::ProviderUsage {
                 plan: Some("Google One AI Premium".to_string()),
                 description: None,
-                quota: Some(nuo_contracts::ProviderQuotaData::Periodic(
-                    nuo_contracts::PeriodicQuota {
-                        buckets: vec![nuo_contracts::QuotaWindowBucket {
+                quota: Some(nuo_wire::ProviderQuotaData::Periodic(
+                    nuo_wire::PeriodicQuota {
+                        buckets: vec![nuo_wire::QuotaWindowBucket {
                             label: "Gemini Pro Agent".to_string(),
                             used_fraction: 0.72,
                             used_amount: None,
                             total_limit: None,
                             unit: None,
-                            window: Some(nuo_contracts::QuotaWindowKind::Daily),
+                            window: Some(nuo_wire::QuotaWindowKind::Daily),
                             reset_at_ms: None,
                             reset_time_str: Some("in 3h 25m".to_string()),
                             group: None,

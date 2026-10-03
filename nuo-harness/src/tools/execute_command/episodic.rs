@@ -123,20 +123,20 @@ enum Supervision {
 pub struct RunPolicy<'a> {
     pub timeout: Duration,
     pub raw: bool,
-    pub handler: Option<&'a dyn nuo_contracts::InputHandler>,
+    pub handler: Option<&'a dyn nuo_wire::InputHandler>,
 }
 
 pub async fn run_episodic_command(
     command: &str,
-    isolation: nuo_contracts::ShellIsolation,
-    env: Arc<dyn nuo_contracts::ExecutionEnvironment>,
-    input: nuo_contracts::InputContract,
+    isolation: nuo_wire::ShellIsolation,
+    env: Arc<dyn nuo_wire::ExecutionEnvironment>,
+    input: nuo_wire::InputContract,
     policy: RunPolicy<'_>,
-    on_stream: &mut (dyn FnMut(nuo_contracts::ToolStream) + Send + '_),
-) -> Result<nuo_contracts::ToolOutput, String> {
+    on_stream: &mut (dyn FnMut(nuo_wire::ToolStream) + Send + '_),
+) -> Result<nuo_wire::ToolOutput, String> {
     let mut invocation = match isolation {
-        nuo_contracts::ShellIsolation::Host => nuo_host::shell::native_shell(command),
-        nuo_contracts::ShellIsolation::Workspace => {
+        nuo_wire::ShellIsolation::Host => nuo_host::shell::native_shell(command),
+        nuo_wire::ShellIsolation::Workspace => {
             let additional_roots = env.additional_roots();
             workspace_sandbox_shell(command, env.workspace_root(), &additional_roots)?
         }
@@ -146,11 +146,11 @@ pub async fn run_episodic_command(
     invocation.kill_on_drop(true);
 
     let (running, expectation) = match &input {
-        nuo_contracts::InputContract::Sealed => {
+        nuo_wire::InputContract::Sealed => {
             invocation.stdin(std::process::Stdio::null());
             (spawn_plain(&mut invocation)?, None)
         }
-        nuo_contracts::InputContract::Prefilled { data } => {
+        nuo_wire::InputContract::Prefilled { data } => {
             invocation.stdin(std::process::Stdio::piped());
             let mut running = spawn_plain(&mut invocation)?;
             if let Running::Plain { child, .. } = &mut running
@@ -161,7 +161,7 @@ pub async fn run_episodic_command(
             }
             (running, None)
         }
-        nuo_contracts::InputContract::Supervised { expectation } => {
+        nuo_wire::InputContract::Supervised { expectation } => {
             let child = nuo_host::supervised::SupervisedChild::spawn(&mut invocation)
                 .map_err(|e| format!("Failed to execute and contain supervised process tree: {e}"))?;
             (Running::Supervised(child), expectation.clone())
@@ -192,9 +192,9 @@ async fn run_loop(
     command: &str,
     mut running: Running,
     policy: RunPolicy<'_>,
-    expectation: Option<nuo_contracts::InputExpectation>,
-    on_stream: &mut (dyn FnMut(nuo_contracts::ToolStream) + Send + '_),
-) -> Result<nuo_contracts::ToolOutput, String> {
+    expectation: Option<nuo_wire::InputExpectation>,
+    on_stream: &mut (dyn FnMut(nuo_wire::ToolStream) + Send + '_),
+) -> Result<nuo_wire::ToolOutput, String> {
     let RunPolicy {
         timeout: timeout_duration,
         raw,
@@ -278,16 +278,16 @@ async fn run_loop(
                 command,
                 collector,
                 exit,
-                nuo_contracts::tool_output::ShellTermination::Exited,
+                nuo_wire::tool_output::ShellTermination::Exited,
                 raw,
             );
         }
         Supervision::InputUnanswered => {
-            nuo_contracts::tool_output::ShellTermination::InputUnanswered
+            nuo_wire::tool_output::ShellTermination::InputUnanswered
         }
-        Supervision::TimedOut => nuo_contracts::tool_output::ShellTermination::Timeout,
-        Supervision::IdleBlocked => nuo_contracts::tool_output::ShellTermination::IdleBlocked,
-        Supervision::StreamGuarded => nuo_contracts::tool_output::ShellTermination::StreamGuard,
+        Supervision::TimedOut => nuo_wire::tool_output::ShellTermination::Timeout,
+        Supervision::IdleBlocked => nuo_wire::tool_output::ShellTermination::IdleBlocked,
+        Supervision::StreamGuarded => nuo_wire::tool_output::ShellTermination::StreamGuard,
     };
     running.terminate().await;
     readers.stdout_task.abort();
@@ -302,10 +302,10 @@ async fn run_loop(
 /// channel).
 async fn await_answer(
     command: &str,
-    expectation: Option<&nuo_contracts::InputExpectation>,
-    handler: &dyn nuo_contracts::InputHandler,
+    expectation: Option<&nuo_wire::InputExpectation>,
+    handler: &dyn nuo_wire::InputHandler,
 ) -> Option<String> {
-    let prompt = nuo_contracts::InputPrompt {
+    let prompt = nuo_wire::InputPrompt {
         command: command.to_string(),
         prompt: expectation
             .map(|e| e.prompt.clone())
@@ -319,11 +319,11 @@ fn finish_output(
     command: &str,
     collector: OutputCollector,
     exit: Option<i32>,
-    termination: nuo_contracts::tool_output::ShellTermination,
+    termination: nuo_wire::tool_output::ShellTermination,
     raw: bool,
-) -> Result<nuo_contracts::ToolOutput, String> {
+) -> Result<nuo_wire::ToolOutput, String> {
     let (stdout, stderr, lines, truncated) = collector.apply_caps_ex(exit, raw);
-    Ok(nuo_contracts::ToolOutput::Shell {
+    Ok(nuo_wire::ToolOutput::Shell {
         command: command.to_string(),
         stdout,
         stderr,

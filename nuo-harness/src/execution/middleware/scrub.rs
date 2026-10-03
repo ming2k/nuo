@@ -1,8 +1,8 @@
 //! Secret scrubbing middleware to prevent accidental credential leakage in tool outputs.
 
 use async_trait::async_trait;
-use nuo_contracts::ToolOutput;
-use nuo_contracts::execution::{ExecutionEnvironment, ToolMiddleware};
+use nuo_wire::ToolOutput;
+use nuo_wire::execution::{ExecutionEnvironment, ToolMiddleware};
 use regex::Regex;
 use std::sync::LazyLock;
 

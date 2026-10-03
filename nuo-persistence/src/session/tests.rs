@@ -5,7 +5,7 @@
 //! append-only directives, and fork shares facts by identity.
 
 use crate::session::*;
-use nuo_contracts::{Message, Role, ToolCall};
+use nuo_wire::{Message, Role, ToolCall};
 use std::path::PathBuf;
 
 fn temp_dir(tag: &str) -> PathBuf {
@@ -398,7 +398,7 @@ async fn commit_turn_honors_the_revision_precondition() {
 
 #[tokio::test]
 async fn crash_residue_is_durably_settled_as_abandoned() {
-    use nuo_contracts::{
+    use nuo_wire::{
         RequestUsageKey, RequestUsageRecord, RequestUsageSource, RequestUsageStatus,
     };
     let dir = temp_dir("abandoned");
@@ -446,10 +446,10 @@ async fn crash_residue_is_durably_settled_as_abandoned() {
 /// delta does not clone it.
 #[test]
 fn row_checksum_and_delta_ignore_retained_attempts() {
-    use nuo_contracts::{RequestUsageKey, RequestUsageRecord, RequestUsageStatus};
+    use nuo_wire::{RequestUsageKey, RequestUsageRecord, RequestUsageStatus};
     let mut data = SessionData::default();
     data.transcript
-        .push(nuo_contracts::TranscriptEntry::from_message(
+        .push(nuo_wire::TranscriptEntry::from_message(
             0,
             &user("hello"),
         ));
@@ -491,9 +491,9 @@ async fn todos_round_trip_through_state_entries() {
     let dir = temp_dir("todos");
     let path = dir.join("session.json");
     let store = SessionStore::for_path(path.clone());
-    let mut list = nuo_contracts::TodoList::default();
+    let mut list = nuo_wire::TodoList::default();
     list.reconcile(
-        &[("write schema".into(), nuo_contracts::TodoStatus::Pending)],
+        &[("write schema".into(), nuo_wire::TodoStatus::Pending)],
         0,
         0,
     );
@@ -599,7 +599,7 @@ async fn provider_selection_round_trips() {
 async fn digest_round_trips() {
     let store = store("digest").await;
     store
-        .set_digest(Some(nuo_contracts::SessionDigest::default()), Some(42))
+        .set_digest(Some(nuo_wire::SessionDigest::default()), Some(42))
         .await
         .unwrap();
     let (digest, anchor) = store.digest().await;
@@ -615,8 +615,8 @@ async fn digest_round_trips() {
 async fn round_interrupts_record_and_clear() {
     let store = store("interrupt").await;
     store
-        .record_round_interrupt(nuo_contracts::RoundInterrupt {
-            reason: nuo_contracts::RoundInterruptReason::User,
+        .record_round_interrupt(nuo_wire::RoundInterrupt {
+            reason: nuo_wire::RoundInterruptReason::User,
             at_ms: 1,
             round: Some(1),
             detail: None,
@@ -635,8 +635,8 @@ async fn round_interrupts_record_and_clear() {
 // Request-projection archive (ADR-0218): durable forensics, never the window.
 // ---------------------------------------------------------------
 
-fn request_projection(round: u64, turn: u64) -> nuo_contracts::RequestProjection {
-    nuo_contracts::RequestProjection {
+fn request_projection(round: u64, turn: u64) -> nuo_wire::RequestProjection {
+    nuo_wire::RequestProjection {
         round,
         turn,
         created_at_ms: 42,
@@ -723,7 +723,7 @@ async fn command_ledger_round_trips() {
     let store = store("commands").await;
     store
         .mutate_commands(|ledger| {
-            ledger.push(nuo_contracts::CommandRecord::new("models", ""));
+            ledger.push(nuo_wire::CommandRecord::new("models", ""));
         })
         .await
         .unwrap();
@@ -786,7 +786,7 @@ async fn fresh_session_stays_unpersisted_until_content() {
 async fn tree_leaf_switch_rebuilds_transcript() {
     let store = store("tree").await;
     let root_id = store
-        .insert_tree_entry(nuo_contracts::SessionEntry::new_message(
+        .insert_tree_entry(nuo_wire::SessionEntry::new_message(
             "root",
             None,
             0,
@@ -817,7 +817,7 @@ async fn subagent_children_become_subagent_sessions_with_pointer() {
     let mut parent = assistant("delegating");
     parent.tool_calls = Some(vec![call.clone()]);
     let child_messages = vec![user("child task"), assistant("child done")];
-    let subagent_meta = nuo_contracts::message::SubagentMeta {
+    let subagent_meta = nuo_wire::message::SubagentMeta {
         description: Some("do the thing".into()),
         duration_ms: Some(1234),
         toolset_count: 3,
@@ -844,7 +844,7 @@ async fn subagent_children_become_subagent_sessions_with_pointer() {
             .iter()
             .rev()
             .find_map(|entry| match &entry.payload {
-                nuo_contracts::EntryPayload::Message(payload) => payload.subagent.clone(),
+                nuo_wire::EntryPayload::Message(payload) => payload.subagent.clone(),
                 _ => None,
             })
             .expect("tool entry must carry a subagent pointer");
@@ -853,7 +853,7 @@ async fn subagent_children_become_subagent_sessions_with_pointer() {
     let subagent = reader.load_session_full(&subagent_id).unwrap().unwrap();
     assert_eq!(
         subagent.fork_kind,
-        nuo_contracts::SessionForkKind::Subagent
+        nuo_wire::SessionForkKind::Subagent
     );
     assert_eq!(
         subagent.parent_id.as_deref(),
@@ -906,7 +906,7 @@ fn excerpt_summary_respects_token_budget() {
         .collect();
     let summary = build_excerpt_summary(&archived, 120, None);
     assert!(!summary.is_empty());
-    assert!(nuo_contracts::tokenizer::count_tokens(&summary) <= 120);
+    assert!(nuo_wire::tokenizer::count_tokens(&summary) <= 120);
 }
 
 #[tokio::test]
@@ -972,8 +972,8 @@ async fn test_session_store_ir_and_compile_request() {
     assert_eq!(ir.history.nodes.len(), 1);
 
     // 2. Compile request using SessionStore::compile_request (4-pass pipeline)
-    let options = nuo_contracts::CompilerOptions {
-        tool_specs: vec![nuo_contracts::ToolSpec {
+    let options = nuo_wire::CompilerOptions {
+        tool_specs: vec![nuo_wire::ToolSpec {
             name: "run_command".into(),
             description: "Run shell command".into(),
             parameters: serde_json::json!({"type": "object"}),
@@ -981,7 +981,7 @@ async fn test_session_store_ir_and_compile_request() {
         temporary_context: vec![],
         ephemeral_instruction: Some("Focus on correctness".into()),
         target_dialect: Some("anthropic".into()),
-        target_protocol: Some(nuo_contracts::WireProtocol::AnthropicMessages),
+        target_protocol: Some(nuo_wire::WireProtocol::AnthropicMessages),
     };
 
     let compiled = store.compile_request(options).await.unwrap();
@@ -1001,13 +1001,13 @@ async fn test_session_store_direct_delta_and_ir_hydration() {
     let session_id = store.id().await;
 
     // 1. Create a native SessionIR and append a dialogue node
-    let policy = nuo_contracts::SessionPolicy::default();
-    let mut ir = nuo_contracts::SessionIR::new(&session_id, policy, 1000);
+    let policy = nuo_wire::SessionPolicy::default();
+    let mut ir = nuo_wire::SessionIR::new(&session_id, policy, 1000);
     let node_id = "test-node-1";
     ir.append_message(
         node_id,
         1001,
-        nuo_contracts::Message::new(nuo_contracts::Role::User, "Hello SessionIR native"),
+        nuo_wire::Message::new(nuo_wire::Role::User, "Hello SessionIR native"),
     );
 
     // 2. Commit SessionIR directly
@@ -1024,8 +1024,8 @@ async fn test_session_store_direct_delta_and_ir_hydration() {
 
     // 4. Test Durable Suspension Delta (ADR-0249, INV-EXEC-03)
     let mut suspended_ir = loaded_ir.clone();
-    suspended_ir.state.status = nuo_contracts::ExecutionStatus::Suspended {
-        reason: nuo_contracts::SuspensionReason::NeedsInput {
+    suspended_ir.state.status = nuo_wire::ExecutionStatus::Suspended {
+        reason: nuo_wire::SuspensionReason::NeedsInput {
             prompt: "Please select target environment".into(),
         },
     };
@@ -1037,8 +1037,8 @@ async fn test_session_store_direct_delta_and_ir_hydration() {
     let reloaded = fresh_reader.load_session_ir(&session_id).unwrap().unwrap();
     assert!(matches!(
         reloaded.state.status,
-        nuo_contracts::ExecutionStatus::Suspended {
-            reason: nuo_contracts::SuspensionReason::NeedsInput { .. }
+        nuo_wire::ExecutionStatus::Suspended {
+            reason: nuo_wire::SuspensionReason::NeedsInput { .. }
         }
     ));
 }

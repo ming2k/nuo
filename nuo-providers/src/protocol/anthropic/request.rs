@@ -19,7 +19,7 @@
 //!   and the two newest messages) so the stable prefix is cached at 0.1× input
 //!   cost. See `stamp_cache_control` and friends.
 
-use nuo_contracts::{Message, ReasoningSupport, Role};
+use nuo_model_codec::{Message, ReasoningSupport, Role};
 use serde_json::{Value, json};
 
 use super::thinking::ThinkingConfig;
@@ -36,18 +36,18 @@ pub struct BodyInput<'a> {
     pub model: &'a str,
     pub stream: bool,
     /// Structured instructions from the instruction manifest.
-    pub instructions: Option<&'a nuo_contracts::InstructionBundle>,
+    pub instructions: Option<&'a nuo_model_codec::InstructionBundle>,
     /// OpenAI-shaped tool specs (`{type:"function", function:{...}}`), if any.
     /// Converted to Anthropic's `{name, description, input_schema}` shape.
-    pub tool_specs: Option<&'a [nuo_contracts::ToolSpec]>,
+    pub tool_specs: Option<&'a [nuo_model_codec::ToolSpec]>,
     pub max_tokens: u32,
     pub thinking: ThinkingConfig,
-    pub cache_plan: &'a nuo_contracts::ResolvedCachePolicy,
+    pub cache_plan: &'a nuo_model_codec::ResolvedCachePolicy,
 }
 
 /// Build the `/messages` request body from the harness message list.
 pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
-    let capabilities = nuo_contracts::ModelCapabilities::for_channel(input.model, None);
+    let capabilities = nuo_model_codec::ModelCapabilities::for_channel(input.model, None);
     body_with_capabilities(messages, input, &capabilities)
 }
 
@@ -57,7 +57,7 @@ pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
 pub fn body_with_capabilities(
     messages: Vec<Message>,
     input: BodyInput<'_>,
-    capabilities: &nuo_contracts::ModelCapabilities,
+    capabilities: &nuo_model_codec::ModelCapabilities,
 ) -> Value {
     let BodyInput {
         model: model_id,
@@ -149,19 +149,19 @@ pub fn body_with_capabilities(
         body["system"] = json!(system_text);
     }
 
-    if let nuo_contracts::ResolvedCachePolicy::Enabled {
+    if let nuo_model_codec::ResolvedCachePolicy::Enabled {
         mode, retention, ..
     } = cache_plan
     {
         let control = cache_control(*retention);
         match mode {
-            nuo_contracts::PromptCacheMode::Automatic => {
+            nuo_model_codec::PromptCacheMode::Automatic => {
                 body["cache_control"] = control;
             }
-            nuo_contracts::PromptCacheMode::Explicit => {
+            nuo_model_codec::PromptCacheMode::Explicit => {
                 stamp_caching_breakpoints(&mut body, &system_text, &control);
             }
-            nuo_contracts::PromptCacheMode::Implicit => {}
+            nuo_model_codec::PromptCacheMode::Implicit => {}
         }
     }
     stamp_thinking(&mut body, capabilities, max_tokens, thinking);
@@ -176,7 +176,7 @@ pub fn body_with_capabilities(
 /// the resolved model is not a manual-thinking model or the user has thinking
 /// turned off.
 pub fn beta_header(
-    capabilities: &nuo_contracts::ModelCapabilities,
+    capabilities: &nuo_model_codec::ModelCapabilities,
     thinking: ThinkingConfig,
 ) -> Option<&'static str> {
     thinking
@@ -189,7 +189,7 @@ pub fn beta_header(
 /// beta header for manual thinking.
 pub fn headers(
     api_key: &str,
-    capabilities: &nuo_contracts::ModelCapabilities,
+    capabilities: &nuo_model_codec::ModelCapabilities,
     thinking: ThinkingConfig,
     copilot: bool,
 ) -> Vec<(&'static str, String)> {
@@ -254,15 +254,15 @@ fn stamp_caching_breakpoints(body: &mut Value, system_text: &str, control: &Valu
     );
 }
 
-fn cache_control(retention: Option<nuo_contracts::CacheRetention>) -> Value {
+fn cache_control(retention: Option<nuo_model_codec::CacheRetention>) -> Value {
     let mut control = json!({"type": "ephemeral"});
     if let Some(retention) = retention {
         control["ttl"] = json!(match retention {
-            nuo_contracts::CacheRetention::FiveMinutes => "5m",
-            nuo_contracts::CacheRetention::OneHour => "1h",
-            nuo_contracts::CacheRetention::InMemory
-            | nuo_contracts::CacheRetention::ThirtyMinutes
-            | nuo_contracts::CacheRetention::TwentyFourHours => {
+            nuo_model_codec::CacheRetention::FiveMinutes => "5m",
+            nuo_model_codec::CacheRetention::OneHour => "1h",
+            nuo_model_codec::CacheRetention::InMemory
+            | nuo_model_codec::CacheRetention::ThirtyMinutes
+            | nuo_model_codec::CacheRetention::TwentyFourHours => {
                 unreachable!("cache plan was resolved against Anthropic capabilities")
             }
         });
@@ -330,7 +330,7 @@ fn manual_thinking_budget(max_tokens: u32) -> u32 {
 /// knobs and the opt-in default.
 fn stamp_thinking(
     body: &mut Value,
-    capabilities: &nuo_contracts::ModelCapabilities,
+    capabilities: &nuo_model_codec::ModelCapabilities,
     max_tokens: u32,
     thinking: ThinkingConfig,
 ) {

@@ -4,8 +4,8 @@
 
 use super::derive::derive_entries;
 use super::{Stores, effective_default_connection_id};
-use nuo_contracts::catalog::{Channel, ProviderEntry, Transport};
-use nuo_contracts::{
+use nuo_wire::catalog::{Channel, ProviderEntry, Transport};
+use nuo_wire::{
     Effort, ProviderModelInfo, ProviderPickerRow, ProviderPickerSnapshot, ReasoningMode,
 };
 use nuo_persistence::config::Config;
@@ -238,23 +238,23 @@ pub fn prune_stale_models_on_disk() -> bool {
 pub(super) fn channel_protocol_and_base_url(channel: &Channel) -> (String, String) {
     match &channel.transport {
         Transport::OpenAi { base_url, .. } => (
-            nuo_contracts::WireProtocol::ChatCompletions
+            nuo_wire::WireProtocol::ChatCompletions
                 .as_str()
                 .to_string(),
             base_url.clone(),
         ),
         Transport::OpenAiResponses { base_url, .. } => (
-            nuo_contracts::WireProtocol::Responses.as_str().to_string(),
+            nuo_wire::WireProtocol::Responses.as_str().to_string(),
             base_url.clone(),
         ),
         Transport::Anthropic { base_url, .. } => (
-            nuo_contracts::WireProtocol::AnthropicMessages
+            nuo_wire::WireProtocol::AnthropicMessages
                 .as_str()
                 .to_string(),
             base_url.clone(),
         ),
         Transport::Google { base_url, .. } => (
-            nuo_contracts::WireProtocol::GoogleGemini
+            nuo_wire::WireProtocol::GoogleGemini
                 .as_str()
                 .to_string(),
             base_url.clone(),
@@ -314,7 +314,7 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
             ProviderModelInfo {
                 model: channel.model.clone(),
                 name,
-                protocol: nuo_contracts::WireProtocol::AnthropicMessages
+                protocol: nuo_wire::WireProtocol::AnthropicMessages
                     .as_str()
                     .to_string(),
                 effort: Some((*effort).unwrap_or(Effort::High).as_str().to_string()),
@@ -341,7 +341,7 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
             ProviderModelInfo {
                 model: channel.model.clone(),
                 name,
-                protocol: nuo_contracts::WireProtocol::ChatCompletions
+                protocol: nuo_wire::WireProtocol::ChatCompletions
                     .as_str()
                     .to_string(),
                 effort: effective,
@@ -365,7 +365,7 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
             ProviderModelInfo {
                 model: channel.model.clone(),
                 name,
-                protocol: nuo_contracts::WireProtocol::Responses.as_str().to_string(),
+                protocol: nuo_wire::WireProtocol::Responses.as_str().to_string(),
                 effort: effective,
                 thinking: None,
                 effort_levels,
@@ -392,7 +392,7 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
             ProviderModelInfo {
                 model: channel.model.clone(),
                 name,
-                protocol: nuo_contracts::WireProtocol::GoogleGemini
+                protocol: nuo_wire::WireProtocol::GoogleGemini
                     .as_str()
                     .to_string(),
                 effort: effective,
@@ -415,20 +415,20 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::PromptCacheCapabilities;
+    use nuo_wire::PromptCacheCapabilities;
 
     /// A minimal OpenAI-transport channel for `channel_model_info` tests.
-    fn openai_channel(model: &str, remote: Option<nuo_contracts::RemoteModelMetadata>) -> Channel {
+    fn openai_channel(model: &str, remote: Option<nuo_wire::RemoteModelMetadata>) -> Channel {
         Channel {
             id: "default".to_string(),
             label: "default".to_string(),
             transport: Transport::OpenAi {
                 base_url: "https://example.test/v1/chat/completions".to_string(),
-                client_profile: nuo_contracts::ClientProfile::Native,
-                effort: Some(nuo_contracts::effort::Effort::High),
-                dialect: nuo_contracts::OpenAiChatDialect::Standard,
+                client_profile: nuo_wire::ClientProfile::Native,
+                effort: Some(nuo_wire::effort::Effort::High),
+                dialect: nuo_wire::OpenAiChatDialect::Standard,
             },
-            credentials: nuo_contracts::static_credential(String::new()),
+            credentials: nuo_wire::static_credential(String::new()),
             model: model.to_string(),
             remote,
             user_overrides: None,
@@ -442,7 +442,7 @@ mod tests {
         // A model the static baseline does not know (a fresh relay model).
         // The remote advertisement says it takes images; the info row must
         // carry that so the frontend's image affordances unlock.
-        let remote = nuo_contracts::RemoteModelMetadata {
+        let remote = nuo_wire::RemoteModelMetadata {
             vision: Some(true),
             ..Default::default()
         };
@@ -470,13 +470,13 @@ mod tests {
         // Qoder catalogs list subscription-locked models with `enable:false`;
         // the row must carry that so pickers render it greyed-out (official
         // `/model` parity) and refuse activation.
-        let locked = nuo_contracts::RemoteModelMetadata {
-            availability: Some(nuo_contracts::Availability::locked(None)),
+        let locked = nuo_wire::RemoteModelMetadata {
+            availability: Some(nuo_wire::Availability::locked(None)),
             ..Default::default()
         };
         assert_eq!(
             channel_model_info(&openai_channel("gmodel", Some(locked))).availability,
-            Some(nuo_contracts::Availability::locked(None))
+            Some(nuo_wire::Availability::locked(None))
         );
         // Undeclared stays undeclared — never coerced to usable *or* locked.
         assert_eq!(
@@ -490,8 +490,8 @@ mod tests {
         // Codex's `visibility != "list"` is a *listing* declaration. An
         // API-supported model is usable whether or not it is advertised, so the
         // two fields must move independently (ADR-0273).
-        let unlisted_but_usable = nuo_contracts::RemoteModelMetadata {
-            availability: Some(nuo_contracts::Availability::usable()),
+        let unlisted_but_usable = nuo_wire::RemoteModelMetadata {
+            availability: Some(nuo_wire::Availability::usable()),
             advertised: Some(false),
             ..Default::default()
         };
@@ -499,7 +499,7 @@ mod tests {
         assert_eq!(info.advertised, Some(false));
         assert_eq!(
             info.availability,
-            Some(nuo_contracts::Availability::usable())
+            Some(nuo_wire::Availability::usable())
         );
     }
 
@@ -507,12 +507,12 @@ mod tests {
     fn channel_model_info_user_override_beats_remote_vision() {
         // ADR-0149 layer 1: the user's explicit `Some(false)` wins over the
         // provider's advertised vision (e.g. a relay that strips images).
-        let remote = nuo_contracts::RemoteModelMetadata {
+        let remote = nuo_wire::RemoteModelMetadata {
             vision: Some(true),
             ..Default::default()
         };
         let mut channel = openai_channel("omen-alpha", Some(remote));
-        channel.user_overrides = Some(nuo_contracts::CapabilityOverrides {
+        channel.user_overrides = Some(nuo_wire::CapabilityOverrides {
             vision: Some(false),
             ..Default::default()
         });
@@ -520,7 +520,7 @@ mod tests {
 
         // And the inverse: a forced-on override over a text-only baseline.
         let mut channel = openai_channel("text-only-model", None);
-        channel.user_overrides = Some(nuo_contracts::CapabilityOverrides {
+        channel.user_overrides = Some(nuo_wire::CapabilityOverrides {
             vision: Some(true),
             ..Default::default()
         });
@@ -532,7 +532,7 @@ mod tests {
         // The relay names `deepseek-flash` "DeepSeek V4.1 Flash": the label
         // rides to the frontend as a presentation-only annotation beside the
         // id, which stays the identity.
-        let remote = nuo_contracts::RemoteModelMetadata {
+        let remote = nuo_wire::RemoteModelMetadata {
             name: Some("DeepSeek V4.1 Flash".to_string()),
             ..Default::default()
         };
@@ -554,7 +554,7 @@ mod tests {
     fn channel_model_info_surfaces_route_context_window_from_remote_metadata() {
         // ADR-0182: Discovered models (like glm-5.3 on opencode-go) carry their
         // remote context_window via ADR-0149 resolution into the picker snapshot.
-        let remote = nuo_contracts::RemoteModelMetadata {
+        let remote = nuo_wire::RemoteModelMetadata {
             context_window: Some(1_000_000),
             max_output_tokens: Some(131_072),
             ..Default::default()
@@ -566,14 +566,14 @@ mod tests {
 
     #[test]
     fn channel_model_info_surfaces_effort_levels_from_remote_metadata() {
-        let remote = nuo_contracts::RemoteModelMetadata {
+        let remote = nuo_wire::RemoteModelMetadata {
             effort_levels: Some(vec![
-                nuo_contracts::EffortLevel::Known(nuo_contracts::Effort::Low),
-                nuo_contracts::EffortLevel::Known(nuo_contracts::Effort::Medium),
-                nuo_contracts::EffortLevel::Known(nuo_contracts::Effort::High),
-                nuo_contracts::EffortLevel::Known(nuo_contracts::Effort::Xhigh),
-                nuo_contracts::EffortLevel::Known(nuo_contracts::Effort::Max),
-                nuo_contracts::EffortLevel::Known(nuo_contracts::Effort::Ultra),
+                nuo_wire::EffortLevel::Known(nuo_wire::Effort::Low),
+                nuo_wire::EffortLevel::Known(nuo_wire::Effort::Medium),
+                nuo_wire::EffortLevel::Known(nuo_wire::Effort::High),
+                nuo_wire::EffortLevel::Known(nuo_wire::Effort::Xhigh),
+                nuo_wire::EffortLevel::Known(nuo_wire::Effort::Max),
+                nuo_wire::EffortLevel::Known(nuo_wire::Effort::Ultra),
             ]),
             ..Default::default()
         };
@@ -592,12 +592,12 @@ mod tests {
     #[test]
     fn channel_model_info_user_override_beats_remote_context_window() {
         // ADR-0149 layer 1: user override takes precedence over remote metadata.
-        let remote = nuo_contracts::RemoteModelMetadata {
+        let remote = nuo_wire::RemoteModelMetadata {
             context_window: Some(1_000_000),
             ..Default::default()
         };
         let mut channel = openai_channel("glm-5.3", Some(remote));
-        channel.user_overrides = Some(nuo_contracts::CapabilityOverrides {
+        channel.user_overrides = Some(nuo_wire::CapabilityOverrides {
             context_window: Some(64_000),
             ..Default::default()
         });

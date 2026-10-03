@@ -12,9 +12,9 @@ use super::*;
 pub struct CommitTurn<'a> {
     pub messages: &'a [Message],
     pub round_counter: Option<u64>,
-    pub usage_records: &'a [nuo_contracts::RequestUsageRecord],
-    pub retry_point: Option<Option<nuo_contracts::RetryPoint>>,
-    pub round_interrupt: Option<nuo_contracts::RoundInterrupt>,
+    pub usage_records: &'a [nuo_wire::RequestUsageRecord],
+    pub retry_point: Option<Option<nuo_wire::RetryPoint>>,
+    pub round_interrupt: Option<nuo_wire::RoundInterrupt>,
     /// ADR-0236 D3 idempotency identity. Replaying the same key returns the
     /// original commit receipt instead of applying the deltas a second time.
     /// `None` mints a fresh identity for this commit.
@@ -60,7 +60,7 @@ impl SessionStore {
     /// The durable round-interrupt records (C11): one per round stopped
     /// before completing, newest last. Pure projection state — never part
     /// of the transcript.
-    pub async fn round_interrupts(&self) -> Vec<nuo_contracts::RoundInterrupt> {
+    pub async fn round_interrupts(&self) -> Vec<nuo_wire::RoundInterrupt> {
         self.state.lock().await.data.round_interrupts.clone()
     }
 
@@ -68,7 +68,7 @@ impl SessionStore {
     /// a record for the same round with the same reason is not appended twice.
     pub async fn record_round_interrupt(
         &self,
-        record: nuo_contracts::RoundInterrupt,
+        record: nuo_wire::RoundInterrupt,
     ) -> Result<(), String> {
         let (path, data, should_persist) = {
             let mut state = self.state.lock().await;
@@ -99,7 +99,7 @@ impl SessionStore {
     /// of the transcript, never replayed into a later model request. Read from
     /// the key-addressed `request_projections` table on demand; it is not held
     /// in `SessionData`.
-    pub async fn request_projections(&self) -> Vec<nuo_contracts::RequestProjection> {
+    pub async fn request_projections(&self) -> Vec<nuo_wire::RequestProjection> {
         let handle = self.writer.clone();
         let session_id = self.id().await;
         tokio::task::spawn_blocking(move || {
@@ -123,7 +123,7 @@ impl SessionStore {
     /// bounded ring enforced by the storage layer.
     pub async fn record_request_projection(
         &self,
-        record: nuo_contracts::RequestProjection,
+        record: nuo_wire::RequestProjection,
     ) -> Result<(), String> {
         let session_id = self.id().await;
         self.writer
@@ -140,7 +140,7 @@ impl SessionStore {
     pub fn try_record_request_projection(
         &self,
         session_id: String,
-        record: nuo_contracts::RequestProjection,
+        record: nuo_wire::RequestProjection,
     ) {
         self.writer
             .try_record_request_projection(session_id, record);
@@ -172,7 +172,7 @@ impl SessionStore {
     /// The durable retry-resolution records: one per round that recovered
     /// from transient provider faults via the harness retry loop, newest
     /// last. Pure projection state — never part of the transcript.
-    pub async fn retry_resolutions(&self) -> Vec<nuo_contracts::RetryResolution> {
+    pub async fn retry_resolutions(&self) -> Vec<nuo_wire::RetryResolution> {
         self.state.lock().await.data.retry_resolutions.clone()
     }
 
@@ -181,7 +181,7 @@ impl SessionStore {
     /// the durable commit can race on the same round).
     pub async fn record_retry_resolution(
         &self,
-        record: nuo_contracts::RetryResolution,
+        record: nuo_wire::RetryResolution,
     ) -> Result<(), String> {
         let (path, data, should_persist) = {
             let mut state = self.state.lock().await;
@@ -216,13 +216,13 @@ impl SessionStore {
     }
 
     /// The durable `/retry` resume point (C12).
-    pub async fn retry_pending(&self) -> Option<nuo_contracts::RetryPoint> {
+    pub async fn retry_pending(&self) -> Option<nuo_wire::RetryPoint> {
         self.state.lock().await.data.retry_pending.clone()
     }
 
     /// Arm the `/retry` resume point (C12). Snapshot semantics: the single
     /// slot is replaced (arming for a newer round retires an older point).
-    pub async fn arm_retry_pending(&self, point: nuo_contracts::RetryPoint) -> Result<(), String> {
+    pub async fn arm_retry_pending(&self, point: nuo_wire::RetryPoint) -> Result<(), String> {
         let (path, data, should_persist) = {
             let mut state = self.state.lock().await;
             state.data.retry_pending = Some(point);
@@ -294,14 +294,14 @@ impl SessionStore {
     }
 
     /// The durable command ledger (ADR-0091).
-    pub async fn commands(&self) -> Vec<nuo_contracts::CommandRecord> {
+    pub async fn commands(&self) -> Vec<nuo_wire::CommandRecord> {
         self.state.lock().await.data.commands.clone()
     }
 
     /// Atomically mutate the command ledger in place under the lock and persist.
     pub async fn mutate_commands<F>(&self, f: F) -> Result<(), String>
     where
-        F: FnOnce(&mut Vec<nuo_contracts::CommandRecord>),
+        F: FnOnce(&mut Vec<nuo_wire::CommandRecord>),
     {
         let (path, data, should_persist) = {
             let mut state = self.state.lock().await;
@@ -342,7 +342,7 @@ impl SessionStore {
                     state
                         .data
                         .transcript
-                        .push(nuo_contracts::TranscriptEntry::from_message(0, message));
+                        .push(nuo_wire::TranscriptEntry::from_message(0, message));
                 }
                 children = admit_subagent_children(&mut state.data, tail);
                 state.append_to_projection_cache(tail);
@@ -398,7 +398,7 @@ impl SessionStore {
                     state
                         .data
                         .transcript
-                        .push(nuo_contracts::TranscriptEntry::from_message(0, message));
+                        .push(nuo_wire::TranscriptEntry::from_message(0, message));
                 }
                 children = admit_subagent_children(&mut state.data, tail);
                 state.append_to_projection_cache(tail);
@@ -424,7 +424,7 @@ impl SessionStore {
             // durable ledger lives in its own key-addressed table, so the
             // changed records ride to the save as upserts (ADR-0187); the
             // in-memory mirror feeds the token ledger.
-            let mut usage_upserts: Vec<nuo_contracts::RequestUsageRecord> = Vec::new();
+            let mut usage_upserts: Vec<nuo_wire::RequestUsageRecord> = Vec::new();
             if !commit.usage_records.is_empty() {
                 if commit
                     .usage_records
@@ -433,7 +433,7 @@ impl SessionStore {
                 {
                     return Err("request usage record belongs to another session".to_string());
                 }
-                let mut index: std::collections::HashMap<nuo_contracts::RequestUsageKey, usize> =
+                let mut index: std::collections::HashMap<nuo_wire::RequestUsageKey, usize> =
                     state
                         .data
                         .request_usage_records
@@ -516,11 +516,11 @@ impl SessionStore {
     /// signal (which this clears). Idempotent: once reclassified in memory, a
     /// second call finds nothing to settle.
     pub async fn settle_abandoned_attempts(&self) -> Result<usize, String> {
-        use nuo_contracts::{RequestUsageSource, RequestUsageStatus};
+        use nuo_wire::{RequestUsageSource, RequestUsageStatus};
         let (path, data, settled): (
             PathBuf,
             SessionData,
-            Vec<nuo_contracts::RequestUsageRecord>,
+            Vec<nuo_wire::RequestUsageRecord>,
         ) = {
             let mut state = self.state.lock().await;
             let mut settled = Vec::new();
@@ -592,7 +592,7 @@ impl SessionStore {
             let fork_child_id = uuid::Uuid::new_v4().to_string();
             child.id = fork_child_id.clone();
             child.parent_id = Some(parent_id.clone());
-            child.fork_kind = nuo_contracts::SessionForkKind::Fork;
+            child.fork_kind = nuo_wire::SessionForkKind::Fork;
             child.created_at = now;
             child.updated_at = now;
             child.request_usage_records.clear();
@@ -639,7 +639,7 @@ impl SessionStore {
             let side_id = uuid::Uuid::new_v4().to_string();
             side.id = side_id.clone();
             side.parent_id = Some(parent_id.clone());
-            side.fork_kind = nuo_contracts::SessionForkKind::Aside;
+            side.fork_kind = nuo_wire::SessionForkKind::Aside;
             side.title = None;
             side.created_at = now;
             side.updated_at = now;
@@ -706,7 +706,7 @@ impl SessionStore {
     }
 
     /// Read the full DAG session tree.
-    pub async fn tree(&self) -> nuo_contracts::SessionTree {
+    pub async fn tree(&self) -> nuo_wire::SessionTree {
         let state = self.state.lock().await;
         state.data.tree.clone()
     }
@@ -714,7 +714,7 @@ impl SessionStore {
     /// Insert an entry directly into the session tree and persist snapshot.
     pub async fn insert_tree_entry(
         &self,
-        entry: nuo_contracts::SessionEntry,
+        entry: nuo_wire::SessionEntry,
     ) -> Result<String, String> {
         let (data, id) = {
             let mut state = self.state.lock().await;
@@ -753,8 +753,8 @@ impl SessionStore {
         Ok(messages)
     }
 
-    /// Project the current session state into canonical [`nuo_contracts::SessionIR`] (ADR-0241/ADR-0249/ADR-0275).
-    pub async fn session_ir(&self) -> nuo_contracts::SessionIR {
+    /// Project the current session state into canonical [`nuo_wire::SessionIR`] (ADR-0241/ADR-0249/ADR-0275).
+    pub async fn session_ir(&self) -> nuo_wire::SessionIR {
         let session_id = self.id().await;
         if let Ok(reader) = self.writer.reader()
             && let Ok(Some(ir)) = reader.load_session_ir(&session_id)
@@ -762,11 +762,11 @@ impl SessionStore {
             return ir;
         }
         let now = unix_timestamp();
-        nuo_contracts::SessionIR::new(session_id, nuo_contracts::SessionPolicy::default(), now)
+        nuo_wire::SessionIR::new(session_id, nuo_wire::SessionPolicy::default(), now)
     }
 
-    /// Commit mutations from a [`nuo_contracts::SessionIR`] back into the session store (ADR-0241/ADR-0249/ADR-0275).
-    pub async fn commit_session_ir(&self, ir: &nuo_contracts::SessionIR) -> Result<(), String> {
+    /// Commit mutations from a [`nuo_wire::SessionIR`] back into the session store (ADR-0241/ADR-0249/ADR-0275).
+    pub async fn commit_session_ir(&self, ir: &nuo_wire::SessionIR) -> Result<(), String> {
         // Direct O(Δ) persistence to sessions_v2 and causal_nodes tables (INV-SESSION-05, ADR-0275)
         let delta = ir.drain_delta(0);
         self.writer
@@ -775,10 +775,10 @@ impl SessionStore {
             .map_err(|e| format!("failed to persist SessionDelta directly to canonical storage: {e}"))
     }
 
-    /// Commit an incremental [`nuo_contracts::SessionDelta`] directly into SQLite (ADR-0241/ADR-0249, INV-SESSION-05).
+    /// Commit an incremental [`nuo_wire::SessionDelta`] directly into SQLite (ADR-0241/ADR-0249, INV-SESSION-05).
     pub async fn commit_session_delta(
         &self,
-        delta: nuo_contracts::SessionDelta,
+        delta: nuo_wire::SessionDelta,
     ) -> Result<(), crate::db::PersistenceError> {
         self.writer.save_session_delta(delta).await
     }
@@ -787,10 +787,10 @@ impl SessionStore {
     /// using the 4-pass optimizing compiler pipeline (ADR-0241).
     pub async fn compile_request(
         &self,
-        options: nuo_contracts::CompilerOptions,
-    ) -> Result<nuo_contracts::CompilationArtifact, nuo_contracts::CompilerError> {
+        options: nuo_wire::CompilerOptions,
+    ) -> Result<nuo_wire::CompilationArtifact, nuo_wire::CompilerError> {
         let ir = self.session_ir().await;
-        nuo_contracts::compile_session_request(&ir, options)
+        nuo_wire::compile_session_request(&ir, options)
     }
 }
 
@@ -816,7 +816,7 @@ fn admit_subagent_children(state: &mut SessionData, candidates: &[Message]) -> V
         let mut subagent = SessionData {
             id: subagent_id.clone(),
             parent_id: Some(state.id.clone()),
-            fork_kind: nuo_contracts::SessionForkKind::Subagent,
+            fork_kind: nuo_wire::SessionForkKind::Subagent,
             workspace: state.workspace.clone(),
             role: state.role.clone(),
             ..Default::default()
@@ -832,10 +832,10 @@ fn admit_subagent_children(state: &mut SessionData, candidates: &[Message]) -> V
             .iter_mut()
             .rev()
             .find(|entry| {
-                matches!(&entry.payload, nuo_contracts::EntryPayload::Message(payload)                     if payload.tool_call_id == call_id)
+                matches!(&entry.payload, nuo_wire::EntryPayload::Message(payload)                     if payload.tool_call_id == call_id)
             })
-            && let nuo_contracts::EntryPayload::Message(payload) = &mut entry.payload {
-                payload.subagent = Some(nuo_contracts::SubagentRef {
+            && let nuo_wire::EntryPayload::Message(payload) = &mut entry.payload {
+                payload.subagent = Some(nuo_wire::SubagentRef {
                     session_id: subagent_id,
                     description: subagent_meta.description.clone(),
                     duration_ms: subagent_meta.duration_ms,
@@ -865,10 +865,10 @@ fn persist_subagent_children(
 /// projection history is cleared). The caller must mint a fresh
 /// `SessionData::generation` afterwards: the new transcript shares no rows
 /// with the durable one (ADR-0187).
-pub(crate) fn rebuild_transcript_from_messages(messages: &[Message]) -> nuo_contracts::Transcript {
-    let mut transcript = nuo_contracts::Transcript::new();
+pub(crate) fn rebuild_transcript_from_messages(messages: &[Message]) -> nuo_wire::Transcript {
+    let mut transcript = nuo_wire::Transcript::new();
     for message in messages {
-        transcript.push(nuo_contracts::TranscriptEntry::from_message(0, message));
+        transcript.push(nuo_wire::TranscriptEntry::from_message(0, message));
     }
     transcript
 }
@@ -877,7 +877,7 @@ pub(crate) fn rebuild_transcript_from_messages(messages: &[Message]) -> nuo_cont
 /// resulting projection is exactly `result.model_window` (ADR-0186). Returns
 /// `None` when translation is not possible and the caller must rebuild.
 fn translate_projection(
-    transcript: &mut nuo_contracts::Transcript,
+    transcript: &mut nuo_wire::Transcript,
     result: &ContextProjectionResult,
 ) -> Option<()> {
     let current = transcript.project_messages();
@@ -907,18 +907,18 @@ fn translate_projection(
             } else {
                 transcript.entries[archived_len - 1].seq
             };
-            let checkpoint_entry = nuo_contracts::TranscriptEntry::from_message(0, &checkpoint[0]);
+            let checkpoint_entry = nuo_wire::TranscriptEntry::from_message(0, &checkpoint[0]);
             transcript.push(checkpoint_entry);
             let checkpoint_seq = transcript
                 .entries
                 .last()
                 .map(|entry| entry.seq)
                 .unwrap_or(0);
-            transcript.push_directive(nuo_contracts::ProjectionDirective {
+            transcript.push_directive(nuo_wire::ProjectionDirective {
                 seq: 0,
-                kind: nuo_contracts::DirectiveKind::Compact,
+                kind: nuo_wire::DirectiveKind::Compact,
                 up_to_seq: last_seq,
-                payload: nuo_contracts::DirectivePayload::Compact { checkpoint_seq },
+                payload: nuo_wire::DirectivePayload::Compact { checkpoint_seq },
             });
             if wire_eq(&transcript.project_messages(), target) {
                 return Some(());
@@ -944,7 +944,7 @@ fn translate_projection(
                 && before.tool_calls == after.tool_calls
                 && before.role == after.role;
             if is_tool_result {
-                elided.push(nuo_contracts::PrunedToolOutput {
+                elided.push(nuo_wire::PrunedToolOutput {
                     tool_call_id: after.tool_call_id.clone().unwrap_or_default(),
                     placeholder: after.content.clone(),
                 });
@@ -977,7 +977,7 @@ fn translate_projection(
                 && after.content.contains("[cleared image payload");
             if is_pruned_user_image {
                 let seq = transcript.entries[idx].seq;
-                pruned_media.push(nuo_contracts::PrunedMediaOutput {
+                pruned_media.push(nuo_wire::PrunedMediaOutput {
                     seq,
                     placeholder: after.content.clone(),
                 });
@@ -990,11 +990,11 @@ fn translate_projection(
         }
         if pruneable && (!elided.is_empty() || !pruned_media.is_empty()) {
             let last_seq = transcript.next_seq().saturating_sub(1);
-            transcript.push_directive(nuo_contracts::ProjectionDirective {
+            transcript.push_directive(nuo_wire::ProjectionDirective {
                 seq: 0,
-                kind: nuo_contracts::DirectiveKind::Prune,
+                kind: nuo_wire::DirectiveKind::Prune,
                 up_to_seq: last_seq,
-                payload: nuo_contracts::DirectivePayload::Prune { elided, pruned_media },
+                payload: nuo_wire::DirectivePayload::Prune { elided, pruned_media },
             });
             if wire_eq(&transcript.project_messages(), target) {
                 return Some(());
@@ -1009,13 +1009,13 @@ fn translate_projection(
 mod tests {
     use super::*;
     use crate::session::{ContextProjectionCheckpoint, ContextProjectionResult};
-    use nuo_contracts::{
+    use nuo_wire::{
         ImagePart, InjectionKind, InjectionOrigin, Message, Role, ToolCall,
     };
 
     #[test]
     fn test_translate_projection_prunes_tool_and_companion_image() {
-        let mut transcript = nuo_contracts::Transcript::new();
+        let mut transcript = nuo_wire::Transcript::new();
         let call = ToolCall {
             id: "call_img_1".to_string(),
             name: "read_image".to_string(),
@@ -1031,12 +1031,12 @@ mod tests {
             }])
             .with_origin(InjectionOrigin::new(InjectionKind::ToolImage));
 
-        transcript.push(nuo_contracts::TranscriptEntry::from_message(
+        transcript.push(nuo_wire::TranscriptEntry::from_message(
             0,
             &assistant_msg,
         ));
-        transcript.push(nuo_contracts::TranscriptEntry::from_message(1, &tool_msg));
-        transcript.push(nuo_contracts::TranscriptEntry::from_message(
+        transcript.push(nuo_wire::TranscriptEntry::from_message(1, &tool_msg));
+        transcript.push(nuo_wire::TranscriptEntry::from_message(
             2,
             &companion_msg,
         ));
@@ -1047,7 +1047,7 @@ mod tests {
             companion_msg.clone(),
         ];
         let out =
-            nuo_contracts::pressure::prune_tool_results(&mut target_messages, 0, 1).unwrap();
+            nuo_wire::pressure::prune_tool_results(&mut target_messages, 0, 1).unwrap();
         assert!(out.cleared_count >= 1);
 
         let res = ContextProjectionResult {
@@ -1074,7 +1074,7 @@ mod tests {
 
     #[test]
     fn test_translate_projection_prunes_user_uploaded_image() {
-        let mut transcript = nuo_contracts::Transcript::new();
+        let mut transcript = nuo_wire::Transcript::new();
         let user_msg = Message::new(Role::User, "User prompt with visual")
             .with_images(vec![ImagePart {
                 mime: "image/png".to_string(),
@@ -1082,15 +1082,15 @@ mod tests {
             }]);
         let assistant_msg = Message::new(Role::Assistant, "I see the image.");
 
-        transcript.push(nuo_contracts::TranscriptEntry::from_message(0, &user_msg));
-        transcript.push(nuo_contracts::TranscriptEntry::from_message(
+        transcript.push(nuo_wire::TranscriptEntry::from_message(0, &user_msg));
+        transcript.push(nuo_wire::TranscriptEntry::from_message(
             1,
             &assistant_msg,
         ));
 
         let mut target_messages = vec![user_msg.clone(), assistant_msg.clone()];
         let out =
-            nuo_contracts::pressure::prune_tool_results(&mut target_messages, 0, 1).unwrap();
+            nuo_wire::pressure::prune_tool_results(&mut target_messages, 0, 1).unwrap();
         assert!(out.cleared_count >= 1);
 
         let res = ContextProjectionResult {

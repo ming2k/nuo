@@ -24,8 +24,8 @@ const TRACK_NODE: char = '○';
 const TRACK_MARKER: char = '●';
 const EFFORT_LABEL_MIN_GAP: usize = 2;
 
-fn effort_tier(wire: &str) -> Option<nuo_contracts::effort::Effort> {
-    nuo_contracts::effort::Effort::parse(wire)
+fn effort_tier(wire: &str) -> Option<nuo_wire::effort::Effort> {
+    nuo_wire::effort::Effort::parse(wire)
 }
 
 fn effort_caption(wire: &str) -> &'static str {

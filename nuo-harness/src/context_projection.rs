@@ -1,7 +1,7 @@
 //! Agent extension point for projecting the next model-visible context.
 
 use async_trait::async_trait;
-use nuo_contracts::Message;
+use nuo_wire::Message;
 
 /// Mid-turn model-context projection hook.
 ///

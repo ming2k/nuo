@@ -72,9 +72,9 @@ fn selection_needs_legacy(
         return false;
     };
     if search {
-        nuo_contracts::WebSearchProvider::parse_legacy(value).is_err()
+        nuo_wire::WebSearchProvider::parse_legacy(value).is_err()
     } else {
-        nuo_contracts::WebReaderProvider::parse_legacy(value).is_err()
+        nuo_wire::WebReaderProvider::parse_legacy(value).is_err()
     }
 }
 
@@ -92,11 +92,11 @@ fn migrate_selection(
         return;
     };
     let canonical = if search {
-        nuo_contracts::WebSearchProvider::parse_legacy(&original)
+        nuo_wire::WebSearchProvider::parse_legacy(&original)
             .ok()
             .map(|provider| provider.id())
     } else {
-        nuo_contracts::WebReaderProvider::parse_legacy(&original)
+        nuo_wire::WebReaderProvider::parse_legacy(&original)
             .ok()
             .map(|provider| provider.id())
     };
@@ -112,11 +112,11 @@ fn migrate_selection(
     let preset = connection.and_then(|connection| connection.preset_id.as_deref());
     let canonical = if search {
         preset
-            .and_then(|value| nuo_contracts::WebSearchProvider::parse_legacy(value).ok())
+            .and_then(|value| nuo_wire::WebSearchProvider::parse_legacy(value).ok())
             .map(|provider| provider.id())
     } else {
         preset
-            .and_then(|value| nuo_contracts::WebReaderProvider::parse_legacy(value).ok())
+            .and_then(|value| nuo_wire::WebReaderProvider::parse_legacy(value).ok())
             .map(|provider| provider.id())
     };
     if let Some(canonical) = canonical {
@@ -147,7 +147,7 @@ pub(crate) fn migrate_connection_credentials(
         let Some(provider) = connection
             .preset_id
             .as_deref()
-            .and_then(|value| nuo_contracts::WebSearchProvider::parse_legacy(value).ok())
+            .and_then(|value| nuo_wire::WebSearchProvider::parse_legacy(value).ok())
         else {
             continue;
         };
@@ -163,7 +163,7 @@ pub(crate) fn migrate_connection_credentials(
         let Some(provider) = connection
             .preset_id
             .as_deref()
-            .and_then(|value| nuo_contracts::WebReaderProvider::parse_legacy(value).ok())
+            .and_then(|value| nuo_wire::WebReaderProvider::parse_legacy(value).ok())
         else {
             continue;
         };
@@ -212,7 +212,7 @@ mod tests {
             toml::from_str(&migrated).unwrap_or_else(|error| panic!("{error}: {migrated}"));
         assert_eq!(
             config.web.provider,
-            nuo_contracts::WebSearchProvider::Tavily,
+            nuo_wire::WebSearchProvider::Tavily,
             "{migrated}"
         );
         crate::paths::set_test_default(None);

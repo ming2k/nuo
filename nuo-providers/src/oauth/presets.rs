@@ -3,8 +3,8 @@
 //! Pinned and maintained in `muta-providers` (not `muta-contracts`), keeping core
 //! domain contracts 100% free of vendor-specific secrets, client IDs, and endpoints.
 
-use nuo_contracts::LoginMethod;
-use nuo_contracts::provider_auth::{
+use nuo_model_codec::LoginMethod;
+use nuo_model_codec::provider_auth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
 };
 use std::borrow::Cow;
@@ -67,7 +67,7 @@ pub fn google_antigravity_preset() -> OAuthConfig {
         extra_refresh_params: Vec::new(),
         extra_headers: Vec::new(),
         user_agent: Some(Cow::Borrowed(
-            nuo_contracts::client_identity::ANTIGRAVITY_USER_AGENT,
+            nuo_model_codec::client_identity::ANTIGRAVITY_USER_AGENT,
         )),
         browser_login: true,
         default_login_method: LoginMethod::Browser,
@@ -370,7 +370,7 @@ mod tests {
         let cfg = google_antigravity_preset();
         let ua = cfg.user_agent.expect("antigravity preset declares a User-Agent");
         assert!(ua.starts_with("antigravity/cli/"));
-        assert_eq!(ua, nuo_contracts::client_identity::ANTIGRAVITY_USER_AGENT);
+        assert_eq!(ua, nuo_model_codec::client_identity::ANTIGRAVITY_USER_AGENT);
     }
 
     /// The consent scope must include `aicode`: every stored Antigravity token

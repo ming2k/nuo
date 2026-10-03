@@ -22,10 +22,10 @@ impl App {
     /// `Vec` would grow past it over a long-lived TUI (each entry is small,
     /// but a multi-day session with heavy prompt reuse is unbounded anyway).
     /// Evicts from the oldest end.
-    pub(super) fn push_history(&mut self, entry: nuo_contracts::HistoryEntry) {
+    pub(super) fn push_history(&mut self, entry: nuo_wire::HistoryEntry) {
         self.input_history.push(entry);
-        if self.input_history.len() > nuo_contracts::history::HISTORY_CAP {
-            let overflow = self.input_history.len() - nuo_contracts::history::HISTORY_CAP;
+        if self.input_history.len() > nuo_wire::history::HISTORY_CAP {
+            let overflow = self.input_history.len() - nuo_wire::history::HISTORY_CAP;
             self.input_history.drain(..overflow);
         }
     }
@@ -37,7 +37,7 @@ impl App {
     pub fn token_source_report(
         &self,
         session_id: &str,
-    ) -> Option<nuo_contracts::TokenSourceReport> {
+    ) -> Option<nuo_wire::TokenSourceReport> {
         if let Some(ledger) = &self.token_ledger {
             Some(ledger.snapshot_for_session(session_id))
         } else {

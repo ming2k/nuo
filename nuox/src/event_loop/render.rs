@@ -16,8 +16,8 @@ use super::actions::effective_reasoning_effort;
 use super::transcript::display_status;
 
 /// Loop stage: the per-frame draw. Paints the chrome (startup picker,
-/// transcript, hint bar, composer, completion popup, effort-ignition
-/// overlay), recesses the live surface for the open modal, then draws the
+/// transcript, hint bar, composer, completion popup), recesses the live
+/// surface for the open modal, then draws the
 /// active modal panel, persisting per-frame layout state back onto `app`.
 /// Invoked through `Terminal::stage` (bottom-follow measurement pass) or
 /// `Terminal::draw`; extracted verbatim from the `render_frame` closure.
@@ -504,9 +504,6 @@ fn compose_frame(
                     reasoning_effort: hint_reasoning,
                     context_tokens: app.context_tokens.map(|snapshot| snapshot.tokens),
                     context_window: app.active_model_context_window(),
-                    ignition_elapsed_ms: app
-                        .effort_ignition_epoch
-                        .map(|epoch| epoch.elapsed().as_millis()),
                 },
                 &app.theme,
                 &app.key_overrides,
@@ -607,12 +604,6 @@ fn compose_frame(
             // rather than prose; an unmatched `/`-prefix keeps
             // the normal text color.
             let slash_len = resolved_slash_command_len(&app.input, &app.command_catalog);
-            // Effort-ignition prompt tint: a color-only accent on
-            // the `›` prompt while the wave runs (the glyph never
-            // changes). `None` once the animation has finished.
-            let prompt_accent = app
-                .effort_ignition_epoch
-                .map(|epoch| (true, Some(epoch.elapsed().as_millis())));
             let byte_cursor = app.byte_cursor();
             let image_count = app.pending_images.len();
             let paste_count = app.pending_text_pastes.len();
@@ -669,24 +660,7 @@ fn compose_frame(
                     composer_options,
                     len,
                 ),
-                None => match prompt_accent {
-                    Some(accent) => render::draw_composer_igniting(
-                        ComposerProps {
-                            frame: f,
-                            input_rect,
-                            theme: &app.theme,
-                            layout_map: &mut layout_map,
-                            input_scroll: &mut app.input_scroll,
-                            selection: &app.selection,
-                        },
-                        ComposerText {
-                            input: &app.input,
-                            byte_cursor,
-                        },
-                        composer_options,
-                        accent,
-                    ),
-                    None if app.input_scroll_follow_cursor => render::draw_composer(
+                None if app.input_scroll_follow_cursor => render::draw_composer(
                         ComposerProps {
                             frame: f,
                             input_rect,
@@ -721,7 +695,6 @@ fn compose_frame(
                         },
                         composer_options,
                     ),
-                },
             }
         }
     }
@@ -856,21 +829,6 @@ fn compose_frame(
                 &app.theme,
             );
         }
-    }
-
-    // Effort-ignition overlay: tint the composer panel and hint
-    // bar with the sweeping fire waves. Runs after the composer /
-    // hint bar / completion popup have painted so the glow sits
-    // on top of every footer surface, and before the modal recess
-    // so an open modal still dims the celebration with the rest
-    // of the background. Text is never touched — only cell
-    // backgrounds are blended (codex's text-safe `Canvas::tint`).
-    if !chrome_hidden && let Some(epoch) = app.effort_ignition_epoch {
-        let elapsed_ms = epoch.elapsed().as_millis();
-        let hint_row = (hint_rect.height > 0
-            && app.active_sheet() != Some(crate::sheet::SheetKind::Permission))
-        .then_some(hint_rect.y);
-        crate::effort_ignition::paint_ignition_bands(f, input_rect, hint_row, elapsed_ms);
     }
 
     // Recess the live surface for the open modal: darken it in place
@@ -1023,8 +981,8 @@ fn compose_frame(
                         render::ContextUsageProps {
                             snapshot: app.context_tokens,
                             window_tokens: Some(app.active_model_context_window()),
-                            draft_content_tokens: nuo_contracts::count_tokens(&app.input),
-                            draft_tokens: nuo_contracts::estimate_draft_tokens(&app.input),
+                            draft_content_tokens: nuo_wire::count_tokens(&app.input),
+                            draft_tokens: nuo_wire::estimate_draft_tokens(&app.input),
                         },
                         app.telemetry_tab,
                         app.modal_index
@@ -1190,12 +1148,16 @@ fn compose_frame(
                         let effort = app
                             .editor_model_settings_only
                             .then_some(app.editor_effort.as_str());
+                        // The ladder captured from the snapshot when the editor
+                        // opened. Deliberately NOT re-derived with
+                        // `resolve_model`: this binary does not link
+                        // `nuo-providers`, so the provider baseline tables are
+                        // absent and a client-side resolve returns an empty
+                        // ladder — which collapsed the node slider to the
+                        // value-only row. Empty stays empty (a route with no
+                        // effort knob keeps the value-only fallback).
                         let effort_levels: Vec<String> = if app.editor_model_settings_only {
-                            nuo_contracts::resolve_model(&app.editor_model)
-                                .effort_levels
-                                .iter()
-                                .map(|e| e.as_str().to_string())
-                                .collect()
+                            app.editor_effort_levels.clone()
                         } else {
                             Vec::new()
                         };
@@ -1230,7 +1192,7 @@ fn compose_frame(
                 )),
                 SheetKind::OAuthPending => {
                     let title: &'static str = match &app.custom_auth {
-                        nuo_contracts::ConnectionAuth::Subscription { provider } => {
+                        nuo_wire::ConnectionAuth::Subscription { provider } => {
                             match provider.as_ref() {
                                 "chatgpt" => "ChatGPT Subscription",
                                 "copilot" => "Copilot",
@@ -1241,7 +1203,7 @@ fn compose_frame(
                                 _ => "Subscription",
                             }
                         }
-                        nuo_contracts::ConnectionAuth::ApiKey => "OAuth",
+                        nuo_wire::ConnectionAuth::ApiKey => "OAuth",
                     };
                     Some(render::draw_oauth_pending(
                         title,
@@ -1267,7 +1229,7 @@ fn compose_frame(
                     };
                     let protocol_display = app
                         .custom_protocol_wire
-                        .parse::<nuo_contracts::WireProtocol>()
+                        .parse::<nuo_wire::WireProtocol>()
                         .map(|p| p.display_name())
                         .unwrap_or(&app.custom_protocol_wire);
                     Some(render::draw_custom_provider_editor(

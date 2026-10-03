@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_contracts::{ExecutionEnvironment, Tool, ToolAccesses, ToolOutput};
+use nuo_wire::{ExecutionEnvironment, Tool, ToolAccesses, ToolOutput};
 use nuo_tool::ToolSchema;
 use serde::Deserialize;
 
@@ -160,7 +160,7 @@ impl Tool for FindFilesTool {
     }
 }
 
-nuo_contracts::register_tool!(FindFilesFactory => |ctx| FindFilesTool {
+nuo_wire::register_tool!(FindFilesFactory => |ctx| FindFilesTool {
     env: execution_environment(ctx),
 });
 

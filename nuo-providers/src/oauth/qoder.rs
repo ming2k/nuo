@@ -25,7 +25,7 @@ use super::host::CredentialHost;
 use super::store::{CredentialStore, QoderStoredIdentity, TokenSet};
 use sha2::Digest;
 
-use nuo_contracts::{ResolvedAuth, SecretString};
+use nuo_model_codec::{ResolvedAuth, SecretString};
 
 use crate::oauth::token::TokenResponse;
 
@@ -670,7 +670,7 @@ impl QoderApiKeyCredentialSource {
         uid
     }
 }
-impl nuo_contracts::CredentialSource for QoderApiKeyCredentialSource {
+impl nuo_model_codec::CredentialSource for QoderApiKeyCredentialSource {
     fn resolve_auth<'a>(&'a self) -> futures::future::BoxFuture<'a, Result<ResolvedAuth, String>> {
         Box::pin(async move {
             let identity = self.load_or_create_identity().await?;

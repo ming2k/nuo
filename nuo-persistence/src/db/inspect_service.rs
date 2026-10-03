@@ -16,7 +16,7 @@
 //!   never concurrently collected.
 //! - `INV-RET-05`: deleting a requirement fact cascades to open task state.
 
-use nuo_contracts::context_lifecycle::{
+use nuo_wire::context_lifecycle::{
     AuthScope, Capture, CursorBinding, Deletion, InspectError, InspectStatus, PageLimits,
     Representation, Validity,
 };
@@ -126,7 +126,7 @@ impl<'a> InspectService<'a> {
             Err(e) if e.error_len().is_none() => std::str::from_utf8(&bytes[..e.valid_up_to()]).map_err(|_| InspectError::Corrupt)?,
             Err(_) => return Err(InspectError::CursorMismatch),
         };
-        let content = nuo_contracts::tokenizer::truncate_str_to_tokens(text, limits.tokens.min(8192) as usize).to_owned();
+        let content = nuo_wire::tokenizer::truncate_str_to_tokens(text, limits.tokens.min(8192) as usize).to_owned();
         let count = content.len() as u64;
         if count == 0 && start < length { return Err(InspectError::BudgetExceeded); }
         if started.elapsed().as_millis() >= limits.compute_ms as u128 { return Err(InspectError::BudgetExceeded); }
@@ -138,7 +138,7 @@ impl<'a> InspectService<'a> {
         ).map_err(|_| InspectError::Corrupt)?;
         if !readable { return Err(InspectError::Purged); }
         Ok(ArtifactPage {
-            tokens: nuo_contracts::tokenizer::count_tokens(&content) as u64,
+            tokens: nuo_wire::tokenizer::count_tokens(&content) as u64,
             bytes: count,
             content,
             next_cursor: (start + count < length).then(|| serialize_cursor(&CursorBinding {

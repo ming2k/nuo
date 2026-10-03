@@ -10,7 +10,7 @@ use super::*;
 #[test]
 fn history_panel_renders_every_query_state() {
     let theme = Theme::default();
-    let history: Vec<nuo_contracts::HistoryEntry> = [
+    let history: Vec<nuo_wire::HistoryEntry> = [
         "git status",
         "git commit -am 'ship it'",
         "cargo test",
@@ -19,7 +19,7 @@ fn history_panel_renders_every_query_state() {
     .into_iter()
     .enumerate()
     .map(|(i, text)| {
-        nuo_contracts::HistoryEntry::new(
+        nuo_wire::HistoryEntry::new(
             text.to_string(),
             Some(format!("s{i}")),
             Some("~/p".to_string()),
@@ -67,7 +67,7 @@ fn history_panel_renders_every_query_state() {
     // Empty history must render the "(no history yet)" placeholder rather
     // than indexing into an empty slice.
     let mut terminal = nuotc::TestTerminal::new(80, 24);
-    let empty: Vec<nuo_contracts::HistoryEntry> = Vec::new();
+    let empty: Vec<nuo_wire::HistoryEntry> = Vec::new();
     let ranked: Vec<(usize, crate::fuzzy::FuzzyMatch)> = crate::fuzzy::rank::<&str>(&[], "");
     terminal.draw(|f| {
         let _ = draw_history_panel(
@@ -91,12 +91,12 @@ fn history_panel_renders_every_query_state() {
 #[test]
 fn history_panel_folds_multiline_entries() {
     let theme = Theme::default();
-    let history: Vec<nuo_contracts::HistoryEntry> =
+    let history: Vec<nuo_wire::HistoryEntry> =
         ["first line\nsecond line\nthird line", "single line"]
             .into_iter()
             .enumerate()
             .map(|(i, text)| {
-                nuo_contracts::HistoryEntry::new(text.to_string(), Some(format!("s{i}")), None, 0)
+                nuo_wire::HistoryEntry::new(text.to_string(), Some(format!("s{i}")), None, 0)
             })
             .collect();
     let texts: Vec<&str> = history.iter().map(|e| e.text.as_str()).collect();
@@ -132,11 +132,11 @@ fn history_panel_folds_multiline_entries() {
 #[test]
 fn history_panel_collapses_to_actual_row_count() {
     let theme = Theme::default();
-    let history: Vec<nuo_contracts::HistoryEntry> = ["one", "two"]
+    let history: Vec<nuo_wire::HistoryEntry> = ["one", "two"]
         .into_iter()
         .enumerate()
         .map(|(i, text)| {
-            nuo_contracts::HistoryEntry::new(
+            nuo_wire::HistoryEntry::new(
                 text.to_string(),
                 Some(format!("s{i}")),
                 None,
@@ -184,9 +184,9 @@ fn history_panel_reserves_activity_bar_rows() {
     let theme = Theme::default();
     // Enough entries that, absent the reservation, the panel would want to
     // grow tall and run past the activity bar.
-    let history: Vec<nuo_contracts::HistoryEntry> = (0..25)
+    let history: Vec<nuo_wire::HistoryEntry> = (0..25)
         .map(|i| {
-            nuo_contracts::HistoryEntry::new(format!("entry {i}"), Some(format!("s{i}")), None, i)
+            nuo_wire::HistoryEntry::new(format!("entry {i}"), Some(format!("s{i}")), None, i)
         })
         .collect();
     let texts: Vec<&str> = history.iter().map(|e| e.text.as_str()).collect();

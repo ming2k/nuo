@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 
-use nuo_contracts::{AgentRoleDelegation, AgentRoleProfile};
+use nuo_wire::{AgentRoleDelegation, AgentRoleProfile};
 
 use crate::agent::Agent;
 use crate::subagent_tool::SubagentRegistry;
@@ -123,25 +123,25 @@ impl AgentSlot {
 mod tests {
     use super::*;
     use crate::AgentIdentity;
-    use nuo_contracts::AgentRoleProfile;
+    use nuo_wire::AgentRoleProfile;
 
     struct DummyProvider;
     #[async_trait::async_trait]
-    impl nuo_contracts::Provider for DummyProvider {
+    impl nuo_wire::Provider for DummyProvider {
         async fn chat(
             &self,
-            _request: nuo_contracts::ModelRequest,
-        ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
-            Ok(nuo_contracts::ProviderCompletion::message(
-                nuo_contracts::Message::new(nuo_contracts::Role::Assistant, "ok"),
+            _request: nuo_wire::ModelRequest,
+        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            Ok(nuo_wire::ProviderCompletion::message(
+                nuo_wire::Message::new(nuo_wire::Role::Assistant, "ok"),
             ))
         }
         async fn stream_chat(
             &self,
-            _request: nuo_contracts::ModelRequest,
+            _request: nuo_wire::ModelRequest,
         ) -> Result<
-            futures::stream::BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-            nuo_contracts::ProviderError,
+            futures::stream::BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+            nuo_wire::ProviderError,
         > {
             use futures::stream;
             Ok(Box::pin(stream::once(async { Ok("ok".to_string()) })))

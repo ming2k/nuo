@@ -16,11 +16,11 @@ fn redesigned_components_render_without_panicking() {
                 thinking.set_reasoning_expanded(true);
                 let mut tool = TranscriptMessage::tool_step("call_1", "list_dir", r#"{"path":"."}"#);
                 tool.set_tool_step_expanded(true);
-                tool.finish_tool_step("call_1", "file_a\nfile_b", nuo_contracts::ToolOutput::text("file_a\nfile_b"), 12);
+                tool.finish_tool_step("call_1", "file_a\nfile_b", nuo_wire::ToolOutput::text("file_a\nfile_b"), 12);
                 let messages = vec![
-                    TranscriptMessage::new(nuo_contracts::Role::User, "hi"),
+                    TranscriptMessage::new(nuo_wire::Role::User, "hi"),
                     TranscriptMessage::new(
-                        nuo_contracts::Role::Assistant,
+                        nuo_wire::Role::Assistant,
                         "Here is a table:\n\n| Tool | Count |\n| --- | ---: |\n| read | 1 |\n| webfetch | 250 |",
                     ),
                     thinking,
@@ -152,8 +152,8 @@ fn redesigned_components_render_without_panicking() {
             },
             &theme,
         );
-        let history_roster: Vec<nuo_contracts::HistoryEntry> =
-            [nuo_contracts::HistoryEntry::new(
+        let history_roster: Vec<nuo_wire::HistoryEntry> =
+            [nuo_wire::HistoryEntry::new(
                 "a".to_string(),
                 None,
                 None,
@@ -228,7 +228,7 @@ fn redesigned_components_render_without_panicking() {
         let selection = crate::model::selection::SelectionState::None;
         let mut layout_map = crate::model::layout::LayoutMap::new();
         let sessions_list = [
-            nuo_contracts::SessionOverview {
+            nuo_wire::SessionOverview {
                 id: "abc123".to_string(),
                 overview: "Refactor the renderer".to_string(),
                 created_at: 0,
@@ -236,10 +236,10 @@ fn redesigned_components_render_without_panicking() {
                 message_count: 12,
                 active: true,
                 parent_id: None,
-                fork_kind: nuo_contracts::SessionForkKind::Trunk,
+                fork_kind: nuo_wire::SessionForkKind::Trunk,
                 digest: None,
             },
-            nuo_contracts::SessionOverview {
+            nuo_wire::SessionOverview {
                 id: "def456".to_string(),
                 overview: "Fix the tool_call_id bug".to_string(),
                 created_at: 0,
@@ -247,7 +247,7 @@ fn redesigned_components_render_without_panicking() {
                 message_count: 4,
                 active: false,
                 parent_id: None,
-                fork_kind: nuo_contracts::SessionForkKind::Trunk,
+                fork_kind: nuo_wire::SessionForkKind::Trunk,
                 digest: None,
             },
         ];
@@ -286,15 +286,15 @@ fn redesigned_components_render_without_panicking() {
         );
         let question_request = UserQuestionRequest {
             id: "q1".to_string(),
-            questions: vec![nuo_contracts::UserQuestion {
+            questions: vec![nuo_wire::UserQuestion {
                 header: Some("Style".to_string()),
                 question: "Which error handling crate?".to_string(),
                 options: vec![
-                    nuo_contracts::UserQuestionOption {
+                    nuo_wire::UserQuestionOption {
                         label: "anyhow (Recommended)".to_string(),
                         description: Some("Simple".to_string()),
                     },
-                    nuo_contracts::UserQuestionOption {
+                    nuo_wire::UserQuestionOption {
                         label: "thiserror".to_string(),
                         description: Some("Structured".to_string()),
                     },
@@ -358,7 +358,7 @@ fn redesigned_components_render_without_panicking() {
 #[test]
 fn config_appearance_pages_render_at_minimum_terminal_size() {
     let theme = Theme::default();
-    let custom = nuo_contracts::ColorSchemeConfig::default();
+    let custom = nuo_wire::ColorSchemeConfig::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
 
     terminal.draw(|frame| {
@@ -419,16 +419,16 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
 #[test]
 fn web_settings_split_search_and_reader_into_clear_panels() {
     let theme = Theme::default();
-    let custom = nuo_contracts::ColorSchemeConfig::default();
-    let web = nuo_contracts::WebSearchConfigView {
+    let custom = nuo_wire::ColorSchemeConfig::default();
+    let web = nuo_wire::WebSearchConfigView {
         revision: 0,
-        provider: nuo_contracts::WebSearchProvider::Exa,
-        reader: nuo_contracts::WebReaderProvider::Jina,
+        provider: nuo_wire::WebSearchProvider::Exa,
+        reader: nuo_wire::WebReaderProvider::Jina,
         timeout_secs: 20,
         searxng_url: None,
-        search_credential: nuo_contracts::WebCredentialStatus::Stored,
-        reader_credential: nuo_contracts::WebCredentialStatus::Stored,
-        capabilities: nuo_contracts::web_provider_capabilities(),
+        search_credential: nuo_wire::WebCredentialStatus::Stored,
+        reader_credential: nuo_wire::WebCredentialStatus::Stored,
+        capabilities: nuo_wire::web_provider_capabilities(),
     };
 
     let mut terminal = nuotc::TestTerminal::new(80, 24);
@@ -471,7 +471,7 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
 #[test]
 fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
     let theme = Theme::default();
-    let custom = nuo_contracts::ColorSchemeConfig::default();
+    let custom = nuo_wire::ColorSchemeConfig::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
 
     let mut selected_rect = None;
@@ -510,7 +510,7 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
         let backoff_clause: Option<&str> = None;
         let theme = Theme::default();
         let messages = vec![TranscriptMessage::new(
-            nuo_contracts::Role::Assistant,
+            nuo_wire::Role::Assistant,
             "A finished response above the footer.",
         )];
         let mut terminal = nuotc::TestTerminal::new(60, 20);
@@ -583,7 +583,7 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
 #[test]
 fn too_small_terminal_shows_notice_and_zeroed_render() {
     let theme = Theme::default();
-    let messages = vec![TranscriptMessage::new(nuo_contracts::Role::User, "hello")];
+    let messages = vec![TranscriptMessage::new(nuo_wire::Role::User, "hello")];
 
     let mut terminal = nuotc::TestTerminal::new(20, 8);
     let mut render_opt: Option<TranscriptRender> = None;
@@ -718,7 +718,7 @@ fn empty_session_renders_empty_state_with_nonzero_height() {
 fn nonempty_session_does_not_render_empty_state() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
-    let messages = vec![TranscriptMessage::new(nuo_contracts::Role::User, "hello")];
+    let messages = vec![TranscriptMessage::new(nuo_wire::Role::User, "hello")];
 
     let mut render_opt: Option<TranscriptRender> = None;
     terminal.draw(|f| {
@@ -968,7 +968,7 @@ fn h1_underline_clamps_to_text_extent() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(60, 12);
     let messages = vec![TranscriptMessage::new(
-        nuo_contracts::Role::Assistant,
+        nuo_wire::Role::Assistant,
         "# QQ_H1_TEST\n\nbody text here\n",
     )];
     terminal.draw(|f| {
@@ -1057,7 +1057,7 @@ fn h1_underline_emits_wide_glyph_in_underlined_run() {
     let width = 60u16;
     let mut terminal = nuotc::TestTerminal::new(width, 12);
     let messages = vec![TranscriptMessage::new(
-        nuo_contracts::Role::Assistant,
+        nuo_wire::Role::Assistant,
         "# Hello😀\n\nbody\n",
     )];
     terminal.draw(|f| {
@@ -1141,7 +1141,7 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
     // wraps this ~95-char heading to ≥2 rows.
     let mut terminal = nuotc::TestTerminal::new(80, 24);
     let messages = vec![TranscriptMessage::new(
-        nuo_contracts::Role::Assistant,
+        nuo_wire::Role::Assistant,
         "# This is a very long heading that intentionally wraps to multiple rows for the underline-prefix test\n\nbody\n",
     )];
     terminal.draw(|f| {
@@ -1256,7 +1256,7 @@ fn persistence_health_banner_renders_state_and_detail() {
     use crate::render::draw_persistence_health_bar;
     let theme = Theme::default();
 
-    let render = |health: &nuo_contracts::monitor::PersistenceHealth, width: u16| {
+    let render = |health: &nuo_wire::monitor::PersistenceHealth, width: u16| {
         let mut terminal = nuotc::TestTerminal::new(width, 1);
         terminal.draw(|f| {
             draw_persistence_health_bar(f, f.area(), health, &theme);
@@ -1267,7 +1267,7 @@ fn persistence_health_banner_renders_state_and_detail() {
             .collect::<String>()
     };
 
-    let recovering = nuo_contracts::monitor::PersistenceHealth::Recovering {
+    let recovering = nuo_wire::monitor::PersistenceHealth::Recovering {
         attempt: 1,
         since_ms: 0,
         error: "engine open failed: database is locked".into(),
@@ -1282,7 +1282,7 @@ fn persistence_health_banner_renders_state_and_detail() {
         "banner carries the cause: {recovering_row:?}"
     );
 
-    let down = nuo_contracts::monitor::PersistenceHealth::Down {
+    let down = nuo_wire::monitor::PersistenceHealth::Down {
         attempt: 7,
         since_ms: 0,
         error: "persistence writer stopped".into(),

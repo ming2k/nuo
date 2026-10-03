@@ -3,25 +3,6 @@
 version = 4
 
 [[package]]
-name = "acp"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "chrono",
- "futures",
- "hex",
- "hmac",
- "nuo-tool",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1753,7 +1734,6 @@ dependencies = [
 name = "nuo"
 version = "0.0.1"
 dependencies = [
- "acp",
  "async-trait",
  "base64 0.22.1",
  "bytes",
@@ -1765,14 +1745,15 @@ dependencies = [
  "libc",
  "mockito",
  "netune",
+ "nuo-acp",
  "nuo-client",
- "nuo-contracts",
  "nuo-harness",
  "nuo-host",
  "nuo-mcp",
  "nuo-persistence",
  "nuo-providers",
  "nuo-tool",
+ "nuo-wire",
  "semver",
  "serde",
  "serde_json",
@@ -1790,13 +1771,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "nuo-agent"
+name = "nuo-acp"
 version = "0.0.1"
 dependencies = [
- "acp",
  "async-trait",
  "chrono",
  "futures",
+ "hex",
+ "hmac",
+ "nuo-tool",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-agent"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "nuo-acp",
  "nuo-mcp",
  "nuo-model-codec",
  "nuo-tool",
@@ -1818,8 +1818,8 @@ dependencies = [
  "chrono",
  "futures",
  "libc",
- "nuo-contracts",
  "nuo-host",
+ "nuo-wire",
  "semver",
  "serde",
  "serde_json",
@@ -1830,28 +1830,6 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "nuo-contracts"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "dirs",
- "futures",
- "hex",
- "inventory",
- "nuo-tool",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "toml",
- "ts-rs",
- "url",
- "uuid",
 ]
 
 [[package]]
@@ -1872,12 +1850,13 @@ dependencies = [
  "inventory",
  "mockito",
  "netune",
- "nuo-contracts",
+ "nuo-agent",
  "nuo-host",
  "nuo-model-codec",
  "nuo-persistence",
  "nuo-providers",
  "nuo-tool",
+ "nuo-wire",
  "regex",
  "serde",
  "serde_json",
@@ -1919,7 +1898,9 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "toml",
  "tracing",
+ "ts-rs",
  "uuid",
  "walkdir",
  "windows-sys 0.61.2",
@@ -1951,14 +1932,20 @@ dependencies = [
  "chrono",
  "futures",
  "http",
+ "inventory",
  "netune",
  "netune-trace",
+ "nuo-host",
+ "nuo-tool",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "ts-rs",
+ "url",
  "uuid",
 ]
 
@@ -1975,9 +1962,11 @@ dependencies = [
  "hex",
  "inventory",
  "libc",
- "nuo-contracts",
+ "nuo-agent",
  "nuo-host",
+ "nuo-model-codec",
  "nuo-tool",
+ "nuo-wire",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2008,10 +1997,11 @@ dependencies = [
  "mockito",
  "netune",
  "netune-trace",
- "nuo-contracts",
  "nuo-host",
  "nuo-model-codec",
  "nuo-persistence",
+ "nuo-tool",
+ "nuo-wire",
  "rsa",
  "serde",
  "serde_json",
@@ -2033,7 +2023,9 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
+ "toml",
  "tracing",
+ "ts-rs",
  "uuid",
 ]
 
@@ -2045,6 +2037,33 @@ dependencies = [
  "quote",
  "serde_json",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "nuo-wire"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "dirs",
+ "futures",
+ "hex",
+ "inventory",
+ "nuo-agent",
+ "nuo-host",
+ "nuo-mcp",
+ "nuo-model-codec",
+ "nuo-tool",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio-util",
+ "toml",
+ "ts-rs",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -2069,9 +2088,9 @@ dependencies = [
  "dirs",
  "insta",
  "nuo-client",
- "nuo-contracts",
  "nuo-host",
  "nuo-providers",
+ "nuo-wire",
  "nuotc",
  "serde",
  "serde_json",

@@ -1,6 +1,6 @@
 //! Interactive Session Tree (DAG) visualization and navigation overlay.
 
-use nuo_contracts::{SessionEntry, SessionEntryKind, SessionTree};
+use nuo_wire::{SessionEntry, SessionEntryKind, SessionTree};
 use nuotc::{
     Frame, Rect, Style, {Line, Span},
 };
@@ -62,10 +62,10 @@ fn traverse_node(
     let (kind_badge, label, detail) = match &node.kind {
         SessionEntryKind::Message { message } => {
             let badge = match message.role {
-                nuo_contracts::Role::User => "USER",
-                nuo_contracts::Role::Assistant => "ASST",
-                nuo_contracts::Role::Tool => "TOOL",
-                nuo_contracts::Role::System => "SYS",
+                nuo_wire::Role::User => "USER",
+                nuo_wire::Role::Assistant => "ASST",
+                nuo_wire::Role::Tool => "TOOL",
+                nuo_wire::Role::System => "SYS",
             };
             let preview = message.content.lines().next().unwrap_or("").to_string();
             (badge, preview, format!("{} chars", message.content.len()))

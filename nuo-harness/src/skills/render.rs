@@ -107,12 +107,12 @@ pub fn format_skill_injection(skill: &Skill, content: &str) -> String {
 ///
 /// Matching is **token-boundary aware**: mentions are scanned out of the text
 /// as whole identifiers by the shared grammar kernel
-/// ([`nuo_contracts::mention::scan_references`]), then compared for equality.
+/// ([`nuo_wire::mention::scan_references`]), then compared for equality.
 /// So `@rust-expert` does not match a skill named `rust` (the identifier runs on
 /// past it), and neither does `@skill:rust-expert`. Escaped mentions
 /// (`\@skill:…`) are literal text and do not match.
 pub fn resolve_mentions<'a>(text: &str, skills: &'a [Skill]) -> Vec<&'a Skill> {
-    use nuo_contracts::mention::{Form, Namespace, scan_references};
+    use nuo_wire::mention::{Form, Namespace, scan_references};
 
     let references = scan_references(text);
     let mut names: std::collections::HashSet<&str> = std::collections::HashSet::new();

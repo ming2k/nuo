@@ -7,7 +7,7 @@
 //! it controls connection lifetime, user enable/disable/reconnect actions,
 //! and background refresh. The agent (`muta-agent`) has no MCP protocol
 //! dependency: discovered tools reach it through the
-//! [`DynamicToolSink`](nuo_contracts::DynamicToolSink) port defined in
+//! [`DynamicToolSink`](nuo_wire::DynamicToolSink) port defined in
 //! `muta-contracts`, and the agent is both that port's implementor
 //! (`DynamicToolRegistry`) and consumer — the trait object doesn't care
 //! which crate the MCP impl is compiled in.

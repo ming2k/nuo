@@ -19,7 +19,7 @@ pub use sync::{
     sync_remote_catalog_streaming,
 };
 
-use nuo_contracts::catalog::ProviderEntry;
+use nuo_wire::catalog::ProviderEntry;
 use nuo_persistence::config::{Config, Credentials, RemoteCatalogCache};
 use nuo_persistence::connection_usage::ConnectionUsage;
 use nuo_persistence::connections::Connections;
@@ -120,7 +120,7 @@ pub fn build_catalog() -> Vec<ProviderEntry> {
 pub fn build_provider_for(
     config: &Config,
     id: &str,
-) -> Option<std::sync::Arc<dyn nuo_contracts::Provider>> {
+) -> Option<std::sync::Arc<dyn nuo_wire::Provider>> {
     build_provider_for_model(config, id, config.default_model.as_deref(), None)
 }
 
@@ -129,7 +129,7 @@ pub fn build_provider_for_model(
     connection_id: &str,
     model_id: Option<&str>,
     session_id: Option<&str>,
-) -> Option<std::sync::Arc<dyn nuo_contracts::Provider>> {
+) -> Option<std::sync::Arc<dyn nuo_wire::Provider>> {
     let stores = Stores::load();
     let entry = derive_entries(&stores.connections, &stores.inputs())
         .into_iter()
@@ -141,9 +141,9 @@ pub fn build_provider_for_model(
     // built, so no client is the only refusal site: TUI, web, daemon protocol,
     // and session restore all inherit it. `effective_availability` applies the
     // user's sovereign override, so an injected model still resolves.
-    let usable = |channel: &&nuo_contracts::catalog::Channel| {
+    let usable = |channel: &&nuo_wire::catalog::Channel| {
         let (availability, overridden) = connection.map_or(
-            (nuo_contracts::Availability::usable(), false),
+            (nuo_wire::Availability::usable(), false),
             |connection| {
                 derive::effective_availability(
                     connection,

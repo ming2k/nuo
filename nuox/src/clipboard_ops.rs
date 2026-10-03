@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use nuo_contracts::ImagePart;
+use nuo_wire::ImagePart;
 
 use crate::App;
 use crate::clipboard::{self, ClipboardRead, CopyOutcome};

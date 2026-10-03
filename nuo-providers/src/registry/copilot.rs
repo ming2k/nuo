@@ -1,8 +1,8 @@
 //! The `copilot-oauth` provider preset: GitHub Copilot subscription models
 //! over OpenAI-compatible chat completions against `api.githubcopilot.com`.
 
-use nuo_contracts::reasoning::ReasoningSupport;
-use nuo_contracts::{Model, WireProtocol};
+use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_model_codec::{Model, WireProtocol};
 
 use super::{CatalogShape, ModelProviderSpec, RemoteCatalogSource};
 
@@ -13,11 +13,11 @@ use super::{CatalogShape, ModelProviderSpec, RemoteCatalogSource};
 /// that endpoint at runtime — this seed only needs one universally available
 /// id so a brand-new instance activates without a 400. `gpt-4o-mini` is
 /// unlocked on every Copilot plan (incl. Free/Student).
-pub use nuo_contracts::model_providers::COPILOT_SEED_MODELS;
+pub use nuo_model_codec::model_providers::COPILOT_SEED_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
-/// submitted to `nuo_contracts`'s registry at link time (see
-/// [`nuo_contracts::model::BaselineModels`]).
+/// submitted to `nuo_model_codec`'s registry at link time (see
+/// [`nuo_model_codec::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[Model {
     id: "gpt-4o-mini",
     family: "gpt",
@@ -30,10 +30,10 @@ pub const MODELS: &[Model] = &[Model {
     effort_levels: &[],
 }];
 
-inventory::submit!(nuo_contracts::model::BaselineModels(MODELS));
+inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
 pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_contracts::ProviderDialect::Copilot,
+    dialect: nuo_model_codec::ProviderDialect::Copilot,
     protocol_roots: std::borrow::Cow::Borrowed(&[(
         WireProtocol::AnthropicMessages,
         std::borrow::Cow::Borrowed("https://api.githubcopilot.com/v1"),
@@ -53,7 +53,7 @@ pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // advertised capability metadata, mirroring the kimi-code flow.
     protocol: WireProtocol::ChatCompletions,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_contracts::ClientPreset::Copilot,
+    default_client_profile: nuo_model_codec::ClientPreset::Copilot,
     client_profile_sensitive: true,
     // Minimal seed: the id a fresh Copilot instance activates before the
     // first live catalog sync completes. `gpt-4o-mini` is universally

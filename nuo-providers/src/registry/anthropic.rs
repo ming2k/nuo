@@ -3,8 +3,8 @@
 //! plus the per-model `max_tokens` table every Anthropic-format build
 //! consults.
 
-use nuo_contracts::reasoning::ReasoningSupport;
-use nuo_contracts::{Model, WireProtocol};
+use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_model_codec::{Model, WireProtocol};
 
 use super::{effort_ladders, CatalogShape, ModelProviderSpec, RemoteCatalogSource};
 
@@ -48,11 +48,11 @@ pub(crate) fn anthropic_model_max_tokens(model_id: &str) -> Option<u32> {
 /// so the same preset serves the official API or any Anthropic-compatible relay.
 /// Each id exists in the model registry, so its metadata (context window, output
 /// limit, capabilities) resolves there.
-pub use nuo_contracts::model_providers::ANTHROPIC_BUILTIN_MODELS;
+pub use nuo_model_codec::model_providers::ANTHROPIC_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
-/// submitted to `nuo_contracts`'s registry at link time (see
-/// [`nuo_contracts::model::BaselineModels`]).
+/// submitted to `nuo_model_codec`'s registry at link time (see
+/// [`nuo_model_codec::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // Claude (Anthropic, via Anthropic-compatible relays)
     // Served over the Anthropic Messages wire format. Relays forward to
@@ -133,20 +133,20 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_contracts::model::BaselineModels(MODELS));
+inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
-fn prompt_cache_for_model(_: &str) -> nuo_contracts::PromptCacheSpec {
-    nuo_contracts::PromptCacheSpec {
+fn prompt_cache_for_model(_: &str) -> nuo_model_codec::PromptCacheSpec {
+    nuo_model_codec::PromptCacheSpec {
         modes: &[
-            nuo_contracts::PromptCacheMode::Automatic,
-            nuo_contracts::PromptCacheMode::Explicit,
+            nuo_model_codec::PromptCacheMode::Automatic,
+            nuo_model_codec::PromptCacheMode::Explicit,
         ],
-        default_mode: Some(nuo_contracts::PromptCacheMode::Automatic),
+        default_mode: Some(nuo_model_codec::PromptCacheMode::Automatic),
         supported_retentions: &[
-            nuo_contracts::CacheRetention::FiveMinutes,
-            nuo_contracts::CacheRetention::OneHour,
+            nuo_model_codec::CacheRetention::FiveMinutes,
+            nuo_model_codec::CacheRetention::OneHour,
         ],
-        default_retention: Some(nuo_contracts::CacheRetention::FiveMinutes),
+        default_retention: Some(nuo_model_codec::CacheRetention::FiveMinutes),
         disable_supported: true,
         routing_key_supported: false,
         max_breakpoints: Some(4),
@@ -158,7 +158,7 @@ fn prompt_cache_for_model(_: &str) -> nuo_contracts::PromptCacheSpec {
 }
 
 pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_contracts::ProviderDialect::Standard,
+    dialect: nuo_model_codec::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: super::PromptCachePolicy::Compiled(prompt_cache_for_model),
@@ -169,7 +169,7 @@ pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol: WireProtocol::AnthropicMessages,
     models: ANTHROPIC_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::Anthropic),
-    default_client_profile: nuo_contracts::ClientPreset::Native,
+    default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
 };
 

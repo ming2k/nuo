@@ -51,10 +51,10 @@ pub fn verify_syntax(path: &Path, content: &str) -> SyntaxCheckResult {
 pub(crate) fn mutation_output(
     path: &Path,
     content: &str,
-    mut patch: nuo_contracts::ToolOutput,
-) -> nuo_contracts::ToolOutput {
+    mut patch: nuo_wire::ToolOutput,
+) -> nuo_wire::ToolOutput {
     if let SyntaxCheckResult::Invalid(diagnostic) = verify_syntax(path, content) {
-        let nuo_contracts::ToolOutput::Patch { warnings, .. } = &mut patch else {
+        let nuo_wire::ToolOutput::Patch { warnings, .. } = &mut patch else {
             unreachable!("mutation feedback requires a committed patch")
         };
         warnings.push(format!("non-blocking syntax diagnostic: {diagnostic}"));
@@ -69,7 +69,7 @@ mod tests {
     #[tokio::test]
     async fn mutation_diagnostics_allow_multistep_repair_and_preserve_hard_errors() {
         use crate::tools::{edit_text::EditTextTool, write_file::WriteFileTool};
-        use nuo_contracts::{Tool, ToolOutput};
+        use nuo_wire::{Tool, ToolOutput};
         let dir = tempfile::tempdir().unwrap();
         let writer = WriteFileTool::new(Some(dir.path().to_path_buf()));
         let editor = EditTextTool::new(Some(dir.path().to_path_buf()));

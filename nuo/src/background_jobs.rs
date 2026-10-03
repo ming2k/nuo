@@ -18,7 +18,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{broadcast, mpsc};
 
-use nuo_contracts::{BackgroundJobInfo, BackgroundJobOutcome, JobId, JobKind, JobSpec, JobState};
+use nuo_wire::{BackgroundJobInfo, BackgroundJobOutcome, JobId, JobKind, JobSpec, JobState};
 
 const DEFAULT_RING_BUFFER_CAPACITY: usize = 500;
 
@@ -527,16 +527,16 @@ impl BackgroundJobManager {
     /// `Interactive` delegates to [`Self::spawn_process`]. `Service` reports
     /// `Ready` when the readiness condition is met, never settles while
     /// running, wakes the session with `Failed` on unsolicited death, and
-    /// honors an optional [`nuo_contracts::RestartPolicy`].
+    /// honors an optional [`nuo_wire::RestartPolicy`].
     pub async fn spawn_process_ex(
         &self,
         command: String,
         opts: ProcessSpawnOptions<'_>,
-        kind: nuo_contracts::JobKind,
-        readiness: Option<nuo_contracts::Readiness>,
-        restart: Option<nuo_contracts::RestartPolicy>,
+        kind: nuo_wire::JobKind,
+        readiness: Option<nuo_wire::Readiness>,
+        restart: Option<nuo_wire::RestartPolicy>,
     ) -> Result<BackgroundJobInfo, String> {
-        use nuo_contracts::{JobKind, Readiness};
+        use nuo_wire::{JobKind, Readiness};
         if kind == JobKind::Interactive {
             return self.spawn_process(command, opts).await;
         }
@@ -890,7 +890,7 @@ impl BackgroundJobManager {
         &self,
         command: String,
         label: Option<String>,
-        adoption: nuo_contracts::AdoptionInfo,
+        adoption: nuo_wire::AdoptionInfo,
         owner_session: Option<String>,
     ) -> Result<BackgroundJobInfo, String> {
         let job_id = JobId::new("adopted");
@@ -1287,11 +1287,11 @@ fn describe_state(state: &JobState) -> String {
     }
 }
 
-/// Session-scoped wrapper binding [`BackgroundJobManager`] with the session's [`nuo_contracts::ExecutionEnvironment`].
+/// Session-scoped wrapper binding [`BackgroundJobManager`] with the session's [`nuo_wire::ExecutionEnvironment`].
 #[derive(Clone)]
 pub struct SessionJobService {
     manager: BackgroundJobManager,
-    env: Arc<dyn nuo_contracts::ExecutionEnvironment>,
+    env: Arc<dyn nuo_wire::ExecutionEnvironment>,
     /// Owning session (ADR-0190 D5): stamped onto every task this service
     /// spawns so snapshots and ledger rows answer "whose task is this".
     owner_session: std::sync::OnceLock<String>,
@@ -1300,7 +1300,7 @@ pub struct SessionJobService {
 impl SessionJobService {
     pub fn new(
         manager: BackgroundJobManager,
-        env: Arc<dyn nuo_contracts::ExecutionEnvironment>,
+        env: Arc<dyn nuo_wire::ExecutionEnvironment>,
     ) -> Self {
         Self {
             manager,
@@ -1325,7 +1325,7 @@ impl SessionJobService {
 }
 
 #[async_trait::async_trait]
-impl nuo_contracts::BackgroundJobService for SessionJobService {
+impl nuo_wire::BackgroundJobService for SessionJobService {
     async fn spawn_process(
         &self,
         command: String,
@@ -1358,9 +1358,9 @@ impl nuo_contracts::BackgroundJobService for SessionJobService {
         cwd: Option<PathBuf>,
         detached: bool,
         timeout: Option<Duration>,
-        kind: nuo_contracts::JobKind,
-        readiness: Option<nuo_contracts::Readiness>,
-        restart: Option<nuo_contracts::RestartPolicy>,
+        kind: nuo_wire::JobKind,
+        readiness: Option<nuo_wire::Readiness>,
+        restart: Option<nuo_wire::RestartPolicy>,
     ) -> Result<BackgroundJobInfo, String> {
         let roots = self.env.additional_roots();
         self.manager
@@ -1386,7 +1386,7 @@ impl nuo_contracts::BackgroundJobService for SessionJobService {
         &self,
         command: String,
         label: Option<String>,
-        adoption: nuo_contracts::AdoptionInfo,
+        adoption: nuo_wire::AdoptionInfo,
     ) -> Result<BackgroundJobInfo, String> {
         self.manager
             .adopt_process(command, label, adoption, self.owner())
@@ -1480,7 +1480,7 @@ mod tests {
                 label: Some("test-echo".to_string()),
                 cwd: None,
                 detached: false,
-                task_kind: nuo_contracts::JobKind::default(),
+                task_kind: nuo_wire::JobKind::default(),
                 readiness: None,
                 restart: None,
             }
@@ -1701,8 +1701,8 @@ mod tests {
                     timeout: None,
                     owner_session: None,
                 },
-                nuo_contracts::JobKind::Service,
-                Some(nuo_contracts::Readiness::FirstOutput),
+                nuo_wire::JobKind::Service,
+                Some(nuo_wire::Readiness::FirstOutput),
                 None,
             )
             .await
@@ -1755,7 +1755,7 @@ mod tests {
                     timeout: None,
                     owner_session: None,
                 },
-                nuo_contracts::JobKind::Service,
+                nuo_wire::JobKind::Service,
                 None,
                 None,
             )
@@ -1811,7 +1811,7 @@ mod tests {
         struct Owned {
             child: tokio::process::Child,
         }
-        impl nuo_contracts::CrateChildBridge for Owned {
+        impl nuo_wire::CrateChildBridge for Owned {
             fn try_wait(&mut self) -> Result<Option<i32>, String> {
                 self.child
                     .try_wait()
@@ -1828,7 +1828,7 @@ mod tests {
             .adopt_process(
                 "sleep 1".to_string(),
                 Some("adopt-test".to_string()),
-                nuo_contracts::AdoptionInfo {
+                nuo_wire::AdoptionInfo {
                     captured_lines: vec!["pre-adopt line".to_string()],
                     pid,
                     child: Box::new(Owned { child }),

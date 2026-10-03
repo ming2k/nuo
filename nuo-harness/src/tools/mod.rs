@@ -1,7 +1,7 @@
 //! Built-in tools (filesystem, shell, web, ask-user, todo).
 //!
 //! Most tools self-register from their own module via
-//! [`nuo_contracts::register_tool!`] (collected by `inventory` at link time).
+//! [`nuo_wire::register_tool!`] (collected by `inventory` at link time).
 //! The stateful todo tools are constructed by `nuo-harness` with their shared
 //! task-list context. Shared helpers live in `helpers`, and pluggable
 //! web-search backends in `search`.

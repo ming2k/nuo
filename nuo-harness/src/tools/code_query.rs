@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_contracts::{ExecutionEnvironment, Tool, ToolAccesses, ToolOutput};
+use nuo_wire::{ExecutionEnvironment, Tool, ToolAccesses, ToolOutput};
 use nuo_tool::ToolSchema;
 use serde::Deserialize;
 
@@ -779,7 +779,7 @@ fn display_path(path: &Path, workspace: &Path) -> String {
         .to_string()
 }
 
-nuo_contracts::register_tool!(CodeQueryFactory => |ctx| CodeQueryTool {
+nuo_wire::register_tool!(CodeQueryFactory => |ctx| CodeQueryTool {
     root: workspace_base(ctx),
     env: Some(execution_environment(ctx)),
 });

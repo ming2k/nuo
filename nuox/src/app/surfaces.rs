@@ -140,7 +140,7 @@ impl App {
             self.resume_queue(&sid);
         }
         if self.input_history_persist {
-            self.send_intent(nuo_contracts::AgentRequest::QueryInputHistory);
+            self.send_intent(nuo_wire::AgentRequest::QueryInputHistory);
         }
         self.reset_to_conversation();
         self.surface_store.close_all();
@@ -212,7 +212,7 @@ impl App {
             self.deactivate_dialog(current);
         }
         if id == DialogKind::HistorySearch && self.input_history_persist {
-            self.send_intent(nuo_contracts::AgentRequest::QueryInputHistory);
+            self.send_intent(nuo_wire::AgentRequest::QueryInputHistory);
         }
         let first = self.surface_store.open(id).is_none();
         self.surfaces.present_dialog(id);
@@ -408,7 +408,7 @@ impl App {
                 // view's next Esc starts a fresh confirmation.
                 self.exit_side_view();
                 self.arm_esc(None);
-                self.send_intent(nuo_contracts::AgentRequest::ExitSideView);
+                self.send_intent(nuo_wire::AgentRequest::ExitSideView);
                 true
             }
             SceneKind::TaskInspection => {
@@ -528,7 +528,7 @@ impl App {
                 self.session_info_scroll = 0;
             }
             DialogKind::SessionTree => {
-                self.session_tree = nuo_contracts::SessionTree::default();
+                self.session_tree = nuo_wire::SessionTree::default();
                 self.tree_scroll = 0;
                 self.tree_modal_follow = true;
             }
@@ -758,7 +758,7 @@ impl App {
     pub fn clear_responding(&mut self) {
         self.set_phase(None);
         self.round_started_at = None;
-        self.loop_status = nuo_contracts::LoopStatus::Idle;
+        self.loop_status = nuo_wire::LoopStatus::Idle;
         if self.in_side_view {
             if let Some(side_id) = self.side_session_id.as_deref()
                 && let Some(chrome) = self.session_chrome.get_mut(side_id)

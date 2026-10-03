@@ -181,12 +181,12 @@ fn composer_image_paste_follows_picker_snapshot_vision() {
     app.current_model = "omen-alpha".to_string();
     app.provider_picker
         .rows
-        .push(nuo_contracts::ProviderPickerRow {
+        .push(nuo_wire::ProviderPickerRow {
             id: "gogo".to_string(),
             name: "OpenCode Go".to_string(),
             model: "omen-alpha".to_string(),
             models: vec!["omen-alpha".to_string()],
-            model_info: vec![nuo_contracts::ProviderModelInfo {
+            model_info: vec![nuo_wire::ProviderModelInfo {
                 model: "omen-alpha".to_string(),
                 name: None,
                 protocol: "openai".to_string(),
@@ -212,7 +212,7 @@ fn composer_image_paste_follows_picker_snapshot_vision() {
             provider: "opencode-go".to_string(),
             client_identity: Default::default(),
             last_used_ms: None,
-            auth: nuo_contracts::ConnectionAuth::ApiKey,
+            auth: nuo_wire::ConnectionAuth::ApiKey,
         });
     app.input = String::new();
     app.cursor_position = 0;
@@ -245,12 +245,12 @@ fn active_model_context_window_follows_picker_snapshot_for_relay_models() {
     app.current_model = "glm-5.3".to_string();
     app.provider_picker
         .rows
-        .push(nuo_contracts::ProviderPickerRow {
+        .push(nuo_wire::ProviderPickerRow {
             id: "opencode-go".to_string(),
             name: "OpenCode Go".to_string(),
             model: "glm-5.3".to_string(),
             models: vec!["glm-5.3".to_string()],
-            model_info: vec![nuo_contracts::ProviderModelInfo {
+            model_info: vec![nuo_wire::ProviderModelInfo {
                 model: "glm-5.3".to_string(),
                 name: None,
                 protocol: "openai".to_string(),
@@ -276,7 +276,7 @@ fn active_model_context_window_follows_picker_snapshot_for_relay_models() {
             provider: "opencode-go".to_string(),
             client_identity: Default::default(),
             last_used_ms: None,
-            auth: nuo_contracts::ConnectionAuth::ApiKey,
+            auth: nuo_wire::ConnectionAuth::ApiKey,
         });
 
     assert_eq!(
@@ -297,12 +297,12 @@ fn composer_image_paste_snapshot_override_forces_off() {
     app.current_model = "gpt-4o".to_string();
     app.provider_picker
         .rows
-        .push(nuo_contracts::ProviderPickerRow {
+        .push(nuo_wire::ProviderPickerRow {
             id: "mock".to_string(),
             name: "Mock".to_string(),
             model: "gpt-4o".to_string(),
             models: vec!["gpt-4o".to_string()],
-            model_info: vec![nuo_contracts::ProviderModelInfo {
+            model_info: vec![nuo_wire::ProviderModelInfo {
                 model: "gpt-4o".to_string(),
                 name: None,
                 protocol: "openai".to_string(),
@@ -328,7 +328,7 @@ fn composer_image_paste_snapshot_override_forces_off() {
             provider: String::new(),
             client_identity: Default::default(),
             last_used_ms: None,
-            auth: nuo_contracts::ConnectionAuth::ApiKey,
+            auth: nuo_wire::ConnectionAuth::ApiKey,
         });
     app.input = String::new();
     app.cursor_position = 0;

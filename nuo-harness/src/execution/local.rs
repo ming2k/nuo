@@ -3,11 +3,11 @@
 //! Executes filesystem operations and subprocess commands directly on the host OS.
 
 use async_trait::async_trait;
-use nuo_contracts::execution::{
+use nuo_wire::execution::{
     DirEntry, ExecutionEnvironment, FsError, FsMetadata, FsProvider, ProcessOutput, ProcessRunner,
     ShellIsolation,
 };
-use nuo_contracts::{SharedAdditionalRoots, SharedConfinement};
+use nuo_wire::{SharedAdditionalRoots, SharedConfinement};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -277,7 +277,7 @@ impl WorkspaceFsProvider {
     }
 
     fn confined(&self, path: &Path) -> Result<PathBuf, FsError> {
-        let expanded = nuo_contracts::execution::expand_tilde(path);
+        let expanded = nuo_wire::execution::expand_tilde(path);
         let candidate = if expanded.is_absolute() {
             expanded
         } else {
@@ -291,8 +291,8 @@ impl WorkspaceFsProvider {
         })?;
         let admitted = !self.confinement.is_confined()
             || resolved.starts_with(&self.root)
-            || nuo_contracts::execution::admits_temp_path(&resolved)
-            || nuo_contracts::execution::admits_skills_path(&resolved)
+            || nuo_wire::execution::admits_temp_path(&resolved)
+            || nuo_wire::execution::admits_skills_path(&resolved)
             || self
                 .additional_roots
                 .snapshot()
@@ -732,7 +732,7 @@ pub(crate) mod workspace_tests {
     #[tokio::test]
     async fn every_builtin_file_discovery_path_rejects_workspace_escape() {
         use crate::tools::{FindFilesTool, ListDirTool, ReadImageTool, SearchTextTool};
-        use nuo_contracts::Tool;
+        use nuo_wire::Tool;
 
         // The workspace root itself must not live under the implicit temp
         // roots: with temp admission, `../outside` from a tempdir workspace

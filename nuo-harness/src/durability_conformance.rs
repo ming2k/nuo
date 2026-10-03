@@ -36,7 +36,7 @@
 //! failed" without a fact id is not actionable.
 
 use futures::future::BoxFuture;
-use nuo_contracts::{
+use nuo_wire::{
     CausalNode, ExecutionStatus, Message, NodeKind, NodePayload, Role, SessionDelta, StateUpdate,
     SystemNoticePayload,
 };

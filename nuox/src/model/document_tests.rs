@@ -363,7 +363,7 @@ fn tool_step_collapses_and_restores_full_semantic_detail() {
     assert!(message.finish_tool_step(
         "call_1",
         "contents",
-        nuo_contracts::ToolOutput::text("contents"),
+        nuo_wire::ToolOutput::text("contents"),
         1234
     ));
     // Collapsed completed: summary + duration suffix.
@@ -407,7 +407,7 @@ fn subagent_started_event_labels_step_by_role() {
     assert_eq!(task.subagent_description(), "write the plan");
     assert_eq!(task.subagent_role(), None);
     assert!(
-        task.push_subagent_event(&nuo_contracts::SubagentEvent::Started {
+        task.push_subagent_event(&nuo_wire::SubagentEvent::Started {
             profile: "explore".to_string()
         })
     );
@@ -463,7 +463,7 @@ fn subagent_status_reflects_children_and_completion() {
     assert!(task.finish_tool_step(
         "call_9",
         "final answer",
-        nuo_contracts::ToolOutput::text("final answer"),
+        nuo_wire::ToolOutput::text("final answer"),
         1500
     ));
     assert!(
@@ -493,10 +493,10 @@ fn subagent_failed_status_reports_failure() {
     });
     // The subagent failure is now signalled by the structured `failed`
     // flag on `ToolOutput::Subagent`, not by an "Error:" text prefix.
-    let structured = nuo_contracts::ToolOutput::Subagent {
+    let structured = nuo_wire::ToolOutput::Subagent {
         summary: "Error: boom".into(),
         messages: Vec::new(),
-        usage: nuo_contracts::TokenUsage::default(),
+        usage: nuo_wire::TokenUsage::default(),
         generation_ms: 0,
         failed: true,
         interrupted: false,
@@ -528,7 +528,7 @@ fn subagent_peek_reports_awaiting_approval_while_parked() {
     // …but a parked permission request takes over the row: the subagent is
     // blocked on a human, not making progress.
     task.push_subagent_event(&SubagentEvent::PermissionRequest(
-        nuo_contracts::PermissionRequest {
+        nuo_wire::PermissionRequest {
             id: "p1".into(),
             tool: "execute_command".into(),
             label: "Run rm".into(),
@@ -578,10 +578,10 @@ fn interrupted_subagent_status_reports_interrupted_not_failed() {
     // the partial work was preserved, so it must classify as Interrupted
     // — never as Failed (it did not error) and never as Ok (it did not
     // finish).
-    let structured = nuo_contracts::ToolOutput::Subagent {
+    let structured = nuo_wire::ToolOutput::Subagent {
         summary: "Interrupted: stopped by the user".into(),
         messages: Vec::new(),
-        usage: nuo_contracts::TokenUsage::default(),
+        usage: nuo_wire::TokenUsage::default(),
         generation_ms: 0,
         failed: false,
         interrupted: true,
@@ -610,14 +610,14 @@ fn bash_failure_is_classified_failed_from_structured_exit_code() {
     // structured `ToolOutput::Shell { exit: Some(1) }`, `is_error()` now
     // drives the classification and the step correctly reads `Failed`.
     let mut step = TranscriptMessage::tool_step("c", "execute_command", r#"{"command":"false"}"#);
-    let structured = nuo_contracts::ToolOutput::Shell {
+    let structured = nuo_wire::ToolOutput::Shell {
         command: "false".into(),
         stdout: String::new(),
         stderr: "boom".into(),
         lines: Vec::new(),
         exit: Some(1),
         truncated: false,
-        termination: nuo_contracts::tool_output::ShellTermination::Exited,
+        termination: nuo_wire::tool_output::ShellTermination::Exited,
         detached_job_id: None,
     };
     let text = structured.to_text();
@@ -632,14 +632,14 @@ fn bash_failure_is_classified_failed_from_structured_exit_code() {
 #[test]
 fn bash_success_is_classified_ok() {
     let mut step = TranscriptMessage::tool_step("c", "execute_command", r#"{"command":"true"}"#);
-    let structured = nuo_contracts::ToolOutput::Shell {
+    let structured = nuo_wire::ToolOutput::Shell {
         command: "true".into(),
         stdout: "ok\n".into(),
         stderr: String::new(),
         lines: Vec::new(),
         exit: Some(0),
         truncated: false,
-        termination: nuo_contracts::tool_output::ShellTermination::Exited,
+        termination: nuo_wire::tool_output::ShellTermination::Exited,
         detached_job_id: None,
     };
     let text = structured.to_text();
@@ -653,7 +653,7 @@ fn push_tool_stream_builds_interleaved_lines_for_live_view() {
     // tag each) so the live view renders arrival-ordered, stderr-tinted,
     // interleaved output — not the all-stdout-then-all-stderr degraded
     // band the empty-`lines` fallback forced.
-    use nuo_contracts::{ToolStream, tool_output::ShellStream};
+    use nuo_wire::{ToolStream, tool_output::ShellStream};
     let mut step = TranscriptMessage::tool_step("c", "execute_command", r#"{"command":"x"}"#);
     assert!(step.push_tool_stream("c", &ToolStream::Stdout("Compiling a\n".into())));
     assert!(step.push_tool_stream("c", &ToolStream::Stderr("warning: b\n".into())));
@@ -664,7 +664,7 @@ fn push_tool_stream_builds_interleaved_lines_for_live_view() {
             structured: Some(b),
             ..
         } => match b.as_ref() {
-            nuo_contracts::ToolOutput::Shell { lines, .. } => lines,
+            nuo_wire::ToolOutput::Shell { lines, .. } => lines,
             _ => panic!("expected Shell"),
         },
         _ => panic!("expected ToolStep"),
@@ -687,7 +687,7 @@ fn push_tool_stream_builds_interleaved_lines_for_live_view() {
             structured: Some(b),
             ..
         } => match b.as_ref() {
-            nuo_contracts::ToolOutput::Shell { stdout, stderr, .. } => {
+            nuo_wire::ToolOutput::Shell { stdout, stderr, .. } => {
                 assert!(stdout.contains("Compiling a"));
                 assert!(stdout.contains("Compiling c"));
                 assert!(stderr.contains("warning: b"));
@@ -716,7 +716,7 @@ fn cancel_tool_step_transitions_to_a_terminal_state() {
     assert!(!step.finish_tool_step(
         "call_1",
         "late result",
-        nuo_contracts::ToolOutput::text("late result"),
+        nuo_wire::ToolOutput::text("late result"),
         10
     ));
     assert!(!step.cancel_tool_step("call_1"));
@@ -778,7 +778,7 @@ fn cancel_all_running_is_a_defensive_sweep_that_skips_terminal_steps() {
     assert!(b.finish_tool_step(
         "b",
         "contents",
-        nuo_contracts::ToolOutput::text("contents"),
+        nuo_wire::ToolOutput::text("contents"),
         5
     ));
     assert_eq!(b.tool_step_status(), Some(ToolStepStatus::Ok));
@@ -823,11 +823,11 @@ fn notice_from_core_preserves_the_topic_and_detail_split() {
     // title/body detail) must survive the boundary into the transcript
     // model instead of being flattened to `raw` and re-parsed at render
     // time. `raw` still carries the flattened form for copy fidelity.
-    let core = nuo_contracts::AgentNotice::new(
-        nuo_contracts::NoticeKind::ProviderRetry,
-        nuo_contracts::NoticeSeverity::Error,
+    let core = nuo_wire::AgentNotice::new(
+        nuo_wire::NoticeKind::ProviderRetry,
+        nuo_wire::NoticeSeverity::Error,
         "Retrying provider request (2/3)",
-        nuo_contracts::NoticeSource::Harness,
+        nuo_wire::NoticeSource::Harness,
     )
     .with_body("Google HTTP 429 Too Many Requests: {\"error\":{\"code\":429}}");
 
@@ -854,12 +854,12 @@ fn notice_topic_labels_cover_the_contract_vocabulary() {
     // Every wire `NoticeKind` maps to a predictable user-facing topic label;
     // the match must not grow stale as the contract evolves.
     for (kind, label) in [
-        (nuo_contracts::NoticeKind::ProviderRetry, "provider"),
-        (nuo_contracts::NoticeKind::NudgeInjected, "turn guard"),
-        (nuo_contracts::NoticeKind::ReviewAlert, "review"),
-        (nuo_contracts::NoticeKind::TrustChanged, "trust"),
-        (nuo_contracts::NoticeKind::CommandAck, "command"),
-        (nuo_contracts::NoticeKind::ImageInputWithheld, "images"),
+        (nuo_wire::NoticeKind::ProviderRetry, "provider"),
+        (nuo_wire::NoticeKind::NudgeInjected, "turn guard"),
+        (nuo_wire::NoticeKind::ReviewAlert, "review"),
+        (nuo_wire::NoticeKind::TrustChanged, "trust"),
+        (nuo_wire::NoticeKind::CommandAck, "command"),
+        (nuo_wire::NoticeKind::ImageInputWithheld, "images"),
     ] {
         assert_eq!(notice_topic_label(kind), label);
     }
@@ -930,7 +930,7 @@ fn provider_retry_settles_on_interruption() {
 
 #[test]
 fn round_interrupt_creates_structured_notice() {
-    use nuo_contracts::{RoundInterrupt, RoundInterruptReason};
+    use nuo_wire::{RoundInterrupt, RoundInterruptReason};
     let marker = TranscriptMessage::round_interrupted(RoundInterrupt {
         reason: RoundInterruptReason::User,
         round: Some(3),

@@ -6,8 +6,8 @@
 //! scheme degrades gracefully when fields are absent (trial accounts report
 //! fewer fields than paid plans).
 
-use nuo_contracts::async_trait;
-use nuo_contracts::{BalanceQuota, ProviderQuotaData, ProviderUsage, UsageMetric};
+use nuo_wire::async_trait;
+use nuo_wire::{BalanceQuota, ProviderQuotaData, ProviderUsage, UsageMetric};
 use serde::Deserialize;
 
 use super::ProviderUsageFetcher;

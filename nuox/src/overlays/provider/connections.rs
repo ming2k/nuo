@@ -38,7 +38,7 @@ pub struct ConnectionsModalProps<'a> {
     /// arbiter decides that, and this flag is its verdict threaded down.
     pub show_caret: bool,
     pub connection_info_detail: bool,
-    pub connection_detail: Option<&'a nuo_contracts::ConnectionDetail>,
+    pub connection_detail: Option<&'a nuo_wire::ConnectionDetail>,
     pub connection_info_scroll: &'a mut usize,
     pub spinner_phase: usize,
     pub connection_info_standalone: bool,
@@ -419,7 +419,7 @@ pub(crate) fn render_progress_bar_spans(
 
 /// Render the detail body rows for one connection (configuration + caller identity + models + provider usage).
 pub(crate) fn connection_detail_body(
-    detail: &nuo_contracts::ConnectionDetail,
+    detail: &nuo_wire::ConnectionDetail,
     models_expanded: bool,
     spinner_phase: usize,
     theme: &Theme,
@@ -441,7 +441,7 @@ pub(crate) fn connection_detail_body(
     let provider_display = if !detail.provider_label.is_empty() {
         detail.provider_label.as_str()
     } else {
-        nuo_contracts::model_providers::model_provider_label(&detail.provider)
+        nuo_wire::model_providers::model_provider_label(&detail.provider)
     };
 
     let mut rows: Vec<SelectableRow> = vec![
@@ -570,7 +570,7 @@ pub(crate) fn connection_detail_body(
     rows.push(SelectableRow::empty());
     let mut quota_header_segments =
         vec![RowSegment::styled("Provider Usage & Quota", header_style)];
-    if let nuo_contracts::ConnectionUsageState::Available(usage) = &detail.usage
+    if let nuo_wire::ConnectionUsageState::Available(usage) = &detail.usage
         && let Some(plan) = &usage.plan
         && plan.len() <= 40
         && !plan.contains('\n')
@@ -586,13 +586,13 @@ pub(crate) fn connection_detail_body(
     rows.push(SelectableRow::from_segments(quota_header_segments));
 
     match &detail.usage {
-        nuo_contracts::ConnectionUsageState::Available(usage) => {
+        nuo_wire::ConnectionUsageState::Available(usage) => {
             let mut rendered_quota = false;
 
             if let Some(quota_data) = &usage.quota {
                 let mut quota_lines = Vec::new();
                 match quota_data {
-                    nuo_contracts::ProviderQuotaData::Periodic(periodic) => {
+                    nuo_wire::ProviderQuotaData::Periodic(periodic) => {
                         rendered_quota = true;
                         render_periodic_quota_buckets(
                             &periodic.buckets,
@@ -604,7 +604,7 @@ pub(crate) fn connection_detail_body(
                             theme,
                         );
                     }
-                    nuo_contracts::ProviderQuotaData::Balance(balance) => {
+                    nuo_wire::ProviderQuotaData::Balance(balance) => {
                         rendered_quota = true;
                         render_balance_quota_block(
                             balance,
@@ -615,7 +615,7 @@ pub(crate) fn connection_detail_body(
                             theme,
                         );
                     }
-                    nuo_contracts::ProviderQuotaData::Composite {
+                    nuo_wire::ProviderQuotaData::Composite {
                         balance,
                         periodic,
                         rate_limits,
@@ -689,7 +689,7 @@ pub(crate) fn connection_detail_body(
                 );
             }
         }
-        nuo_contracts::ConnectionUsageState::Unsupported => {
+        nuo_wire::ConnectionUsageState::Unsupported => {
             rows.push(
                 SelectableRow::styled(
                     "Usage and quota query is not supported for this provider endpoint.",
@@ -698,7 +698,7 @@ pub(crate) fn connection_detail_body(
                 .with_prefix(RowSegment::styled("  ", muted)),
             );
         }
-        nuo_contracts::ConnectionUsageState::Error(err) => {
+        nuo_wire::ConnectionUsageState::Error(err) => {
             rows.push(
                 SelectableRow::from_segments(vec![
                     RowSegment::styled("⚠ Usage query failed: ", warning),
@@ -707,7 +707,7 @@ pub(crate) fn connection_detail_body(
                 .with_prefix(RowSegment::styled("  ", muted)),
             );
         }
-        nuo_contracts::ConnectionUsageState::Fetching => {
+        nuo_wire::ConnectionUsageState::Fetching => {
             let spin = theme.glyphs.spinner_frame(spinner_phase);
             rows.push(
                 SelectableRow::from_segments(vec![
@@ -723,7 +723,7 @@ pub(crate) fn connection_detail_body(
 }
 
 pub(crate) fn render_balance_quota_block(
-    balance: &nuo_contracts::BalanceQuota,
+    balance: &nuo_wire::BalanceQuota,
     lines: &mut Vec<Line<'static>>,
     label: Style,
     value: Style,
@@ -806,7 +806,7 @@ pub(crate) fn render_balance_quota_block(
 }
 
 pub(crate) fn render_periodic_quota_buckets(
-    buckets: &[nuo_contracts::QuotaWindowBucket],
+    buckets: &[nuo_wire::QuotaWindowBucket],
     lines: &mut Vec<Line<'static>>,
     value: Style,
     _label: Style,

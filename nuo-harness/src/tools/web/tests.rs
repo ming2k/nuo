@@ -1,6 +1,6 @@
 use super::*;
 use crate::tools::web::html::extract_html_title;
-use nuo_contracts::Tool;
+use nuo_wire::Tool;
 use sha2::{Digest, Sha256};
 
 #[test]
@@ -50,7 +50,7 @@ mod guarded_get_tests {
     }
 
     fn test_client() -> crate::tools::web::http::WebHttp {
-        crate::tools::web::http::WebHttp::new(&nuo_contracts::WebConfig::default())
+        crate::tools::web::http::WebHttp::new(&nuo_wire::WebConfig::default())
             .expect("test client")
     }
 
@@ -89,7 +89,7 @@ mod guarded_get_tests {
 
 mod shared_config_tests {
     use super::*;
-    use nuo_contracts::{
+    use nuo_wire::{
         SecretString, SharedWebConfig, WebConfig, WebReaderProvider, WebRuntimeConfig,
         WebSearchProvider,
     };

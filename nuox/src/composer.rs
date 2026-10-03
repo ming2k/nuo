@@ -365,7 +365,6 @@ pub fn draw_composer(
             hints,
         },
         None,
-        None,
     )
 }
 
@@ -399,20 +398,6 @@ impl Default for ComposerDrawOptions {
     }
 }
 
-/// The effort-ignition variant of [`draw_composer`]: `prompt_accent` carries
-/// the ignition's elapsed milliseconds while the wave is live, driving a
-/// color-only tint on the `›` prompt (the glyph never changes). Once the
-/// animation ends the caller passes no accent and the ordinary composer
-/// renders. See [`super::effort_ignition`].
-pub fn draw_composer_igniting(
-    props: ComposerProps<'_, '_>,
-    text: ComposerText<'_>,
-    options: ComposerDrawOptions,
-    prompt_accent: (bool, Option<u128>),
-) {
-    draw_composer_impl(props, text, options, None, Some(prompt_accent));
-}
-
 /// Like [`draw_composer`], but paints the `highlight_len`-byte run at the
 /// start of the input in bold + the theme's accent color. Used by the shell
 /// to mark a resolved `/command` token so it reads differently from plain
@@ -425,7 +410,7 @@ pub fn draw_composer_highlighted(
     options: ComposerDrawOptions,
     highlight_len: usize,
 ) {
-    draw_composer_impl(props, text, options, Some(highlight_len), None);
+    draw_composer_impl(props, text, options, Some(highlight_len));
 }
 
 /// Paint the ordinary (non-highlighted, non-igniting) composer while honoring
@@ -437,7 +422,7 @@ pub fn draw_composer_with_options(
     text: ComposerText<'_>,
     options: ComposerDrawOptions,
 ) {
-    draw_composer_impl(props, text, options, None, None);
+    draw_composer_impl(props, text, options, None);
 }
 
 fn draw_composer_impl(
@@ -445,7 +430,6 @@ fn draw_composer_impl(
     text: ComposerText<'_>,
     options: ComposerDrawOptions,
     highlight_len: Option<usize>,
-    prompt_accent: Option<(bool, Option<u128>)>,
 ) {
     let ComposerDrawOptions {
         focused,
@@ -491,16 +475,6 @@ fn draw_composer_impl(
         theme.brand()
     } else {
         theme.muted()
-    };
-    // Effort-ignition tint (codex port): while the ignition wave is live the
-    // `›` prompt charges toward the fire accent — a color-only accent. The
-    // glyph itself stays `›`; once the wave ends the prompt returns to its
-    // ordinary palette. See `effort_ignition`.
-    let prompt_fg = match prompt_accent {
-        Some((_, ms)) if focused => {
-            super::effort_ignition::ignition_prompt_color(ms, theme).unwrap_or(prompt_fg)
-        }
-        _ => prompt_fg,
     };
     let full_w = input_rect.width as usize;
     // Inner text budget: the full width minus the `› ` prompt prefix and the

@@ -3,7 +3,7 @@
 //! The assembler is intentionally independent of [`crate::Agent`]. The agent
 //! owns when assembly occurs and supplies a plain state snapshot; this module
 //! owns the pure projection from a live conversation window to one immutable
-//! [`nuo_contracts::ModelRequest`].
+//! [`nuo_wire::ModelRequest`].
 
 pub mod policies;
 pub(crate) mod system_prompt;
@@ -43,7 +43,7 @@ impl ModelRequestAssembler {
         window: &[Message],
         context: &SystemPromptContext,
         tools: &[Arc<dyn Tool>],
-    ) -> nuo_contracts::ModelRequest {
+    ) -> nuo_wire::ModelRequest {
         let mut messages = window.to_vec();
         crate::agent::remove_empty_assistant_messages(&mut messages);
         messages.retain(|message| message.role != Role::System && !message.is_command_echo());
@@ -63,34 +63,38 @@ impl ModelRequestAssembler {
         temporary_context: Vec<Message>,
         context: &SystemPromptContext,
         tools: &[Arc<dyn Tool>],
-    ) -> nuo_contracts::ModelRequest {
+    ) -> nuo_wire::ModelRequest {
         let instructions = self.system_prompt_registry.build_bundle(context);
-        nuo_contracts::ModelRequest::with_instructions_and_tools(instructions, messages, tools)
+        let tool_specs = tools
+            .iter()
+            .map(|t| nuo_model_codec::ToolSpec::new(t.name(), t.description(), t.parameters()))
+            .collect();
+        nuo_wire::ModelRequest::with_instructions_and_tool_specs(instructions, messages, tool_specs)
             .with_temporary_context(temporary_context)
     }
 
-    /// Compile a [`nuo_contracts::ModelRequest`] directly from a canonical [`nuo_contracts::SessionIR`]
+    /// Compile a [`nuo_wire::ModelRequest`] directly from a canonical [`nuo_wire::SessionIR`]
     /// via the 4-pass compiler pipeline (ADR-0241/ADR-0249, INV-EXEC-02).
     pub fn compile_from_ir(
         &self,
-        ir: &nuo_contracts::SessionIR,
+        ir: &nuo_wire::SessionIR,
         temporary_context: Vec<Message>,
         tools: &[Arc<dyn Tool>],
         dialect: Option<String>,
-        protocol: Option<nuo_contracts::WireProtocol>,
-    ) -> Result<nuo_contracts::CompilationArtifact, nuo_contracts::CompilerError> {
+        protocol: Option<nuo_wire::WireProtocol>,
+    ) -> Result<nuo_wire::CompilationArtifact, nuo_wire::CompilerError> {
         let tool_specs = tools
             .iter()
-            .map(|t| nuo_contracts::ToolSpec::from_tool(t.as_ref()))
+            .map(|t| nuo_model_codec::ToolSpec::new(t.name(), t.description(), t.parameters()))
             .collect();
-        let options = nuo_contracts::CompilerOptions {
+        let options = nuo_wire::CompilerOptions {
             tool_specs,
             temporary_context,
             ephemeral_instruction: None,
             target_dialect: dialect,
             target_protocol: protocol,
         };
-        nuo_contracts::compile_session_request(ir, options)
+        nuo_wire::compile_session_request(ir, options)
     }
 }
 
@@ -149,8 +153,8 @@ mod tests {
     fn compile_from_ir_executes_compiler_passes() {
         let tool: Arc<dyn Tool> = Arc::new(TestTool);
         let assembler = ModelRequestAssembler::new(SystemPromptRegistry::new());
-        let policy = nuo_contracts::SessionPolicy::default();
-        let mut ir = nuo_contracts::SessionIR::new("test-session", policy, 1000);
+        let policy = nuo_wire::SessionPolicy::default();
+        let mut ir = nuo_wire::SessionIR::new("test-session", policy, 1000);
         ir.append_message("node-1", 1001, Message::new(Role::User, "compile this"));
 
         let artifact = assembler
@@ -159,7 +163,7 @@ mod tests {
                 vec![],
                 &[tool],
                 Some("anthropic".into()),
-                Some(nuo_contracts::WireProtocol::AnthropicMessages),
+                Some(nuo_wire::WireProtocol::AnthropicMessages),
             )
             .expect("SessionIR compilation must succeed");
 

@@ -6,7 +6,7 @@
 //! every connection that points at that provider — model semantics belong to
 //! the provider, not to a credential binding.
 
-use nuo_contracts::model::ModelScopeConfig;
+use nuo_wire::model::ModelScopeConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -28,26 +28,26 @@ pub struct UserDeclaredProvider {
     pub root_url: String,
     /// Default wire transport protocol (e.g. `chat-completions`, `responses`, `anthropic-messages`, `google-gemini`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_protocol: Option<nuo_contracts::WireProtocol>,
+    pub default_protocol: Option<nuo_wire::WireProtocol>,
     /// Default client profile preset for User-Agent / client headers emulation (ADR-0164, ADR-0258).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_profile: Option<nuo_contracts::ClientPreset>,
+    pub client_profile: Option<nuo_wire::ClientPreset>,
     /// Optional User-Agent override.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
     /// Catalog discovery format: `openai`, `anthropic`, `google`, `none`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub catalog: Option<nuo_contracts::RemoteCatalogSource>,
+    pub catalog: Option<nuo_wire::RemoteCatalogSource>,
     /// Typed service dialect, inherited independently of model protocol.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dialect: Option<nuo_contracts::ProviderDialect>,
+    pub dialect: Option<nuo_wire::ProviderDialect>,
     /// Optional explicit transport endpoints, keyed by model wire protocol.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub protocol_roots: Vec<(nuo_contracts::WireProtocol, String)>,
+    pub protocol_roots: Vec<(nuo_wire::WireProtocol, String)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalog_root_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt_cache: Option<nuo_contracts::provider_surface::ProviderPromptCache>,
+    pub prompt_cache: Option<nuo_wire::provider_surface::ProviderPromptCache>,
     #[serde(default)]
     pub client_profile_sensitive: bool,
 }
@@ -116,9 +116,9 @@ impl ModelProviders {
                     if let Some(format) = table.remove("catalog_format") {
                         let format = format.as_str().ok_or("catalog_format must be a string")?;
                         let catalog = if matches!(format, "none" | "static") {
-                            nuo_contracts::RemoteCatalogSource::None
+                            nuo_wire::RemoteCatalogSource::None
                         } else {
-                            nuo_contracts::RemoteCatalogSource::Endpoint(
+                            nuo_wire::RemoteCatalogSource::Endpoint(
                                 serde_json::from_value(serde_json::Value::String(format.into()))
                                     .map_err(|e| e.to_string())?,
                             )
@@ -155,27 +155,27 @@ impl ModelProviders {
             if id.is_empty() || id.trim() != id {
                 return Err("provider id must be nonempty and trimmed".into());
             }
-            if nuo_contracts::model_providers::is_known_model_provider(id) {
+            if nuo_wire::model_providers::is_known_model_provider(id) {
                 return Err(format!("provider `{id}` collides with a built-in provider"));
             }
-            nuo_contracts::ApiRoot::parse(&provider.root_url)?;
+            nuo_wire::ApiRoot::parse(&provider.root_url)?;
             if let Some(cache) = &provider.prompt_cache {
                 cache.validate()?;
             }
             if let Some(root) = &provider.catalog_root_url {
-                nuo_contracts::ApiRoot::parse(root)?;
+                nuo_wire::ApiRoot::parse(root)?;
             }
             let mut wires = std::collections::HashSet::new();
             for (wire, root) in &provider.protocol_roots {
                 if !wires.insert(*wire) {
                     return Err(format!("duplicate protocol root for {wire}"));
                 }
-                nuo_contracts::ApiRoot::parse(root)?;
+                nuo_wire::ApiRoot::parse(root)?;
             }
             if !provider.dialect.unwrap_or_default().supports(
                 provider
                     .default_protocol
-                    .unwrap_or(nuo_contracts::WireProtocol::ChatCompletions),
+                    .unwrap_or(nuo_wire::WireProtocol::ChatCompletions),
             ) {
                 return Err(format!(
                     "provider `{id}` has an incompatible default protocol"
@@ -241,7 +241,7 @@ pub(crate) fn migrate_endpoint_root(endpoint: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::model::DeclaredModel;
+    use nuo_wire::model::DeclaredModel;
 
     #[test]
     fn user_declared_provider_dialects_are_validated_and_preserve_endpoint_overrides() {
@@ -306,13 +306,13 @@ mod tests {
             UserDeclaredProvider {
                 label: Some("Corporate Relay".to_string()),
                 root_url: "https://relay.corp.example/v1".to_string(),
-                default_protocol: Some(nuo_contracts::WireProtocol::ChatCompletions),
-                client_profile: Some(nuo_contracts::ClientPreset::Cursor),
+                default_protocol: Some(nuo_wire::WireProtocol::ChatCompletions),
+                client_profile: Some(nuo_wire::ClientPreset::Cursor),
                 user_agent: None,
-                catalog: Some(nuo_contracts::RemoteCatalogSource::Endpoint(
-                    nuo_contracts::CatalogShape::OpenAi,
+                catalog: Some(nuo_wire::RemoteCatalogSource::Endpoint(
+                    nuo_wire::CatalogShape::OpenAi,
                 )),
-                dialect: Some(nuo_contracts::ProviderDialect::DeepSeek),
+                dialect: Some(nuo_wire::ProviderDialect::DeepSeek),
                 protocol_roots: vec![],
                 catalog_root_url: None,
                 prompt_cache: None,
@@ -331,15 +331,15 @@ mod tests {
         assert_eq!(prov.root_url, "https://relay.corp.example/v1");
         assert_eq!(
             prov.default_protocol,
-            Some(nuo_contracts::WireProtocol::ChatCompletions)
+            Some(nuo_wire::WireProtocol::ChatCompletions)
         );
         assert_eq!(
             prov.client_profile,
-            Some(nuo_contracts::ClientPreset::Cursor)
+            Some(nuo_wire::ClientPreset::Cursor)
         );
         assert_eq!(
             prov.dialect,
-            Some(nuo_contracts::ProviderDialect::DeepSeek)
+            Some(nuo_wire::ProviderDialect::DeepSeek)
         );
     }
 }

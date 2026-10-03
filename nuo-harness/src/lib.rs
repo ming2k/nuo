@@ -1,4 +1,4 @@
-//! The orchestration layer between the pure domain (`nuo-contracts`) and the
+//! The orchestration layer between the pure domain (`nuo-wire`) and the
 //! application services (`nuo-persistence`) on one side, and the frontends on the
 //! other.
 //!
@@ -23,7 +23,7 @@
 //!
 //! # Dependency posture
 //!
-//! `nuo-harness` is the wiring layer: it depends on `nuo-contracts`
+//! `nuo-harness` is the wiring layer: it depends on `nuo-wire`
 //! (domain vocabulary), `nuo-persistence` (durable state: `SessionStore`,
 //! `Config`, `EmbeddingStore`), and `nuo-providers` (the
 //! `build_provider_for_channel` factory plus the user-agent / spec
@@ -52,16 +52,16 @@
 //!   subagent tool is fundamentally an orchestration primitive that
 //!   happens to satisfy the `Tool` trait, so it lives here too.
 //!
-//! Everything `nuo-contracts` exports is re-exported here so consumers can
+//! Everything `nuo-wire` exports is re-exported here so consumers can
 //! `use nuo_harness::*` and get the full domain vocabulary alongside the
 //! orchestration API.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-pub use nuo_contracts::*;
+pub use nuo_wire::*;
 
 // Same ambient std/tokio prelude the Agent struct used to inherit from
-// `nuo-contracts`'s lib.rs (`use super::*`).
+// `nuo-wire`'s lib.rs (`use super::*`).
 use futures::StreamExt;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -138,6 +138,8 @@ mod hook_runner;
 pub use guard::{GuardAction, RoundGuardState};
 mod model_request;
 pub mod no_provider;
+pub mod offstream;
+pub use offstream::{OffstreamEntry, OffstreamRegistry, OffstreamSource, OffstreamStatus, PagedOffstreamContent};
 pub mod orchestration;
 pub use orchestration::{
     compact_round_history, compact_round_history_with_mode, round_response, send_compaction,
@@ -169,6 +171,8 @@ mod tool_integration;
 mod tool_manager;
 mod tool_scheduler;
 pub mod tools;
+pub mod tool_bridge;
+pub use tool_bridge::{NousToolBridge, NuoToNousToolBridge, NuoToolBridge, bridge_substrate_tools};
 
 pub mod extension;
 pub(crate) mod sync;

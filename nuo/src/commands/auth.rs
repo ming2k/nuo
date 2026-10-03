@@ -2,7 +2,7 @@ use crate::cli::AuthAction;
 use nuo_persistence::config::{Config, Credentials};
 use nuo_persistence::connections::Connections;
 
-fn mask_key(secret: &nuo_contracts::SecretString) -> &'static str {
+fn mask_key(secret: &nuo_wire::SecretString) -> &'static str {
     if !secret.expose_secret().trim().is_empty() {
         "Configured (●●●●●●)"
     } else {
@@ -77,7 +77,7 @@ pub fn run(action: AuthAction) -> Result<(), Box<dyn std::error::Error>> {
                 .into());
             };
             let mut creds = Credentials::load();
-            creds.set_api_key(&name, Some(nuo_contracts::SecretString::from(key)));
+            creds.set_api_key(&name, Some(nuo_wire::SecretString::from(key)));
             creds.save()?;
             println!("Successfully set API key for connection '{name}'.");
         }

@@ -7,7 +7,7 @@
 
 use nuo_harness::Agent;
 use crate::session_driver::send_harness_state_for_session;
-use nuo_contracts::{AgentResponse, LoopStatus};
+use nuo_wire::{AgentResponse, LoopStatus};
 use crate::mcp::McpRuntime;
 use nuo_persistence::{config::Config, session::SessionStore};
 use nuo_harness::skills::SkillRegistry;
@@ -109,7 +109,7 @@ pub async fn tree(session: &Arc<SessionStore>, resp_tx: &mpsc::UnboundedSender<A
 /// and filtered by `session_id`, so an unknown/empty id simply yields an
 /// empty report.
 pub fn token_usage(
-    token_ledger: &nuo_contracts::TokenSourceLedger,
+    token_ledger: &nuo_wire::TokenSourceLedger,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     session_id: String,
 ) {
@@ -362,7 +362,7 @@ pub async fn interrupt_side(
     // Park the user-interrupt reason before cancelling so the aside round's
     // tail labels its own unwind (C11) — Esc Esc inside an aside view.
     s.lifecycle
-        .record_interrupt(nuo_contracts::RoundInterruptReason::User);
+        .record_interrupt(nuo_wire::RoundInterruptReason::User);
     s.agent.reject_pending_permissions();
     s.agent.reject_pending_user_questions();
     s.agent.reject_pending_inputs();
@@ -390,7 +390,7 @@ pub async fn close_side(
         // moot; parking the reason still labels the unwind if the tail races
         // the removal (C11).
         s.lifecycle
-            .record_interrupt(nuo_contracts::RoundInterruptReason::Superseded);
+            .record_interrupt(nuo_wire::RoundInterruptReason::Superseded);
         s.agent.reject_pending_permissions();
         s.agent.reject_pending_user_questions();
         s.agent.reject_pending_inputs();
@@ -406,7 +406,7 @@ pub async fn close_side(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::Message;
+    use nuo_wire::Message;
 
     /// A store with one persisted user prompt (so it appears in `list()`),
     /// plus the response channel a frontend would hold.
@@ -415,7 +415,7 @@ mod tests {
         let store = Arc::new(SessionStore::for_path(dir.path().join("session.json")));
         store
             .replace_messages(vec![Message::new(
-                nuo_contracts::Role::User,
+                nuo_wire::Role::User,
                 "first prompt",
             )])
             .await

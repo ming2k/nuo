@@ -2,8 +2,8 @@
 //!
 //! Query endpoint: `GET https://openrouter.ai/api/v1/auth/key`
 
-use nuo_contracts::async_trait;
-use nuo_contracts::{BalanceQuota, ProviderQuotaData, ProviderUsage, RateLimitSpec, UsageMetric};
+use nuo_wire::async_trait;
+use nuo_wire::{BalanceQuota, ProviderQuotaData, ProviderUsage, RateLimitSpec, UsageMetric};
 use serde::Deserialize;
 
 use super::ProviderUsageFetcher;

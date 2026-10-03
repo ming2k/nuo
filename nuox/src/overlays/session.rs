@@ -46,7 +46,7 @@ fn absolute_time(ts: u64) -> String {
 /// opens); `session_info_scroll` is that sub-view's own scroll slot.
 /// Properties for rendering the Sessions modal.
 pub struct SessionsModalProps<'a> {
-    pub sessions: &'a [nuo_contracts::SessionOverview],
+    pub sessions: &'a [nuo_wire::SessionOverview],
     pub expanded_sessions: Option<&'a std::collections::HashSet<String>>,
     pub selected: usize,
     pub scroll: &'a mut usize,
@@ -54,7 +54,7 @@ pub struct SessionsModalProps<'a> {
     pub startup_picker: bool,
     pub spinner_phase: usize,
     pub session_info_detail: bool,
-    pub session_detail: Option<&'a nuo_contracts::SessionDetail>,
+    pub session_detail: Option<&'a nuo_wire::SessionDetail>,
     pub session_info_scroll: &'a mut usize,
     pub sessions_loading: bool,
 }
@@ -63,18 +63,18 @@ pub struct SessionsModalProps<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionPickerItem<'a> {
     Trunk {
-        session: &'a nuo_contracts::SessionOverview,
+        session: &'a nuo_wire::SessionOverview,
         child_count: usize,
         expanded: bool,
     },
     Branch {
-        session: &'a nuo_contracts::SessionOverview,
+        session: &'a nuo_wire::SessionOverview,
         is_last: bool,
     },
 }
 
 impl<'a> SessionPickerItem<'a> {
-    pub fn session(&self) -> &'a nuo_contracts::SessionOverview {
+    pub fn session(&self) -> &'a nuo_wire::SessionOverview {
         match self {
             Self::Trunk { session, .. } => session,
             Self::Branch { session, .. } => session,
@@ -84,15 +84,15 @@ impl<'a> SessionPickerItem<'a> {
 
 /// Project session overviews into a hierarchical trunk-first list with expandable timeline branches (ADR-0251).
 pub fn project_session_rows<'a>(
-    sessions: &'a [nuo_contracts::SessionOverview],
+    sessions: &'a [nuo_wire::SessionOverview],
     expanded_set: Option<&std::collections::HashSet<String>>,
 ) -> Vec<SessionPickerItem<'a>> {
-    use nuo_contracts::SessionForkKind;
+    use nuo_wire::SessionForkKind;
 
-    let mut trunks: Vec<&'a nuo_contracts::SessionOverview> = Vec::new();
+    let mut trunks: Vec<&'a nuo_wire::SessionOverview> = Vec::new();
     let mut children_by_parent: std::collections::HashMap<
         &str,
-        Vec<&'a nuo_contracts::SessionOverview>,
+        Vec<&'a nuo_wire::SessionOverview>,
     > = std::collections::HashMap::new();
 
     let all_ids: std::collections::HashSet<&str> = sessions.iter().map(|s| s.id.as_str()).collect();
@@ -365,7 +365,7 @@ pub fn draw_sessions_modal(
 /// Build the session-info sub-view body: a label/value read-out (id, title,
 /// created/last-active timestamps, message count) followed by the full last
 /// effective user prompt, wrapped to the modal width.
-fn detail_body(detail: &nuo_contracts::SessionDetail, theme: &Theme) -> Vec<Line<'static>> {
+fn detail_body(detail: &nuo_wire::SessionDetail, theme: &Theme) -> Vec<Line<'static>> {
     let label = Style::default().fg(theme.dim());
     let value = Style::default().fg(theme.fg());
     let kv = |k: &str, v: String| {
@@ -539,7 +539,7 @@ mod tests {
 
     #[test]
     fn project_session_rows_groups_by_trunk_and_asides() {
-        use nuo_contracts::{SessionForkKind, SessionOverview};
+        use nuo_wire::{SessionForkKind, SessionOverview};
         let s1 = SessionOverview {
             id: "s1".into(),
             overview: "Trunk 1".into(),
@@ -619,7 +619,7 @@ mod tests {
 
     #[test]
     fn sessions_modal_renders_trunk_badges_and_expanded_branches() {
-        use nuo_contracts::{SessionForkKind, SessionOverview};
+        use nuo_wire::{SessionForkKind, SessionOverview};
         let theme = Theme::default();
         let selection = crate::model::selection::SelectionState::None;
         let mut layout_map = crate::model::layout::LayoutMap::default();

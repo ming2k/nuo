@@ -16,8 +16,8 @@
 //! would repeat a side effect.
 
 use async_trait::async_trait;
-use nuo_contracts::Tool;
-use nuo_contracts::mcp::{McpConnectionStatus, McpServerConfig};
+use nuo_wire::Tool;
+use nuo_wire::mcp::{McpConnectionStatus, McpServerConfig};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -43,7 +43,7 @@ pub fn is_sandbox_trusted(root: &Path) -> bool {
 
 /// Pluggable universal asset attestation verifier (ADR-0243, ADR-0252).
 pub type McpAttestationVerifier = Arc<
-    dyn Fn(&nuo_contracts::security::AssetLocator, &nuo_contracts::security::AssetSpec) -> bool
+    dyn Fn(&nuo_wire::security::AssetLocator, &nuo_wire::security::AssetSpec) -> bool
         + Send
         + Sync,
 >;
@@ -56,8 +56,8 @@ pub fn set_attestation_verifier(verifier: McpAttestationVerifier) {
 }
 
 pub fn is_asset_attested(
-    locator: &nuo_contracts::security::AssetLocator,
-    spec: &nuo_contracts::security::AssetSpec,
+    locator: &nuo_wire::security::AssetLocator,
+    spec: &nuo_wire::security::AssetSpec,
 ) -> bool {
     ATTESTATION_VERIFIER
         .get()
@@ -626,7 +626,7 @@ impl McpServer {
     /// already held, it is reused; otherwise a fresh connection is established.
     async fn ensure_connected(&self) -> Result<Arc<McpClient>, String> {
         let spec = if let Some(url) = &self.config.url {
-            nuo_contracts::security::AssetSpec::RemoteEndpoint {
+            nuo_wire::security::AssetSpec::RemoteEndpoint {
                 url: url.clone(),
                 headers: self
                     .config
@@ -636,7 +636,7 @@ impl McpServer {
                     .collect(),
             }
         } else {
-            nuo_contracts::security::AssetSpec::Process {
+            nuo_wire::security::AssetSpec::Process {
                 command: self.config.command.clone(),
                 env: self
                     .config
@@ -648,11 +648,11 @@ impl McpServer {
         };
 
         let locator = match &self.config.sandbox_root {
-            Some(root) => nuo_contracts::security::AssetLocator::WorkspaceMcp {
+            Some(root) => nuo_wire::security::AssetLocator::WorkspaceMcp {
                 workspace_root: root.to_string_lossy().to_string(),
                 name: self.server_name.clone(),
             },
-            None => nuo_contracts::security::AssetLocator::UserMcp {
+            None => nuo_wire::security::AssetLocator::UserMcp {
                 name: self.server_name.clone(),
             },
         };
@@ -721,8 +721,8 @@ impl Tool for McpTool {
         self.parameters.clone()
     }
 
-    fn hazard_level(&self) -> nuo_contracts::HazardLevel {
-        nuo_contracts::HazardLevel::NetworkOrExternal
+    fn hazard_level(&self) -> nuo_wire::HazardLevel {
+        nuo_wire::HazardLevel::NetworkOrExternal
     }
 
     async fn call(&self, arguments: &str) -> Result<String, String> {

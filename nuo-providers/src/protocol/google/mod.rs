@@ -16,7 +16,7 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::BoxStream;
-use nuo_contracts::{
+use nuo_model_codec::{
     ModelRequest, Provider, ProviderError, ProviderErrorKind, ProviderPromptHints,
     ProviderStreamEvent,
 };
@@ -36,14 +36,14 @@ pub const GOOGLE_DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis
 
 fn google_completion(
     response_json: &Value,
-) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
+) -> Result<nuo_model_codec::ProviderCompletion, nuo_model_codec::ProviderError> {
     let root = response_json.get("response").unwrap_or(response_json);
     let mut message =
         response::message(response_json).map_err(|e| ProviderError::protocol("Google", e))?;
     let artifacts = message.provider_meta.take();
-    Ok(nuo_contracts::ProviderCompletion {
+    Ok(nuo_model_codec::ProviderCompletion {
         message,
-        meta: nuo_contracts::ProviderCompletionMeta {
+        meta: nuo_model_codec::ProviderCompletionMeta {
             usage: response::usage(&root["usageMetadata"]),
             artifacts,
             continuation: None,
@@ -62,12 +62,12 @@ pub struct GoogleProvider {
     pub client: Client,
     /// Channel-scoped capability view. A trusted remote catalogue overrides the
     /// static baseline only for this provider/model route.
-    pub capabilities: nuo_contracts::ModelCapabilities,
+    pub capabilities: nuo_model_codec::ModelCapabilities,
     /// Channel-scoped reasoning-effort override. `None` leaves the model's
     /// server-default thinking level in place; `Some(e)` pins it, translated
     /// onto `thinkingConfig` (`thinkingLevel` for Gemini 3.x, a
     /// `thinkingBudget` bucket for Gemini 2.5) at request-build time.
-    pub reasoning_effort: Option<nuo_contracts::Effort>,
+    pub reasoning_effort: Option<nuo_model_codec::Effort>,
     /// Antigravity Google Cloud companion project ID (`cloudaicompanionProject`).
     /// When set, the provider routes requests in `v1internal` envelope shape with
     /// `Authorization: Bearer` authentication to the Antigravity backend.
@@ -83,7 +83,7 @@ pub struct GoogleProvider {
     /// cannot be disclosed and requests stop asking for it. See
     /// [`Self::note_thinking_rejected`].
     thinking_rejected: Arc<Mutex<bool>>,
-    pub dialect: nuo_contracts::GoogleGenerateContentDialect,
+    pub dialect: nuo_model_codec::GoogleGenerateContentDialect,
 }
 
 /// Canonical alias for the Google Gemini protocol provider.
@@ -109,7 +109,7 @@ impl GoogleProvider {
         base_url: &str,
         user_agent: &str,
     ) -> Self {
-        let capabilities = nuo_contracts::ModelCapabilities::for_channel(&model, None);
+        let capabilities = nuo_model_codec::ModelCapabilities::for_channel(&model, None);
         Self {
             endpoint: Endpoint::from_static_key(
                 api_key,
@@ -124,18 +124,18 @@ impl GoogleProvider {
             project_id: None,
             prompt_cache: crate::PromptCacheConfig::default(),
             thinking_rejected: Arc::new(Mutex::new(false)),
-            dialect: nuo_contracts::GoogleGenerateContentDialect::GenerativeLanguage,
+            dialect: nuo_model_codec::GoogleGenerateContentDialect::GenerativeLanguage,
         }
     }
 
     /// Build a provider with dynamic credentials.
     pub fn with_credentials(
-        credentials: std::sync::Arc<dyn nuo_contracts::CredentialSource>,
+        credentials: std::sync::Arc<dyn nuo_model_codec::CredentialSource>,
         model: String,
         base_url: &str,
         client_profile: impl Into<ClientProfile>,
     ) -> Self {
-        let capabilities = nuo_contracts::ModelCapabilities::for_channel(&model, None);
+        let capabilities = nuo_model_codec::ModelCapabilities::for_channel(&model, None);
         Self {
             endpoint: Endpoint::with_credentials(
                 credentials,
@@ -150,7 +150,7 @@ impl GoogleProvider {
             project_id: None,
             prompt_cache: crate::PromptCacheConfig::default(),
             thinking_rejected: Arc::new(Mutex::new(false)),
-            dialect: nuo_contracts::GoogleGenerateContentDialect::GenerativeLanguage,
+            dialect: nuo_model_codec::GoogleGenerateContentDialect::GenerativeLanguage,
         }
     }
 
@@ -164,7 +164,7 @@ impl GoogleProvider {
     /// Attach the effective provider-channel capability view.
     pub fn with_model_capabilities(
         mut self,
-        capabilities: nuo_contracts::ModelCapabilities,
+        capabilities: nuo_model_codec::ModelCapabilities,
     ) -> Self {
         self.capabilities = capabilities;
         self
@@ -175,7 +175,7 @@ impl GoogleProvider {
     /// `effort_levels` at request-build time, then translated onto Google's
     /// `thinkingConfig` (`thinkingLevel` for Gemini 3.x, a `thinkingBudget`
     /// bucket for Gemini 2.5).
-    pub fn with_reasoning_effort(mut self, effort: Option<nuo_contracts::Effort>) -> Self {
+    pub fn with_reasoning_effort(mut self, effort: Option<nuo_model_codec::Effort>) -> Self {
         self.reasoning_effort = effort;
         self
     }
@@ -190,7 +190,7 @@ impl GoogleProvider {
         self
     }
 
-    pub fn with_dialect(mut self, dialect: nuo_contracts::GoogleGenerateContentDialect) -> Self {
+    pub fn with_dialect(mut self, dialect: nuo_model_codec::GoogleGenerateContentDialect) -> Self {
         self.dialect = dialect;
         self
     }
@@ -203,7 +203,7 @@ impl GoogleProvider {
 
     /// Whether this provider is configured for Google Antigravity `v1internal` protocol.
     pub fn is_antigravity(&self) -> bool {
-        self.dialect == nuo_contracts::GoogleGenerateContentDialect::Antigravity
+        self.dialect == nuo_model_codec::GoogleGenerateContentDialect::Antigravity
     }
 
     /// Build the thinkingless streaming request for a channel whose upstream
@@ -214,8 +214,8 @@ impl GoogleProvider {
         &self,
         request: ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_contracts::ProviderError>>,
-        nuo_contracts::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_model_codec::ProviderError>>,
+        nuo_model_codec::ProviderError,
     > {
         let response = self.send_google_request(&request, true, true, None).await?;
         let response = ensure_success(response, "Google", Some(&self.endpoint.model))
@@ -418,7 +418,7 @@ impl GoogleProvider {
                 );
             }
             Ok(ProviderStreamEvent::Completed(
-                nuo_contracts::ProviderCompletionMeta {
+                nuo_model_codec::ProviderCompletionMeta {
                     artifacts: (!artifacts.is_empty()).then_some(artifacts),
                     ..Default::default()
                 },
@@ -464,7 +464,7 @@ impl GoogleProvider {
     async fn chat_without_thinking(
         &self,
         request: ModelRequest,
-    ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
+    ) -> Result<nuo_model_codec::ProviderCompletion, nuo_model_codec::ProviderError> {
         tracing::warn!(
             model = %self.endpoint.model,
             "upstream rejected thinkingConfig; retrying without disclosed thinking (chain withheld by upstream)"
@@ -504,7 +504,7 @@ impl GoogleProvider {
         is_stream: bool,
         omit_thinking: bool,
     ) -> (String, http::header::HeaderMap, serde_json::Value) {
-        let auth = nuo_contracts::ResolvedAuth::default();
+        let auth = nuo_model_codec::ResolvedAuth::default();
         self.prepare_request_for_auth(request, is_stream, omit_thinking, &auth)
     }
 
@@ -513,11 +513,11 @@ impl GoogleProvider {
         request: ModelRequest,
         is_stream: bool,
         omit_thinking: bool,
-        auth: &nuo_contracts::ResolvedAuth,
+        auth: &nuo_model_codec::ResolvedAuth,
     ) -> (String, http::header::HeaderMap, serde_json::Value) {
         let key = auth.token.expose_secret();
         let org_scoped = auth
-            .extension::<nuo_contracts::OpencodeAuthMetadata>()
+            .extension::<nuo_model_codec::OpencodeAuthMetadata>()
             .is_some();
         let include_thoughts = self.capabilities.reasoning() && !omit_thinking;
         let thinking = if omit_thinking {
@@ -610,12 +610,12 @@ impl GoogleProvider {
             headers.insert(
                 http::header::HeaderName::from_static("x-goog-api-client"),
                 http::header::HeaderValue::from_static(
-                    nuo_contracts::client_identity::ANTIGRAVITY_API_CLIENT_HEADER,
+                    nuo_model_codec::client_identity::ANTIGRAVITY_API_CLIENT_HEADER,
                 ),
             );
 
             let project = auth
-                .extension::<nuo_contracts::GoogleAuthMetadata>()
+                .extension::<nuo_model_codec::GoogleAuthMetadata>()
                 .map(|m| m.project_id.as_str())
                 .or(self.project_id.as_deref())
                 .unwrap_or("");
@@ -660,8 +660,8 @@ impl Provider for GoogleProvider {
         self.endpoint.model.clone()
     }
 
-    fn wire_protocol(&self) -> Option<nuo_contracts::WireProtocol> {
-        Some(nuo_contracts::WireProtocol::GoogleGemini)
+    fn wire_protocol(&self) -> Option<nuo_model_codec::WireProtocol> {
+        Some(nuo_model_codec::WireProtocol::GoogleGemini)
     }
 
     // `effort()` keeps its default (`None`): the Gemini `thinkingLevel` /
@@ -669,7 +669,7 @@ impl Provider for GoogleProvider {
     // matches the shared `Effort` tiers one-to-one, so the transcript stays
     // quiet rather than showing a translated label that could mislead.
 
-    fn model_capabilities(&self) -> nuo_contracts::ModelCapabilities {
+    fn model_capabilities(&self) -> nuo_model_codec::ModelCapabilities {
         self.capabilities.clone()
     }
     fn prompt_hints(&self) -> ProviderPromptHints {
@@ -689,7 +689,7 @@ impl Provider for GoogleProvider {
     async fn chat(
         &self,
         request: ModelRequest,
-    ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
+    ) -> Result<nuo_model_codec::ProviderCompletion, nuo_model_codec::ProviderError> {
         let omit = self.thinking_was_rejected();
         let response = self
             .send_google_request(&request, false, omit, Some(self.client.request_timeout()))
@@ -731,8 +731,8 @@ impl Provider for GoogleProvider {
         &self,
         request: ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-        nuo_contracts::ProviderError,
+        BoxStream<'static, Result<String, nuo_model_codec::ProviderError>>,
+        nuo_model_codec::ProviderError,
     > {
         let omit = self.thinking_was_rejected();
         let response = self.send_google_request(&request, true, omit, None).await?;
@@ -768,8 +768,8 @@ impl Provider for GoogleProvider {
         &self,
         request: ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_contracts::ProviderError>>,
-        nuo_contracts::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_model_codec::ProviderError>>,
+        nuo_model_codec::ProviderError,
     > {
         let omit = self.thinking_was_rejected();
         let response = self.send_google_request(&request, true, omit, None).await?;
@@ -805,8 +805,8 @@ mod tests {
     /// Baseline capability view for tests that need to stamp an effort ladder:
     /// `GoogleProvider::new` derives capabilities from the registry, which the
     /// llm-client crate's tests see as the fallback (`effort_levels == []`).
-    fn p_caps(model: &str) -> nuo_contracts::ModelCapabilities {
-        nuo_contracts::ModelCapabilities::for_channel(model, None)
+    fn p_caps(model: &str) -> nuo_model_codec::ModelCapabilities {
+        nuo_model_codec::ModelCapabilities::for_channel(model, None)
     }
 
     #[test]
@@ -863,7 +863,7 @@ mod tests {
                 "https://daily-cloudcode-pa.googleapis.com",
                 "ua",
             )
-            .with_dialect(nuo_contracts::GoogleGenerateContentDialect::Antigravity)
+            .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
             .with_project_id("proj-1");
             let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
             assert_eq!(
@@ -896,12 +896,12 @@ mod tests {
         // re-sending either would fail the retry identically.
         let capabilities = {
             let mut caps = p_caps("gemini-3.7-flash");
-            caps.thinking = nuo_contracts::reasoning::ReasoningSupport::ReasoningContent;
+            caps.thinking = nuo_model_codec::reasoning::ReasoningSupport::ReasoningContent;
             let levels = [
-                nuo_contracts::Effort::Minimal,
-                nuo_contracts::Effort::Low,
-                nuo_contracts::Effort::Medium,
-                nuo_contracts::Effort::High,
+                nuo_model_codec::Effort::Minimal,
+                nuo_model_codec::Effort::Low,
+                nuo_model_codec::Effort::Medium,
+                nuo_model_codec::Effort::High,
             ];
             caps.effort_levels = levels
                 .iter()
@@ -912,7 +912,7 @@ mod tests {
         };
         let p = GoogleProvider::new("k".to_string(), "gemini-3.7-flash".to_string())
             .with_model_capabilities(capabilities)
-            .with_reasoning_effort(Some(nuo_contracts::Effort::High));
+            .with_reasoning_effort(Some(nuo_model_codec::Effort::High));
         let (_, _, with) = p.prepare_request(ModelRequest::new(Vec::new()), true, false);
         assert_eq!(
             with["generationConfig"]["thinkingConfig"]["includeThoughts"],
@@ -936,13 +936,13 @@ mod tests {
         // body; the downgrade applies there identically.
         let capabilities = {
             let mut caps = p_caps("gemini-2.5-pro");
-            caps.thinking = nuo_contracts::reasoning::ReasoningSupport::ReasoningContent;
+            caps.thinking = nuo_model_codec::reasoning::ReasoningSupport::ReasoningContent;
             let budget_levels = [
-                nuo_contracts::Effort::Minimal,
-                nuo_contracts::Effort::Low,
-                nuo_contracts::Effort::Medium,
-                nuo_contracts::Effort::High,
-                nuo_contracts::Effort::Max,
+                nuo_model_codec::Effort::Minimal,
+                nuo_model_codec::Effort::Low,
+                nuo_model_codec::Effort::Medium,
+                nuo_model_codec::Effort::High,
+                nuo_model_codec::Effort::Max,
             ];
             caps.effort_levels = budget_levels
                 .iter()
@@ -953,7 +953,7 @@ mod tests {
         };
         let p = GoogleProvider::new("k".to_string(), "gemini-2.5-pro".to_string())
             .with_model_capabilities(capabilities)
-            .with_reasoning_effort(Some(nuo_contracts::Effort::High));
+            .with_reasoning_effort(Some(nuo_model_codec::Effort::High));
         let (_, _, with) = p.prepare_request(ModelRequest::new(Vec::new()), true, false);
         assert_eq!(
             with["generationConfig"]["thinkingConfig"]["thinkingBudget"],
@@ -970,7 +970,7 @@ mod tests {
             "gemini-3-flash".to_string(),
             "https://generativelanguage.googleapis.com/v1beta",
         );
-        let auth = nuo_contracts::ResolvedAuth::new("AIza-key");
+        let auth = nuo_model_codec::ResolvedAuth::new("AIza-key");
         let (url, headers, _) =
             p.prepare_request_for_auth(ModelRequest::new(Vec::new()), false, true, &auth);
         assert!(url.ends_with(":generateContent?key=AIza-key"), "{url}");
@@ -988,8 +988,8 @@ mod tests {
             "gemini-3-flash".to_string(),
             "https://opencode.ai/inference/google/v1beta",
         );
-        let auth = nuo_contracts::ResolvedAuth::new("st-token").with_extension(
-            nuo_contracts::OpencodeAuthMetadata {
+        let auth = nuo_model_codec::ResolvedAuth::new("st-token").with_extension(
+            nuo_model_codec::OpencodeAuthMetadata {
                 org_id: "wrk_workspace_1".to_string(),
             },
         );

@@ -1,6 +1,6 @@
 //! Alibaba Qoder's request identity material and durable auth store representation.
 
-use nuo_contracts::SecretString;
+use nuo_host::SecretString;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 

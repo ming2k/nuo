@@ -14,16 +14,16 @@
 
 use std::sync::Arc;
 
-use nuo_contracts::{CredentialSource, ResolvedAuth, SecretString, static_credential};
+use nuo_model_codec::{CredentialSource, ResolvedAuth, SecretString, static_credential};
 
-pub use nuo_contracts::client_identity::*;
+pub use nuo_model_codec::client_identity::*;
 
 /// The connection fields every provider shares.
 ///
 /// A provider-specific struct embeds this as `pub endpoint: Endpoint` and adds
 /// only its wire-format-unique fields (e.g. Anthropic's `max_tokens` /
 /// `thinking`). `id` is the stable provider/solution id surfaced via
-/// [`nuo_contracts::Provider::provider_id`] so assistant responses can be
+/// [`nuo_model_codec::Provider::provider_id`] so assistant responses can be
 /// attributed to the logical channel even after a mid-session switch.
 #[derive(Clone)]
 pub struct Endpoint {
@@ -77,7 +77,7 @@ impl Endpoint {
 
     /// Declare the model's catalog provenance (the `source` the provider names)
     /// and its display label. Both are wire-optional: only a dialect whose
-    /// surface declares a matching [`ModelCarrier`](nuo_contracts::wire_surface::ModelCarrier)
+    /// surface declares a matching [`ModelCarrier`](nuo_model_codec::wire_surface::ModelCarrier)
     /// binding stamps them.
     pub fn with_catalog_provenance(
         mut self,
@@ -123,7 +123,7 @@ impl Endpoint {
     /// Refresh in reaction to a rejection of the token used by this request.
     pub async fn force_refresh_auth_after(
         &self,
-        rejected_access: &nuo_contracts::SecretString,
+        rejected_access: &nuo_host::SecretString,
     ) -> Result<ResolvedAuth, String> {
         self.credentials
             .force_refresh_after_rejection(rejected_access)
@@ -264,7 +264,7 @@ impl Endpoint {
     /// OpenCode Console credential is meaningless without its workspace, so the
     /// org id rides on **every** protocol the surface exposes.
     pub fn auth_scoped_headers(&self, auth: &ResolvedAuth) -> Vec<(&'static str, String)> {
-        auth.extension::<nuo_contracts::OpencodeAuthMetadata>()
+        auth.extension::<nuo_model_codec::OpencodeAuthMetadata>()
             .map(|org| vec![("x-opencode-org-id", org.org_id.clone())])
             .unwrap_or_default()
     }
@@ -394,7 +394,7 @@ mod tests {
             agy.headers()
                 .iter()
                 .any(|(k, v)| *k == "x-goog-api-client"
-                    && *v == nuo_contracts::client_identity::ANTIGRAVITY_API_CLIENT_HEADER)
+                    && *v == nuo_model_codec::client_identity::ANTIGRAVITY_API_CLIENT_HEADER)
         );
 
         let opencode = ClientProfile::OpenCode;
@@ -498,7 +498,7 @@ mod tests {
             "gomain",
         );
         let auth =
-            ResolvedAuth::new("st-token").with_extension(nuo_contracts::OpencodeAuthMetadata {
+            ResolvedAuth::new("st-token").with_extension(nuo_model_codec::OpencodeAuthMetadata {
                 org_id: "wrk_workspace_1".to_string(),
             });
 

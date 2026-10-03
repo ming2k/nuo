@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use nuo_contracts::{ColorSchemeConfig, ComponentThemesConfig, ThemeFile};
+use nuo_wire::{ColorSchemeConfig, ComponentThemesConfig, ThemeFile};
 use nuotc::{Color, Modifier, Style};
 
 /// Metadata for one color scheme shown by the Appearance config page.
@@ -565,7 +565,7 @@ impl Theme {
     /// Apply spatial 4-layer surface overrides onto an existing theme.
     pub fn apply_surfaces_overrides(
         &mut self,
-        overrides: &Option<nuo_contracts::SurfacesThemeConfig>,
+        overrides: &Option<nuo_wire::SurfacesThemeConfig>,
     ) {
         let Some(surfaces) = overrides else { return };
         if let Some(ref view) = surfaces.view {
@@ -1103,19 +1103,19 @@ impl Theme {
     }
 
     // Feedback Severity Tokens
-    pub fn feedback(&self, severity: nuo_contracts::NoticeSeverity) -> FeedbackToneTokens {
+    pub fn feedback(&self, severity: nuo_wire::NoticeSeverity) -> FeedbackToneTokens {
         match severity {
-            nuo_contracts::NoticeSeverity::Info => FeedbackToneTokens {
+            nuo_wire::NoticeSeverity::Info => FeedbackToneTokens {
                 container: mix(self.app_bg, self.info, 0.15),
                 border: self.info,
                 text: self.text,
             },
-            nuo_contracts::NoticeSeverity::Warning => FeedbackToneTokens {
+            nuo_wire::NoticeSeverity::Warning => FeedbackToneTokens {
                 container: mix(self.app_bg, self.warning, 0.18),
                 border: self.warning,
                 text: self.text,
             },
-            nuo_contracts::NoticeSeverity::Error => FeedbackToneTokens {
+            nuo_wire::NoticeSeverity::Error => FeedbackToneTokens {
                 container: mix(self.app_bg, self.error_fg, 0.18),
                 border: self.error_fg,
                 text: self.text,
@@ -1458,13 +1458,13 @@ hover_bg = "#282828"
         assert_eq!(surfaces.modal.surface, theme.panel());
         assert_eq!(surfaces.modal.dim_factor, 0.5);
 
-        let fb_warn = theme.feedback(nuo_contracts::NoticeSeverity::Warning);
+        let fb_warn = theme.feedback(nuo_wire::NoticeSeverity::Warning);
         assert_eq!(fb_warn.border, theme.warn());
 
-        let fb_err = theme.feedback(nuo_contracts::NoticeSeverity::Error);
+        let fb_err = theme.feedback(nuo_wire::NoticeSeverity::Error);
         assert_eq!(fb_err.border, theme.err());
 
-        let fb_info = theme.feedback(nuo_contracts::NoticeSeverity::Info);
+        let fb_info = theme.feedback(nuo_wire::NoticeSeverity::Info);
         assert_eq!(fb_info.border, theme.info());
     }
 

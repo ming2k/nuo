@@ -21,14 +21,14 @@
 //! Stored in `$XDG_STATE_HOME/muta/connections.toml` — a program-managed
 //! state file, separate from the user-edited `config.toml`.
 
-use nuo_contracts::model_providers::{canonical_provider_id, is_known_model_provider};
-use nuo_contracts::{ClientIdentity, ConnectionAuth, WireProtocol};
+use nuo_wire::model_providers::{canonical_provider_id, is_known_model_provider};
+use nuo_wire::{ClientIdentity, ConnectionAuth, WireProtocol};
 use serde::{Deserialize, Serialize};
 
 use crate::fsutil;
 use crate::paths;
 
-pub use nuo_contracts::model::{
+pub use nuo_wire::model::{
     ConnectionFilterPolicy, DeclaredModel, ModelCapabilityPatch, ModelScopeConfig,
     NamedFilterPolicy,
 };
@@ -59,7 +59,7 @@ pub struct Connection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_env: Option<String>,
     /// Client profile specifying User-Agent and client identity headers (Native/muta, OpenCode, ZCode, Claude Code, etc.).
-    /// Defaults to [`nuo_contracts::ClientProfile::Native`].
+    /// Defaults to [`nuo_wire::ClientProfile::Native`].
     #[serde(default, alias = "client_profile")]
     pub client_identity: ClientIdentity,
     /// Model scope configuration (ADR-0199, ADR-0201): this connection's
@@ -221,17 +221,17 @@ impl RawConnection {
             }
             let dialect = match &self.auth {
                 ConnectionAuth::Subscription { provider } => match provider.as_ref() {
-                    "google-antigravity" => nuo_contracts::ProviderDialect::Antigravity,
-                    "chatgpt" => nuo_contracts::ProviderDialect::ChatGpt,
-                    "copilot" => nuo_contracts::ProviderDialect::Copilot,
-                    "qoder" => nuo_contracts::ProviderDialect::Qoder,
-                    _ => nuo_contracts::ProviderDialect::Standard,
+                    "google-antigravity" => nuo_wire::ProviderDialect::Antigravity,
+                    "chatgpt" => nuo_wire::ProviderDialect::ChatGpt,
+                    "copilot" => nuo_wire::ProviderDialect::Copilot,
+                    "qoder" => nuo_wire::ProviderDialect::Qoder,
+                    _ => nuo_wire::ProviderDialect::Standard,
                 },
-                ConnectionAuth::ApiKey => nuo_contracts::ProviderDialect::Standard,
+                ConnectionAuth::ApiKey => nuo_wire::ProviderDialect::Standard,
             };
             let protocol = self.protocol.unwrap_or(match dialect {
-                nuo_contracts::ProviderDialect::Antigravity => WireProtocol::GoogleGemini,
-                nuo_contracts::ProviderDialect::ChatGpt => WireProtocol::Responses,
+                nuo_wire::ProviderDialect::Antigravity => WireProtocol::GoogleGemini,
+                nuo_wire::ProviderDialect::ChatGpt => WireProtocol::Responses,
                 _ => WireProtocol::ChatCompletions,
             });
             let root = self
@@ -505,7 +505,7 @@ impl Connections {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::reasoning::ReasoningSupport;
+    use nuo_wire::reasoning::ReasoningSupport;
 
     struct PathsSandbox {
         _guard: std::sync::MutexGuard<'static, ()>,

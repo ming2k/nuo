@@ -29,7 +29,7 @@ use crate::render::Theme;
 /// snapshot (the same one `/session` uses).
 pub fn draw_tools_modal(
     frame: &mut Frame,
-    session_context: Option<&nuo_contracts::SessionContextSnapshot>,
+    session_context: Option<&nuo_wire::SessionContextSnapshot>,
     modal_index: usize,
     scroll: &mut usize,
     follow_selection: bool,

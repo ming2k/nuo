@@ -2,7 +2,7 @@
 //! fingerprinting, composite identity, replacement semantics, and bounded 30-day leases.
 
 use crate::db::PersistenceHandle;
-use nuo_contracts::security::{AssetLocator, AssetSpec, AttestationStatus};
+use nuo_wire::security::{AssetLocator, AssetSpec, AttestationStatus};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 

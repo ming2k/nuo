@@ -10,7 +10,7 @@
 
 use super::{MOZILLA_UA, ProviderOutput, SearchProvider, SearchResult};
 use async_trait::async_trait;
-use nuo_contracts::{DUCKDUCKGO_HTML_ENDPOINT, DUCKDUCKGO_LITE_ENDPOINT};
+use nuo_wire::{DUCKDUCKGO_HTML_ENDPOINT, DUCKDUCKGO_LITE_ENDPOINT};
 
 pub(crate) struct DdgProvider;
 

@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use nuotc::Terminal;
 use tokio::sync::mpsc;
 
-use nuo_contracts::{AgentRequest, PermissionDecision, PermissionRequest};
+use nuo_wire::{AgentRequest, PermissionDecision, PermissionRequest};
 
 use crate::App;
 use crate::clipboard;
@@ -45,7 +45,8 @@ pub(crate) use commands::handle_ctrl_c;
 pub(crate) use commands::handle_send_slash;
 #[cfg(test)]
 pub(crate) use modals::{
-    handle_close_modal, handle_modal_down, handle_modal_up, handle_submit_custom_provider,
+    handle_close_modal, handle_modal_down, handle_modal_up, handle_open_model_editor,
+    handle_submit_custom_provider,
 };
 
 /// How the event loop proceeds after a dispatched action. Arms that ended in
@@ -129,7 +130,7 @@ fn scroll_transcript_to_edge(app: &mut App, bottom: bool) {
     }
 }
 
-fn select_connection_preset(app: &mut App, forced_method: Option<nuo_contracts::LoginMethod>) {
+fn select_connection_preset(app: &mut App, forced_method: Option<nuo_wire::LoginMethod>) {
     if !app.surfaces.contains_sheet(SheetKind::ProviderPreset) {
         return;
     }
@@ -164,10 +165,10 @@ fn select_connection_preset(app: &mut App, forced_method: Option<nuo_contracts::
         show_local_toast(
             app,
             match method {
-                nuo_contracts::LoginMethod::Browser => {
+                nuo_wire::LoginMethod::Browser => {
                     "Browser PKCE login is not supported by this connection."
                 }
-                nuo_contracts::LoginMethod::Device => {
+                nuo_wire::LoginMethod::Device => {
                     "Device login is not supported by this connection."
                 }
             },
@@ -514,7 +515,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 let ranked = app.models_flat_filtered();
                 if let Some(row) = ranked.get(app.modal_index).or_else(|| ranked.first()) {
                     app.send_intent(AgentRequest::ExcludeModel {
-                        scope: nuo_contracts::model::ModelTargetScope::Connection(
+                        scope: nuo_wire::model::ModelTargetScope::Connection(
                             row.provider_id.clone(),
                         ),
                         model_id: row.model.clone(),
@@ -578,28 +579,28 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // Cycle the effort selector through the selected model's
             // supported wire levels, wrapping at both ends. Mirrored
             // into app.input so the renderer shows the live value.
-            let model = nuo_contracts::resolve_model(&app.editor_model);
-            let levels: Vec<&str> = model
-                .effort_levels
-                .iter()
-                .map(|level| level.as_str())
-                .collect();
+            //
+            // The ladder is the one captured from the snapshot when the editor
+            // opened — this binary does not link `nuo-providers`, so
+            // `resolve_model` cannot see the provider baseline tables and would
+            // return an empty ladder, making the cycle a no-op.
+            let levels: &[String] = &app.editor_effort_levels;
             if levels.is_empty() {
                 return ActionFlow::NextEvent;
             }
             let cur = levels
                 .iter()
-                .position(|l| *l == app.editor_effort)
+                .position(|l| l == &app.editor_effort)
                 .unwrap_or_else(|| {
                     levels
                         .iter()
-                        .position(|l| *l == "medium")
-                        .or_else(|| levels.iter().position(|l| *l == "high"))
+                        .position(|l| l == "medium")
+                        .or_else(|| levels.iter().position(|l| l == "high"))
                         .unwrap_or(0)
                 }) as isize;
             let n = levels.len() as isize;
             let next = ((cur + delta as isize).rem_euclid(n)) as usize;
-            app.editor_effort = levels[next].to_string();
+            app.editor_effort = levels[next].clone();
             app.input = app.editor_effort.clone();
             app.set_cursor_end();
         }
@@ -609,9 +610,8 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // on a 3-rung ladder is a no-op, never a clamp that would
             // surprise. Mirrors `editor_effort` into `app.input` like
             // the cycle path so the renderer shows the live value.
-            let model = nuo_contracts::resolve_model(&app.editor_model);
-            if let Some(level) = model.effort_levels.get(index) {
-                app.editor_effort = level.as_str().to_string();
+            if let Some(level) = app.editor_effort_levels.get(index).cloned() {
+                app.editor_effort = level;
                 app.input = app.editor_effort.clone();
                 app.set_cursor_end();
             }
@@ -695,7 +695,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     });
                 if let Some(id) = id {
                     if let Some(detail) = app.connection_detail.as_mut() {
-                        detail.usage = nuo_contracts::ConnectionUsageState::Fetching;
+                        detail.usage = nuo_wire::ConnectionUsageState::Fetching;
                     }
                     show_local_toast(
                         app,
@@ -964,7 +964,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                                             (current + 5).max(5)
                                         };
                                         app.send_intent(AgentRequest::UpdateWebSearchConfig(
-                                            Box::new(nuo_contracts::WebSearchConfigUpdate {
+                                            Box::new(nuo_wire::WebSearchConfigUpdate {
                                                 expected_revision: revision,
                                                 timeout_secs: Some(next),
                                                 ..Default::default()
@@ -983,13 +983,13 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                                             let capability = ws.capabilities.iter().find(|capability| {
                                                 capability.id == id
                                                     && capability.axis == if is_search {
-                                                        nuo_contracts::WebProviderAxis::Search
+                                                        nuo_wire::WebProviderAxis::Search
                                                     } else {
-                                                        nuo_contracts::WebProviderAxis::Reader
+                                                        nuo_wire::WebProviderAxis::Reader
                                                     }
                                             })?;
                                             let endpoint = capability.endpoint
-                                                == nuo_contracts::WebEndpointRequirement::UserSupplied;
+                                                == nuo_wire::WebEndpointRequirement::UserSupplied;
                                             let target = if endpoint {
                                                 format!("web_endpoint:{id}")
                                             } else {

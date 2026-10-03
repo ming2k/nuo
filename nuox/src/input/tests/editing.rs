@@ -247,8 +247,8 @@ fn b_and_d_in_preset_chooser_pick_the_login_method() {
     // actually supports the method is validated by the dispatcher (which can
     // see the OAuth registration); the input layer only maps the keys.
     for (key, method) in [
-        ('b', nuo_contracts::LoginMethod::Browser),
-        ('d', nuo_contracts::LoginMethod::Device),
+        ('b', nuo_wire::LoginMethod::Browser),
+        ('d', nuo_wire::LoginMethod::Device),
     ] {
         let mut input = String::new();
         let mut cursor = 0;

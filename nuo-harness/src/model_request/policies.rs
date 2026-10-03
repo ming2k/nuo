@@ -23,7 +23,7 @@
 //!    untrusted web boundaries. In the default configuration with no identity or
 //!    rules, zero system prompt tokens are emitted.
 
-use nuo_contracts::InstructionTier;
+use nuo_wire::InstructionTier;
 
 use super::system_prompt::InstructionOrder;
 use crate::{SystemPromptContext, SystemPromptRegistry, SystemPromptSection};

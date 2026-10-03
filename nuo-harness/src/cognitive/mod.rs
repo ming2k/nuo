@@ -13,7 +13,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nuo_contracts::{
+use nuo_wire::{
     EnvironmentReminderOutput, EnvironmentSensorInput, EnvironmentSensorTask, ExecutionTier,
     Message, ModelRequest, PreFlightRouteInput, PreFlightRouteOutput, PreFlightRouterTask,
     Provider, Role, SessionTitleInput, SessionTitleTask, StreamLoopReviewInput,
@@ -71,17 +71,17 @@ impl HarnessTaskPipeline {
         &self.provider
     }
 
-    /// Consult the harness task pipeline with a typed [`nuo_contracts::HarnessTask`].
-    pub async fn consult<T: nuo_contracts::HarnessTask>(
+    /// Consult the harness task pipeline with a typed [`nuo_wire::HarnessTask`].
+    pub async fn consult<T: nuo_wire::HarnessTask>(
         &self,
         task: T,
         input: T::Input,
     ) -> Result<T::Output, HarnessTaskError> {
         let timeout = Duration::from_millis(task.timeout_ms());
         let instructions =
-            nuo_contracts::InstructionBundle::new(vec![nuo_contracts::InstructionSlice::new(
+            nuo_wire::InstructionBundle::new(vec![nuo_wire::InstructionSlice::new(
                 "harness.cognitive_task",
-                nuo_contracts::InstructionTier::Task,
+                nuo_wire::InstructionTier::Task,
                 task.system_prompt(),
             )]);
         let messages = vec![Message::new(Role::User, task.render_prompt(&input))];
@@ -112,7 +112,7 @@ impl HarnessTaskPipeline {
     ///
     /// If the pipeline fails, times out, or returns invalid JSON, this logs a warning
     /// and returns `fallback` to prevent blocking the production loop.
-    pub async fn consult_with_fallback<T: nuo_contracts::HarnessTask>(
+    pub async fn consult_with_fallback<T: nuo_wire::HarnessTask>(
         &self,
         task: T,
         input: T::Input,
@@ -200,7 +200,7 @@ impl HarnessTaskPipeline {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use nuo_contracts::Message;
+    use nuo_wire::Message;
 
     struct MockProvider {
         response: Result<String, String>,
@@ -211,15 +211,15 @@ mod tests {
         async fn chat(
             &self,
             _req: ModelRequest,
-        ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
+        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
             match &self.response {
-                Ok(content) => Ok(nuo_contracts::ProviderCompletion::message(Message::new(
+                Ok(content) => Ok(nuo_wire::ProviderCompletion::message(Message::new(
                     Role::Assistant,
                     content,
                 ))),
-                Err(err) => Err(nuo_contracts::ProviderError::new(
+                Err(err) => Err(nuo_wire::ProviderError::new(
                     "mock",
-                    nuo_contracts::ProviderErrorKind::Other,
+                    nuo_wire::ProviderErrorKind::Other,
                     err.clone(),
                 )),
             }
@@ -229,8 +229,8 @@ mod tests {
             &self,
             _req: ModelRequest,
         ) -> Result<
-            futures::stream::BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-            nuo_contracts::ProviderError,
+            futures::stream::BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+            nuo_wire::ProviderError,
         > {
             Ok(Box::pin(futures::stream::empty()))
         }
@@ -281,7 +281,7 @@ mod tests {
         let verdict = CognitivePipeline::new(provider)
             .review_stream_loop(StreamLoopReviewInput {
                 heuristic_candidate: "abab".to_string(),
-                channel: nuo_contracts::StreamLoopChannel::AssistantText,
+                channel: nuo_wire::StreamLoopChannel::AssistantText,
                 preceding_context: String::new(),
                 assistant_text: "abababab".to_string(),
                 reasoning_text: String::new(),
@@ -295,7 +295,7 @@ mod tests {
         let verdict = CognitivePipeline::new(provider)
             .review_stream_loop(StreamLoopReviewInput {
                 heuristic_candidate: "abab".to_string(),
-                channel: nuo_contracts::StreamLoopChannel::AssistantText,
+                channel: nuo_wire::StreamLoopChannel::AssistantText,
                 preceding_context: String::new(),
                 assistant_text: "abababab".to_string(),
                 reasoning_text: String::new(),
@@ -309,7 +309,7 @@ mod tests {
         let verdict = CognitivePipeline::new(provider)
             .review_stream_loop(StreamLoopReviewInput {
                 heuristic_candidate: "abab".to_string(),
-                channel: nuo_contracts::StreamLoopChannel::AssistantText,
+                channel: nuo_wire::StreamLoopChannel::AssistantText,
                 preceding_context: String::new(),
                 assistant_text: "abababab".to_string(),
                 reasoning_text: String::new(),

@@ -56,7 +56,7 @@ async fn run(project_root: &std::path::Path) -> Result<(), String> {
         // No declared project: the smoke run exercises the daemon's
         // cwd-fallback scope.
         project: None,
-        posture: nuo_contracts::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .map_err(|e| format!("{e}"))?;

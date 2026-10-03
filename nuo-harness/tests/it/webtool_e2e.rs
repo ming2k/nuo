@@ -14,7 +14,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use nuo_harness::tools::{WebReaderTool, WebSearchTool};
-use nuo_contracts::{Tool, WebConfig, WebReaderProvider, WebRuntimeConfig};
+use nuo_wire::{Tool, WebConfig, WebReaderProvider, WebRuntimeConfig};
 
 /// Shape a config mirroring the developer workstation: direct access, Exa
 /// one selected search provider plus the independently selected Jina reader.

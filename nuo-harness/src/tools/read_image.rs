@@ -9,7 +9,7 @@
 //! content — exactly the lowering opencode performs for OpenAI Chat.
 
 use async_trait::async_trait;
-use nuo_contracts::{Tool, ToolOutput};
+use nuo_wire::{Tool, ToolOutput};
 use nuo_tool::ToolSchema;
 use serde::Deserialize;
 
@@ -32,7 +32,7 @@ struct ReadImageArgs {
 /// factory time), not the daemon process's cwd (ADR-0096).
 pub struct ReadImageTool {
     pub(crate) root: WorkspaceBase,
-    pub(crate) env: Option<std::sync::Arc<dyn nuo_contracts::ExecutionEnvironment>>,
+    pub(crate) env: Option<std::sync::Arc<dyn nuo_wire::ExecutionEnvironment>>,
 }
 
 impl ReadImageTool {
@@ -40,7 +40,7 @@ impl ReadImageTool {
         Self { root, env: None }
     }
 
-    pub fn with_env(env: std::sync::Arc<dyn nuo_contracts::ExecutionEnvironment>) -> Self {
+    pub fn with_env(env: std::sync::Arc<dyn nuo_wire::ExecutionEnvironment>) -> Self {
         let root = Some(env.workspace_root().to_path_buf());
         Self {
             root,
@@ -114,7 +114,7 @@ impl Tool for ReadImageTool {
     }
 }
 
-nuo_contracts::register_tool!(ReadImageFactory => |ctx| ReadImageTool {
+nuo_wire::register_tool!(ReadImageFactory => |ctx| ReadImageTool {
     root: workspace_base(ctx),
     env: Some(execution_environment(ctx)),
 });

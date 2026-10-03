@@ -7,7 +7,7 @@
 use super::{ProviderOutput, SearchProvider, mcp_tools_call};
 use async_trait::async_trait;
 
-use nuo_contracts::EXA_SEARCH_ENDPOINT;
+use nuo_wire::EXA_SEARCH_ENDPOINT;
 const EXA_TOOL: &str = "web_search_exa";
 
 pub(crate) struct ExaProvider {

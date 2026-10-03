@@ -9,10 +9,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use nuo_contracts::SecretString;
+use nuo_host::SecretString;
 
 use crate::oauth::token::TokenResponse;
-use nuo_contracts::provider_auth::OAuthConfig;
+use nuo_model_codec::provider_auth::OAuthConfig;
 
 /// Response from the `deviceauth/usercode` endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]

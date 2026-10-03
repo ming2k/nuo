@@ -5,7 +5,7 @@ pub mod pipes;
 mod tests;
 
 use async_trait::async_trait;
-use nuo_contracts::Tool;
+use nuo_wire::Tool;
 use nuo_tool::ToolSchema;
 use serde::Deserialize;
 use tokio::time::Duration;
@@ -50,7 +50,7 @@ struct WorkspaceExecuteCommandArgs {
 /// # Security & Threat Model
 ///
 /// ⚠️ **HIGH-PRIVILEGE TOOL (DANGEROUS)**:
-/// When executing under [`ShellIsolation::Host`](nuo_contracts::ShellIsolation::Host) (default without an active
+/// When executing under [`ShellIsolation::Host`](nuo_wire::ShellIsolation::Host) (default without an active
 /// workspace sandbox container/namespace), commands run directly on the host system with the full privileges of the
 /// running process. This **bypasses all workspace boundaries and jail constraints** that are strictly enforced on
 /// filesystem tools (`read_text`, `write_file`, etc.).
@@ -66,7 +66,7 @@ struct WorkspaceExecuteCommandArgs {
 ///    - Model prompts and policies MUST actively discourage using shell commands (such as `cat`, `sed`, `echo >`,
 ///      `grep`, `find`) for filesystem inspection or editing, and direct the model to dedicated workspace-bound tools.
 /// 3. **Sandbox Recommended**:
-///    - For untrusted or autonomous multi-turn loops, configure [`ShellIsolation::Workspace`](nuo_contracts::ShellIsolation::Workspace)
+///    - For untrusted or autonomous multi-turn loops, configure [`ShellIsolation::Workspace`](nuo_wire::ShellIsolation::Workspace)
 ///      so commands run within an isolated Linux namespace/container where external filesystem access and network are restricted.
 ///
 /// Commands run in the session's workspace root (captured at factory time),
@@ -74,7 +74,7 @@ struct WorkspaceExecuteCommandArgs {
 /// differ whenever the daemon was first spawned from another project.
 pub struct ExecuteCommandTool {
     pub(crate) root: WorkspaceBase,
-    pub(crate) env: Option<std::sync::Arc<dyn nuo_contracts::ExecutionEnvironment>>,
+    pub(crate) env: Option<std::sync::Arc<dyn nuo_wire::ExecutionEnvironment>>,
     workspace_sandbox: bool,
 }
 
@@ -92,7 +92,7 @@ impl ExecuteCommandTool {
     }
 
     /// Build the shell tool backed by a custom execution environment.
-    pub fn with_env(env: std::sync::Arc<dyn nuo_contracts::ExecutionEnvironment>) -> Self {
+    pub fn with_env(env: std::sync::Arc<dyn nuo_wire::ExecutionEnvironment>) -> Self {
         let root = Some(env.workspace_root().to_path_buf());
         Self {
             root,
@@ -104,7 +104,7 @@ impl ExecuteCommandTool {
     /// Build the workspace-contained variant. It shares the same
     /// model-facing capability name; agent presets select it by variant id.
     pub fn workspace_with_env(
-        env: std::sync::Arc<dyn nuo_contracts::ExecutionEnvironment>,
+        env: std::sync::Arc<dyn nuo_wire::ExecutionEnvironment>,
     ) -> Self {
         let root = Some(env.workspace_root().to_path_buf());
         Self {
@@ -114,14 +114,14 @@ impl ExecuteCommandTool {
         }
     }
 
-    fn shell_isolation(&self) -> nuo_contracts::ShellIsolation {
+    fn shell_isolation(&self) -> nuo_wire::ShellIsolation {
         if self.workspace_sandbox {
-            nuo_contracts::ShellIsolation::Workspace
+            nuo_wire::ShellIsolation::Workspace
         } else {
             self.env
                 .as_ref()
                 .map(|env| env.shell_isolation())
-                .unwrap_or(nuo_contracts::ShellIsolation::Host)
+                .unwrap_or(nuo_wire::ShellIsolation::Host)
         }
     }
 }
@@ -139,7 +139,7 @@ impl Tool for ExecuteCommandTool {
         }
     }
     fn is_available(&self) -> bool {
-        self.shell_isolation() != nuo_contracts::ShellIsolation::Workspace
+        self.shell_isolation() != nuo_wire::ShellIsolation::Workspace
             || nuo_host::workspace_sandbox::available()
     }
     /// The command tool's primary purpose is execution, not workspace
@@ -160,21 +160,21 @@ impl Tool for ExecuteCommandTool {
             ExecuteCommandArgs::parameters_schema()
         }
     }
-    fn scope_target(&self, arguments: &str) -> nuo_contracts::ScopeTarget {
-        nuo_contracts::ScopeTarget::Command(json_string(arguments, "command"))
+    fn scope_target(&self, arguments: &str) -> nuo_wire::ScopeTarget {
+        nuo_wire::ScopeTarget::Command(json_string(arguments, "command"))
     }
-    fn hazard_level(&self) -> nuo_contracts::HazardLevel {
-        nuo_contracts::HazardLevel::CommandExecution
+    fn hazard_level(&self) -> nuo_wire::HazardLevel {
+        nuo_wire::HazardLevel::CommandExecution
     }
     fn permission_submission(
         &self,
         arguments: &str,
-    ) -> Option<nuo_contracts::ToolPermissionSubmission> {
+    ) -> Option<nuo_wire::ToolPermissionSubmission> {
         let command = json_string(arguments, "command");
         let first_word = command.split_whitespace().next().unwrap_or("sh");
-        let sandboxed = self.shell_isolation() == nuo_contracts::ShellIsolation::Workspace;
-        Some(nuo_contracts::ToolPermissionSubmission {
-            hazard_level: nuo_contracts::HazardLevel::CommandExecution,
+        let sandboxed = self.shell_isolation() == nuo_wire::ShellIsolation::Workspace;
+        Some(nuo_wire::ToolPermissionSubmission {
+            hazard_level: nuo_wire::HazardLevel::CommandExecution,
             label: format!(
                 "Execute{}: `{}`",
                 if sandboxed {
@@ -198,10 +198,10 @@ impl Tool for ExecuteCommandTool {
                 )
             },
             scope: command.clone(),
-            payload: nuo_contracts::ToolPermissionPayload::Command {
+            payload: nuo_wire::ToolPermissionPayload::Command {
                 command: command.clone(),
                 cwd: None,
-                kill_spec: nuo_contracts::ProcessKillSpec {
+                kill_spec: nuo_wire::ProcessKillSpec {
                     command: first_word.to_string(),
                     process_group_killable: true,
                     pkill_target: format!("pkill -f '{first_word}'"),
@@ -214,12 +214,12 @@ impl Tool for ExecuteCommandTool {
         self.call_structured(arguments).await.map(|o| o.to_text())
     }
 
-    async fn call_structured(&self, arguments: &str) -> Result<nuo_contracts::ToolOutput, String> {
+    async fn call_structured(&self, arguments: &str) -> Result<nuo_wire::ToolOutput, String> {
         self.call_structured_with_events(
-            nuo_contracts::ToolInvocation {
+            nuo_wire::ToolInvocation {
                 call_id: "",
                 arguments,
-                input: nuo_contracts::InputContract::default(),
+                input: nuo_wire::InputContract::default(),
                 input_handler: None,
             },
             Box::new(|_| {}),
@@ -230,10 +230,10 @@ impl Tool for ExecuteCommandTool {
 
     async fn call_structured_with_events<'a>(
         &self,
-        invocation: nuo_contracts::ToolInvocation<'a>,
-        _on_event: Box<dyn FnMut(nuo_contracts::SubagentEvent) + Send + 'a>,
-        on_stream: &mut (dyn FnMut(nuo_contracts::ToolStream) + Send + 'a),
-    ) -> Result<nuo_contracts::ToolOutput, String> {
+        invocation: nuo_wire::ToolInvocation<'a>,
+        _on_event: Box<dyn FnMut(nuo_wire::SubagentEvent) + Send + 'a>,
+        on_stream: &mut (dyn FnMut(nuo_wire::ToolStream) + Send + 'a),
+    ) -> Result<nuo_wire::ToolOutput, String> {
         let args: ExecuteCommandArgs = serde_json::from_str(invocation.arguments)
             .map_err(|e| format!("Invalid JSON: {}", e))?;
         let timeout_secs = args.timeout.unwrap_or(1800);
@@ -259,7 +259,7 @@ impl Tool for ExecuteCommandTool {
     }
 }
 
-nuo_contracts::register_tool!(ExecuteCommandFactory => |ctx| {
+nuo_wire::register_tool!(ExecuteCommandFactory => |ctx| {
     let env = Some(execution_environment(ctx));
     ExecuteCommandTool {
         root: workspace_base(ctx),
@@ -268,7 +268,7 @@ nuo_contracts::register_tool!(ExecuteCommandFactory => |ctx| {
     }
 });
 
-nuo_contracts::register_tool!(WorkspaceExecuteCommandFactory => |ctx| {
+nuo_wire::register_tool!(WorkspaceExecuteCommandFactory => |ctx| {
     let env = execution_environment(ctx);
     ExecuteCommandTool::workspace_with_env(env)
 });

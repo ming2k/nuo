@@ -9,7 +9,8 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use nuo_contracts::{OffstreamRegistry, Tool, ToolOutput};
+use crate::offstream::OffstreamRegistry;
+use nuo_wire::{Tool, ToolOutput};
 
 const INSPECT_DESCRIPTION: &str = "Inspect offstream epistemic memory (ADR-0262, ADR-0285). \
 Retrieve detailed historical context that has exited the active model window: \
@@ -187,7 +188,7 @@ impl Tool for InspectTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::{OffstreamEntry, OffstreamSource, OffstreamStatus, PagedOffstreamContent};
+    use crate::{OffstreamEntry, OffstreamSource, OffstreamStatus, PagedOffstreamContent};
 
     struct DummySource;
 
@@ -324,7 +325,7 @@ mod tests {
                 "[Visual Media]",
                 None,
                 1,
-            ).with_media(nuo_contracts::ImagePart {
+            ).with_media(nuo_wire::ImagePart {
                 mime: "image/png".to_string(),
                 data: "base64_rehydrated_png_data".to_string(),
             }))

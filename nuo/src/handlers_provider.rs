@@ -10,8 +10,8 @@
 use nuo_harness::Agent;
 use crate::catalog;
 use nuo_harness::orchestration::round_response;
-use nuo_contracts::model::ModelTargetScope;
-use nuo_contracts::{
+use nuo_wire::model::ModelTargetScope;
+use nuo_wire::{
     AgentNotice, AgentResponse, ClientIdentity, CommandRecord, CommandResult, Provider, RoundEvent,
     SecretString, WireProtocol,
 };
@@ -56,7 +56,7 @@ pub(crate) struct AddConnectionParams {
     pub provider: String,
     pub api_key: SecretString,
     pub models: Vec<String>,
-    pub auth: nuo_contracts::ConnectionAuth,
+    pub auth: nuo_wire::ConnectionAuth,
     pub client_identity: Option<ClientIdentity>,
 }
 
@@ -66,7 +66,7 @@ pub(crate) fn register_provider(
     label: Option<String>,
     root_url: String,
     protocol: Option<WireProtocol>,
-    client_profile: Option<nuo_contracts::ClientPreset>,
+    client_profile: Option<nuo_wire::ClientPreset>,
     user_agent: Option<String>,
     catalog_format: Option<String>,
     dialect: Option<String>,
@@ -88,10 +88,10 @@ pub(crate) fn register_provider(
             catalog: catalog_format
                 .map(|format| {
                     if matches!(format.as_str(), "none" | "static") {
-                        Ok(nuo_contracts::RemoteCatalogSource::None)
+                        Ok(nuo_wire::RemoteCatalogSource::None)
                     } else {
                         serde_json::from_value(serde_json::Value::String(format))
-                            .map(nuo_contracts::RemoteCatalogSource::Endpoint)
+                            .map(nuo_wire::RemoteCatalogSource::Endpoint)
                             .map_err(|e| e.to_string())
                     }
                 })
@@ -111,7 +111,7 @@ pub(crate) fn register_provider(
 }
 
 pub(crate) struct PendingOAuthAuthorization {
-    pub auth: nuo_contracts::ConnectionAuth,
+    pub auth: nuo_wire::ConnectionAuth,
     pub tokens: nuo_providers::oauth::TokenSet,
 }
 
@@ -267,14 +267,14 @@ pub(crate) async fn add(
     let trimmed_key = api_key.expose_secret().trim();
     // Pasted API key on an OAuth provider → ordinary ApiKey auth.
     let auth = match (auth, !trimmed_key.is_empty()) {
-        (a, true) if a.is_oauth() => nuo_contracts::ConnectionAuth::ApiKey,
+        (a, true) if a.is_oauth() => nuo_wire::ConnectionAuth::ApiKey,
         (other, _) => other,
     };
     // Sanitized declared model ids. A curated provider owns its model universe,
     // so the list is an initial inclusion set; an open-universe provider declares its own.
     let declared_models: Vec<String> = models
         .iter()
-        .map(|m| nuo_contracts::sanitize_model_id(m))
+        .map(|m| nuo_wire::sanitize_model_id(m))
         .filter(|m| !m.is_empty())
         .collect();
     // An open-universe provider must declare at least one model — nothing else supplies them.
@@ -312,7 +312,7 @@ pub(crate) async fn add(
             }
             _ => {
                 let _ = resp_tx.send(AgentResponse::ConnectStatus(
-                    nuo_contracts::ConnectStatus::Failed {
+                    nuo_wire::ConnectStatus::Failed {
                         provider: name.clone(),
                         message: "OAuth authorization is missing or invalid; authorize this connection again"
                             .to_string(),
@@ -332,7 +332,7 @@ pub(crate) async fn add(
             Ok(store) => store,
             Err(error) => {
                 let _ = resp_tx.send(AgentResponse::ConnectStatus(
-                    nuo_contracts::ConnectStatus::Failed {
+                    nuo_wire::ConnectStatus::Failed {
                         provider: name.clone(),
                         message: format!("could not lock OAuth credential store: {error}"),
                     },
@@ -343,7 +343,7 @@ pub(crate) async fn add(
         store.set(&name, tokens);
         if let Err(error) = store.commit().await {
             let _ = resp_tx.send(AgentResponse::ConnectStatus(
-                nuo_contracts::ConnectStatus::Failed {
+                nuo_wire::ConnectStatus::Failed {
                     provider: name.clone(),
                     message: format!("could not persist OAuth credentials: {error}"),
                 },
@@ -354,7 +354,7 @@ pub(crate) async fn add(
     }
 
     let mut stored_api_key = false;
-    if auth == nuo_contracts::ConnectionAuth::ApiKey && !trimmed_key.is_empty() {
+    if auth == nuo_wire::ConnectionAuth::ApiKey && !trimmed_key.is_empty() {
         let mut creds = Credentials::load();
         creds.set_api_key(&name, Some(SecretString::from(trimmed_key)));
         let save_err = creds.save().err().map(|e| e.to_string());
@@ -364,7 +364,7 @@ pub(crate) async fn add(
                 let _ = store.commit().await;
             }
             let _ = resp_tx.send(AgentResponse::ConnectStatus(
-                nuo_contracts::ConnectStatus::Failed {
+                nuo_wire::ConnectStatus::Failed {
                     provider: name.clone(),
                     message: format!("could not persist API key: {error_msg}"),
                 },
@@ -381,13 +381,13 @@ pub(crate) async fn add(
         .get(&provider)
         .cloned()
         .unwrap_or_default();
-    let mut model_rules = nuo_contracts::model::ModelScopeConfig {
+    let mut model_rules = nuo_wire::model::ModelScopeConfig {
         filter: provider_rules.filter.or_else(|| {
-            Some(nuo_contracts::ConnectionFilterPolicy::Named(
+            Some(nuo_wire::ConnectionFilterPolicy::Named(
                 if spec.catalog_source == nuo_providers::RemoteCatalogSource::None {
-                    nuo_contracts::NamedFilterPolicy::Baseline
+                    nuo_wire::NamedFilterPolicy::Baseline
                 } else {
-                    nuo_contracts::NamedFilterPolicy::All
+                    nuo_wire::NamedFilterPolicy::All
                 },
             ))
         }),
@@ -401,7 +401,7 @@ pub(crate) async fn add(
             if !model_rules.include.iter().any(|model| model.id == id) {
                 model_rules
                     .include
-                    .push(nuo_contracts::model::DeclaredModel {
+                    .push(nuo_wire::model::DeclaredModel {
                         id,
                         ..Default::default()
                     });
@@ -433,7 +433,7 @@ pub(crate) async fn add(
             let _ = creds.save();
         }
         let _ = resp_tx.send(AgentResponse::ConnectStatus(
-            nuo_contracts::ConnectStatus::Failed {
+            nuo_wire::ConnectStatus::Failed {
                 provider: name.clone(),
                 message: format!("could not persist connection store: {error_msg}"),
             },
@@ -508,13 +508,13 @@ pub(crate) async fn add(
         }
         for failure in &outcome.failures {
             let _ = resp_tx.send(AgentResponse::ConnectStatus(
-                nuo_contracts::ConnectStatus::CatalogSyncWarning {
+                nuo_wire::ConnectStatus::CatalogSyncWarning {
                     provider: failure.connection.clone(),
                     message: failure.message.clone(),
                     kind: if failure.refused {
-                        nuo_contracts::CatalogSyncFailure::Refused
+                        nuo_wire::CatalogSyncFailure::Refused
                     } else {
-                        nuo_contracts::CatalogSyncFailure::Transient
+                        nuo_wire::CatalogSyncFailure::Transient
                     },
                 },
             ));
@@ -807,7 +807,7 @@ pub(crate) async fn include_model(
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     provider_usage: &mut ConnectionUsage,
     scope: ModelTargetScope,
-    model: nuo_contracts::model::DeclaredModel,
+    model: nuo_wire::model::DeclaredModel,
 ) {
     match scope {
         ModelTargetScope::Provider(provider_id) => {
@@ -941,7 +941,7 @@ pub(crate) async fn set_model_capabilities(
     provider_usage: &mut ConnectionUsage,
     scope: ModelTargetScope,
     model_id: String,
-    overrides: nuo_contracts::model::CapabilityOverrides,
+    overrides: nuo_wire::model::CapabilityOverrides,
 ) {
     match scope {
         ModelTargetScope::Provider(provider_id) => {
@@ -994,13 +994,13 @@ pub(crate) async fn edit_model(
     model: String,
     effort: Option<String>,
     thinking: Option<bool>,
-    overrides: Option<nuo_contracts::CapabilityOverrides>,
+    overrides: Option<nuo_wire::CapabilityOverrides>,
 ) {
     let valid_effort = effort.and_then(|e| {
         let t = e.trim();
         (!t.is_empty())
             .then(|| t.to_ascii_lowercase())
-            .filter(|s| nuo_contracts::effort::Effort::parse(s).is_some())
+            .filter(|s| nuo_wire::effort::Effort::parse(s).is_some())
     });
 
     // Resolve the route's transport to decide which knobs apply (Anthropic
@@ -1022,16 +1022,16 @@ pub(crate) async fn edit_model(
     let mut routes = RouteSettingsStore::load();
     let entry = routes.settings_for_mut(&connection, &model);
     match transport {
-        nuo_contracts::catalog::Transport::Anthropic { .. } => {
+        nuo_wire::catalog::Transport::Anthropic { .. } => {
             entry.effort = valid_effort;
             entry.thinking = thinking;
         }
-        nuo_contracts::catalog::Transport::OpenAi { .. }
-        | nuo_contracts::catalog::Transport::OpenAiResponses { .. } => {
+        nuo_wire::catalog::Transport::OpenAi { .. }
+        | nuo_wire::catalog::Transport::OpenAiResponses { .. } => {
             entry.effort = valid_effort;
             entry.thinking = None;
         }
-        nuo_contracts::catalog::Transport::Google { .. } => {}
+        nuo_wire::catalog::Transport::Google { .. } => {}
     }
     // Capability overrides (ADR-0149 layer 1): `None` keeps the stored
     // record untouched; `Some(record)` replaces it wholesale (empty clears).
@@ -1087,13 +1087,13 @@ pub(crate) async fn edit_model_reasoning(
     model: String,
     effort: Option<String>,
     thinking: Option<bool>,
-    overrides: Option<nuo_contracts::CapabilityOverrides>,
+    overrides: Option<nuo_wire::CapabilityOverrides>,
 ) {
     let valid_effort = effort.and_then(|e| {
         let t = e.trim();
         (!t.is_empty())
             .then(|| t.to_ascii_lowercase())
-            .filter(|s| nuo_contracts::effort::Effort::parse(s).is_some())
+            .filter(|s| nuo_wire::effort::Effort::parse(s).is_some())
     });
 
     let provider_id = config.default_connection.clone();
@@ -1306,15 +1306,15 @@ pub async fn reapply_session_selection(
 /// session-local until `AddProvider` consumes it into the final connection id.
 pub async fn authorize(
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
-    method: nuo_contracts::LoginMethod,
-    auth: nuo_contracts::ConnectionAuth,
+    method: nuo_wire::LoginMethod,
+    auth: nuo_wire::ConnectionAuth,
 ) -> Option<nuo_providers::oauth::TokenSet> {
     let Some(cfg) = auth
         .oauth_provider_id()
         .and_then(nuo_providers::oauth::config_by_provider_id)
     else {
         let _ = resp_tx.send(AgentResponse::ConnectStatus(
-            nuo_contracts::ConnectStatus::Failed {
+            nuo_wire::ConnectStatus::Failed {
                 provider: "oauth".to_string(),
                 message: "not an OAuth provider".to_string(),
             },
@@ -1339,7 +1339,7 @@ pub async fn connect(
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     provider_usage: &mut ConnectionUsage,
     provider_id: String,
-    method: nuo_contracts::LoginMethod,
+    method: nuo_wire::LoginMethod,
 ) {
     if run_oauth_for_connect(resp_tx, provider_id.clone(), method).await {
         connect_post_oauth(
@@ -1358,7 +1358,7 @@ pub async fn connect(
 pub async fn run_oauth_for_connect(
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     provider_id: String,
-    method: nuo_contracts::LoginMethod,
+    method: nuo_wire::LoginMethod,
 ) -> bool {
     let connections = Connections::load();
     let auth_mode = connections
@@ -1370,7 +1370,7 @@ pub async fn run_oauth_for_connect(
         .and_then(nuo_providers::oauth::config_by_provider_id)
     else {
         let _ = resp_tx.send(AgentResponse::ConnectStatus(
-            nuo_contracts::ConnectStatus::Failed {
+            nuo_wire::ConnectStatus::Failed {
                 provider: provider_id,
                 message: "not an OAuth provider".to_string(),
             },
@@ -1384,7 +1384,7 @@ pub async fn run_oauth_for_connect(
         Ok(store) => store,
         Err(error) => {
             let _ = resp_tx.send(AgentResponse::ConnectStatus(
-                nuo_contracts::ConnectStatus::Failed {
+                nuo_wire::ConnectStatus::Failed {
                     provider: provider_id,
                     message: format!("could not lock OAuth credential store: {error}"),
                 },
@@ -1401,7 +1401,7 @@ pub async fn run_oauth_for_connect(
     store.set(&provider_id, tokens);
     if let Err(error) = store.commit().await {
         let _ = resp_tx.send(AgentResponse::ConnectStatus(
-            nuo_contracts::ConnectStatus::Failed {
+            nuo_wire::ConnectStatus::Failed {
                 provider: provider_id,
                 message: format!("could not persist OAuth credentials: {error}"),
             },
@@ -1409,7 +1409,7 @@ pub async fn run_oauth_for_connect(
         return false;
     }
     let _ = resp_tx.send(AgentResponse::ConnectStatus(
-        nuo_contracts::ConnectStatus::Done {
+        nuo_wire::ConnectStatus::Done {
             provider: provider_id.clone(),
         },
     ));
@@ -1436,13 +1436,13 @@ pub async fn connect_post_oauth(
     catalog::prune_stale_models(config, provider_usage);
     for failure in &outcome.failures {
         let _ = resp_tx.send(AgentResponse::ConnectStatus(
-            nuo_contracts::ConnectStatus::CatalogSyncWarning {
+            nuo_wire::ConnectStatus::CatalogSyncWarning {
                 provider: failure.connection.clone(),
                 message: failure.message.clone(),
                 kind: if failure.refused {
-                    nuo_contracts::CatalogSyncFailure::Refused
+                    nuo_wire::CatalogSyncFailure::Refused
                 } else {
-                    nuo_contracts::CatalogSyncFailure::Transient
+                    nuo_wire::CatalogSyncFailure::Transient
                 },
             },
         ));
@@ -1474,7 +1474,7 @@ pub async fn connect_post_oauth(
 async fn run_oauth(
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     label: &str,
-    method: nuo_contracts::LoginMethod,
+    method: nuo_wire::LoginMethod,
     cfg: nuo_providers::oauth::OAuthConfig,
 ) -> Option<nuo_providers::oauth::TokenSet> {
     use nuo_providers::oauth::OAuth;
@@ -1485,7 +1485,7 @@ async fn run_oauth(
         Ok(login) => login,
         Err(error) => {
             let _ = resp_tx.send(AgentResponse::ConnectStatus(
-                nuo_contracts::ConnectStatus::Failed {
+                nuo_wire::ConnectStatus::Failed {
                     provider: label.to_string(),
                     message: error.to_string(),
                 },
@@ -1495,7 +1495,7 @@ async fn run_oauth(
     };
     let prompt = login.prompt();
     let _ = resp_tx.send(AgentResponse::ConnectStatus(
-        nuo_contracts::ConnectStatus::Pending {
+        nuo_wire::ConnectStatus::Pending {
             provider: label.to_string(),
             url: prompt.url.clone(),
             user_code: prompt.user_code.clone().unwrap_or_default(),
@@ -1508,7 +1508,7 @@ async fn run_oauth(
         Err(error) => {
             let message = oauth.format_login_error(&error);
             let _ = resp_tx.send(AgentResponse::ConnectStatus(
-                nuo_contracts::ConnectStatus::Failed {
+                nuo_wire::ConnectStatus::Failed {
                     provider: label.to_string(),
                     message,
                 },
@@ -1536,7 +1536,7 @@ pub(crate) async fn refresh_oauth_if_needed(_config: &Config, provider_id: &str)
             provider_id,
             instance.auth.clone(),
         );
-    if let Err(error) = nuo_contracts::CredentialSource::resolve_auth(&source).await {
+    if let Err(error) = nuo_wire::CredentialSource::resolve_auth(&source).await {
         tracing::warn!(error = %error, provider = %provider_id, "OAuth token resolution failed");
     }
 }
@@ -1710,13 +1710,13 @@ pub fn apply_connection_update(
     }
     if let Some(error) = &update.error {
         let _ = resp_tx.send(AgentResponse::ConnectStatus(
-            nuo_contracts::ConnectStatus::CatalogSyncWarning {
+            nuo_wire::ConnectStatus::CatalogSyncWarning {
                 provider: update.connection.clone(),
                 message: error.clone(),
                 kind: if update.refused {
-                    nuo_contracts::CatalogSyncFailure::Refused
+                    nuo_wire::CatalogSyncFailure::Refused
                 } else {
-                    nuo_contracts::CatalogSyncFailure::Transient
+                    nuo_wire::CatalogSyncFailure::Transient
                 },
             },
         ));
@@ -1819,7 +1819,7 @@ pub(crate) async fn query_connection_detail(
         });
 
     let provider_label =
-        nuo_contracts::model_providers::model_provider_label(&connection.provider).to_string();
+        nuo_wire::model_providers::model_provider_label(&connection.provider).to_string();
 
     let raw_key = catalog::resolve_credential(connection, &stores.creds);
     let api_key_masked = mask_api_key(raw_key.expose_secret());
@@ -1882,7 +1882,7 @@ pub(crate) async fn query_connection_detail(
         "API Key".to_string()
     };
 
-    let mut initial_detail = nuo_contracts::ConnectionDetail {
+    let mut initial_detail = nuo_wire::ConnectionDetail {
         name: connection.name.clone(),
         provider: connection.provider.clone(),
         provider_label,
@@ -1906,7 +1906,7 @@ pub(crate) async fn query_connection_detail(
         active_model,
         active_model_effort,
         active_model_thinking,
-        usage: nuo_contracts::ConnectionUsageState::Fetching,
+        usage: nuo_wire::ConnectionUsageState::Fetching,
     };
 
     // Phase 1: Send local detail snapshot immediately so UI renders instantly.
@@ -1926,10 +1926,10 @@ pub(crate) async fn query_connection_detail(
                     &conn_id,
                     conn_auth.clone(),
                 );
-            match nuo_contracts::CredentialSource::resolve_auth(&source).await {
+            match nuo_wire::CredentialSource::resolve_auth(&source).await {
                 Ok(auth) => (auth.token.expose_secret().to_string(), true),
                 Err(err) => {
-                    initial_detail.usage = nuo_contracts::ConnectionUsageState::Error(err);
+                    initial_detail.usage = nuo_wire::ConnectionUsageState::Error(err);
                     let _ = resp_tx_bg.send(AgentResponse::ConnectionDetail(initial_detail));
                     return;
                 }
@@ -1941,7 +1941,7 @@ pub(crate) async fn query_connection_detail(
         let mut usage = nuo_providers::fetch_provider_usage(&provider, &base_url, &api_key).await;
 
         if is_oauth
-            && let nuo_contracts::ConnectionUsageState::Error(ref err) = usage
+            && let nuo_wire::ConnectionUsageState::Error(ref err) = usage
             && is_auth_error(err)
         {
             let source =
@@ -1952,7 +1952,7 @@ pub(crate) async fn query_connection_detail(
                 );
             let rejected = SecretString::from(api_key.as_str());
             if let Ok(refreshed) =
-                nuo_contracts::CredentialSource::force_refresh_after_rejection(&source, &rejected)
+                nuo_wire::CredentialSource::force_refresh_after_rejection(&source, &rejected)
                     .await
             {
                 usage = nuo_providers::fetch_provider_usage(
@@ -2000,9 +2000,9 @@ mod tests {
         let record = &commands[0];
         assert_eq!(record.name, "models");
         assert_eq!(record.args, "111xianyu k3");
-        assert_eq!(record.status, nuo_contracts::CommandStatus::Success);
+        assert_eq!(record.status, nuo_wire::CommandStatus::Success);
         match &record.result {
-            Some(nuo_contracts::CommandResult::Ack { title, .. }) => {
+            Some(nuo_wire::CommandResult::Ack { title, .. }) => {
                 assert_eq!(title, "Connection switched to 111xianyu (k3)");
             }
             other => panic!("expected a durable Ack result, got {other:?}"),
@@ -2087,7 +2087,7 @@ mod tests {
 
         // Pending auth is for Antigravity, but params requests ChatGPT
         let pending = PendingOAuthAuthorization {
-            auth: nuo_contracts::ConnectionAuth::subscription("google-antigravity"),
+            auth: nuo_wire::ConnectionAuth::subscription("google-antigravity"),
             tokens: nuo_providers::oauth::TokenSet {
                 access: "tok".into(),
                 refresh: "ref".into(),
@@ -2105,7 +2105,7 @@ mod tests {
             provider: "openai-subscription".to_string(),
             api_key: "".into(),
             models: vec!["gpt-5.6".to_string()],
-            auth: nuo_contracts::ConnectionAuth::subscription("chatgpt"),
+            auth: nuo_wire::ConnectionAuth::subscription("chatgpt"),
             client_identity: None,
         };
 
@@ -2115,7 +2115,7 @@ mod tests {
         let resp = resp_rx.recv().await.unwrap();
         assert!(matches!(
             resp,
-            AgentResponse::ConnectStatus(nuo_contracts::ConnectStatus::Failed { .. })
+            AgentResponse::ConnectStatus(nuo_wire::ConnectStatus::Failed { .. })
         ));
 
         // Verify no connection was written
@@ -2184,7 +2184,7 @@ mod tests {
         match initial {
             AgentResponse::ConnectionDetail(detail) => {
                 assert_eq!(detail.name, "test-relay");
-                assert_eq!(detail.usage, nuo_contracts::ConnectionUsageState::Fetching);
+                assert_eq!(detail.usage, nuo_wire::ConnectionUsageState::Fetching);
             }
             other => panic!("expected ConnectionDetail, got {other:?}"),
         }
@@ -2197,8 +2197,8 @@ mod tests {
                 // Unsupported since base_url is example.com and no API key is set
                 assert!(matches!(
                     detail.usage,
-                    nuo_contracts::ConnectionUsageState::Error(_)
-                        | nuo_contracts::ConnectionUsageState::Unsupported
+                    nuo_wire::ConnectionUsageState::Error(_)
+                        | nuo_wire::ConnectionUsageState::Unsupported
                 ));
             }
             other => panic!("expected final ConnectionDetail, got {other:?}"),
@@ -2240,14 +2240,14 @@ mod tests {
 
         let warning = resp_rx.recv().await.expect("warning expected");
         match warning {
-            AgentResponse::ConnectStatus(nuo_contracts::ConnectStatus::CatalogSyncWarning {
+            AgentResponse::ConnectStatus(nuo_wire::ConnectStatus::CatalogSyncWarning {
                 provider,
                 message,
                 kind,
             }) => {
                 assert_eq!(provider, "gmain");
                 assert_eq!(message, "network error");
-                assert_eq!(kind, nuo_contracts::CatalogSyncFailure::Transient);
+                assert_eq!(kind, nuo_wire::CatalogSyncFailure::Transient);
             }
             other => panic!("expected CatalogSyncWarning, got {other:?}"),
         }
@@ -2295,7 +2295,7 @@ mod tests {
             &resp_tx,
             &mut usage,
             ModelTargetScope::Provider("deepseek".into()),
-            nuo_contracts::model::DeclaredModel {
+            nuo_wire::model::DeclaredModel {
                 id: "deepseek-v4-preview".into(),
                 context_window: Some(1_000_000),
                 ..Default::default()
@@ -2385,7 +2385,7 @@ mod tests {
             provider: "openai".to_string(),
             api_key: SecretString::from("sk-test"),
             models: vec!["gpt-4o".to_string(), "gpt-4o-mini".to_string()],
-            auth: nuo_contracts::ConnectionAuth::ApiKey,
+            auth: nuo_wire::ConnectionAuth::ApiKey,
             client_identity: None,
         };
 
@@ -2400,8 +2400,8 @@ mod tests {
         );
         assert_eq!(
             conn.models.filter,
-            Some(nuo_contracts::ConnectionFilterPolicy::Named(
-                nuo_contracts::NamedFilterPolicy::All
+            Some(nuo_wire::ConnectionFilterPolicy::Named(
+                nuo_wire::NamedFilterPolicy::All
             ))
         );
 
@@ -2414,23 +2414,23 @@ mod tests {
     /// a model-switch concern (`/models`), not a connection-management one.
     #[tokio::test(flavor = "multi_thread")]
     async fn add_connection_never_hijacks_an_active_session_model() {
-        use nuo_contracts::ModelRequest;
+        use nuo_wire::ModelRequest;
 
         struct LiveStubProvider;
         #[async_trait::async_trait]
-        impl nuo_contracts::Provider for LiveStubProvider {
+        impl nuo_wire::Provider for LiveStubProvider {
             async fn chat(
                 &self,
                 _request: ModelRequest,
-            ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
+            ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
                 unreachable!("stub is never invoked")
             }
             async fn stream_chat(
                 &self,
                 _request: ModelRequest,
             ) -> Result<
-                futures::stream::BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-                nuo_contracts::ProviderError,
+                futures::stream::BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+                nuo_wire::ProviderError,
             > {
                 unreachable!("stub is never invoked")
             }
@@ -2494,7 +2494,7 @@ mod tests {
             provider: "openai".to_string(),
             api_key: SecretString::from("sk-test"),
             models: vec!["gpt-4o".to_string()],
-            auth: nuo_contracts::ConnectionAuth::ApiKey,
+            auth: nuo_wire::ConnectionAuth::ApiKey,
             client_identity: None,
         };
 

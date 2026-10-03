@@ -18,7 +18,7 @@ use nuotc::Rect;
 use crate::model::document::{MessageKind, NoticeSeverity, TranscriptMessage};
 use crate::model::layout::LayoutMap;
 use crate::model::selection::SelectionState;
-use nuo_contracts::Role;
+use nuo_wire::Role;
 
 use super::Theme;
 use super::disclosure::draw_tool_step;
@@ -48,7 +48,7 @@ fn tool_step(
 fn tool_step_structured(
     name: &str,
     arguments: &str,
-    structured: nuo_contracts::ToolOutput,
+    structured: nuo_wire::ToolOutput,
     expanded: bool,
 ) -> TranscriptMessage {
     let text = structured.to_text();
@@ -65,7 +65,7 @@ fn tool_step_structured(
 fn tool_step_streaming(
     name: &str,
     arguments: &str,
-    structured: nuo_contracts::ToolOutput,
+    structured: nuo_wire::ToolOutput,
     expanded: bool,
 ) -> TranscriptMessage {
     let mut m = TranscriptMessage::tool_step("call_test", name, arguments);
@@ -241,7 +241,7 @@ fn read_text_with_offset_numbers_from_start_line() {
     let m = tool_step_structured(
         "read_text",
         r#"{"path":"src/lib.rs","offset":100}"#,
-        nuo_contracts::ToolOutput::Code {
+        nuo_wire::ToolOutput::Code {
             lang: Some("rs".into()),
             text: "fn a() {}\nfn b() {}\nfn c() {}\n".into(),
             start_line: 100,
@@ -273,14 +273,14 @@ fn execute_command_expanded_renders_structured_shell() {
     let m = tool_step_structured(
         "execute_command",
         r#"{"command":"cargo test"}"#,
-        nuo_contracts::ToolOutput::Shell {
+        nuo_wire::ToolOutput::Shell {
             command: "cargo test".into(),
             stdout: "running 3 tests\n...\ntest result: ok. 3 passed".into(),
             stderr: "warning: unused import".into(),
             lines: Vec::new(),
             exit: Some(1),
             truncated: false,
-            termination: nuo_contracts::tool_output::ShellTermination::Exited,
+            termination: nuo_wire::tool_output::ShellTermination::Exited,
             detached_job_id: None,
         },
         true,
@@ -295,11 +295,11 @@ fn execute_command_expanded_preserves_stdout_stderr_interleaving() {
     // bucketed by stream. Here a stderr line sits *between* two stdout lines,
     // so a correct render shows `warning: b` between `Compiling a` and
     // `Compiling c` — not pinned to the bottom.
-    use nuo_contracts::tool_output::{ShellLine, ShellStream};
+    use nuo_wire::tool_output::{ShellLine, ShellStream};
     let m = tool_step_structured(
         "execute_command",
         r#"{"command":"cargo build"}"#,
-        nuo_contracts::ToolOutput::Shell {
+        nuo_wire::ToolOutput::Shell {
             command: "cargo build".into(),
             stdout: "Compiling a\nCompiling c".into(),
             stderr: "warning: b".into(),
@@ -319,7 +319,7 @@ fn execute_command_expanded_preserves_stdout_stderr_interleaving() {
             ],
             exit: Some(0),
             truncated: false,
-            termination: nuo_contracts::tool_output::ShellTermination::Exited,
+            termination: nuo_wire::tool_output::ShellTermination::Exited,
             detached_job_id: None,
         },
         true,
@@ -340,14 +340,14 @@ fn execute_command_expanded_folds_long_output_keeping_tail_events() {
     let m = tool_step_structured(
         "execute_command",
         r#"{"command":"cargo build"}"#,
-        nuo_contracts::ToolOutput::Shell {
+        nuo_wire::ToolOutput::Shell {
             command: "cargo build".into(),
             stdout,
             stderr: String::new(),
             lines: Vec::new(),
             exit: Some(1),
             truncated: false,
-            termination: nuo_contracts::tool_output::ShellTermination::Exited,
+            termination: nuo_wire::tool_output::ShellTermination::Exited,
             detached_job_id: None,
         },
         true,
@@ -368,17 +368,17 @@ fn search_text_expanded_renders_grouped_matches() {
 
 #[test]
 fn search_web_expanded_renders_semantic_cards() {
-    let structured = nuo_contracts::ToolOutput::WebSearch {
+    let structured = nuo_wire::ToolOutput::WebSearch {
         query: "rust 1.85 release notes".into(),
         provider: "DuckDuckGo".into(),
         results: vec![
-            nuo_contracts::WebSearchHit {
+            nuo_wire::WebSearchHit {
                 title: "Rust 1.85.0 released | Rust Blog".into(),
                 url: "https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html".into(),
                 domain: "blog.rust-lang.org".into(),
                 snippet: "The Rust team is happy to announce a new version of Rust, 1.85.0. Rust 2024 edition is now stable!".into(),
             },
-            nuo_contracts::WebSearchHit {
+            nuo_wire::WebSearchHit {
                 title: "What is new in Rust 1.85? - GitHub Discussions".into(),
                 url: "https://github.com/rust-lang/rust/discussions/134900".into(),
                 domain: "github.com".into(),
@@ -398,7 +398,7 @@ fn search_web_expanded_renders_semantic_cards() {
 
 #[test]
 fn read_url_expanded_renders_article_reader() {
-    let structured = nuo_contracts::ToolOutput::WebArticle {
+    let structured = nuo_wire::ToolOutput::WebArticle {
         url: "https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html".into(),
         title: Some("Announcing Rust 1.85.0 and Rust 2024".into()),
         domain: "blog.rust-lang.org".into(),
@@ -496,14 +496,14 @@ fn execute_command_running_streams_live_preview() {
     let m = tool_step_streaming(
         "execute_command",
         r#"{"command":"cargo build"}"#,
-        nuo_contracts::ToolOutput::Shell {
+        nuo_wire::ToolOutput::Shell {
             command: "cargo build".into(),
             stdout: "Compiling muta-contracts v0.1.0\nCompiling mutx-engine v0.1.0".into(),
             stderr: String::new(),
             lines: Vec::new(),
             exit: None,
             truncated: false,
-            termination: nuo_contracts::tool_output::ShellTermination::Exited,
+            termination: nuo_wire::tool_output::ShellTermination::Exited,
             detached_job_id: None,
         },
         false,
@@ -518,9 +518,9 @@ fn edit_text_diff_renders_from_structured_patch() {
     let m = tool_step_structured(
         "edit_text",
         r#"{"path":"a.rs","old_string":"let x = 1;","new_string":"let x = 2;"}"#,
-        nuo_contracts::ToolOutput::Patch {
+        nuo_wire::ToolOutput::Patch {
             path: "a.rs".into(),
-            op: nuo_contracts::PatchOp::Edit,
+            op: nuo_wire::PatchOp::Edit,
             old: "let x = 1;".into(),
             new: "let x = 2;".into(),
             start_line: 0,
@@ -536,7 +536,7 @@ fn failed_edit_renders_error_instead_of_intended_diff() {
     let m = tool_step_structured(
         "edit_text",
         r#"{"path":"a.rs","old_string":"let x = 1;","new_string":"let x = 2;"}"#,
-        nuo_contracts::ToolOutput::Error {
+        nuo_wire::ToolOutput::Error {
             message: "old_string was not found".into(),
             detail: Some("The file changed before the edit ran.".into()),
         },
@@ -555,9 +555,9 @@ fn write_file_expanded_renders_diff_with_additions() {
     let m = tool_step_structured(
         "write_file",
         r#"{"path":"src/lib.rs","content":"pub fn hello() -> &'static str {\n    \"world\"\n}"}"#,
-        nuo_contracts::ToolOutput::Patch {
+        nuo_wire::ToolOutput::Patch {
             path: "src/lib.rs".into(),
-            op: nuo_contracts::PatchOp::Create,
+            op: nuo_wire::PatchOp::Create,
             old: String::new(),
             new: "pub fn hello() -> &'static str {\n    \"world\"\n}".into(),
             start_line: 0,
@@ -753,7 +753,7 @@ fn collapsed_tool_steps_stack_flush() {
         tool_step_structured(
             "read_text",
             r#"{"path":"a.rs"}"#,
-            nuo_contracts::ToolOutput::Code {
+            nuo_wire::ToolOutput::Code {
                 lang: None,
                 text: "x".into(),
                 start_line: 1,
@@ -765,7 +765,7 @@ fn collapsed_tool_steps_stack_flush() {
         tool_step_structured(
             "read_text",
             r#"{"path":"b.rs"}"#,
-            nuo_contracts::ToolOutput::Code {
+            nuo_wire::ToolOutput::Code {
                 lang: None,
                 text: "y".into(),
                 start_line: 1,
@@ -777,7 +777,7 @@ fn collapsed_tool_steps_stack_flush() {
         tool_step_structured(
             "read_text",
             r#"{"path":"c.rs"}"#,
-            nuo_contracts::ToolOutput::Code {
+            nuo_wire::ToolOutput::Code {
                 lang: None,
                 text: "z".into(),
                 start_line: 1,
@@ -819,7 +819,7 @@ fn expanded_body_flush_to_header_neighbours_stay_flush() {
         tool_step_structured(
             "read_text",
             r#"{"path":"a.rs"}"#,
-            nuo_contracts::ToolOutput::Code {
+            nuo_wire::ToolOutput::Code {
                 lang: None,
                 text: "x".into(),
                 start_line: 1,
@@ -831,7 +831,7 @@ fn expanded_body_flush_to_header_neighbours_stay_flush() {
         tool_step_structured(
             "search_text",
             r#"{"query":"foo","path":"src"}"#,
-            nuo_contracts::ToolOutput::Matches {
+            nuo_wire::ToolOutput::Matches {
                 pattern: "foo".into(),
                 lines: vec!["src/a.rs:10:1:foo".into(), "src/b.rs:5:1:foo".into()],
             },
@@ -840,7 +840,7 @@ fn expanded_body_flush_to_header_neighbours_stay_flush() {
         tool_step_structured(
             "read_text",
             r#"{"path":"c.rs"}"#,
-            nuo_contracts::ToolOutput::Code {
+            nuo_wire::ToolOutput::Code {
                 lang: None,
                 text: "z".into(),
                 start_line: 1,
@@ -863,7 +863,7 @@ fn user_message_before_tool_step_has_single_separator_row() {
         tool_step_structured(
             "read_text",
             r#"{"path":"src/lib.rs"}"#,
-            nuo_contracts::ToolOutput::Code {
+            nuo_wire::ToolOutput::Code {
                 lang: None,
                 text: "pub fn main() {}".into(),
                 start_line: 1,
@@ -933,7 +933,7 @@ fn command_entries_render_header_and_direct_body_without_folding() {
         TranscriptMessage::command_result(
             "permissions",
             "",
-            Some(nuo_contracts::CommandResult::PermissionList {
+            Some(nuo_wire::CommandResult::PermissionList {
                 allowed: vec!["run_command".to_string()],
             }),
         ),
@@ -1008,7 +1008,7 @@ fn command_ack_height_is_viewport_independent_and_last_row_is_reachable() {
     let messages = vec![TranscriptMessage::command_result(
         "delegate",
         "on",
-        Some(nuo_contracts::CommandResult::Ack {
+        Some(nuo_wire::CommandResult::Ack {
             title: "Delegated mode ON".to_string(),
             detail: Some(detail),
         }),
@@ -1054,7 +1054,7 @@ fn command_entry_invocation_aligns_with_result_body() {
     let messages = vec![TranscriptMessage::command_result(
         "new",
         "",
-        Some(nuo_contracts::CommandResult::Text(
+        Some(nuo_wire::CommandResult::Text(
             "Started new session: a1b2c3".to_string(),
         )),
     )];
@@ -1092,9 +1092,9 @@ fn command_entry_invocation_aligns_with_result_body() {
 #[test]
 fn concurrent_turn_and_command_entries_render_and_expand_dynamically() {
     // Stage 1: User prompt + assistant turn with 2 list items + pending command entry.
-    let user_msg = TranscriptMessage::new(nuo_contracts::Role::User, "Calculate the plan");
+    let user_msg = TranscriptMessage::new(nuo_wire::Role::User, "Calculate the plan");
     let assistant_v1 = TranscriptMessage::new(
-        nuo_contracts::Role::Assistant,
+        nuo_wire::Role::Assistant,
         "- Step 1: Inspecting files.\n- Step 2: Checking configs.",
     );
     let cmd_msg = TranscriptMessage::pending_command("status", "");
@@ -1110,7 +1110,7 @@ fn concurrent_turn_and_command_entries_render_and_expand_dynamically() {
 
     // Stage 2: Assistant turn receives more streaming tokens (4 extra list items).
     let assistant_v2 = TranscriptMessage::new(
-        nuo_contracts::Role::Assistant,
+        nuo_wire::Role::Assistant,
         "- Step 1: Inspecting files.\n- Step 2: Checking configs.\n- Step 3: Running benchmarks.\n- Step 4: Compiling binary.\n- Step 5: Verifying checksums.\n- Step 6: Ready.",
     );
     let msgs_v2 = vec![user_msg, assistant_v2, cmd_msg];
@@ -1157,7 +1157,7 @@ fn command_component_pending_then_completed() {
     // The reply settles the same component in place. The ack carries the
     // headline + dimmed detail split (ADR-0106 two-tone ack).
     assert!(
-        message.settle_command_result(nuo_contracts::CommandResult::Ack {
+        message.settle_command_result(nuo_wire::CommandResult::Ack {
             title: "Delegated mode ON".to_string(),
             detail: Some(vec![
                 "File edits & creations are auto-approved".to_string(),
@@ -1197,7 +1197,7 @@ fn command_component_pending_then_completed() {
 
     // Settling is one-shot: a second reply must not mutate the component.
     assert!(
-        !message.settle_command_result(nuo_contracts::CommandResult::Text("ignored".to_string(),)),
+        !message.settle_command_result(nuo_wire::CommandResult::Text("ignored".to_string(),)),
         "a completed command cannot settle again"
     );
 }
@@ -1224,7 +1224,7 @@ fn identical_commands_each_settle_their_own_row() {
     assert!(
         target
             .expect("a pending row exists")
-            .settle_command_result(nuo_contracts::CommandResult::Text("hit 1".to_string())),
+            .settle_command_result(nuo_wire::CommandResult::Text("hit 1".to_string())),
         "the reply settles the newest pending row"
     );
     assert_eq!(
@@ -1257,7 +1257,7 @@ fn command_component_cancel_marks_pending_row_settled() {
     let mut completed = TranscriptMessage::command_result(
         "new",
         "",
-        Some(nuo_contracts::CommandResult::Text(
+        Some(nuo_wire::CommandResult::Text(
             "Started new session: a1b2c3".to_string(),
         )),
     );
@@ -1347,7 +1347,7 @@ fn default_turn_header_has_one_gap_before_first_tool() {
     let step = tool_step_structured(
         "read_text",
         r#"{"path":"a.rs"}"#,
-        nuo_contracts::ToolOutput::Code {
+        nuo_wire::ToolOutput::Code {
             lang: None,
             text: "x".into(),
             start_line: 1,
@@ -1389,7 +1389,7 @@ fn turn_header_omits_effort_when_absent() {
     let step = tool_step_structured(
         "read_text",
         r#"{"path":"a.rs"}"#,
-        nuo_contracts::ToolOutput::Code {
+        nuo_wire::ToolOutput::Code {
             lang: None,
             text: "x".into(),
             start_line: 1,
@@ -1420,7 +1420,7 @@ fn turn_header_with_model_effort_and_timestamp() {
     let mut step = tool_step_structured(
         "read_text",
         r#"{"path":"a.rs"}"#,
-        nuo_contracts::ToolOutput::Code {
+        nuo_wire::ToolOutput::Code {
             lang: None,
             text: "x".into(),
             start_line: 1,
@@ -1457,7 +1457,7 @@ fn turn_header_with_model_effort_and_timestamp() {
 #[test]
 fn pure_prose_assistant_turn_renders_turn_header() {
     let assistant = TranscriptMessage::new(
-        nuo_contracts::Role::Assistant,
+        nuo_wire::Role::Assistant,
         "Hello! How can I help you today with your project?",
     )
     .with_turn(1)
@@ -1480,7 +1480,7 @@ fn same_turn_segments_have_gaps_but_parallel_tools_stay_flush() {
     let first = tool_step_structured(
         "read_text",
         r#"{"path":"a.rs"}"#,
-        nuo_contracts::ToolOutput::Code {
+        nuo_wire::ToolOutput::Code {
             lang: None,
             text: "a".into(),
             start_line: 1,
@@ -1493,7 +1493,7 @@ fn same_turn_segments_have_gaps_but_parallel_tools_stay_flush() {
     let second = tool_step_structured(
         "read_text",
         r#"{"path":"b.rs"}"#,
-        nuo_contracts::ToolOutput::Code {
+        nuo_wire::ToolOutput::Code {
             lang: None,
             text: "b".into(),
             start_line: 1,
@@ -1541,7 +1541,7 @@ fn different_tool_turns_have_one_vertical_gap() {
         tool_step_structured(
             "read_text",
             format!(r#"{{"path":"{turn}.rs"}}"#).as_str(),
-            nuo_contracts::ToolOutput::Code {
+            nuo_wire::ToolOutput::Code {
                 lang: None,
                 text: turn.to_string(),
                 start_line: 1,
@@ -1597,7 +1597,7 @@ fn steer_insert_mid_turn_keeps_one_turn_header() {
         tool_step_structured(
             "read_text",
             format!(r#"{{"path":"{path}"}}"#).as_str(),
-            nuo_contracts::ToolOutput::Code {
+            nuo_wire::ToolOutput::Code {
                 lang: None,
                 text: "a".into(),
                 start_line: 1,
@@ -1609,7 +1609,7 @@ fn steer_insert_mid_turn_keeps_one_turn_header() {
         .with_turn(60)
     };
     // The queued form the live tail carries: no position yet, staged mid-turn.
-    let steer = TranscriptMessage::new(nuo_contracts::Role::User, "stop and re-read the ADR")
+    let steer = TranscriptMessage::new(nuo_wire::Role::User, "stop and re-read the ADR")
         .with_origin(UserMessageOrigin::Steer)
         .with_sent_at_ms(1_700_000_000_000)
         .queued();
@@ -1620,7 +1620,7 @@ fn steer_insert_mid_turn_keeps_one_turn_header() {
         step("a.rs"),
         steer,
         step("b.rs"),
-        TranscriptMessage::new(nuo_contracts::Role::Assistant, "done reading").with_turn(60),
+        TranscriptMessage::new(nuo_wire::Role::Assistant, "done reading").with_turn(60),
     ];
 
     let grid = render_transcript_grid(&messages, 72, 40);
@@ -1678,7 +1678,7 @@ fn delivered_steer_mid_turn_keeps_one_turn_header() {
         tool_step_structured(
             "read_text",
             format!(r#"{{"path":"{path}"}}"#).as_str(),
-            nuo_contracts::ToolOutput::Code {
+            nuo_wire::ToolOutput::Code {
                 lang: None,
                 text: "a".into(),
                 start_line: 1,
@@ -1689,7 +1689,7 @@ fn delivered_steer_mid_turn_keeps_one_turn_header() {
         )
         .with_turn(60)
     };
-    let mut steer = TranscriptMessage::new(nuo_contracts::Role::User, "adjust the heading")
+    let mut steer = TranscriptMessage::new(nuo_wire::Role::User, "adjust the heading")
         .with_origin(UserMessageOrigin::Steer)
         .with_round(3)
         .with_turn(60)
@@ -1718,7 +1718,7 @@ fn notice_still_splits_a_turn_band() {
     let step = tool_step_structured(
         "read_text",
         r#"{"path":"a.rs"}"#,
-        nuo_contracts::ToolOutput::Code {
+        nuo_wire::ToolOutput::Code {
             lang: None,
             text: "a".into(),
             start_line: 1,
@@ -1735,7 +1735,7 @@ fn notice_still_splits_a_turn_band() {
     let after = tool_step_structured(
         "read_text",
         r#"{"path":"b.rs"}"#,
-        nuo_contracts::ToolOutput::Code {
+        nuo_wire::ToolOutput::Code {
             lang: None,
             text: "b".into(),
             start_line: 1,
@@ -1761,7 +1761,7 @@ fn command_component_renders_lead_symbols_and_timestamps() {
         TranscriptMessage::command_result(
             "delegate",
             "on",
-            Some(nuo_contracts::CommandResult::Ack {
+            Some(nuo_wire::CommandResult::Ack {
                 title: "Delegated mode ON".to_string(),
                 detail: Some(vec!["All tool permissions are auto-approved".to_string()]),
             }),
@@ -1797,10 +1797,10 @@ fn command_component_renders_lead_symbols_and_timestamps() {
 #[test]
 fn user_messages_render_timestamps_and_never_sent_marker() {
     let epoch_ms = 1_700_000_000_000;
-    let round_msg = TranscriptMessage::new(nuo_contracts::Role::User, "Hello with round")
+    let round_msg = TranscriptMessage::new(nuo_wire::Role::User, "Hello with round")
         .with_round(1)
         .with_sent_at_ms(epoch_ms);
-    let prompt_msg = TranscriptMessage::new(nuo_contracts::Role::User, "Hello unpositioned")
+    let prompt_msg = TranscriptMessage::new(nuo_wire::Role::User, "Hello unpositioned")
         .with_sent_at_ms(epoch_ms);
 
     let grid_round = render_transcript_grid(&[round_msg], 72, 18);
@@ -1841,7 +1841,7 @@ fn user_steer_and_followup_render_clean_unified_headers() {
     let epoch_ms = 1_700_000_000_000;
 
     // Delivered steer with round & turn provenance
-    let mut steer_msg = TranscriptMessage::new(nuo_contracts::Role::User, "Adjust heading")
+    let mut steer_msg = TranscriptMessage::new(nuo_wire::Role::User, "Adjust heading")
         .with_round(1)
         .with_sent_at_ms(epoch_ms);
     steer_msg.origin = UserMessageOrigin::Steer;
@@ -1858,7 +1858,7 @@ fn user_steer_and_followup_render_clean_unified_headers() {
     );
 
     // Queued steer
-    let mut queued_steer = TranscriptMessage::new(nuo_contracts::Role::User, "Pending steer")
+    let mut queued_steer = TranscriptMessage::new(nuo_wire::Role::User, "Pending steer")
         .with_sent_at_ms(epoch_ms);
     queued_steer.origin = UserMessageOrigin::Steer;
     queued_steer.delivery = DeliveryStatus::Queued;
@@ -1870,7 +1870,7 @@ fn user_steer_and_followup_render_clean_unified_headers() {
     );
 
     // Delivered follow-up with round provenance
-    let mut followup_msg = TranscriptMessage::new(nuo_contracts::Role::User, "Next step")
+    let mut followup_msg = TranscriptMessage::new(nuo_wire::Role::User, "Next step")
         .with_round(2)
         .with_sent_at_ms(epoch_ms);
     followup_msg.origin = UserMessageOrigin::FollowUp;
@@ -1887,7 +1887,7 @@ fn user_steer_and_followup_render_clean_unified_headers() {
 
     // Queued follow-up
     let mut queued_followup =
-        TranscriptMessage::new(nuo_contracts::Role::User, "Queued next step")
+        TranscriptMessage::new(nuo_wire::Role::User, "Queued next step")
             .with_sent_at_ms(epoch_ms);
     queued_followup.origin = UserMessageOrigin::FollowUp;
     queued_followup.delivery = DeliveryStatus::Queued;
@@ -1904,7 +1904,7 @@ fn user_prompt_sending_and_cancelled_render_clean_headers() {
     let epoch_ms = 1_700_000_000_000;
 
     // Sending prompt
-    let sending_msg = TranscriptMessage::new(nuo_contracts::Role::User, "Hello world")
+    let sending_msg = TranscriptMessage::new(nuo_wire::Role::User, "Hello world")
         .with_sent_at_ms(epoch_ms)
         .sending();
 
@@ -1916,7 +1916,7 @@ fn user_prompt_sending_and_cancelled_render_clean_headers() {
 
     // Cancelled prompt with round provenance
     let cancelled_round_msg =
-        TranscriptMessage::new(nuo_contracts::Role::User, "Cancelled round prompt")
+        TranscriptMessage::new(nuo_wire::Role::User, "Cancelled round prompt")
             .with_sent_at_ms(epoch_ms)
             .with_round(1)
             .cancelled();

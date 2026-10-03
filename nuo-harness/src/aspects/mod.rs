@@ -11,10 +11,13 @@
 //! information enter through scoped, on-demand tool retrieval, never as a
 //! silently-committed request-time scan.
 
+pub mod phase;
+pub use phase::{AspectHook, AspectPhase, AspectVerdict};
+
 use std::sync::Arc;
 
-use nuo_contracts::{
-    AspectVerdict, ExecutionTier, PreFlightRouteInput, PreFlightRouteOutput, StreamLoopReviewInput,
+use nuo_wire::{
+    ExecutionTier, PreFlightRouteInput, PreFlightRouteOutput, StreamLoopReviewInput,
     StreamLoopVerdict, TrajectoryLoopReviewInput, TrajectoryLoopVerdict,
 };
 
@@ -131,7 +134,7 @@ impl AspectEngine {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use nuo_contracts::{Message, ModelRequest, Provider, Role};
+    use nuo_wire::{Message, ModelRequest, Provider, Role};
     use std::sync::Arc;
 
     struct MockProvider;
@@ -141,8 +144,8 @@ mod tests {
         async fn chat(
             &self,
             _req: ModelRequest,
-        ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
-            Ok(nuo_contracts::ProviderCompletion::message(Message::new(
+        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            Ok(nuo_wire::ProviderCompletion::message(Message::new(
                 Role::Assistant,
                 r#"{"tier":"fast_direct","enable_thinking":false,"estimated_complexity":1}"#,
             )))
@@ -152,8 +155,8 @@ mod tests {
             &self,
             _req: ModelRequest,
         ) -> Result<
-            futures::stream::BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-            nuo_contracts::ProviderError,
+            futures::stream::BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+            nuo_wire::ProviderError,
         > {
             Ok(Box::pin(futures::stream::empty()))
         }

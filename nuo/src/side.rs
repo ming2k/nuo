@@ -20,7 +20,7 @@ use nuo_harness::orchestration::{
     start_interactive_round,
 };
 use nuo_harness::{Agent, AgentIdentity, NoProvider, RoundLifecycle};
-use nuo_contracts::{AgentResponse, BtwAsideSummary, LoopStatus, ParentStatus, Provider, Tool};
+use nuo_wire::{AgentResponse, BtwAsideSummary, LoopStatus, ParentStatus, Provider, Tool};
 
 use nuo_persistence::config::Config;
 use nuo_persistence::session::SessionStore;
@@ -69,7 +69,7 @@ impl SideSession {
         skills: SkillRegistry,
         project_root: Option<&std::path::Path>,
         identity: AgentIdentity,
-        workspace_security: Arc<std::sync::Mutex<nuo_contracts::WorkspaceSecuritySnapshot>>,
+        workspace_security: Arc<std::sync::Mutex<nuo_wire::WorkspaceSecuritySnapshot>>,
     ) -> Result<Self, String> {
         let (side_id, _parent_id) = primary.fork_to_side().await?;
         // Snapshot the inherited user-prompt count BEFORE any aside round can
@@ -78,7 +78,7 @@ impl SideSession {
             .model_window()
             .await
             .iter()
-            .filter(|message| message.role == nuo_contracts::Role::User)
+            .filter(|message| message.role == nuo_wire::Role::User)
             .count();
         let store = Arc::new(primary.open_side(&side_id).await?);
 
@@ -297,7 +297,7 @@ pub async fn aside_title(side: &SideSession, max: usize) -> String {
     let window = side.store.model_window().await;
     let prompt = window
         .iter()
-        .filter(|message| message.role == nuo_contracts::Role::User)
+        .filter(|message| message.role == nuo_wire::Role::User)
         .nth(side.inherited_user_prompts)
         .map(|message| message.content.clone());
     match prompt {
@@ -655,7 +655,7 @@ pub(super) async fn refuse_if_no_provider(
     true
 }
 
-use nuo_contracts::RoundEvent;
+use nuo_wire::RoundEvent;
 
 #[cfg(test)]
 mod tests {

@@ -214,12 +214,6 @@ pub async fn run_app_loop(
             app.scroll = app.max_scroll;
         }
 
-        if let Some(epoch) = app.effort_ignition_epoch
-            && crate::effort_ignition::ignition_finished(epoch.elapsed().as_millis())
-        {
-            app.effort_ignition_epoch = None;
-        }
-
         let empty_state_showing =
             app.focused_messages().is_empty() && app.focus_stack.is_empty() && !app.in_side_view;
         if empty_state_showing {
@@ -235,7 +229,6 @@ pub async fn run_app_loop(
         let animating = viewed_animating
             || app.has_live_transport_setback()
             || !app.pending_images.is_empty()
-            || app.effort_ignition_epoch.is_some()
             || app.input_drag_scroll.is_some()
             || (app.models_refreshing
                 && matches!(

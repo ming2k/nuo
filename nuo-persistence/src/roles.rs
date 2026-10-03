@@ -1,7 +1,7 @@
-use nuo_contracts::MainAgentRole;
+use nuo_wire::MainAgentRole;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-pub use nuo_contracts::policy_schema::{CustomRole, RoleWorkspace};
+pub use nuo_wire::policy_schema::{CustomRole, RoleWorkspace};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -101,7 +101,7 @@ pub fn is_valid_id(id: &str) -> bool {
 pub fn resolve_role_manifest(
     workspace_root: Option<&std::path::Path>,
     role_id: Option<&str>,
-) -> nuo_contracts::SessionRoleManifest {
+) -> nuo_wire::SessionRoleManifest {
     let role_id = role_id.unwrap_or("developer");
     let roles_cfg = RolesConfig::load_for_workspace(workspace_root);
     if let Some(user_role) = roles_cfg.get(role_id) {
@@ -110,7 +110,7 @@ pub fn resolve_role_manifest(
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        nuo_contracts::SessionRoleManifest {
+        nuo_wire::SessionRoleManifest {
             role_id: role_id.to_string(),
             name: user_role.name.clone(),
             description: user_role.description.clone(),
@@ -122,12 +122,12 @@ pub fn resolve_role_manifest(
         }
     } else if let Some(builtin) = MainAgentRole::parse(role_id) {
         match builtin {
-            MainAgentRole::Developer => nuo_contracts::SessionRoleManifest::developer(),
-            MainAgentRole::Philosophist => nuo_contracts::SessionRoleManifest::philosophist(),
-            MainAgentRole::Ops => nuo_contracts::SessionRoleManifest::ops(),
+            MainAgentRole::Developer => nuo_wire::SessionRoleManifest::developer(),
+            MainAgentRole::Philosophist => nuo_wire::SessionRoleManifest::philosophist(),
+            MainAgentRole::Ops => nuo_wire::SessionRoleManifest::ops(),
         }
     } else {
-        let mut manifest = nuo_contracts::SessionRoleManifest::developer();
+        let mut manifest = nuo_wire::SessionRoleManifest::developer();
         manifest.role_id = role_id.to_string();
         manifest.name = role_id.to_string();
         manifest

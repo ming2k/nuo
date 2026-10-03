@@ -4,7 +4,7 @@
 //! domain types: the assistant [`Message`] (with reasoning content and tool
 //! calls), the top-level `usage` object, and the per-chunk stream events.
 
-use nuo_contracts::{Message, ProviderStreamEvent, Role, TokenUsage, ToolCall};
+use nuo_model_codec::{Message, ProviderStreamEvent, Role, TokenUsage, ToolCall};
 use serde_json::Value;
 
 /// Provider-opaque message sidecar used to replay OpenRouter's signed or
@@ -119,7 +119,7 @@ impl ReasoningDetailsAccumulator {
 /// hit rate and the cost is attributed correctly. `cache_creation_input_tokens`
 /// stays zero: OpenAI-style auto-caching has no separate write counter.
 pub fn usage(usage: &Value) -> Option<TokenUsage> {
-    let cache = nuo_contracts::read_prompt_cache_usage(usage);
+    let cache = nuo_model_codec::read_prompt_cache_usage(usage);
     let prompt = usage["prompt_tokens"].as_i64();
     let completion = usage["completion_tokens"].as_i64();
     let total = usage["total_tokens"].as_i64();
@@ -214,7 +214,7 @@ pub fn message(choice: &Value, content_filter: impl FnOnce(&str, bool) -> String
         children: None,
         subagent_meta: None,
         origin: None,
-        timestamp: Some(nuo_contracts::todos::unix_now()),
+        timestamp: Some(nuo_tool::todos::unix_now()),
         sent_at_ms: None,
         cache_frozen: false,
     }

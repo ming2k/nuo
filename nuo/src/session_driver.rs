@@ -16,7 +16,7 @@ use crate::side::{SideEnv, resolve_turn_target};
 use crate::catalog;
 use nuo_harness::orchestration::round_response;
 use nuo_harness::{Agent, RoundLifecycle, SubagentRegistry};
-use nuo_contracts::{AgentRequest, AgentResponse, LoopStatus, Provider, Tool};
+use nuo_wire::{AgentRequest, AgentResponse, LoopStatus, Provider, Tool};
 use crate::mcp::McpRuntime;
 use nuo_persistence::{session::SessionStore, workspace_security::WorkspaceSecurityStore};
 use nuo_harness::skills::SkillRegistry;
@@ -34,7 +34,7 @@ pub async fn send_harness_state_for_session(
     let retry_pending = loop_status.is_idle() && session.retry_pending().await.is_some();
     let _ = tx.send(round_response(
         session_id,
-        nuo_contracts::RoundEvent::HarnessState(nuo_contracts::HarnessSnapshot {
+        nuo_wire::RoundEvent::HarnessState(nuo_wire::HarnessSnapshot {
             loop_status,
             round_counter,
             unattended: agent.unattended(),
@@ -55,12 +55,12 @@ pub async fn send_harness_state_for_session(
 }
 
 pub async fn compact_round_history(
-    history: &mut Vec<nuo_contracts::Message>,
+    history: &mut Vec<nuo_wire::Message>,
     session: &SessionStore,
     settings: &nuo_harness::orchestration::ContextProjectionSettings,
     provider: Option<Arc<dyn Provider>>,
     extra_context: Vec<String>,
-) -> Result<Option<nuo_contracts::ContextProjectionCheckpoint>, String> {
+) -> Result<Option<nuo_wire::ContextProjectionCheckpoint>, String> {
     let mut ir = session.session_ir().await;
     let preserve_rounds = settings.preserve_rounds.max(1);
     let mode = nuo_harness::compaction::CompactionCutMode::PreserveTailRounds(preserve_rounds);
@@ -75,9 +75,9 @@ pub async fn compact_round_history(
     {
         session.commit_session_ir(&ir).await?;
         let active_msgs = ir.resolve_active_messages();
-        let tokens_after = nuo_contracts::pressure::estimate_tokens(&active_msgs);
-        let checkpoint = nuo_contracts::ContextProjectionCheckpoint {
-            operation: nuo_contracts::ContextProjectionKind::Compact,
+        let tokens_after = nuo_wire::pressure::estimate_tokens(&active_msgs);
+        let checkpoint = nuo_wire::ContextProjectionCheckpoint {
+            operation: nuo_wire::ContextProjectionKind::Compact,
             archived_messages: outcome.nodes_folded,
             active_messages: active_msgs.len(),
             window_tokens_before: outcome.tokens_before,
@@ -121,7 +121,7 @@ pub(crate) struct FollowUpQueue {
 
 pub(crate) struct QueuedFollowUp {
     pub session_id: String,
-    pub message: nuo_contracts::QueuedMessage,
+    pub message: nuo_wire::QueuedMessage,
 }
 
 impl FollowUpQueue {
@@ -144,7 +144,7 @@ impl FollowUpQueue {
         }
     }
 
-    pub(crate) fn enqueue(&mut self, session_id: &str, message: nuo_contracts::QueuedMessage) {
+    pub(crate) fn enqueue(&mut self, session_id: &str, message: nuo_wire::QueuedMessage) {
         self.items.push(QueuedFollowUp {
             session_id: session_id.to_string(),
             message,
@@ -189,7 +189,7 @@ impl FollowUpQueue {
     }
 
     /// The authoritative snapshot for one session.
-    pub(crate) fn snapshot(&self, session_id: &str) -> (Vec<nuo_contracts::QueuedMessage>, bool) {
+    pub(crate) fn snapshot(&self, session_id: &str) -> (Vec<nuo_wire::QueuedMessage>, bool) {
         let items = self
             .items
             .iter()
@@ -203,7 +203,7 @@ impl FollowUpQueue {
     pub(crate) fn dequeue_front(
         &mut self,
         session_id: &str,
-    ) -> Option<nuo_contracts::QueuedMessage> {
+    ) -> Option<nuo_wire::QueuedMessage> {
         let position = self
             .items
             .iter()
@@ -250,12 +250,12 @@ pub struct SessionDriver {
     pub workspace_security: Arc<WorkspaceSecurityStore>,
     /// Live additional-roots handle: trust decisions recompute the admitted
     /// set through it, effective on the next confined tool call.
-    pub shared_additional_roots: nuo_contracts::SharedAdditionalRoots,
+    pub shared_additional_roots: nuo_wire::SharedAdditionalRoots,
     /// Live handle for toggling session-level workspace confinement.
-    pub shared_confinement: nuo_contracts::SharedConfinement,
+    pub shared_confinement: nuo_wire::SharedConfinement,
     /// Backend-owned command vocabulary used by both attach metadata and the
     /// composer completion engine.
-    pub command_catalog: nuo_contracts::CommandCatalog,
+    pub command_catalog: nuo_wire::CommandCatalog,
     /// Primary round lifecycle: at most one active round, superseded by the
     /// next begin (replaces the old token-slot + generation-counter pair).
     pub lifecycle: Arc<RoundLifecycle>,
@@ -279,7 +279,7 @@ pub struct SessionDriver {
     /// Shared token-source ledger (reported vs. estimated token accounting).
     /// Installed into `agent` once at startup; the TUI reads it for the
     /// token-source report modal.
-    pub token_ledger: Arc<nuo_contracts::TokenSourceLedger>,
+    pub token_ledger: Arc<nuo_wire::TokenSourceLedger>,
     /// Application-registered slash command handlers (the extension point for
     /// commands that run Rust logic, e.g. a sibling binary's custom command).
     /// The dispatcher consults this in its unknown-built-in arm
@@ -289,7 +289,7 @@ pub struct SessionDriver {
     /// Shared hot-reloadable resolved `[web]` configuration. The web tools hold
     /// the same handle; `UpdateWebSearchConfig` replaces one versioned snapshot
     /// so changes take effect on the next call without rebuilding the toolset.
-    pub websearch_shared: nuo_contracts::SharedWebConfig,
+    pub websearch_shared: nuo_wire::SharedWebConfig,
     /// Background job manager for asynchronous processes and sub-subagents.
     pub background_jobs: crate::background_jobs::BackgroundJobManager,
 }
@@ -411,9 +411,9 @@ impl SessionDriver {
             .total_tokens;
         let _ = resp_tx.send(round_response(
             &initial_session_id,
-            nuo_contracts::RoundEvent::ContextTokens(nuo_contracts::ContextTokenSnapshot::new(
+            nuo_wire::RoundEvent::ContextTokens(nuo_wire::ContextTokenSnapshot::new(
                 initial_context,
-                nuo_contracts::ContextTokenSource::Projection,
+                nuo_wire::ContextTokenSource::Projection,
             )),
         ));
         // Session-scoped idle snapshot (ADR-0128): publishes the `/retry`
@@ -518,7 +518,7 @@ impl SessionDriver {
         }
         enum OAuthResult {
             Authorize {
-                auth: nuo_contracts::ConnectionAuth,
+                auth: nuo_wire::ConnectionAuth,
                 provider: String,
                 tokens: Option<nuo_providers::oauth::TokenSet>,
             },
@@ -616,7 +616,7 @@ impl SessionDriver {
                                 });
                                 if pending_oauth_authorization.is_some() {
                                     let _ = resp_tx.send(AgentResponse::ConnectStatus(
-                                        nuo_contracts::ConnectStatus::Done { provider },
+                                        nuo_wire::ConnectStatus::Done { provider },
                                     ));
                                 }
                             }
@@ -934,7 +934,7 @@ impl SessionDriver {
                     }
                     pending_oauth_authorization = None;
                     let _ = resp_tx.send(AgentResponse::ConnectStatus(
-                        nuo_contracts::ConnectStatus::Failed {
+                        nuo_wire::ConnectStatus::Failed {
                             provider: "oauth".to_string(),
                             message: "cancelled".to_string(),
                         },
@@ -1245,38 +1245,38 @@ impl SessionDriver {
                         crate::handlers_slash::security_ops::compute_user_assets_trust();
                     let user_assets_needed_review = matches!(
                         user_assets_state,
-                        nuo_contracts::WorkspaceTrustState::Quarantined
-                            | nuo_contracts::WorkspaceTrustState::Changed
-                            | nuo_contracts::WorkspaceTrustState::Expired
+                        nuo_wire::WorkspaceTrustState::Quarantined
+                            | nuo_wire::WorkspaceTrustState::Changed
+                            | nuo_wire::WorkspaceTrustState::Expired
                     );
-                    if domains.contains(&nuo_contracts::TrustDomain::UserAssets) {
+                    if domains.contains(&nuo_wire::TrustDomain::UserAssets) {
                         crate::handlers_slash::security_ops::trust_user_assets();
                     } else if user_assets_needed_review {
                         crate::handlers_slash::security_ops::deny_user_assets();
                     }
                     let effective = if let Some(root) = &project_root_for_side {
-                        let ws_domains: Vec<nuo_contracts::TrustDomain> = domains
+                        let ws_domains: Vec<nuo_wire::TrustDomain> = domains
                             .iter()
                             .copied()
-                            .filter(|d| *d != nuo_contracts::TrustDomain::UserAssets)
+                            .filter(|d| *d != nuo_wire::TrustDomain::UserAssets)
                             .collect();
 
                         // Candidate workspace domains D: domains requiring human review (ADR-0253)
                         let pre_snap = workspace_security.snapshot(root);
-                        let candidate_ws: Vec<nuo_contracts::TrustDomain> = [
-                            nuo_contracts::TrustDomain::Mcp,
-                            nuo_contracts::TrustDomain::Skills,
-                            nuo_contracts::TrustDomain::Hooks,
-                            nuo_contracts::TrustDomain::Instructions,
-                            nuo_contracts::TrustDomain::ExWorkspace,
+                        let candidate_ws: Vec<nuo_wire::TrustDomain> = [
+                            nuo_wire::TrustDomain::Mcp,
+                            nuo_wire::TrustDomain::Skills,
+                            nuo_wire::TrustDomain::Hooks,
+                            nuo_wire::TrustDomain::Instructions,
+                            nuo_wire::TrustDomain::ExWorkspace,
                         ]
                         .into_iter()
                         .filter(|&d| {
                             matches!(
                                 pre_snap.state(d),
-                                nuo_contracts::WorkspaceTrustState::Quarantined
-                                    | nuo_contracts::WorkspaceTrustState::Changed
-                                    | nuo_contracts::WorkspaceTrustState::Expired
+                                nuo_wire::WorkspaceTrustState::Quarantined
+                                    | nuo_wire::WorkspaceTrustState::Changed
+                                    | nuo_wire::WorkspaceTrustState::Expired
                             )
                         })
                         .collect();
@@ -1287,8 +1287,8 @@ impl SessionDriver {
                             tracing::error!(?error, "failed to persist workspace trust");
                             let _ = resp_tx.send(round_response(
                                 &session.id().await,
-                                nuo_contracts::RoundEvent::Notice(
-                                    nuo_contracts::AgentNotice::trust_changed(format!(
+                                nuo_wire::RoundEvent::Notice(
+                                    nuo_wire::AgentNotice::trust_changed(format!(
                                         "Workspace trust failed: {error}"
                                     )),
                                 ),
@@ -1296,7 +1296,7 @@ impl SessionDriver {
                         }
 
                         // Explicit negative attestation on unselected candidate domains: D \ S (ADR-0253)
-                        let unselected_ws: Vec<nuo_contracts::TrustDomain> = candidate_ws
+                        let unselected_ws: Vec<nuo_wire::TrustDomain> = candidate_ws
                             .into_iter()
                             .filter(|d| !ws_domains.contains(d))
                             .collect();
@@ -1346,7 +1346,7 @@ impl SessionDriver {
                     } else {
                         // Workspace-free session: user-level assets only.
                         let mut snapshot =
-                            nuo_contracts::WorkspaceSecuritySnapshot::new("workspace-free");
+                            nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free");
                         snapshot.user_assets =
                             crate::handlers_slash::security_ops::compute_user_assets_trust();
                         agent.set_workspace_security(snapshot);
@@ -1635,10 +1635,10 @@ impl SessionDriver {
                     .total_tokens;
                 let _ = resp_tx.send(round_response(
                     &post_session_id,
-                    nuo_contracts::RoundEvent::ContextTokens(
-                        nuo_contracts::ContextTokenSnapshot::new(
+                    nuo_wire::RoundEvent::ContextTokens(
+                        nuo_wire::ContextTokenSnapshot::new(
                             post_projection,
-                            nuo_contracts::ContextTokenSource::Projection,
+                            nuo_wire::ContextTokenSource::Projection,
                         ),
                     ),
                 ));
@@ -1717,11 +1717,11 @@ struct CrashResidue {
     /// `Terminated` interrupt records to append (C11), one per distinct
     /// in-flight round, so the resumed transcript explains its dangling
     /// round instead of leaving it unexplained.
-    interrupts: Vec<nuo_contracts::RoundInterrupt>,
+    interrupts: Vec<nuo_wire::RoundInterrupt>,
     /// A `/retry` resume point for the highest in-flight round, so a session
     /// re-hosted after a crash offers `/retry` instead of answering
     /// "Nothing to retry" (ADR-0128).
-    retry_point: Option<nuo_contracts::RetryPoint>,
+    retry_point: Option<nuo_wire::RetryPoint>,
 }
 
 /// Decide, from durable state alone, what a hard process death left dangling
@@ -1762,10 +1762,10 @@ struct CrashResidue {
 /// interrupts / resume point through the store's normal durable setters.
 async fn recover_crashed_round(
     session: &Arc<SessionStore>,
-    records: Vec<nuo_contracts::RequestUsageRecord>,
+    records: Vec<nuo_wire::RequestUsageRecord>,
     now_ms: u64,
 ) -> CrashResidue {
-    use nuo_contracts::{RequestUsageStatus, Role};
+    use nuo_wire::{RequestUsageStatus, Role};
     let mut residue = CrashResidue::default();
     let Some(latest) = records
         .iter()
@@ -1775,8 +1775,8 @@ async fn recover_crashed_round(
         return residue;
     };
     let round = latest.key.round;
-    residue.interrupts.push(nuo_contracts::RoundInterrupt {
-        reason: nuo_contracts::RoundInterruptReason::Terminated,
+    residue.interrupts.push(nuo_wire::RoundInterrupt {
+        reason: nuo_wire::RoundInterruptReason::Terminated,
         at_ms: now_ms,
         round: Some(round),
         detail: None,
@@ -1813,7 +1813,7 @@ async fn recover_crashed_round(
         .iter()
         .filter(|message| matches!(message.role, Role::Assistant))
         .count();
-    residue.retry_point = Some(nuo_contracts::RetryPoint {
+    residue.retry_point = Some(nuo_wire::RetryPoint {
         round,
         turns_committed,
         history_watermark: window.len(),
@@ -1827,11 +1827,11 @@ async fn recover_crashed_round(
 mod tests {
     use super::*;
     use nuo_harness::RoundLifecycle;
-    use nuo_contracts::{Message, RequestUsageStatus, Role};
+    use nuo_wire::{Message, RequestUsageStatus, Role};
     use std::sync::Arc;
 
-    fn image() -> nuo_contracts::ImagePart {
-        nuo_contracts::ImagePart {
+    fn image() -> nuo_wire::ImagePart {
+        nuo_wire::ImagePart {
             mime: "image/png".to_string(),
             data: "AAAA".to_string(),
         }
@@ -1846,7 +1846,7 @@ mod tests {
         }));
         assert!(round_owned_request(&AgentRequest::FollowUp {
             session_id: "s".to_string(),
-            message: nuo_contracts::QueuedMessage {
+            message: nuo_wire::QueuedMessage {
                 id: "i".to_string(),
                 text: "hi".to_string(),
                 display_text: None,
@@ -1856,7 +1856,7 @@ mod tests {
         }));
         assert!(round_owned_request(&AgentRequest::Steer {
             session_id: "s".to_string(),
-            message: nuo_contracts::QueuedMessage {
+            message: nuo_wire::QueuedMessage {
                 id: "i".to_string(),
                 text: "hi".to_string(),
                 display_text: None,
@@ -1899,7 +1899,7 @@ mod tests {
         assert!(!round_owned_request(&AgentRequest::QuerySessionContext));
         assert!(!round_owned_request(&AgentRequest::PermissionReply {
             request_id: "r".to_string(),
-            decision: nuo_contracts::PermissionDecision::Always,
+            decision: nuo_wire::PermissionDecision::Always,
             parent_call_id: None,
         }));
         assert!(!round_owned_request(&AgentRequest::UserQuestionReply {
@@ -1985,10 +1985,10 @@ mod tests {
         actor: &str,
         round: u64,
         turn: u32,
-        status: nuo_contracts::RequestUsageStatus,
-    ) -> nuo_contracts::RequestUsageRecord {
-        nuo_contracts::RequestUsageRecord {
-            key: nuo_contracts::RequestUsageKey {
+        status: nuo_wire::RequestUsageStatus,
+    ) -> nuo_wire::RequestUsageRecord {
+        nuo_wire::RequestUsageRecord {
+            key: nuo_wire::RequestUsageKey {
                 session_id: session_id.to_string(),
                 actor_id: actor.to_string(),
                 round,
@@ -2061,7 +2061,7 @@ mod tests {
         assert_eq!(residue.interrupts[0].round, Some(2));
         assert_eq!(
             residue.interrupts[0].reason,
-            nuo_contracts::RoundInterruptReason::Terminated
+            nuo_wire::RoundInterruptReason::Terminated
         );
         // The point names the highest in-flight round (not the subagent's key),
         // counts only committed root turns, and watermarks the durable
@@ -2132,8 +2132,8 @@ mod tests {
             .await
             .unwrap();
         store
-            .record_round_interrupt(nuo_contracts::RoundInterrupt {
-                reason: nuo_contracts::RoundInterruptReason::Terminated,
+            .record_round_interrupt(nuo_wire::RoundInterrupt {
+                reason: nuo_wire::RoundInterruptReason::Terminated,
                 at_ms: 1,
                 round: Some(1),
                 detail: None,
@@ -2198,8 +2198,8 @@ mod followup_queue_tests {
 
     use super::*;
 
-    fn message(id: &str, text: &str) -> nuo_contracts::QueuedMessage {
-        nuo_contracts::QueuedMessage {
+    fn message(id: &str, text: &str) -> nuo_wire::QueuedMessage {
+        nuo_wire::QueuedMessage {
             id: id.to_string(),
             text: text.to_string(),
             display_text: None,
@@ -2318,7 +2318,7 @@ mod followup_queue_tests {
         assert!(!lifecycle.was_interrupted());
 
         // The operator requests a stop mid-round…
-        lifecycle.record_interrupt(nuo_contracts::RoundInterruptReason::User);
+        lifecycle.record_interrupt(nuo_wire::RoundInterruptReason::User);
         assert!(lifecycle.was_interrupted());
 
         // …and the round unwinds to its boundary.

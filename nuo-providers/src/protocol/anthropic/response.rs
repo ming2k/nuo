@@ -5,7 +5,7 @@
 //! the `usage` object (with cache-token folding), and the per-event stream
 //! parsing.
 
-use nuo_contracts::{Message, ProviderStreamEvent, Role, TokenUsage, ToolCall};
+use nuo_model_codec::{Message, ProviderStreamEvent, Role, TokenUsage, ToolCall};
 use serde_json::{Map, Value};
 
 /// The assembled pieces of an Anthropic assistant response: the text content,
@@ -211,7 +211,7 @@ pub fn into_message(
         children: None,
         subagent_meta: None,
         origin: None,
-        timestamp: Some(nuo_contracts::todos::unix_now()),
+        timestamp: Some(nuo_tool::todos::unix_now()),
         sent_at_ms: None,
         cache_frozen: false,
     }

@@ -8,30 +8,29 @@
 //! Hits the real API, so it is deliberately an example, not a test.
 #![allow(clippy::expect_used)]
 
-use nuo_contracts::{Effort, Message, Provider as _, ProviderStreamEvent, Role, SecretString, Tool};
+use async_trait::async_trait;
+use nuo_host::SecretString;
+use nuo_model_codec::{Effort, Message, Provider as _, ProviderStreamEvent, Role, Tool};
 
 struct WeatherTool;
 
-#[nuo_contracts::async_trait]
+#[async_trait]
 impl Tool for WeatherTool {
     fn name(&self) -> &str {
         "get_weather"
     }
-    fn variant(&self) -> &str {
-        "default"
-    }
     fn description(&self) -> &str {
         "Query current weather for a city"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
             "properties": {"city": {"type": "string"}},
             "required": ["city"]
         })
     }
-    async fn call(&self, _: &str) -> Result<String, String> {
-        Ok(String::new())
+    async fn execute(&self, _: &nuo_tool::context::ToolContext, _: serde_json::Value) -> Result<nuo_tool::output::ToolOutput, nuo_tool::error::ToolError> {
+        Ok(nuo_tool::output::ToolOutput::success(""))
     }
 }
 
@@ -49,7 +48,7 @@ async fn main() {
     let model = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "qwen3.8-flash".to_string());
-    let baseline = nuo_contracts::model::resolve(&model);
+    let baseline = nuo_model_codec::model::resolve(&model);
     let spec = nuo_providers::model_provider_spec("qianwen")
         .unwrap_or_else(|| panic!("built-in qianwen spec is registered"));
     let url = format!("{}/chat/completions", spec.root_url.trim_end_matches('/'));
@@ -66,7 +65,7 @@ async fn main() {
     let provider = nuo_providers::protocol::openai::chat_completions::OpenAiChatCompletionsProvider::
         with_base_url(secret.expose_secret().to_string(), model.clone(), &url)
         .with_id("qianwen-smoke".to_string())
-        .with_model_capabilities(nuo_contracts::ModelCapabilities::for_channel(baseline.id, None));
+        .with_model_capabilities(nuo_model_codec::ModelCapabilities::for_channel(baseline.id, None));
 
     // Round 1: plain streaming text.
     let stream = provider
@@ -133,7 +132,7 @@ async fn main() {
     );
 
     // Round 3: native tool calls — the harness requires them.
-    let request = nuo_contracts::ModelRequest::with_tools(
+    let request = nuo_model_codec::ModelRequest::with_tools(
         vec![Message::new(
             Role::User,
             "What is the weather in Beijing? Use the tool.",

@@ -9,7 +9,7 @@
 //! ## Why the shipped agent has no self-description
 //!
 //! The engine composes an identity preamble only when the embedding supplies
-//! one ([`nuo_contracts::AgentIdentity`]); this CLI supplies none. Nothing in the harness
+//! one ([`nuo_wire::AgentIdentity`]); this CLI supplies none. Nothing in the harness
 //! reads the model's self-name: no feature parses "I am muta", addressing is
 //! user-side (`@role:` / `/role`), and the product name already travels
 //! with the binary, the UI chrome, and the config paths. Capabilities are
@@ -25,7 +25,7 @@
 //! tokens: the focused roles install an imperative role directive
 //! (see [`AgentRoleProfile::from_role`]).
 
-use nuo_contracts::AgentRoleProfile;
+use nuo_wire::AgentRoleProfile;
 
 /// The built-in **coding agent** profile (ADR-0183, ADR-0244): the declarative
 /// form of the standard developer role with canonical Base-Tier identity directive.

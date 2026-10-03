@@ -2,13 +2,13 @@
 //! (`opencode.ai/zen/go/v1`), authenticated via OpenCode Go API key
 //! (`OPENCODE_API_KEY`).
 
-use nuo_contracts::reasoning::ReasoningSupport;
-use nuo_contracts::{Model, WireProtocol};
+use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_model_codec::{Model, WireProtocol};
 
 use super::{effort_ladders, CatalogShape, ModelProviderSpec, RemoteCatalogSource};
 
 /// Curated seed models offered by the OpenCode Go preset.
-pub use nuo_contracts::model_providers::OPENCODE_GO_MODELS;
+pub use nuo_model_codec::model_providers::OPENCODE_GO_MODELS;
 
 /// Baseline capability metadata for the models this provider serves.
 ///
@@ -255,16 +255,16 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_contracts::model::BaselineModels(MODELS));
+inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
 #[cfg(test)]
 mod tests {
     use super::{MODELS, OPENCODE_GO_MODELS};
-    use nuo_contracts::effort::Effort;
-    use nuo_contracts::model::{resolve, BaselineModels};
+    use nuo_model_codec::effort::Effort;
+    use nuo_model_codec::model::{resolve, BaselineModels};
 
     /// A discovered id with no baseline entry falls back to the 128k/no-effort
-    /// conservative default (`nuo_contracts::model::fallback_model`), which
+    /// conservative default (`nuo_model_codec::model::fallback_model`), which
     /// silently strips the effort control and under-reports the context window
     /// in the pickers (the `/zen/go/v1/models` payload carries ids only, so the
     /// compiled baseline is the only capability source — see
@@ -343,7 +343,7 @@ mod tests {
 }
 
 pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_contracts::ProviderDialect::Standard,
+    dialect: nuo_model_codec::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: Some(std::borrow::Cow::Borrowed("https://opencode.ai/zen/go/v1")),
     prompt_cache: super::PromptCachePolicy::Compiled(super::unsupported_prompt_cache),
@@ -353,12 +353,12 @@ pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // instance-level default is the OpenAI chat-completions surface.
     root_url: std::borrow::Cow::Borrowed("https://opencode.ai/zen/go/v1"),
     user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_contracts::client_identity::OPENCODE_USER_AGENT,
+        nuo_model_codec::client_identity::OPENCODE_USER_AGENT,
     )),
     protocol: WireProtocol::ChatCompletions,
     // Served models come from the live /zen/go/v1/models endpoint.
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_contracts::ClientPreset::Native,
+    default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
     models: OPENCODE_GO_MODELS,
 };

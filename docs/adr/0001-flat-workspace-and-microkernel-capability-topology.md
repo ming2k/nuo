@@ -89,6 +89,21 @@ The catch-all `nuo-contracts` crate is permanently eliminated:
 - Session state, history, and token metrics are relocated to `nuo-persistence`.
 - Dead legacy code (`mesh.rs`, obsolete `Tool` traits) is discarded without replacement.
 
+> **Implementation Note (2026).** Executed as a consolidation into `nuo-wire`
+> rather than a per-subsystem scatter: the domain/wire modules were deeply
+> entangled (`events` ↔ `capability` ↔ `subagent` ↔ `monitor` ↔ …), and only
+> `nuo-wire` — the zero-I/O wire crate designated by ADR-0005 — sits below every
+> consumer, so it is the sole cycle-free destination for the shared contracts.
+> `nuo-wire` therefore now owns both the byte envelopes and the shared
+> zero-I/O domain vocabulary. The `nuo-contracts` crate was deleted once all
+> consumers (`nuo`, `nuox`, `nuo-harness`, `nuo-persistence`, `nuo-providers`,
+> `nuo-client`) were flipped to `nuo_wire::`. See
+> [ADR-0006](0006-wire-contract-consolidation.md) for the full rationale and the
+> amendment of ADR-0005's `[INV-WIRE-01]` ("zero async runtime") to "zero I/O /
+> no direct async runtime": `nuo-wire` retains only `tokio-util`'s codec traits
+> for length-delimited framing and links `tokio` solely transitively through the
+> leaf substrates whose types the contracts name.
+
 ---
 
 ## Invariants & Behavioral Boundaries

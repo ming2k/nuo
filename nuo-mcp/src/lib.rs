@@ -6,6 +6,7 @@
 
 pub mod adapter;
 pub mod client;
+pub mod config;
 pub mod error;
 pub mod protocol;
 pub mod server;
@@ -13,6 +14,7 @@ pub mod transport;
 
 pub use adapter::McpNativeTool;
 pub use client::McpClient;
+pub use config::{McpConnectionStatus, McpServerConfig};
 pub use error::{McpError, Result};
 pub use protocol::{
     CallToolResult, ClientCapabilities, ClientInfo, ContentItem, InitializeParams,

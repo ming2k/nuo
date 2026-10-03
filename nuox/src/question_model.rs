@@ -35,7 +35,7 @@
 //! intermediate state to a snapshot. That is the "see the interaction" debug
 //! loop the old inline arms made impossible.
 
-use nuo_contracts::{UserQuestion, UserQuestionRequest};
+use nuo_wire::{UserQuestion, UserQuestionRequest};
 
 /// The "Other" free-text option label emitted in a reply when the user
 /// selected the synthetic "Other" row but left its text field blank — matches
@@ -470,7 +470,7 @@ mod tests {
     //! and the emitted effects. No terminal, no async, no agent.
 
     use super::*;
-    use nuo_contracts::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+    use nuo_wire::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 
     /// A single-select question with two labeled options.
     fn single_select_req() -> UserQuestionRequest {

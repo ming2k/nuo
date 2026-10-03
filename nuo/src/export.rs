@@ -8,7 +8,7 @@
 //! - Activities render tool invocations and outputs as indented code blocks (4 spaces).
 //! - Hidden and system messages are skipped. Subagent transcripts are summarised inline.
 
-use nuo_contracts::{Message, Role, SubagentMeta, ToolCall};
+use nuo_wire::{Message, Role, SubagentMeta, ToolCall};
 
 /// Metadata carried from the harness into the exporter so the header reflects
 /// the live session state at the moment of export.
@@ -28,7 +28,7 @@ pub struct ExportContext<'a> {
 pub fn format_export_markdown(
     _ctx: ExportContext<'_>,
     messages: &[Message],
-    commands: &[nuo_contracts::CommandRecord],
+    commands: &[nuo_wire::CommandRecord],
 ) -> String {
     let mut out = String::from("# Muta conversation\n\n");
     let mut emitted_any = false;
@@ -481,7 +481,7 @@ fn parse_tool_result(content: &str) -> Option<(&str, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_contracts::ToolCall;
+    use nuo_wire::ToolCall;
 
     fn user(content: &str) -> Message {
         Message::new(Role::User, content)
@@ -714,7 +714,7 @@ mod tests {
     #[test]
     fn renders_user_images_and_subagent_activity() {
         let mut user_msg = user("check this diagram");
-        user_msg.images = Some(vec![nuo_contracts::ImagePart {
+        user_msg.images = Some(vec![nuo_wire::ImagePart {
             mime: "image/png".to_string(),
             data: "abcd".to_string(),
         }]);
@@ -756,16 +756,16 @@ mod tests {
     #[test]
     fn renders_command_ledger_as_distinct_blockquotes() {
         let commands = vec![
-            nuo_contracts::CommandRecord::new("search", "foo").with_result(
-                nuo_contracts::CommandResult::Search {
+            nuo_wire::CommandRecord::new("search", "foo").with_result(
+                nuo_wire::CommandResult::Search {
                     query: "foo".to_string(),
-                    hits: vec![nuo_contracts::SearchHit {
+                    hits: vec![nuo_wire::SearchHit {
                         text: "match".to_string(),
                         score: 0.5,
                     }],
                 },
             ),
-            nuo_contracts::CommandRecord::new("compact", ""),
+            nuo_wire::CommandRecord::new("compact", ""),
         ];
         let out = format_export_markdown(
             ExportContext {

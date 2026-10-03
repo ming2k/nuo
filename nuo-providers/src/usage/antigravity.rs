@@ -2,8 +2,8 @@
 //!
 //! Query endpoint: `POST https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`
 
-use nuo_contracts::async_trait;
-use nuo_contracts::{
+use nuo_wire::async_trait;
+use nuo_wire::{
     PeriodicQuota, ProviderQuotaData, ProviderUsage, QuotaWindowBucket, QuotaWindowKind,
     UsageMetric,
 };

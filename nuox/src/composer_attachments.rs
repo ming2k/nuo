@@ -26,7 +26,7 @@
 //! size badge from the surviving payload each time so a relabeled chip never
 //! reports a stale byte count.
 
-use nuo_contracts::ImagePart;
+use nuo_wire::ImagePart;
 
 /// A pasted-text block becomes a chip when its size crosses this threshold,
 /// mirroring codex's `LARGE_PASTE_CHAR_THRESHOLD` (1000) and claude-code's

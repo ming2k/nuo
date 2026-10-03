@@ -15,7 +15,7 @@ pub mod web;
 
 pub use web::{build_websearch_provider_dropdown, build_websearch_reader_dropdown};
 
-use nuo_contracts::ColorSchemeConfig;
+use nuo_wire::ColorSchemeConfig;
 use nuotc::{
     Alignment, Block as RtBlock, Clear, Constraint, Direction, Frame, Layout, Line, Modifier,
     Paragraph, Rect, Span, Style, Wrap,
@@ -170,7 +170,7 @@ pub struct SettingsProps<'a> {
     pub transcript_layout: crate::render::layout::Strategy,
     pub expand_auto_scroll: bool,
     pub click_outside_dismiss: bool,
-    pub websearch: Option<&'a nuo_contracts::WebSearchConfigView>,
+    pub websearch: Option<&'a nuo_wire::WebSearchConfigView>,
     pub workspace: &'a str,
     pub category_scroll: &'a mut usize,
     pub detail_scroll: &'a mut usize,

@@ -31,7 +31,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{Agent, RequestTokenEstimate, RoundBegin, RoundLifecycle};
-use nuo_contracts::{
+use nuo_wire::{
     AgentEvent, AgentResponse, HarnessError, HarnessSnapshot, ImagePart, InjectionKind, LoopStatus,
     Message, ModelRequest, NoticeKind, NoticeSeverity, NoticeSource, NoticeSurface, Provider,
     ProviderStreamEvent, Role, RoundEvent,
@@ -70,8 +70,8 @@ pub(crate) fn unix_epoch_ms() -> u64 {
 /// whether images were the cause — every vendor formats that differently — so it
 /// states the empirical finding instead of attributing a claim to the provider
 /// that it may never have made.
-fn image_withheld_notice(model: &str) -> nuo_contracts::AgentNotice {
-    nuo_contracts::AgentNotice::new(
+fn image_withheld_notice(model: &str) -> nuo_wire::AgentNotice {
+    nuo_wire::AgentNotice::new(
         NoticeKind::ImageInputWithheld,
         NoticeSeverity::Warning,
         format!("{model} cannot take images — continuing without them"),
@@ -155,42 +155,42 @@ impl Provider for ProxyProvider {
             .model()
     }
 
-    fn wire_protocol(&self) -> Option<nuo_contracts::WireProtocol> {
+    fn wire_protocol(&self) -> Option<nuo_wire::WireProtocol> {
         self.holder
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .wire_protocol()
     }
 
-    fn effort(&self) -> Option<nuo_contracts::effort::Effort> {
+    fn effort(&self) -> Option<nuo_wire::effort::Effort> {
         self.holder
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .effort()
     }
 
-    fn model_capabilities(&self) -> nuo_contracts::ModelCapabilities {
+    fn model_capabilities(&self) -> nuo_wire::ModelCapabilities {
         self.holder
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .model_capabilities()
     }
 
-    fn prompt_hints(&self) -> nuo_contracts::ProviderPromptHints {
+    fn prompt_hints(&self) -> nuo_wire::ProviderPromptHints {
         self.holder
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .prompt_hints()
     }
 
-    fn route_fingerprint(&self) -> nuo_contracts::RouteFingerprint {
+    fn route_fingerprint(&self) -> nuo_wire::RouteFingerprint {
         self.holder
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .route_fingerprint()
     }
 
-    fn continuation_mode(&self) -> nuo_contracts::ContinuationMode {
+    fn continuation_mode(&self) -> nuo_wire::ContinuationMode {
         self.holder
             .read()
             .unwrap_or_else(|error| error.into_inner())
@@ -212,7 +212,7 @@ impl Provider for ProxyProvider {
     async fn chat(
         &self,
         request: ModelRequest,
-    ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
+    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
         let p = self
             .holder
             .read()
@@ -244,8 +244,8 @@ impl Provider for ProxyProvider {
         &self,
         request: ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-        nuo_contracts::ProviderError,
+        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+        nuo_wire::ProviderError,
     > {
         let p = self
             .holder
@@ -278,8 +278,8 @@ impl Provider for ProxyProvider {
         &self,
         request: ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_contracts::ProviderError>>,
-        nuo_contracts::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
+        nuo_wire::ProviderError,
     > {
         let p = self
             .holder
@@ -459,7 +459,7 @@ pub struct ContextProjectionSettings {
     /// Token thresholds resolved against the active model's context window.
     /// Pressure (estimated in tokens) is compared against these to decide when
     /// to prune and when to run a full summarizing compaction.
-    pub budget: nuo_contracts::ContextBudget,
+    pub budget: nuo_wire::ContextBudget,
     pub preserve_rounds: usize,
     /// Use the active model to produce an anchored structured summary.
     pub summarize: bool,
@@ -475,13 +475,13 @@ pub struct ContextProjectionSettings {
 impl ContextProjectionSettings {
     /// Mid-turn pruning only fires when it can reclaim at least this many
     /// tokens, to avoid pruning churn for negligible gains (ADR-0283 Quantum Floor).
-    pub const PRUNE_MIN_RECLAIM_TOKENS: usize = nuo_contracts::PRUNE_QUANTUM_FLOOR_TOKENS;
+    pub const PRUNE_MIN_RECLAIM_TOKENS: usize = nuo_wire::PRUNE_QUANTUM_FLOOR_TOKENS;
 
     /// Resolve settings for the active model's context window. `window_tokens`
     /// is the live model's context window (tokens); `0` means unknown and the
     /// policy's fallback window is substituted.
     /// Resolve settings from a compaction policy.
-    pub fn from_policy(policy: &nuo_contracts::CompactionPolicy, window_tokens: usize) -> Self {
+    pub fn from_policy(policy: &nuo_wire::CompactionPolicy, window_tokens: usize) -> Self {
         Self {
             budget: policy.resolve(window_tokens),
             preserve_rounds: policy.preserve_rounds,
@@ -523,7 +523,7 @@ mod projection_settings_tests {
     #[test]
     fn compaction_target_accounts_for_projected_request_overhead() {
         let settings = ContextProjectionSettings {
-            budget: nuo_contracts::CompactionPolicy::default().resolve(200_000),
+            budget: nuo_wire::CompactionPolicy::default().resolve(200_000),
             preserve_rounds: 6,
             summarize: true,
             prune: true,
@@ -616,7 +616,7 @@ pub async fn send_harness_state_for_session(
         }),
     ));
     if let Some(performance) =
-        nuo_contracts::latest_turn_performance(&session.request_usage_records().await)
+        nuo_wire::latest_turn_performance(&session.request_usage_records().await)
     {
         let _ = tx.send(round_response(
             session_id,
@@ -656,7 +656,7 @@ pub enum RoundDriver {
     /// committed count, and the history is re-seeded from the checkpoint.
     Resume {
         /// The durable resume point captured when the round stopped.
-        point: nuo_contracts::RetryPoint,
+        point: nuo_wire::RetryPoint,
     },
 }
 
@@ -689,7 +689,7 @@ impl RoundInput {
     }
 
     /// Shorthand for the `/retry` resume construction site.
-    pub fn resume(point: nuo_contracts::RetryPoint) -> Self {
+    pub fn resume(point: nuo_wire::RetryPoint) -> Self {
         Self {
             prompt: String::new(),
             hidden: false,
@@ -757,7 +757,7 @@ pub async fn start_interactive_round(context: InteractiveRoundContext, input: Ro
         // as an interrupt of a round that completed normally. A hidden or
         // clock-less input falls back to the park moment.
         context.lifecycle.record_interrupt_at(
-            nuo_contracts::RoundInterruptReason::Superseded,
+            nuo_wire::RoundInterruptReason::Superseded,
             input.sent_at_ms,
         );
         context.agent.reject_pending_permissions();
@@ -860,7 +860,7 @@ pub async fn start_interactive_round(context: InteractiveRoundContext, input: Ro
             context
                 .lifecycle
                 .take_interrupt()
-                .map(|parked| nuo_contracts::RoundInterrupt {
+                .map(|parked| nuo_wire::RoundInterrupt {
                     reason: parked.reason,
                     at_ms: parked.at_ms,
                     round: result.as_ref().err().map(|_| round_at_admission),
@@ -872,8 +872,8 @@ pub async fn start_interactive_round(context: InteractiveRoundContext, input: Ro
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.as_millis() as u64)
                             .unwrap_or(0);
-                        Some(nuo_contracts::RoundInterrupt {
-                            reason: nuo_contracts::RoundInterruptReason::Error,
+                        Some(nuo_wire::RoundInterrupt {
+                            reason: nuo_wire::RoundInterruptReason::Error,
                             at_ms,
                             round: Some(round_at_admission),
                             detail: Some(error.to_string()),
@@ -917,7 +917,7 @@ pub async fn start_interactive_round(context: InteractiveRoundContext, input: Ro
             {
                 tracing::warn!(?error, "could not persist round interrupt record");
             }
-            if record.reason != nuo_contracts::RoundInterruptReason::Error {
+            if record.reason != nuo_wire::RoundInterruptReason::Error {
                 let _ = context.tx.send(round_response(
                     &context.session_id,
                     RoundEvent::RoundInterrupted(record),
@@ -1358,7 +1358,7 @@ pub async fn execute_round(
         if let Err(error) = persist_request_usage(&agent, &session, &session_id).await {
             tracing::warn!(%error, "could not persist request usage after failed attempt");
         }
-        let is_context_overflow = matches!(&error, HarnessError::Provider(err) if err.kind() == nuo_contracts::ProviderErrorKind::ContextOverflow);
+        let is_context_overflow = matches!(&error, HarnessError::Provider(err) if err.kind() == nuo_wire::ProviderErrorKind::ContextOverflow);
         if is_context_overflow && !compacted_after_overflow && !tool_activity.load(Ordering::SeqCst)
         {
             let overflow_settings = ContextProjectionSettings {
@@ -1467,7 +1467,7 @@ pub async fn execute_round(
 
         let (message, retry_after_ms) = match &error {
             HarnessError::Provider(err) => match err.retry_disposition() {
-                nuo_contracts::RetryDisposition::Retry { retry_after_ms } => {
+                nuo_wire::RetryDisposition::Retry { retry_after_ms } => {
                     (err.message().to_string(), retry_after_ms)
                 }
                 _ => break Err(error),
@@ -1505,7 +1505,7 @@ pub async fn execute_round(
         let _ = tx.send(round_response(
             &session_id,
             RoundEvent::Notice(
-                nuo_contracts::AgentNotice::new(
+                nuo_wire::AgentNotice::new(
                     NoticeKind::ProviderRetry,
                     NoticeSeverity::Warning,
                     format!("Retrying provider request ({}/{retry_limit})", attempt + 1),
@@ -1554,7 +1554,7 @@ pub async fn execute_round(
             // so the user's `/retry` continues *this* round: same number,
             // turns onward from what was committed, history at the watermark
             // the failed round durably left behind.
-            let point = nuo_contracts::RetryPoint {
+            let point = nuo_wire::RetryPoint {
                 round: admitted_round,
                 turns_committed: streaming_round.committed_turns(),
                 history_watermark: round_history.len(),
@@ -1634,7 +1634,7 @@ pub async fn execute_round(
     if emit_round_completed {
         let _ = tx.send(round_response(
             &session_id,
-            RoundEvent::RoundCompleted(nuo_contracts::RoundSummary {
+            RoundEvent::RoundCompleted(nuo_wire::RoundSummary {
                 round: agent.round_count(),
                 output_tokens: outcome.token_usage.completion_tokens.max(0) as u64,
                 duration_ms: outcome.duration_ms,
@@ -1676,9 +1676,9 @@ pub async fn execute_round(
         agent.clear_todos();
         let _ = tx.send(round_response(
             &session_id,
-            RoundEvent::TodosUpdated(nuo_contracts::TodoList::default()),
+            RoundEvent::TodosUpdated(nuo_wire::TodoList::default()),
         ));
-        if let Err(err) = session.set_todos(nuo_contracts::TodoList::default()).await {
+        if let Err(err) = session.set_todos(nuo_wire::TodoList::default()).await {
             tracing::warn!(error = %err, "could not clear todos");
         }
     } else {
@@ -1749,9 +1749,9 @@ async fn send_context_projection(
     }
     let _ = tx.send(round_response(
         session_id,
-        RoundEvent::ContextTokens(nuo_contracts::ContextTokenSnapshot::from_estimate(
+        RoundEvent::ContextTokens(nuo_wire::ContextTokenSnapshot::from_estimate(
             estimate,
-            nuo_contracts::ContextTokenSource::Projection,
+            nuo_wire::ContextTokenSource::Projection,
         )),
     ));
 }
@@ -1793,12 +1793,12 @@ async fn estimate_off_executor(agent: &Arc<Agent>, messages: &[Message]) -> Requ
 /// panicked/aborted task reads as `0` (no pressure), matching
 /// `estimate_off_executor`'s fallback.
 async fn estimate_session_weight_off_executor(
-    weights: Arc<nuo_contracts::MessageTokenWeights>,
+    weights: Arc<nuo_wire::MessageTokenWeights>,
     messages: &[Message],
 ) -> usize {
     let snapshot = messages.to_vec();
     tokio::task::spawn_blocking(move || {
-        nuo_contracts::estimate_tokens_weighted(&snapshot, &weights)
+        nuo_wire::estimate_tokens_weighted(&snapshot, &weights)
     })
     .await
     .unwrap_or_else(|error| {
@@ -1877,9 +1877,9 @@ pub fn relay_agent_event(
             // pre-wire boundary, after hooks and request preparation.
             let _ = tx.send(round_response(
                 session_id,
-                RoundEvent::ContextTokens(nuo_contracts::ContextTokenSnapshot::new(
+                RoundEvent::ContextTokens(nuo_wire::ContextTokenSnapshot::new(
                     context_tokens,
-                    nuo_contracts::ContextTokenSource::Projection,
+                    nuo_wire::ContextTokenSource::Projection,
                 )),
             ));
             // Structured turn signal first, so the Activity modal can show
@@ -2057,7 +2057,7 @@ pub async fn compact_round_history_with_mode(
     {
         session.commit_session_ir(&ir).await?;
         let active_msgs = ir.resolve_active_messages();
-        let tokens_after = nuo_contracts::pressure::estimate_tokens(&active_msgs);
+        let tokens_after = nuo_wire::pressure::estimate_tokens(&active_msgs);
         let checkpoint = ContextProjectionCheckpoint {
             operation: nuo_persistence::session::ContextProjectionKind::Compact,
             archived_messages: outcome.nodes_folded,
@@ -2087,7 +2087,7 @@ pub async fn prune_and_commit(
     history: &mut [Message],
     session: &SessionStore,
     settings: &ContextProjectionSettings,
-    weights: Arc<nuo_contracts::MessageTokenWeights>,
+    weights: Arc<nuo_wire::MessageTokenWeights>,
 ) -> Result<(), String> {
     let window_tokens_before =
         estimate_session_weight_off_executor(Arc::clone(&weights), history).await;
@@ -2095,7 +2095,7 @@ pub async fn prune_and_commit(
     // Strictly forbids micro-pruning for negligible gains.
     let min_reclaim = settings.budget.quantum_floor_tokens;
     let Some(outcome) =
-        nuo_contracts::prune_tool_results(history, settings.prune_protect_tokens, min_reclaim)
+        nuo_wire::prune_tool_results(history, settings.prune_protect_tokens, min_reclaim)
     else {
         return Ok(());
     };
@@ -2148,7 +2148,7 @@ mod title_tests {
     use super::*;
     use crate::AgentIdentity;
     use async_trait::async_trait;
-    use nuo_contracts::{Message, ModelRequest, ProviderStreamEvent, Role};
+    use nuo_wire::{Message, ModelRequest, ProviderStreamEvent, Role};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct TitleProvider {
@@ -2156,13 +2156,13 @@ mod title_tests {
     }
 
     #[async_trait]
-    impl nuo_contracts::Provider for TitleProvider {
+    impl nuo_wire::Provider for TitleProvider {
         async fn chat(
             &self,
             _request: ModelRequest,
-        ) -> Result<nuo_contracts::ProviderCompletion, nuo_contracts::ProviderError> {
+        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
             self.consults.fetch_add(1, Ordering::SeqCst);
-            Ok(nuo_contracts::ProviderCompletion::message(Message::new(
+            Ok(nuo_wire::ProviderCompletion::message(Message::new(
                 Role::Assistant,
                 "Fixing the build",
             )))
@@ -2171,8 +2171,8 @@ mod title_tests {
             &self,
             _request: ModelRequest,
         ) -> Result<
-            futures::stream::BoxStream<'static, Result<String, nuo_contracts::ProviderError>>,
-            nuo_contracts::ProviderError,
+            futures::stream::BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+            nuo_wire::ProviderError,
         > {
             Ok(Box::pin(futures::stream::empty()))
         }
@@ -2182,9 +2182,9 @@ mod title_tests {
         ) -> Result<
             futures::stream::BoxStream<
                 'static,
-                Result<ProviderStreamEvent, nuo_contracts::ProviderError>,
+                Result<ProviderStreamEvent, nuo_wire::ProviderError>,
             >,
-            nuo_contracts::ProviderError,
+            nuo_wire::ProviderError,
         > {
             Ok(Box::pin(futures::stream::empty()))
         }

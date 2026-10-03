@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::render::tools::presenter_for;
-use nuo_contracts::ColorSchemeConfig;
+use nuo_wire::ColorSchemeConfig;
 
 pub const THINKING_KEY: &str = "thinking";
 
@@ -231,7 +231,7 @@ pub fn candidate_theme_dirs(workspace: Option<&Path>) -> Vec<PathBuf> {
 }
 
 /// Load custom theme files from a single directory.
-pub fn load_theme_files(themes_dir: &Path) -> Vec<nuo_contracts::ThemeFile> {
+pub fn load_theme_files(themes_dir: &Path) -> Vec<nuo_wire::ThemeFile> {
     let mut themes = Vec::new();
     let Ok(entries) = fs::read_dir(themes_dir) else {
         return themes;
@@ -241,7 +241,7 @@ pub fn load_theme_files(themes_dir: &Path) -> Vec<nuo_contracts::ThemeFile> {
         let path = entry.path();
         if path.extension().and_then(|ext| ext.to_str()) == Some("toml")
             && let Ok(content) = fs::read_to_string(&path)
-            && let Ok(mut theme) = toml::from_str::<nuo_contracts::ThemeFile>(&content)
+            && let Ok(mut theme) = toml::from_str::<nuo_wire::ThemeFile>(&content)
         {
             if theme.id.is_empty()
                 && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
@@ -275,14 +275,14 @@ pub fn load_theme_files(themes_dir: &Path) -> Vec<nuo_contracts::ThemeFile> {
 }
 
 /// Load all custom theme files from all candidate theme directories, deduplicating by id.
-pub fn load_all_theme_files(workspace: Option<&Path>) -> Vec<nuo_contracts::ThemeFile> {
+pub fn load_all_theme_files(workspace: Option<&Path>) -> Vec<nuo_wire::ThemeFile> {
     let mut all_themes = Vec::new();
     for dir in candidate_theme_dirs(workspace) {
         let loaded = load_theme_files(&dir);
         for theme in loaded {
             if !all_themes
                 .iter()
-                .any(|t: &nuo_contracts::ThemeFile| t.id.eq_ignore_ascii_case(&theme.id))
+                .any(|t: &nuo_wire::ThemeFile| t.id.eq_ignore_ascii_case(&theme.id))
             {
                 all_themes.push(theme);
             }
@@ -455,7 +455,7 @@ accent = "#7aa2f7"
         // Missing custom fields inherit their semantic defaults.
         assert_eq!(
             cfg.custom_color_scheme.text,
-            nuo_contracts::ColorSchemeConfig::default().text
+            nuo_wire::ColorSchemeConfig::default().text
         );
     }
 

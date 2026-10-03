@@ -6,15 +6,15 @@
 //! selects the wire protocol and inference root, so the live catalog is
 //! authoritative for both.
 
-use nuo_contracts::reasoning::ReasoningSupport;
-use nuo_contracts::{Model, WireProtocol};
+use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_model_codec::{Model, WireProtocol};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
 use super::{CatalogShape, ModelProviderSpec, RemoteCatalogSource, effort_ladders};
 
 /// Baseline seed models for the OpenCode Console preset.
-pub use nuo_contracts::model_providers::OPENCODE_CONSOLE_MODELS;
+pub use nuo_model_codec::model_providers::OPENCODE_CONSOLE_MODELS;
 
 /// Baseline capability metadata for models served by OpenCode Console.
 pub const MODELS: &[Model] = &[
@@ -53,10 +53,10 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_contracts::model::BaselineModels(MODELS));
+inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
 pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_contracts::ProviderDialect::Standard,
+    dialect: nuo_model_codec::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[
         (
             WireProtocol::AnthropicMessages,
@@ -76,11 +76,11 @@ pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // and any model the catalog does not override.
     root_url: std::borrow::Cow::Borrowed("https://opencode.ai/inference/openai/v1"),
     user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_contracts::client_identity::OPENCODE_USER_AGENT,
+        nuo_model_codec::client_identity::OPENCODE_USER_AGENT,
     )),
     protocol: WireProtocol::ChatCompletions,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpencodeConsole),
-    default_client_profile: nuo_contracts::ClientPreset::Native,
+    default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
     models: OPENCODE_CONSOLE_MODELS,
 };

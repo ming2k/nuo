@@ -1,8 +1,8 @@
 //! The `antigravity-oauth` provider preset: Google-native models served
 //! via Google Antigravity OAuth subscription.
 
-use nuo_contracts::reasoning::ReasoningSupport;
-use nuo_contracts::{Model, WireProtocol};
+use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_model_codec::{Model, WireProtocol};
 
 use super::{effort_ladders, CatalogShape, ModelProviderSpec, RemoteCatalogSource};
 
@@ -13,7 +13,7 @@ use super::{effort_ladders, CatalogShape, ModelProviderSpec, RemoteCatalogSource
 /// signed-in account and may add generations this seed does not list. The seed
 /// stays current enough that a connection with no network still offers the
 /// current tiered generation.
-pub use nuo_contracts::model_providers::ANTIGRAVITY_OAUTH_MODELS;
+pub use nuo_model_codec::model_providers::ANTIGRAVITY_OAUTH_MODELS;
 
 /// Baseline capability metadata for the models this provider serves.
 pub const MODELS: &[Model] = &[
@@ -217,10 +217,10 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_contracts::model::BaselineModels(MODELS));
+inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
 pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_contracts::ProviderDialect::Antigravity,
+    dialect: nuo_model_codec::ProviderDialect::Antigravity,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: super::PromptCachePolicy::Compiled(super::unsupported_prompt_cache),
@@ -228,11 +228,11 @@ pub(crate) const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://daily-cloudcode-pa.googleapis.com"),
     user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_contracts::client_identity::ANTIGRAVITY_USER_AGENT,
+        nuo_model_codec::client_identity::ANTIGRAVITY_USER_AGENT,
     )),
     protocol: WireProtocol::GoogleGemini,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::GoogleCloudCode),
-    default_client_profile: nuo_contracts::ClientPreset::Antigravity,
+    default_client_profile: nuo_model_codec::ClientPreset::Antigravity,
     client_profile_sensitive: true,
     models: ANTIGRAVITY_OAUTH_MODELS,
 };
