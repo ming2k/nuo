@@ -13,44 +13,7 @@ use std::collections::BTreeMap;
 use crate::fsutil;
 use crate::paths;
 
-/// A first-class user-declared model provider surface (ADR-0258).
-///
-/// Declares the physical transport endpoint, default protocol, catalog discovery,
-/// dialect, and client identity preset for a custom LLM service surface (e.g.
-/// corporate relay, local vLLM, or self-hosted gateway).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct UserDeclaredProvider {
-    /// Optional human-readable display label.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    /// Root API URL (e.g. `https://relay.example.com/v1`, without trailing slash).
-    pub root_url: String,
-    /// Default wire transport protocol (e.g. `chat-completions`, `responses`, `anthropic-messages`, `google-gemini`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_protocol: Option<nuo_wire::WireProtocol>,
-    /// Default client profile preset for User-Agent / client headers emulation (ADR-0164, ADR-0258).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_profile: Option<nuo_wire::ClientPreset>,
-    /// Optional User-Agent override.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub user_agent: Option<String>,
-    /// Catalog discovery format: `openai`, `anthropic`, `google`, `none`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub catalog: Option<nuo_wire::RemoteCatalogSource>,
-    /// Typed service dialect, inherited independently of model protocol.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dialect: Option<nuo_wire::ProviderDialect>,
-    /// Optional explicit transport endpoints, keyed by model wire protocol.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub protocol_roots: Vec<(nuo_wire::WireProtocol, String)>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub catalog_root_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt_cache: Option<nuo_wire::provider_surface::ProviderPromptCache>,
-    #[serde(default)]
-    pub client_profile_sensitive: bool,
-}
+pub use nuo_model_codec::model_providers::UserDeclaredProvider;
 
 /// Root map of user-configured model providers in `model_providers.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,6 +40,12 @@ impl Default for ModelProviders {
             providers: BTreeMap::new(),
             model_providers: BTreeMap::new(),
         }
+    }
+}
+
+impl AsRef<BTreeMap<String, UserDeclaredProvider>> for ModelProviders {
+    fn as_ref(&self) -> &BTreeMap<String, UserDeclaredProvider> {
+        &self.providers
     }
 }
 
@@ -152,35 +121,7 @@ impl ModelProviders {
             ));
         }
         for (id, provider) in &self.providers {
-            if id.is_empty() || id.trim() != id {
-                return Err("provider id must be nonempty and trimmed".into());
-            }
-            if nuo_wire::model_providers::is_known_model_provider(id) {
-                return Err(format!("provider `{id}` collides with a built-in provider"));
-            }
-            nuo_wire::ApiRoot::parse(&provider.root_url)?;
-            if let Some(cache) = &provider.prompt_cache {
-                cache.validate()?;
-            }
-            if let Some(root) = &provider.catalog_root_url {
-                nuo_wire::ApiRoot::parse(root)?;
-            }
-            let mut wires = std::collections::HashSet::new();
-            for (wire, root) in &provider.protocol_roots {
-                if !wires.insert(*wire) {
-                    return Err(format!("duplicate protocol root for {wire}"));
-                }
-                nuo_wire::ApiRoot::parse(root)?;
-            }
-            if !provider.dialect.unwrap_or_default().supports(
-                provider
-                    .default_protocol
-                    .unwrap_or(nuo_wire::WireProtocol::ChatCompletions),
-            ) {
-                return Err(format!(
-                    "provider `{id}` has an incompatible default protocol"
-                ));
-            }
+            provider.validate(id)?;
         }
         Ok(())
     }

@@ -16,6 +16,7 @@ nuo-host = { workspace = true }
 nuo-mcp = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 nuo-model-codec = { workspace = true }
+nuo-provider = { workspace = true }
 nuo-tool = { workspace = true }
 url = "2"
 futures = { workspace = true }

@@ -545,7 +545,7 @@ pub const TRIGGER_WORD_SUGGESTIONS: &[(&str, &str, &str)] = &[
     (
         "preferences",
         "/settings",
-        "/settings opens the Settings overlay (theme, layout, behavior)",
+        "/settings opens the Settings overlay (theme, components, web)",
     ),
     (
         "options",

@@ -2,6 +2,8 @@
 //! connections + presets + catalog cache, credential resolution, per-route
 //! reasoning, the fitted-model overlay, and live catalog sync.
 
+extern crate nuo_provider_adapters;
+
 use super::derive::{
     DerivationInputs, derive_channel, derive_entries, resolve_credential, route_models,
 };
@@ -21,8 +23,8 @@ use nuo_persistence::config::{
 };
 use nuo_persistence::connections::{Connection, Connections};
 use nuo_persistence::route_settings::RouteSettingsStore;
-use nuo_providers::oauth::{CredentialStore, TokenSet};
-use nuo_providers::{DEEPSEEK_BUILTIN_MODELS, route_for_model};
+use nuo_provider::oauth::{CredentialStore, TokenSet};
+use nuo_provider::{DEEPSEEK_BUILTIN_MODELS, route_for_model};
 
 use std::sync::Mutex;
 
@@ -30,6 +32,13 @@ use std::sync::Mutex;
 /// serialize against each other so the parallel subagent never observes a
 /// half-set environment or a foreign `Dirs`.
 static ENV_GUARD: Mutex<()> = Mutex::new(());
+static TEST_INIT: std::sync::Once = std::sync::Once::new();
+
+fn ensure_test_init() {
+    TEST_INIT.call_once(|| {
+        nuo_provider_adapters::init();
+    });
+}
 
 /// Owned derivation inputs for a test.
 ///
@@ -42,17 +51,18 @@ struct TestInputs {
     routes: RouteSettingsStore,
     creds: Credentials,
     providers: nuo_persistence::model_providers::ModelProviders,
-    credentials: nuo_providers::CredentialHost,
+    credentials: nuo_provider::CredentialHost,
 }
 
 impl TestInputs {
     fn new(cache: &RemoteCatalogCache, routes: &RouteSettingsStore, creds: &Credentials) -> Self {
+        ensure_test_init();
         Self {
             cache: cache.clone(),
             routes: routes.clone(),
             creds: creds.clone(),
             providers: nuo_persistence::model_providers::ModelProviders::load(),
-            credentials: nuo_providers::CredentialHost::file_backed(
+            credentials: nuo_provider::CredentialHost::file_backed(
                 nuo_persistence::paths::get().auth_file(),
                 nuo_persistence::paths::get().state_dir.join("machine_id"),
             ),
@@ -75,7 +85,7 @@ impl TestInputs {
 /// Reads the paths override, so a test that stores a token cannot touch a
 /// developer's real `auth.toml`.
 fn test_credential_store() -> std::sync::Arc<dyn CredentialStore> {
-    std::sync::Arc::new(nuo_providers::FileCredentialStore::new(
+    std::sync::Arc::new(nuo_provider::FileCredentialStore::new(
         nuo_persistence::paths::get().auth_file(),
     ))
 }
@@ -84,6 +94,7 @@ fn test_credential_store() -> std::sync::Arc<dyn CredentialStore> {
 ///
 /// Leaked for the same reason `inputs_of` is: the call site stays an expression.
 fn declarations() -> &'static nuo_persistence::model_providers::ModelProviders {
+    ensure_test_init();
     Box::leak(Box::new(
         nuo_persistence::model_providers::ModelProviders::load(),
     ))
@@ -158,6 +169,7 @@ fn sandboxed_paths() -> PathsSandbox {
 }
 
 fn instance(name: &str, provider: Option<&str>) -> Connection {
+    ensure_test_init();
     Connection {
         name: name.to_string(),
         provider: provider.unwrap_or("deepseek").to_string(),
@@ -170,7 +182,7 @@ fn register_mock_provider(
     base_url: &str,
     protocol: WireProtocol,
     models: &'static [&'static str],
-    catalog_protocol: nuo_providers::CatalogShape,
+    catalog_protocol: nuo_provider::CatalogShape,
 ) {
     let mut store = nuo_persistence::model_providers::ModelProviders::load();
     store.set_provider(
@@ -181,7 +193,7 @@ fn register_mock_provider(
             default_protocol: Some(protocol),
             client_profile: None,
             user_agent: None,
-            catalog: Some(nuo_providers::RemoteCatalogSource::Endpoint(
+            catalog: Some(nuo_provider::RemoteCatalogSource::Endpoint(
                 catalog_protocol,
             )),
             dialect: None,
@@ -199,7 +211,7 @@ fn register_mock_provider(
         })
         .collect();
     nuo_persistence::model_providers::ModelProviders::save(&store).unwrap();
-    nuo_providers::sync_user_declared_providers(
+    nuo_provider::sync_user_declared_providers(
         &nuo_persistence::model_providers::ModelProviders::load(),
     )
     .unwrap();
@@ -255,7 +267,7 @@ fn provider_dialect_is_inherited_independently_of_auth_and_remote_protocol() {
         }
     ));
     assert_eq!(
-        nuo_providers::model_provider_spec("google-antigravity")
+        nuo_provider::model_provider_spec("google-antigravity")
             .unwrap()
             .dialect,
         ProviderDialect::Antigravity
@@ -340,7 +352,7 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
         },
     );
     nuo_persistence::model_providers::ModelProviders::save(&providers).unwrap();
-    nuo_providers::sync_user_declared_providers(
+    nuo_provider::sync_user_declared_providers(
         &nuo_persistence::model_providers::ModelProviders::load(),
     )
     .unwrap();
@@ -366,7 +378,7 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
     }
     let channel = derive_channel(&conn, model, &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
     .unwrap();
-    let provider = nuo_providers::build_provider_for_channel(&channel, &conn.name, None);
+    let provider = nuo_provider::build_provider_for_channel(&channel, &conn.name, None);
     for streaming in [false, true] {
         let action = if streaming {
             "streamGenerateContent"
@@ -436,6 +448,46 @@ fn openrouter_connection_derives_gateway_dialect_and_nex_seed() {
             ref base_url,
             ..
         } if base_url == "https://openrouter.ai/api/v1/chat/completions"
+    ));
+}
+
+#[test]
+fn commandcode_connection_derives_routes() {
+    let connection = instance("cmd", Some("commandcode"));
+    let channel = derive_channel(
+        &connection,
+        "claude-sonnet-5-5",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
+    .unwrap();
+    assert!(matches!(
+        channel.transport,
+        Transport::Anthropic {
+            ref base_url,
+            ..
+        } if base_url == "https://api.commandcode.ai/provider/v1/messages"
+    ));
+
+    let channel_chat = derive_channel(
+        &connection,
+        "deepseek/deepseek-v4-flash",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
+    .unwrap();
+    assert!(matches!(
+        channel_chat.transport,
+        Transport::OpenAi {
+            ref base_url,
+            ..
+        } if base_url == "https://api.commandcode.ai/provider/v1/chat/completions"
     ));
 }
 
@@ -537,7 +589,7 @@ fn custom_instance_serves_its_declared_models() {
         "https://relay.example.com/v1",
         WireProtocol::ChatCompletions,
         &[],
-        nuo_providers::CatalogShape::OpenAi,
+        nuo_provider::CatalogShape::OpenAi,
     );
     let mut custom = instance("relay", Some("test-relay-declared"));
     custom.models.include = vec![
@@ -912,7 +964,7 @@ fn model_level_protocol_cascade_resolution() {
         "https://relay.example.com/v1",
         WireProtocol::ChatCompletions,
         &[],
-        nuo_providers::CatalogShape::OpenAi,
+        nuo_provider::CatalogShape::OpenAi,
     );
     let conn = Connection {
         name: "corp-relay".to_string(),
@@ -1010,7 +1062,7 @@ async fn live_catalog_sync_writes_the_per_instance_cache() {
         &format!("{}/v1", server.url()),
         WireProtocol::Responses,
         &["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-lite"],
-        nuo_providers::CatalogShape::OpenAi,
+        nuo_provider::CatalogShape::OpenAi,
     );
     let instances = Connections {
         connections: vec![Connection {
@@ -1078,7 +1130,7 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
         &format!("{}", server.url()),
         WireProtocol::GoogleGemini,
         &[],
-        nuo_providers::CatalogShape::GoogleCloudCode,
+        nuo_provider::CatalogShape::GoogleCloudCode,
     );
     let mut conn = instance("agy-live", Some(provider_id));
     conn.auth = ConnectionAuth::subscription("google-antigravity");
@@ -1197,7 +1249,7 @@ async fn opencode_console_catalog_materializes_per_model_routes() {
         &server.url(),
         WireProtocol::ChatCompletions,
         &[],
-        nuo_providers::CatalogShape::OpencodeConsole,
+        nuo_provider::CatalogShape::OpencodeConsole,
     );
     Connections {
         connections: vec![Connection {
@@ -1284,7 +1336,7 @@ async fn single_source_endpoint_failure_records_failure_and_preserves_determinis
         &server.url(),
         WireProtocol::ChatCompletions,
         &["glm-4-plus"],
-        nuo_providers::CatalogShape::OpenAi,
+        nuo_provider::CatalogShape::OpenAi,
     );
     let instances = Connections {
         connections: vec![Connection {
@@ -1339,14 +1391,14 @@ async fn connection_catalog_sync_never_touches_unrelated_connections() {
         &format!("{}/v1", selected_server.url()),
         WireProtocol::Responses,
         &["deepseek-v4-flash"],
-        nuo_providers::CatalogShape::OpenAi,
+        nuo_provider::CatalogShape::OpenAi,
     );
     register_mock_provider(
         unrel_id,
         &format!("{}/v1", unrelated_server.url()),
         WireProtocol::Responses,
         &["deepseek-v4-pro"],
-        nuo_providers::CatalogShape::OpenAi,
+        nuo_provider::CatalogShape::OpenAi,
     );
     Connections {
         connections: vec![
@@ -1407,7 +1459,7 @@ async fn catalog_sync_failure_keeps_the_previous_subset_and_reports() {
         &format!("{}/v1", server.url()),
         WireProtocol::Responses,
         &["deepseek-v4-flash"],
-        nuo_providers::CatalogShape::OpenAi,
+        nuo_provider::CatalogShape::OpenAi,
     );
     let instances = Connections {
         connections: vec![Connection {
@@ -1444,14 +1496,14 @@ async fn successful_empty_remote_catalog_clears_previous_models() {
         &format!("{}/v1", server.url()),
         WireProtocol::Responses,
         &["deepseek-v4-flash"],
-        nuo_providers::CatalogShape::OpenAi,
+        nuo_provider::CatalogShape::OpenAi,
     );
     // This connection is populated only by the remote catalog; drop the
     // helper's declared seed so an authoritative empty catalog is observable.
     let mut providers = nuo_persistence::model_providers::ModelProviders::load();
     providers.get_or_create_mut(provider_id).include.clear();
     nuo_persistence::model_providers::ModelProviders::save(&providers).unwrap();
-    nuo_providers::sync_user_declared_providers(
+    nuo_provider::sync_user_declared_providers(
         &nuo_persistence::model_providers::ModelProviders::load(),
     )
     .unwrap();
@@ -1620,7 +1672,7 @@ fn prune_stale_models_prunes_favorites_and_usage_and_default_model() {
         "https://relay.example.com",
         WireProtocol::ChatCompletions,
         &[],
-        nuo_providers::CatalogShape::OpenAi,
+        nuo_provider::CatalogShape::OpenAi,
     );
     let mut conn = instance("my-custom", Some("test-open-relay-prune"));
     conn.models.include = vec![
@@ -1681,7 +1733,7 @@ fn model_recency_isolation_across_same_preset_connections() {
         "https://relay.example.com",
         WireProtocol::ChatCompletions,
         &[],
-        nuo_providers::CatalogShape::OpenAi,
+        nuo_provider::CatalogShape::OpenAi,
     );
     let mut conn1 = instance("conn-1", Some("test-open-relay-recency"));
     conn1.models.include = vec![nuo_wire::model::DeclaredModel {
@@ -1803,6 +1855,7 @@ async fn catalog_sync_never_resurrects_deleted_connection() {
 #[test]
 fn adr0199_preset_scope_and_instance_scope_cascade() {
     use nuo_persistence::model_providers::ModelProviders;
+    ensure_test_init();
 
     let mut providers = ModelProviders::default();
     let ds_preset = providers.get_or_create_mut("deepseek");
@@ -1889,7 +1942,7 @@ fn provider_dialect_rejects_incompatible_remote_protocol_without_panicking() {
 fn provider_dialect_selects_endpoint_after_remote_protocol_override() {
     let _sandbox = sandboxed_paths();
     assert_eq!(
-        nuo_providers::model_provider_spec("opencode")
+        nuo_provider::model_provider_spec("opencode")
             .unwrap()
             .model_protocol("glm-5.2"),
         WireProtocol::ChatCompletions

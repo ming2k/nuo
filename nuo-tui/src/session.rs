@@ -212,6 +212,13 @@ pub(crate) fn resolve_chat_surface_key(
         {
             if keys.focused_target && (c == 'y' || c == 'c') {
                 Some(InputAction::CopyFocusedTarget)
+            } else if keys.focused_target && c == ' ' {
+                // Space is the universal toggle in this TUI's dialogs
+                // (MCP servers, permission rules), so it activates the focused
+                // entry too. Without this arm Space silently fell into the
+                // "focus swallows keys" branch below while the compaction card
+                // advertised it.
+                Some(InputAction::ActivateFocusedTarget)
             } else if keys.focused_target || keys.transcript_focused {
                 Some(InputAction::None)
             } else {

@@ -9,17 +9,25 @@ use unicode_width::UnicodeWidthStr;
 
 pub const TOOL_STEP_BLOCK_IDX: usize = usize::MAX;
 pub const REASONING_BLOCK_IDX: usize = usize::MAX - 1;
-pub const PROVIDER_RETRY_BLOCK_IDX: usize = usize::MAX - 2;
 /// ADR-0091 command-result header rows: same disclosure interaction as tool
 /// steps, own block index so focus/click resolution routes to the command.
 pub const COMMAND_RESULT_BLOCK_IDX: usize = usize::MAX - 3;
 /// Expandable notice header rows (e.g. provider error with formatted JSON).
+/// Live provider-retry entries render through the notice renderer and record
+/// this sentinel too — a retry is a notice with a countdown, not a peer kind,
+/// so it shares the notice's target rather than carrying a dead sentinel of
+/// its own.
 pub const NOTICE_BLOCK_IDX: usize = usize::MAX - 4;
 /// Expandable compaction checkpoint card header rows (ADR-0296).
 pub const COMPACTED_CARD_BLOCK_IDX: usize = usize::MAX - 6;
-/// Sentinel message index for text regions inside modal overlays.
 /// Sentinel message index for live composer input regions.
-pub const INPUT_MSG_IDX: usize = usize::MAX - 2;
+///
+/// Distinct from every block sentinel above: these two id spaces are compared
+/// in the same hit-test (`cursor.message_idx == INPUT_MSG_IDX`) and separated
+/// by *value*, so a collision silently re-routes one kind of region into the
+/// other.
+pub const INPUT_MSG_IDX: usize = usize::MAX - 8;
+/// Sentinel message index for text regions inside modal overlays.
 pub const MODAL_DOC_MSG_IDX: usize = usize::MAX - 5;
 
 /// Identifies a specific position inside the document model.
@@ -54,17 +62,38 @@ pub struct InteractiveTarget {
 }
 
 /// Category of an activatable target.
+///
+/// Kept in lock-step with [`StepKind`](crate::step_interaction::StepKind): the
+/// mapping here is what turns a message into a keyboard-focus target, while
+/// `StepKind` turns a pointer hit into one. A variant present in only one of
+/// the two is a target that either cannot be clicked or cannot be focused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InteractiveTargetKind {
     ToolStep,
     Reasoning,
-    ProviderRetry,
     CommandResult,
     Notice,
     CompactedCard,
 }
 
 impl InteractiveTarget {
+    /// Resolve the target a recorded block sentinel represents, or `None` when
+    /// the region is not an activatable entry (prose, code, a table cell, …).
+    ///
+    /// The single sentinel → target mapping: [`LayoutMap::interactive_targets`]
+    /// filters through it so a sentinel that no arm claims can never be
+    /// reported as visible-but-unfocusable.
+    pub fn for_block(block_idx: usize, message_idx: usize) -> Option<Self> {
+        Some(match block_idx {
+            TOOL_STEP_BLOCK_IDX => Self::tool_step(message_idx),
+            REASONING_BLOCK_IDX => Self::reasoning(message_idx),
+            NOTICE_BLOCK_IDX => Self::notice(message_idx),
+            COMMAND_RESULT_BLOCK_IDX => Self::command_result(message_idx),
+            COMPACTED_CARD_BLOCK_IDX => Self::compacted_card(message_idx),
+            _ => return None,
+        })
+    }
+
     pub fn tool_step(message_idx: usize) -> Self {
         Self {
             message_idx,
@@ -78,14 +107,6 @@ impl InteractiveTarget {
             message_idx,
             block_idx: REASONING_BLOCK_IDX,
             kind: InteractiveTargetKind::Reasoning,
-        }
-    }
-
-    pub fn provider_retry(message_idx: usize) -> Self {
-        Self {
-            message_idx,
-            block_idx: PROVIDER_RETRY_BLOCK_IDX,
-            kind: InteractiveTargetKind::ProviderRetry,
         }
     }
 
@@ -491,30 +512,16 @@ impl LayoutMap {
         let mut regions: Vec<&BlockRegion> = self
             .regions
             .iter()
-            .filter(|region| {
-                matches!(
-                    region.block_idx,
-                    TOOL_STEP_BLOCK_IDX
-                        | REASONING_BLOCK_IDX
-                        | PROVIDER_RETRY_BLOCK_IDX
-                        | COMMAND_RESULT_BLOCK_IDX
-                        | NOTICE_BLOCK_IDX
-                        | COMPACTED_CARD_BLOCK_IDX
-                )
-            })
+            .filter(|region| InteractiveTarget::for_block(region.block_idx, 0).is_some())
             .collect();
         regions.sort_by_key(|region| (region.rect.y, region.rect.x));
 
         let mut targets = Vec::new();
         for region in regions {
-            let target = match region.block_idx {
-                TOOL_STEP_BLOCK_IDX => InteractiveTarget::tool_step(region.message_idx),
-                REASONING_BLOCK_IDX => InteractiveTarget::reasoning(region.message_idx),
-                PROVIDER_RETRY_BLOCK_IDX => InteractiveTarget::provider_retry(region.message_idx),
-                COMMAND_RESULT_BLOCK_IDX => InteractiveTarget::command_result(region.message_idx),
-                NOTICE_BLOCK_IDX => InteractiveTarget::notice(region.message_idx),
-                COMPACTED_CARD_BLOCK_IDX => InteractiveTarget::compacted_card(region.message_idx),
-                _ => continue,
+            let Some(target) =
+                InteractiveTarget::for_block(region.block_idx, region.message_idx)
+            else {
+                continue;
             };
             if !targets.contains(&target) {
                 targets.push(target);
@@ -527,6 +534,64 @@ impl LayoutMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The block sentinels and the message-index sentinels live in **one**
+    /// numeric space and are compared in the same hit-test
+    /// (`cursor.message_idx == INPUT_MSG_IDX`), so a collision silently
+    /// re-routes one kind of region into another. Every sentinel must be
+    /// distinct, and none may collide with a real message index.
+    #[test]
+    fn sentinels_are_distinct_and_never_collide() {
+        let sentinels = [
+            ("TOOL_STEP_BLOCK_IDX", TOOL_STEP_BLOCK_IDX),
+            ("REASONING_BLOCK_IDX", REASONING_BLOCK_IDX),
+            ("COMMAND_RESULT_BLOCK_IDX", COMMAND_RESULT_BLOCK_IDX),
+            ("NOTICE_BLOCK_IDX", NOTICE_BLOCK_IDX),
+            ("COMPACTED_CARD_BLOCK_IDX", COMPACTED_CARD_BLOCK_IDX),
+            ("INPUT_MSG_IDX", INPUT_MSG_IDX),
+            ("MODAL_DOC_MSG_IDX", MODAL_DOC_MSG_IDX),
+        ];
+        for (i, (name_a, a)) in sentinels.iter().enumerate() {
+            for (name_b, b) in sentinels.iter().skip(i + 1) {
+                assert_ne!(a, b, "{name_a} and {name_b} share the sentinel value {a}");
+            }
+            assert!(
+                *a > 1024,
+                "{name_a} must stay clear of real message/block indices"
+            );
+        }
+    }
+
+    /// Every sentinel a renderer records for an activatable entry must resolve
+    /// to a target, and a non-entry sentinel must resolve to nothing. This is
+    /// what keeps a click on a marked entry from silently degrading into a
+    /// text selection (ADR-0020 §6).
+    #[test]
+    fn for_block_maps_every_entry_sentinel_and_nothing_else() {
+        assert_eq!(
+            InteractiveTarget::for_block(TOOL_STEP_BLOCK_IDX, 3),
+            Some(InteractiveTarget::tool_step(3))
+        );
+        assert_eq!(
+            InteractiveTarget::for_block(REASONING_BLOCK_IDX, 3),
+            Some(InteractiveTarget::reasoning(3))
+        );
+        assert_eq!(
+            InteractiveTarget::for_block(NOTICE_BLOCK_IDX, 3),
+            Some(InteractiveTarget::notice(3))
+        );
+        assert_eq!(
+            InteractiveTarget::for_block(COMMAND_RESULT_BLOCK_IDX, 3),
+            Some(InteractiveTarget::command_result(3))
+        );
+        assert_eq!(
+            InteractiveTarget::for_block(COMPACTED_CARD_BLOCK_IDX, 3),
+            Some(InteractiveTarget::compacted_card(3))
+        );
+        // Prose / code / table-cell regions are not entries.
+        assert_eq!(InteractiveTarget::for_block(0, 3), None);
+        assert_eq!(InteractiveTarget::for_block(7, 3), None);
+    }
 
     fn region(text: &str, start_byte: usize, prefix_cols: u16, rect: Rect) -> BlockRegion {
         BlockRegion {

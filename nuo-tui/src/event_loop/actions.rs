@@ -863,10 +863,12 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 } else {
                     Some(std::path::Path::new(&app.current_workspace))
                 };
+                let active_category =
+                    crate::overlays::ConfigCategory::from_index(app.config_category);
                 match app.config_focus {
                     crate::overlays::ConfigFocus::Categories => {
                         app.config_focus = crate::overlays::ConfigFocus::Detail;
-                        if app.config_category == 0 {
+                        if active_category == crate::overlays::ConfigCategory::Appearance {
                             app.config_detail_index = Theme::color_scheme_index_with_workspace(
                                 &app.color_scheme,
                                 ws_path,
@@ -876,44 +878,86 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         }
                     }
                     crate::overlays::ConfigFocus::Detail => {
-                        match app.config_category {
-                            0 => {
-                                // Appearance category:
-                                let schemes =
-                                    Theme::available_color_schemes_with_workspace(ws_path);
-                                let sel_idx = app.config_detail_index % schemes.len().max(1);
-                                if let Some(scheme) = schemes.get(sel_idx) {
-                                    let name = &scheme.id;
-                                    app.color_scheme = name.to_string();
-                                    app.theme = Theme::from_color_scheme_with_workspace(
-                                        name.as_ref(),
-                                        &app.custom_color_scheme,
-                                        ws_path,
-                                    );
-                                    app.send_intent(AgentRequest::UpdateTuiColorScheme {
-                                        name: app.color_scheme.clone(),
-                                        custom: app.custom_color_scheme.clone(),
-                                    });
-                                    app.save_tui_config();
+                        match active_category {
+                            crate::overlays::ConfigCategory::Appearance => {
+                                if app.profile.supports_color_themes() {
+                                    // Appearance category:
+                                    let schemes =
+                                        Theme::available_color_schemes_with_workspace(ws_path);
+                                    let sel_idx = app.config_detail_index % schemes.len().max(1);
+                                    if let Some(scheme) = schemes.get(sel_idx) {
+                                        let name = &scheme.id;
+                                        app.color_scheme = name.to_string();
+                                        app.theme = Theme::resolve_with_profile(
+                                            name.as_ref(),
+                                            &app.custom_color_scheme,
+                                            ws_path,
+                                            &app.profile,
+                                        );
+                                        app.send_intent(AgentRequest::UpdateTuiColorScheme {
+                                            name: app.color_scheme.clone(),
+                                            custom: app.custom_color_scheme.clone(),
+                                        });
+                                        app.save_tui_config();
+                                    }
                                 }
                             }
-                            1 if app.config_detail_index == 1 => {
-                                // Transcript category:
-                                app.expand_auto_scroll = !app.expand_auto_scroll;
-                                app.save_tui_config();
+                            crate::overlays::ConfigCategory::Components => {
+                                // Rows are resolved by identity, never by a
+                                // literal index: the panel's ordering lives in
+                                // `settings::components::row_for_index`, so a
+                                // new tool component needs no arm here
+                                // (ADR-0020).
+                                use crate::views::settings::components::{
+                                    ComponentRowId, row_for_index,
+                                };
+                                match row_for_index(app.config_detail_index) {
+                                    Some(ComponentRowId::Reasoning) => {
+                                        // Reasoning Traces (thinking)
+                                        let next = !crate::config::reasoning_default_expanded(&app.tui_config);
+                                        app.tui_config
+                                            .default_expanded
+                                            .insert(crate::config::THINKING_KEY.to_string(), next);
+                                        app.reasoning_default_expanded = next;
+                                        app.save_tui_config();
+                                    }
+                                    Some(ComponentRowId::Tool(component)) => {
+                                        // One row per declared component; the
+                                        // setter fans the choice out to every
+                                        // name the component owns.
+                                        let next = !crate::config::tool_default_expanded(
+                                            &app.tui_config,
+                                            component.primary_name(),
+                                        );
+                                        crate::config::set_component_default_expanded(
+                                            &mut app.tui_config,
+                                            component,
+                                            next,
+                                        );
+                                        app.save_tui_config();
+                                    }
+                                    Some(ComponentRowId::Density) => {
+                                        // Global Step Density (tool_density)
+                                        app.tool_density = !app.tool_density;
+                                        app.tui_config.tool_density = app.tool_density;
+                                        app.save_tui_config();
+                                    }
+                                    Some(ComponentRowId::AutoScroll) => {
+                                        // Auto-Scroll on Expand
+                                        app.expand_auto_scroll = !app.expand_auto_scroll;
+                                        app.tui_config.expand_auto_scroll = app.expand_auto_scroll;
+                                        app.save_tui_config();
+                                    }
+                                    None => {}
+                                }
                             }
-                            2 if app.config_detail_index == 0 => {
-                                // Behavior category:
-                                app.click_outside_dismiss = !app.click_outside_dismiss;
-                                app.save_tui_config();
-                            }
-                            3 | 4 => {
+                            crate::overlays::ConfigCategory::WebSearch | crate::overlays::ConfigCategory::WebReader => {
                                 let Some(revision) =
                                     app.websearch_config.as_ref().map(|config| config.revision)
                                 else {
                                     return ActionFlow::NextEvent;
                                 };
-                                let is_search = app.config_category == 3;
+                                let is_search = active_category == crate::overlays::ConfigCategory::WebSearch;
                                 match app.config_detail_index {
                                     0 => {
                                         let anchor = if let Some(target_rect) =
@@ -1022,17 +1066,25 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::ConfigSegmentPrev => {
-            if app.current_scene() == SceneKind::Settings && app.config_category == 4 {
-                app.config_category = 3;
-                app.config_detail_index = 0;
-                app.config_detail_scroll = 0;
+            if app.current_scene() == SceneKind::Settings {
+                if crate::overlays::ConfigCategory::from_index(app.config_category)
+                    == crate::overlays::ConfigCategory::WebReader
+                {
+                    app.config_category = crate::overlays::ConfigCategory::WebSearch as usize;
+                    app.config_detail_index = 0;
+                    app.config_detail_scroll = 0;
+                }
             }
         }
         input::InputAction::ConfigSegmentNext => {
-            if app.current_scene() == SceneKind::Settings && app.config_category == 3 {
-                app.config_category = 4;
-                app.config_detail_index = 0;
-                app.config_detail_scroll = 0;
+            if app.current_scene() == SceneKind::Settings {
+                if crate::overlays::ConfigCategory::from_index(app.config_category)
+                    == crate::overlays::ConfigCategory::WebSearch
+                {
+                    app.config_category = crate::overlays::ConfigCategory::WebReader as usize;
+                    app.config_detail_index = 0;
+                    app.config_detail_scroll = 0;
+                }
             }
         }
         input::InputAction::McpToggle => {
@@ -2402,14 +2454,20 @@ pub(super) fn enter_scene(
         SceneKind::Settings => {
             app.config_focus = crate::overlays::ConfigFocus::Categories;
             app.config_category = 0;
-            app.config_detail_index = Theme::color_scheme_index_with_workspace(
-                &app.color_scheme,
-                if app.current_workspace.is_empty() {
-                    None
-                } else {
-                    Some(std::path::Path::new(&app.current_workspace))
-                },
-            );
+            let active_category =
+                crate::overlays::ConfigCategory::from_index(app.config_category);
+            if active_category == crate::overlays::ConfigCategory::Appearance {
+                app.config_detail_index = Theme::color_scheme_index_with_workspace(
+                    &app.color_scheme,
+                    if app.current_workspace.is_empty() {
+                        None
+                    } else {
+                        Some(std::path::Path::new(&app.current_workspace))
+                    },
+                );
+            } else {
+                app.config_detail_index = 0;
+            }
             app.config_scroll = 0;
             app.config_detail_scroll = 0;
             app.config_dropdown = None;

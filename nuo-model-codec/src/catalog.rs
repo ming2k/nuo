@@ -82,6 +82,85 @@ pub enum ProviderDialect {
     Qoder,
 }
 
+/// Errors produced during remote catalog discovery.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ModelListError {
+    #[error("bad endpoint: {0}")]
+    BadEndpoint(String),
+    #[error("HTTP error: {0}")]
+    Http(String),
+    #[error("status {0}: {1}")]
+    Status(u16, String),
+    #[error("parse error: {0}")]
+    Parse(String),
+}
+
+impl ModelListError {
+    /// Whether the upstream refused the request (401/403).
+    pub const fn is_refusal(&self) -> bool {
+        matches!(self, Self::Status(401 | 403, _))
+    }
+}
+
+/// A model entry discovered from a provider's live models list.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DiscoveredModel {
+    pub id: String,
+    pub availability: Option<crate::model::Availability>,
+    pub advertised: Option<bool>,
+    pub protocol: Option<crate::WireProtocol>,
+    pub endpoint: Option<String>,
+    pub family: Option<String>,
+    pub name: Option<String>,
+    pub context_window: Option<usize>,
+    pub max_output_tokens: Option<u32>,
+    pub reasoning: Option<bool>,
+    pub thinking: Option<crate::reasoning::ReasoningSupport>,
+    pub tool_call: Option<bool>,
+    pub vision: Option<bool>,
+    pub effort_levels: Option<Vec<String>>,
+    pub catalog_source: Option<String>,
+}
+
+impl DiscoveredModel {
+    /// Convert live provider facts into the persisted channel-scoped snapshot.
+    pub fn remote_metadata(&self) -> crate::model::RemoteModelMetadata {
+        crate::model::RemoteModelMetadata {
+            protocol: self.protocol,
+            endpoint: self.endpoint.clone(),
+            family: self.family.clone(),
+            name: self
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty() && *name != self.id.as_str())
+                .map(str::to_string),
+            context_window: self.context_window,
+            max_output_tokens: self.max_output_tokens,
+            thinking: self.thinking.or_else(|| {
+                self.reasoning.map(|reasoning| {
+                    if reasoning {
+                        crate::reasoning::ReasoningSupport::ReasoningContent
+                    } else {
+                        crate::reasoning::ReasoningSupport::None
+                    }
+                })
+            }),
+            tool_call: self.tool_call,
+            vision: self.vision,
+            effort_levels: self.effort_levels.as_ref().map(|levels| {
+                levels
+                    .iter()
+                    .map(|level| crate::EffortLevel::parse(level))
+                    .collect()
+            }),
+            catalog_source: self.catalog_source.clone(),
+            availability: self.availability.clone(),
+            advertised: self.advertised,
+        }
+    }
+}
+
 impl std::str::FromStr for ProviderDialect {
     type Err = String;
 
@@ -437,7 +516,9 @@ pub fn builtin_provider_metadata(id: &str) -> Option<(&'static str, &'static str
         // OpenCode Zen — the key-authenticated public relay surface
         // (`/zen/v1`), distinct from the account-scoped Console surface above.
         "opencode-zen" => ("OpenCode Zen", "OpenCode Zen relay (API key)"),
-        "opencode-go" => ("OpenCode Go", "OpenCode Go relay (API key)"),
+        "opencode-plan" | "opencode-go" => ("OpenCode Plan", "OpenCode Plan relay (API key)"),
+        "chatgpt-plan" | "chatgpt" => ("ChatGPT Plan", "ChatGPT Subscription Plan (Codex)"),
+        "commandcode-plan" | "commandcode" => ("CommandCode Plan", "Command Code Provider API"),
         // Anthropic — Claude family over the `/messages` API (configurable base
         // URL; defaults to the official endpoint).
         "anthropic" => ("Anthropic", "Claude models"),
@@ -620,6 +701,7 @@ mod tests {
     #[test]
     fn builtin_provider_metadata_covers_every_preset() {
         for id in [
+            "commandcode",
             "kimi-code",
             "openai",
             "openrouter",

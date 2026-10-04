@@ -25,7 +25,7 @@ use nuo_persistence::connection_usage::ConnectionUsage;
 use nuo_persistence::connections::Connections;
 use nuo_persistence::model_providers::ModelProviders;
 use nuo_persistence::route_settings::RouteSettingsStore;
-use nuo_providers::CredentialHost;
+use nuo_provider::CredentialHost;
 
 #[cfg(test)]
 mod tests;
@@ -54,7 +54,7 @@ impl Stores {
         // Populate the provider registry from the declarations we just read:
         // the value that was loaded is the value the registry serves, so the two
         // cannot disagree.
-        if let Err(error) = nuo_providers::sync_user_declared_providers(&providers) {
+        if let Err(error) = nuo_provider::sync_user_declared_providers(&providers) {
             tracing::warn!(%error, "could not refresh the provider registry");
         }
         Self {
@@ -177,7 +177,7 @@ pub fn build_provider_for_model(
             .or_else(|| entry.default_channel()),
     };
     channel
-        .map(|channel| nuo_providers::build_provider_for_channel(channel, &entry.id, session_id))
+        .map(|channel| nuo_provider::build_provider_for_channel(channel, &entry.id, session_id))
 }
 
 pub fn resolved_model_name(config: &Config, id: &str) -> Option<String> {

@@ -1522,8 +1522,8 @@ fn config_view_navigation_and_theme_preview() {
     assert_eq!(app.config_focus, crate::overlays::ConfigFocus::Categories);
     assert_eq!(app.config_category, 0);
 
-    // Cycling down through all 6 categories
-    for expected_cat in [1, 2, 3, 4, 5, 0] {
+    // Cycling down through all 5 categories
+    for expected_cat in [1, 2, 3, 4, 0] {
         crate::event_loop::handle_modal_down(&mut app, "s1");
         assert_eq!(app.config_category, expected_cat);
     }
@@ -1532,19 +1532,17 @@ fn config_view_navigation_and_theme_preview() {
     app.config_focus = crate::overlays::ConfigFocus::Detail;
     app.config_detail_index = 0;
 
-    // Up/down in detail pane previews themes
+    let original_surface = app.theme.surface();
+
+    // Up/down in detail pane does NOT apply themes before Enter apply
     crate::event_loop::handle_modal_down(&mut app, "s1");
-    let schemes = crate::render::Theme::available_color_schemes();
-    let previewed_scheme = &schemes[app.config_detail_index % schemes.len()];
+    assert_eq!(app.config_detail_index, 1);
     assert_eq!(
         app.theme.surface(),
-        crate::render::Theme::from_color_scheme(&previewed_scheme.id, &app.custom_color_scheme)
-            .surface()
+        original_surface,
+        "theme must not change on navigation before Enter apply"
     );
 
-    // Revert preview on exit to categories
-    app.theme =
-        crate::render::Theme::from_color_scheme(&app.color_scheme, &app.custom_color_scheme);
     app.config_focus = crate::overlays::ConfigFocus::Categories;
     assert_eq!(
         app.theme.surface(),
@@ -1568,6 +1566,152 @@ fn config_view_navigation_and_theme_preview() {
         app.current_scene(),
         crate::surfaces::SceneKind::Conversation
     );
+}
+
+#[test]
+fn config_view_monochrome_profile_navigation_and_item_counts() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.profile = nuotc::TerminalProfile::dec_vt100_monochrome();
+    app.theme = crate::render::Theme::monochrome();
+
+    app.switch_scene(crate::surfaces::SceneKind::Settings);
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Settings);
+    assert_eq!(app.config_focus, crate::overlays::ConfigFocus::Categories);
+    assert_eq!(app.config_category, 0);
+
+    // Categories are always all 5, cleanly available on all profiles
+    for expected_cat in [1, 2, 3, 4, 0] {
+        crate::event_loop::handle_modal_down(&mut app, "s1");
+        assert_eq!(app.config_category, expected_cat);
+    }
+
+    // On monochrome, Appearance detail item count is 1 (Monochrome Hardware Mode)
+    app.config_focus = crate::overlays::ConfigFocus::Detail;
+    app.config_detail_index = 0;
+    // Cycling down on single-item detail pane remains at index 0
+    crate::event_loop::handle_modal_down(&mut app, "s1");
+    assert_eq!(app.config_detail_index, 0);
+}
+
+#[tokio::test]
+async fn config_view_components_toggle_and_persistence() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    app.switch_scene(crate::surfaces::SceneKind::Settings);
+    // Navigate to category 1 (Components)
+    app.config_category = 1;
+    app.config_focus = crate::overlays::ConfigFocus::Detail;
+
+    // Rows are addressed through the panel's own ordering so this test cannot
+    // silently drift when a component is added (ADR-0020).
+    use crate::views::settings::components::{ComponentRowId, item_count, row_for_index};
+    let index_of = |pred: &dyn Fn(ComponentRowId) -> bool| {
+        (0..item_count())
+            .find(|i| row_for_index(*i).is_some_and(pred))
+            .expect("row must exist in the Components panel")
+    };
+    let reasoning_row = index_of(&|row| row == ComponentRowId::Reasoning);
+    let command_row = index_of(&|row| {
+        matches!(row, ComponentRowId::Tool(c) if c.id == "command")
+    });
+    let diff_row = index_of(&|row| matches!(row, ComponentRowId::Tool(c) if c.id == "diff"));
+    let search_row = index_of(&|row| matches!(row, ComponentRowId::Tool(c) if c.id == "search"));
+    let density_row = index_of(&|row| row == ComponentRowId::Density);
+    let auto_scroll_row = index_of(&|row| row == ComponentRowId::AutoScroll);
+
+    app.config_detail_index = reasoning_row;
+    assert!(!crate::config::reasoning_default_expanded(&app.tui_config));
+    assert!(!app.reasoning_default_expanded);
+
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::ConfigActivate,
+        "s1",
+    )
+    .await;
+    assert!(crate::config::reasoning_default_expanded(&app.tui_config));
+    assert!(app.reasoning_default_expanded);
+
+    // The command component opens by default, so activating collapses it — and
+    // the choice must land on every shell spelling, not just the canonical one.
+    app.config_detail_index = command_row;
+    assert!(crate::config::tool_default_expanded(&app.tui_config, "execute_command"));
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::ConfigActivate,
+        "s1",
+    )
+    .await;
+    assert!(!crate::config::tool_default_expanded(&app.tui_config, "execute_command"));
+    for alias in ["run_command", "bash"] {
+        assert!(
+            !crate::config::tool_default_expanded(&app.tui_config, alias),
+            "{alias} must follow the command row"
+        );
+    }
+
+    // The Diffs row covers edit_text and write_file together.
+    app.config_detail_index = diff_row;
+    assert!(crate::config::tool_default_expanded(&app.tui_config, "edit_text"));
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::ConfigActivate,
+        "s1",
+    )
+    .await;
+    assert!(!crate::config::tool_default_expanded(&app.tui_config, "edit_text"));
+    assert!(!crate::config::tool_default_expanded(&app.tui_config, "write_file"));
+
+    // An untouched row keeps its declared default — toggling one component
+    // must never move another.
+    assert!(!crate::config::tool_default_expanded(&app.tui_config, "search_text"));
+    app.config_detail_index = search_row;
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::ConfigActivate,
+        "s1",
+    )
+    .await;
+    assert!(crate::config::tool_default_expanded(&app.tui_config, "search_text"));
+    assert!(!crate::config::tool_default_expanded(&app.tui_config, "edit_text"));
+
+    app.config_detail_index = density_row;
+    assert!(!app.tool_density);
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::ConfigActivate,
+        "s1",
+    )
+    .await;
+    assert!(app.tool_density);
+    assert!(app.tui_config.tool_density);
+
+    app.config_detail_index = auto_scroll_row;
+    assert!(!app.expand_auto_scroll);
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::ConfigActivate,
+        "s1",
+    )
+    .await;
+    assert!(app.expand_auto_scroll);
+    assert!(app.tui_config.expand_auto_scroll);
+
+    // Verify config file on disk has the persisted settings
+    let loaded = crate::config::TuiConfig::load();
+    assert!(crate::config::reasoning_default_expanded(&loaded));
+    assert!(!crate::config::tool_default_expanded(&loaded, "execute_command"));
+    assert!(!crate::config::tool_default_expanded(&loaded, "bash"));
+    assert!(!crate::config::tool_default_expanded(&loaded, "edit_text"));
+    assert!(crate::config::tool_default_expanded(&loaded, "search_text"));
+    assert!(loaded.tool_density);
+    assert!(loaded.expand_auto_scroll);
 }
 
 #[test]

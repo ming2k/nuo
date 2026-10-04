@@ -7,11 +7,11 @@ license.workspace = true
 
 [dependencies]
 nuo-tool = { workspace = true }
+nuo-provider = { workspace = true }
 nuo-model-codec = { workspace = true }
 nuo-wire = { workspace = true }
 nuo-persistence = { workspace = true }
 nuo-host = { workspace = true }
-nuo-providers = { workspace = true }
 nuo-agent = { workspace = true }
 nuo-code = { workspace = true }
 nuo-tool-fs = { workspace = true }
@@ -43,6 +43,7 @@ sha2 = { workspace = true }
 toml = { workspace = true }
 
 [dev-dependencies]
+nuo-provider-adapters = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 mockito = { workspace = true }
 tempfile = { workspace = true }

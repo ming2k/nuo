@@ -28,7 +28,7 @@ pub(super) fn enter_terminal(profile: &nuotc::TerminalProfile) -> io::Result<()>
         MOUSE_CAPTURE_ENABLED.store(true, Ordering::Relaxed);
     }
 
-    if profile.color_standard != nuotc::ColorStandard::Monochrome
+    if profile.supports_color()
         && execute!(stdout, EnableBracketedPaste).is_ok()
     {
         BRACKETED_PASTE_ENABLED.store(true, Ordering::Relaxed);
@@ -38,7 +38,7 @@ pub(super) fn enter_terminal(profile: &nuotc::TerminalProfile) -> io::Result<()>
     // keys (e.g. Ctrl+M vs Enter) to be disambiguated.
     // Query capability first so modern Windows Terminal/ConPTY and Linux/macOS
     // terminals receive exact protocol compliance without unsupported errors.
-    if profile.color_standard == nuotc::ColorStandard::DirectColor
+    if profile.supports_truecolor()
         && supports_keyboard_enhancement().unwrap_or(false)
         && execute!(
             stdout,

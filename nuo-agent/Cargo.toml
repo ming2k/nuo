@@ -10,6 +10,7 @@ description = "Cognitive agent runtime, ReAct loop, session lifecycle, token com
 acp = { workspace = true }
 nuo-model-codec = { workspace = true, optional = true }
 nuo-tool = { workspace = true }
+nuo-provider = { workspace = true }
 nuo-wire = { workspace = true }
 nuo-mcp = { workspace = true, optional = true }
 serde = { workspace = true }

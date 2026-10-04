@@ -252,6 +252,50 @@ rm -rf "$NUO_HOME"
   - Model selector modal overlays cleanly and dismisses upon `Esc`.
   - `/exit` cleanly exits TUI, restores standard terminal screen buffer, unhides cursor, and returns to shell prompt.
 
+#### Scenario 4.5: Settings → Components Reflects the Declared Registry (ADR-0020)
+- **Action**:
+  - Open `/settings` and select the **Components** category.
+  - Confirm the pane lists one row per declared tool component (`Command
+    Execution Logs`, `File Changes (Diffs)`, `File Content Previews`, `Image
+    Reads`, `Search & Grep Results`, `Web Article Reads`, `Web Search Results`,
+    `Todo & Task Checklists`, `Subagent Delegations`, `Skill Activations`,
+    `Clarifying Questions`) followed by `Global Step Density` and
+    `Auto-Scroll on Expand`, with `Reasoning Traces (Thinking)` first.
+  - Confirm the badges match the declared defaults: `Command Execution Logs`
+    and `File Changes (Diffs)` read `[ Expanded ]`; every other component reads
+    `[ Collapsed ]`.
+  - Toggle `Command Execution Logs`, then run a shell command; confirm the step
+    collapses.
+  - Run the same shell command under its legacy spelling (a restored session
+    persisted as `bash` or `run_command`) and confirm it collapses too.
+  - Restart `nuo` and confirm every toggle persisted.
+- **Expected Outcome**:
+  - The pane's row count and order are derived from `tools::TOOL_COMPONENTS`;
+    adding a presenter plus one registry entry makes its row appear with no
+    other edit.
+  - A component's toggle applies to **every** name that component claims, so an
+    alias spelling never ignores the user's choice.
+  - Toggling one component never changes another's state.
+  - `[tui.default_expanded]` in `$XDG_CONFIG_HOME/mutx/config.toml` carries one
+    entry per alias of each toggled component.
+
+#### Scenario 4.6: Interactive Markers Are Honest
+- **Action**:
+  - Send a turn that produces thinking, a file edit, a shell command, and a
+    web search; hover each summary and press `Ctrl+N` / `Ctrl+P` to walk them
+    with the keyboard.
+  - Click a compaction card (appears after a context compaction) and press
+    `Enter` / `Space` on it while focused.
+  - Press `Enter` and `Space` on a focused notice (e.g. a provider-retry entry).
+- **Expected Outcome**:
+  - Every summary that shows a `+`/`-` marker is focusable, clickable, and
+    lights up with the affordance hue on hover/focus (ADR-0174).
+  - The compaction card toggles on click and on `Enter`/`Space`; its hint names
+    only those chords.
+  - Notices and command entries carry no `+`/`-` marker — their body is fully
+    disclosed — and neither advertises a folding chord.
+  - A click on prose selects text rather than toggling anything.
+
 ---
 
 ### Suite 5: Headless Execution & CLI Automation (`nuo run` / `nuo -p`)

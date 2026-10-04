@@ -1,0 +1,2282 @@
+# OpenAPI 3.1 reference for the command-code subscription surface (api.commandcode.ai),
+# reverse engineered from command-code v1.74.1 (dist/cli.mjs + dist/index.mjs boot shim)
+# and live-verified on 2026-10-04 against a real `individual-goat` subscription key.
+#
+# Consumers: the implementer adding this provider to Nuo. This file never encodes code
+# decisions — it states the contract exactly as the endpoint enforces it.
+#
+# Vendor extensions used (x-…):
+#   x-cli-bundle-symbol   obfuscated identifier of the constant in dist/cli.mjs@1.74.1
+#   x-provenance          live | bundle | call-site (how the fact was established)
+#   x-error-semantics     client-side terminal/retryable classification
+#
+# Header catalog: the chat lane sends the full header family (components.headers); the
+# billing/usage/telemetry lane sends a lean subset plus traceparent. See
+# components.headers for the authoritative per-header notes.
+openapi: 3.1.0
+info:
+  title: Command Code Subscription API
+  version: 1.74.1
+  summary: >-
+    Subscription-tiered inference and account surface behind the command-code CLI.
+    A single opaque subscription bearer fronts vendor credentials that the server
+    rotates behind its routing planner; no vendor key ever appears on the wire from
+    the client.
+  description: |
+    Environments (bundle `hn = {prod, staging, local}`, local port base `fn = 9090`):
+
+    | Environment | Base URL | Selection trigger |
+    | --- | --- | --- |
+    | Production | `https://api.commandcode.ai` | default (`getApiEnv()` falls through) |
+    | Staging    | `https://staging-api.commandcode.ai` | `--staging` argv flag, or `COMMANDCODE_API_ENV=staging` |
+    | Local      | `http://localhost:9090` | `--local` argv flag, or `COMMANDCODE_API_ENV=local` |
+    | Custom     | any HTTPS origin | `COMMANDCODE_API_URL` (only when `COMMANDCODE_SANDBOX=true`) |
+
+    Precedence in `getApiEnv()`: `apiEnvFromFlags(argv)` ?? `apiEnvFromEnvVar(COMMANDCODE_API_ENV)`
+    ?? `prod`. Only `local` / `staging` / `prod` are recognized env-var values. The argv flag beats
+    the env var. `resolveApiBaseUrl()` order: sandbox+custom → custom URL; local →
+    `http://localhost:{9090 + PORT_OFFSET}`; staging; else production. `PORT_OFFSET` is read via
+    `resolveLocalOffset()` from `.commandcode/dev-ports.json` (key `offset`), walking up from `cwd`
+    to the volume root.
+
+    The environment selector is visual only (the UI renders the base URL); it does not change the
+    wire shape.
+
+    Two header builders exist in the bundle and target different lanes:
+    - `buildCommandAuthHeaders` — the **harness/chat lane** (`createNodeHarnessSession` transport).
+    - `buildCommandApiHeaders` — the **billing/usage/telemetry lane** (`createCommandApiClient`),
+      which additionally stamps a W3C `traceparent` when OTel telemetry is active.
+
+    Studio hosts (bundle `ls`): prod `https://commandcode.ai`, staging `https://staging.commandcode.ai`,
+    local `http://localhost:3000`.
+  x-cli-constants:
+    environments:
+      prod: https://api.commandcode.ai
+      staging: https://staging-api.commandcode.ai
+      local: http://localhost:9090
+    localPortBase: 9090
+    studioHosts:
+      prod: https://commandcode.ai
+      staging: https://staging.commandcode.ai
+      local: http://localhost:3000
+    userAgent: cli
+    streamRetryAttempts: 5
+    defaultMaxTokens: 64000
+    featureLaneModels:
+      titleGeneration: deepseek/deepseek-v4-flash
+      compaction: deepseek/deepseek-v4.1-flash
+      toolDescription: deepseek/deepseek-v4-flash
+      tasteOnboarding: deepseek/deepseek-v4-flash
+      branchSummarization: deepseek/deepseek-v4-pro
+      vision: xiaomi/mimo-v2.5
+  license:
+    name: Internal reference
+    url: https://commandcode.ai
+externalDocs:
+  description: Error code reference
+  url: https://commandcode.ai/docs/reference/errors
+
+servers:
+  - url: https://api.commandcode.ai
+    description: Production
+  - url: https://staging-api.commandcode.ai
+    description: Staging (--staging)
+  - url: http://localhost:9090
+    description: Local (--local)
+
+security:
+  - SubscriptionBearer: []
+  - OAuthPair: []
+
+tags:
+  - name: account
+    description: Identity, namespaces and org spend limits.
+  - name: billing
+    description: Subscription row, credit ledger and usage summary.
+  - name: inference
+    description: The one inference endpoint (SSE) plus its decision-model offshoot.
+  - name: tools
+    description: Subscription-gated web search / fetch tools.
+  - name: agents
+    description: Headless custom-agent definition generation.
+  - name: sharing
+    description: Session share create / append / delete.
+  - name: telemetry
+    description: Device fingerprint and lifecycle funnel.
+  - name: sandbox
+    description: Per-session cloud compute surface.
+
+paths:
+  /alpha/whoami:
+    get:
+      operationId: whoami
+      tags: [account]
+      summary: Authenticated principal
+      description: >-
+        Returns the authenticated principal. The CLI always attaches `limits=1`
+        (`fetchUsageWhoami`). May also surface an optional `orgLimits` array —
+        org spend-limit meters (`formatOrgSpendLimitLabel` renders non-model scopes
+        as "Org-wide").
+      parameters:
+        - name: limits
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+          description: Always sent by the CLI; historically a no-op.
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Principal (org `null` for a personal account).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhoamiResponse"
+              examples:
+                personal:
+                  value:
+                    success: true
+                    user:
+                      id: 2f0e4a7d-be40-4399-a37a-83936551d0e5
+                      name: Ming
+                      email: me@hihusky.com
+                      userName: ming2k
+                    org: null
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/namespaces:
+    get:
+      operationId: listNamespaces
+      tags: [account]
+      summary: Account namespaces (taste-package push/pull surface)
+      description: >-
+        `normalizeNamespacesResponse` throws on `success:false`; when `type === "org"` it takes
+        `org.login` as `userName` and returns an empty `orgs` list, else
+        `{userName: user.userName, orgs: [{id, login, name}]}`.
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Namespace view.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NamespacesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/billing/subscriptions:
+    get:
+      operationId: getSubscription
+      tags: [billing]
+      summary: Active subscription row
+      description: >-
+        No `orgId` needed for a personal account (the client auto-derives it from
+        `whoami.org.id` when present). `status ∈ {active, trialing, past_due}` for a
+        billable period; a trialing or past-due subscription still counts toward credit
+        consumption. `currentPeriodEnd` is the renewal edge used by the "days remaining"
+        rendering; `currentPeriodStart` is what the client sends as `since` on
+        `/alpha/usage/summary`.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Subscription row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionResponse"
+              examples:
+                goat:
+                  value:
+                    success: true
+                    data:
+                      id: sub_1UMiorDSZgxV3MJK5mJSTuSR
+                      status: active
+                      userId: 2f0e4a7d-be40-4399-a37a-83936551d0e5
+                      orgId: null
+                      createdAt: "2026-10-04T06:21:48.000Z"
+                      priceId: price_1U0sTYDSZgxV3MJKUKHcvFxc
+                      quantity: 1
+                      cancelAtPeriodEnd: false
+                      currentPeriodStart: "2026-10-04T06:21:48.000Z"
+                      currentPeriodEnd: "2026-11-04T06:21:48.000Z"
+                      endedAt: null
+                      cancelAt: null
+                      canceledAt: null
+                      planId: individual-goat
+                      pendingPhase: null
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/billing/credits:
+    get:
+      operationId: getCredits
+      tags: [billing]
+      summary: Token-consumption ledger (windowed plans)
+      description: |
+        Fetched concurrently with the subscription row (`fetchUsageData`). The inner
+        `credits.credits` object may also carry a `planId` the client uses for
+        telemetry identity stamping.
+
+        Field semantics:
+        - `monthlyCredits` drops as credits are consumed; **the forward-looking
+          allowance** is derived client-side (`projectUsageView`):
+          `displayTotal = max(planAllowance, monthlyCredits) + purchasedCredits + freeCredits`
+          when the subscription is `active` (plan allowance from the plan table), else
+          `totalCost + monthlyRemaining`. `usagePercent = (displayTotal − remaining) / displayTotal`.
+        - `windowLimits.fiveHour.cap` / `windowLimits.weekly.cap` come from the plan row,
+          reset at epoch-millisecond clock ticks.
+        - `windowLimits.exceeded` is a string reason (e.g. `"5-hour"` / `"weekly"`) when the
+          window has tripped, else `null`.
+        - `purchasedCredits` (`/extra`, pay-as-you-go at API cost, zero markup) and
+          `freeCredits` (promo) do not renew.
+        - `sandboxAccess` / `sandboxMinutes` gate the `/alpha/sandbox/*` lane;
+          `individual-goat` reports `false` / `null`.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Credit ledger.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditsResponse"
+              examples:
+                goat:
+                  value:
+                    credits:
+                      belowThreshold: false
+                      creditThreshold: 0
+                      monthlyCredits: 69.597485352
+                      purchasedCredits: 0
+                      freeCredits: 0
+                    windowLimits:
+                      limited: true
+                      exceeded: null
+                      fiveHour:
+                        used: 0.402514648
+                        cap: 14
+                        exceeded: false
+                        resetAt: 1791119912775
+                      weekly:
+                        used: 0.402514648
+                        cap: 35
+                        exceeded: false
+                        resetAt: 1791706712775
+                    sandboxAccess: false
+                    sandboxMinutes: null
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/usage/summary:
+    get:
+      operationId: getUsageSummary
+      tags: [billing]
+      summary: Session-scoped lifetime counters
+      description: >-
+        The client sends `since = subscription.data.currentPeriodStart` (`fetchUsageSummary`).
+        Returns 0s for a fresh account; `totalCredits` increments as credits are redeemed.
+        `periodBasis` is always `"billing-period"` in the production surface (relative-clock
+        windows don't appear in the summary).
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: ISO timestamp; the CLI passes the subscription period start.
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Lifetime counters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageSummaryResponse"
+              examples:
+                fresh:
+                  value:
+                    totalCount: 0
+                    totalCost: 0
+                    averageCost: 0
+                    successRate: 0
+                    completedCount: 0
+                    failedCount: 0
+                    totalTokensIn: 0
+                    totalTokensOut: 0
+                    totalTokens: 0
+                    totalCredits: 0
+                    totalFreeCredits: 0
+                    totalMonthlyCredits: 0
+                    totalPurchasedCredits: 0
+                    periodBasis: billing-period
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/generate:
+    post:
+      operationId: generate
+      tags: [inference]
+      summary: Inference envelope (SSE)
+      x-provenance: live + call-site
+      description: |
+        The one inference endpoint. `start-step.request.body.model` is the authority on
+        "what model the server actually ran" — the declared `params.model` is a hint, and
+        the server may rewrite it (`deepseek/deepseek-v4-flash` → `deepseek-v4.1-flash`
+        observed). The envelope is Zod-validated; a malformed key triggers a `400` whose
+        `error.message` enumerates the failing paths verbatim
+        (e.g. `Invalid input: expected string, received undefined at "config.workingDir"`).
+
+        Call-site notes (v1.74.1 `createModelClient().complete` → `transport.postStream`):
+        - `params.system` is a client-supplied prompt; the server prepends its own
+          `<role>…</role><tone_and_style>…` block — the upstream system composition is
+          enforced server-side, not client-side. Sections arrive as `systemSections` and are
+          serialized by `toWireSystem`: each non-final block becomes `{type:"text", text:…+"\n"}`,
+          and any block carrying `cache` gets `cache_control: {type:"ephemeral"}`.
+        - `params.messages` come from `toWireMessages`; `providerExecuted` tool uses are dropped.
+        - `params.tools` is `{name, description, input_schema}` per tool (`toWireTools`).
+        - `max_tokens` defaults to `64000` (`hC`) when the caller omits it; AI-SDK lanes cap it
+          with the per-model context limit.
+        - When the model registry says `supportsThinking`, the caller's `effort` is spread as
+          `params.reasoning_effort`.
+        - `threadId` runs through `toWireThreadId` — non-UUID ids are dropped to `undefined`
+          (the key is then omitted, not `null`). It is the prompt-cache lifetime key.
+        - `permissionMode` is projected by `toWirePermissionMode`: `bypass` → `auto-accept`,
+          `auto-accept`/`plan` pass through, everything else → `standard`. The CLI-side set is
+          `{standard, plan, auto-accept}`.
+        - `promptCache` was only ever observed as `"off"` in the bundle; `"active"` triggers
+          the cache read path upstream.
+        - Streaming retries: the loop re-issues the POST up to **5** attempts (`xf`) when the
+          upstream finishes with `pause_turn`; usage accumulates across attempts.
+        - ZDR: when `CMD_ZDR=1`, `x-cmd-zdr: 1` is stamped and models without a ZDR upstream
+          fail fast client-side with `CMD_ZDR_NO_PROVIDERS`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateRequest"
+      security:
+        - SubscriptionBearer: []
+        - OAuthPair: []
+      responses:
+        "200":
+          description: >-
+            SSE stream (`text/event-stream`; chunked HTTP transport). Events sampled from
+            three live turns (`moonshotai/Kimi-K2.5` → `bedrock`, `gpt-5.6-sol` → `openai`,
+            `claude-sonnet-5-5` → gateway). `x-trace-id` on an upstream frame is the
+            chain-of-custody for the credits consumed.
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/GenerateStreamEvents"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/web-search:
+    post:
+      operationId: webSearch
+      tags: [tools]
+      summary: Subscription-gated web search (tool `web_search`)
+      x-provenance: call-site
+      description: |
+        Bundle route `oh`. When `results` is missing the client falls back to rendering
+        `formatted`. Domain filters are mutually exclusive; subdomains match
+        (`example.com` also matches `docs.example.com`). Client-side filtering re-applies
+        the domain filter to returned URLs and slices to `numResults`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebSearchRequest"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Ranked results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebSearchResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/web-fetch:
+    post:
+      operationId: webFetch
+      tags: [tools]
+      summary: Subscription-gated page fetch (tool `web_fetch`)
+      x-provenance: call-site
+      description: |
+        Bundle route `rh`. `format` defaults to `markdown`; `http://` is upgraded to
+        `https://` and private/loopback/link-local hosts are rejected client-side before
+        dispatch (`guardFetchUrl`). Default timeout 60 s, max 120 s; client-side paging over
+        `content` uses a reported `startIndex` offset (max content window 100 000 chars).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebFetchRequest"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Fetched page body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebFetchResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/agent/generate:
+    post:
+      operationId: generateAgentDefinition
+      tags: [agents]
+      summary: Custom agent definition generation
+      x-provenance: call-site
+      x-auth-lane: agent-generation
+      description: |
+        Headless generator for the `/agents` create-wizard ("apply_generated" step).
+        Headers are the **agent-generation** subset (`buildAgentGenerationHeaders`), not the
+        full chat set: `x-session-id` (when present), `x-oauth-token: Bearer <token>` +
+        `x-oauth-provider` — no `Authorization` bearer, no `x-cli-environment`.
+        The three response fields map 1:1 into the local agent definition
+        (`agentType`, `sysPrompt`, `ccToolDefinition`). Insufficient credits on this
+        endpoint surfaces as the shared "insufficient credits" request error.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentGenerateRequest"
+      security: [{ OAuthPair: [] }]
+      responses:
+        "200":
+          description: Generated definition fields.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentGenerateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/share/create:
+    post:
+      operationId: createSessionShare
+      tags: [sharing]
+      summary: Create a share link for a session
+      x-provenance: call-site
+      description: |
+        Messages are sanitized before upload (`createSharePathSanitizer`): absolute
+        user/project paths are rewritten, control characters stripped from text blocks,
+        and tool inputs scrubbed recursively. `secret` is retained locally
+        (`loadShareInfo` / `saveShareInfo` in the project session bridge) and reused to
+        enable share streaming.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShareCreateRequest"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Share handle.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShareInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/share/append:
+    post:
+      operationId: appendSessionShare
+      tags: [sharing]
+      summary: Append one message to an existing share
+      x-provenance: call-site
+      description: >-
+        Fired per assistant-message commit (`onCommit`) with the same `sessionId`+`secret`.
+        Failures are swallowed (`.catch(() => {})`) — the wire is fire-and-forget; requests
+        are skipped silently when the secret was rotated/revoked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShareAppendRequest"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Accepted (body not parsed by the client).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/share/delete:
+    delete:
+      operationId: deleteSessionShare
+      tags: [sharing]
+      summary: Unshare a session
+      x-provenance: call-site
+      description: HTTP DELETE with a JSON body carrying `sessionId` + `secret`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShareDeleteRequest"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Deleted.
+        "404":
+          $ref: "#/components/responses/EnvelopeError"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/lifecycle-events:
+    post:
+      operationId: trackLifecycleEvent
+      tags: [telemetry]
+      summary: Lifecycle funnel
+      x-provenance: call-site
+      description: |
+        `trackLifecycleEvent` (`NT` route). Telemetry-disabled (`DO_NOT_TRACK`, config
+        `telemetry:false`, local-only builds) skips dispatch; failures are logged, never
+        thrown. Event vocabulary in v1.74.1:
+
+        | `eventType` | `metadata` |
+        | --- | --- |
+        | `cli_installed` | `{cliVersion}` |
+        | `cli_first_message` | — |
+        | `cli_session_exists` | `{sessionId, cliVersion, mode: "interactive"\|"non-interactive", os: "<platform>-<arch>"}` |
+        | `cli_updated` | update-flow metadata (from/to versions, host, failure reason) |
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LifecycleEventRequest"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Accepted (body not parsed by the client).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/fingerprint/record:
+    post:
+      operationId: recordCliFingerprint
+      tags: [telemetry]
+      summary: Device fingerprint row (not probed)
+      x-provenance: call-site
+      description: |
+        Seat-limiting fingerprint (`bE` route, `recordCliFingerprint`), fired at most once
+        per process and only when telemetry is enabled. Headers: `Authorization: Bearer <key>`
+        (skipped silently when absent), `x-cli-environment`, `x-command-code-version`,
+        `User-Agent: cli`, `x-cmd-zdr: 1` (when set), plus caller extras. The fingerprint
+        formula (`CE = "command-code:device-fingerprint:v1"`, sha256 over
+        `machineId | sorted macs | hostname/cpuModel fallbacks`) is deterministic per machine.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FingerprintRequest"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Recorded (body not parsed by the client).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/sandbox/start:
+    post:
+      operationId: sandboxStart
+      tags: [sandbox]
+      summary: Start a sandbox task
+      x-provenance: call-site
+      description: |
+        Requires a git repo with a GitHub remote (`git@host:owner/repo(.git)` normalized to
+        `https://host/owner/repo`); rejects `401/UNAUTHORIZED` and
+        `GITHUB_APP_NOT_INSTALLED` explicitly. `prompt` truncated to 100 000 chars
+        (`iI = 4 × 25 000`). Gate on `credits.sandboxAccess` before dispatch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SandboxStartRequest"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Sandbox task handle.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxStartResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/sandbox/sessions:
+    get:
+      operationId: sandboxSessions
+      tags: [sandbox]
+      summary: List sandbox sessions
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Session list.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SandboxStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/sandbox/status/{sessionId}:
+    get:
+      operationId: sandboxStatus
+      tags: [sandbox]
+      summary: Sandbox task status
+      x-provenance: call-site
+      description: >-
+        Response carries `status`, `boxUp`, `mode`, …; `409` means not running
+        (`isNotRunning`). Statuses `provisioning` / `starting` render as
+        "Provisioning sandbox" / "Starting agent"; `running` with `boxUp:false` transitions
+        the client into RPC passthrough (`session/set_model`, `session/set_effort` get
+        600 s deadlines, other frames 30 s).
+      parameters:
+        - $ref: "#/components/parameters/SessionIdPath"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Status frame.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxStatus"
+        "409":
+          description: Not running.
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/sandbox/stop/{sessionId}:
+    post:
+      operationId: sandboxStop
+      tags: [sandbox]
+      summary: Cancel a sandbox task
+      parameters:
+        - $ref: "#/components/parameters/SessionIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Cancelled.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/sandbox/continue/{sessionId}:
+    post:
+      operationId: sandboxContinue
+      tags: [sandbox]
+      summary: Continue a sandbox task
+      parameters:
+        - $ref: "#/components/parameters/SessionIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SandboxContinueRequest"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Continued.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/sandbox/stream/{sessionId}:
+    get:
+      operationId: sandboxStream
+      tags: [sandbox]
+      summary: Sandbox event stream (SSE)
+      x-provenance: call-site
+      description: >-
+        SSE with `last-event-id` resume (client tracks `lastEventId`, max 8 reconnects);
+        frames carry `event` / `data.status` (`provisioning`, `starting`, `running`,
+        terminal `completed|failed|cancelled|timed_out|expired`) and optional `prUrl`.
+      parameters:
+        - $ref: "#/components/parameters/SessionIdPath"
+        - name: last-event-id
+          in: header
+          required: false
+          schema:
+            type: string
+          description: SSE resume cursor; sent by the client when `lastEventId > 0`.
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: SSE event stream (`text/event-stream`).
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/SandboxStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/sandbox/history/{sessionId}:
+    get:
+      operationId: sandboxHistory
+      tags: [sandbox]
+      summary: Sandbox turn history
+      parameters:
+        - $ref: "#/components/parameters/SessionIdPath"
+        - name: turns
+          in: query
+          required: false
+          schema:
+            type: integer
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: History frames.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/sandbox/input/{sessionId}:
+    post:
+      operationId: sandboxInput
+      tags: [sandbox]
+      summary: Push a terminal frame into a live box
+      parameters:
+        - $ref: "#/components/parameters/SessionIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Terminal input frame.
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Accepted (body not parsed by the client).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /alpha/sandbox/transcript/{sessionId}:
+    get:
+      operationId: sandboxTranscript
+      tags: [sandbox]
+      summary: Sandbox transcript
+      parameters:
+        - $ref: "#/components/parameters/SessionIdPath"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Transcript.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+  /provider/v1/systemone:
+    post:
+      operationId: systemone
+      tags: [inference]
+      summary: Decision models ("System One", `typesafe/jev`)
+      x-provenance: bundle
+      description: |
+        Keyed to the `typesafe/jev` headless decision surface (alias map also accepts
+        `jev`, `jev-latest`, `typesafe-ai/jev`). Uses the same bearer and headers.
+        A malformed response is reported as `bad-response`, a transport failure as
+        `request`. The shape is vendored to the decision/task types and is out of scope
+        for a chat-style provider implementation — documented for completeness.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SystemOneRequest"
+      security: [{ SubscriptionBearer: [] }]
+      responses:
+        "200":
+          description: Answer set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemOneResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/EnvelopeError"
+
+components:
+  securitySchemes:
+    SubscriptionBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: user_<43-char base64url>
+      description: >-
+        Long opaque subscription key, typically prefixed `user_` for individual accounts,
+        issued through `commandcode.ai/studio/auth/cli` in a browser redirect that drops a
+        code fragment on the CLI callback
+        (`<studio>/studio/auth/cli?callback=http://127.0.0.1:<port>/callback&state=<base64url>&mode=redirect[&client=<client>]`).
+        Alternate logins wired in the bundle: RFC 8628 device grant (`requestDeviceCode` /
+        `pollDeviceToken`) and the paste-a-key flow (`LoginWithApiKey` →
+        `validateCommandApiKey` does `GET /alpha/whoami` with the candidate bearer;
+        `401` → `invalid_key`). The key is persisted in the auth file alongside `userId`,
+        `userName`, `keyName`, `authenticatedAt`. A `user_`-prefixed key selects the
+        personal billing URL `<studio>/<userName>/settings/billing`.
+
+        **Endpoint-level credentials are opaque to the caller.** The subscription tier
+        implies the server holds its own vendor credentials
+        (polaris / bedrock / openai / novita / deepseek / anthropic) and rotates them
+        behind the routing planner. Therefore no `x-api-key`, `Authorization: Basic …`,
+        or vendor-key surface appears on any request issued by the client in this lane —
+        only the command-code bearer.
+    OAuthPair:
+      type: apiKey
+      in: header
+      name: x-oauth-token
+      description: >-
+        `Bearer <token>` via `x-oauth-token` paired with `x-oauth-provider`
+        (`resolveOAuthCredentials`: `wire ?? provider`, validated against the OAuth
+        provider allow-list `anthropic | github-copilot | codex`).
+
+  parameters:
+    OrgId:
+      name: orgId
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Org scoping; omitted for a personal account.
+    SessionIdPath:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Envelope shape mismatch (Zod paths in `error.message`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Malformed or expired key.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: Plan denial or unrecognized vendor prefix (body says `FORBIDDEN`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    RateLimited:
+      description: Window-limit trip; body carries `rateLimit.reset` (epoch-ms).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    EnvelopeError:
+      description: Error envelope (one shape across all `/alpha/*` endpoints).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+
+  schemas:
+    # ---------------------------------------------------------------- account
+    WhoamiResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+        user:
+          type: object
+          required: [id, name, email, userName]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            email:
+              type: string
+              format: email
+            userName:
+              type: string
+        org:
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [id, login, name]
+              properties:
+                id:
+                  type: string
+                login:
+                  type: string
+                name:
+                  type: string
+        orgLimits:
+          type: array
+          description: Optional org spend-limit meters.
+          items:
+            $ref: "#/components/schemas/OrgSpendLimit"
+
+    OrgSpendLimit:
+      type: object
+      description: >-
+        Whoami org spend-limit row. `resetInterval ∈ daily | weekly | monthly | total`
+        (rendered suffixes `/day`, `/week`, `/mo`, empty).
+      required: [scope, limit, spent, exceeded, resetInterval]
+      properties:
+        scope:
+          type: string
+          enum: [org, model]
+        model:
+          type: string
+          description: Present when `scope === "model"`.
+        modelLabel:
+          type: string
+        limit:
+          type: number
+          description: "`<= 0` renders as a reached limit."
+        spent:
+          type: number
+        exceeded:
+          type: boolean
+        resetAt:
+          type: string
+          format: date-time
+        resetInterval:
+          type: string
+          enum: [daily, weekly, monthly, total]
+
+    NamespacesResponse:
+      type: object
+      required: [success, type]
+      properties:
+        success:
+          type: boolean
+          const: true
+        type:
+          type: string
+          enum: [personal, org]
+        user:
+          type: object
+          properties:
+            userName:
+              type: string
+        org:
+          type: object
+          description: Present when `type === "org"`.
+          properties:
+            login:
+              type: string
+        orgs:
+          type: array
+          items:
+            type: object
+            required: [id, login, name]
+            properties:
+              id:
+                type: string
+              login:
+                type: string
+              name:
+                type: string
+
+    # ---------------------------------------------------------------- billing
+    SubscriptionResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          const: true
+        data:
+          $ref: "#/components/schemas/Subscription"
+
+    Subscription:
+      type: object
+      required: [id, status, userId, priceId, quantity, cancelAtPeriodEnd, planId]
+      properties:
+        id:
+          type: string
+          examples: [sub_1UMiorDSZgxV3MJK5mJSTuSR]
+        status:
+          type: string
+          enum: [active, trialing, past_due]
+        userId:
+          type: string
+          format: uuid
+        orgId:
+          oneOf: [{ type: "null" }, { type: string }]
+        createdAt:
+          type: string
+          format: date-time
+        priceId:
+          type: string
+        quantity:
+          type: integer
+        cancelAtPeriodEnd:
+          type: boolean
+        currentPeriodStart:
+          type: string
+          format: date-time
+        currentPeriodEnd:
+          type: string
+          format: date-time
+        endedAt:
+          oneOf: [{ type: "null" }, { type: string, format: date-time }]
+        cancelAt:
+          oneOf: [{ type: "null" }, { type: string, format: date-time }]
+        canceledAt:
+          oneOf: [{ type: "null" }, { type: string, format: date-time }]
+        planId:
+          $ref: "#/components/schemas/PlanId"
+        pendingPhase:
+          oneOf: [{ type: "null" }, { type: object }]
+
+    PlanId:
+      type: string
+      description: |
+        Monthly credit amounts from the v1.74.1 bundle `Mo` table; probe verified
+        `individual-goat` at 70. `getPlanInfo` lowercases the raw id, replaces `_` → `-`,
+        and prefix-matches against the longest ids first.
+
+        | planId | Monthly credits | Category allowance | Blocked featured models |
+        | --- | --- | --- | --- |
+        | `individual-go` / `individual-go-v1` | 10 / 10 | opensource only | `meta/muse-spark-1.2/1.3`, `xai/grok-4.6/4.7`, `xiaomi/mimo-v2.6-pro-ultraspeed`, `openrouter:google/gemini-3.7-flash`, `google/gemini-3.8-flash`, `gpt-5.6-sol`, `claude-sonnet-5-5` |
+        | `individual-goat` | 70 | opensource only | none (plan version probed) |
+        | `individual-provider` | 15 | premium + opensource | `openai:gpt-6.1-sol` |
+        | `individual-pro` / `individual-pro-v1` | 30 / 80 | premium + opensource | `claude-fable-5-1/5`, `claude-opus-5-5/5`, `claude-opus-4-8/4-7/4-6/4-5-20251101`, `openai:gpt-6-astra`, `openai:gpt-6.1-sol`, `sakana/fugu-ultra` |
+        | `individual-max` | 150 | premium + opensource | none |
+        | `individual-ultra` | 300 | premium + opensource | none |
+        | `teams-pro` | 40 pooled, seat-billed | premium + opensource | none |
+      enum:
+        - individual-go
+        - individual-go-v1
+        - individual-goat
+        - individual-pro
+        - individual-pro-v1
+        - individual-provider
+        - individual-max
+        - individual-ultra
+        - teams-pro
+      x-plan-credits:
+        individual-go: 10
+        individual-go-v1: 10
+        individual-goat: 70
+        individual-pro: 30
+        individual-pro-v1: 80
+        individual-provider: 15
+        individual-max: 150
+        individual-ultra: 300
+        teams-pro: 40
+      x-plan-category:
+        individual-go: opensource
+        individual-go-v1: opensource
+        individual-goat: opensource
+        individual-pro: premium+opensource
+        individual-pro-v1: premium+opensource
+        individual-provider: premium+opensource
+        individual-max: premium+opensource
+        individual-ultra: premium+opensource
+        teams-pro: premium+opensource
+      x-plan-blocked-models:
+        individual-go:
+          - vercel-ai-gateway:meta/muse-spark-1.2
+          - vercel-ai-gateway:meta/muse-spark-1.3
+          - vercel-ai-gateway:xai/grok-4.6
+          - vercel-ai-gateway:xai/grok-4.7
+          - vercel-ai-gateway:xiaomi/mimo-v2.6-pro-ultraspeed
+          - openrouter:google/gemini-3.7-flash
+          - vercel-ai-gateway:google/gemini-3.8-flash
+          - vercel-ai-gateway:gpt-5.6-sol
+          - anthropic:claude-sonnet-5-5
+        individual-go-v1:
+          $ref: "#/components/schemas/PlanId/x-plan-blocked-models/individual-go"
+        individual-goat: []
+        individual-pro:
+          - anthropic:claude-fable-5-1
+          - anthropic:claude-fable-5
+          - anthropic:claude-opus-5-5
+          - anthropic:claude-opus-5
+          - anthropic:claude-opus-4-8
+          - anthropic:claude-opus-4-7
+          - anthropic:claude-opus-4-6
+          - anthropic:claude-opus-4-5-20251101
+          - openai:gpt-6-astra
+          - openai:gpt-6.1-sol
+          - vercel-ai-gateway:sakana/fugu-ultra
+        individual-pro-v1:
+          - anthropic:claude-fable-5-1
+          - anthropic:claude-fable-5
+          - anthropic:claude-opus-5-5
+          - anthropic:claude-opus-5
+          - anthropic:claude-opus-4-8
+          - anthropic:claude-opus-4-7
+          - anthropic:claude-opus-4-6
+          - anthropic:claude-opus-4-5-20251101
+          - openai:gpt-6-astra
+          - openai:gpt-6.1-sol
+          - vercel-ai-gateway:sakana/fugu-ultra
+        individual-provider: [openai:gpt-6.1-sol]
+        individual-max: []
+        individual-ultra: []
+        teams-pro: []
+
+    CreditsResponse:
+      type: object
+      required: [credits]
+      properties:
+        credits:
+          type: object
+          required: [monthlyCredits, purchasedCredits, freeCredits]
+          properties:
+            planId:
+              $ref: "#/components/schemas/PlanId"
+            belowThreshold:
+              type: boolean
+            creditThreshold:
+              type: number
+            monthlyCredits:
+              type: number
+              description: Drops as credits are consumed.
+            purchasedCredits:
+              type: number
+              description: "`/extra` pay-as-you-go balance (API cost, zero markup); does not renew."
+            freeCredits:
+              type: number
+              description: Promo balance; does not renew.
+        windowLimits:
+          type: object
+          properties:
+            limited:
+              type: boolean
+            exceeded:
+              oneOf: [{ type: "null" }, { type: string }]
+              description: >-
+                String reason (e.g. `"5-hour"` / `"weekly"`) when the window has tripped,
+                else `null`.
+            fiveHour:
+              $ref: "#/components/schemas/WindowLimit"
+            weekly:
+              $ref: "#/components/schemas/WindowLimit"
+        sandboxAccess:
+          type: boolean
+          description: Gates the `/alpha/sandbox/*` lane; `individual-goat` reports `false`.
+        sandboxMinutes:
+          oneOf: [{ type: "null" }, { type: object }]
+
+    WindowLimit:
+      type: object
+      required: [used, cap, exceeded, resetAt]
+      properties:
+        used:
+          type: number
+        cap:
+          type: number
+        exceeded:
+          type: boolean
+        resetAt:
+          type: integer
+          description: Epoch milliseconds clock tick.
+
+    UsageSummaryResponse:
+      type: object
+      required: [periodBasis]
+      properties:
+        totalCount:
+          type: integer
+        totalCost:
+          type: number
+        averageCost:
+          type: number
+        successRate:
+          type: number
+        completedCount:
+          type: integer
+        failedCount:
+          type: integer
+        totalTokensIn:
+          type: integer
+        totalTokensOut:
+          type: integer
+        totalTokens:
+          type: integer
+        totalCredits:
+          type: number
+        totalFreeCredits:
+          type: number
+        totalMonthlyCredits:
+          type: number
+        totalPurchasedCredits:
+          type: number
+        periodBasis:
+          type: string
+          enum: [billing-period]
+
+    # ---------------------------------------------------------------- inference
+    GenerateRequest:
+      type: object
+      required: [config, params]
+      properties:
+        config:
+          type: object
+          required:
+            - workingDir
+            - date
+            - environment
+            - structure
+            - isGitRepo
+            - currentBranch
+            - mainBranch
+            - gitStatus
+            - recentCommits
+          description: >-
+            Built by `buildServerConfig`. `structure` = non-hidden cwd entries
+            (`readStructure`) plus additional workspace roots; `gitStatus` is
+            `--porcelain` output or `"Working tree clean"`; `recentCommits` =
+            `git log --oneline -3` split on newlines.
+          properties:
+            workingDir:
+              type: string
+            date:
+              type: string
+              format: date
+              description: ISO `YYYY-MM-DD` of the local day.
+            environment:
+              type: string
+              enum: [linux, darwin, windows]
+            structure:
+              type: array
+              items:
+                type: string
+            isGitRepo:
+              type: boolean
+            currentBranch:
+              type: string
+              description: Empty string when not a git repo.
+            mainBranch:
+              type: string
+              description: >-
+                Resolved from `git symbolic-ref --short refs/remotes/origin/HEAD`, else
+                `origin/main` → `main`, `origin/master` → `master`, else `main`.
+            gitStatus:
+              type: string
+              description: Porcelain output.
+            recentCommits:
+              type: array
+              items:
+                type: string
+              description: "`git log --oneline -3` lines."
+        memory:
+          oneOf: [{ type: "null" }, { type: object }]
+          description: Structured memory blob or null; the client always sends null.
+        taste:
+          oneOf: [{ type: "null" }, { type: object }]
+          description: Taste-learning snapshot or null; the client always sends null.
+        skills:
+          oneOf: [{ type: "null" }, { type: object }]
+          description: Bundled skills snapshot or null; the client always sends null.
+        permissionMode:
+          type: string
+          enum: [standard, plan, auto-accept]
+        threadId:
+          oneOf: [{ type: "null" }, { type: string, format: uuid }]
+          description: UUID; ties prompt-cache lifetime per-turn. Non-UUID ids are omitted.
+        mode:
+          type: string
+          description: |
+            Server enum, lane names via `withUsageContext`: `agent` (main loop), `compact`,
+            `vision`, `tool-desc`, `learning`, `title-gen`, `custom-agent` (sub-agents),
+            `rpc` (sandbox/remote), plus the `titleGeneration`/`tasteOnboarding`/`vision`
+            feature keys server-side. The main-loop config object carries no explicit
+            `mode` — the server default applies; do not hard-code a lane name for the
+            main loop.
+          enum:
+            - agent
+            - compact
+            - vision
+            - tool-desc
+            - learning
+            - title-gen
+            - custom-agent
+            - rpc
+        promptCache:
+          type: string
+          enum: [off, active]
+        params:
+          type: object
+          required: [model, messages, tools, system, max_tokens, stream]
+          properties:
+            model:
+              type: string
+              description: Declared id, e.g. `claude-sonnet-5-5`.
+            messages:
+              type: array
+              items:
+                $ref: "#/components/schemas/Message"
+              description: Vendor-projected Nuo message list (`toWireMessages`).
+            tools:
+              type: array
+              items:
+                type: object
+                required: [name, description, input_schema]
+                properties:
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  input_schema:
+                    type: object
+            system:
+              oneOf:
+                - type: array
+                  items:
+                    $ref: "#/components/schemas/SystemBlock"
+                - type: string
+            max_tokens:
+              type: integer
+              default: 64000
+            stream:
+              type: boolean
+              enum: [true]
+              description: Always true for /alpha/generate SSE.
+            temperature:
+              type: number
+              description: Optional float.
+            reasoning_effort:
+              type: string
+              description: |
+                Spread by the client when the model registry says `supportsThinking`.
+                Ladders: `low|medium|high|xhigh|max` (premium families),
+                `low|medium|high` (smaller gateway models), `off|high|max` and
+                `off|low|high|max` (deepseek v4 / v4.1 lanes), `low|high|max`
+                (Kimi-K3/GLM-5.3). Unsupported efforts are silently dropped client-side.
+          x-reasoning-effort-ladder:
+            premium: [low, medium, high, xhigh, max]
+            smallGateway: [low, medium, high]
+            deepseek-v4: [off, high, max]
+            deepseek-v4.1: [off, low, high, max]
+            kimi-glm: [low, high, max]
+
+    Message:
+      type: object
+      description: |
+        Wire message blocks (`toWireMessages`). Assistant `tool_use` becomes a tool-call
+        wire block with `toolCallId`/`toolName`; server-executed tools surface as
+        `tool-result` blocks and are re-emitted as `server_tool_result`.
+      properties:
+        role:
+          type: string
+          enum: [user, assistant, tool]
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentBlock"
+
+    ContentBlock:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [text, tool_use, tool_result, thinking, server_tool_result]
+        text:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        input:
+          type: object
+        signature:
+          type: string
+        redactedData:
+          type: string
+
+    SystemBlock:
+      type: object
+      required: [type, text]
+      properties:
+        type:
+          type: string
+          enum: [text]
+        text:
+          type: string
+        cache:
+          type: boolean
+          description: >-
+            When true, serialized as `cache_control: {"type": "ephemeral"}`.
+
+    GenerateStreamEvents:
+      description: |
+        One JSON object per SSE frame. Wire event types the client actually parses
+        (`consumeStream` / `consumeFullStream`): `start`, `start-step`, `provider-metadata`,
+        `text-start`, `text-delta`, `text-end`, `reasoning-start`, `reasoning-delta`,
+        `reasoning-end`, `tool-start`, `tool-delta`, `tool-end`, `tool-result`
+        (server-executed; carried with `toolCallId` + `toolName` and re-emitted as
+        `server_tool_result`), `cache-write-tokens`, `finish-step`, `finish`, `error`,
+        `abort`. Unknown types are ignored silently (JSON.parse failures on a line are
+        skipped, not fatal).
+      type: array
+      items:
+        oneOf:
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [start]
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [start-step]
+              request:
+                type: object
+                description: The resolved upstream body the server decided.
+                properties:
+                  body:
+                    type: object
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [provider-metadata]
+              providerMetadata:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    routing:
+                      type: object
+                      properties:
+                        originalModelId:
+                          type: string
+                        resolvedProvider:
+                          type: string
+                        fallbacksAvailable:
+                          type: array
+                          items:
+                            type: string
+                        planningReasoning:
+                          type: string
+                          description: |
+                            The provenance sentence — upstream credential class, ZDR
+                            disposition, and prompt-training policy in one line.
+                            Record verbatim downstream.
+                        canonicalSlug:
+                          type: string
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [text-start, text-end]
+              id:
+                type: string
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [text-delta]
+              id:
+                type: string
+              text:
+                type: string
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [reasoning-start, reasoning-end]
+              id:
+                type: string
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [reasoning-delta]
+              id:
+                type: string
+              text:
+                type: string
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [tool-start, tool-end]
+              id:
+                type: string
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [tool-delta]
+              id:
+                type: string
+              arguments:
+                type: string
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [tool-result]
+              toolCallId:
+                type: string
+              toolName:
+                type: string
+              providerExecuted:
+                type: boolean
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [cache-write-tokens]
+              cacheWriteTokens:
+                type: integer
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [finish-step]
+              response:
+                type: object
+                description: Upstream-vendor response metadata.
+                properties:
+                  id:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+                  modelId:
+                    type: string
+                    description: The upstream-served family (may differ from declared).
+                  headers:
+                    type: object
+                    description: Upstream vendor headers, not proxy headers.
+                    additionalProperties:
+                      type: string
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [finish]
+              finishReason:
+                type: string
+                examples: [stop]
+              rawFinishReason:
+                type: string
+                description: >-
+                  Preserved verbatim (`end_turn`, `tool-calls`, `length`, `pause_turn`, …)
+                  and normalized client-side to `tool_use` / `max_tokens` / `end_turn`.
+              totalUsage:
+                $ref: "#/components/schemas/TotalUsage"
+              response:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  timestamp:
+                    type: string
+                  modelId:
+                    type: string
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [error]
+              error:
+                type: object
+                description: >-
+                  Unwrapped as `error.error.message` + `error.error.statusCode`
+                  (+ `isRetryable`); `parseEmbeddedErrorJSON` also recovers
+                  `<status> {json}` prefixes from raw strings.
+                properties:
+                  message:
+                    type: string
+                  statusCode:
+                    type: integer
+                  isRetryable:
+                    type: boolean
+          - type: object
+            properties:
+              type:
+                type: string
+                enum: [abort]
+
+    TotalUsage:
+      type: object
+      description: >-
+        Pre-billed — the credits decrement at the server before `text-delta`s flush.
+        Never compute local-billing deltas from this number. Also reads
+        `anthropic.usage.cache_creation.ephemeral_1h_input_tokens` off `providerMetadata`
+        (`readCacheWriteTokens1h`) and the `cache-write-tokens` event as alternative
+        capture paths.
+      properties:
+        inputTokens:
+          type: integer
+        inputTokenDetails:
+          type: object
+          properties:
+            noCacheTokens:
+              type: integer
+            cacheReadTokens:
+              type: integer
+            cacheWriteTokens:
+              type: integer
+        outputTokens:
+          type: integer
+        outputTokenDetails:
+          type: object
+          properties:
+            textTokens:
+              type: integer
+            reasoningTokens:
+              type: integer
+        totalTokens:
+          type: integer
+        reasoningTokens:
+          type: integer
+        cachedInputTokens:
+          type: integer
+
+    # ---------------------------------------------------------------- tools
+    WebSearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 2
+          maxLength: 2000
+        numResults:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 5
+        allowedDomains:
+          type: array
+          items:
+            type: string
+          description: Mutually exclusive with `blockedDomains`.
+        blockedDomains:
+          type: array
+          items:
+            type: string
+          description: Mutually exclusive with `allowedDomains`.
+
+    WebSearchResponse:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+        results:
+          type: array
+          items:
+            type: object
+            required: [title, url, snippet]
+            properties:
+              title:
+                type: string
+              url:
+                type: string
+              snippet:
+                type: string
+        formatted:
+          type: string
+          description: Fallback rendering when `results` is absent.
+
+    WebFetchRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Must begin with `http://` or `https://` (http upgraded to https).
+        format:
+          type: string
+          enum: [markdown, text, html]
+          default: markdown
+
+    WebFetchResponse:
+      type: object
+      properties:
+        url:
+          type: string
+          description: Final URL after redirects.
+        status:
+          type: integer
+        content:
+          type: string
+        startIndex:
+          type: integer
+
+    # ---------------------------------------------------------------- agents
+    AgentGenerateRequest:
+      type: object
+      required: [description]
+      properties:
+        description:
+          type: string
+        model:
+          type: string
+          description: Configured model id, vendor prefix stripped by `parseModelString`.
+
+    AgentGenerateResponse:
+      type: object
+      required: [agentName, systemPrompt, toolDescription]
+      properties:
+        agentName:
+          type: string
+        systemPrompt:
+          type: string
+        toolDescription:
+          type: string
+
+    # ---------------------------------------------------------------- sharing
+    ShareCreateRequest:
+      type: object
+      required: [sessionId, messages]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+          description: Sanitized by `createSharePathSanitizer` before upload.
+
+    ShareAppendRequest:
+      type: object
+      required: [sessionId, secret, message]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        secret:
+          type: string
+        message:
+          $ref: "#/components/schemas/Message"
+
+    ShareDeleteRequest:
+      type: object
+      required: [sessionId, secret]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        secret:
+          type: string
+
+    ShareInfo:
+      type: object
+      required: [url, secret]
+      properties:
+        url:
+          type: string
+          format: uri
+        secret:
+          type: string
+        sessionId:
+          type: string
+          format: uuid
+
+    # ---------------------------------------------------------------- telemetry
+    LifecycleEventRequest:
+      type: object
+      required: [eventType]
+      properties:
+        eventType:
+          type: string
+          enum: [cli_installed, cli_first_message, cli_session_exists, cli_updated]
+        metadata:
+          type: object
+
+    FingerprintRequest:
+      type: object
+      required: [thumbmark, components]
+      properties:
+        thumbmark:
+          type: string
+          description: sha256 hex over the fingerprint domain + machine signals.
+        components:
+          type: object
+          required:
+            - machineIdHash
+            - platform
+            - arch
+            - cpuCount
+            - memGiB
+            - isContainer
+            - runtime
+            - collectorVersion
+          properties:
+            machineIdHash:
+              type: string
+            macHashes:
+              type: array
+              items:
+                type: string
+            osUserHash:
+              type: string
+            hostnameHash:
+              type: string
+            gitEmailHash:
+              type: string
+            platform:
+              type: string
+            arch:
+              type: string
+            osRelease:
+              type: string
+            cpuModel:
+              type: string
+            cpuCount:
+              type: integer
+            memGiB:
+              type: integer
+            isContainer:
+              type: boolean
+            timezone:
+              type: string
+            runtime:
+              type: string
+              enum: [cli]
+            collectorVersion:
+              type: integer
+              const: 1
+
+    # ---------------------------------------------------------------- sandbox
+    SandboxStartRequest:
+      type: object
+      required: [repoUrl, prompt, mode]
+      properties:
+        repoUrl:
+          type: string
+          format: uri
+          description: GitHub HTTPS remote (git@ form normalized).
+        prompt:
+          type: string
+          maxLength: 100000
+        mode:
+          type: string
+          enum: [rpc]
+        baseBranch:
+          type: string
+          description: Validated against `^[\w./-]+$`.
+        model:
+          type: string
+        effort:
+          type: string
+
+    SandboxStartResponse:
+      type: object
+      required: [sessionId]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+
+    SandboxStatus:
+      type: object
+      description: >-
+        Status frame (`classifySandboxStatusEvent` consumes `status`, `boxUp`, `mode`,
+        plus stream frames' `event` / `data.status` / `data.message` / `data.prUrl`).
+        Task status vocabulary: `provisioning`, `starting`, `running`, and the terminal
+        `aI = completed | failed | cancelled | timed_out | expired`.
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - provisioning
+            - starting
+            - running
+            - completed
+            - failed
+            - cancelled
+            - timed_out
+            - expired
+        boxUp:
+          type: boolean
+          description: "`false` allows the client into RPC passthrough."
+        mode:
+          type: string
+          enum: [rpc]
+        message:
+          type: string
+        prUrl:
+          type: string
+          format: uri
+          description: Pull-request URL on terminal statuses.
+
+    SandboxContinueRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+        mode:
+          type: string
+          enum: [rpc]
+        model:
+          type: string
+        effort:
+          type: string
+        restart:
+          type: boolean
+          description: "true restarts the cloud session when it stopped."
+
+    # ---------------------------------------------------------------- systemone
+    SystemOneRequest:
+      type: object
+      description: |
+        Zod-verified (`DM`). Questions are a record of 1..20 named questions
+        (`OM = 20`); `state` and `instructions` accept text or nested JSON.
+      required: [model, state, questions]
+      properties:
+        model:
+          type: string
+          enum: [typesafe/jev]
+        state: {}
+        questions:
+          type: object
+          minProperties: 1
+          maxProperties: 20
+          additionalProperties:
+            oneOf:
+              - type: object
+                required: [type, instructions]
+                properties:
+                  type:
+                    type: string
+                    enum: [noul]
+                  instructions: {}
+                  criteria:
+                    type: object
+                    properties:
+                      "true": {}
+                      "false": {}
+              - type: object
+                required: [type, instructions, criteria]
+                properties:
+                  type:
+                    type: string
+                    enum: [choice]
+                  instructions: {}
+                  criteria:
+                    type: object
+                    description: record<string, JSON>
+                    additionalProperties: {}
+              - type: object
+                required: [type, instructions, criteria]
+                properties:
+                  type:
+                    type: string
+                    enum: [score]
+                  instructions: {}
+                  criteria:
+                    type: array
+                    minItems: 2
+                    items: {}
+
+    SystemOneResponse:
+      type: object
+      description: Zod-verified (`FM`).
+      properties:
+        model:
+          type: string
+        answers:
+          type: object
+          additionalProperties:
+            oneOf:
+              - type: object
+                required: [type, noul]
+                properties:
+                  type:
+                    type: string
+                    enum: [noul]
+                  noul:
+                    type: number
+              - type: object
+                required: [type, choice]
+                properties:
+                  type:
+                    type: string
+                    enum: [choice]
+                  choice:
+                    type: string
+                  confidence:
+                    type: number
+                  probabilities:
+                    type: object
+                    additionalProperties:
+                      type: number
+              - type: object
+                required: [type, score]
+                properties:
+                  type:
+                    type: string
+                    enum: [score]
+                  score:
+                    type: number
+                  confidence:
+                    type: number
+                  legend:
+                    type: object
+                    additionalProperties: {}
+                  probabilities:
+                    type: object
+                    additionalProperties:
+                      type: number
+        usage:
+          type: object
+          properties:
+            input_tokens:
+              type: integer
+            output_tokens:
+              type: integer
+
+    # ---------------------------------------------------------------- errors
+    ErrorEnvelope:
+      type: object
+      description: >-
+        One shape across every `/alpha/*` endpoint — one shape to parse, no per-endpoint
+        exceptions. `transportErrorToApiError` rehydrates the JSON `responseBody`;
+        `readErrorCode` / `readErrorType` accept both top-level and `error.`-nested
+        `code` / `type`.
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          const: false
+        error:
+          type: object
+          required: [code, status, message]
+          properties:
+            code:
+              $ref: "#/components/schemas/ErrorCode"
+            status:
+              type: integer
+            message:
+              type: string
+            type:
+              type: string
+            rateLimit:
+              type: object
+              description: Present on `RATE_LIMITED` (429).
+              properties:
+                window:
+                  type: string
+                  enum: [fiveHour, weekly, daily]
+                reset:
+                  type: integer
+                  description: Epoch-ms; `parseWindowLimitError` also regex-falls back to
+                    "usage limit for your plan" in the message to classify the window.
+                model:
+                  type: string
+            docs:
+              type: string
+              format: uri
+        x-error-semantics:
+          type: object
+          description: Client-side terminal/retry classes (`classifySubmitError`).
+          properties:
+            interrupted:
+              type: string
+              description: abort / ECONNABORTED.
+            rate-limit:
+              type: string
+              const: retryable
+            spend-limit:
+              type: string
+              const: terminal
+              description: "`USAGE_EXCEEDED`."
+            insufficient-credits:
+              type: string
+              const: terminal
+            premium-credits-exhausted:
+              type: string
+              const: terminal
+              description: Falls back to `moonshotai/Kimi-K2.5`.
+            model-not-in-plan:
+              type: string
+              const: terminal
+
+    ErrorCode:
+      type: string
+      description: |
+        Codes observed live (probed against `individual-goat`) and in the bundle.
+
+        | code | HTTP | Trigger |
+        | --- | --- | --- |
+        | `BAD_REQUEST` | 400 | envelope shape mismatch; Zod paths in `message`; client-side: `400` + message containing "insufficient credits" → `Insufficient credits` |
+        | `FORBIDDEN` | 403 | `MODEL_NOT_IN_PLAN: <display name> available in Pro and above plans or extra on demand usage` (probed `claude-sonnet-4-6`, `gpt-5.4`, `muse-spark-1.1` against GOAT); `Model/provider not recognized: <vendor>:<id>` for an unrecognized vendor prefix; client-side: `PREMIUM_CREDITS_EXHAUSTED:` → premium fallback to Kimi K2.5 |
+        | `UNAUTHORIZED` | 401 | malformed or expired key (also a sandbox-start failure kind) |
+        | `RATE_LIMITED` | 429 | window-limit trip; carries `rateLimit` |
+        | `USAGE_EXCEEDED` | — | spend-cap trip; terminal, never auto-retried |
+        | `CMD_ZDR_NO_PROVIDERS` / `cmd_zdr_no_providers` | — | ZDR requested but no ZDR upstream for the model |
+        | `GITHUB_APP_NOT_INSTALLED` | 403 | sandbox start without the GitHub App installed |
+        | `PAYLOAD_TOO_LARGE` | 413 | bundle only |
+      enum:
+        - BAD_REQUEST
+        - FORBIDDEN
+        - UNAUTHORIZED
+        - RATE_LIMITED
+        - USAGE_EXCEEDED
+        - CMD_ZDR_NO_PROVIDERS
+        - GITHUB_APP_NOT_INSTALLED
+        - PAYLOAD_TOO_LARGE
+
+  headers:
+    # The chat lane (buildCommandAuthHeaders) sends the full family below; the
+    # billing/usage/telemetry lane (buildCommandApiHeaders) sends a lean subset plus
+    # traceparent and stamps x-command-code-version / x-cmd-zdr / x-cmd-provider-deepseek-internal.
+    # Declared here as the header dictionary for implementers wiring a Nuo-side transport —
+    # none of the operations above enumerate them inline (the wire applies them uniformly).
+    Authorization:
+      description: >-
+        `Bearer <key>`; stamped only when the API key resolved. Typically
+        `user_<43-char base64url>`.
+      schema:
+        type: string
+    XOauthToken:
+      description: "`Bearer <token>`; stamped only when an OAuth token is present."
+      schema:
+        type: string
+    XOauthProvider:
+      description: "`anthropic | github-copilot | codex` (validated against the allow-list)."
+      schema:
+        type: string
+        enum: [anthropic, github-copilot, codex]
+    XCliEnvironment:
+      description: >-
+        `normalizeCliEnvironment`: `prod` → `production`. Enum
+        `production | staging | local`.
+      schema:
+        type: string
+        enum: [production, staging, local]
+    XCommandCodeVersion:
+      description: "`package.json.version` at runtime (e.g. `1.74.1`)."
+      schema:
+        type: string
+    XCliSurface:
+      description: >-
+        Stamped only for the `acp` and `rpc` entrypoints, omitted otherwise
+        (`cli` is the User-Agent literal, not the surface value).
+      schema:
+        type: string
+    XProjectSlug:
+      description: Project session bridge slug (`getCommandCurrentProjectDirName`).
+      schema:
+        type: string
+    XTasteLearning:
+      description: "`\"true\" / \"false\"` (`tasteLearningEnabled.toString()`)."
+      schema:
+        type: string
+        enum: ["true", "false"]
+    XSessionId:
+      description: Conversation UUID (chat lane only).
+      schema:
+        type: string
+        format: uuid
+    XOssPrimaryProvider:
+      description: Primary OSS lane identifier (`OSS_PRIMARY_PROVIDER` env).
+      schema:
+        type: string
+    XCmdZdr:
+      description: "`\"1\"` to request zero data retention."
+      schema:
+        type: string
+        enum: ["1"]
+    XCmdProviderDeepseekInternal:
+      description: "`\"1\"` internal routing hint."
+      schema:
+        type: string
+        enum: ["1"]
+    Traceparent:
+      description: W3C `00-<traceId>-<spanId>-01`, billing/usage lane when telemetry is active.
+      schema:
+        type: string

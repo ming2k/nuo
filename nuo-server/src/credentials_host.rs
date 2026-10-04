@@ -14,7 +14,7 @@
 use std::sync::{Arc, OnceLock};
 
 use nuo_persistence::paths;
-use nuo_providers::CredentialHost;
+use nuo_provider_adapters::CredentialHost;
 
 static HOST: OnceLock<CredentialHost> = OnceLock::new();
 
@@ -28,6 +28,6 @@ pub fn host() -> CredentialHost {
 }
 
 /// The product's credential store, for callers that need only that half.
-pub fn store() -> Arc<dyn nuo_providers::CredentialStore> {
+pub fn store() -> Arc<dyn nuo_provider_adapters::CredentialStore> {
     Arc::clone(host().store())
 }

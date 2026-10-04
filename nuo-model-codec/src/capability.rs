@@ -548,6 +548,20 @@ pub trait Provider: Send + Sync {
     }
 }
 
+/// Optional orthogonal capability: remote model catalog discovery (ADR-0015).
+#[async_trait]
+pub trait CatalogDiscovery: Send + Sync {
+    /// Discover available models from the provider endpoint.
+    async fn list_models(&self) -> Result<Vec<crate::catalog::DiscoveredModel>, crate::catalog::ModelListError>;
+}
+
+/// Optional orthogonal capability: token quota and usage balance query (ADR-0015).
+#[async_trait]
+pub trait QuotaTracker: Send + Sync {
+    /// Fetch current quota or token usage balance summary.
+    async fn fetch_quota(&self) -> Result<crate::usage::TokenUsage, String>;
+}
+
 // `InputHandler` / `ToolInvocation` were relocated to `nuo-wire::capability`
 // (the session-adapter layer) when `nuo-contracts` was consolidated. The
 // duplicates that used to live here had zero referents and are removed per

@@ -63,6 +63,14 @@ pub const OPENAI_BUILTIN_MODELS: &[&str] = &[
 /// this keeps the primary Nex coding model selectable before the first refresh.
 pub const OPENROUTER_BUILTIN_MODELS: &[&str] = &["nex-agi/nex-n2.5-pro:free"];
 
+/// Seed models for Command Code Provider API. Its live `/models` endpoint is authoritative;
+/// this keeps the flagship models selectable before the first refresh.
+pub const COMMANDCODE_BUILTIN_MODELS: &[&str] = &[
+    "claude-sonnet-5-5",
+    "gpt-5.6-sol",
+    "deepseek/deepseek-v4-flash",
+];
+
 pub const OPENCODE_GO_MODELS: &[&str] = &[
     "glm-5.2",
     "kimi-k2.7-code",
@@ -90,6 +98,81 @@ pub const QIANWEN_BUILTIN_MODELS: &[&str] = &["qwen3.8-max", "qwen3.8-flash", "q
 
 pub const XAI_BUILTIN_MODELS: &[&str] = &["grok-4.5", "grok-4.20", "grok-4.3", "grok-build-0.1"];
 
+use serde::{Deserialize, Serialize};
+
+/// A first-class user-declared model provider surface (ADR-0258).
+///
+/// Declares the physical transport endpoint, default protocol, catalog discovery,
+/// dialect, and client identity preset for a custom LLM service surface (e.g.
+/// corporate relay, local vLLM, or self-hosted gateway).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UserDeclaredProvider {
+    /// Optional human-readable display label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Root API URL (e.g. `https://relay.example.com/v1`, without trailing slash).
+    pub root_url: String,
+    /// Default wire transport protocol (e.g. `chat-completions`, `responses`, `anthropic-messages`, `google-gemini`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_protocol: Option<crate::WireProtocol>,
+    /// Default client profile preset for User-Agent / client headers emulation (ADR-0164, ADR-0258).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_profile: Option<crate::ClientPreset>,
+    /// Optional User-Agent override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
+    /// Catalog discovery format: `openai`, `anthropic`, `google`, `none`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog: Option<crate::provider_surface::RemoteCatalogSource>,
+    /// Typed service dialect, inherited independently of model protocol.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dialect: Option<crate::catalog::ProviderDialect>,
+    /// Optional explicit transport endpoints, keyed by model wire protocol.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub protocol_roots: Vec<(crate::WireProtocol, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog_root_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_cache: Option<crate::provider_surface::ProviderPromptCache>,
+    #[serde(default)]
+    pub client_profile_sensitive: bool,
+}
+
+impl UserDeclaredProvider {
+    pub fn validate(&self, id: &str) -> Result<(), String> {
+        if id.is_empty() || id.trim() != id {
+            return Err("provider id must be nonempty and trimmed".into());
+        }
+        if is_known_model_provider(id) {
+            return Err(format!("provider `{id}` collides with a built-in provider"));
+        }
+        crate::provider_surface::ApiRoot::parse(&self.root_url)?;
+        if let Some(cache) = &self.prompt_cache {
+            cache.validate()?;
+        }
+        if let Some(root) = &self.catalog_root_url {
+            crate::provider_surface::ApiRoot::parse(root)?;
+        }
+        let mut wires = std::collections::HashSet::new();
+        for (wire, root) in &self.protocol_roots {
+            if !wires.insert(*wire) {
+                return Err(format!("duplicate protocol root for {wire}"));
+            }
+            crate::provider_surface::ApiRoot::parse(root)?;
+        }
+        if !self.dialect.unwrap_or_default().supports(
+            self.default_protocol
+                .unwrap_or(crate::WireProtocol::ChatCompletions),
+        ) {
+            return Err(format!(
+                "provider `{id}` has an incompatible default protocol"
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Qoder subscription seed models, in activation order.
 ///
 /// This is the **offline seed** — the ids a connection starts with before the
@@ -112,7 +195,7 @@ pub const QODER_MODELS: &[&str] = &["qmodel_38max", "qfmodel"];
 /// model universe). It never encodes a wire protocol or an authentication mode.
 pub const MODEL_PROVIDER_IDS: &[&str] = &[
     "openai",
-    "openai-subscription",
+    "chatgpt-plan",
     "anthropic",
     "google",
     "google-antigravity",
@@ -124,9 +207,10 @@ pub const MODEL_PROVIDER_IDS: &[&str] = &[
     "openrouter",
     "opencode",
     "opencode-zen",
-    "opencode-go",
+    "opencode-plan",
     "qoder",
     "qianwen",
+    "commandcode-plan",
 ];
 
 /// Whether `id` names a registered model provider.
@@ -143,11 +227,14 @@ pub fn is_known_model_provider(id: &str) -> bool {
 /// nothing serializes them back.
 pub fn canonical_provider_id(id: &str) -> Option<String> {
     let canonical = match id {
-        "chatgpt-oauth" => "openai-subscription",
+        "chatgpt" | "chatgpt-oauth" | "openai-subscription" => "chatgpt-plan",
+        "commandcode" | "command-code" => "commandcode-plan",
+        "opencode-go" => "opencode-plan",
         "antigravity-oauth" => "google-antigravity",
         "copilot-oauth" => "github-copilot",
         "xai-oauth" => "xai",
         "zai-code" => "glm-cn",
+        "kimi" => "kimi-code",
         other => other,
     };
     is_known_model_provider(canonical).then(|| canonical.to_string())
@@ -157,7 +244,8 @@ pub fn canonical_provider_id(id: &str) -> Option<String> {
 pub fn model_provider_label(id: &str) -> &'static str {
     match id {
         "anthropic" => "Anthropic",
-        "openai-subscription" => "ChatGPT Subscription",
+        "chatgpt-plan" => "ChatGPT Plan",
+        "commandcode-plan" => "CommandCode Plan",
         "deepseek" => "DeepSeek",
         "github-copilot" => "GitHub Copilot",
         "google" => "Google AI Studio",
@@ -165,7 +253,7 @@ pub fn model_provider_label(id: &str) -> &'static str {
         "kimi-code" => "Kimi Code",
         "openai" => "OpenAI Platform",
         "opencode-zen" => "OpenCode Zen",
-        "opencode-go" => "OpenCode Go",
+        "opencode-plan" => "OpenCode Plan",
         "openrouter" => "OpenRouter",
         "glm-cn" => "ZAI Code (CN)",
         "qoder" => "Qoder",
@@ -201,7 +289,19 @@ mod provider_id_tests {
     fn legacy_ids_canonicalize_and_unknown_ids_are_rejected() {
         assert_eq!(
             canonical_provider_id("chatgpt-oauth").as_deref(),
-            Some("openai-subscription")
+            Some("chatgpt-plan")
+        );
+        assert_eq!(
+            canonical_provider_id("openai-subscription").as_deref(),
+            Some("chatgpt-plan")
+        );
+        assert_eq!(
+            canonical_provider_id("opencode-go").as_deref(),
+            Some("opencode-plan")
+        );
+        assert_eq!(
+            canonical_provider_id("commandcode").as_deref(),
+            Some("commandcode-plan")
         );
         assert_eq!(
             canonical_provider_id("deepseek").as_deref(),
@@ -223,8 +323,16 @@ mod provider_id_tests {
             "Google Antigravity"
         );
         assert_eq!(
-            model_provider_label("openai-subscription"),
-            "ChatGPT Subscription"
+            model_provider_label("chatgpt-plan"),
+            "ChatGPT Plan"
+        );
+        assert_eq!(
+            model_provider_label("commandcode-plan"),
+            "CommandCode Plan"
+        );
+        assert_eq!(
+            model_provider_label("opencode-plan"),
+            "OpenCode Plan"
         );
     }
 }

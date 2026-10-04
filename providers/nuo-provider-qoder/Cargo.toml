@@ -1,0 +1,39 @@
+[package]
+name = "nuo-provider-qoder"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Qoder provider dialect, COSY signature pipeline, and RSA/AES crypto sandboxing for Nuo"
+
+[dependencies]
+nuo-provider = { workspace = true }
+nuo-provider-transport = { workspace = true }
+nuo-wire = { workspace = true }
+nuo-model-codec = { workspace = true }
+nuo-host = { workspace = true }
+netune = "0.1.0"
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+bytes = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+rsa = { workspace = true }
+aes = { workspace = true }
+cbc = { workspace = true }
+md-5 = { workspace = true }
+http = "1.4"
+httpdate = { workspace = true }
+uuid = { workspace = true }
+fastrand = { workspace = true }
+inventory = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

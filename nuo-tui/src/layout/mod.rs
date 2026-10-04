@@ -46,8 +46,7 @@ use crate::disclosure::renderers::RenderCtx;
 
 /// Which layout strategy to use for the transcript message stream.
 ///
-/// Selectable via `[tui] transcript_layout` in `config.toml`; the default is
-/// [`Strategy::TurnBand`], which groups stamped ReAct turns.
+/// The canonical layout is [`Strategy::TurnBand`], which groups stamped ReAct turns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Strategy {
     #[default]
@@ -55,15 +54,9 @@ pub enum Strategy {
 }
 
 impl Strategy {
-    /// Parse a `config.toml` value into a strategy, case-insensitively.
-    /// Unknown / empty values fall back to the default rather than
-    /// erroring, so a typo never blocks startup.
-    pub fn from_config(raw: &str) -> Self {
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "turn_band" | "turn-band" | "turnband" | "default" | "compact" | "flush" | "legacy"
-            | "" => Self::TurnBand,
-            _ => Self::TurnBand,
-        }
+    /// Always returns [`Strategy::TurnBand`] as the sole supported transcript layout.
+    pub fn from_config(_raw: &str) -> Self {
+        Self::TurnBand
     }
 
     /// The canonical configuration string for this strategy.
@@ -495,7 +488,9 @@ impl<'a, 'f> Stream<'a, 'f> {
         let focused_tool = self.focused_target == Some(InteractiveTarget::tool_step(mi));
         let focused_reasoning = self.focused_target == Some(InteractiveTarget::reasoning(mi));
         let focused_command = self.focused_target == Some(InteractiveTarget::command_result(mi));
-        let _focused_notice = self.focused_target == Some(InteractiveTarget::notice(mi));
+        let focused_notice = self.focused_target == Some(InteractiveTarget::notice(mi));
+        let focused_compacted =
+            self.focused_target == Some(InteractiveTarget::compacted_card(mi));
 
         let body_before = self.content_lines;
         // Streaming Thinking messages participate in the height cache like
@@ -537,8 +532,8 @@ impl<'a, 'f> Stream<'a, 'f> {
                 &mut self.current_y,
                 &mut self.content_lines,
                 self.theme,
-                self.hovered_step == Some(mi),
-                self.focused_target == Some(InteractiveTarget::notice(mi)),
+                hovered,
+                focused_notice,
             );
         } else if msg.is_subagent_task() {
             let mut ctx = RenderCtx::from_cursor(
@@ -624,8 +619,6 @@ impl<'a, 'f> Stream<'a, 'f> {
                 focused_command,
             );
         } else if msg.is_compacted_card() {
-            let focused_compacted =
-                self.focused_target == Some(crate::model::layout::InteractiveTarget::compacted_card(mi));
             let mut ctx = RenderCtx::from_cursor(
                 self.frame,
                 self.band,

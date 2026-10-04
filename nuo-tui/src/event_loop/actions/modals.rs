@@ -676,35 +676,14 @@ pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
                     } else {
                         Some(std::path::Path::new(&app.current_workspace))
                     };
-                    let count = match app.config_category {
-                        0 => crate::render::Theme::available_color_schemes_with_workspace(ws_path)
-                            .len()
-                            .max(1),
-                        1 => 5usize,
-                        2 => 1usize,
-                        3 => crate::views::settings::web::search_item_count(
-                            app.websearch_config.as_ref(),
-                        ),
-                        4 => crate::views::settings::web::reader_item_count(
-                            app.websearch_config.as_ref(),
-                        ),
-                        _ => 4usize,
-                    };
+                    let active_category = crate::overlays::ConfigCategory::from_index(app.config_category);
+                    let count = active_category.detail_item_count(
+                        ws_path,
+                        app.websearch_config.as_ref(),
+                        &app.profile,
+                    );
                     if count > 0 {
                         app.config_detail_index = (app.config_detail_index + count - 1) % count;
-                    }
-                    if app.config_category == 0 {
-                        let schemes =
-                            crate::render::Theme::available_color_schemes_with_workspace(ws_path);
-                        if let Some(scheme) =
-                            schemes.get(app.config_detail_index % schemes.len().max(1))
-                        {
-                            app.theme = crate::render::Theme::from_color_scheme_with_workspace(
-                                &scheme.id,
-                                &app.custom_color_scheme,
-                                ws_path,
-                            );
-                        }
                     }
                 }
             },
@@ -825,35 +804,14 @@ pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
                     } else {
                         Some(std::path::Path::new(&app.current_workspace))
                     };
-                    let count = match app.config_category {
-                        0 => crate::render::Theme::available_color_schemes_with_workspace(ws_path)
-                            .len()
-                            .max(1),
-                        1 => 5usize,
-                        2 => 1usize,
-                        3 => crate::views::settings::web::search_item_count(
-                            app.websearch_config.as_ref(),
-                        ),
-                        4 => crate::views::settings::web::reader_item_count(
-                            app.websearch_config.as_ref(),
-                        ),
-                        _ => 4usize,
-                    };
+                    let active_category = crate::overlays::ConfigCategory::from_index(app.config_category);
+                    let count = active_category.detail_item_count(
+                        ws_path,
+                        app.websearch_config.as_ref(),
+                        &app.profile,
+                    );
                     if count > 0 {
                         app.config_detail_index = (app.config_detail_index + 1) % count;
-                    }
-                    if app.config_category == 0 {
-                        let schemes =
-                            crate::render::Theme::available_color_schemes_with_workspace(ws_path);
-                        if let Some(scheme) =
-                            schemes.get(app.config_detail_index % schemes.len().max(1))
-                        {
-                            app.theme = crate::render::Theme::from_color_scheme_with_workspace(
-                                &scheme.id,
-                                &app.custom_color_scheme,
-                                ws_path,
-                            );
-                        }
                     }
                 }
             },

@@ -4,6 +4,11 @@ use nuotc::{Frame, Line, Modifier, Rect, Span, Style};
 
 use super::{SettingsProps, render_scrollable};
 
+/// Count of items in the System settings panel.
+pub fn item_count() -> usize {
+    5
+}
+
 pub(super) fn draw_system_detail(
     frame: &mut Frame,
     body: Rect,

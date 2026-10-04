@@ -1305,15 +1305,14 @@ fn compose_frame(
                         focus: app.config_focus,
                         color_scheme: &app.color_scheme,
                         custom_color_scheme: &app.custom_color_scheme,
-                        transcript_layout: app.transcript_layout,
-                        expand_auto_scroll: app.expand_auto_scroll,
-                        click_outside_dismiss: app.click_outside_dismiss,
                         websearch: app.websearch_config.as_ref(),
                         workspace: &app.current_workspace,
                         category_scroll: &mut app.config_scroll,
                         detail_scroll: &mut app.config_detail_scroll,
                         breadcrumbs: Some(breadcrumbs_str),
                         theme: &app.theme,
+                        profile: &app.profile,
+                        tui_config: &app.tui_config,
                     },
                 );
                 app.config_selected_rect = rects.selected_row_rect;

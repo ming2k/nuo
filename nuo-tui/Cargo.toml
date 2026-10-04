@@ -29,7 +29,7 @@ tracing = { workspace = true }
 chrono = { workspace = true }
 
 [dev-dependencies]
-nuo-providers = { workspace = true }
+nuo-provider-adapters = { workspace = true }
 insta = { workspace = true }
 tempfile = { workspace = true }
 

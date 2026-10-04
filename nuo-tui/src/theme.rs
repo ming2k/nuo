@@ -391,7 +391,7 @@ impl Theme {
             match profile.color_standard {
                 nuotc::ColorStandard::Monochrome => Self::monochrome(),
                 nuotc::ColorStandard::Ansi16 => Self::ansi16(),
-                nuotc::ColorStandard::DirectColor => {
+                nuotc::ColorStandard::Indexed256 | nuotc::ColorStandard::DirectColor => {
                     Self::from_color_scheme_with_workspace(name, custom, workspace)
                 }
             }

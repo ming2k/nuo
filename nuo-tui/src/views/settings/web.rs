@@ -299,10 +299,7 @@ fn push_row(
         *selected_line = Some(lines.len());
     }
     lines.push(Line::from(vec![
-        Span::styled(
-            if selected { " ›  " } else { "    " },
-            Style::default().fg(props.theme.brand()),
-        ),
+        Span::raw("    "),
         Span::styled(
             format!("{label:<18}"),
             Style::default()

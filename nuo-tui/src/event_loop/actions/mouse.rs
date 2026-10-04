@@ -202,9 +202,9 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                         }
                     }
                     StepKind::Reasoning
-                    | StepKind::ProviderRetry
+                    | StepKind::Notice
                     | StepKind::CommandResult
-                    | StepKind::Notice => {
+                    | StepKind::CompactedCard => {
                         app.toggle_step_pinned(&mut messages, mi);
                         app.messages = messages;
                         app.layout_height_cache.clear();

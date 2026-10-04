@@ -2,6 +2,7 @@
 
 use nuotc::{Modifier, Style, {Line, Span}};
 
+use super::super::{Disclosure, Interaction, summary_text_color};
 use super::base::{MARKER_COLLAPSED, MARKER_EXPANDED, RenderCtx};
 use crate::message_body::draw_message_body;
 use crate::model::document::TranscriptMessage;
@@ -16,15 +17,14 @@ pub fn draw_compacted_card(
     mi: usize,
     selection: &SelectionState,
     cell_selection: Option<&CellDragInfo>,
-    _hovered: bool,
-    _focused: bool,
+    hovered: bool,
+    focused: bool,
 ) {
     let Some((archived_messages, tokens_before, tokens_after, summary, tracked_files, expanded)) =
         msg.compacted_card_data()
     else {
         return;
     };
-
     let full_width = ctx.area.width as usize;
     if full_width < (TRANSCRIPT_BODY_LEADING_INDENT as usize + 1) {
         draw_message_body(
@@ -64,8 +64,10 @@ pub fn draw_compacted_card(
         archived_messages, tokens_before, tokens_after, reclaim_pct
     );
 
+    // Activation is `Enter` or `Space` (`InteractiveEntry::handle_focused_key`
+    // accepts both), matching the dialog toggle convention.
     let hint = if expanded {
-        "[Space to collapse]"
+        "[Enter / Space to collapse]"
     } else {
         "[Enter / Space to inspect]"
     };
@@ -73,13 +75,27 @@ pub fn draw_compacted_card(
     let lead_icon = "✦ ";
     let title = "Context Compacted";
 
+    // The card is an activatable entry like every other step summary, so it
+    // composes the same three channels: disclosure luminance, lifecycle hue
+    // (none — compaction is not a failure), and the transient
+    // hover/focus affordance hue (ADR-0174).
+    let summary_color = summary_text_color(
+        None,
+        Disclosure::from_expanded(expanded),
+        Interaction::from_hover_focused(hovered, focused),
+        ctx.theme,
+    );
+
     let mut spans = Vec::new();
     // Disclosure marker
     spans.push(Span::styled(
         format!("{} ", marker),
         Style::default().fg(ctx.theme.brand()),
     ));
-    // Header icon & title
+    // Header icon & title. The title and stat line carry the composed summary
+    // tone so a collapsed card rests muted, an open one reads at full
+    // foreground, and hovering or focusing it lights the affordance hue — the
+    // same visual contract as every other step summary.
     spans.push(Span::styled(
         lead_icon,
         Style::default()
@@ -89,7 +105,7 @@ pub fn draw_compacted_card(
     spans.push(Span::styled(
         title,
         Style::default()
-            .fg(ctx.theme.info())
+            .fg(summary_color)
             .add_modifier(Modifier::BOLD),
     ));
     spans.push(Span::styled(
@@ -98,7 +114,7 @@ pub fn draw_compacted_card(
     ));
     spans.push(Span::styled(
         stat_label,
-        Style::default().fg(ctx.theme.fg()),
+        Style::default().fg(summary_color),
     ));
     spans.push(Span::styled(
         "  •  ",

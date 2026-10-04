@@ -6,6 +6,7 @@ use nuotc::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::design::{TRANSCRIPT_BODY_LEADING_INDENT, TURN_HEADER_BODY_GAP_ROWS};
+use crate::disclosure::{Disclosure, Interaction, summary_text_color};
 use crate::model::document::{MessageKind, NoticeParts, NoticeSeverity, TranscriptMessage};
 use crate::model::layout::{BlockRegion, LayoutMap, NOTICE_BLOCK_IDX};
 use crate::text_layout::wrap_text;
@@ -163,6 +164,10 @@ fn notice_content<'v>(
 /// `▲ provider`, …; generic `notification` when no topic is known) are
 /// rendered in the severity indicator tone (BOLD), followed by an optional
 /// right-aligned time.
+///
+/// A notice is an **always-open** entry (see [`draw_notice_view`]), so it
+/// carries no disclosure marker: the severity glyph is the whole marker
+/// vocabulary, exactly as ADR-0111 keeps command entries marker-free.
 fn notice_header_line(
     lead_symbol: &str,
     topic: &str,
@@ -210,16 +215,11 @@ pub(crate) fn draw_notice_view(
     current_y: &mut u16,
     content_lines: &mut usize,
     theme: &Theme,
-    _hovered: bool,
-    _focused: bool,
+    hovered: bool,
+    focused: bool,
 ) {
     let Some(severity) = notice.severity() else {
         return;
-    };
-    let (lead_symbol, tag_color) = match severity {
-        NoticeSeverity::Error => ("! ", theme.err()),
-        NoticeSeverity::Warning => ("▲ ", theme.warn()),
-        NoticeSeverity::Info => ("ℹ ", theme.info()),
     };
     let parsed = parse_notice_content(notice.raw_text());
     let mut dynamic_title = None;
@@ -229,11 +229,34 @@ pub(crate) fn draw_notice_view(
     let full_width = area.width as usize;
     let time_label = notice.message.sent_at_ms.map(crate::time::sent_time_label);
 
-    // 1. Notification Entry Header
+    // A notice is an **always-open** entry (ADR-0020 "fully disclosed
+    // entries"): its severity, title, and detail *are* the message, so nothing
+    // gates them and it carries no disclosure marker — the severity glyph is
+    // its whole marker vocabulary, matching ADR-0111's marker-free rule for
+    // command entries.
+    //
+    // The `expanded` field remains part of the record contract (`y`-copy,
+    // `pin_notice_expanded`, restore). A future collapsible notice — one whose
+    // detail is a long JSON body worth folding — must honor it in the body
+    // *and* the header marker together, exactly as `compacted.rs` does.
+    let (lead_symbol, tag_color) = match severity {
+        NoticeSeverity::Error => ("! ", theme.err()),
+        NoticeSeverity::Warning => ("▲ ", theme.warn()),
+        NoticeSeverity::Info => ("ℹ ", theme.info()),
+    };
+    // The interaction channel still tints the topic label, so a hovered or
+    // keyboard-focused notice is visibly the component attention is on
+    // (ADR-0174's affordance hue) even though its body never folds.
+    let topic_color = summary_text_color(
+        Some(tag_color),
+        Disclosure::Expanded,
+        Interaction::from_hover_focused(hovered, focused),
+        theme,
+    );
     let header_line = notice_header_line(
         lead_symbol,
         topic,
-        tag_color,
+        topic_color,
         time_label.as_deref(),
         theme.muted(),
         full_width,

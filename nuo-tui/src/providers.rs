@@ -54,7 +54,7 @@ pub enum CustomField {
 pub struct ConnectionTemplate {
     /// The **model provider id** this template creates a connection for
     /// (`"openai"`, `"openai-subscription"`, `"custom"`, …). MUST match the
-    /// matching `nuo_providers::model_provider_spec` id 1:1 and never change
+    /// matching `nuo_provider_adapters::model_provider_spec` id 1:1 and never change
     /// once shipped: it is persisted as the connection's `provider` and is the
     /// join key the catalog resolves models with.
     pub id: &'static str,
@@ -160,8 +160,8 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
-        id: "openai-subscription",
-        label: "ChatGPT Subscription",
+        id: "chatgpt-plan",
+        label: "ChatGPT Plan",
         description: "Uses your ChatGPT Plus or Pro subscription for Codex and flagship GPT models; authorizes in the browser, no API key.",
         protocol: WireProtocol::Responses,
         models: nuo_wire::model_providers::CHATGPT_BUILTIN_MODELS,
@@ -170,7 +170,20 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://chatgpt.com/backend-api/codex/responses"),
         user_agent: None,
-        auth: nuo_wire::ConnectionAuth::subscription_const("chatgpt"),
+        auth: nuo_wire::ConnectionAuth::subscription_const("chatgpt-plan"),
+    },
+    ConnectionTemplate {
+        id: "commandcode-plan",
+        label: "CommandCode Plan",
+        description: "Command Code Provider API serving Claude, GPT, DeepSeek, and top open models; sign in with your Command Code key.",
+        protocol: WireProtocol::ChatCompletions,
+        models: nuo_wire::model_providers::COMMANDCODE_BUILTIN_MODELS,
+        needs_url: false,
+        url_hint: "https://api.commandcode.ai/provider/v1/chat/completions",
+        needs_model: false,
+        default_url: Some("https://api.commandcode.ai/provider/v1/chat/completions"),
+        user_agent: None,
+        auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
         id: "deepseek",
@@ -264,9 +277,9 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         auth: nuo_wire::ConnectionAuth::subscription_const("opencode"),
     },
     ConnectionTemplate {
-        id: "opencode-go",
-        label: "OpenCode Go",
-        description: "OpenCode Go $10/mo subscription for open coding models; sign in with your OpenCode Go API key.",
+        id: "opencode-plan",
+        label: "OpenCode Plan",
+        description: "OpenCode Plan subscription for open coding models; sign in with your OpenCode Plan API key.",
         protocol: WireProtocol::ChatCompletions,
         models: nuo_wire::model_providers::OPENCODE_GO_MODELS,
         needs_url: false,
@@ -875,7 +888,7 @@ pub fn models_body_lines(models: &[RankedModel]) -> (Vec<ModelBodyLine>, Vec<usi
 
 #[cfg(test)]
 mod tests {
-    extern crate nuo_providers;
+    extern crate nuo_provider_adapters;
     use super::*;
     use nuo_wire::ProviderPickerRow;
 
@@ -1375,15 +1388,16 @@ mod tests {
             "OpenAI Platform",
             "Anthropic",
             "Google AI Studio",
+            "CommandCode Plan",
             "DeepSeek",
             "xAI",
-            "ChatGPT Subscription",
+            "ChatGPT Plan",
             "GitHub Copilot",
             "Google Antigravity",
             "Kimi Code",
             "ZAI Code (CN)",
             "OpenCode",
-            "OpenCode Go",
+            "OpenCode Plan",
             "OpenCode Zen",
             "OpenRouter",
             "QianwenAI Token Plan",
@@ -1656,8 +1670,11 @@ mod tests {
         for t in PROVIDER_PRESETS {
             let referenced = match t.id {
                 "anthropic" => Some(nuo_wire::model_providers::ANTHROPIC_BUILTIN_MODELS),
-                "openai-subscription" => {
+                "chatgpt-plan" | "openai-subscription" => {
                     Some(nuo_wire::model_providers::CHATGPT_BUILTIN_MODELS)
+                }
+                "commandcode-plan" | "commandcode" => {
+                    Some(nuo_wire::model_providers::COMMANDCODE_BUILTIN_MODELS)
                 }
                 "deepseek" => Some(nuo_wire::model_providers::DEEPSEEK_BUILTIN_MODELS),
                 "github-copilot" => Some(nuo_wire::model_providers::COPILOT_SEED_MODELS),
@@ -1668,7 +1685,7 @@ mod tests {
                 "kimi-code" => Some(nuo_wire::model_providers::KIMI_CODE_MODELS),
                 "openai" => Some(nuo_wire::model_providers::OPENAI_BUILTIN_MODELS),
                 "openrouter" => Some(nuo_wire::model_providers::OPENROUTER_BUILTIN_MODELS),
-                "opencode-go" => Some(nuo_wire::model_providers::OPENCODE_GO_MODELS),
+                "opencode-plan" | "opencode-go" => Some(nuo_wire::model_providers::OPENCODE_GO_MODELS),
                 "opencode-zen" => Some(nuo_wire::model_providers::OPENCODE_ZEN_MODELS),
                 "opencode" => Some(nuo_wire::model_providers::OPENCODE_CONSOLE_MODELS),
                 "glm-cn" => Some(nuo_wire::model_providers::ZAI_CODE_MODELS),
@@ -1707,13 +1724,31 @@ mod tests {
         assert_eq!(openai.label, "OpenAI Platform");
         let chatgpt = PROVIDER_PRESETS
             .iter()
-            .find(|t| t.id == "openai-subscription")
+            .find(|t| t.id == "chatgpt-plan")
             .unwrap();
         assert_eq!(openai.protocol, WireProtocol::ChatCompletions);
         assert_eq!(chatgpt.protocol, WireProtocol::Responses);
         assert!(
             chatgpt.models.is_empty(),
             "the subscription template must not hardcode a seed — Codex /backend-api/codex/models is authoritative"
+        );
+    }
+
+    #[test]
+    fn commandcode_template_uses_provider_route_and_seeds() {
+        let cmd = PROVIDER_PRESETS
+            .iter()
+            .find(|template| template.id == "commandcode-plan")
+            .unwrap();
+        assert_eq!(cmd.label, "CommandCode Plan");
+        assert_eq!(cmd.protocol, WireProtocol::ChatCompletions);
+        assert_eq!(
+            cmd.default_url,
+            Some("https://api.commandcode.ai/provider/v1/chat/completions")
+        );
+        assert_eq!(
+            cmd.models,
+            nuo_wire::model_providers::COMMANDCODE_BUILTIN_MODELS
         );
     }
 
@@ -1743,8 +1778,8 @@ mod tests {
         // headed "ChatGPT Subscription".
         assert_eq!(provider_label_for(Some("openai")), "OpenAI Platform");
         assert_eq!(
-            provider_label_for(Some("openai-subscription")),
-            "ChatGPT Subscription"
+            provider_label_for(Some("chatgpt-plan")),
+            "ChatGPT Plan"
         );
         assert_eq!(provider_label_for(Some("custom")), "Custom connection");
         assert_eq!(provider_label_for(Some("deepseek")), "DeepSeek");

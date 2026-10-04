@@ -12,10 +12,11 @@ nuo-client = { workspace = true }
 nuo-wire = { workspace = true }
 nuo-persistence = { workspace = true }
 nuo-host = { workspace = true }
-nuo-providers = { workspace = true }
+nuo-provider-adapters = { workspace = true }
 nuo-harness = { workspace = true }
 nuo-mcp = { workspace = true }
 nuo-tool = { workspace = true }
+nuo-provider = { workspace = true }
 nuo-tool-fs = { workspace = true }
 nuo-tool-exec = { workspace = true }
 nuo-tool-web = { workspace = true }

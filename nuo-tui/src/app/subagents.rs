@@ -231,13 +231,10 @@ impl App {
             let target = match kind {
                 InteractiveTargetKind::ToolStep => InteractiveTarget::tool_step(message_idx),
                 InteractiveTargetKind::Reasoning => InteractiveTarget::reasoning(message_idx),
-                InteractiveTargetKind::ProviderRetry => {
-                    InteractiveTarget::provider_retry(message_idx)
-                }
+                InteractiveTargetKind::Notice => InteractiveTarget::notice(message_idx),
                 InteractiveTargetKind::CommandResult => {
                     InteractiveTarget::command_result(message_idx)
                 }
-                InteractiveTargetKind::Notice => InteractiveTarget::notice(message_idx),
                 InteractiveTargetKind::CompactedCard => {
                     InteractiveTarget::compacted_card(message_idx)
                 }

@@ -6,6 +6,7 @@ use nuotc::{
 use unicode_width::UnicodeWidthStr;
 
 use super::base::RenderCtx;
+use super::super::{Disclosure, Interaction, summary_text_color};
 use crate::design::TURN_HEADER_BODY_GAP_ROWS;
 use crate::message_body::draw_message_body;
 use crate::model::document::{CommandPhase, TranscriptMessage};
@@ -20,8 +21,8 @@ pub fn draw_command_result(
     mi: usize,
     selection: &SelectionState,
     cell_selection: Option<&CellDragInfo>,
-    _hovered: bool,
-    _focused: bool,
+    hovered: bool,
+    focused: bool,
 ) {
     let Some(invocation) = msg.command_result_summary() else {
         return;
@@ -52,9 +53,20 @@ pub fn draw_command_result(
 
     let time_label = msg.sent_at_ms.map(crate::time::sent_time_label);
 
+    // One component in two lifecycle states (ADR-0108/ADR-0111), deliberately
+    // *not* an expandable step: the invocation and its reply are a single
+    // entry, so it carries no disclosure marker and no folding state. The
+    // interaction channel tints the header so a hovered or focused command is
+    // visibly the component under attention (ADR-0174).
+    let header_tone = summary_text_color(
+        Some((*ctx.theme).info()),
+        Disclosure::Expanded,
+        Interaction::from_hover_focused(hovered, focused),
+        ctx.theme,
+    );
     let header_line = command_header_line(
         "command",
-        (*ctx.theme).info(),
+        header_tone,
         time_label.as_deref(),
         ctx.theme.muted(),
         full_width,

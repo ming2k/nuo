@@ -99,6 +99,8 @@ pub mod catalog;
 pub mod client_identity;
 pub mod connection_auth;
 pub mod connection_detail;
+pub mod decision;
+pub use decision::*;
 pub mod model_providers;
 pub mod provider_auth;
 pub mod provider_state;
@@ -246,6 +248,10 @@ pub use model::{
     ModelTargetScope, NamedFilterPolicy, RemoteModelMetadata, RouteCapabilities, WireProtocol,
     baseline_models, model_by_id, register_fitted_models, resolve as resolve_model,
     sanitize_model_id, simple_glob_matches,
+};
+pub use nuo_provider::{
+    CatalogDiscovery, DiscoveredModel, ModelListError, ProviderDescriptor,
+    ProviderRegistry, QuotaTracker,
 };
 pub use pressure::{
     CLEARED_TOOL_PREFIX, CRUISE_HIGH_WATERMARK, CRUISE_LOW_WATERMARK, CompactionPolicy,

@@ -520,7 +520,7 @@ impl SessionDriver {
             Authorize {
                 auth: nuo_wire::ConnectionAuth,
                 provider: String,
-                tokens: Option<nuo_providers::oauth::TokenSet>,
+                tokens: Option<nuo_provider_adapters::oauth::TokenSet>,
             },
             Connect {
                 provider_id: String,

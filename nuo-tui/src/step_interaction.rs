@@ -15,10 +15,9 @@
 use crate::config::{TuiConfig, tool_default_expanded};
 use crate::model::document::ToolStepStatus;
 use crate::model::layout::{
-    COMMAND_RESULT_BLOCK_IDX, InteractiveTarget, NOTICE_BLOCK_IDX, PROVIDER_RETRY_BLOCK_IDX,
+    COMMAND_RESULT_BLOCK_IDX, COMPACTED_CARD_BLOCK_IDX, InteractiveTarget, NOTICE_BLOCK_IDX,
     REASONING_BLOCK_IDX, SemanticCursor, TOOL_STEP_BLOCK_IDX,
 };
-
 /// Which kind of step a pointer hit resolved to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StepKind {
@@ -26,12 +25,12 @@ pub enum StepKind {
     ToolStep,
     /// A reasoning trace summary.
     Reasoning,
-    /// The live provider-retry summary.
-    ProviderRetry,
-    /// A command invocation with expandable result.
-    CommandResult,
-    /// An expandable notice (e.g. error with JSON).
+    /// An expandable notice / live provider-retry entry.
     Notice,
+    /// A command invocation with its result body.
+    CommandResult,
+    /// An expandable compaction checkpoint card.
+    CompactedCard,
 }
 
 impl StepKind {
@@ -40,9 +39,9 @@ impl StepKind {
         match self {
             StepKind::ToolStep => InteractiveTarget::tool_step(mi),
             StepKind::Reasoning => InteractiveTarget::reasoning(mi),
-            StepKind::ProviderRetry => InteractiveTarget::provider_retry(mi),
-            StepKind::CommandResult => InteractiveTarget::command_result(mi),
             StepKind::Notice => InteractiveTarget::notice(mi),
+            StepKind::CommandResult => InteractiveTarget::command_result(mi),
+            StepKind::CompactedCard => InteractiveTarget::compacted_card(mi),
         }
     }
 }
@@ -54,13 +53,17 @@ impl StepKind {
 /// Drives click routing — toggle / subagent navigation / the detail overlay —
 /// and the hover affordance, so every call site shares one notion of "what
 /// counts as a step summary".
+///
+/// Every sentinel a renderer records for an interactive entry must be listed
+/// here: a missing arm silently downgrades the entry's click to a plain text
+/// selection while it still renders a disclosure marker and an activation hint.
 pub fn summary_at(cursor: &SemanticCursor) -> Option<(usize, StepKind)> {
     let kind = match cursor.block_idx {
         TOOL_STEP_BLOCK_IDX => StepKind::ToolStep,
         REASONING_BLOCK_IDX => StepKind::Reasoning,
-        PROVIDER_RETRY_BLOCK_IDX => StepKind::ProviderRetry,
-        COMMAND_RESULT_BLOCK_IDX => StepKind::CommandResult,
         NOTICE_BLOCK_IDX => StepKind::Notice,
+        COMMAND_RESULT_BLOCK_IDX => StepKind::CommandResult,
+        COMPACTED_CARD_BLOCK_IDX => StepKind::CompactedCard,
         _ => return None,
     };
     Some((cursor.message_idx, kind))
@@ -142,17 +145,53 @@ mod tests {
         }
         TuiConfig {
             default_expanded: map,
-            transcript_layout: String::new(),
             ..TuiConfig::default()
         }
     }
 
+    /// A click on a marked entry must classify as that entry, and the focus
+    /// target a click produces must match the one the same entry declares when
+    /// focus walks the transcript — the pairing that makes "clicked it" and
+    /// "focused it" the same component (ADR-0020 §6).
     #[test]
-    fn tool_running_follows_per_tool_default_failures_expand() {
+    fn every_marked_entry_classifies_and_focuses_identically() {
+        use crate::model::layout::InteractiveTarget;
+        let cases = [
+            (TOOL_STEP_BLOCK_IDX, StepKind::ToolStep),
+            (REASONING_BLOCK_IDX, StepKind::Reasoning),
+            (NOTICE_BLOCK_IDX, StepKind::Notice),
+            (COMMAND_RESULT_BLOCK_IDX, StepKind::CommandResult),
+            (COMPACTED_CARD_BLOCK_IDX, StepKind::CompactedCard),
+        ];
+        for (block_idx, expected_kind) in cases {
+            let (mi, kind) = summary_at(&cursor(block_idx, 9))
+                .unwrap_or_else(|| panic!("block sentinel {block_idx} must classify"));
+            assert_eq!(mi, 9);
+            assert_eq!(kind, expected_kind);
+            assert_eq!(
+                kind.focus_target(mi),
+                InteractiveTarget::for_block(block_idx, mi)
+                    .expect("classified entry must have a focus target"),
+                "click and focus must agree for {expected_kind:?}"
+            );
+        }
+    }
+
+    /// A marked entry must never classify when the pointer is on prose — the
+    /// inverse guard, so the classifier cannot claim ordinary text.
+    #[test]
+    fn prose_regions_never_classify_as_entries() {
+        assert!(summary_at(&cursor(0, 4)).is_none());
+        assert!(summary_at(&cursor(12, 4)).is_none());
+    }
+
+    #[test]
+    fn tool_running_follows_declared_default_failures_expand() {
         let cfg = config(&[]);
-        // execute_command collapses even while running (live output would
-        // otherwise dominate the transcript); failures still force-expand.
-        assert!(!default_tool_expanded(
+        // Running steps follow the declared component default: a shell command
+        // opens (its output is the point), a file read with no result yet stays
+        // collapsed; failures always force-expand.
+        assert!(default_tool_expanded(
             ToolStepStatus::Running,
             "execute_command",
             &cfg,
@@ -185,8 +224,16 @@ mod tests {
     }
 
     #[test]
-    fn tool_ok_follows_per_tool_default_then_density() {
-        let cfg = config(&[("edit_text", true)]);
+    fn tool_ok_follows_declared_default_then_density() {
+        let cfg = config(&[("read_text", true)]);
+        assert!(default_tool_expanded(
+            ToolStepStatus::Ok,
+            "read_text",
+            &cfg,
+            false
+        ));
+        // An explicit config entry overrides the declared default, and the
+        // alias family follows the canonical name's choice.
         assert!(default_tool_expanded(
             ToolStepStatus::Ok,
             "edit_text",
@@ -199,8 +246,7 @@ mod tests {
             &cfg,
             false
         ));
-        // execute_command collapses on success too; only failures expand it.
-        assert!(!default_tool_expanded(
+        assert!(default_tool_expanded(
             ToolStepStatus::Ok,
             "execute_command",
             &cfg,
@@ -208,7 +254,7 @@ mod tests {
         ));
         assert!(!default_tool_expanded(
             ToolStepStatus::Ok,
-            "read_text",
+            "search_text",
             &cfg,
             false
         ));

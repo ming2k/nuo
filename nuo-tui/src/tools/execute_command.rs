@@ -20,14 +20,16 @@ impl ToolPresenter for ExecuteCommandPresenter {
         ArgLayout::Command
     }
 
-    /// Collapsed by default: the summary line ("Run cargo test · 0ms")
-    /// covers the common case, and verbose command output otherwise dominates
-    /// the transcript. Failures still force-expand (lifecycle rule in
-    /// `step_interaction::default_tool_expanded`), and
-    /// `[tui.default_expanded] execute_command = true` restores the old
-    /// open-by-default behavior.
+    /// Expanded by default: a shell invocation is an action the user asked
+    /// for, and its output (exit status, diagnostics) is what they need to
+    /// see. The collapsed summary alone ("Run cargo") hides the outcome, and
+    /// the activity bar already tracks liveness separately.
+    ///
+    /// `[tui.default_expanded] execute_command = false` (or the Settings →
+    /// Components toggle) collapses it; failures and denials still force-expand
+    /// via the lifecycle rule in `step_interaction::default_tool_expanded`.
     fn default_expanded(&self) -> bool {
-        false
+        true
     }
 }
 

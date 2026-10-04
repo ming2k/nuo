@@ -64,8 +64,12 @@ impl InteractiveEntry for TranscriptMessage {
             MessageKind::ToolStep { .. } => Some(InteractiveTargetKind::ToolStep),
             MessageKind::Reasoning { .. } => Some(InteractiveTargetKind::Reasoning),
             MessageKind::CommandResult { .. } => Some(InteractiveTargetKind::CommandResult),
-            MessageKind::ProviderRetry { .. } => Some(InteractiveTargetKind::ProviderRetry),
-            MessageKind::Notice { .. } => Some(InteractiveTargetKind::Notice),
+            // A live provider retry renders as a notice entry (its own renderer
+            // is the notice renderer with a countdown), so it shares the notice
+            // target rather than inventing a peer kind.
+            MessageKind::ProviderRetry { .. } | MessageKind::Notice { .. } => {
+                Some(InteractiveTargetKind::Notice)
+            }
             MessageKind::CompactedCard { .. } => Some(InteractiveTargetKind::CompactedCard),
             MessageKind::Text => None,
         }
@@ -228,8 +232,15 @@ impl InteractiveEntry for TranscriptMessage {
             return EntryKeyOutcome::Unhandled;
         }
 
-        // Standard activation on Enter
-        if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::ALT) {
+        // Standard activation on Enter, plus Space — the same toggle pair the
+        // dialogs use, and what the compaction card's own hint advertises.
+        let is_activate = (key.code == KeyCode::Enter
+            && !key.modifiers.contains(KeyModifiers::ALT))
+            || (key.code == KeyCode::Char(' ')
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER));
+        if is_activate {
             if self.is_subagent_task() {
                 if let Some(id) = self.tool_step_call_id() {
                     return EntryKeyOutcome::EnterSubagent(id.to_string());
@@ -266,5 +277,53 @@ mod tests {
         );
         assert_eq!(reasoning.is_expanded(), Some(true));
         assert_eq!(reasoning.extract_copy_text(), Some("thinking step".to_string()));
+    }
+
+    /// `Enter` and `Space` are the activation pair, matching the dialog toggle
+    /// convention — and matching what the compaction card's own hint
+    /// advertises. A modifier keeps Space available to the global layer.
+    #[test]
+    fn space_activates_a_focused_component_like_enter() {
+        let mut by_enter = TranscriptMessage::reasoning("thinking step");
+        let mut by_space = TranscriptMessage::reasoning("thinking step");
+        assert_eq!(
+            by_enter.handle_focused_key(Key::ENTER),
+            EntryKeyOutcome::Handled { changed: true }
+        );
+        assert_eq!(
+            by_space.handle_focused_key(Key {
+                code: KeyCode::Char(' '),
+                modifiers: KeyModifiers::NONE,
+            }),
+            EntryKeyOutcome::Handled { changed: true }
+        );
+        assert_eq!(by_enter.is_expanded(), by_space.is_expanded());
+
+        // A modified Space is not activation; it belongs to the global layer.
+        let mut ctrl_space = TranscriptMessage::reasoning("thinking step");
+        assert_eq!(
+            ctrl_space.handle_focused_key(Key {
+                code: KeyCode::Char(' '),
+                modifiers: KeyModifiers::CONTROL,
+            }),
+            EntryKeyOutcome::Unhandled
+        );
+    }
+
+    /// A non-focusable entry must decline every key, including activation.
+    #[test]
+    fn non_focusable_entries_never_activate() {
+        let mut text = TranscriptMessage::new(Role::User, "hello world");
+        assert_eq!(
+            text.handle_focused_key(Key::ENTER),
+            EntryKeyOutcome::Unhandled
+        );
+        assert_eq!(
+            text.handle_focused_key(Key {
+                code: KeyCode::Char(' '),
+                modifiers: KeyModifiers::NONE,
+            }),
+            EntryKeyOutcome::Unhandled
+        );
     }
 }

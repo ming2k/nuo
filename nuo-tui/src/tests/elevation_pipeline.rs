@@ -18,6 +18,16 @@ fn test_profile_to_elevation_archetype_mapping() {
         SpatialCost::ZERO
     );
 
+    let indexed256 = TerminalProfile::indexed256();
+    assert_eq!(
+        indexed256.elevation_archetype(),
+        ElevationArchetype::Chromatic
+    );
+    assert_eq!(
+        indexed256.elevation_archetype().spatial_cost(),
+        SpatialCost::ZERO
+    );
+
     let ansi16 = TerminalProfile::ecma48_ansi16();
     assert_eq!(ansi16.elevation_archetype(), ElevationArchetype::Hybrid);
     assert_eq!(

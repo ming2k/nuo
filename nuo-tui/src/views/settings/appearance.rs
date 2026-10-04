@@ -8,6 +8,15 @@ use super::{SettingsProps, render_scrollable};
 use crate::render::Theme;
 use crate::theme::mix;
 
+/// Dynamic count of selectable items in the Appearance panel for the active terminal profile.
+pub fn item_count(ws_path: Option<&Path>, profile: &nuotc::TerminalProfile) -> usize {
+    if profile.supports_color_themes() {
+        Theme::available_color_schemes_with_workspace(ws_path).len().max(1)
+    } else {
+        1
+    }
+}
+
 pub(super) fn draw_appearance_detail(
     frame: &mut Frame,
     body: Rect,
@@ -16,6 +25,54 @@ pub(super) fn draw_appearance_detail(
 ) -> Option<Rect> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     let mut selected_line = None;
+
+    if !props.profile.supports_color_themes() {
+        // DEC VT100 Monochrome / NO_COLOR mode: visual distinction uses SGR 7 (Reverse Video)
+        let is_sel = props.detail_index == 0;
+        if is_sel {
+            selected_line = Some(lines.len());
+        }
+
+        let row_style = if is_sel && focused {
+            Style::default()
+                .fg(props.theme.brand())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+                .fg(props.theme.fg())
+                .add_modifier(Modifier::BOLD)
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled(
+                "● ",
+                Style::default().fg(props.theme.ok()),
+            ),
+            Span::styled("Monochrome Hardware Mode", row_style),
+            Span::raw("  "),
+            Span::styled(
+                "[ Active ]",
+                Style::default()
+                    .fg(props.theme.brand())
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                "DEC VT100 / NO_COLOR standard (visual distinction uses SGR 7 Reverse Video and ASCII framing)",
+                Style::default().fg(props.theme.muted()),
+            ),
+        ]));
+        lines.push(Line::from(""));
+
+        return render_scrollable(
+            frame,
+            body,
+            lines,
+            props.detail_scroll,
+            selected_line,
+            props.theme,
+        );
+    }
 
     let ws_path = if props.workspace.is_empty() {
         None
@@ -31,7 +88,6 @@ pub(super) fn draw_appearance_detail(
         }
 
         let is_active = props.color_scheme == preset.id;
-        let cursor = if is_sel { "›" } else { " " };
         let mark = if is_active { "●" } else { "○" };
 
         let row_style = if is_sel && focused {
@@ -65,7 +121,7 @@ pub(super) fn draw_appearance_detail(
 
         let mut row = vec![
             Span::styled(
-                format!(" {cursor} {mark} "),
+                format!("{mark} "),
                 Style::default().fg(if is_active {
                     props.theme.ok()
                 } else if is_sel {

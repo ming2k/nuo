@@ -359,6 +359,7 @@ fn redesigned_components_render_without_panicking() {
 fn config_appearance_pages_render_at_minimum_terminal_size() {
     let theme = Theme::default();
     let custom = nuo_wire::ColorSchemeConfig::default();
+    let tui_config = crate::config::TuiConfig::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
 
     terminal.draw(|frame| {
@@ -370,15 +371,14 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 focus: ConfigFocus::Categories,
                 color_scheme: "zen",
                 custom_color_scheme: &custom,
-                transcript_layout: crate::layout::Strategy::TurnBand,
-                expand_auto_scroll: false,
-                click_outside_dismiss: true,
                 websearch: None,
                 workspace: "~/workspace",
                 category_scroll: &mut 0,
                 detail_scroll: &mut 0,
                 breadcrumbs: Some("Main › Settings"),
                 theme: &theme,
+                profile: &nuotc::TerminalProfile::direct_color(),
+                tui_config: &tui_config,
             },
         );
     });
@@ -401,15 +401,14 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 focus: ConfigFocus::Detail,
                 color_scheme: "custom",
                 custom_color_scheme: &custom,
-                transcript_layout: crate::layout::Strategy::TurnBand,
-                expand_auto_scroll: false,
-                click_outside_dismiss: true,
                 websearch: None,
                 workspace: "~/workspace",
                 category_scroll: &mut 0,
                 detail_scroll: &mut 0,
                 breadcrumbs: Some("Main › Settings"),
                 theme: &theme,
+                profile: &nuotc::TerminalProfile::direct_color(),
+                tui_config: &tui_config,
             },
         );
     });
@@ -417,7 +416,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
 }
 
 #[test]
-fn web_settings_split_search_and_reader_into_clear_panels() {
+fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() {
     let theme = Theme::default();
     let custom = nuo_wire::ColorSchemeConfig::default();
     let web = nuo_wire::WebSearchConfigView {
@@ -432,7 +431,134 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
     };
 
     let mut terminal = nuotc::TestTerminal::new(80, 24);
-    for (category_index, expected_axis) in [(3, "Used by search_web"), (4, "Used by read_url")] {
+    let tui_config = crate::config::TuiConfig::default();
+
+    for cat_idx in 0..ConfigCategory::ALL.len() {
+        for focus in [ConfigFocus::Categories, ConfigFocus::Detail] {
+            terminal.draw(|frame| {
+                draw_settings_view(
+                    frame,
+                    SettingsProps {
+                        category_index: cat_idx,
+                        detail_index: 0,
+                        focus,
+                        color_scheme: "zen",
+                        custom_color_scheme: &custom,
+                        websearch: Some(&web),
+                        workspace: "",
+                        category_scroll: &mut 0,
+                        detail_scroll: &mut 0,
+                        breadcrumbs: None,
+                        theme: &theme,
+                        profile: &nuotc::TerminalProfile::direct_color(),
+                        tui_config: &tui_config,
+                    },
+                );
+            });
+
+            // With breadcrumbs: None, no row in the entire settings view should contain `›`
+            for y in 0..24 {
+                let row = grid_row(&terminal, y);
+                assert!(
+                    !row.contains('›'),
+                    "settings scene must not contain '›' indicator at cat={cat_idx}, focus={focus:?}, row {y}: {row}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn settings_view_adapts_to_terminal_profile_capabilities() {
+    let custom = nuo_wire::ColorSchemeConfig::default();
+    let tui_config = crate::config::TuiConfig::default();
+
+    // 1. DirectColor profile: Appearance shows chromatic presets
+    let direct_profile = nuotc::TerminalProfile::direct_color();
+    assert!(direct_profile.supports_color_themes());
+    assert_eq!(ConfigCategory::ALL.len(), 5);
+    assert_eq!(ConfigCategory::from_index(0), ConfigCategory::Appearance);
+
+    let theme_direct = Theme::default();
+    let mut term_direct = nuotc::TestTerminal::new(80, 24);
+    term_direct.draw(|frame| {
+        draw_settings_view(
+            frame,
+            SettingsProps {
+                category_index: 0,
+                detail_index: 0,
+                focus: ConfigFocus::Detail,
+                color_scheme: "zen",
+                custom_color_scheme: &custom,
+                websearch: None,
+                workspace: "",
+                category_scroll: &mut 0,
+                detail_scroll: &mut 0,
+                breadcrumbs: None,
+                theme: &theme_direct,
+                profile: &direct_profile,
+                tui_config: &tui_config,
+            },
+        );
+    });
+
+    let direct_screen = (0..24).map(|y| grid_row(&term_direct, y)).collect::<Vec<_>>().join("\n");
+    assert!(direct_screen.contains("Appearance"));
+    assert!(direct_screen.contains("Zen"));
+
+    // 2. Monochrome profile: Appearance adapts to hardware mode without broken RGB swatches
+    let mono_profile = nuotc::TerminalProfile::dec_vt100_monochrome();
+    assert!(!mono_profile.supports_color_themes());
+
+    let theme_mono = Theme::monochrome();
+    let mut term_mono = nuotc::TestTerminal::new(80, 24);
+    let tui_config = crate::config::TuiConfig::default();
+    term_mono.draw(|frame| {
+        draw_settings_view(
+            frame,
+            SettingsProps {
+                category_index: 0,
+                detail_index: 0,
+                focus: ConfigFocus::Detail,
+                color_scheme: "monochrome",
+                custom_color_scheme: &custom,
+                websearch: None,
+                workspace: "",
+                category_scroll: &mut 0,
+                detail_scroll: &mut 0,
+                breadcrumbs: None,
+                theme: &theme_mono,
+                profile: &mono_profile,
+                tui_config: &tui_config,
+            },
+        );
+    });
+
+    let mono_screen = (0..24).map(|y| grid_row(&term_mono, y)).collect::<Vec<_>>().join("\n");
+    assert!(mono_screen.contains("Appearance"));
+    assert!(mono_screen.contains("Monochrome Hardware Mode"));
+    assert!(mono_screen.contains("[ Active ]"));
+    assert!(!mono_screen.contains("Zen"));
+}
+
+#[test]
+fn web_settings_split_search_and_reader_into_clear_panels() {
+    let theme = Theme::default();
+    let custom = nuo_wire::ColorSchemeConfig::default();
+    let tui_config = crate::config::TuiConfig::default();
+    let web = nuo_wire::WebSearchConfigView {
+        revision: 0,
+        provider: nuo_wire::WebSearchProvider::Exa,
+        reader: nuo_wire::WebReaderProvider::Jina,
+        timeout_secs: 20,
+        searxng_url: None,
+        search_credential: nuo_wire::WebCredentialStatus::Stored,
+        reader_credential: nuo_wire::WebCredentialStatus::Stored,
+        capabilities: nuo_wire::web_provider_capabilities(),
+    };
+
+    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    for (category_index, expected_axis) in [(2, "Used by search_web"), (3, "Used by read_url")] {
         terminal.draw(|frame| {
             draw_settings_view(
                 frame,
@@ -442,15 +568,14 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
                     focus: ConfigFocus::Detail,
                     color_scheme: "zen",
                     custom_color_scheme: &custom,
-                    transcript_layout: crate::layout::Strategy::TurnBand,
-                    expand_auto_scroll: false,
-                    click_outside_dismiss: true,
                     websearch: Some(&web),
                     workspace: "~/workspace",
                     category_scroll: &mut 0,
                     detail_scroll: &mut 0,
                     breadcrumbs: Some("Main › Settings"),
                     theme: &theme,
+                    profile: &nuotc::TerminalProfile::direct_color(),
+                    tui_config: &tui_config,
                 },
             );
         });
@@ -472,6 +597,7 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
 fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
     let theme = Theme::default();
     let custom = nuo_wire::ColorSchemeConfig::default();
+    let tui_config = crate::config::TuiConfig::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
 
     let mut selected_rect = None;
@@ -484,15 +610,14 @@ fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
                 focus: ConfigFocus::Detail,
                 color_scheme: "zen",
                 custom_color_scheme: &custom,
-                transcript_layout: crate::layout::Strategy::TurnBand,
-                expand_auto_scroll: false,
-                click_outside_dismiss: true,
                 websearch: None,
                 workspace: "",
                 category_scroll: &mut 0,
                 detail_scroll: &mut 0,
                 breadcrumbs: Some("Main › Settings"),
                 theme: &theme,
+                profile: &nuotc::TerminalProfile::direct_color(),
+                tui_config: &tui_config,
             },
         );
         selected_rect = rects.selected_row_rect;

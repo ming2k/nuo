@@ -1751,7 +1751,8 @@ dependencies = [
  "nuo-host",
  "nuo-mcp",
  "nuo-persistence",
- "nuo-providers",
+ "nuo-provider",
+ "nuo-provider-adapters",
  "nuo-server",
  "nuo-tool",
  "nuo-tui",
@@ -1801,6 +1802,7 @@ dependencies = [
  "nuo-acp",
  "nuo-mcp",
  "nuo-model-codec",
+ "nuo-provider",
  "nuo-tool",
  "nuo-wire",
  "serde",
@@ -1884,7 +1886,8 @@ dependencies = [
  "nuo-host",
  "nuo-model-codec",
  "nuo-persistence",
- "nuo-providers",
+ "nuo-provider",
+ "nuo-provider-adapters",
  "nuo-tool",
  "nuo-tool-ast",
  "nuo-tool-exec",
@@ -2003,30 +2006,45 @@ dependencies = [
 ]
 
 [[package]]
-name = "nuo-providers"
+name = "nuo-provider"
 version = "0.0.2"
 dependencies = [
- "aes",
+ "async-trait",
+ "futures",
+ "nuo-host",
+ "nuo-model-codec",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "toml",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-provider-adapters"
+version = "0.0.2"
+dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bytes",
- "cbc",
  "chrono",
  "fastrand",
  "futures",
  "http",
  "httpdate",
  "inventory",
- "md-5",
  "mockito",
  "netune",
  "netune-trace",
  "nuo-host",
  "nuo-model-codec",
- "nuo-persistence",
+ "nuo-provider",
+ "nuo-provider-qoder",
+ "nuo-provider-transport",
  "nuo-tool",
  "nuo-wire",
- "rsa",
  "serde",
  "serde_json",
  "sha2",
@@ -2034,6 +2052,302 @@ dependencies = [
  "toml",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "nuo-provider-anthropic"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "futures",
+ "http",
+ "inventory",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-transport",
+ "nuo-tool",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-provider-chatgpt-plan"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "netune",
+ "nuo-host",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-openai",
+ "nuo-provider-transport",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nuo-provider-commandcode-plan"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "nuo-host",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-openai",
+ "nuo-provider-transport",
+ "nuo-wire",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nuo-provider-copilot"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "nuo-host",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-openai",
+ "nuo-provider-transport",
+ "nuo-wire",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nuo-provider-deepseek"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-openai",
+ "nuo-provider-transport",
+ "nuo-wire",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nuo-provider-google"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "futures",
+ "http",
+ "inventory",
+ "netune",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-transport",
+ "nuo-wire",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-provider-kimi"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-openai",
+ "nuo-provider-transport",
+ "nuo-wire",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nuo-provider-openai"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "futures",
+ "http",
+ "inventory",
+ "mockito",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-transport",
+ "nuo-tool",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-provider-opencode"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "netune",
+ "nuo-host",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-deepseek",
+ "nuo-provider-openai",
+ "nuo-provider-transport",
+ "nuo-wire",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nuo-provider-openrouter"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "nuo-host",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-openai",
+ "nuo-provider-transport",
+ "nuo-wire",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nuo-provider-qianwen"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "nuo-host",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-deepseek",
+ "nuo-provider-openai",
+ "nuo-provider-transport",
+ "nuo-provider-zai",
+ "nuo-wire",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nuo-provider-qoder"
+version = "0.0.2"
+dependencies = [
+ "aes",
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "cbc",
+ "fastrand",
+ "futures",
+ "http",
+ "httpdate",
+ "inventory",
+ "md-5",
+ "netune",
+ "nuo-host",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-transport",
+ "nuo-wire",
+ "rsa",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-provider-transport"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "fastrand",
+ "futures",
+ "http",
+ "httpdate",
+ "mockito",
+ "netune",
+ "netune-trace",
+ "nuo-host",
+ "nuo-model-codec",
+ "nuo-provider",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-provider-xai"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "nuo-host",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-openai",
+ "nuo-provider-transport",
+ "nuo-wire",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nuo-provider-zai"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "nuo-host",
+ "nuo-model-codec",
+ "nuo-provider",
+ "nuo-provider-openai",
+ "nuo-provider-transport",
+ "nuo-wire",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2057,7 +2371,8 @@ dependencies = [
  "nuo-host",
  "nuo-mcp",
  "nuo-persistence",
- "nuo-providers",
+ "nuo-provider",
+ "nuo-provider-adapters",
  "nuo-tool",
  "nuo-tool-ast",
  "nuo-tool-exec",
@@ -2195,7 +2510,7 @@ dependencies = [
  "insta",
  "nuo-client",
  "nuo-host",
- "nuo-providers",
+ "nuo-provider-adapters",
  "nuo-wire",
  "nuotc",
  "serde",
@@ -2226,6 +2541,7 @@ dependencies = [
  "nuo-host",
  "nuo-mcp",
  "nuo-model-codec",
+ "nuo-provider",
  "nuo-tool",
  "serde",
  "serde_json",

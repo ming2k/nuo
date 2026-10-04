@@ -19,7 +19,8 @@ nuo-client = { workspace = true }
 nuo-wire = { workspace = true }
 nuo-persistence = { workspace = true }
 nuo-host = { workspace = true }
-nuo-providers = { workspace = true }
+nuo-provider = { workspace = true }
+nuo-provider-adapters = { workspace = true }
 nuo-harness = { workspace = true }
 nuo-server = { workspace = true }
 nuo-tui = { workspace = true }

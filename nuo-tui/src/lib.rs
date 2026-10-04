@@ -174,7 +174,7 @@ pub enum StartupOverlay {
 impl StartupOverlay {
     /// Resolve startup overlay intent from acceptance / test / launch environment variables:
     /// - `NUOX_STARTUP_VIEW` / `MUTX_VIEW`: e.g. `settings`, `settings:web`, `settings:3`, `dashboard`, `sessions`.
-    /// - `MUTX_SETTINGS_NAV` / `MUTX_SETTINGS_CATEGORY`: e.g. `search`, `web`, `transcript`, `appearance`, `system`, `behavior`, `0..5`.
+    /// - `MUTX_SETTINGS_NAV` / `MUTX_SETTINGS_CATEGORY`: e.g. `appearance`, `components`, `search`, `web`, `system`, `0..4`.
     pub fn resolve_from_env() -> Option<Self> {
         let view_val = std::env::var("NUOX_STARTUP_VIEW")
             .or_else(|_| std::env::var("MUTX_VIEW"))
@@ -2034,7 +2034,7 @@ pub async fn run_tui(
         view_transitioned: false,
         transcript_changed_pending: false,
         side_transcript_changed_pending: false,
-        tool_density: false,
+        tool_density: tui_config.tool_density,
         reasoning_default_expanded: crate::config::reasoning_default_expanded(&tui_config),
         backend_completion_signal: None,
         tui_config: (*tui_config).clone(),
@@ -2177,9 +2177,7 @@ pub async fn run_tui(
         ui: crate::ui::ComponentTree::new(),
         hovered_step: None,
         transcript_focused: false,
-        transcript_layout: crate::render::layout::Strategy::from_config(
-            &tui_config.transcript_layout,
-        ),
+        transcript_layout: crate::render::layout::Strategy::TurnBand,
         color_scheme: Theme::normalize_color_scheme(&tui_config.color_scheme).to_string(),
         custom_color_scheme: tui_config.custom_color_scheme.clone(),
 

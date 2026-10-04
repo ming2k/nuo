@@ -1,0 +1,27 @@
+[package]
+name = "nuo-provider-openrouter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "OpenRouter multi-model gateway provider channel for Nuo"
+
+[dependencies]
+nuo-provider = { workspace = true }
+nuo-provider-transport = { workspace = true }
+nuo-provider-openai = { workspace = true }
+nuo-model-codec = { workspace = true }
+nuo-wire = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+inventory = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
+nuo-host = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

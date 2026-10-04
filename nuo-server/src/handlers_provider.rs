@@ -106,13 +106,13 @@ pub(crate) fn register_provider(
         },
     );
     ModelProviders::save(&store).map_err(|e| e.to_string())?;
-    nuo_providers::sync_user_declared_providers(&store)?;
+    nuo_provider_adapters::sync_user_declared_providers(&store)?;
     Ok(())
 }
 
 pub(crate) struct PendingOAuthAuthorization {
     pub auth: nuo_wire::ConnectionAuth,
-    pub tokens: nuo_providers::oauth::TokenSet,
+    pub tokens: nuo_provider_adapters::oauth::TokenSet,
 }
 
 pub(crate) struct ActivateEnv<'a> {
@@ -172,7 +172,7 @@ pub(crate) async fn switch(
             prov.root_url = url.trim().to_string();
             if let Err(error) = ModelProviders::save(&store)
                 .map_err(|e| e.to_string())
-                .and_then(|_| nuo_providers::sync_user_declared_providers(&store))
+                .and_then(|_| nuo_provider_adapters::sync_user_declared_providers(&store))
             {
                 let _ = resp_tx.send(AgentResponse::Error(error));
                 return;
@@ -254,7 +254,7 @@ pub(crate) async fn add(
     };
     // The provider must resolve (ADR-0201 INV-2): an unknown value is a hard
     // error and never degrades into a different connection kind.
-    let Some(spec) = nuo_providers::model_provider_spec(&provider) else {
+    let Some(spec) = nuo_provider_adapters::model_provider_spec(&provider) else {
         reject(
             resp_tx,
             "Could not add connection",
@@ -263,7 +263,7 @@ pub(crate) async fn add(
         return;
     };
     let is_open_universe = spec.baselines.is_empty()
-        && spec.catalog_source == nuo_providers::RemoteCatalogSource::None;
+        && spec.catalog_source == nuo_provider_adapters::RemoteCatalogSource::None;
     let trimmed_key = api_key.expose_secret().trim();
     // Pasted API key on an OAuth provider → ordinary ApiKey auth.
     let auth = match (auth, !trimmed_key.is_empty()) {
@@ -384,7 +384,7 @@ pub(crate) async fn add(
     let mut model_rules = nuo_wire::model::ModelScopeConfig {
         filter: provider_rules.filter.or_else(|| {
             Some(nuo_wire::ConnectionFilterPolicy::Named(
-                if spec.catalog_source == nuo_providers::RemoteCatalogSource::None {
+                if spec.catalog_source == nuo_provider_adapters::RemoteCatalogSource::None {
                     nuo_wire::NamedFilterPolicy::Baseline
                 } else {
                     nuo_wire::NamedFilterPolicy::All
@@ -562,7 +562,7 @@ pub(crate) async fn edit(
     let mut connections = Connections::load();
     let trimmed_key = api_key.expose_secret().trim();
     // The provider must resolve (ADR-0201 INV-2).
-    if nuo_providers::model_provider_spec(&provider).is_none() {
+    if nuo_provider_adapters::model_provider_spec(&provider).is_none() {
         reject(
             resp_tx,
             "Could not edit connection",
@@ -1308,10 +1308,10 @@ pub async fn authorize(
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     method: nuo_wire::LoginMethod,
     auth: nuo_wire::ConnectionAuth,
-) -> Option<nuo_providers::oauth::TokenSet> {
+) -> Option<nuo_provider_adapters::oauth::TokenSet> {
     let Some(cfg) = auth
         .oauth_provider_id()
-        .and_then(nuo_providers::oauth::config_by_provider_id)
+        .and_then(nuo_provider_adapters::oauth::config_by_provider_id)
     else {
         let _ = resp_tx.send(AgentResponse::ConnectStatus(
             nuo_wire::ConnectStatus::Failed {
@@ -1367,7 +1367,7 @@ pub async fn run_oauth_for_connect(
         .unwrap_or_default();
     let Some(cfg) = auth_mode
         .oauth_provider_id()
-        .and_then(nuo_providers::oauth::config_by_provider_id)
+        .and_then(nuo_provider_adapters::oauth::config_by_provider_id)
     else {
         let _ = resp_tx.send(AgentResponse::ConnectStatus(
             nuo_wire::ConnectStatus::Failed {
@@ -1475,9 +1475,9 @@ async fn run_oauth(
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     label: &str,
     method: nuo_wire::LoginMethod,
-    cfg: nuo_providers::oauth::OAuthConfig,
-) -> Option<nuo_providers::oauth::TokenSet> {
-    use nuo_providers::oauth::OAuth;
+    cfg: nuo_provider_adapters::oauth::OAuthConfig,
+) -> Option<nuo_provider_adapters::oauth::TokenSet> {
+    use nuo_provider_adapters::oauth::OAuth;
 
     let oauth = OAuth::new(cfg.clone(), crate::credentials_host::host());
 
@@ -1518,7 +1518,7 @@ async fn run_oauth(
     };
     let now_ms = chrono::Utc::now().timestamp_millis();
     let token_set =
-        nuo_providers::oauth::build_token_set_from_login(&oauth, &label, tokens, now_ms).await;
+        nuo_provider_adapters::oauth::build_token_set_from_login(&oauth, &label, tokens, now_ms).await;
     Some(token_set)
 }
 
@@ -1531,7 +1531,7 @@ pub(crate) async fn refresh_oauth_if_needed(_config: &Config, provider_id: &str)
         return;
     }
     let source =
-        nuo_providers::oauth::OAuthCredentialSource::new(
+        nuo_provider_adapters::oauth::OAuthCredentialSource::new(
             &crate::credentials_host::host(),
             provider_id,
             instance.auth.clone(),
@@ -1809,7 +1809,7 @@ pub(crate) async fn query_connection_detail(
             }
         })
         .unwrap_or_else(|| {
-            let spec = nuo_providers::model_provider_spec(&connection.provider);
+            let spec = nuo_provider_adapters::model_provider_spec(&connection.provider);
             let p = spec
                 .as_ref()
                 .map(|s| s.protocol)
@@ -1921,7 +1921,7 @@ pub(crate) async fn query_connection_detail(
     tokio::spawn(async move {
         let (api_key, is_oauth) = if conn_auth.is_oauth() {
             let source =
-                nuo_providers::oauth::OAuthCredentialSource::new(
+                nuo_provider_adapters::oauth::OAuthCredentialSource::new(
                     &crate::credentials_host::host(),
                     &conn_id,
                     conn_auth.clone(),
@@ -1938,14 +1938,14 @@ pub(crate) async fn query_connection_detail(
             (raw_key_str, false)
         };
 
-        let mut usage = nuo_providers::fetch_provider_usage(&provider, &base_url, &api_key).await;
+        let mut usage = nuo_provider_adapters::fetch_provider_usage(&provider, &base_url, &api_key).await;
 
         if is_oauth
             && let nuo_wire::ConnectionUsageState::Error(ref err) = usage
             && is_auth_error(err)
         {
             let source =
-                nuo_providers::oauth::OAuthCredentialSource::new(
+                nuo_provider_adapters::oauth::OAuthCredentialSource::new(
                     &crate::credentials_host::host(),
                     &conn_id,
                     conn_auth.clone(),
@@ -1955,7 +1955,7 @@ pub(crate) async fn query_connection_detail(
                 nuo_wire::CredentialSource::force_refresh_after_rejection(&source, &rejected)
                     .await
             {
-                usage = nuo_providers::fetch_provider_usage(
+                usage = nuo_provider_adapters::fetch_provider_usage(
                     &provider,
                     &base_url,
                     refreshed.token.expose_secret(),
@@ -2088,7 +2088,7 @@ mod tests {
         // Pending auth is for Antigravity, but params requests ChatGPT
         let pending = PendingOAuthAuthorization {
             auth: nuo_wire::ConnectionAuth::subscription("google-antigravity"),
-            tokens: nuo_providers::oauth::TokenSet {
+            tokens: nuo_provider_adapters::oauth::TokenSet {
                 access: "tok".into(),
                 refresh: "ref".into(),
                 expires_ms: 1000,
@@ -2166,7 +2166,7 @@ mod tests {
             },
         );
         ModelProviders::save(&store).unwrap();
-        nuo_providers::sync_user_declared_providers(&store).unwrap();
+        nuo_provider_adapters::sync_user_declared_providers(&store).unwrap();
 
         let mut conns = Connections::default();
         conns.connections.push(Connection {

@@ -8,8 +8,9 @@ members = [
     "nuo-harness",
     "nuo-mcp",
     "nuo-model-codec",
+    "nuo-provider",
     "nuo-persistence",
-    "nuo-providers",
+    "nuo-provider-adapters",
     "nuo-host",
     "nuo-tool",
     "nuo-tool-derive",
@@ -20,6 +21,21 @@ members = [
     "tools/nuo-tool-exec",
     "tools/nuo-tool-web",
     "tools/nuo-tool-ast",
+    "providers/nuo-provider-transport",
+    "providers/nuo-provider-qoder",
+    "providers/nuo-provider-anthropic",
+    "providers/nuo-provider-google",
+    "providers/nuo-provider-openai",
+    "providers/nuo-provider-chatgpt-plan",
+    "providers/nuo-provider-deepseek",
+    "providers/nuo-provider-kimi",
+    "providers/nuo-provider-copilot",
+    "providers/nuo-provider-commandcode-plan",
+    "providers/nuo-provider-opencode",
+    "providers/nuo-provider-openrouter",
+    "providers/nuo-provider-xai",
+    "providers/nuo-provider-qianwen",
+    "providers/nuo-provider-zai",
 ]
 default-members = ["nuo"]
 resolver = "2"
@@ -100,8 +116,24 @@ acp = { version = "0.0.2", package = "nuo-acp", path = "nuo-acp" }
 nuo-agent = { version = "0.0.2", path = "nuo-agent" }
 nuo-tool = { version = "0.0.2", path = "nuo-tool" }
 nuo-tool-derive = { version = "0.0.2", path = "nuo-tool-derive" }
+nuo-provider = { version = "0.0.2", path = "nuo-provider" }
+nuo-provider-transport = { version = "0.0.2", path = "providers/nuo-provider-transport" }
+nuo-provider-qoder = { version = "0.0.2", path = "providers/nuo-provider-qoder" }
+nuo-provider-anthropic = { version = "0.0.2", path = "providers/nuo-provider-anthropic" }
+nuo-provider-google = { version = "0.0.2", path = "providers/nuo-provider-google" }
+nuo-provider-openai = { version = "0.0.2", path = "providers/nuo-provider-openai" }
+nuo-provider-chatgpt-plan = { version = "0.0.2", path = "providers/nuo-provider-chatgpt-plan" }
+nuo-provider-deepseek = { version = "0.0.2", path = "providers/nuo-provider-deepseek" }
+nuo-provider-kimi = { version = "0.0.2", path = "providers/nuo-provider-kimi" }
+nuo-provider-copilot = { version = "0.0.2", path = "providers/nuo-provider-copilot" }
+nuo-provider-commandcode-plan = { version = "0.0.2", path = "providers/nuo-provider-commandcode-plan" }
+nuo-provider-opencode = { version = "0.0.2", path = "providers/nuo-provider-opencode" }
+nuo-provider-openrouter = { version = "0.0.2", path = "providers/nuo-provider-openrouter" }
+nuo-provider-xai = { version = "0.0.2", path = "providers/nuo-provider-xai" }
+nuo-provider-qianwen = { version = "0.0.2", path = "providers/nuo-provider-qianwen" }
+nuo-provider-zai = { version = "0.0.2", path = "providers/nuo-provider-zai" }
 nuo-mcp = { version = "0.0.2", path = "nuo-mcp" }
-nuo-model-codec = { version = "0.0.2", path = "nuo-model-codec" }
+nuo-model-codec = { version = "0.0.2", path = "nuo-model-codec", default-features = false }
 
 # Terminal Substrate (Nuotc)
 nuotc = "0.0.1"
@@ -113,7 +145,7 @@ nuo = { version = "0.0.2", path = "nuo" }
 nuo-server = { version = "0.0.2", path = "nuo-server" }
 nuo-tui = { version = "0.0.2", path = "nuo-tui" }
 nuox = { package = "nuo-tui", version = "0.0.2", path = "nuo-tui" }
-nuo-providers = { version = "0.0.2", path = "nuo-providers" }
+nuo-provider-adapters = { version = "0.0.2", path = "nuo-provider-adapters" }
 nuo-persistence = { version = "0.0.2", path = "nuo-persistence" }
 nuo-host = { version = "0.0.2", path = "nuo-host" }
 nuo-harness = { version = "0.0.2", path = "nuo-harness" }

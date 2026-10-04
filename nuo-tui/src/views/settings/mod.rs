@@ -2,15 +2,13 @@
 //!
 //! Subdivided into dedicated per-category modules:
 //! - [`appearance`]: Themes and palette swatches
-//! - [`transcript`]: Message boundaries, Turn Band layout, auto-scroll
-//! - [`behavior`]: Click-outside dismiss and mouse rules
+//! - [`components`]: Interactive component styles, default disclosure states, and auto-scroll
 //! - [`web`]: singleton Web Search and Web Reader provider selection
 //! - [`system`]: Paths, runtime info, version
 
 pub mod appearance;
-pub mod behavior;
+pub mod components;
 pub mod system;
-pub mod transcript;
 pub mod web;
 
 pub use web::{build_websearch_provider_dropdown, build_websearch_reader_dropdown};
@@ -41,18 +39,16 @@ pub enum ConfigFocus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigCategory {
     Appearance = 0,
-    Transcript = 1,
-    Behavior = 2,
-    WebSearch = 3,
-    WebReader = 4,
-    System = 5,
+    Components = 1,
+    WebSearch = 2,
+    WebReader = 3,
+    System = 4,
 }
 
 impl ConfigCategory {
-    pub const ALL: [ConfigCategory; 6] = [
+    pub const ALL: [ConfigCategory; 5] = [
         ConfigCategory::Appearance,
-        ConfigCategory::Transcript,
-        ConfigCategory::Behavior,
+        ConfigCategory::Components,
         ConfigCategory::WebSearch,
         ConfigCategory::WebReader,
         ConfigCategory::System,
@@ -61,11 +57,26 @@ impl ConfigCategory {
     pub fn from_index(index: usize) -> Self {
         match index % Self::ALL.len() {
             0 => ConfigCategory::Appearance,
-            1 => ConfigCategory::Transcript,
-            2 => ConfigCategory::Behavior,
-            3 => ConfigCategory::WebSearch,
-            4 => ConfigCategory::WebReader,
+            1 => ConfigCategory::Components,
+            2 => ConfigCategory::WebSearch,
+            3 => ConfigCategory::WebReader,
             _ => ConfigCategory::System,
+        }
+    }
+
+    /// Return the exact dynamic count of selectable items in this category's detail pane.
+    pub fn detail_item_count(
+        self,
+        ws_path: Option<&std::path::Path>,
+        websearch: Option<&nuo_wire::WebSearchConfigView>,
+        profile: &nuotc::TerminalProfile,
+    ) -> usize {
+        match self {
+            ConfigCategory::Appearance => appearance::item_count(ws_path, profile),
+            ConfigCategory::Components => components::item_count(),
+            ConfigCategory::WebSearch => web::search_item_count(websearch),
+            ConfigCategory::WebReader => web::reader_item_count(websearch),
+            ConfigCategory::System => system::item_count(),
         }
     }
 
@@ -74,13 +85,12 @@ impl ConfigCategory {
         let trimmed = name.trim().to_ascii_lowercase();
         match trimmed.as_str() {
             "0" | "appearance" | "theme" | "themes" | "look" => Some(ConfigCategory::Appearance),
-            "1" | "transcript" | "chat" | "scroll" | "bands" => Some(ConfigCategory::Transcript),
-            "2" | "behavior" | "interaction" | "mouse" | "dismiss" => {
-                Some(ConfigCategory::Behavior)
+            "1" | "components" | "component" | "interactive" | "disclosure" | "widgets" => {
+                Some(ConfigCategory::Components)
             }
-            "3" | "search" | "websearch" | "web-search" => Some(ConfigCategory::WebSearch),
-            "4" | "reader" | "webreader" | "web-reader" | "web" => Some(ConfigCategory::WebReader),
-            "5" | "system" | "info" | "about" | "paths" | "runtime" => Some(ConfigCategory::System),
+            "2" | "search" | "websearch" | "web-search" => Some(ConfigCategory::WebSearch),
+            "3" | "reader" | "webreader" | "web-reader" | "web" => Some(ConfigCategory::WebReader),
+            "4" | "system" | "info" | "about" | "paths" | "runtime" => Some(ConfigCategory::System),
             _ => None,
         }
     }
@@ -88,8 +98,7 @@ impl ConfigCategory {
     pub fn slug(self) -> &'static str {
         match self {
             ConfigCategory::Appearance => "appearance",
-            ConfigCategory::Transcript => "transcript",
-            ConfigCategory::Behavior => "behavior",
+            ConfigCategory::Components => "components",
             ConfigCategory::WebSearch => "search",
             ConfigCategory::WebReader => "reader",
             ConfigCategory::System => "system",
@@ -99,8 +108,7 @@ impl ConfigCategory {
     pub fn title(self) -> &'static str {
         match self {
             ConfigCategory::Appearance => "Appearance",
-            ConfigCategory::Transcript => "Transcript",
-            ConfigCategory::Behavior => "Behavior",
+            ConfigCategory::Components => "Components",
             ConfigCategory::WebSearch => "Web Search",
             ConfigCategory::WebReader => "Web Reader",
             ConfigCategory::System => "System & Info",
@@ -115,10 +123,9 @@ impl ConfigCategory {
     pub fn description(self) -> &'static str {
         match self {
             ConfigCategory::Appearance => "Theme selection and color palette customization.",
-            ConfigCategory::Transcript => {
-                "Message layout, turn boundaries, and auto-scroll behavior."
+            ConfigCategory::Components => {
+                "Interactive component styles, default disclosure states, and expansion behaviors."
             }
-            ConfigCategory::Behavior => "Interaction rules, dismiss triggers, and click policies.",
             ConfigCategory::WebSearch => {
                 "Choose how the agent discovers relevant pages and sources."
             }
@@ -144,7 +151,7 @@ impl std::str::FromStr for ConfigCategory {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_name(s).ok_or_else(|| {
             format!(
-                "unknown settings category '{s}' (expected appearance, transcript, behavior, search, web, system, or 0..5)"
+                "unknown settings category '{s}' (expected appearance, components, search, web, system, or 0..4)"
             )
         })
     }
@@ -167,15 +174,14 @@ pub struct SettingsProps<'a> {
     pub focus: ConfigFocus,
     pub color_scheme: &'a str,
     pub custom_color_scheme: &'a ColorSchemeConfig,
-    pub transcript_layout: crate::render::layout::Strategy,
-    pub expand_auto_scroll: bool,
-    pub click_outside_dismiss: bool,
     pub websearch: Option<&'a nuo_wire::WebSearchConfigView>,
     pub workspace: &'a str,
     pub category_scroll: &'a mut usize,
     pub detail_scroll: &'a mut usize,
     pub breadcrumbs: Option<&'a str>,
     pub theme: &'a Theme,
+    pub profile: &'a nuotc::TerminalProfile,
+    pub tui_config: &'a crate::config::TuiConfig,
 }
 
 /// Draw the full-screen Settings View.
@@ -244,25 +250,23 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
     // Left pane nav: top/bottom 1 row, left/right 2 cols
     draw_categories_pane(frame, category_inner, &mut props);
 
-    // Right pane: split into Head (1 row, indented 2 cols), 1 row gap, Detail Content (上下 1 row, 左右 2 cols)
+    // Right pane: split into Head (1 row, indented 1 col), 1 row gap, Detail Content (indented 1 col)
     let detail_vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // Top margin 1 row
             Constraint::Length(1), // Head row 1 row
             Constraint::Length(1), // Gap 1 row below head
             Constraint::Min(1),    // Content below
-            Constraint::Length(1), // Bottom margin 1 row
         ])
         .split(detail_rect);
 
-    let head_row = detail_vertical_chunks[1];
-    let content_row = detail_vertical_chunks[3];
+    let head_row = detail_vertical_chunks[0];
+    let content_row = detail_vertical_chunks[2];
 
     let head_inner_rect = Rect {
-        x: head_row.x.saturating_add(2),
+        x: head_row.x.saturating_add(1),
         y: head_row.y,
-        width: head_row.width.saturating_sub(4),
+        width: head_row.width.saturating_sub(2),
         height: head_row.height,
     };
 
@@ -276,9 +280,9 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
     frame.render_widget(head_para, head_inner_rect);
 
     let detail_inner_rect = Rect {
-        x: content_row.x.saturating_add(2),
+        x: content_row.x.saturating_add(1),
         y: content_row.y,
-        width: content_row.width.saturating_sub(4),
+        width: content_row.width.saturating_sub(2),
         height: content_row.height,
     };
 
@@ -287,11 +291,8 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         ConfigCategory::Appearance => {
             appearance::draw_appearance_detail(frame, detail_inner_rect, &mut props, focused)
         }
-        ConfigCategory::Transcript => {
-            transcript::draw_transcript_detail(frame, detail_inner_rect, &mut props, focused)
-        }
-        ConfigCategory::Behavior => {
-            behavior::draw_behavior_detail(frame, detail_inner_rect, &mut props, focused)
+        ConfigCategory::Components => {
+            components::draw_components_detail(frame, detail_inner_rect, &mut props, focused)
         }
         ConfigCategory::WebSearch => {
             web::draw_search_detail(frame, detail_inner_rect, &mut props, focused)
@@ -362,26 +363,15 @@ fn draw_categories_pane(frame: &mut Frame, area: Rect, props: &mut SettingsProps
             style = style.add_modifier(Modifier::REVERSE);
         }
 
-        let marker = if is_selected { "› " } else { "  " };
-        lines.push(Line::from(vec![
-            Span::styled(
-                marker,
-                Style::default().fg(if is_selected {
-                    props.theme.brand()
-                } else {
-                    props.theme.dim()
-                }),
-            ),
-            Span::styled(cat.title(), style),
-        ]));
+        lines.push(Line::from(vec![Span::styled(cat.title(), style)]));
         lines.push(Line::from(""));
     }
 
     let inner_area = Rect {
-        x: area.x.saturating_add(2),
-        y: area.y.saturating_add(1),
-        width: area.width.saturating_sub(4),
-        height: area.height.saturating_sub(2),
+        x: area.x.saturating_add(1),
+        y: area.y,
+        width: area.width.saturating_sub(2),
+        height: area.height,
     };
 
     let visible_rows = inner_area.height as usize;
@@ -515,29 +505,16 @@ mod tests {
         );
 
         assert_eq!(
-            ConfigCategory::from_name("transcript"),
-            Some(ConfigCategory::Transcript)
+            ConfigCategory::from_name("components"),
+            Some(ConfigCategory::Components)
         );
         assert_eq!(
-            ConfigCategory::from_name("chat"),
-            Some(ConfigCategory::Transcript)
+            ConfigCategory::from_name("interactive"),
+            Some(ConfigCategory::Components)
         );
         assert_eq!(
             ConfigCategory::from_name("1"),
-            Some(ConfigCategory::Transcript)
-        );
-
-        assert_eq!(
-            ConfigCategory::from_name("behavior"),
-            Some(ConfigCategory::Behavior)
-        );
-        assert_eq!(
-            ConfigCategory::from_name("mouse"),
-            Some(ConfigCategory::Behavior)
-        );
-        assert_eq!(
-            ConfigCategory::from_name("2"),
-            Some(ConfigCategory::Behavior)
+            Some(ConfigCategory::Components)
         );
 
         assert_eq!(
@@ -549,7 +526,7 @@ mod tests {
             Some(ConfigCategory::WebSearch)
         );
         assert_eq!(
-            ConfigCategory::from_name("3"),
+            ConfigCategory::from_name("2"),
             Some(ConfigCategory::WebSearch)
         );
 
@@ -566,7 +543,7 @@ mod tests {
             Some(ConfigCategory::WebReader)
         );
         assert_eq!(
-            ConfigCategory::from_name("4"),
+            ConfigCategory::from_name("3"),
             Some(ConfigCategory::WebReader)
         );
 
@@ -582,9 +559,31 @@ mod tests {
             ConfigCategory::from_name("about"),
             Some(ConfigCategory::System)
         );
-        assert_eq!(ConfigCategory::from_name("5"), Some(ConfigCategory::System));
+        assert_eq!(ConfigCategory::from_name("4"), Some(ConfigCategory::System));
 
         assert_eq!(ConfigCategory::from_name("invalid"), None);
+    }
+
+    #[test]
+    fn test_config_category_detail_item_count() {
+        let direct = nuotc::TerminalProfile::direct_color();
+        assert!(ConfigCategory::Appearance.detail_item_count(None, None, &direct) >= 5);
+        // The Components pane is derived from the declared tool registry plus
+        // the reasoning / density / auto-scroll behaviour rows (ADR-0020), so
+        // it must track `item_count()` rather than a frozen literal.
+        assert_eq!(
+            ConfigCategory::Components.detail_item_count(None, None, &direct),
+            components::item_count()
+        );
+        assert_eq!(
+            components::item_count(),
+            crate::tools::TOOL_COMPONENTS.len() + 3,
+            "one row per declared component, plus reasoning, density, auto-scroll"
+        );
+        assert_eq!(ConfigCategory::System.detail_item_count(None, None, &direct), 5);
+
+        let mono = nuotc::TerminalProfile::dec_vt100_monochrome();
+        assert_eq!(ConfigCategory::Appearance.detail_item_count(None, None, &mono), 1);
     }
 
     #[test]

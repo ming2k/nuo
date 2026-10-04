@@ -710,10 +710,10 @@ fn startup_overlay_env_resolution_accepts_settings_and_nav() {
     );
     assert_eq!(
         test_env(Some("settings:web"), None),
-        Some(crate::StartupOverlay::Settings { category: Some(4) })
+        Some(crate::StartupOverlay::Settings { category: Some(3) })
     );
     assert_eq!(
-        test_env(Some("settings:transcript"), None),
+        test_env(Some("settings:components"), None),
         Some(crate::StartupOverlay::Settings { category: Some(1) })
     );
     assert_eq!(
@@ -722,11 +722,11 @@ fn startup_overlay_env_resolution_accepts_settings_and_nav() {
     );
     assert_eq!(
         test_env(Some("settings"), Some("system")),
-        Some(crate::StartupOverlay::Settings { category: Some(5) })
+        Some(crate::StartupOverlay::Settings { category: Some(4) })
     );
     assert_eq!(
-        test_env(None, Some("behavior")),
-        Some(crate::StartupOverlay::Settings { category: Some(2) })
+        test_env(None, Some("interactive")),
+        Some(crate::StartupOverlay::Settings { category: Some(1) })
     );
     assert_eq!(
         test_env(Some("dashboard"), None),

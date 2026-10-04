@@ -445,7 +445,7 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
                         "\nOpen the full-screen settings view. Optionally specify a category name\n",
                     );
                     out.push_str(
-                        "(appearance, transcript, behavior, search, web, system) or index (0..5).\n",
+                        "(appearance, components, search, web, system) or index (0..4).\n",
                     );
                 }
                 _ => {}

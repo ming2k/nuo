@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::render::tools::presenter_for;
 use nuo_wire::ColorSchemeConfig;
 
 pub const THINKING_KEY: &str = "thinking";
@@ -38,11 +37,11 @@ impl Default for InputHistoryConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TuiConfig {
-    pub transcript_layout: String,
     pub color_scheme: String,
     #[serde(default = "default_true")]
     pub click_outside_dismiss: bool,
     pub expand_auto_scroll: bool,
+    pub tool_density: bool,
     #[serde(default)]
     pub default_expanded: HashMap<String, bool>,
     #[serde(default)]
@@ -76,10 +75,10 @@ pub type MutxConfig = TuiConfig;
 impl Default for TuiConfig {
     fn default() -> Self {
         Self {
-            transcript_layout: String::new(),
             color_scheme: String::new(),
             click_outside_dismiss: true,
             expand_auto_scroll: false,
+            tool_density: false,
             default_expanded: HashMap::new(),
             custom_color_scheme: ColorSchemeConfig::default(),
             input_history: InputHistoryConfig::default(),
@@ -101,33 +100,12 @@ impl TuiConfig {
         crate::keymap::SurfaceOverrides::from_config(&self.keybindings.session)
     }
     /// Load configuration from `$XDG_CONFIG_HOME/mutx/config.toml`.
-    /// If not present, automatically migrates any legacy `[tui]` table from `$XDG_CONFIG_HOME/muta/config.toml`.
     pub fn load() -> Self {
         let path = crate::paths::get().config_file();
         if let Ok(content) = fs::read_to_string(&path)
             && let Ok(cfg) = toml::from_str::<TuiConfig>(&content)
         {
             return cfg;
-        }
-
-        // Migration check: check if muta/config.toml has [tui] or [input_history]
-        let muta_config_path = nuo_host::paths::get().config_file();
-        if let Ok(content) = fs::read_to_string(&muta_config_path) {
-            #[derive(Deserialize)]
-            struct LegacyContainer {
-                tui: Option<TuiConfig>,
-                input_history: Option<InputHistoryConfig>,
-            }
-            if let Ok(legacy) = toml::from_str::<LegacyContainer>(&content)
-                && (legacy.tui.is_some() || legacy.input_history.is_some())
-            {
-                let mut cfg = legacy.tui.unwrap_or_default();
-                if let Some(ih) = legacy.input_history {
-                    cfg.input_history = ih;
-                }
-                let _ = cfg.save();
-                return cfg;
-            }
         }
 
         Self::default()
@@ -146,20 +124,14 @@ impl TuiConfig {
 }
 
 /// Effective default-expand state for a tool step. An explicit config entry
-/// wins; otherwise the presenter's built-in default applies.
+/// wins; otherwise the declared component default applies; a tool with no
+/// declared component (MCP / unknown) stays collapsed.
 pub fn tool_default_expanded(config: &TuiConfig, name: &str) -> bool {
-    config
-        .default_expanded
-        .get(name)
-        // Read old Mutx configs without keeping `bash` in the current tool
-        // vocabulary. The next save naturally writes only keys the user edits.
-        .or_else(|| {
-            (name == "execute_command")
-                .then(|| config.default_expanded.get("bash"))
-                .flatten()
-        })
-        .copied()
-        .unwrap_or_else(|| presenter_for(name).default_expanded())
+    config.default_expanded.get(name).copied().unwrap_or_else(|| {
+        crate::tools::component_for(name)
+            .map(|component| component.default_expanded())
+            .unwrap_or(false)
+    })
 }
 
 /// Effective default-expand state for a reasoning trace. Defaults to
@@ -170,6 +142,25 @@ pub fn reasoning_default_expanded(config: &TuiConfig) -> bool {
         .get(THINKING_KEY)
         .copied()
         .unwrap_or(false)
+}
+
+/// Record a user's disclosure choice for one interactive tool component.
+///
+/// Every name the component claims is written, so a step persisted under a
+/// legacy or alias spelling (`bash`, `write_todos`) honours the same choice as
+/// its canonical name. The fan-out is derived from the registry rather than
+/// hand-maintained, which is what previously let alias coverage drift
+/// (ADR-0020).
+pub fn set_component_default_expanded(
+    config: &mut TuiConfig,
+    component: &crate::tools::ToolComponent,
+    expanded: bool,
+) {
+    for name in component.names() {
+        config
+            .default_expanded
+            .insert(name.to_string(), expanded);
+    }
 }
 
 /// Discover all candidate theme directories across project workspace and user configuration roots.
@@ -303,24 +294,30 @@ mod tests {
         }
         TuiConfig {
             default_expanded: map,
-            transcript_layout: String::new(),
             ..TuiConfig::default()
         }
     }
 
+    /// The declared component policy: `edit_text` / `write_file` (Diffs) and
+    /// the shell family (Command) open by default; everything else — including
+    /// an undeclared tool — stays collapsed (ADR-0020).
     #[test]
-    fn unlisted_tool_falls_back_to_presenter_default() {
+    fn unlisted_tool_falls_back_to_declared_component_default() {
         let cfg = TuiConfig::default();
-        // edit_text and write_file have a built-in default of expanded; execute_command and
-        // read_text collapse (their summaries carry the outcome).
         assert!(tool_default_expanded(&cfg, "edit_text"));
         assert!(tool_default_expanded(&cfg, "write_file"));
-        assert!(!tool_default_expanded(&cfg, "execute_command"));
+        assert!(tool_default_expanded(&cfg, "execute_command"));
+        // The shell family's legacy spellings follow the same declared policy.
+        assert!(tool_default_expanded(&cfg, "run_command"));
+        assert!(tool_default_expanded(&cfg, "bash"));
         assert!(!tool_default_expanded(&cfg, "read_text"));
+        assert!(!tool_default_expanded(&cfg, "todo"));
+        // Undeclared (dynamic / MCP) tools are never open by default.
+        assert!(!tool_default_expanded(&cfg, "mcp__foo__bar"));
     }
 
     #[test]
-    fn explicit_override_wins_over_presenter_default() {
+    fn explicit_override_wins_over_declared_default() {
         let cfg = config(&[
             ("edit_text", false),
             ("execute_command", false),
@@ -353,12 +350,6 @@ thinking = true
         assert!(tool_default_expanded(&cfg, "execute_command"));
         assert!(!tool_default_expanded(&cfg, "read_text"));
         assert!(reasoning_default_expanded(&cfg));
-    }
-
-    #[test]
-    fn legacy_bash_expand_key_applies_to_execute_command() {
-        let cfg = config(&[("bash", false)]);
-        assert!(!tool_default_expanded(&cfg, "execute_command"));
     }
 
     #[test]

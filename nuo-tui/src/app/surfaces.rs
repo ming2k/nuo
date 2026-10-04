@@ -227,7 +227,8 @@ impl App {
         cfg.custom_color_scheme = self.custom_color_scheme.clone();
         cfg.click_outside_dismiss = self.click_outside_dismiss;
         cfg.expand_auto_scroll = self.expand_auto_scroll;
-        cfg.transcript_layout = self.transcript_layout.as_str().to_string();
+        cfg.tool_density = self.tool_density;
+        cfg.default_expanded = self.tui_config.default_expanded.clone();
         let _ = cfg.save();
     }
 
@@ -436,18 +437,21 @@ impl App {
                 return;
             }
             if self.config_focus == crate::overlays::ConfigFocus::Detail {
-                if self.config_category == 0 {
-                    // Leaving the theme pane reverts the live preview to the
-                    // persisted color scheme.
+                if crate::overlays::ConfigCategory::from_index(self.config_category)
+                    == crate::overlays::ConfigCategory::Appearance
+                {
+                    // Leaving the theme pane reverts any uncommitted live preview to the
+                    // persisted color scheme respecting active terminal capabilities.
                     let ws_path = if self.current_workspace.is_empty() {
                         None
                     } else {
                         Some(std::path::Path::new(&self.current_workspace))
                     };
-                    self.theme = Theme::from_color_scheme_with_workspace(
+                    self.theme = Theme::resolve_with_profile(
                         &self.color_scheme,
                         &self.custom_color_scheme,
                         ws_path,
+                        &self.profile,
                     );
                     self.config_detail_index =
                         Theme::color_scheme_index_with_workspace(&self.color_scheme, ws_path);

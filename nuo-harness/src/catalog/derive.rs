@@ -31,7 +31,7 @@ use nuo_persistence::connections::Connection;
 use nuo_persistence::connections::Connections;
 use nuo_persistence::model_providers::ModelProviders;
 use nuo_persistence::route_settings::RouteSettingsStore;
-use nuo_providers::{CredentialHost, RemoteCatalogSource, model_provider_spec};
+use nuo_provider::{CredentialHost, RemoteCatalogSource, model_provider_spec};
 
 /// Everything a derivation reads. Borrowed, never lifted from disk here.
 pub struct DerivationInputs<'a> {
@@ -214,7 +214,7 @@ pub fn derive_channel(
         base_route(connection, model, remote.as_ref())?;
 
     let api_key = resolve_credential(connection, creds);
-    let credentialed = nuo_providers::build_credential_source(
+    let credentialed = nuo_provider::build_credential_source(
         credential_host,
         &connection.name,
         &connection.auth,
@@ -310,7 +310,7 @@ fn base_route(
                     format!("catalog-advertised root for model `{model}`: {error}"),
                 )
             })?;
-            nuo_providers::endpoint_for(spec.dialect, &root, protocol)
+            nuo_provider::endpoint_for(spec.dialect, &root, protocol)
         }
         None => spec.endpoint(protocol).map_err(|error| {
             nuo_wire::ProviderError::invalid_request(&connection.provider, error)
@@ -336,7 +336,7 @@ fn effective_client_profile(connection: &Connection) -> ClientProfile {
 ///
 /// An OAuth connection has no configured key: its bearer is dynamic, resolved
 /// per request by the [`nuo_wire::CredentialSource`] that
-/// [`nuo_providers::build_credential_source`] builds. Snapshotting a stored
+/// [`nuo_provider::build_credential_source`] builds. Snapshotting a stored
 /// access token here would hand callers the exact value that source exists to
 /// refresh, so this function returns nothing for one and the caller says so.
 pub fn resolve_credential(connection: &Connection, creds: &Credentials) -> SecretString {

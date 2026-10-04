@@ -14,7 +14,7 @@ use futures::stream::{self, StreamExt};
 use nuo_wire::WireProtocol;
 use nuo_persistence::config::{FittedModelInfo, ModelListCacheState, RemoteCatalogCache};
 use nuo_persistence::connections::Connections;
-use nuo_providers::{
+use nuo_provider::{
     CatalogShape, ModelProviderSpec, RemoteCatalogOptions, RemoteCatalogRequest,
     RemoteCatalogSource, RemoteCatalogUpdate, model_provider_spec,
 };
@@ -118,13 +118,13 @@ struct CatalogSyncJob {
     api_key: nuo_wire::SecretString,
     /// Where the fetch resolves OAuth bearers and signed-catalog identity
     /// (ADR-0303 §1).
-    credentials: nuo_providers::CredentialHost,
+    credentials: nuo_provider::CredentialHost,
 }
 
 struct CatalogFetchResult {
     connection: nuo_persistence::connections::Connection,
     source_identity: String,
-    update: Result<RemoteCatalogUpdate, nuo_providers::ModelListError>,
+    update: Result<RemoteCatalogUpdate, nuo_provider::ModelListError>,
 }
 
 async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
@@ -139,12 +139,14 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
             dimensions,
         } => {
             let auth = if job.connection.auth.is_oauth() {
-                let source = nuo_providers::oauth::OAuthCredentialSource::new(
+                let source = nuo_provider::build_credential_source(
                     &job.credentials,
                     &job.connection.name,
-                    job.connection.auth.clone(),
+                    &job.connection.auth,
+                    nuo_wire::SecretString::from(""),
+                    nuo_wire::ProviderDialect::Standard,
                 );
-                match nuo_wire::CredentialSource::resolve_auth(&source).await {
+                match source.resolve_auth().await {
                     Ok(auth) => auth,
                     Err(error) => {
                         // A credential that cannot even be resolved is a local
@@ -152,7 +154,7 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
                         return CatalogFetchResult {
                             connection: job.connection,
                             source_identity,
-                            update: Err(nuo_providers::ModelListError::Http(error)),
+                            update: Err(nuo_provider::ModelListError::Http(error)),
                         };
                     }
                 }
@@ -164,7 +166,7 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
             // the shape needs it. The generic fetcher receives it as data and
             // never names a provider.
             let catalog_signer = if needs_dialect_signing {
-                nuo_providers::build_catalog_signer(
+                nuo_provider::build_catalog_signer(
                     job.credentials.store().as_ref(),
                     &job.connection.name,
                     auth.token.expose_secret(),
@@ -172,7 +174,7 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
             } else {
                 None
             };
-            let catalog_signing: Option<&dyn nuo_providers::CatalogSigning> =
+            let catalog_signing: Option<&dyn nuo_provider::CatalogSigning> =
                 catalog_signer.as_deref();
             let dimensions: Vec<(&str, &str)> = dimensions
                 .iter()
@@ -196,7 +198,7 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
             let options = RemoteCatalogOptions {
                 etag: cached_etag.as_deref(),
             };
-            let update = nuo_providers::fetch_remote_catalog(request, options).await;
+            let update = nuo_provider::fetch_remote_catalog(request, options).await;
             CatalogFetchResult {
                 connection: job.connection,
                 source_identity,
@@ -428,7 +430,7 @@ async fn sync_catalogs_matching(
         }
         let refused = error
             .as_ref()
-            .is_some_and(nuo_providers::ModelListError::is_refusal);
+            .is_some_and(nuo_provider::ModelListError::is_refusal);
         if let Some(error) = &error {
             tracing::warn!(
                 connection = %connection_name,
@@ -461,7 +463,7 @@ fn apply_fetched(
     cache: &mut RemoteCatalogCache,
     fetched: CatalogFetchResult,
     now_ms: i64,
-) -> (bool, Option<nuo_providers::ModelListError>) {
+) -> (bool, Option<nuo_provider::ModelListError>) {
     let connection = &fetched.connection;
     match fetched.update {
         Ok(RemoteCatalogUpdate::Modified { models, etag }) => {
@@ -568,7 +570,7 @@ fn emit(
 }
 
 fn catalog_fetch_source(
-    credentials: &dyn nuo_providers::oauth::CredentialStore,
+    credentials: &dyn nuo_provider::CredentialStore,
     connection: &nuo_persistence::connections::Connection,
     cache: &RemoteCatalogCache,
     spec: &ModelProviderSpec,
@@ -599,7 +601,7 @@ pub(super) fn source_identity_for_connection(
 /// their own first-party catalog exactly like keyed providers do.
 #[allow(clippy::too_many_arguments)]
 fn build_first_party_source(
-    credentials: &dyn nuo_providers::oauth::CredentialStore,
+    credentials: &dyn nuo_provider::CredentialStore,
     connection: &nuo_persistence::connections::Connection,
     cache: &RemoteCatalogCache,
     spec: &ModelProviderSpec,
@@ -608,7 +610,7 @@ fn build_first_party_source(
     // The elected endpoint when the provider's stored identity carries one
     // (Qoder's server-issued region map, §3.1a); every other provider keeps
     // the compiled spec root — the hook returning `None` is the ordinary path.
-    let base_url = nuo_providers::catalog_root_for_connection(credentials, &connection.name)
+    let base_url = nuo_provider::catalog_root_for_connection(credentials, &connection.name)
         .unwrap_or_else(|| spec.catalog_root().to_string());
     let client_profile = if connection.client_identity != nuo_wire::ClientIdentity::Native {
         connection.client_identity.clone()
@@ -714,7 +716,7 @@ pub fn sync_fitted_model_registry() {
     nuo_wire::model::register_fitted_models(fitted);
 }
 
-fn fitted_model_info(model: &nuo_providers::DiscoveredModel) -> FittedModelInfo {
+fn fitted_model_info(model: &nuo_provider::DiscoveredModel) -> FittedModelInfo {
     FittedModelInfo {
         context_window: model.context_window.unwrap_or(0),
         reasoning: model.reasoning.unwrap_or(false),
@@ -726,7 +728,7 @@ fn fitted_model_info(model: &nuo_providers::DiscoveredModel) -> FittedModelInfo 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_providers::DiscoveredModel;
+    use nuo_provider::DiscoveredModel;
 
     fn discovered(id: &str, availability: Option<nuo_wire::Availability>) -> DiscoveredModel {
         DiscoveredModel {
@@ -874,7 +876,7 @@ mod tests {
         let failed = CatalogFetchResult {
             connection,
             source_identity: "sha256:test".to_string(),
-            update: Err(nuo_providers::ModelListError::Status(
+            update: Err(nuo_provider::ModelListError::Status(
                 503,
                 "upstream down".to_string(),
             )),
