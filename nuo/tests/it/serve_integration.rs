@@ -651,9 +651,22 @@ async fn select_project_scopes_auto_attach() {
 #[tokio::test]
 async fn select_without_project_falls_back_to_daemon_cwd() {
     let cwd = std::env::current_dir().unwrap();
+    let sessions_dir = cwd.join("sessions");
+    let elsewhere = std::env::temp_dir().join(format!("muta-scope-c-{}", uuid::Uuid::new_v4()));
+    let elsewhere_sessions = elsewhere.join("sessions");
+    let _ = std::fs::remove_dir_all(&sessions_dir);
+
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup_elsewhere = Cleanup(elsewhere_sessions);
+    let _cleanup_cwd = Cleanup(sessions_dir);
+
     let registry = Arc::new(SessionRegistry::prehost_only());
     let cwd_session = host_with_project(&registry, cwd).await;
-    let elsewhere = std::env::temp_dir().join(format!("muta-scope-c-{}", uuid::Uuid::new_v4()));
     let _other = host_with_project(&registry, elsewhere).await;
 
     let mut handle = serve::start_server(serve::ServeOptions::default(), registry);

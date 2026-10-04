@@ -7,3 +7,10 @@
 /.muta
 /.nuo
 /.cargo
+
+# Databases & runtime session artifacts
+*.db
+*.db-shm
+*.db-wal
+*.owner.lock
+**/sessions/
