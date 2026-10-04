@@ -165,3 +165,46 @@ async fn test_streaming_tool_call_aggregation_and_execution_end_to_end() {
     assert_eq!(tool_results[0].0, "calc_1");
     assert_eq!(tool_results[0].1, "100");
 }
+
+struct CodecMockProvider;
+
+#[async_trait::async_trait]
+impl nuo_model_codec::capability::Provider for CodecMockProvider {
+    async fn chat(
+        &self,
+        _request: nuo_model_codec::capability::ModelRequest,
+    ) -> Result<nuo_model_codec::ProviderCompletion, nuo_wire::ProviderError> {
+        unimplemented!()
+    }
+    async fn stream_chat(
+        &self,
+        _request: nuo_model_codec::capability::ModelRequest,
+    ) -> Result<nuo_model_codec::capability::ProviderTextStream, nuo_wire::ProviderError> {
+        unimplemented!()
+    }
+    async fn stream_chat_events(
+        &self,
+        _request: nuo_model_codec::capability::ModelRequest,
+    ) -> Result<nuo_model_codec::capability::ProviderEventStream, nuo_wire::ProviderError> {
+        use futures::StreamExt;
+        let events = vec![
+            Ok(nuo_model_codec::capability::ProviderStreamEvent::TextDelta("Hello from codec!".into())),
+            Ok(nuo_model_codec::capability::ProviderStreamEvent::Completed(nuo_model_codec::ProviderCompletionMeta::default())),
+        ];
+        Ok(futures::stream::iter(events).boxed())
+    }
+}
+
+#[tokio::test]
+async fn test_model_codec_adapter_streaming() {
+    use nuo_agent::ModelCodecAdapter;
+    let provider = ModelCodecAdapter::new(std::sync::Arc::new(CodecMockProvider));
+    let agent = Agent::builder("agent://local/codec-streamer")
+        .provider(provider)
+        .build()
+        .await
+        .unwrap();
+
+    let ans = agent.prompt("hi").await.unwrap();
+    assert_eq!(ans, "Hello from codec!");
+}

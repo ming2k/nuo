@@ -38,7 +38,7 @@ impl WebHttp {
     pub fn new(config: &WebConfig) -> Result<Self, String> {
         let _timeout = Duration::from_secs(config.timeout_secs.max(1));
         let client_config = ClientConfig {
-            user_agent: crate::tools::web::client::MOZILLA_UA.to_string(),
+            user_agent: crate::client::MOZILLA_UA.to_string(),
             // The SSRF guard owns redirect policy: it must see every hop.
             max_redirects: 0,
             ..Default::default()

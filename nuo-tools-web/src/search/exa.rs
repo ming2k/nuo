@@ -28,7 +28,7 @@ impl SearchProvider for ExaProvider {
 
     async fn search(
         &self,
-        client: &crate::tools::web::http::WebHttp,
+        client: &crate::http::WebHttp,
         query: &str,
     ) -> Result<ProviderOutput, String> {
         let url = endpoint_with_key(self.api_key.as_deref());
@@ -58,7 +58,7 @@ fn endpoint_with_key(api_key: Option<&str>) -> String {
     let key = api_key.map(str::trim).filter(|s| !s.is_empty());
     match key {
         Some(key) => {
-            crate::tools::web::http::with_query(EXA_SEARCH_ENDPOINT, &[("exaApiKey", key)])
+            crate::http::with_query(EXA_SEARCH_ENDPOINT, &[("exaApiKey", key)])
         }
         None => EXA_SEARCH_ENDPOINT.to_string(),
     }

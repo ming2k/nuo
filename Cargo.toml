@@ -14,6 +14,8 @@ members = [
     "nuo-tool-derive",
     "nuo-acp",
     "nuo-wire",
+    "nuo-tools-web",
+    "nuo-tools-code",
 ]
 default-members = ["nuo", "nuox"]
 resolver = "2"
@@ -110,6 +112,8 @@ nuo-providers = { version = "0.0.1", path = "nuo-providers" }
 nuo-persistence = { version = "0.0.1", path = "nuo-persistence" }
 nuo-host = { version = "0.0.1", path = "nuo-host" }
 nuo-harness = { version = "0.0.1", path = "nuo-harness" }
+nuo-tools-web = { version = "0.0.1", path = "nuo-tools-web" }
+nuo-tools-code = { version = "0.0.1", path = "nuo-tools-code" }
 
 [workspace.lints.rust]
 unsafe_code = "allow"

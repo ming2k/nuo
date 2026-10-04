@@ -132,3 +132,65 @@ impl Message {
         }
     }
 }
+
+impl From<nuo_tool::Message> for Message {
+    fn from(m: nuo_tool::Message) -> Self {
+        let role = match m.role {
+            nuo_tool::Role::System => Role::System,
+            nuo_tool::Role::User => Role::User,
+            nuo_tool::Role::Assistant => Role::Assistant,
+            nuo_tool::Role::Tool => Role::Tool,
+        };
+        let tool_calls = m
+            .tool_calls
+            .unwrap_or_default()
+            .into_iter()
+            .map(|tc| {
+                let arguments = serde_json::from_str(&tc.arguments)
+                    .unwrap_or_else(|_| serde_json::json!({ "raw": tc.arguments }));
+                ToolCall {
+                    id: tc.id,
+                    name: tc.name,
+                    arguments,
+                }
+            })
+            .collect();
+        Self {
+            role,
+            content: m.content,
+            thinking: m.reasoning_content,
+            tool_calls,
+            tool_results: Vec::new(),
+            name: None,
+        }
+    }
+}
+
+impl From<Message> for nuo_tool::Message {
+    fn from(m: Message) -> Self {
+        let role = match m.role {
+            Role::System => nuo_tool::Role::System,
+            Role::User => nuo_tool::Role::User,
+            Role::Assistant => nuo_tool::Role::Assistant,
+            Role::Tool => nuo_tool::Role::Tool,
+        };
+        let tool_calls = if m.tool_calls.is_empty() {
+            None
+        } else {
+            Some(
+                m.tool_calls
+                    .into_iter()
+                    .map(|tc| nuo_tool::ToolCall {
+                        id: tc.id,
+                        name: tc.name,
+                        arguments: serde_json::to_string(&tc.arguments).unwrap_or_default(),
+                    })
+                    .collect(),
+            )
+        };
+        let mut msg = nuo_tool::Message::new(role, m.content);
+        msg.reasoning_content = m.thinking;
+        msg.tool_calls = tool_calls;
+        msg
+    }
+}

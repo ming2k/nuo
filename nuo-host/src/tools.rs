@@ -281,15 +281,20 @@ impl Tool for EditTextTool {
         if matches.is_empty() {
             return Err(ToolError::execution(
                 self.name(),
-                format!("`old_string` was not found in `{raw_path}`"),
+                diagnose_edit_failure(&content, old_string, raw_path),
             ));
         }
         if matches.len() > 1 {
+            let line_numbers: Vec<String> = matches
+                .iter()
+                .map(|(offset, _)| (content[..*offset].matches('\n').count() + 1).to_string())
+                .collect();
             return Err(ToolError::execution(
                 self.name(),
                 format!(
-                    "`old_string` matched {} locations in `{raw_path}`; it must match exactly once",
-                    matches.len()
+                    "`old_string` matched in {} places in `{raw_path}` (lines {}). It must match exactly once. Provide more surrounding context to disambiguate.",
+                    matches.len(),
+                    line_numbers.join(", ")
                 ),
             ));
         }
@@ -303,6 +308,111 @@ impl Tool for EditTextTool {
             "Successfully edited `{raw_path}`."
         )))
     }
+}
+
+/// Diagnoses edit failure when `old_string` cannot be matched in `content`.
+fn diagnose_edit_failure(content: &str, old_str: &str, path: &str) -> String {
+    let file_lines: Vec<&str> = content.lines().collect();
+    let old_lines: Vec<&str> = old_str.lines().collect();
+
+    // Check 1: Trailing whitespace mismatch
+    let content_trimmed: String = file_lines
+        .iter()
+        .map(|l| l.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let old_trimmed: String = old_lines
+        .iter()
+        .map(|l| l.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if content_trimmed.contains(&old_trimmed) && !content.contains(old_str) {
+        let trimmed_old_first = old_lines.first().map(|l| l.trim_end()).unwrap_or("");
+        let matching_line = file_lines
+            .iter()
+            .position(|l| l.trim_end() == trimmed_old_first)
+            .map(|idx| idx + 1)
+            .unwrap_or(1);
+        return format!(
+            "Could not find exact match for `old_string` in '{path}', but a match exists \
+             when ignoring trailing whitespace (around line {matching_line}). \
+             Check for trailing spaces or tabs in your `old_string`."
+        );
+    }
+
+    // Check 2: Multi-line divergence — find where the match starts breaking down
+    if old_lines.len() > 1 {
+        let first_old = old_lines[0];
+        let candidate_starts: Vec<usize> = file_lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| **line == first_old)
+            .map(|(idx, _)| idx)
+            .collect();
+
+        if candidate_starts.len() == 1 {
+            let start = candidate_starts[0];
+            for (offset, old_line) in old_lines.iter().enumerate() {
+                let file_idx = start + offset;
+                if file_idx >= file_lines.len() {
+                    return format!(
+                        "Could not find exact match for `old_string` in '{path}'. \
+                         Match started at line {}, but `old_string` extends past the end of the file \
+                         (file has {} lines, `old_string` expected at least {}).",
+                        start + 1,
+                        file_lines.len(),
+                        file_idx + 1
+                    );
+                }
+                if file_lines[file_idx] != *old_line {
+                    let max_disp = 80;
+                    let exp = if old_line.len() > max_disp {
+                        format!("{}...", &old_line[..max_disp])
+                    } else {
+                        old_line.to_string()
+                    };
+                    let got = if file_lines[file_idx].len() > max_disp {
+                        format!("{}...", &file_lines[file_idx][..max_disp])
+                    } else {
+                        file_lines[file_idx].to_string()
+                    };
+                    return format!(
+                        "Could not find exact match for `old_string` in '{path}'. \
+                         Found matching start at line {} (first {} line{} matched), but diverged at line {}:\n\
+                         Expected: `{exp}`\n\
+                         File has: `{got}`\n\
+                         Please re-read '{path}' around line {} to get the latest content.",
+                        start + 1,
+                        offset,
+                        if offset == 1 { "" } else { "s" },
+                        file_idx + 1,
+                        file_idx + 1
+                    );
+                }
+            }
+        } else if candidate_starts.len() > 1 {
+            let lines_str = candidate_starts
+                .iter()
+                .map(|idx| (idx + 1).to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let first_line = if first_old.len() > 60 {
+                format!("{}...", &first_old[..60])
+            } else {
+                first_old.to_string()
+            };
+            return format!(
+                "Could not find exact match for `old_string` in '{path}'. \
+                 The first line `{first_line}` appears multiple times (lines {lines_str}), \
+                 but subsequent lines did not match. Please provide more surrounding context or re-read '{path}'."
+            );
+        }
+    }
+
+    format!(
+        "Could not find exact match for `old_string` in '{path}' (0 matches found). \
+         The content of '{path}' may have changed. Please use `read_text` to inspect the latest file contents before editing."
+    )
 }
 
 /// Typed parameters for [`ListDirTool`].
@@ -643,6 +753,10 @@ impl Tool for ExecuteCommandTool {
         "execute_command"
     }
 
+    fn aliases(&self) -> &'static [&'static str] {
+        &["run_command"]
+    }
+
     fn description(&self) -> &str {
         "Execute a shell command in a non-interactive environment. Commands must be finite and self-terminating."
     }
@@ -856,5 +970,35 @@ mod tests {
         // Validate typed rejection on missing required fields
         let err = read_tool.execute(&t_ctx, json!({})).await.unwrap_err();
         assert!(err.to_string().contains("invalid arguments"));
+    }
+
+    #[tokio::test]
+    async fn test_diagnose_edit_failure_whitespace_and_divergence() {
+        let dir = tempdir().unwrap();
+        let ctx = Arc::new(SystemToolContext::new(dir.path()));
+        let t_ctx = ToolContext::default();
+
+        let file_path = dir.path().join("code.rs");
+        fs::write(&file_path, "fn hello() {\n    let a = 1;\n}\n").unwrap();
+
+        let edit_tool = EditTextTool::new(ctx.clone());
+        // Trailing whitespace mismatch test: old_string has trailing spaces but file does not
+        let err = edit_tool
+            .execute(
+                &t_ctx,
+                json!({
+                    "path": "code.rs",
+                    "old_string": "    let a = 1;  ",
+                    "new_string": "    let a = 2;"
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("trailing whitespace"));
+
+        // Alias test on command tool
+        let cmd_tool = ExecuteCommandTool::new(ctx.clone());
+        assert!(cmd_tool.matches_name("run_command"));
+        assert!(cmd_tool.matches_name("execute_command"));
     }
 }

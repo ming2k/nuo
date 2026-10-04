@@ -1,69 +1,66 @@
-//! Tavily backend — hosted search REST API (requires an API key). A reliable
-//! drop-in for users who want a key-based hosted backend rather than the
-//! anonymous Exa/Parallel MCP endpoints.
+//! SearXNG backend — queries a self-hosted or trusted instance's JSON API.
+//! Keyless and fully under the operator's control, making it the recommended
+//! backend for users behind censored networks or who want query privacy.
 
-use super::{ProviderOutput, SearchProvider, SearchResult};
+use super::{MOZILLA_UA, ProviderOutput, SearchProvider, SearchResult};
 use async_trait::async_trait;
-use nuo_wire::TAVILY_SEARCH_ENDPOINT;
 
-pub(crate) struct TavilyProvider {
-    pub api_key: Option<String>,
+pub(crate) struct SearxngProvider {
+    pub url: Option<String>,
 }
 
 #[async_trait]
-impl SearchProvider for TavilyProvider {
+impl SearchProvider for SearxngProvider {
     fn name(&self) -> &'static str {
-        "Tavily"
+        "SearXNG"
     }
 
     fn clone_box(&self) -> Box<dyn SearchProvider> {
         Box::new(Self {
-            api_key: self.api_key.clone(),
+            url: self.url.clone(),
         })
     }
 
     async fn search(
         &self,
-        client: &crate::tools::web::http::WebHttp,
+        client: &crate::http::WebHttp,
         query: &str,
     ) -> Result<ProviderOutput, String> {
-        let key = self
-            .api_key
+        let base = self
+            .url
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .ok_or_else(|| {
-                "Tavily backend selected but `[websearch].tavily_api_key` is not set.".to_string()
+                "SearXNG backend selected but `[websearch].searxng_url` is not set. \
+                 Configure a JSON endpoint, e.g. \"http://localhost:8080/search\"."
+                    .to_string()
             })?;
+        let url = crate::http::with_query(
+            base,
+            &[
+                ("q", query),
+                ("format", "json"),
+                ("categories", "general"),
+                ("pageno", "1"),
+            ],
+        );
         let mut headers = http::HeaderMap::new();
         headers.insert(
-            http::header::AUTHORIZATION,
-            http::HeaderValue::from_str(&format!("Bearer {key}"))
-                .map_err(|_| "Tavily key is not a valid header value".to_string())?,
+            http::header::USER_AGENT,
+            http::HeaderValue::from_static(MOZILLA_UA),
         );
         let response = client
-            .post_json(
-                TAVILY_SEARCH_ENDPOINT,
-                headers,
-                &serde_json::json!({
-                    "query": query,
-                    "search_depth": "advanced",
-                    "include_answer": false,
-                    "max_results": 10
-                }),
-            )
+            .get(&url, headers)
             .await
-            .map_err(|e| format!("Tavily request failed: {e}"))?;
+            .map_err(|e| format!("SearXNG request failed: {e}"))?;
         let status = response.status;
         if !status.is_success() {
-            return Err(format!(
-                "Tavily returned HTTP {status} (check tavily_api_key): {}",
-                response.body.chars().take(300).collect::<String>()
-            ));
+            return Err(format!("SearXNG returned HTTP {status} for {base}"));
         }
         let body = response.body;
         let json: serde_json::Value = serde_json::from_str(&body)
-            .map_err(|e| format!("Tavily returned invalid JSON: {e}"))?;
+            .map_err(|e| format!("SearXNG returned invalid JSON: {e}"))?;
         let results = json
             .get("results")
             .and_then(|v| v.as_array())

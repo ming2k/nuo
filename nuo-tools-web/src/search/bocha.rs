@@ -24,7 +24,7 @@ impl SearchProvider for BochaProvider {
 
     async fn search(
         &self,
-        client: &crate::tools::web::http::WebHttp,
+        client: &crate::http::WebHttp,
         query: &str,
     ) -> Result<ProviderOutput, String> {
         let key = self

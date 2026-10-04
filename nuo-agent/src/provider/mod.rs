@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 pub use mock::MockProvider;
 #[cfg(feature = "wire")]
-pub use wire::WireProvider;
+pub use wire::{ModelCodecAdapter, WireProvider};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TokenUsage {

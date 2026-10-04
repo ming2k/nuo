@@ -36,7 +36,7 @@ impl SearchProvider for DdgProvider {
 
     async fn search(
         &self,
-        client: &crate::tools::web::http::WebHttp,
+        client: &crate::http::WebHttp,
         query: &str,
     ) -> Result<ProviderOutput, String> {
         let lite = search_ddg_lite(client, query).await;
@@ -92,7 +92,7 @@ fn browser_headers(origin: &str) -> http::header::HeaderMap {
 
 /// A short, whitespace-collapsed excerpt of a response body for diagnostics.
 fn body_snippet(html: &str) -> String {
-    crate::tools::html_to_text(html).chars().take(300).collect()
+    crate::html_to_text(html).chars().take(300).collect()
 }
 
 /// Parse DuckDuckGo HTML results. Tolerant to markup variations.
@@ -301,7 +301,7 @@ fn compose_ddg_failure(
 }
 
 async fn search_ddg_lite(
-    client: &crate::tools::web::http::WebHttp,
+    client: &crate::http::WebHttp,
     query: &str,
 ) -> Result<SearchAttempt, String> {
     let mut headers = browser_headers("https://lite.duckduckgo.com");
@@ -332,7 +332,7 @@ async fn search_ddg_lite(
 }
 
 async fn search_ddg_html(
-    client: &crate::tools::web::http::WebHttp,
+    client: &crate::http::WebHttp,
     query: &str,
 ) -> Result<SearchAttempt, String> {
     let mut headers = browser_headers("https://html.duckduckgo.com");

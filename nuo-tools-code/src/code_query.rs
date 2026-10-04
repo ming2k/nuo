@@ -31,10 +31,10 @@ use nuo_tool::ToolSchema;
 use serde::Deserialize;
 
 use crate::syntax;
-use crate::tools::file_search::{
+use crate::file_search::{
     build_file_walker, resolve_search_root, search_limit, search_path_argument,
 };
-use crate::tools::helpers::{
+use crate::helpers::{
     WorkspaceBase, content_version, env_from_root, execution_environment, resolve_workspace_path,
     workspace_base,
 };

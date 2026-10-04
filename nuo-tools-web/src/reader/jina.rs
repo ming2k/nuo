@@ -25,7 +25,7 @@ pub(crate) struct JinaReader {
 pub(crate) trait ReadPage {
     async fn read(
         &self,
-        client: &crate::tools::web::http::WebHttp,
+        client: &crate::http::WebHttp,
         url: &str,
     ) -> Result<ReaderOutput, String>;
 }
@@ -34,7 +34,7 @@ pub(crate) trait ReadPage {
 impl ReadPage for JinaReader {
     async fn read(
         &self,
-        client: &crate::tools::web::http::WebHttp,
+        client: &crate::http::WebHttp,
         url: &str,
     ) -> Result<ReaderOutput, String> {
         let reader_url = format!("{JINA_READER_ENDPOINT}{url}");

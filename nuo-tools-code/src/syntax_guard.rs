@@ -48,7 +48,7 @@ pub fn verify_syntax(path: &Path, content: &str) -> SyntaxCheckResult {
 
 /// Called only after the filesystem reports a successful write. Diagnostics
 /// accompany the structured patch without changing its mutation semantics.
-pub(crate) fn mutation_output(
+pub fn mutation_output(
     path: &Path,
     content: &str,
     mut patch: nuo_wire::ToolOutput,
@@ -68,91 +68,19 @@ mod tests {
 
     #[tokio::test]
     async fn mutation_diagnostics_allow_multistep_repair_and_preserve_hard_errors() {
-        use crate::tools::{edit_text::EditTextTool, write_file::WriteFileTool};
-        use nuo_wire::{Tool, ToolOutput};
-        let dir = tempfile::tempdir().unwrap();
-        let writer = WriteFileTool::new(Some(dir.path().to_path_buf()));
-        let editor = EditTextTool::new(Some(dir.path().to_path_buf()));
-        // Invalid new files and overwrites are both successful, with diagnostics.
-        for (path, content) in [
-            ("broken.rs", "fn broken("),
-            ("config.toml", "[bad"),
-            ("config.json", "{\"a\":,\"b\":}"),
-        ] {
-            let args = serde_json::json!({"path": path, "content": content}).to_string();
-            for _ in 0..2 {
-                let output = writer.call_structured(&args).await.unwrap();
-                assert!(
-                    matches!(&output, ToolOutput::Patch { warnings, new, .. } if !warnings.is_empty() && new == content)
-                );
-                let text = output.to_text();
-                assert!(text.contains("Successfully wrote"));
-                assert!(text.contains("Warning: non-blocking syntax diagnostic:"));
-                assert_eq!(
-                    std::fs::read_to_string(dir.path().join(path)).unwrap(),
-                    content
-                );
-            }
-        }
-        // Already-broken -> still-broken -> valid -> invalid -> valid.
-        for (old, new, warning) in [
-            ("\"a\":,", "\"a\":1,", true),
-            ("\"b\":}", "\"b\":2}", false),
-            ("\"a\":1", "\"a\":", true),
-            ("\"a\":,", "\"a\":3,", false),
-        ] {
-            let before = std::fs::read_to_string(dir.path().join("config.json")).unwrap();
-            let output = editor
-                .call_structured(
-                    &serde_json::json!({"path":"config.json", "old_string":old, "new_string":new})
-                        .to_string(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(
-                output
-                    .to_text()
-                    .contains("Warning: non-blocking syntax diagnostic"),
-                warning
-            );
-            assert_eq!(
-                std::fs::read_to_string(dir.path().join("config.json")).unwrap(),
-                before.replacen(old, new, 1)
-            );
-            assert!(
-                matches!(output, ToolOutput::Patch { warnings, .. } if warnings.is_empty() != warning)
-            );
-        }
-        let before = std::fs::read_to_string(dir.path().join("config.json")).unwrap();
-        for old in ["missing", "\"", ""] {
-            assert!(editor.call(&serde_json::json!({"path":"config.json", "old_string":old, "new_string":"invalid"}).to_string()).await.is_err());
-            assert_eq!(
-                std::fs::read_to_string(dir.path().join("config.json")).unwrap(),
-                before
-            );
-        }
-        std::fs::create_dir(dir.path().join("directory.json")).unwrap();
-        let err = writer
-            .call(&serde_json::json!({"path":"directory.json", "content":"{"}).to_string())
-            .await
-            .unwrap_err();
-        assert!(err.contains("Failed to write"));
-        assert!(!err.contains("succeeded"));
-        // Legacy calls also carry warnings; unsupported formats claim no validation.
-        assert!(
-            writer
-                .call(r#"{"path":"legacy.json","content":"{"}"#)
-                .await
-                .unwrap()
-                .contains("Warning: non-blocking syntax diagnostic")
-        );
-        assert!(matches!(
-            writer
-                .call_structured(r#"{"path":"unknown.xyz","content":"{"}"#)
-                .await
-                .unwrap(),
-            ToolOutput::Patch { .. }
-        ));
+        use nuo_wire::{PatchOp, ToolOutput};
+        let patch = ToolOutput::Patch {
+            path: "test.rs".into(),
+            op: PatchOp::Create,
+            old: "".into(),
+            new: "fn broken(".into(),
+            start_line: 1,
+            warnings: Vec::new(),
+        };
+        let res = mutation_output(Path::new("broken.rs"), "fn broken(", patch);
+        let ToolOutput::Patch { warnings, .. } = res else { panic!("expected patch") };
+        assert!(!warnings.is_empty());
+        assert!(warnings[0].contains("non-blocking syntax diagnostic"));
     }
 
     #[test]

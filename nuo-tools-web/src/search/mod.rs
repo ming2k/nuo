@@ -2,7 +2,7 @@
 //!
 //! Each backend implements the `SearchProvider` trait and lives in its own
 //! module (`exa`, `parallel`, `duckduckgo`, `searxng`, `tavily`). The tool layer
-//! ([`crate::tools::WebSearchTool`]) is a thin shell that delegates to the one
+//! ([`crate::WebSearchTool`]) is a thin shell that delegates to the one
 //! provider selected in `[web]` via the `build_provider` factory. Adding a new backend is one new module + one
 //! match arm in `build_provider`; the tool and the other backends never
 //! change.
@@ -28,7 +28,7 @@ pub mod tavily;
 /// pre-rendered text blob (Exa, Parallel) return it as [`ProviderOutput::Blob`]
 /// for the tool layer to budget.
 #[derive(Debug, Clone)]
-pub(crate) struct SearchResult {
+pub struct SearchResult {
     pub title: String,
     pub url: String,
     pub snippet: String,
@@ -40,7 +40,7 @@ pub(crate) struct SearchResult {
 /// are formatted entry-by-entry with titles+URLs never truncated (they are the
 /// model's candidate list), and blobs go through the same token cap. This is
 /// the ADR-0118 known-limitation fix: providers no longer pre-format.
-pub(crate) enum ProviderOutput {
+pub enum ProviderOutput {
     /// Parsed, structured hits — preferred: the tool layer can dedupe URLs,
     /// cap per-domain counts, and budget each entry individually.
     Results(Vec<SearchResult>),
@@ -54,14 +54,14 @@ pub(crate) enum ProviderOutput {
 /// Implementations own their HTTP shape and parsing; the tool layer only
 /// handles argument parsing and client/proxy setup.
 #[async_trait]
-pub(crate) trait SearchProvider: Send + Sync {
+pub trait SearchProvider: Send + Sync {
     /// Human-readable label included in the result header, e.g. `"Exa"`.
     fn name(&self) -> &'static str;
     /// Run the search, or return an error describing what went wrong
     /// (surfaced verbatim to the model/user).
     async fn search(
         &self,
-        client: &crate::tools::web::http::WebHttp,
+        client: &crate::http::WebHttp,
         query: &str,
     ) -> Result<ProviderOutput, String>;
     /// Duplicate the provider. Providers are tiny config-carrying structs
@@ -81,7 +81,7 @@ impl SearchProvider for DisabledSearchProvider {
     }
     async fn search(
         &self,
-        _client: &crate::tools::web::http::WebHttp,
+        _client: &crate::http::WebHttp,
         _query: &str,
     ) -> Result<ProviderOutput, String> {
         Err("websearch is disabled in configuration".to_string())
@@ -93,7 +93,7 @@ impl SearchProvider for DisabledSearchProvider {
 
 /// Construct exactly the typed backend selected in the resolved snapshot.
 /// There is deliberately no unknown-provider or fallback branch.
-pub(crate) fn build_provider(cfg: &WebRuntimeConfig) -> Box<dyn SearchProvider> {
+pub fn build_provider(cfg: &WebRuntimeConfig) -> Box<dyn SearchProvider> {
     let api_key = cfg
         .search_credential
         .as_ref()
@@ -177,7 +177,7 @@ pub(crate) fn results_to_hits(
         .into_iter()
         .map(|r| {
             let domain =
-                crate::tools::ssrf::extract_host(&r.url).unwrap_or_else(|| "web".to_string());
+                crate::ssrf::extract_host(&r.url).unwrap_or_else(|| "web".to_string());
             nuo_wire::WebSearchHit {
                 title: r.title,
                 url: r.url,
@@ -209,7 +209,7 @@ pub(crate) fn blob_to_hits(
                 .trim_end_matches(['.', ',', ';'])
                 .to_string();
             let domain =
-                crate::tools::ssrf::extract_host(&url).unwrap_or_else(|| "web".to_string());
+                crate::ssrf::extract_host(&url).unwrap_or_else(|| "web".to_string());
             let before = trimmed[..pos].trim();
             let title = if before.is_empty() {
                 format!("{query} hit")
@@ -304,7 +304,7 @@ pub(super) fn cap_output(text: &str) -> String {
 /// single-JSON and Server-Sent-Events (`data: {...}`) response shapes used by
 /// the Exa and Parallel endpoints.
 pub(super) async fn mcp_tools_call(
-    client: &crate::tools::web::http::WebHttp,
+    client: &crate::http::WebHttp,
     url: &str,
     tool: &str,
     arguments: serde_json::Value,

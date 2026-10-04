@@ -1,5 +1,5 @@
 use super::*;
-use crate::tools::web::html::extract_html_title;
+use crate::html::extract_html_title;
 use nuo_wire::Tool;
 use sha2::{Digest, Sha256};
 
@@ -30,7 +30,7 @@ fn snapshot_shape_round_trips_through_json() {
 }
 
 mod guarded_get_tests {
-    use crate::tools::web::client::guarded_get;
+    use crate::client::guarded_get;
 
     async fn redirect_server(target: &'static str) -> String {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -49,8 +49,8 @@ mod guarded_get_tests {
         format!("http://{addr}/hop")
     }
 
-    fn test_client() -> crate::tools::web::http::WebHttp {
-        crate::tools::web::http::WebHttp::new(&nuo_wire::WebConfig::default())
+    fn test_client() -> crate::http::WebHttp {
+        crate::http::WebHttp::new(&nuo_wire::WebConfig::default())
             .expect("test client")
     }
 

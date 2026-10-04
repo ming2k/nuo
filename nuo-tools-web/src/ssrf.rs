@@ -10,7 +10,7 @@
 //! globally routable *before* the request is issued. Per-hop coverage is
 //! provided by disabling reqwest's automatic redirects (the shared client is
 //! built with `Policy::none()`) and following them explicitly via
-//! [`crate::tools::web::client::guarded_get`], which re-runs this guard on every hop —
+//! [`crate::client::guarded_get`], which re-runs this guard on every hop —
 //! so a public URL bouncing to an internal address mid-flight is refused.
 //! Remaining exotic variants (DNS rebinding between the check and the connect)
 //! would require resolve-and-pin; this module closes the direct and redirect
@@ -21,7 +21,7 @@
 /// `url` must already be validated as `http(s)`. The host is extracted with the
 /// `url` crate-free approach (no extra dep): we walk the authority section. On
 /// any parse ambiguity the URL is rejected — fail-closed is correct for a guard.
-pub(crate) async fn assert_public_url(url: &str) -> Result<(), String> {
+pub async fn assert_public_url(url: &str) -> Result<(), String> {
     let host = extract_host(url)
         .ok_or_else(|| format!("SSRF guard: could not parse a host from '{url}'"))?;
     // A bracketed IPv6 literal `[::1]` — strip the brackets and parse.
@@ -47,13 +47,13 @@ pub(crate) async fn assert_public_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) use netune::is_public_ip;
+pub use netune::is_public_ip;
 
 /// Extract the host component from an `http(s)://` URL without a URL crate.
 ///
 /// Handles `[ipv6]:port`, `host:port`, and bare `host`. Returns `None` if no
 /// host is present (e.g. `http:///path`).
-pub(crate) fn extract_host(url: &str) -> Option<String> {
+pub fn extract_host(url: &str) -> Option<String> {
     let after_scheme = url.split_once("://")?.1;
     // The authority ends at the first `/`, `?`, or `#`.
     let authority = after_scheme.split(['/', '?', '#']).next()?;

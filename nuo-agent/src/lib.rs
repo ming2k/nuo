@@ -40,7 +40,7 @@ pub use memory::{
 };
 pub use message::{Message, Role, ToolCall, ToolResult};
 #[cfg(feature = "wire")]
-pub use provider::WireProvider;
+pub use provider::{ModelCodecAdapter, WireProvider};
 pub use provider::{
     MockProvider, ModelRequest, ModelResponse, Provider, ProviderDelta, TokenUsage,
 };

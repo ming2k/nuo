@@ -233,3 +233,123 @@ impl Provider for WireProvider {
         Ok(rx)
     }
 }
+
+/// An adapter allowing any `Arc<dyn nuo_model_codec::capability::Provider>` to be used as a `nuo_agent::Provider`.
+#[derive(Clone)]
+pub struct ModelCodecAdapter {
+    inner: std::sync::Arc<dyn nuo_model_codec::capability::Provider>,
+}
+
+impl ModelCodecAdapter {
+    pub fn new(inner: std::sync::Arc<dyn nuo_model_codec::capability::Provider>) -> Self {
+        Self { inner }
+    }
+}
+
+#[async_trait]
+impl Provider for ModelCodecAdapter {
+    async fn stream(
+        &self,
+        request: ModelRequest,
+    ) -> Result<futures::channel::mpsc::Receiver<Result<super::ProviderDelta>>> {
+        let (mut tx, rx) = futures::channel::mpsc::channel(64);
+        use futures::{SinkExt, StreamExt};
+
+        let wire_messages: Vec<nuo_tool::Message> =
+            request.messages.into_iter().map(Into::into).collect();
+        let wire_tools: Vec<nuo_model_codec::ToolSpec> = request
+            .tools
+            .iter()
+            .filter_map(|t| {
+                let func = t.get("function")?;
+                let name = func.get("name")?.as_str()?;
+                let description = func
+                    .get("description")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("");
+                let parameters = func
+                    .get("parameters")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                Some(nuo_model_codec::ToolSpec::from_parts(name, description, parameters))
+            })
+            .collect();
+
+        let mut model_req = nuo_model_codec::capability::ModelRequest::new(wire_messages);
+        model_req.tool_specs = wire_tools;
+
+        let inner = self.inner.clone();
+        tokio::spawn(async move {
+            match inner.stream_chat_events(model_req).await {
+                Ok(mut event_stream) => {
+                    while let Some(event_res) = event_stream.next().await {
+                        match event_res {
+                            Ok(nuo_model_codec::capability::ProviderStreamEvent::TextDelta(t)) => {
+                                if tx.send(Ok(super::ProviderDelta::content(t))).await.is_err() {
+                                    return;
+                                }
+                            }
+                            Ok(nuo_model_codec::capability::ProviderStreamEvent::ReasoningDelta(r)) => {
+                                if tx.send(Ok(super::ProviderDelta::thinking(r))).await.is_err() {
+                                    return;
+                                }
+                            }
+                            Ok(nuo_model_codec::capability::ProviderStreamEvent::ToolCallDelta {
+                                index,
+                                id,
+                                name,
+                                arguments,
+                            }) => {
+                                let delta = super::ProviderDelta::tool_call_chunk(
+                                    index,
+                                    id,
+                                    name,
+                                    Some(arguments),
+                                );
+                                if tx.send(Ok(delta)).await.is_err() {
+                                    return;
+                                }
+                            }
+                            Ok(nuo_model_codec::capability::ProviderStreamEvent::Usage(u)) => {
+                                let mut delta = super::ProviderDelta::default();
+                                delta.usage = Some(super::TokenUsage {
+                                    prompt_tokens: u.prompt_tokens.max(0) as usize,
+                                    completion_tokens: u.completion_tokens.max(0) as usize,
+                                    total_tokens: u.total_tokens.max(0) as usize,
+                                    cached_tokens: u.cache_read_input_tokens.max(0) as usize,
+                                });
+                                if tx.send(Ok(delta)).await.is_err() {
+                                    return;
+                                }
+                            }
+                            Ok(nuo_model_codec::capability::ProviderStreamEvent::Completed(meta)) => {
+                                let mut delta = super::ProviderDelta::default();
+                                if let Some(u) = meta.usage {
+                                    delta.usage = Some(super::TokenUsage {
+                                        prompt_tokens: u.prompt_tokens.max(0) as usize,
+                                        completion_tokens: u.completion_tokens.max(0) as usize,
+                                        total_tokens: u.total_tokens.max(0) as usize,
+                                        cached_tokens: u.cache_read_input_tokens.max(0) as usize,
+                                    });
+                                }
+                                delta.is_done = true;
+                                let _ = tx.send(Ok(delta)).await;
+                                return;
+                            }
+                            Ok(nuo_model_codec::capability::ProviderStreamEvent::ModelCatalogEtag(_)) => {}
+                            Err(e) => {
+                                let _ = tx.send(Err(AgentError::Provider(e.to_string()))).await;
+                                return;
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    let _ = tx.send(Err(AgentError::Provider(err.to_string()))).await;
+                }
+            }
+        });
+
+        Ok(rx)
+    }
+}

@@ -1740,4 +1740,14 @@ mod tests {
             }
         }
     }
+
+    #[tokio::test]
+    async fn to_cognitive_agent_constructs_valid_nuo_agent() {
+        let harness_agent = stdin_test_agent();
+        let cognitive_agent = harness_agent
+            .to_cognitive_agent()
+            .await
+            .expect("builds cognitive agent");
+        assert_eq!(cognitive_agent.manifest().name, "agent");
+    }
 }

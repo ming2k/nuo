@@ -5,7 +5,7 @@ use nuo_wire::{SharedWebConfig, Tool, WebRuntimeConfig, WebSearchProvider};
 use nuo_tool::ToolSchema;
 use serde::Deserialize;
 
-use crate::tools::search::SearchProvider;
+use crate::search::SearchProvider;
 
 #[derive(ToolSchema, Deserialize)]
 struct WebSearchArgs {
@@ -21,12 +21,12 @@ pub struct WebSearchTool {
 struct ProviderCache {
     revision: u64,
     provider: Box<dyn SearchProvider>,
-    client: Result<std::sync::Arc<crate::tools::web::http::WebHttp>, String>,
+    client: Result<std::sync::Arc<crate::http::WebHttp>, String>,
 }
 
 type ProviderPair = (
     Box<dyn SearchProvider>,
-    std::sync::Arc<crate::tools::web::http::WebHttp>,
+    std::sync::Arc<crate::http::WebHttp>,
 );
 
 impl WebSearchTool {
@@ -61,9 +61,9 @@ impl WebSearchTool {
                 ));
             }
         }
-        let provider = crate::tools::search::build_provider(&snapshot);
+        let provider = crate::search::build_provider(&snapshot);
         let client =
-            crate::tools::web::http::WebHttp::new(&snapshot.behavior).map(std::sync::Arc::new);
+            crate::http::WebHttp::new(&snapshot.behavior).map(std::sync::Arc::new);
         *self
             .provider
             .write()
@@ -137,11 +137,11 @@ impl Tool for WebSearchTool {
 
         let output = provider.search(&client, query).await?;
         let (results, truncated) = match output {
-            crate::tools::search::ProviderOutput::Results(results) => {
-                crate::tools::search::results_to_hits(results)
+            crate::search::ProviderOutput::Results(results) => {
+                crate::search::results_to_hits(results)
             }
-            crate::tools::search::ProviderOutput::Blob(text) => {
-                crate::tools::search::blob_to_hits(query, provider.name(), &text)
+            crate::search::ProviderOutput::Blob(text) => {
+                crate::search::blob_to_hits(query, provider.name(), &text)
             }
         };
         Ok(nuo_wire::ToolOutput::WebSearch {

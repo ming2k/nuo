@@ -26,7 +26,7 @@ impl SearchProvider for ParallelProvider {
 
     async fn search(
         &self,
-        client: &crate::tools::web::http::WebHttp,
+        client: &crate::http::WebHttp,
         query: &str,
     ) -> Result<ProviderOutput, String> {
         let mut headers: Vec<(String, String)> =

@@ -174,7 +174,9 @@ pub mod tools;
 
 pub mod extension;
 pub(crate) mod sync;
-pub mod syntax;
+pub mod syntax {
+    pub use nuo_tools_code::syntax::*;
+}
 pub use extension::CodeIntelligenceExtension;
 
 pub use context_projection::ContextProjectionGate;

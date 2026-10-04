@@ -7,11 +7,11 @@
 //! server-side as Markdown.
 //!
 //! SSRF note: readers receive only URLs that already passed
-//! [`crate::tools::ssrf::assert_public_url`]. The Jina reader sends the URL to
+//! [`crate::ssrf::assert_public_url`]. The Jina reader sends the URL to
 //! a third party, so it must never be pointed at private addresses — the
 //! pre-check in `read_url` enforces this before any reader runs.
 
-use crate::tools::reader::jina::ReadPage;
+use crate::reader::jina::ReadPage;
 
 pub mod jina;
 
@@ -48,7 +48,7 @@ impl Reader {
     /// Errors are surfaced verbatim to the model/user.
     pub(crate) async fn read(
         &self,
-        client: &crate::tools::web::http::WebHttp,
+        client: &crate::http::WebHttp,
         url: &str,
         _raw: bool,
     ) -> Result<ReaderOutput, String> {

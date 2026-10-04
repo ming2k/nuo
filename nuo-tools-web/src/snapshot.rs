@@ -2,8 +2,8 @@ use nuo_wire::truncate_utf8;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::tools::web::client::guarded_get;
-use crate::tools::web::html::{extract_html_title, html_to_text};
+use crate::client::guarded_get;
+use crate::html::{extract_html_title, html_to_text};
 
 const MAX_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
 
@@ -50,7 +50,7 @@ pub fn unix_now_ms() -> u64 {
 }
 
 pub async fn take_snapshot(
-    client: &crate::tools::web::http::WebHttp,
+    client: &crate::http::WebHttp,
     url: &str,
     etag: Option<&str>,
     last_modified: Option<&str>,

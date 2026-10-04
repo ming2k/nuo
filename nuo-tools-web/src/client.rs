@@ -37,7 +37,7 @@ pub async fn guarded_get(
 ) -> Result<GuardedResponse, String> {
     let mut current = url.to_string();
     for _hop in 0..=MAX_REDIRECTS {
-        crate::tools::ssrf::assert_public_url(&current).await?;
+        crate::ssrf::assert_public_url(&current).await?;
         let request = super::http::WebRequest::get(&current)
             .headers(extra_headers.clone())
             .timeout(client.default_timeout());

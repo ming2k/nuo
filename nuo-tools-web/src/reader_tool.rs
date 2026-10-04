@@ -5,7 +5,7 @@ use nuo_wire::{SharedWebConfig, Tool, WebReaderProvider, WebRuntimeConfig};
 use nuo_tool::ToolSchema;
 use serde::Deserialize;
 
-use crate::tools::web::snapshot::{WebSnapshotResult, take_snapshot};
+use crate::snapshot::{WebSnapshotResult, take_snapshot};
 
 pub const WEB_READER_MAX_TOKENS: usize = 4_000;
 
@@ -19,7 +19,7 @@ struct WebReaderArgs {
 
 type CachedClient = (
     u64,
-    Result<std::sync::Arc<crate::tools::web::http::WebHttp>, String>,
+    Result<std::sync::Arc<crate::http::WebHttp>, String>,
 );
 
 /// Read a web page URL and extract its clean Markdown content via the configured Reader.
@@ -42,7 +42,7 @@ impl WebReaderTool {
         }
     }
 
-    pub fn client(&self) -> Result<std::sync::Arc<crate::tools::web::http::WebHttp>, String> {
+    pub fn client(&self) -> Result<std::sync::Arc<crate::http::WebHttp>, String> {
         let (revision, snapshot) = self.config.snapshot();
         self.client_for(revision, &snapshot)
     }
@@ -54,7 +54,7 @@ impl WebReaderTool {
         &self,
         revision: u64,
         snapshot: &WebRuntimeConfig,
-    ) -> Result<std::sync::Arc<crate::tools::web::http::WebHttp>, String> {
+    ) -> Result<std::sync::Arc<crate::http::WebHttp>, String> {
         {
             let guard = self
                 .client
@@ -67,7 +67,7 @@ impl WebReaderTool {
             }
         }
         let built =
-            crate::tools::web::http::WebHttp::new(&snapshot.behavior).map(std::sync::Arc::new);
+            crate::http::WebHttp::new(&snapshot.behavior).map(std::sync::Arc::new);
         *self
             .client
             .write()
@@ -103,7 +103,7 @@ fn extract_page_title(content: &str) -> Option<String> {
             }
         }
     }
-    let html_title = crate::tools::web::html::extract_html_title(content);
+    let html_title = crate::html::extract_html_title(content);
     if !html_title.is_empty() {
         return Some(html_title);
     }
@@ -137,15 +137,15 @@ impl Tool for WebReaderTool {
         if !(url.starts_with("http://") || url.starts_with("https://")) {
             return Err("URL must start with http:// or https://".to_string());
         }
-        crate::tools::ssrf::assert_public_url(url).await?;
+        crate::ssrf::assert_public_url(url).await?;
         let raw = args.raw.unwrap_or(false);
         let (revision, snapshot) = self.config.snapshot();
         let client = self.client_for(revision, &snapshot)?;
-        let reader = crate::tools::reader::build_reader(&snapshot);
+        let reader = crate::reader::build_reader(&snapshot);
         let reader_name = reader.name();
         let output = reader.read(&client, url, raw).await?;
         let body = output.text;
-        let domain = crate::tools::ssrf::extract_host(url).unwrap_or_else(|| "web".to_string());
+        let domain = crate::ssrf::extract_host(url).unwrap_or_else(|| "web".to_string());
         let title = extract_page_title(&body);
         let tokens = nuo_wire::tokenizer::count_tokens(&body);
         let (markdown, truncated) = if tokens > WEB_READER_MAX_TOKENS {
