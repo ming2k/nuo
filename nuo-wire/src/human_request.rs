@@ -18,8 +18,7 @@ use serde::{Deserialize, Serialize};
 
 /// Which of the three parked protocols a request belongs to. Carried on
 /// every parked request so cancellation, hooks, and metrics can be uniform.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HumanRequestKind {
     /// A write/execute the user must approve (permission broker), or a
     /// dangerous-command confirmation.
@@ -40,8 +39,7 @@ pub enum HumanRequestKind {
 ///
 /// Legacy clients that predate the field default to `Interactive`,
 /// preserving their behavior exactly.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum HumanChannelPosture {
     /// A human is watching this session right now and can answer parked
     /// requests. The default for TUI and Web clients.
@@ -61,8 +59,7 @@ pub enum HumanChannelPosture {
 /// `RecommendedLabeled` branch: permissions fail closed (a missing human
 /// cannot grant authority) and interactive commands run with closed stdin
 /// exactly as if the operator had dismissed the panel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AutonomousFallbackPolicy {
     /// Refuse the question: the tool returns an "unavailable" result and the
@@ -82,8 +79,7 @@ pub enum AutonomousFallbackPolicy {
 /// invariant: only a reply that crossed a client connection resolves as
 /// [`ReplyProvenance::User`]. Policy settlements are generated agent-side and are labeled
 /// so the model can never mistake them for human intent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReplyProvenance {
     /// A human saw the request and decided. Only wire-originated replies
     /// carry this.

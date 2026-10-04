@@ -7,9 +7,8 @@ use serde::{Deserialize, Serialize};
 /// Values use `#RRGGBB`. Frontends validate input before persisting it and
 /// fall back to these defaults if an older hand-edited config contains an
 /// invalid value.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct ColorSchemeConfig {
     pub background: String,
     pub surface: String,
@@ -37,9 +36,8 @@ impl Default for ColorSchemeConfig {
 }
 
 /// Component-specific override for the live prompt / input box.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct InputThemeConfig {
     pub bg_active: Option<String>,
     pub bg_inactive: Option<String>,
@@ -49,18 +47,16 @@ pub struct InputThemeConfig {
 }
 
 /// Component-specific override for crate tags and package badges.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct CrateThemeConfig {
     pub fg: Option<String>,
     pub badge_bg: Option<String>,
 }
 
 /// Component-specific override for diff rendering.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct DiffThemeConfig {
     pub add_bg: Option<String>,
     pub del_bg: Option<String>,
@@ -69,18 +65,16 @@ pub struct DiffThemeConfig {
 }
 
 /// Component-specific override for command card rows.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct CommandThemeConfig {
     pub idle_bg: Option<String>,
     pub hover_bg: Option<String>,
 }
 
 /// Component-specific override for keyboard shortcut keys and affordance labels.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct KeycapThemeConfig {
     pub key_fg: Option<String>,
     pub key_bg: Option<String>,
@@ -90,9 +84,8 @@ pub struct KeycapThemeConfig {
 }
 
 /// View/canvas surface overrides (Layer 0: Full-screen destinations).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct ViewThemeConfig {
     pub canvas: Option<String>,
     pub header_bg: Option<String>,
@@ -100,18 +93,16 @@ pub struct ViewThemeConfig {
 }
 
 /// Sheet surface overrides (Layer 1: Edge-anchored drawers like Permission).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct SheetThemeConfig {
     pub surface: Option<String>,
     pub border: Option<String>,
 }
 
 /// Dialog surface overrides (Layer 2: Center-anchored dialogs).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct DialogThemeConfig {
     pub surface: Option<String>,
     pub border: Option<String>,
@@ -120,18 +111,16 @@ pub struct DialogThemeConfig {
 }
 
 /// Overlay surface overrides (Layer 3: Corner floats, toasts, popups).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct OverlayThemeConfig {
     pub toast_bg: Option<String>,
     pub shadow: Option<String>,
 }
 
 /// Spatial 4-layer surface theme overrides container.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct SurfacesThemeConfig {
     pub view: Option<ViewThemeConfig>,
     pub sheet: Option<SheetThemeConfig>,
@@ -141,9 +130,8 @@ pub struct SurfacesThemeConfig {
 }
 
 /// Feedback tone container and border colors (Info / Warning / Error / Success).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct FeedbackToneConfig {
     pub container: Option<String>,
     pub border: Option<String>,
@@ -151,9 +139,8 @@ pub struct FeedbackToneConfig {
 }
 
 /// Structured feedback notification theme container.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct FeedbackThemeConfig {
     pub info: Option<FeedbackToneConfig>,
     pub warning: Option<FeedbackToneConfig>,
@@ -162,9 +149,8 @@ pub struct FeedbackThemeConfig {
 }
 
 /// Specialized component theme overrides container.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct ComponentThemesConfig {
     pub input: Option<InputThemeConfig>,
     #[serde(rename = "crate")]
@@ -175,9 +161,8 @@ pub struct ComponentThemesConfig {
 }
 
 /// Full standalone theme file loaded from `$XDG_CONFIG_HOME/mutx/themes/<id>.toml`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct ThemeFile {
     pub id: String,
     pub name: String,

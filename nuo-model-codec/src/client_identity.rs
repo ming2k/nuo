@@ -324,8 +324,7 @@ pub struct ClientCapabilities {
 }
 
 /// Standard client identity presets supported by muta.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum ClientPreset {
     /// Default native identity (`User-Agent: muta/<version>`).
     #[default]
@@ -555,8 +554,7 @@ impl<'de> Deserialize<'de> for ClientPreset {
 }
 
 /// First-class client profile presets and custom identity for connection emulation.
-#[derive(Debug, Clone, PartialEq, Eq, Default, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ClientProfile {
     /// Default native identity (`User-Agent: muta/<version>`).
     #[default]
@@ -588,7 +586,6 @@ pub enum ClientProfile {
     /// Custom client identity with specific User-Agent and optional headers.
     Custom {
         user_agent: String,
-        #[ts(type = "Array<[string, string]>")]
         extra_headers: Vec<(String, String)>,
     },
 }

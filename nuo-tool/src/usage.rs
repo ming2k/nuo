@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 /// undercount every cached turn. Other routes may report reads, writes, or
 /// misses independently. Protocol adapters normalize those counters through
 /// the codec crate's `read_prompt_cache_usage`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenUsage {
     pub prompt_tokens: i64,
     pub completion_tokens: i64,

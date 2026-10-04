@@ -122,8 +122,7 @@ pub trait BackgroundJobService: Send + Sync {
 }
 
 /// Unique identifier for a background job.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct JobId(pub String);
 
 impl JobId {
@@ -153,9 +152,8 @@ impl From<&str> for JobId {
 
 /// Execution kind of a process task (ADR-0190): bounded work that should
 /// complete, or a long-lived service where *running is the success state*.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum JobKind {
     /// Bounded work (build, test, one-shot script). Settling `Succeeded` is
     /// the goal; completion wakes the requesting session.
@@ -171,9 +169,8 @@ pub enum JobKind {
 }
 
 /// How a service task declares itself ready (ADR-0190 §D1).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "readiness", rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum Readiness {
     /// First output line after spawn (banner, "listening on …"). Default.
     #[serde(rename = "first_output")]
@@ -188,9 +185,8 @@ pub enum Readiness {
 }
 
 /// Optional automatic-restart policy for service tasks (ADR-0190 §D1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub struct RestartPolicy {
     /// Maximum respawn attempts after unsolicited failure.
     pub max_retries: u32,
@@ -199,9 +195,8 @@ pub struct RestartPolicy {
 }
 
 /// The specification for a background job.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum JobSpec {
     /// Deterministic shell execution job.
     Process {
@@ -248,9 +243,8 @@ pub enum JobSpec {
 }
 
 /// Lifecycle state of a background job.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum JobState {
     Queued,
     Running {
@@ -298,8 +292,7 @@ impl JobState {
 }
 
 /// Snapshot description of a background job for status polling and UI rendering.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BackgroundJobInfo {
     pub id: JobId,
     pub spec: JobSpec,
@@ -312,8 +305,7 @@ pub struct BackgroundJobInfo {
 }
 
 /// Outcome delivered when a background job completes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BackgroundJobOutcome {
     pub job_id: JobId,
     pub spec: JobSpec,

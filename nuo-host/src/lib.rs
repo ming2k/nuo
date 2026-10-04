@@ -24,7 +24,6 @@ pub mod security;
 pub mod secret;
 pub mod shared_roots;
 pub mod shell;
-pub mod tools;
 pub mod web_config;
 pub mod workspace;
 pub mod workspace_sandbox;
@@ -43,11 +42,6 @@ pub use shared_roots::SharedAdditionalRoots;
 pub use workspace::{WorkspaceBinding, WorkspaceFilter};
 pub use color_scheme::*;
 pub use fs_watcher::{FsEvent, FsEventKind, FsWatcher};
-pub use tools::{
-    EditTextArgs, EditTextTool, ExecuteCommandArgs, ExecuteCommandTool, FindFilesArgs,
-    FindFilesTool, ListDirArgs, ListDirTool, ReadTextArgs, ReadTextTool, SearchTextArgs,
-    SearchTextTool, SystemToolContext, WriteFileArgs, WriteFileTool, create_system_tools,
-};
 pub use web_config::*;
 
 #[cfg(windows)]

@@ -58,7 +58,22 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-pub use nuo_wire::*;
+// Bounded contract re-exports: only protocol types that cross the harness boundary.
+pub use nuo_wire::{
+    async_trait, AgentEvent, AgentIdentity, AgentNotice, AgentOp, AgentRequest, AgentResponse,
+    AgentRoleProfile, DynamicToolSink, Hook, HookContext, HookEvent, HookEventKind, HookOutcome,
+    InstructionTier, LoopStatus, Message, PermissionDecision, Provider, ProviderStreamEvent,
+    RetryPoint, Role, RoundEvent, SessionDelta, SessionSource, SubagentEvent, TokenUsage, Tool,
+    ToolContext, ToolOutput, ToolSet, ToolStream, Transport,
+};
+
+#[allow(unused_imports)]
+pub(crate) use nuo_wire::{
+    message, pressure, ExecutionEnvironment, HarnessError, ImagePart, InjectionKind,
+    InjectionOrigin, InputRequest, NoticeKind, NoticeSeverity, NoticeSource, NoticeSurface,
+    QueuedMessage, StdinReply, TodoList, ToolCall, UserQuestion, UserQuestionReply,
+    UserQuestionRequest, WorkspaceRoot, WorkspaceRoots,
+};
 
 // Same ambient std/tokio prelude the Agent struct used to inherit from
 // `nuo-wire`'s lib.rs (`use super::*`).
@@ -111,51 +126,101 @@ pub mod agent;
 pub use agent::TitleEstablishedFn;
 pub use agent::{Agent, AgentBuilder, RequestTokenEstimate, RoundOutcome, SwitchedRole};
 
-mod bash_policy;
+// -----------------------------------------------------------------------------
+// Subsystem: Governance & Policy Enforcement
+// -----------------------------------------------------------------------------
+pub mod governance;
+pub(crate) use governance::{
+    bash_policy, permission_policy, permission_store, shell_input,
+};
+pub use governance::{
+    guard, interaction, stream_loop_detector, trajectory_guard,
+};
+pub use governance::{
+    DegeneratePattern, GuardAction, InteractionConfig, InteractionController, RoundGuardState,
+    StreamLoopDetector, TrajectoryLoopGuard,
+};
+
+// -----------------------------------------------------------------------------
+// Subsystem: Dispatch, Execution Pipeline & Tool Scheduling
+// -----------------------------------------------------------------------------
+pub mod dispatch;
+#[allow(unused_imports)]
+pub(crate) use dispatch::pipeline as dispatch_pipeline;
+pub(crate) use dispatch::{
+    dynamic_tools, tool_integration, tool_manager, tool_scheduler,
+};
+pub use dispatch::{dynamic, tool_call};
+pub use dispatch::tool_call::extract_partial_string_field;
+
+// -----------------------------------------------------------------------------
+// Subsystem: Interoperability, Human Gateways & Subagents
+// -----------------------------------------------------------------------------
+pub mod interop;
+pub use interop::{agent_slot, human_broker, subagent_tool};
+pub use interop::agent_slot::AgentSlot;
+pub use interop::human_broker::*;
+pub use interop::subagent_tool::{SubagentRegistry, SubagentTool};
+
+// -----------------------------------------------------------------------------
+// Subsystem: Durability, Audit & Conformance
+// -----------------------------------------------------------------------------
+pub mod durability;
+pub use durability::{
+    conformance as durability_conformance, record as execution_record,
+    Ack, ConformanceReport, FactSink, Hydrate, MemorySink, NullSink, SinkError, SinkHealth,
+    run_conformance,
+};
+pub use durability::record::*;
+
+// -----------------------------------------------------------------------------
+// Context, Compaction & Prompts
+// -----------------------------------------------------------------------------
 pub mod budget;
-pub mod catalog;
 pub mod compaction;
 pub mod context_lifecycle;
 pub mod context_projection;
+pub use context_projection::ContextProjectionGate;
 mod conversation_context;
-pub mod dynamic;
-mod dynamic_tools;
-pub mod hooks;
-pub mod interaction;
-pub mod trajectory_guard;
-pub use interaction::{InteractionConfig, InteractionController};
-
-pub mod human_broker;
-pub use hooks::{HookRegistry, UserPromptVerdict, matcher_matches};
-pub mod inflight;
-pub use inflight::Inflight;
-pub mod agent_slot;
-mod dispatch_pipeline;
-pub mod subagent_tool;
-pub use agent_slot::AgentSlot;
-pub mod guard;
-mod hook_runner;
-pub use guard::{GuardAction, RoundGuardState};
 mod model_request;
-pub mod no_provider;
+pub use model_request::system_prompt::{
+    InstructionOrder, SystemPromptContext, SystemPromptRegistry, SystemPromptRegistryError,
+    SystemPromptSection,
+};
 pub mod offstream;
 pub use offstream::{OffstreamEntry, OffstreamRegistry, OffstreamSource, OffstreamStatus, PagedOffstreamContent};
+pub mod session_title;
+
+// -----------------------------------------------------------------------------
+// Orchestration & Runtime Lifecycle
+// -----------------------------------------------------------------------------
+pub mod aspects;
+pub use aspects::AspectEngine;
+pub mod cognitive;
+pub use cognitive::{CognitiveError, CognitivePipeline, HarnessTaskError, HarnessTaskPipeline};
+pub mod hooks;
+pub use hooks::{HookRegistry, PreToolUseVerdict, UserPromptVerdict, matcher_matches};
+mod hook_runner;
+pub mod host;
+pub use host::*;
+pub mod inflight;
+pub use inflight::Inflight;
+pub mod no_provider;
+pub use no_provider::{NO_PROVIDER_ID, NoProvider};
 pub mod orchestration;
 pub use orchestration::{
     compact_round_history, compact_round_history_with_mode, round_response, send_compaction,
     ContextProjectionSettings,
 };
-mod permission_policy;
-mod permission_store;
 pub mod round_lifecycle;
 pub use round_lifecycle::{ParkedInterrupt, RoundBegin, RoundLifecycle};
-pub mod aspects;
-pub use aspects::AspectEngine;
-pub mod cognitive;
-pub mod session_title;
-mod shell_input;
-pub use cognitive::{CognitiveError, CognitivePipeline, HarnessTaskError, HarnessTaskPipeline};
-pub mod stream_loop_detector;
+
+// -----------------------------------------------------------------------------
+// Capabilities, Skills & Extensions
+// -----------------------------------------------------------------------------
+pub mod catalog;
+pub mod extension;
+pub use extension::CodeIntelligenceExtension;
 pub mod skills;
 pub use skills::{
     DiscoveryResult, ListSkillsTool, ShadowedSkill, Skill, SkillDependency, SkillHost,
@@ -163,40 +228,13 @@ pub use skills::{
     discover_all_with_trust_state, discoverable_skill_directories, format_skill_injection,
     format_skill_list, list_skill_files, project_skills_present, resolve_mentions,
 };
-pub use stream_loop_detector::{DegeneratePattern, StreamLoopDetector};
-pub mod execution;
-pub mod tool_call;
-pub use tool_call::extract_partial_string_field;
-mod tool_integration;
-mod tool_manager;
-mod tool_scheduler;
-pub mod tools;
-
-pub mod extension;
 pub(crate) mod sync;
 pub mod syntax {
-    pub use nuo_tools_code::syntax::*;
+    pub use nuo_code::syntax::*;
 }
-pub use extension::CodeIntelligenceExtension;
-
-pub use context_projection::ContextProjectionGate;
-pub use model_request::system_prompt::{
-    InstructionOrder, SystemPromptContext, SystemPromptRegistry, SystemPromptRegistryError,
-    SystemPromptSection,
-};
-pub use no_provider::{NO_PROVIDER_ID, NoProvider};
-pub use subagent_tool::{SubagentRegistry, SubagentTool};
+pub mod execution;
+pub mod tools;
 
 #[cfg(test)]
 mod tests;
 
-pub mod durability;
-pub use durability::{Ack, FactSink, NullSink, SinkError, SinkHealth};
-
-pub mod host;
-pub use host::*;
-pub mod execution_record;
-pub use execution_record::*;
-
-pub mod durability_conformance;
-pub use durability_conformance::{ConformanceReport, Hydrate, MemorySink, run_conformance};

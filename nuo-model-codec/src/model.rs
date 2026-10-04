@@ -85,14 +85,7 @@ impl Model {
 /// data and nothing else: no code path parses, matches, localizes, or decides
 /// on it (`[INV-AVAIL-03]`). A provider that states no reason yields `None`,
 /// and a surface must then say only what it knows rather than inventing one.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
-#[ts(
-    export,
-    export_to = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../web/src/lib/generated/wire.gen.ts"
-    )
-)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Availability {
     /// Whether the account may run the model right now.
     pub usable: bool,
@@ -273,14 +266,7 @@ impl RemoteModelMetadata {
 /// Materialized, route-scoped capabilities evaluated daemon-side via ADR-0149.
 /// Projected to frontends as the infallible single source of truth (ADR-0182).
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, ts_rs::TS,
-)]
-#[ts(
-    export,
-    export_to = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../web/src/lib/generated/wire.gen.ts"
-    )
+    Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize,
 )]
 pub struct RouteCapabilities {
     /// Context window size in tokens. Guaranteed > 0 for all routed channels.
@@ -351,7 +337,7 @@ impl ModelCapabilities {
 /// This lives in `muta-contracts` (not persistence) so the merge function can
 /// live beside the structure it overrides -- persistence keys it per
 /// `(instance_id, model_id)` inside `RouteSettings` and owns only storage.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct CapabilityOverrides {
     /// Explicit model route protocol; resolved independently from capabilities.
@@ -409,7 +395,7 @@ impl CapabilityOverrides {
 
 /// One user-declared model on a preset or connection scope (ADR-0199): a hidden,
 /// preview, or unlisted upstream id pinned to a scope with optional capability facts.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct DeclaredModel {
     /// Explicit wire protocol for this model within its provider or connection scope.
@@ -461,15 +447,8 @@ impl DeclaredModel {
 }
 
 /// The default admission gate for models passing through a connection pipe (ADR-0203).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
-#[ts(
-    export,
-    export_to = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../web/src/lib/generated/wire.gen.ts"
-    )
-)]
 pub enum ConnectionFilterPolicy {
     Named(NamedFilterPolicy),
     Glob(Vec<String>),
@@ -478,15 +457,8 @@ pub enum ConnectionFilterPolicy {
 /// A connection-local override for the provider's remote catalog source.
 ///
 /// Standard named pipe filter policies (ADR-0203).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(
-    export,
-    export_to = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../web/src/lib/generated/wire.gen.ts"
-    )
-)]
 pub enum NamedFilterPolicy {
     /// Admit only models present in the compiled baseline (strict safe filter).
     Baseline,
@@ -535,15 +507,8 @@ pub fn simple_glob_matches(pattern: &str, text: &str) -> bool {
 ///
 /// Follows tristate sparse merge semantics: `None` means absent/unspecified,
 /// allowing fallthrough to the layer below; `Some(val)` overrides explicitly.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
-#[ts(
-    export,
-    export_to = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../web/src/lib/generated/wire.gen.ts"
-    )
-)]
 pub struct ModelCapabilityPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_window: Option<usize>,
@@ -560,15 +525,8 @@ pub struct ModelCapabilityPatch {
 }
 
 /// Unified model scope configuration for preset-level or connection-level customization (ADR-0199, ADR-0203).
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
-#[ts(
-    export,
-    export_to = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../web/src/lib/generated/wire.gen.ts"
-    )
-)]
 pub struct ModelScopeConfig {
     /// Pipeline admission filter rule (ADR-0203).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -622,14 +580,7 @@ impl ModelScopeConfig {
 }
 
 /// Target scope for model customizations (ADR-0199).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
-#[ts(
-    export,
-    export_to = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../web/src/lib/generated/wire.gen.ts"
-    )
-)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ModelTargetScope {
     /// Provider-level customization (affects every connection to this provider).
     Provider(String),

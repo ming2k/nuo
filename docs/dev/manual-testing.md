@@ -1,6 +1,6 @@
 # Manual Testing & Full-Stack Verification Guide
 
-This document defines the comprehensive manual testing procedures, exploratory testing playbooks, and release walk-through runbooks for **Nuo** (session daemon and control plane) and **nuox** (semantic terminal client), as well as the accompanying **web** dashboard.
+This document defines the comprehensive manual testing procedures, exploratory testing playbooks, and release walk-through runbooks for **Nuo** — the unified AI session daemon, control plane, and semantic terminal client.
 
 It ensures that developers, QA engineers, and release gatekeepers can verify end-to-end functionality, user experience ergonomics, interactive approval workflows, and fault recovery from a clean cold start without synthetic test harnesses or internal backdoor bypasses.
 
@@ -8,16 +8,18 @@ It ensures that developers, QA engineers, and release gatekeepers can verify end
 
 ## 1. Principles & Testing Philosophy
 
-Manual verification complements automated testing (`cargo nextest`, `vitest`, snapshot tests) by focusing on cognitive and perceptual dimensions that machines cannot evaluate:
+Manual verification complements automated testing (`cargo test --workspace`, snapshot tests) by focusing on cognitive and perceptual dimensions that machines cannot evaluate:
 
 1. **`[INV-VAL-01]` Real User Journey Parity**:
-   All manual verifications must be performed through public interfaces (`nuo` CLI, `nuox` terminal UI, standard HTTP/WebSocket, and the web browser) from a cold start. Using private test harness fixtures or mock overrides is strictly prohibited during manual sign-off.
-2. **Ergonomics & Visual Polish**:
-   Validate terminal layout responsiveness, border integrity, CJK wide-character alignment, ANSI color fidelity, breathing animations, and cursor state restoration.
-3. **Interactive Safety & Approval Barriers**:
+   All manual verifications must be performed through the public unified CLI interface (`nuo`) and standard HTTP/IPC endpoints from a cold start. Using private test harness fixtures or mock overrides is strictly prohibited during manual sign-off.
+2. **`[INV-CLI-01]` / `[INV-CLI-02]` Unified Binary Singleton**:
+   The workspace produces a single public executable: `nuo`. Interactive terminal sessions, headless scripts, and server daemons are all accessed through this single binary entrypoint.
+3. **Ergonomics & Visual Polish**:
+   Validate terminal layout responsiveness, border integrity, CJK wide-character alignment, ANSI color fidelity, breathing animations, and cursor state restoration powered by `nuo-tui` and `nuotc`.
+4. **Interactive Safety & Approval Barriers**:
    Verify that high-hazard operations (destructive bash commands, file modifications) pause cleanly for explicit human confirmation and never execute prematurely.
-4. **Host Isolation Invariant**:
-   Manual test runs must never pollute the operator's host configuration (`~/.config/nuo`) or collide with running production daemons on port `9800`. Every test session must explicitly run inside an isolated sandbox directory.
+5. **Host Isolation Invariant**:
+   Manual test runs must never pollute the operator's host configuration (`~/.config/nuo`) or collide with running production daemons on default ports. Every test session must explicitly run inside an isolated sandbox directory using `NUO_HOME` and `NUO_PORT`.
 
 ---
 
@@ -27,7 +29,6 @@ Manual verification complements automated testing (`cargo nextest`, `vitest`, sn
 
 - **Rust Toolchain**: Rust 1.85+ (pinned via `Cargo.toml`).
 - **Terminal Emulator**: Modern terminal supporting UTF-8 and truecolor (e.g. Ghostty, Alacritty, iTerm2, WezTerm, or Kitty).
-- **Node.js & pnpm**: Node.js 20+ and pnpm 9+ (for the web client).
 - **Model Provider API Key**: At least one valid API key (e.g. DeepSeek, OpenRouter, Anthropic, or OpenAI).
 
 ### Cold-Start Sandbox Setup
@@ -35,14 +36,14 @@ Manual verification complements automated testing (`cargo nextest`, `vitest`, sn
 Run these commands in your shell to prepare an isolated environment:
 
 ```bash
-# 1. Compile the binaries in dev or release mode
-cargo build -p nuo -p nuox
+# 1. Compile the unified binary
+cargo build -p nuo
 
 # 2. Establish isolated instance root and non-conflicting TCP port
 export NUO_HOME=$(mktemp -d /tmp/nuo-manual.XXXXXX)
 export NUO_PORT=9820
 
-# 3. Expose debug binaries on PATH for canonical command execution
+# 3. Expose debug binary on PATH for canonical command execution
 export PATH="$PWD/target/debug:$PATH"
 
 echo "Sandbox initialized at: $NUO_HOME (Port: $NUO_PORT)"
@@ -65,20 +66,21 @@ rm -rf "$NUO_HOME"
 - **Action**:
   ```bash
   nuo --help
-  nuox --help
   nuo --version
-  nuox --version
+  nuo run --help
+  nuo serve --help
   ```
 - **Expected Outcome**:
   - Help text renders cleanly with accurate usage patterns, subcommands, and environment variable documentation (`NUO_HOME`, `NUO_PORT`).
-  - Version strings print matching the workspace version (e.g., `0.1.0`).
-  - Both commands exit with status `0`.
+  - Version strings print matching the workspace version (e.g., `0.0.1`).
+  - Commands exit with status `0`.
 
 #### Scenario 1.2: Shell Completions Generation
 - **Action**:
   ```bash
   nuo completions bash | head -n 15
-  nuox completions zsh | head -n 15
+  nuo completions zsh | head -n 15
+  nuo completions fish | head -n 15
   ```
 - **Expected Outcome**:
   - Valid completion scripts for `bash`, `zsh`, and `fish` print to stdout without panic.
@@ -86,13 +88,13 @@ rm -rf "$NUO_HOME"
 
 ---
 
-### Suite 2: Daemon Lifecycle & Control Plane
+### Suite 2: Daemon Lifecycle & Server Control Plane
 
-#### Scenario 2.1: Foreground Daemon Execution (`nuo start --fg`)
+#### Scenario 2.1: Foreground Server Container Execution (`nuo serve` / `nuo start --fg`)
 - **Action**:
-  1. In Terminal A, start the daemon in foreground mode:
+  1. In Terminal A, start the daemon service in foreground mode:
      ```bash
-     nuo start --fg --port "$NUO_PORT"
+     nuo serve --port "$NUO_PORT"
      ```
   2. In Terminal B, query status:
      ```bash
@@ -197,15 +199,15 @@ rm -rf "$NUO_HOME"
 
 ---
 
-### Suite 4: Semantic Terminal Client (`nuox`) Interactive Experience
+### Suite 4: Semantic Terminal Experience (`nuo` Interactive TUI)
 
 #### Scenario 4.1: Cold-Start Interactive TUI Launch
 - **Action**:
   ```bash
-  nuox
+  nuo
   ```
 - **Expected Outcome**:
-  - If `nuo` daemon is not yet running, `nuox` automatically bootstraps the local daemon in the background.
+  - If `nuo` daemon is not yet running, `nuo` automatically bootstraps the local daemon in the background.
   - Terminal enters alternate screen buffer and raw mode.
   - Header displays active model/role, conversation status, and session indicator.
   - Input composer sits at bottom ready for prompt entry.
@@ -213,7 +215,7 @@ rm -rf "$NUO_HOME"
 
 #### Scenario 4.2: Dialogue Turn & Streaming Rendering
 - **Action**:
-  1. Inside `nuox`, type a greeting or simple question:
+  1. Inside `nuo`, type a greeting or simple question:
      ```text
      Hello! What is your role and system status?
      ```
@@ -226,7 +228,7 @@ rm -rf "$NUO_HOME"
 
 #### Scenario 4.3: Tool Approval Barrier & Permission Sheet
 - **Action**:
-  1. In `nuox`, ask the assistant to perform a safe filesystem inspection:
+  1. In `nuo`, ask the assistant to perform a safe filesystem inspection:
      ```text
      Please list the files in the current workspace directory.
      ```
@@ -243,6 +245,7 @@ rm -rf "$NUO_HOME"
 - **Action**:
   - Type `/help` and press Enter.
   - Type `/models` or press `Ctrl+M` to inspect the model catalog.
+  - Type `/settings` to open the settings modal.
   - Type `/exit` or press `Ctrl+C` twice to exit.
 - **Expected Outcome**:
   - `/help` renders available commands without invoking the LLM provider.
@@ -251,13 +254,14 @@ rm -rf "$NUO_HOME"
 
 ---
 
-### Suite 5: Headless Execution & CLI Automation (`nuox run`)
+### Suite 5: Headless Execution & CLI Automation (`nuo run` / `nuo -p`)
 
 #### Scenario 5.1: Headless One-Shot Prompt
 - **Action**:
   ```bash
-  nuox run "Explain the difference between TCP and UDP in 2 sentences"
+  nuo run "Explain the difference between TCP and UDP in 2 sentences"
   ```
+  *(or equivalently: `nuo -p "Explain the difference between TCP and UDP in 2 sentences"`)*
 - **Expected Outcome**:
   - Runs without launching the interactive TUI screen.
   - Connects to the daemon (auto-starting if necessary).
@@ -267,7 +271,7 @@ rm -rf "$NUO_HOME"
 #### Scenario 5.2: Pipeline & Stdin Ingestion
 - **Action**:
   ```bash
-  echo "fn calculate_sum(a: i32, b: i32) -> i32 { a + b }" | nuox run "Add doc comments to this Rust function"
+  echo "fn calculate_sum(a: i32, b: i32) -> i32 { a + b }" | nuo run "Add doc comments to this Rust function"
   ```
 - **Expected Outcome**:
   - Input from stdin is concatenated into the agent context prompt.
@@ -277,7 +281,7 @@ rm -rf "$NUO_HOME"
 #### Scenario 5.3: Unattended Mode (`--unattended`)
 - **Action**:
   ```bash
-  nuox run --unattended "Read Cargo.toml and output the workspace version"
+  nuo run --unattended "Read Cargo.toml and output the workspace version"
   ```
 - **Expected Outcome**:
   - Tool approvals within the safe execution sandbox execute without prompting for keyboard confirmation.
@@ -286,7 +290,7 @@ rm -rf "$NUO_HOME"
 #### Scenario 5.4: Structured JSON Output (`--json`)
 - **Action**:
   ```bash
-  nuox run --json "List 3 programming languages"
+  nuo run --json "List 3 programming languages"
   ```
 - **Expected Outcome**:
   - Output is emitted as structured JSON stream / envelope.
@@ -303,7 +307,7 @@ rm -rf "$NUO_HOME"
   nuo start --port "$NUO_PORT"
 
   # 2. Spawn a long-running prompt in headless or background
-  nuox run "List all crates in the workspace and explain their dependencies" &
+  nuo run "List all crates in the workspace and explain their dependencies" &
 
   # 3. Monitor daemon sessions
   nuo status --watch
@@ -316,26 +320,26 @@ rm -rf "$NUO_HOME"
 - **Action**:
   ```bash
   TOKEN=$(nuo token)
-  nuox --remote "127.0.0.1:$NUO_PORT" --token "$TOKEN" run "Respond with 'PONG'"
+  nuo --remote "127.0.0.1:$NUO_PORT" --token "$TOKEN" run "Respond with 'PONG'"
   ```
 - **Expected Outcome**:
-  - `nuox` connects over TCP using the bearer token rather than local Unix domain sockets.
+  - `nuo` connects over TCP using the bearer token rather than local Unix domain sockets.
   - Output streams successfully; daemon processes the request on the remote port.
 
-#### Scenario 6.3: Session Attach & Picker (`nuox attach`)
+#### Scenario 6.3: Session Attach & Picker (`nuo attach`)
 - **Action**:
   ```bash
   # Launch attach picker
-  nuox attach
+  nuo attach
   ```
 - **Expected Outcome**:
   - If multiple sessions exist, displays an interactive picker listing session IDs, titles, and creation timestamps.
   - Selecting a session attaches the TUI to that session and replays recent message history.
 
-#### Scenario 6.4: Full-Screen Session Dashboard (`nuox dashboard`)
+#### Scenario 6.4: Full-Screen Session Dashboard (`nuo dashboard`)
 - **Action**:
   ```bash
-  nuox dashboard
+  nuo dashboard
   ```
 - **Expected Outcome**:
   - Renders interactive full-screen session table with status, duration, model, and memory footprint.
@@ -355,7 +359,7 @@ rm -rf "$NUO_HOME"
 
 ---
 
-### Suite 7: Extensibility Verification (MCP & Skills)
+### Suite 7: Extensibility & System Diagnostics (MCP, Skills & Doctor)
 
 #### Scenario 7.1: Skills Discovery & Inspection
 - **Action**:
@@ -366,8 +370,9 @@ rm -rf "$NUO_HOME"
   - Lists built-in and workspace-discovered skills with namespace, version, and description.
 - **Action**:
   ```bash
-  # Inspect specific skill (if available)
-  nuo skill ls | head -n 2
+  # Inspect specific skill
+  nuo skill info "sample" || true
+  nuo skill show "sample" || true
   ```
 
 #### Scenario 7.2: Skill Scaffolding (`nuo skill init`)
@@ -378,7 +383,7 @@ rm -rf "$NUO_HOME"
   rm -rf "smoke-test-skill"
   ```
 - **Expected Outcome**:
-  - Scaffolds a new skill directory with `skill.md` template containing valid frontmatter and metadata.
+  - Scaffolds a new skill directory with standard skill templates and metadata.
 
 #### Scenario 7.3: MCP Server Inspection & Probe
 - **Action**:
@@ -389,59 +394,20 @@ rm -rf "$NUO_HOME"
   - Lists configured Model Context Protocol (MCP) servers defined in `config.toml`.
   - If a server (e.g. `filesystem` or `fetch`) is configured, `nuo mcp probe <server>` connects and enumerates advertised tool schemas.
 
----
-
-### Suite 8: Web Frontend Control Plane (`web/`)
-
-#### Scenario 8.1: Frontend Bootstrap & Asset Build
+#### Scenario 7.4: Storage Integrity & Doctor (`nuo doctor`)
 - **Action**:
   ```bash
-  cd web
-  pnpm install
-  pnpm run check
-  pnpm run test
-  pnpm run build
-  cd ..
+  nuo doctor
   ```
 - **Expected Outcome**:
-  - `pnpm run check` passes TypeScript and Svelte typechecks with zero errors.
-  - `pnpm run test` passes all Vitest unit tests (markdown parser, protocol store).
-  - `pnpm run build` produces static production distribution in `web/dist/`.
-
-#### Scenario 8.2: Live Browser Interaction
-- **Action**:
-  1. Start daemon with known port:
-     ```bash
-     nuo start --port "$NUO_PORT"
-     TOKEN=$(nuo token)
-     echo "Use token: $TOKEN"
-     ```
-  2. Launch web dev server:
-     ```bash
-     cd web && pnpm run dev
-     ```
-  3. Open browser at `http://localhost:5173`.
-  4. Click the connection indicator badge in the header.
-  5. Enter `ws://127.0.0.1:9820` and paste the bearer token.
-- **Expected Outcome**:
-  - Connection status turns green (`Online`).
-  - Session fleet sidebar loads active and past sessions from the daemon's `Monitor` stream.
-  - Creating a new session opens the chat interface.
-  - Sending a message streams assistant tokens in real time.
-  - Tool invocations render interactive cards with collapsible stdout/stderr views.
-
-#### Scenario 8.3: Browser Origin Defense Check
-- **Action**:
-  - Attempt to establish a WebSocket handshake to `ws://127.0.0.1:$NUO_PORT` using a non-loopback origin header (e.g. `Origin: http://evil-site.com`).
-- **Expected Outcome**:
-  - The daemon refuses the handshake with `HTTP/1.1 403 Forbidden` and logs:
-    `"nuo daemon: refused WebSocket handshake from foreign browser origin"`.
+  - Verifies local session database schemas, storage directories, and index consistency.
+  - Reports zero corruption or issues.
 
 ---
 
-### Suite 9: Failure Injection, Edge Cases & Resilience
+### Suite 8: Failure Injection, Edge Cases & Resilience
 
-#### Scenario 9.1: Occupied Port Handling
+#### Scenario 8.1: Occupied Port Handling
 - **Action**:
   ```bash
   # Bind a dummy listener to port 9821
@@ -454,20 +420,20 @@ rm -rf "$NUO_HOME"
   kill $NC_PID 2>/dev/null || true
   ```
 - **Expected Outcome**:
-  - The daemon detects port collision gracefully and reports an error or falls back according to configuration, without crashing the shell or corrupting database files.
+  - The daemon detects port collision gracefully and reports an error, without crashing the shell or corrupting database files.
 
-#### Scenario 9.2: Abrupt Client Disconnect / Reconnect
+#### Scenario 8.2: Abrupt Client Disconnect / Reconnect
 - **Action**:
-  1. Run `nuox` and submit a prompt requiring deep reasoning.
-  2. While the model is streaming, forcefully kill the `nuox` process (`kill -9`).
-  3. Re-launch `nuox --resume`.
+  1. Run `nuo` and submit a prompt requiring deep reasoning.
+  2. While the model is streaming, forcefully kill the `nuo` process (`kill -9`).
+  3. Re-launch `nuo --resume`.
 - **Expected Outcome**:
   - Daemon survives client disconnect without panicking.
   - `--resume` reconnects to the existing session, recovers the transcript up to the last persisted turn, and allows continuing the conversation.
 
-#### Scenario 9.3: Terminal Resize Stress Testing
+#### Scenario 8.3: Terminal Resize Stress Testing
 - **Action**:
-  - In `nuox`, repeatedly rapidly resize the terminal window between 80x24 and 160x50 columns while a response is streaming.
+  - In `nuo`, repeatedly rapidly resize the terminal window between 80x24 and 160x50 columns while a response is streaming.
 - **Expected Outcome**:
   - Layout recalculates without panicking (`nuotc` flexbox distribution clamps properly).
   - Text reflows cleanly without border artifacts or character truncation.
@@ -480,15 +446,15 @@ Prior to tagging and publishing a new release, verify each item:
 
 | Check Category | Verification Step | Pass Criteria | Status |
 | :--- | :--- | :--- | :--- |
-| **Clean Build** | `cargo build --release -p nuo -p nuox` | Zero compilation warnings or errors | [ ] |
+| **Clean Build** | `cargo build --release -p nuo` | Zero compilation warnings or errors | [ ] |
 | **Doc Governance** | `docgov check` | All protocol invariants pass | [ ] |
-| **Type Check** | `cd web && pnpm run check` | Zero Svelte / TypeScript errors | [ ] |
-| **Unit & E2E Tests** | `cargo test --workspace` & `pnpm test` | All automated tests pass | [ ] |
-| **Cold-Start Daemon** | `nuo start --fg` -> `stop` in clean sandbox | Clean startup, token generation, graceful drain | [ ] |
-| **TUI Ergonomics** | Interactive `nuox` prompt and tool approval | Crisp rendering, no CJK glitches, clean exit | [ ] |
-| **Headless CLI** | `nuox run "prompt"` and stdin pipe | Non-interactive execution, correct exit code 0 | [ ] |
-| **Web Host System** | Browser connect to daemon via WebSocket | Live fleet monitoring, streaming chat, approvals | [ ] |
-| **Origin Defense** | Non-loopback origin probe | Foreign origins rejected with 403 Forbidden | [ ] |
+| **Unit & E2E Tests** | `cargo test --workspace` | All automated tests pass | [ ] |
+| **Cold-Start Service** | `nuo serve --port "$NUO_PORT"` | Foreground daemon starts, binds port, drains gracefully on SIGINT | [ ] |
+| **Detached Daemon** | `nuo start` -> `status` -> `token` -> `stop` | Background PID managed cleanly, token generated, clean stop | [ ] |
+| **TUI Ergonomics** | Interactive `nuo` prompt and tool approval | Crisp rendering, no CJK glitches, clean exit | [ ] |
+| **Headless CLI** | `nuo run "prompt"` and stdin pipe | Non-interactive execution, correct exit code 0 | [ ] |
+| **Attach & Fleet** | `nuo attach` and `nuo dashboard` | Interactive picker & full-screen dashboard function smoothly | [ ] |
+| **System Integrity** | `nuo doctor` & `nuo config check` | Stored database and configuration check report zero errors | [ ] |
 | **Cleanup** | Shell exit & sandbox teardown | Terminal state restored, temporary files removed | [ ] |
 
 ---

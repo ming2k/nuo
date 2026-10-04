@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Trust state for one project-authored asset domain.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceTrustState {
     /// The workspace declares no project-level contributions (skills, MCP, hooks, AGENTS.md).
@@ -58,7 +58,7 @@ impl WorkspaceTrustState {
 /// expands to [`TrustDomain::ALL`]. Persisting an aggregate grant would create
 /// a second source of truth and make a concrete domain impossible to revoke.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ts_rs::TS,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum TrustDomain {
@@ -101,7 +101,7 @@ impl TrustDomain {
 }
 
 /// First-class security state attached to every harness snapshot.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceSecuritySnapshot {
     /// Canonical exact workspace root used for persisted decisions.
     pub root: String,
@@ -194,7 +194,7 @@ impl WorkspaceSecuritySnapshot {
 }
 
 /// Specification of an external capability unit subject to attestation (ADR-0243).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AssetSpec {
     /// Physical OS child process (e.g. Stdio MCP server, lifecycle hooks).
@@ -255,7 +255,7 @@ impl AssetSpec {
 }
 
 /// Canonical locator identifying an external capability unit (ADR-0252).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AssetLocator {
     /// User-level MCP server declared in global config.toml.
@@ -355,7 +355,7 @@ fn canonical_root_prefix(root: &str) -> String {
 }
 
 /// Attestation status for an asset in the universal ledger (ADR-0243, ADR-0252).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttestationStatus {
     /// Asset is quarantined and blocked from physical execution until user attestation.

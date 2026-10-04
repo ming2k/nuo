@@ -20,23 +20,20 @@ pub const TAVILY_SEARCH_ENDPOINT: &str = "https://api.tavily.com/search";
 pub const BOCHA_SEARCH_ENDPOINT: &str = "https://api.bochaai.com/v1/web-search";
 pub const JINA_READER_ENDPOINT: &str = "https://r.jina.ai/";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WebProviderAxis {
     Search,
     Reader,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WebCredentialRequirement {
     None,
     Optional,
     Required,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WebCredentialStatus {
     NotRequired,
     Environment,
@@ -45,15 +42,13 @@ pub enum WebCredentialStatus {
     RequiredMissing,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WebEndpointRequirement {
     Fixed,
     UserSupplied,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebProviderCapability {
     pub axis: WebProviderAxis,
     pub id: String,
@@ -67,9 +62,7 @@ pub struct WebProviderCapability {
 
 macro_rules! provider_enum {
     ($name:ident { $($variant:ident => $id:literal),+ $(,)? }) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ts_rs::TS)]
-        #[ts(rename_all = "lowercase")]
-        #[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub enum $name { $($variant),+ }
 
         impl $name {

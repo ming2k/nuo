@@ -29,12 +29,12 @@ pub const MAX_TODOS: usize = 50;
 /// Stable, monotonic identifier for a single todo item. Opaque to callers —
 /// display and references use position/content, not this value. Serialized
 /// transparently so persisted lists stay compact.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct TodoId(pub u64);
 
 /// Lifecycle of a single todo item.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TodoStatus {
     Pending,
@@ -90,7 +90,7 @@ impl TodoStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TodoItem {
     pub id: TodoId,
     pub content: String,
@@ -110,7 +110,7 @@ pub struct TodoItem {
 /// [`TodoItem::id`]. Invariants (unique ids, ≤ [`MAX_TODOS`] items, ≤ one
 /// `InProgress`) are enforced by the constructors and mutators, never by
 /// callers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TodoList {
     #[serde(default)]
     pub items: Vec<TodoItem>,

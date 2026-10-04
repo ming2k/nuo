@@ -27,6 +27,8 @@ use std::path::PathBuf;
 /// What the user asked the binary to do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
+    /// Interactive TUI session or headless run (`nuox` unified engine per ADR-0005).
+    Interactive(Vec<String>),
     Session(SessionAction),
     Daemon(DaemonAction),
     Config(ConfigAction),
@@ -273,6 +275,31 @@ const SKILL_SUBS: &[Spec] = &[Spec {
 }];
 
 const COMMANDS: &[Spec] = &[
+    Spec {
+        name: "serve",
+        names: &["serve"],
+        about: "run the daemon service in the foreground",
+    },
+    Spec {
+        name: "run",
+        names: &["run"],
+        about: "execute a headless turn (-p / run) streaming to stdout",
+    },
+    Spec {
+        name: "attach",
+        names: &["attach"],
+        about: "join an existing or hosted session in the interactive TUI",
+    },
+    Spec {
+        name: "dashboard",
+        names: &["dashboard"],
+        about: "open the full-screen interactive session dashboard",
+    },
+    Spec {
+        name: "settings",
+        names: &["settings"],
+        about: "open the interactive settings overlay",
+    },
     Spec {
         name: "start",
         names: &["start"],
@@ -557,15 +584,39 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     }
 
     let Some(cmd) = rest.first().cloned() else {
+        return ok(Mode::Interactive(args.to_vec()));
+    };
+
+    if cmd == "daemon" {
+        return Err(
+            "the 'daemon' noun was removed: use 'nuo start|stop|status|token' or 'nuo serve'"
+                .to_string(),
+        );
+    }
+
+    if cmd == "-i"
+        || cmd == "--interactive"
+        || cmd == "-p"
+        || cmd.starts_with("-p=")
+        || cmd == "run"
+        || cmd == "attach"
+        || cmd == "dashboard"
+        || cmd == "settings"
+    {
+        return ok(Mode::Interactive(args.to_vec()));
+    }
+
+    if cmd == "serve" {
+        let flags = parse_daemon_start_flags(&rest[1..]).map_err(|e| e.0)?;
         return ok(Mode::Daemon(DaemonAction::Start {
             foreground: true,
-            port: None,
-            public: false,
-            no_local_auth: false,
-            idle_exit_minutes: None,
-            shutdown_grace_secs: None,
+            port: flags.port,
+            public: flags.public,
+            no_local_auth: flags.no_local_auth,
+            idle_exit_minutes: flags.idle_exit_minutes,
+            shutdown_grace_secs: flags.shutdown_grace_secs,
         }));
-    };
+    }
 
     if cmd.starts_with('-') {
         let flags = parse_daemon_start_flags(&rest).map_err(|e| e.0)?;
@@ -587,10 +638,13 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     };
 
     if resolve(&cmd, COMMANDS).is_none() && !cmd.starts_with('-') {
-        let tip = suggest_command(&cmd)
-            .map(|s| format!("\n\n  tip: a similar command exists: '{s}'"))
-            .unwrap_or_default();
-        return Err(format!("unrecognized command '{cmd}'{tip}"));
+        let tip = suggest_command(&cmd);
+        if let Some(s) = tip {
+            return Err(format!("unrecognized command '{cmd}'\n\n  tip: a similar command exists: '{s}'"));
+        } else {
+            // Unrecognized word without command suggestion: treat as interactive session prompt
+            return ok(Mode::Interactive(args.to_vec()));
+        }
     }
 
     // Reachable only when `cmd` matched a spec above (the match arm's
@@ -599,6 +653,20 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         return Err(format!("unrecognized command '{cmd}'"));
     };
     let mode = match spec.name {
+        "serve" => {
+            let flags = parse_daemon_start_flags(&extra).map_err(|e| e.0)?;
+            Mode::Daemon(DaemonAction::Start {
+                foreground: true,
+                port: flags.port,
+                public: flags.public,
+                no_local_auth: flags.no_local_auth,
+                idle_exit_minutes: flags.idle_exit_minutes,
+                shutdown_grace_secs: flags.shutdown_grace_secs,
+            })
+        }
+        "run" | "attach" | "dashboard" | "settings" => {
+            Mode::Interactive(args.to_vec())
+        }
         "start" => {
             let flags = parse_daemon_start_flags(&extra).map_err(|e| e.0)?;
             Mode::Daemon(DaemonAction::Start {
@@ -1088,9 +1156,17 @@ mod surface_tests {
     }
 
     #[test]
-    fn bare_invocation_starts_foreground_daemon() {
+    fn bare_invocation_starts_interactive_tui() {
         assert!(matches!(
             parse(&[]).unwrap().mode,
+            Mode::Interactive(_)
+        ));
+    }
+
+    #[test]
+    fn serve_starts_foreground_daemon() {
+        assert!(matches!(
+            parse(&["serve"]).unwrap().mode,
             Mode::Daemon(DaemonAction::Start {
                 foreground: true,
                 ..
@@ -1129,9 +1205,12 @@ mod surface_tests {
     }
 
     #[test]
-    fn tui_commands_are_not_accepted_by_muta() {
+    fn tui_commands_route_to_interactive() {
         for command in ["run", "attach", "dashboard", "settings"] {
-            assert!(parse(&[command]).is_err(), "{command}");
+            assert!(
+                matches!(parse(&[command]).unwrap().mode, Mode::Interactive(_)),
+                "{command}"
+            );
         }
     }
 

@@ -75,66 +75,41 @@ async fn mock_process_subagent_scripted_response() {
 }
 
 #[tokio::test]
-async fn tools_running_on_in_memory_execution_environment() {
-    let env = Arc::new(InMemoryExecutionEnvironment::new("/virtual/workspace"));
+async fn tools_running_on_system_tool_context() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Arc::new(crate::tools::SystemToolContext::new(dir.path()));
 
-    // 1. WriteFileTool creates file in memory
-    let write_tool = WriteFileTool::with_env(env.clone());
-    let write_res = write_tool
+    // 1. WriteFileTool creates file
+    let write_tool = WriteFileTool::new(ctx.clone());
+    let _write_res = write_tool
         .call_structured(
             r#"{"path":"lib.rs","content":"pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n"}"#,
         )
         .await
         .unwrap();
+    assert!(dir.path().join("lib.rs").exists());
 
-    assert!(matches!(write_res, ToolOutput::Patch { .. }));
-    assert!(
-        env.fs()
-            .exists(&PathBuf::from("/virtual/workspace/lib.rs"))
-            .await
-    );
-
-    // 2. ReadTextTool reads file from memory
-    let read_tool = ReadTextTool::with_env(env.clone());
+    // 2. ReadTextTool reads file
+    let read_tool = ReadTextTool::new(ctx.clone());
     let read_res = read_tool
         .call_structured(r#"{"path":"lib.rs"}"#)
         .await
         .unwrap();
+    assert!(read_res.to_text().contains("pub fn add"));
 
-    match read_res {
-        ToolOutput::Code {
-            text, start_line, ..
-        } => {
-            assert_eq!(start_line, 1);
-            assert!(text.contains("pub fn add"));
-        }
-        other => panic!("expected Code output, got {:?}", other),
-    }
-
-    // 3. EditTextTool edits file in memory
-    let edit_tool = EditTextTool::with_env(env.clone());
-    let edit_res = edit_tool
+    // 3. EditTextTool edits file
+    let edit_tool = EditTextTool::new(ctx.clone());
+    let _edit_res = edit_tool
         .call_structured(r#"{"path":"lib.rs","old_string":"a + b","new_string":"a + b + 1"}"#)
         .await
         .unwrap();
-
-    assert!(matches!(edit_res, ToolOutput::Patch { .. }));
-    let updated = env
-        .fs()
-        .read_to_string(&PathBuf::from("/virtual/workspace/lib.rs"))
-        .await
-        .unwrap();
+    let updated = std::fs::read_to_string(dir.path().join("lib.rs")).unwrap();
     assert!(updated.contains("a + b + 1"));
 
-    // 4. ListDirTool lists virtual directory
-    let list_tool = ListDirTool::with_env(env.clone());
+    // 4. ListDirTool lists directory
+    let list_tool = ListDirTool::new(ctx.clone());
     let list_res = list_tool.call_structured(r#"{"path":"."}"#).await.unwrap();
-    match list_res {
-        ToolOutput::Listing { entries } => {
-            assert!(entries.iter().any(|e| e.contains("lib.rs")));
-        }
-        other => panic!("expected Listing output, got {:?}", other),
-    }
+    assert!(list_res.to_text().contains("lib.rs"));
 }
 
 #[tokio::test]

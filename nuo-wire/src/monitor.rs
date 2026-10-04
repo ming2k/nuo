@@ -20,8 +20,7 @@ use crate::events::SessionForkKind;
 /// Handshake action selecting a daemon-observability stream instead of a
 /// session attach (ADR-0093 §2). Sent as the first frame:
 /// `{"type":"Select","action":{"monitor":{"watch":…,"include_idle":…}}}`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorAction {
     /// Keep the connection open and stream `MonitorEvent::Diff`s after the
     /// initial snapshot (`muta status --watch`, live control apps). When
@@ -40,9 +39,8 @@ pub struct MonitorAction {
 /// always [`Hosted`](Self::Hosted); the field is kept on the wire (with its
 /// serde default) so rows produced before the distinction was removed still
 /// deserialize.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum SessionHosting {
     /// The session's driver lives inside the serving host process (an
     /// `attach`-created or lazily resumed session). The host owns its
@@ -66,9 +64,8 @@ impl std::fmt::Display for SessionHosting {
 }
 
 /// A stream frame about the daemon as a whole.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum MonitorEvent {
     /// The full current state, sent exactly once as the first frame after the
     /// monitor handshake. Sessions are sorted by `updated_at`, newest first.
@@ -107,9 +104,8 @@ pub enum MonitorEvent {
 /// User-visible durability health of the daemon's single-writer persistence
 /// actor (ADR-0196 D4). While not `Healthy`, durability is degraded: every
 /// frontend should retain a visible banner until the next `Healthy` event.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum PersistenceHealth {
     /// Serving normally. Clears a previously shown degradation banner.
     Healthy,
@@ -147,8 +143,7 @@ impl PersistenceHealth {
 }
 
 /// The daemon-level snapshot: who is serving and what is happening right now.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MonitorSnapshot {
     pub project_root: String,
     /// Unix seconds when the daemon process started (from the discovery
@@ -173,8 +168,7 @@ pub struct MonitorSnapshot {
 /// One row of the daemon-level task tree (ADR-0190 D6): identity, spec
 /// label, lifecycle state, and ownership. Content-free — the transcript
 /// stays in the session, the full log stays on disk (path included).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MonitoredTask {
     pub id: String,
     /// Human label (job label, or the command's first word).
@@ -201,8 +195,7 @@ pub struct MonitoredTask {
 /// One row of the control panel: a hosted session's identity, status, and
 /// accounting. Deliberately a superset of nothing — every field is cheap and
 /// content-free (see module docs).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MonitoredSession {
     pub id: String,
     /// Stored AI/manual title, falling back to the first-prompt preview.
@@ -291,9 +284,8 @@ impl MonitoredSession {
 /// [`ParentStatus`](crate::ParentStatus) badge (ADR-0017): a coarse,
 /// panel-facing classification, not the protocol state — the round lifecycle
 /// itself stays binary (`RoundLifecycle`, ADR-0078).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum SessionStatus {
     /// No round running, nothing waiting on a human.
     Idle,

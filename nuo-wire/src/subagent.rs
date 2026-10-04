@@ -217,6 +217,7 @@ pub const DEBUG_TOOLS: &[&str] = &[
     "search_web",
     // Execution observation for builds, tests, gdb, sanitizers.
     "run_command",
+    "execute_command",
 ];
 
 impl SubAgentProfile {

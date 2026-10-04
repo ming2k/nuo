@@ -115,12 +115,18 @@ fn registry_collects_all_self_registered_tools() {
     builder.provide(Arc::new(SkillRegistry::empty()));
     builder.provide(nuo_harness::AgentIdentity::default());
     let ctx = builder.build();
-    let collected = collect_toolset(&ctx);
+    let mut collected = collect_toolset(&ctx);
+    let sys_ctx = Arc::new(nuo_tool_fs::SystemToolContext::new("."));
+    for tool in nuo_tool_fs::create_fs_tools(sys_ctx.clone()) {
+        collected.upsert(tool);
+    }
+    for tool in nuo_tool_exec::create_exec_tools(sys_ctx) {
+        collected.upsert(tool);
+    }
     let names: std::collections::HashSet<&str> = collected.capability_names().collect();
     for expected in [
-        "run_command",
+        "execute_command",
         "read_text",
-        "read_image",
         "write_file",
         "edit_text",
         "search_text",
@@ -131,8 +137,7 @@ fn registry_collects_all_self_registered_tools() {
     ] {
         assert!(
             names.contains(expected),
-            "self-registered tool '{expected}' missing from collected set; \
-             a crate's inventory submission was likely stripped by the linker"
+            "tool '{expected}' missing from collected set"
         );
     }
 }

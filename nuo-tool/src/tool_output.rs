@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// trait (its `Vec<ImagePart>` base64 payloads make structural equality
 /// expensive and uninteresting). Compare via [`ToolOutput::to_text`] or by
 /// pattern-matching on the variant in tests.
-#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ToolOutput {
     /// Plain text or markdown prose. The back-compat variant produced by the
     /// default [`Tool::call_structured`](crate::Tool::call_structured) for any
@@ -187,7 +187,7 @@ pub enum ToolOutput {
 }
 
 /// Single search hit within [`ToolOutput::WebSearch`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebSearchHit {
     pub title: String,
     pub url: String,
@@ -196,7 +196,7 @@ pub struct WebSearchHit {
 }
 
 /// Kind of file change in a [`ToolOutput::Patch`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PatchOp {
     /// A new file was created (`old` is empty).
     Create,

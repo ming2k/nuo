@@ -12,6 +12,7 @@ pub use local::{
 pub use middleware::{SecretScrubMiddleware, WorkspaceJailMiddleware};
 
 #[cfg(test)]
+#[allow(unused_imports)]
 pub(crate) use local::workspace_tests::workspace_tests_outside_scratch;
 
 #[cfg(test)]

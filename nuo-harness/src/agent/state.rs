@@ -160,7 +160,7 @@ impl Agent {
             tool_manager,
             todos,
             round_counter,
-            permissions: crate::permission_store::PermissionStore::new(),
+            permissions: Arc::new(crate::permission_store::PermissionStore::new()),
             additional_workspace_roots: Vec::new(),
             workspace_security: Arc::new(std::sync::Mutex::new(
                 nuo_wire::WorkspaceSecuritySnapshot::default(),
@@ -303,6 +303,13 @@ impl Agent {
         for tool in self.installed_tools() {
             builder = builder.tool_arc(tool);
         }
+        let approval = crate::governance::HarnessApprovalHandler::new(
+            Arc::clone(&self.permissions),
+            Arc::new(std::sync::RwLock::new(
+                self.bash_policy.read().unwrap_or_else(|e| e.into_inner()).clone(),
+            )),
+        );
+        builder = builder.with_approval_handler_arc(Arc::new(approval));
         builder.build().await
     }
 

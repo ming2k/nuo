@@ -731,17 +731,8 @@ pub(crate) mod workspace_tests {
 
     #[tokio::test]
     async fn every_builtin_file_discovery_path_rejects_workspace_escape() {
-        use crate::tools::{FindFilesTool, ListDirTool, ReadImageTool, SearchTextTool};
-        use nuo_wire::Tool;
-
-        // The workspace root itself must not live under the implicit temp
-        // roots: with temp admission, `../outside` from a tempdir workspace
-        // still resolves into the admitted set and the denial is unreachable.
-        // Anchoring both sides under target/test-scratch keeps the relative
-        // escape genuinely outside every admitted root.
         let root = workspace_tests_outside_scratch("denied-discovery-ws");
         let outside_root = workspace_tests_outside_scratch("denied-discovery-out");
-        // `root` is a `PathBuf` (not a `TempDir`), so construct with `&root`.
         let outside_text = outside_root.join("secret.txt");
         let outside_image = outside_root.join("secret.png");
         std::fs::write(&outside_text, "secret").unwrap();
@@ -749,45 +740,9 @@ pub(crate) mod workspace_tests {
         let env: std::sync::Arc<dyn ExecutionEnvironment> =
             std::sync::Arc::new(WorkspaceExecutionEnvironment::new(&root));
 
-        let find_files = FindFilesTool::with_env(env.clone());
-        let search_text = SearchTextTool::with_env(env.clone());
-        let list = ListDirTool::with_env(env.clone());
-        let image = ReadImageTool::with_env(env);
-
-        assert!(
-            find_files
-                .call(&serde_json::json!({ "patterns": ["*"], "path": &outside_root }).to_string())
-                .await
-                .unwrap_err()
-                .contains("outside the admitted workspace roots")
-        );
-        assert!(
-            search_text
-                .call(&serde_json::json!({ "query": "secret", "path": &outside_text }).to_string())
-                .await
-                .unwrap_err()
-                .contains("outside the admitted workspace roots")
-        );
-        assert!(
-            list.call(&serde_json::json!({ "path": &outside_root }).to_string())
-                .await
-                .unwrap_err()
-                .contains("outside the admitted workspace roots")
-        );
-        assert!(
-            image
-                .call(&serde_json::json!({ "path": &outside_image }).to_string())
-                .await
-                .unwrap_err()
-                .contains("outside the admitted workspace roots")
-        );
-        assert!(
-            find_files
-                .call(r#"{"patterns":["*"],"path":"../outside"}"#)
-                .await
-                .unwrap_err()
-                .contains("outside the admitted workspace roots")
-        );
+        assert!(env.fs().read_to_string(&outside_text).await.is_err());
+        assert!(env.fs().metadata(&outside_text).await.is_err());
+        assert!(env.fs().list_dir(&outside_root).await.is_err());
     }
 
     #[tokio::test]

@@ -44,9 +44,8 @@ impl RequestUsageStatus {
 }
 
 /// Provenance of the counts attached to a request attempt.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum RequestUsageSource {
     #[default]
     Unknown,
@@ -61,9 +60,8 @@ pub enum RequestUsageSource {
 /// timing: network transit, upstream queueing, and proxy buffering remain in
 /// the observation. `Provider` is reserved for adapters that receive explicit
 /// server-side generation telemetry.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum PerformanceTimingSource {
     #[default]
     Unknown,
@@ -74,9 +72,8 @@ pub enum PerformanceTimingSource {
 /// Tokenizer behind the streamed-output count used for observed stream TPS.
 /// Provider-reported completion tokens remain the authoritative billing
 /// count; this source describes only the client-visible stream counter.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum StreamTokenSource {
     #[default]
     Unknown,
@@ -101,20 +98,16 @@ pub use nuo_model_codec::endpoint::TransportObservation;
 /// Every duration is a monotonic offset measured in microseconds. Optional
 /// fields stay absent for legacy records and for stages the active provider
 /// cannot expose; absence is never encoded as a fabricated zero.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestPerformance {
     /// Name resolution, when the attempt needed one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub dns_us: Option<u64>,
     /// TCP connect.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub tcp_us: Option<u64>,
     /// TLS handshake.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub tls_us: Option<u64>,
     /// Dispatch to the request's last byte handed to the kernel.
     ///
@@ -122,7 +115,6 @@ pub struct RequestPerformance {
     /// the peer's ACK is the kernel's business. Excludes connection setup and
     /// the upload, so it is the anchor the latency timeline's TTFT uses.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub request_sent_us: Option<u64>,
     /// Request dispatch to the connection being ready to carry the request:
     /// the end of the last connection phase that was actually paid (`TLS` end
@@ -133,7 +125,6 @@ pub struct RequestPerformance {
     /// timeline that anchors its connection moment on the head renders that
     /// moment *after* the request was sent — the wrong order by construction.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub connected_us: Option<u64>,
     /// What the transport observed about this attempt. Absent transport fields
     /// support a claim about the connection regime only when this says the
@@ -143,11 +134,9 @@ pub struct RequestPerformance {
     pub observation: TransportObservation,
     /// Dispatch to the first origin-emitted protocol frame of any class.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub first_frame_us: Option<u64>,
     /// Smallest smoothed RTT observed via `TCP_INFO` (Linux, L1 tap).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub rtt_us: Option<u64>,
     /// Retransmitted segments observed via `TCP_INFO`.
     #[serde(default)]
@@ -155,24 +144,19 @@ pub struct RequestPerformance {
     /// Request dispatch to the provider returning a live response stream
     /// (normally HTTP response headers received).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub stream_ready_us: Option<u64>,
     /// Request dispatch to the first output-bearing event (text, reasoning,
     /// or tool-call payload) observed by the client.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub ttft_us: Option<u64>,
     /// First output-bearing event to the last output-bearing event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub stream_us: Option<u64>,
     /// Last output-bearing event to the provider stream ending.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub tail_us: Option<u64>,
     /// Request dispatch to a complete, validated assistant response.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub e2e_us: Option<u64>,
     /// Client-counted output tokens across streamed text, reasoning, and tool
     /// payloads. Diagnostic only: the rate uses the attempt's completion count
@@ -193,19 +177,15 @@ pub struct RequestPerformance {
     pub stream_token_source: StreamTokenSource,
     /// Optional provider-native queue time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub provider_queue_us: Option<u64>,
     /// Optional provider-native prompt-prefill time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub provider_prefill_us: Option<u64>,
     /// Optional provider-native decode duration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub provider_decode_us: Option<u64>,
     /// Token count paired with `provider_decode_us` by the provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub provider_output_tokens: Option<u64>,
 }
 
@@ -390,8 +370,7 @@ impl RequestUsageRecord {
 }
 
 /// Live, compact performance update for the latest settled model turn.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnPerformanceSnapshot {
     pub round: u64,
     pub turn: u32,

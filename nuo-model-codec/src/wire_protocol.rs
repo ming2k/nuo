@@ -12,7 +12,6 @@
     Default,
     serde::Serialize,
     serde::Deserialize,
-    ts_rs::TS,
 )]
 pub enum WireProtocol {
     #[default]

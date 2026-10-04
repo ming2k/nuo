@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// output lands. Lets the UI render partial output (e.g. a bash command's
 /// stdout as it arrives) instead of freezing on a spinner until the process
 /// exits.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 // The Web app has always called this `ToolStreamFrame` (`ToolStream` is the
 // event variant that carries it); keep the established TS name.
 pub enum ToolStream {
@@ -25,7 +25,7 @@ pub enum ToolStream {
 }
 
 /// How a child process's input channels are provisioned for one invocation.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InputContract {
     /// Immediate-EOF stdin (`/dev/null`), no controlling terminal, no runtime
     /// supervision. The default hard floor.
@@ -46,7 +46,7 @@ pub enum InputContract {
 /// The pre-spawn classifier's advisory guess about what an interactive command
 /// will ask for. Advisory only: correctness rests on the runtime examiner,
 /// which reports the command's *actual* wait state.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputExpectation {
     /// Human-facing instruction shown in the operator input panel.
     pub prompt: String,
@@ -77,7 +77,7 @@ pub struct InputPrompt {
 /// A healthy `Exited` run is silent; every other variant renders a coloured
 /// marker. Back-compat: restored sessions without this field deserialize as
 /// [`ShellTermination::Exited`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ShellTermination {
     /// The child exited on its own (with whatever `exit` code). The normal
     /// case; the footer reads only `exit N` when non-zero.
@@ -120,7 +120,7 @@ pub enum ShellTermination {
 /// stderr distinctly while still emitting lines in their true arrival order
 /// (interleaved), instead of the all-stdout-then-all-stderr split that lost
 /// timing for tools like `cargo`/`git`/`npm`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ShellStream {
     /// Standard output.
     Out,
@@ -133,7 +133,7 @@ pub enum ShellStream {
 /// picks the colour), which preserves stdout/stderr interleaving. The
 /// model-facing text path keeps using the flat `stdout`/`stderr` fields, so the
 /// two audiences stay decoupled.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShellLine {
     pub stream: ShellStream,
     pub text: String,

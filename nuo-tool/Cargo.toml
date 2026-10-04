@@ -16,7 +16,6 @@ tokio-util = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
-ts-rs = { workspace = true }
 
 [dev-dependencies]
 toml = { workspace = true }

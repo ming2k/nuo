@@ -17,9 +17,8 @@ fn unix_now_ms() -> u64 {
 
 /// What an entry is. Open enum: new kinds extend the payload contract; readers
 /// must preserve unknown kinds verbatim (unknown deserialises as `Unknown`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum EntryKind {
     /// A transcript message (user / assistant / system / tool).
     Message,
@@ -32,9 +31,8 @@ pub enum EntryKind {
 /// dialogue: real user input, model output, tool results. The rich structured
 /// classifier (`InjectionOrigin`) travels inside the payload; the envelope
 /// value is only the projection-relevant class.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum EntryOrigin {
     /// Program-injected content (system reminders, steering notes, ...).
     Harness,
@@ -45,8 +43,7 @@ pub enum EntryOrigin {
 
 /// Reference to the dedicated session that durably records a subagent run
 /// (ADR-0186 §6). Replaces inline nested transcripts.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(optional_fields, export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubagentRef {
     /// The subagent session's id (its own `sessions` row).
     pub session_id: String,
@@ -63,8 +60,7 @@ pub struct SubagentRef {
 
 /// Kind-specific payload of a message entry. Everything that is not an
 /// envelope column (see ADR-0186 §3).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(optional_fields, export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MessagePayload {
     /// Tool calls declared by an assistant message. `call.id` pairs with the
     /// matching tool-result entry's `tool_call_id`.
@@ -87,7 +83,6 @@ pub struct MessagePayload {
     /// signature, ...). Never inspected by the harness core; round-trips
     /// verbatim through every projection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "Record<string, unknown> | undefined")]
     pub provider_meta: Option<serde_json::Map<String, serde_json::Value>>,
     /// Dedicated subagent session this result points at (replaces inline
     /// nested transcripts).
@@ -114,9 +109,8 @@ pub struct MessagePayload {
 }
 
 /// Kind-specific payload of an entry.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum EntryPayload {
     /// A transcript message. Boxed: the payload dominates the entry size and
     /// entries are cloned wholesale on every turn commit (ADR-0187).
@@ -129,8 +123,7 @@ pub enum EntryPayload {
 
 /// Working-state snapshot carried by a `state` entry. Fields are additive;
 /// consumers derive the current state from the newest `state` entry.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(optional_fields, export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct StatePayload {
     /// The unified task-list mirror at the time of the entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -140,8 +133,7 @@ pub struct StatePayload {
 /// An immutable transcript fact (ADR-0186 §2). `seq` is the entry's position
 /// **in one session** (materialized from `entry_memberships`); the same entry
 /// shared across a fork carries the same id with per-session seq values.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(optional_fields, export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TranscriptEntry {
     /// Global identity — stable across forks and re-memberships.
     pub id: String,
@@ -272,9 +264,8 @@ impl TranscriptEntry {
 
 /// What a projection directive does. Open to extension; readers preserve
 /// unknown kinds verbatim.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum DirectiveKind {
     /// Tool-result bodies are replaced by placeholders in views.
     Prune,
@@ -285,9 +276,8 @@ pub enum DirectiveKind {
 }
 
 /// Kind-specific payload of a projection directive.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum DirectivePayload {
     /// Tool results whose bodies are replaced by informative placeholders in
     /// views. Originals stay durably available (blob / archived entry).
@@ -318,8 +308,7 @@ pub enum DirectivePayload {
 
 /// One pruned tool result: the call it answered and the informative
 /// placeholder that replaces its body in views.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(optional_fields, export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrunedToolOutput {
     pub tool_call_id: String,
     /// Placeholder text presented in views (e.g. "[tool output elided: …]").
@@ -328,8 +317,7 @@ pub struct PrunedToolOutput {
 
 /// One pruned visual media artifact (e.g. user-uploaded image): the entry membership seq
 /// and the informative placeholder invoice that replaces its body in views (ADR-0285).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(optional_fields, export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrunedMediaOutput {
     pub seq: u64,
     /// Placeholder invoice text presented in views.
@@ -338,8 +326,7 @@ pub struct PrunedMediaOutput {
 
 /// A durable projection decision (ADR-0186 §2). Appending a directive is the
 /// only effect a projection has on storage.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(optional_fields, export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectionDirective {
     /// The directive's own total order within the session.
     pub seq: u64,

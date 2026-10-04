@@ -1,0 +1,27 @@
+[package]
+name = "nuo-tool-fs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Filesystem inspection, mutation, and search tools for Nuo cognitive agents"
+
+[dependencies]
+async-trait = { workspace = true }
+glob = { workspace = true }
+ignore = { workspace = true }
+nuo-host = { workspace = true }
+nuo-tool = { workspace = true }
+regex = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+similar = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "rt"] }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

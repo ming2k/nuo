@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 ///   than failing to parse, and
 /// - the cross-process union merge can keep first-seen entries verbatim
 ///   without having to fabricate an origin.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HistoryEntry {
     /// The user's literal prompt text, sent verbatim to the agent.
     pub text: String,
@@ -179,8 +179,7 @@ pub fn merge_history(
 /// title so a hit is presentable without a second round-trip. The snippet
 /// carries FTS `<b>`/`</b>` highlight markers; renderers that cannot show
 /// emphasis strip them.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HistorySearchHit {
     /// The transcript entry that matched (stable entry identity).
     pub entry_id: String,
@@ -190,7 +189,6 @@ pub struct HistorySearchHit {
     pub workspace: String,
     /// Stored AI/manual title of the owning session, when one exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub session_title: Option<String>,
     /// Role of the matched entry (`user` / `assistant` / `system` / `tool`).
     pub role: String,

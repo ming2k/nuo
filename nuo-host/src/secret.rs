@@ -16,9 +16,8 @@ use serde::{Deserialize, Serialize};
 /// Serde is transparent: the value (de)serializes exactly like a plain
 /// `String`, so on-disk shapes (`config.toml`, `credentials.toml`,
 /// `auth.toml`) are unchanged and existing files need no migration.
-#[derive(Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-#[ts(type = "string")]
 pub struct SecretString(String);
 
 impl SecretString {

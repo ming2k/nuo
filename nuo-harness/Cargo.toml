@@ -13,8 +13,11 @@ nuo-persistence = { workspace = true }
 nuo-host = { workspace = true }
 nuo-providers = { workspace = true }
 nuo-agent = { workspace = true }
-nuo-tools-web = { workspace = true }
-nuo-tools-code = { workspace = true }
+nuo-code = { workspace = true }
+nuo-tool-fs = { workspace = true }
+nuo-tool-exec = { workspace = true }
+nuo-tool-web = { workspace = true }
+nuo-tool-ast = { workspace = true }
 serde_yaml = { workspace = true }
 dirs = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }

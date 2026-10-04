@@ -3,9 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 /// Time window categorization for periodic rate limits / quotas.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum QuotaWindowKind {
     /// 5-hour rolling limit window (e.g. Antigravity / Claude / Codex).
     Rolling5Hour,
@@ -32,8 +31,7 @@ impl QuotaWindowKind {
 }
 
 /// Detailed state of one periodic quota bucket / window.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct QuotaWindowBucket {
     /// Window type (5h rolling, daily, weekly, monthly, custom).
     pub window: Option<QuotaWindowKind>,
@@ -62,16 +60,14 @@ pub struct QuotaWindowBucket {
 }
 
 /// A set of periodic quota buckets (e.g. per-model or multi-window combinations).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PeriodicQuota {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub buckets: Vec<QuotaWindowBucket>,
 }
 
 /// Balance, credits, and spending limit details for pay-as-you-go or prepaid accounts.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct BalanceQuota {
     /// Currency code (e.g. "CNY", "USD") or credit unit.
     pub currency: String,
@@ -96,17 +92,15 @@ pub struct BalanceQuota {
 }
 
 /// Concurrency and request / token rate limits.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RateLimitSpec {
     pub requests: i64,
     pub interval: String,
 }
 
 /// Typed classification of a provider's quota / billing architecture.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum ProviderQuotaData {
     /// Pure periodic window limits (e.g. Antigravity, Claude, ChatGPT subscription).
     Periodic(PeriodicQuota),
@@ -124,8 +118,7 @@ pub enum ProviderQuotaData {
 }
 
 /// Generic normalized provider usage / quota / balance info.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ProviderUsage {
     /// High-level plan / account tier badge (e.g. "Google AI Premium", "Pay-as-you-go", "Tier 2").
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -148,8 +141,7 @@ pub struct ProviderUsage {
 }
 
 /// One named metric in a provider's usage / quota report.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UsageMetric {
     /// Metric label, e.g. "Total Balance", "Granted Balance", "Rate Limit".
     pub label: String,
@@ -161,9 +153,8 @@ pub struct UsageMetric {
 }
 
 /// State of a connection's usage / quota retrieval.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", content = "data", rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum ConnectionUsageState {
     /// Provider does not support remote usage querying.
     #[default]
@@ -181,7 +172,7 @@ use crate::model::{Availability, RouteCapabilities};
 use crate::reasoning::ReasoningSupport;
 
 /// Provider model info advertised by a connection.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderModelInfo {
     /// Wire model id. Mirrors an entry in [`ProviderPickerRow::models`].
     pub model: String,
@@ -229,8 +220,7 @@ impl ProviderModelInfo {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConnectionDetail {
     /// Connection name — the connection's identity (ADR-0201).
     pub name: String,

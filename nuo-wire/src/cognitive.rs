@@ -312,7 +312,7 @@ impl HarnessTask for SessionTitleTask {
 
 /// The resume-time "working memory" projection of a session: a headline, the
 /// user's intent, and a running checklist of what has happened.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SessionDigest {
     /// Cleaned, concise title (3-7 words) — the picker row's headline.

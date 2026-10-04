@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
 /// How a user-defined connection authenticates (ADR-0267).
-#[derive(Debug, Clone, PartialEq, Eq, Default, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ConnectionAuth {
     /// Bearer from `api_key_env` (env first) or inline `api_key`.
     #[default]
@@ -154,9 +153,8 @@ impl ConnectionAuth {
 
 /// Which OAuth login flow to run. Carried by [`crate::events::AgentRequest::
 /// ConnectConnection`] so the TUI picks the method, not the harness.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum LoginMethod {
     /// RFC 8628 device-code grant — headless / VPS / SSH / Docker. The default:
     /// works anywhere, prints a URL + short code the user enters on any device.

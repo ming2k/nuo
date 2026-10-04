@@ -38,13 +38,16 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 
 ┌────────────────────────────────────────────────────────┐
 │  Cluster C: Application & Subsystem Host Suite         │
-│  • nuo (daemon), nuox (terminal client)                │
+│  • nuo (daemon & unified CLI coordinator)              │
+│  • nuo-server (headless daemon container runtime)      │
+│  • nuo-tui (terminal presentation view library)        │
 │  • nuo-client (SDK), nuo-host (host environment)       │
 │  • nuo-agent (cognitive loop), nuo-wire (domain & wire) │
 │  • nuo-tool, nuo-tool-derive (tool specifications)     │
 │  • nuo-model-codec (dialect translation & streaming)   │
 │  • nuo-harness (orchestrator), nuo-persistence (store) │
 │  • nuo-providers (catalog & auth), nuo-mcp (MCP)       │
+│  • nuo-code (code intelligence), tools/* (tools)       │
 │  ➜ Versioning: Unified Lockstep                        │
 │  ➜ Manifest: Declares `version.workspace = true`       │
 └────────────────────────────────────────────────────────┘
@@ -56,8 +59,9 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 | :--- | :--- | :--- | :--- | :--- |
 | **`acp`** | **Cluster B** | Universal inter-agent communication & channels | Explicit `version = "0.0.1"` | Independent crates.io package |
 | **`nuotc`** | **Cluster A** | Domain-free 2D terminal canvas & diffing | Explicit `version = "0.0.1"` | Independent crates.io package |
-| **`nuo`** | **Cluster C** | Background daemon and session host | `version.workspace = true` | Binary distribution |
-| **`nuox`** | **Cluster C** | Semantic terminal interactive client (TUI) | `version.workspace = true` | Binary distribution |
+| **`nuo`** | **Cluster C** | Unified public executable (daemon, CLI, TUI runner) | `version.workspace = true` | Binary distribution |
+| **`nuo-server`** | **Cluster C** | Headless daemon container runtime & session host | `version.workspace = true` | crates.io package |
+| **`nuo-tui`** | **Cluster C** | Semantic terminal interactive presentation view library | `version.workspace = true` | crates.io package |
 | **`nuo-agent`** | **Cluster C** | Cognitive loop, session turns & token compaction | `version.workspace = true` | crates.io package |
 | **`nuo-client`** | **Cluster C** | Standalone Rust Client SDK & Wire DTOs | `version.workspace = true` | crates.io package |
 | **`nuo-wire`** | **Cluster C** | Wire envelopes, session entities & shared domain contracts | `version.workspace = true` | crates.io package |
@@ -69,6 +73,8 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 | **`nuo-harness`** | **Cluster C** | Host execution harness, approvals & policy | `version.workspace = true` | crates.io package |
 | **`nuo-providers`** | **Cluster C** | Multi-vendor model catalog & OAuth engine | `version.workspace = true` | crates.io package |
 | **`nuo-mcp`** | **Cluster C** | Model Context Protocol client & server transport | `version.workspace = true` | crates.io package |
+| **`nuo-code`** | **Cluster C** | Code query, syntax analysis & AST operations | `version.workspace = true` | crates.io package |
+| **`nuo-tool-*`** | **Cluster C** | Decoupled tool capability crates (`fs`, `exec`, `web`, `ast`)| `version.workspace = true` | crates.io package |
 
 ---
 
@@ -148,7 +154,7 @@ When releasing a new version of the Nuo product and daemon/terminal suite:
    git push origin main --tags
    ```
 4. **CI Distribution**:
-   - The CI runner matching `v*` builds pre-compiled release binaries for `nuo` and `nuox` across Linux, macOS, and Windows.
+   - The CI runner matching `v*` builds pre-compiled release binary for `nuo` across Linux, macOS, and Windows.
    - Publishes library crates in dependency order (`nuo-tool`, `nuo-host`, `nuo-model-codec`, `nuo-persistence`, `nuo-client`, etc.).
 
 ---

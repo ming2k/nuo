@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "nuo",
-    "nuox",
+    "nuo-server",
+    "nuo-tui",
     "nuo-agent",
     "nuo-client",
     "nuo-harness",
@@ -14,10 +15,13 @@ members = [
     "nuo-tool-derive",
     "nuo-acp",
     "nuo-wire",
-    "nuo-tools-web",
-    "nuo-tools-code",
+    "nuo-code",
+    "tools/nuo-tool-fs",
+    "tools/nuo-tool-exec",
+    "tools/nuo-tool-web",
+    "tools/nuo-tool-ast",
 ]
-default-members = ["nuo", "nuox"]
+default-members = ["nuo"]
 resolver = "2"
 
 [workspace.package]
@@ -66,7 +70,6 @@ thiserror = "2.0"
 netune = "0.1.1"
 http = "1.2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
-ts-rs = { version = "12", features = ["no-serde-warnings"] }
 windows-sys = "0.61"
 notify = "8"
 tree-sitter = "0.25"
@@ -107,13 +110,18 @@ nuotc = "0.0.1"
 nuo-wire = { version = "0.0.1", path = "nuo-wire" }
 nuo-client = { version = "0.0.1", path = "nuo-client" }
 nuo = { version = "0.0.1", path = "nuo" }
-nuox = { version = "0.0.1", path = "nuox" }
+nuo-server = { version = "0.0.1", path = "nuo-server" }
+nuo-tui = { version = "0.0.1", path = "nuo-tui" }
+nuox = { package = "nuo-tui", version = "0.0.1", path = "nuo-tui" }
 nuo-providers = { version = "0.0.1", path = "nuo-providers" }
 nuo-persistence = { version = "0.0.1", path = "nuo-persistence" }
 nuo-host = { version = "0.0.1", path = "nuo-host" }
 nuo-harness = { version = "0.0.1", path = "nuo-harness" }
-nuo-tools-web = { version = "0.0.1", path = "nuo-tools-web" }
-nuo-tools-code = { version = "0.0.1", path = "nuo-tools-code" }
+nuo-tool-fs = { version = "0.0.1", path = "tools/nuo-tool-fs" }
+nuo-tool-exec = { version = "0.0.1", path = "tools/nuo-tool-exec" }
+nuo-tool-web = { version = "0.0.1", path = "tools/nuo-tool-web" }
+nuo-tool-ast = { version = "0.0.1", path = "tools/nuo-tool-ast" }
+nuo-code = { version = "0.0.1", path = "nuo-code" }
 
 [workspace.lints.rust]
 unsafe_code = "allow"

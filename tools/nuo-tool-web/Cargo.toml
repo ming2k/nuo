@@ -1,0 +1,31 @@
+[package]
+name = "nuo-tool-web"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Web search and reader tools for Nuo cognitive agents"
+
+[dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+http = "1.4"
+netune = "0.1.0"
+nuo-tool = { workspace = true }
+nuo-wire = { workspace = true }
+regex = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "macros", "rt", "net"] }
+tracing = { workspace = true }
+sha2 = { workspace = true }
+inventory = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "rt-multi-thread"] }
+toml = { workspace = true }
+
+[lints]
+workspace = true

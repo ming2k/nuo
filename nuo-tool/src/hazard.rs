@@ -6,7 +6,7 @@ use crate::risk::RiskProfile;
 /// Distinguishes harmless read-only inspection from destructive mutations,
 /// command executions, and process lifecycle operations.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ts_rs::TS,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum HazardLevel {
@@ -69,7 +69,7 @@ impl From<HazardLevel> for RiskProfile {
 
 /// Four-tier runtime hazard taxonomy for tool invocation and prompt-injection defense (ADR-0243).
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ts_rs::TS,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum HazardTier {
@@ -101,7 +101,7 @@ impl From<RiskProfile> for HazardTier {
 }
 
 /// Linux process termination / intercept specification submitted by command execution tools.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessKillSpec {
     /// The base command or binary (e.g. "cargo", "npm", "python", "rm").
     pub command: String,
@@ -114,7 +114,7 @@ pub struct ProcessKillSpec {
 }
 
 /// Detailed, tool-specific payload submitted to the permission handler.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ToolPermissionPayload {
     /// File edit / write submission.
@@ -138,13 +138,12 @@ pub enum ToolPermissionPayload {
     /// Generic / external tool submission (e.g. MCP tools).
     Generic {
         summary: String,
-        #[ts(type = "unknown")]
         details: serde_json::Value,
     },
 }
 
 /// Complete submission from a tool to the permission handler.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolPermissionSubmission {
     /// Threat / Hazard classification of the tool invocation.
     pub hazard_level: HazardLevel,

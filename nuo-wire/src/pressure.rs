@@ -1134,8 +1134,7 @@ pub fn layered_request_weights(
 /// `history_tokens` is the prepared, non-system conversation, including any
 /// skill messages injected for this request. `overhead_tokens` covers the
 /// freshly composed system message and visible tool schemas.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestTokenEstimate {
     pub history_tokens: usize,
     pub overhead_tokens: usize,

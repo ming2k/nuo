@@ -15,9 +15,8 @@
 use serde::{Deserialize, Serialize};
 
 /// Terminal status of a slash-command invocation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum CommandStatus {
     /// The command completed and produced a result.
     Success,
@@ -28,8 +27,7 @@ pub enum CommandStatus {
 }
 
 /// One hit from a `/search` over the session-history embedding store.
-#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchHit {
     /// The matched transcript excerpt.
     pub text: String,
@@ -49,8 +47,7 @@ pub struct SearchHit {
 /// [`ToolOutput`](crate::ToolOutput) (ADR-0001) — the precedessor this type
 /// mirrors. The ledger (`session.commands`) persists these directly, so resume
 /// and `/export` reconstruct the full result without re-running the command.
-#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CommandResult {
     /// Plain text / markdown. The back-compat bridge variant produced by any
     /// handler that has not yet migrated to a rich variant (the ADR-0001
@@ -72,8 +69,6 @@ pub enum CommandResult {
     Ack {
         title: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        // Skipped when `None`: the key is absent on the wire, never `null`.
-        #[ts(optional)]
         detail: Option<Vec<String>>,
     },
     /// `/permissions` — the current always-allowed tool rules.
@@ -192,8 +187,7 @@ impl CommandResult {
 /// stream is pure dialogue; these records are the operations that happened.
 /// `result: None` means the invocation is recorded but the reply was never
 /// persisted (the legacy-echo fold and the shell-passthrough case).
-#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandRecord {
     /// Command word without the leading slash (e.g. `"search"`), or `"shell"`
     /// for a `!command` passthrough.
@@ -206,8 +200,6 @@ pub struct CommandRecord {
     pub timestamp: u64,
     /// Wall-clock duration of the command run, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    // Skipped when `None`: the key is absent on the wire, never explicit `null`.
-    #[ts(optional)]
     pub duration_ms: Option<u64>,
 }
 
@@ -309,8 +301,7 @@ fn review_to_text(verdicts: &[ReviewVerdict], turns: u64) -> String {
 /// command's ledger records. The command (and the diagnostic subsystem behind
 /// it) is gone, but old session files still carry these — the types stay so
 /// `CommandResult::Review` keeps deserializing for resume/export.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewVerdict {
     /// The reviewed dimension's id (e.g. `"looping"`).
     pub dimension: String,
@@ -320,8 +311,7 @@ pub struct ReviewVerdict {
 
 /// The diagnostic's judgement for a dimension (ledger-compatibility type for
 /// the retired `/review` command). Ordered so the worst verdict wins.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ReviewStatus {
     /// No concern detected.
     Healthy,

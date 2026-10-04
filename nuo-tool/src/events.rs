@@ -12,9 +12,7 @@ use serde::{Deserialize, Serialize};
 /// and blocking interaction events such as [`RoundEvent::PermissionRequest`]:
 /// those events update UI state or require a reply, while a notice means
 /// "surface this fact to the user".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-// `body` skips serialization when `None`: absent on the wire, never `null`.
-#[ts(optional_fields, export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentNotice {
     pub id: String,
     pub kind: NoticeKind,
@@ -29,9 +27,8 @@ pub struct AgentNotice {
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum NoticeKind {
     ProviderRetry,
     NudgeInjected,
@@ -67,9 +64,8 @@ pub enum NoticeKind {
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum NoticeSeverity {
     Info,
     Warning,
@@ -77,9 +73,8 @@ pub enum NoticeSeverity {
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum NoticeSurface {
     /// Render inline in the current conversation or event feed.
     Inline,
@@ -91,9 +86,8 @@ pub enum NoticeSurface {
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
 pub enum NoticeSource {
     Agent,
     TurnGuard,
@@ -108,12 +102,8 @@ pub enum NoticeSource {
 /// These are forwarded from the child agent back to the parent harness so that
 /// the TUI can render nested tool steps and streaming output inside the parent
 /// tool step.
-// Events are moved through a channel one at a time and never stored in bulk;
-// keeping `PermissionRequest` inline preserves the flat wire shape (ts_rs
-// codegen + serde), so the size difference between variants is accepted.
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SubagentEvent {
     /// Emitted once at subagent start, carrying the bound profile's name
     /// (e.g. `"explore"`, `"plan"`, `"verify"`). Lets the TUI label the
@@ -197,8 +187,7 @@ pub enum SubagentEvent {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct PermissionRequest {
     pub id: String,
     pub tool: String,
@@ -242,9 +231,7 @@ pub struct PermissionRequest {
 
 
 /// One option offered to the user inside an `ask_user` question.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-// `description` skips serialization when `None`: absent on the wire, never `null`.
-#[ts(optional_fields, export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserQuestionOption {
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -253,9 +240,7 @@ pub struct UserQuestionOption {
 
 
 /// A single question inside an `ask_user` tool call.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-// `header` skips serialization when `None`: absent on the wire, never `null`.
-#[ts(optional_fields, export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserQuestion {
     /// Short label shown as a chip/tag above the question (optional).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -271,8 +256,7 @@ pub struct UserQuestion {
 
 
 /// Request sent from the agent to the TUI when the model calls `ask_user`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserQuestionRequest {
     pub id: String,
     pub questions: Vec<UserQuestion>,
@@ -286,8 +270,7 @@ pub struct UserQuestionRequest {
 /// interactive and needs a line of stdin the agent cannot supply itself.
 /// The TUI shows an inline input panel; the operator's reply is sent back as a [`StdinReply`].
 /// If the operator dismisses it (Esc), an empty reply cancels the command.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[ts(export, export_to = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/generated/wire.gen.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StdinRequest {
     pub id: String,
     /// The command that needs input, shown for context.

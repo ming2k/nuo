@@ -216,7 +216,7 @@ pub struct Agent {
     /// Shared with the todo tools so they can stamp
     /// `updated_at_round` for the TUI stale detector.
     round_counter: Arc<std::sync::Mutex<u64>>,
-    permissions: crate::permission_store::PermissionStore,
+    permissions: Arc<crate::permission_store::PermissionStore>,
     /// Canonicalized additional workspace roots (ADR-0142), set once by the
     /// assembling bootstrap. Kept as an owned copy so system-prompt assembly
     /// never re-reads the project config mid-session.
@@ -1220,6 +1220,8 @@ mod state;
 mod steering;
 pub use steering::SwitchedRole;
 mod tools_admin;
+pub mod cognitive_bridge;
+pub use cognitive_bridge::session_event_to_agent_events;
 
 pub(crate) use rounds::ToolResultRecord;
 pub(crate) use state::strip_images;
