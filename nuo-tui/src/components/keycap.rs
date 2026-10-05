@@ -55,11 +55,6 @@ impl KeyAffordance {
         Self::new(key.display(), label)
     }
 
-    /// Construct a new typed KeyAffordance from a non-single-key glyph (e.g. `keyvocab::ARROWS_UD`).
-    pub const fn from_glyph(glyph: &'static str, label: &'static str) -> Self {
-        Self::new(glyph, label)
-    }
-
     /// Construct a new typed KeyAffordance.
     ///
     /// # Panics

@@ -5,7 +5,7 @@ use nuo_wire::{
 };
 use nuotc::{Frame, Line, Modifier, Rect, Span, Style};
 
-use super::{SettingsProps, render_scrollable};
+use super::{ScrollableRects, SettingsProps, render_scrollable_indexed};
 
 pub fn build_websearch_provider_dropdown(
     current: &str,
@@ -114,7 +114,7 @@ pub(super) fn draw_search_detail(
     body: Rect,
     props: &mut SettingsProps<'_>,
     focused: bool,
-) -> Option<Rect> {
+) -> ScrollableRects {
     draw_web_detail(frame, body, props, focused, WebProviderAxis::Search)
 }
 
@@ -123,7 +123,7 @@ pub(super) fn draw_reader_detail(
     body: Rect,
     props: &mut SettingsProps<'_>,
     focused: bool,
-) -> Option<Rect> {
+) -> ScrollableRects {
     draw_web_detail(frame, body, props, focused, WebProviderAxis::Reader)
 }
 
@@ -133,9 +133,9 @@ fn draw_web_detail(
     props: &mut SettingsProps<'_>,
     focused: bool,
     axis: WebProviderAxis,
-) -> Option<Rect> {
+) -> ScrollableRects {
     let Some(ws) = props.websearch else {
-        return render_scrollable(
+        return render_scrollable_indexed(
             frame,
             body,
             vec![Line::from(Span::styled(
@@ -144,6 +144,7 @@ fn draw_web_detail(
             ))],
             props.detail_scroll,
             None,
+            &[],
             props.theme,
         );
     };
@@ -180,8 +181,10 @@ fn draw_web_detail(
         ),
     ])];
     let mut selected_line = None;
+    let mut selectable: Vec<(usize, usize)> = Vec::new();
     push_row(
         &mut lines,
+        &mut selectable,
         &mut selected_line,
         0,
         props.detail_index,
@@ -200,6 +203,7 @@ fn draw_web_detail(
     );
     push_row(
         &mut lines,
+        &mut selectable,
         &mut selected_line,
         1,
         props.detail_index,
@@ -215,6 +219,7 @@ fn draw_web_detail(
         if capability.endpoint == nuo_wire::WebEndpointRequirement::UserSupplied {
             push_row(
                 &mut lines,
+                &mut selectable,
                 &mut selected_line,
                 2,
                 props.detail_index,
@@ -232,6 +237,7 @@ fn draw_web_detail(
         } else {
             push_row(
                 &mut lines,
+                &mut selectable,
                 &mut selected_line,
                 2,
                 props.detail_index,
@@ -261,12 +267,13 @@ fn draw_web_detail(
         Span::styled("Direct connection", Style::default().fg(props.theme.dim())),
     ]));
 
-    render_scrollable(
+    render_scrollable_indexed(
         frame,
         body,
         lines,
         props.detail_scroll,
         selected_line,
+        &selectable,
         props.theme,
     )
 }
@@ -284,6 +291,7 @@ fn credential_label(status: WebCredentialStatus) -> &'static str {
 #[allow(clippy::too_many_arguments)]
 fn push_row(
     lines: &mut Vec<Line<'static>>,
+    selectable: &mut Vec<(usize, usize)>,
     selected_line: &mut Option<usize>,
     index: usize,
     selected_index: usize,
@@ -298,29 +306,50 @@ fn push_row(
     if selected {
         *selected_line = Some(lines.len());
     }
-    lines.push(Line::from(vec![
-        Span::raw("    "),
-        Span::styled(
-            format!("{label:<18}"),
-            Style::default()
-                .fg(if selected && focused {
-                    props.theme.brand()
-                } else {
-                    props.theme.fg()
-                })
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(value.to_string(), Style::default().fg(props.theme.fg())),
-        Span::raw("  "),
-        Span::styled(
-            badge.to_string(),
-            Style::default().fg(if badge == "Active" || badge == "Ready" {
-                props.theme.ok()
-            } else {
-                props.theme.dim()
-            }),
-        ),
-    ]));
+    selectable.push((index, lines.len()));
+
+    let banded = props.hover_index == Some(index) || (selected && focused);
+    let band = if banded {
+        props.theme.row_hover_band(&[])
+    } else {
+        nuotc::Color::Reset
+    };
+
+    lines.push(
+        Line::from(vec![
+            Span::raw("    "),
+            Span::styled(
+                format!("{label:<18}"),
+                Style::default()
+                    .fg(props.theme.band_text(
+                        band,
+                        if selected && focused {
+                            props.theme.brand()
+                        } else {
+                            props.theme.fg()
+                        },
+                    ))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                value.to_string(),
+                Style::default().fg(props.theme.band_text(band, props.theme.fg())),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                badge.to_string(),
+                Style::default().fg(props.theme.band_text(
+                    band,
+                    if badge == "Active" || badge == "Ready" {
+                        props.theme.ok()
+                    } else {
+                        props.theme.dim()
+                    },
+                )),
+            ),
+        ])
+        .style(Style::default().bg(band)),
+    );
     if selected && focused {
         lines.push(Line::from(vec![
             Span::raw("       "),

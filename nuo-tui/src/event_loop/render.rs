@@ -1302,6 +1302,7 @@ fn compose_frame(
                     render::SettingsProps {
                         category_index: app.config_category,
                         detail_index: app.config_detail_index,
+                        hover_index: app.config_hover_index,
                         focus: app.config_focus,
                         color_scheme: &app.color_scheme,
                         custom_color_scheme: &app.custom_color_scheme,
@@ -1318,6 +1319,13 @@ fn compose_frame(
                 app.config_selected_rect = rects.selected_row_rect;
                 if let Some(row_rect) = rects.selected_row_rect {
                     ui.mount(UiKey::SettingsOption(app.config_detail_index), row_rect);
+                }
+                // Full-block pointer targets for every visible row, so the row
+                // under the mouse (label *or* description line) lights up. Mounted
+                // after the cursor's own target so the taller block wins the hit
+                // test; both resolve to the same row index, so the choice is moot.
+                for (index, row_rect) in rects.row_rects {
+                    ui.mount(UiKey::SettingsRow(index), row_rect);
                 }
                 if let Some((ref mut state, ref mut anchor)) = app.config_dropdown {
                     if let Some(target_rect) = app.config_selected_rect

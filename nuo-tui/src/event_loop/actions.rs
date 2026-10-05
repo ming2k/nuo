@@ -1073,6 +1073,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     app.config_category = crate::overlays::ConfigCategory::WebSearch as usize;
                     app.config_detail_index = 0;
                     app.config_detail_scroll = 0;
+                    app.config_hover_index = None;
                 }
             }
         }
@@ -1084,6 +1085,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     app.config_category = crate::overlays::ConfigCategory::WebReader as usize;
                     app.config_detail_index = 0;
                     app.config_detail_scroll = 0;
+                    app.config_hover_index = None;
                 }
             }
         }
@@ -2454,6 +2456,7 @@ pub(super) fn enter_scene(
         SceneKind::Settings => {
             app.config_focus = crate::overlays::ConfigFocus::Categories;
             app.config_category = 0;
+            app.config_hover_index = None;
             let active_category =
                 crate::overlays::ConfigCategory::from_index(app.config_category);
             if active_category == crate::overlays::ConfigCategory::Appearance {
@@ -2502,9 +2505,12 @@ pub(crate) fn handle_wheel(app: &mut App, up: bool, x: u16, y: u16) {
         Some(UiKey::Overlay(overlay)) if app.ui.contains(UiKey::Overlay(overlay), x, y) => {
             scroll_tick(app, !up);
         }
-        Some(UiKey::OauthUrl | UiKey::OauthCode | UiKey::SettingsOption(_)) => {
-            scroll_tick(app, !up)
-        }
+        Some(
+            UiKey::OauthUrl
+            | UiKey::OauthCode
+            | UiKey::SettingsOption(_)
+            | UiKey::SettingsRow(_),
+        ) => scroll_tick(app, !up),
         Some(UiKey::ProviderDelete | UiKey::PreAttach) => {}
         Some(UiKey::Sheet(crate::sheet::SheetKind::Permission) | UiKey::PermissionAction(_))
             if app.permission_show_details =>

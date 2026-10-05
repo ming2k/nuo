@@ -669,6 +669,7 @@ pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
                     app.config_category = (app.config_category + count - 1) % count;
                     app.config_detail_index = 0;
                     app.config_detail_scroll = 0;
+                    app.config_hover_index = None;
                 }
                 crate::overlays::ConfigFocus::Detail => {
                     let ws_path = if app.current_workspace.is_empty() {
@@ -797,6 +798,7 @@ pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
                     app.config_category = (app.config_category + 1) % count;
                     app.config_detail_index = 0;
                     app.config_detail_scroll = 0;
+                    app.config_hover_index = None;
                 }
                 crate::overlays::ConfigFocus::Detail => {
                     let ws_path = if app.current_workspace.is_empty() {

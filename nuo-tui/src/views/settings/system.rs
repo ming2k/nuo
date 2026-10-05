@@ -2,7 +2,7 @@
 
 use nuotc::{Frame, Line, Modifier, Rect, Span, Style};
 
-use super::{SettingsProps, render_scrollable};
+use super::{ScrollableRects, SettingsProps, render_scrollable_indexed};
 
 /// Count of items in the System settings panel.
 pub fn item_count() -> usize {
@@ -14,7 +14,7 @@ pub(super) fn draw_system_detail(
     body: Rect,
     props: &mut SettingsProps<'_>,
     _focused: bool,
-) -> Option<Rect> {
+) -> ScrollableRects {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     let items = [
@@ -49,5 +49,13 @@ pub(super) fn draw_system_detail(
         lines.push(Line::from(""));
     }
 
-    render_scrollable(frame, body, lines, props.detail_scroll, None, props.theme)
+    render_scrollable_indexed(
+        frame,
+        body,
+        lines,
+        props.detail_scroll,
+        None,
+        &[],
+        props.theme,
+    )
 }

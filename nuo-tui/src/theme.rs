@@ -802,6 +802,21 @@ impl Theme {
     pub fn panel(&self) -> Color {
         self.panel_bg
     }
+    /// A **sunken** content surface: one rung *below* the body, so a content
+    /// pane reads as distinctly recessed from the chrome above it. Used where a
+    /// region must separate from the `raised`/`body` chrome even though both
+    /// sit in the same pane (the Settings center's detail body under its head
+    /// band). Derived from the scheme's own base and panel tones — never a
+    /// fixed literal — so every palette gets a coherent, in-family step that
+    /// stays clearly darker than `panel()`.
+    pub fn pane_sunken(&self) -> Color {
+        match (self.app_bg, self.panel_bg) {
+            (Color::Rgb(..), Color::Rgb(..)) => mix(self.app_bg, self.panel_bg, 0.3),
+            // Reset-based archetypes (ANSI-16 / monochrome) have no RGB ladder
+            // to deepen; keep the surface they already render.
+            _ => self.app_bg,
+        }
+    }
     /// Floating overlay / notification toast surface (lighter than scene head `theme.raised()`).
     pub fn toast_bg(&self) -> Color {
         match self.element_bg {
@@ -864,6 +879,64 @@ impl Theme {
                 .fg(self.text)
                 .add_modifier(Modifier::BOLD),
             nuotc::ElevationArchetype::Chromatic => Style::default().bg(self.selected_bg),
+        }
+    }
+
+    /// The background band for a *hovered* (or keyboard-cursor) selectable row
+    /// (ADR-0180/ADR-0181). Derived from the active palette — never a fixed
+    /// gray literal — so the band is a family member of the scheme it dresses.
+    ///
+    /// `swatches` are the preview colors the row itself advertises (the
+    /// Appearance page's palette chips). The band must *stage* those chips, not
+    /// swallow them: if the scheme's own accent tint would land too close to any
+    /// swatch, the band flips to the palette's **inverse** pole (a light fill on
+    /// a dark scheme, a dark fill on a light one) so every chip still reads
+    /// against the highlight instead of fusing into it.
+    pub fn row_hover_band(&self, swatches: &[Color]) -> Color {
+        match self.elevation {
+            // Monochrome has no background latitude: the hover cue is reverse
+            // video, applied by the caller (`band_text` keeps the fg as-is).
+            nuotc::ElevationArchetype::Structured => Color::Reset,
+            // ANSI-16 owns a named highlight token; use it verbatim rather than
+            // mixing it into an RGB truecolor that the terminal cannot render
+            // as one of its 16 slots.
+            nuotc::ElevationArchetype::Hybrid => self.selected_bg,
+            nuotc::ElevationArchetype::Chromatic => {
+                let light = luminance(self.app_bg) > 150.0;
+                // Candidate A: the scheme's own active/selection tint, lifted
+                // off the resting surface toward the accent.
+                let tinted = self.selected_bg;
+                // Candidate B: the inverse pole — the resting surface pushed
+                // toward the opposite end of the palette's own text tone.
+                let inverse = mix(
+                    self.app_bg,
+                    if light { Color::Black } else { self.text },
+                    0.82,
+                );
+                // Keep whichever band leaves the most room around the closest
+                // swatch, so the chips stay legible; A wins a tie because it is
+                // the subtler, more "in-family" highlight.
+                if min_swatch_distance(tinted, swatches) >= min_swatch_distance(inverse, swatches) {
+                    tinted
+                } else {
+                    inverse
+                }
+            }
+        }
+    }
+
+    /// Pick the foreground a row paints on its hover band: `preferred` (the
+    /// row's semantic tone — `fg()`, `brand()`, …) when it still separates from
+    /// the band, otherwise the band's polar contrast color so the text never
+    /// disappears into its own highlight.
+    pub fn band_text(&self, band: Color, preferred: Color) -> Color {
+        if band == Color::Reset {
+            return preferred;
+        }
+        if (luminance(band) - luminance(preferred)).abs() >= 60.0 {
+            preferred
+        } else {
+            crate::primitives::contrast_fg(band)
         }
     }
 
@@ -1252,6 +1325,39 @@ pub fn mix(a: Color, b: Color, amount: f32) -> Color {
     Color::Rgb(channel(ar, br), channel(ag, bg), channel(ab, bb))
 }
 
+/// Weighted RGB distance between two colors (the classic "redmean" metric):
+/// cheap, and perceptually closer than plain Euclidean RGB, which matters when
+/// deciding whether a highlight band would visibly separate from a palette
+/// chip or fuse into it. `Color::Reset` (the terminal default) has no defined
+/// RGB, so it is treated as maximally distant — a chip we cannot measure is
+/// never the reason a band gets rejected.
+fn color_distance(a: Color, b: Color) -> f32 {
+    if a == Color::Reset || b == Color::Reset {
+        return f32::MAX;
+    }
+    let (ar, ag, ab) = rgb(a);
+    let (br, bg, bb) = rgb(b);
+    let (dr, dg, db) = (
+        ar as f32 - br as f32,
+        ag as f32 - bg as f32,
+        ab as f32 - bb as f32,
+    );
+    let rmean = (ar as f32 + br as f32) / 2.0;
+    let weight_r = 2.0 + rmean / 256.0;
+    let weight_g = 4.0;
+    let weight_b = 2.0 + (255.0 - rmean) / 256.0;
+    (weight_r * dr * dr + weight_g * dg * dg + weight_b * db * db).sqrt()
+}
+
+/// The smallest [`color_distance`] between `band` and every `swatch`. Used to
+/// choose the highlight that leaves the advertised palette chips most legible.
+fn min_swatch_distance(band: Color, swatches: &[Color]) -> f32 {
+    swatches
+        .iter()
+        .map(|swatch| color_distance(band, *swatch))
+        .fold(f32::MAX, f32::min)
+}
+
 fn luminance(color: Color) -> f32 {
     let (r, g, b) = rgb(color);
     0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32
@@ -1267,6 +1373,111 @@ mod tests {
         let fallback = Theme::from_color_scheme("not-a-theme", &custom);
         assert_eq!(fallback.surface(), Theme::default().surface());
         assert_eq!(Theme::normalize_color_scheme(""), "zen");
+    }
+
+    /// The hover band is derived from the palette, never a fixed gray, and is
+    /// chosen so the row's own swatches stay legible against it: the picked
+    /// band is at least as far from the closest swatch as the palette's
+    /// inverse pole would be.
+    #[test]
+    fn row_hover_band_stages_the_row_swatches() {
+        let custom = ColorSchemeConfig::default();
+        for scheme in Theme::available_color_schemes() {
+            let page = Theme::from_color_scheme(&scheme.id, &custom);
+            let preview = Theme::from_color_scheme(&scheme.id, &custom);
+            let swatches = [
+                preview.body(),
+                preview.panel(),
+                preview.brand(),
+                preview.info(),
+                preview.ok(),
+                preview.warn(),
+            ];
+            let band = page.row_hover_band(&swatches);
+
+            // Monochrome owns no background latitude: the band is inert and the
+            // caller falls back to reverse video. Everything else must visibly
+            // differ from the resting body.
+            if page.elevation == nuotc::ElevationArchetype::Structured {
+                assert_eq!(band, Color::Reset);
+                continue;
+            }
+            assert_ne!(
+                band,
+                page.body(),
+                "{}: the hover band must differ from the resting body",
+                scheme.id
+            );
+
+            // The swatch-staging guarantee is a truecolor concern: ANSI-16 uses
+            // its named highlight verbatim, so skip it here.
+            if page.elevation != nuotc::ElevationArchetype::Chromatic {
+                continue;
+            }
+
+            // The band must not fuse into any swatch: it is at least as legible
+            // as the plain inverse pole the palette could have offered.
+            let light = luminance(page.app_bg) > 150.0;
+            let inverse = mix(
+                page.app_bg,
+                if light { Color::Black } else { page.text },
+                0.82,
+            );
+            assert!(
+                min_swatch_distance(band, &swatches) >= min_swatch_distance(inverse, &swatches),
+                "{}: band must not be closer to a swatch than the inverse pole",
+                scheme.id
+            );
+
+            // Text painted on the band must separate from it (never fg-on-fg).
+            let text = page.band_text(band, page.fg());
+            assert!(
+                (luminance(band) - luminance(text)).abs() >= 60.0,
+                "{}: band text must contrast with the band",
+                scheme.id
+            );
+        }
+    }
+
+    /// Monochrome owns no background latitude: the band collapses to `Reset`
+    /// and the caller falls back to reverse video, so the cue never fabricates
+    /// a color the hardware cannot render.
+    #[test]
+    fn row_hover_band_is_inert_on_monochrome() {
+        let mono = Theme::monochrome();
+        assert_eq!(mono.row_hover_band(&[]), Color::Reset);
+        // On a Reset band the preferred foreground is returned verbatim.
+        assert_eq!(
+            mono.band_text(Color::Reset, Color::Rgb(1, 2, 3)),
+            Color::Rgb(1, 2, 3)
+        );
+    }
+
+    /// The sunken pane rung is a *deeper* tone than the panel and body it sits
+    /// under, so a content pane can separate from the head band above it on
+    /// every RGB scheme — while Reset-based archetypes stay inert.
+    #[test]
+    fn pane_sunken_is_a_deeper_in_family_rung() {
+        let custom = ColorSchemeConfig::default();
+        for scheme in Theme::available_color_schemes() {
+            let theme = Theme::from_color_scheme(&scheme.id, &custom);
+            let sunken = theme.pane_sunken();
+            if theme.elevation != nuotc::ElevationArchetype::Chromatic {
+                assert_eq!(sunken, Color::Reset, "{}: reset archetype", scheme.id);
+                continue;
+            }
+            assert!(
+                luminance(sunken) < luminance(theme.panel()),
+                "{}: sunken must be deeper than the panel",
+                scheme.id
+            );
+            assert_ne!(
+                sunken,
+                theme.raised(),
+                "{}: sunken must not equal the head band tone",
+                scheme.id
+            );
+        }
     }
 
     #[test]

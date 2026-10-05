@@ -621,6 +621,11 @@ pub struct App {
     pub config_category: usize,
     /// Selected item/field index in the active category's detail pane.
     pub config_detail_index: usize,
+    /// Detail row currently under the mouse pointer in the Settings detail
+    /// pane, if any. Drives the row's hover band so the pointer and the keyboard
+    /// cursor share one affordance; recomputed on pointer motion and cleared
+    /// whenever the pointer leaves the pane or the category changes.
+    pub config_hover_index: Option<usize>,
     /// Scroll offset for the `/config` detail pane body.
     pub config_detail_scroll: usize,
     /// Latest authoritative `[web]` selection/readiness snapshot from the harness.

@@ -2072,6 +2072,7 @@ pub async fn run_tui(
             _ => 0,
         },
         config_detail_index: 0,
+        config_hover_index: None,
 
         config_detail_scroll: 0,
         websearch_config: None,

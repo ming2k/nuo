@@ -5,6 +5,14 @@
 //! and the activation dispatcher resolve their rows through it — so the panel
 //! and the keys that change it can never disagree about what row *n* means.
 //!
+//! ## Row grammar
+//!
+//! Like the Appearance panel, a row is two visual lines: the identity line
+//! (label + state badge) and, on its own line beneath, the component's
+//! description (flush from column 0). State is carried by color, never by a
+//! `●`/`○` glyph: an enabled row highlights its label text, and the hover/cursor
+//! band paints the whole row.
+//!
 //! The tool-backed rows are derived from the tool registry
 //! ([`crate::tools::TOOL_COMPONENTS`]), which also owns name → presenter
 //! resolution and the per-tool built-in defaults. Declaring a new tool
@@ -12,9 +20,10 @@
 //! module must never re-list tool names, labels, or defaults by hand
 //! (ADR-0020).
 
-use nuotc::{Frame, Line, Modifier, Rect, Span, Style};
+use nuotc::{Color, Frame, Line, Modifier, Rect, Span, Style};
+use unicode_width::UnicodeWidthStr;
 
-use super::{SettingsProps, render_scrollable};
+use super::{ScrollableRects, SettingsProps, render_scrollable_indexed};
 use crate::tools::{TOOL_COMPONENTS, ToolComponent};
 
 /// The disclosure badge a row renders in its third column.
@@ -113,9 +122,11 @@ pub(super) fn draw_components_detail(
     body: Rect,
     props: &mut SettingsProps<'_>,
     focused: bool,
-) -> Option<Rect> {
+) -> ScrollableRects {
     let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut selectable: Vec<(usize, usize)> = Vec::new();
     let mut selected_line = None;
+    let body_width = body.width.max(1) as usize;
 
     for i in 0..item_count() {
         let Some(id) = row_for_index(i) else {
@@ -123,21 +134,35 @@ pub(super) fn draw_components_detail(
         };
         let (label, description, badge_style, is_active) = row_view(id, props.tui_config);
 
-        let is_sel = i == props.detail_index;
-        if is_sel {
+        let is_cursor = i == props.detail_index;
+        let is_hover = props.hover_index == Some(i);
+        if is_cursor {
             selected_line = Some(lines.len());
         }
+        selectable.push((i, lines.len()));
 
-        let mark = if is_active { "●" } else { "○" };
-        let row_style = if is_sel && focused {
-            Style::default()
-                .fg(props.theme.brand())
-                .add_modifier(Modifier::BOLD)
+        // State is carried by color, never by a `●`/`○` glyph (matching the
+        // Appearance panel): an *enabled* row highlights its label text, and the
+        // hover/cursor band paints the whole row. The row is dressed by the
+        // shared palette-derived band when the pointer rests on it or the
+        // keyboard cursor owns it (ADR-0180); the band is `Reset` on monochrome,
+        // where the text cue carries the state.
+        let banded = is_hover || (is_cursor && focused);
+        let band = if banded {
+            props.theme.row_hover_band(&[])
         } else {
-            Style::default()
-                .fg(props.theme.fg())
-                .add_modifier(Modifier::BOLD)
+            Color::Reset
         };
+
+        // An active row reads through its highlighted label; every other row
+        // rests on the plain foreground. The text is re-contrasted against the
+        // band so it never sinks into the highlight.
+        let base_label = if is_active {
+            props.theme.brand()
+        } else {
+            props.theme.fg()
+        };
+        let label_fg = props.theme.band_text(band, base_label);
 
         let badge = match badge_style {
             BadgeStyle::Expanded => {
@@ -163,37 +188,60 @@ pub(super) fn draw_components_detail(
             }
         };
 
-        lines.push(Line::from(vec![
+        // Identity line: label + badge. The description moves to its own line
+        // beneath (flush from column 0), so the row never wraps mid-phrase at
+        // narrow widths.
+        let mut row = vec![
             Span::styled(
-                format!("{mark} "),
-                Style::default().fg(if is_active {
-                    props.theme.ok()
-                } else if is_sel {
-                    props.theme.brand()
-                } else {
-                    props.theme.dim()
-                }),
+                label,
+                Style::default().fg(label_fg).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(label, row_style),
             Span::raw("  "),
             Span::styled(
                 badge,
                 Style::default()
-                    .fg(props.theme.brand())
+                    .fg(props.theme.band_text(band, props.theme.brand()))
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::raw("  "),
-            Span::styled(description, Style::default().fg(props.theme.muted())),
-        ]));
+        ];
+        let used: usize = row.iter().map(|span| span.width()).sum();
+        if used < body_width {
+            row.push(Span::styled(
+                " ".repeat(body_width - used),
+                Style::default().bg(band),
+            ));
+        }
+        lines.push(Line::from(row).style(Style::default().bg(band)));
+
+        // Description on its own line, wrapped to the full width; each wrapped
+        // row is padded so the band stays full-width.
+        let desc_fg = props.theme.band_text(band, props.theme.muted());
+        let wrapped = crate::text_layout::wrap_text(description, body_width);
+        for segment in &wrapped {
+            let mut spans = vec![Span::styled(
+                segment.text.clone(),
+                Style::default().fg(desc_fg),
+            )];
+            let used = segment.text.width();
+            if used < body_width {
+                spans.push(Span::styled(
+                    " ".repeat(body_width - used),
+                    Style::default().bg(band),
+                ));
+            }
+            lines.push(Line::from(spans).style(Style::default().bg(band)));
+        }
+
         lines.push(Line::from(""));
     }
 
-    render_scrollable(
+    render_scrollable_indexed(
         frame,
         body,
         lines,
         props.detail_scroll,
         selected_line,
+        &selectable,
         props.theme,
     )
 }

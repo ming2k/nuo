@@ -368,6 +368,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
             SettingsProps {
                 category_index: 0,
                 detail_index: 0,
+                hover_index: None,
                 focus: ConfigFocus::Categories,
                 color_scheme: "zen",
                 custom_color_scheme: &custom,
@@ -398,6 +399,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
             SettingsProps {
                 category_index: 0,
                 detail_index: 5,
+                hover_index: None,
                 focus: ConfigFocus::Detail,
                 color_scheme: "custom",
                 custom_color_scheme: &custom,
@@ -413,6 +415,97 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
         );
     });
     assert!(grid_row(&terminal, 0).contains("SETTINGS"));
+}
+
+/// The Settings center has no bottom footer band and no per-pane prose header:
+/// the selected category is already named by the highlighted left-nav item, so
+/// the right pane is pure content. Each pane is padded by 1 row / 2 columns, and
+/// the regions carry two distinct tones — the left nav's `panel` and the right
+/// detail body's sunken tone — neither collapsing onto the other.
+#[test]
+fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header() {
+    let theme = Theme::default();
+    let custom = nuo_wire::ColorSchemeConfig::default();
+    let tui_config = crate::config::TuiConfig::default();
+    let mut terminal = nuotc::TestTerminal::new(80, 24);
+
+    terminal.draw(|frame| {
+        draw_settings_view(
+            frame,
+            SettingsProps {
+                category_index: 0,
+                detail_index: 0,
+                hover_index: None,
+                focus: ConfigFocus::Detail,
+                color_scheme: "zen",
+                custom_color_scheme: &custom,
+                websearch: None,
+                workspace: "",
+                category_scroll: &mut 0,
+                detail_scroll: &mut 0,
+                breadcrumbs: Some("Main › Settings"),
+                theme: &theme,
+                profile: &nuotc::TerminalProfile::direct_color(),
+                tui_config: &tui_config,
+            },
+        );
+    });
+
+    let buffer = terminal.buffer();
+    let nav_bg = buffer[(2, 12)].bg;
+    let detail_bg = buffer[(40, 12)].bg;
+    assert_ne!(
+        nav_bg, detail_bg,
+        "left nav and right detail panes must be colour-differentiated"
+    );
+    assert_eq!(nav_bg, theme.panel(), "the left nav sits on the panel tone");
+    assert_eq!(
+        detail_bg,
+        theme.pane_sunken(),
+        "the right detail body sits on the sunken tone"
+    );
+
+    // No prose header: the filler summary that simply restated the nav item is
+    // gone, and the detail body now owns the whole pane (top row included).
+    let joined: Vec<String> = (0..24).map(|y| grid_row(&terminal, y)).collect();
+    let joined = joined.join("\n");
+    assert!(
+        !joined.contains("Theme selection and color palette customization"),
+        "the filler category description must not render: {joined}"
+    );
+    assert!(
+        !joined.contains("Choose how the agent"),
+        "no per-category prose header on any pane: {joined}"
+    );
+    // The pane under the bookend rows is one body surface (no `raised` header
+    // strip). Rows carrying the keyboard cursor's hover band are exempt.
+    let band = theme.row_hover_band(&[]);
+    for y in 2..24u16 {
+        let bg = buffer[(40, y)].bg;
+        assert_ne!(
+            bg,
+            theme.raised(),
+            "row {y} of the detail pane must not be a `raised` header strip"
+        );
+        assert!(
+            bg == theme.pane_sunken() || bg == band,
+            "row {y} must be the sunken body (or its cursor band), got {bg:?}"
+        );
+    }
+
+    // 1-row / 2-column padding: the pane's own leading columns are a gutter, and
+    // the first body row is padding, not content.
+    for gutter_x in [22u16, 23] {
+        assert_eq!(
+            buffer[(gutter_x, 2)].bg,
+            theme.pane_sunken(),
+            "the pane's leading columns are the 2-column padding gutter"
+        );
+    }
+
+    // No keycap legend survives anywhere in the view (the footer is gone).
+    assert!(!joined.contains("apply/toggle"), "footer removed: {joined}");
+    assert!(!joined.contains("back to nav"), "footer removed: {joined}");
 }
 
 #[test]
@@ -441,6 +534,7 @@ fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() 
                     SettingsProps {
                         category_index: cat_idx,
                         detail_index: 0,
+                        hover_index: None,
                         focus,
                         color_scheme: "zen",
                         custom_color_scheme: &custom,
@@ -487,6 +581,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
             SettingsProps {
                 category_index: 0,
                 detail_index: 0,
+                hover_index: None,
                 focus: ConfigFocus::Detail,
                 color_scheme: "zen",
                 custom_color_scheme: &custom,
@@ -519,6 +614,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
             SettingsProps {
                 category_index: 0,
                 detail_index: 0,
+                hover_index: None,
                 focus: ConfigFocus::Detail,
                 color_scheme: "monochrome",
                 custom_color_scheme: &custom,
@@ -539,6 +635,172 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
     assert!(mono_screen.contains("Monochrome Hardware Mode"));
     assert!(mono_screen.contains("[ Active ]"));
     assert!(!mono_screen.contains("Zen"));
+}
+
+/// The Appearance rows carry their state by color, not by a `●`/`○` glyph: the
+/// applied scheme highlights its label text, and a hovered (or keyboard-cursor)
+/// row is dressed by a full-width background band derived from the palette so
+/// its own swatches stay legible against it.
+#[test]
+fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
+    let theme = Theme::default();
+    let custom = nuo_wire::ColorSchemeConfig::default();
+    let tui_config = crate::config::TuiConfig::default();
+    let mut terminal = nuotc::TestTerminal::new(80, 24);
+
+    fn draw_appearance(
+        terminal: &mut nuotc::TestTerminal,
+        hover: Option<usize>,
+        theme: &Theme,
+        custom: &nuo_wire::ColorSchemeConfig,
+        tui_config: &crate::config::TuiConfig,
+    ) {
+        terminal.draw(|frame| {
+            draw_settings_view(
+                frame,
+                SettingsProps {
+                    category_index: 0, // Appearance
+                    detail_index: 0,
+                    hover_index: hover,
+                    focus: ConfigFocus::Detail,
+                    color_scheme: "zen",
+                    custom_color_scheme: custom,
+                    websearch: None,
+                    workspace: "",
+                    category_scroll: &mut 0,
+                    detail_scroll: &mut 0,
+                    breadcrumbs: None,
+                    theme,
+                    profile: &nuotc::TerminalProfile::direct_color(),
+                    tui_config,
+                },
+            );
+        });
+    }
+
+    draw_appearance(&mut terminal, None, &theme, &custom, &tui_config);
+    let idle: Vec<String> = (0..24).map(|y| grid_row(&terminal, y)).collect();
+    let idle_joined = idle.join("\n");
+    // Zen is the applied scheme and the cursor row: no selection dot anywhere.
+    assert!(
+        !idle_joined.contains('●') && !idle_joined.contains('○'),
+        "appearance rows must not carry selection dots:\n{idle_joined}"
+    );
+    // The description sits on its own line beneath the identity row, so it is
+    // never wrapped into the swatch row.
+    let zen_row = idle
+        .iter()
+        .position(|row| row.contains("Zen") && row.contains('█'))
+        .expect("the Zen identity row must render");
+    assert!(
+        !idle[zen_row].contains("Quiet charcoal"),
+        "the description must not share the identity line: {:?}",
+        idle[zen_row]
+    );
+    assert!(
+        idle.iter()
+            .skip(zen_row + 1)
+            .take(2)
+            .any(|row| row.contains("Quiet charcoal")),
+        "the description must appear on the following line(s)"
+    );
+
+    // The cursor row is banded while the pane is focused: its background is the
+    // palette-derived band, not the resting body tone.
+    let preview = Theme::from_color_scheme("zen", &custom);
+    let band = theme.row_hover_band(&[
+        preview.body(),
+        preview.panel(),
+        preview.brand(),
+        preview.info(),
+        preview.ok(),
+        preview.warn(),
+    ]);
+    assert_ne!(
+        band,
+        theme.body(),
+        "the hover band must differ from the body"
+    );
+    let cursor_row_bg = terminal.buffer()[(40, zen_row as u16)].style().bg;
+    assert_eq!(
+        cursor_row_bg, band,
+        "the cursor row must wear the palette-derived band"
+    );
+
+    // Hovering a *different* row moves the band there and off the cursor row.
+    draw_appearance(&mut terminal, Some(2), &theme, &custom, &tui_config);
+    let buffer = terminal.buffer();
+    let wide_band_rows = (0..24u16)
+        .filter(|&y| buffer[(40, y)].style().bg == band)
+        .count();
+    assert!(
+        wide_band_rows >= 2,
+        "the hovered row's identity + description lines must both be banded"
+    );
+}
+
+/// The Components rows follow the Appearance grammar: state is carried by color
+/// (an active row highlights its label text; the hover/cursor band paints the
+/// whole row), never by a `●`/`○` glyph, and the description sits on its own
+/// line beneath the identity line.
+#[test]
+fn components_rows_use_text_and_band_not_selection_dots_with_description_below() {
+    let theme = Theme::default();
+    let custom = nuo_wire::ColorSchemeConfig::default();
+    let tui_config = crate::config::TuiConfig::default();
+    let mut terminal = nuotc::TestTerminal::new(80, 24);
+
+    terminal.draw(|frame| {
+        draw_settings_view(
+            frame,
+            SettingsProps {
+                category_index: 1, // Components
+                detail_index: 0,
+                hover_index: None,
+                focus: ConfigFocus::Detail,
+                color_scheme: "zen",
+                custom_color_scheme: &custom,
+                websearch: None,
+                workspace: "",
+                category_scroll: &mut 0,
+                detail_scroll: &mut 0,
+                breadcrumbs: None,
+                theme: &theme,
+                profile: &nuotc::TerminalProfile::direct_color(),
+                tui_config: &tui_config,
+            },
+        );
+    });
+
+    let rows: Vec<String> = (0..24).map(|y| grid_row(&terminal, y)).collect();
+    let joined = rows.join("\n");
+    assert!(
+        !joined.contains('●') && !joined.contains('○'),
+        "components rows must not carry selection dots:\n{joined}"
+    );
+    // The identity line carries the label + badge; the description is on its own
+    // line beneath, so it never shares the label line.
+    let reasoning_row = rows
+        .iter()
+        .position(|row| row.contains("Reasoning Traces"))
+        .expect("the Reasoning identity row must render");
+    assert!(
+        rows[reasoning_row].contains("[ Collapsed ]"),
+        "the badge stays on the identity line: {:?}",
+        rows[reasoning_row]
+    );
+    assert!(
+        !rows[reasoning_row].contains("Expand model reasoning"),
+        "the description must not share the identity line: {:?}",
+        rows[reasoning_row]
+    );
+    assert!(
+        rows.iter()
+            .skip(reasoning_row + 1)
+            .take(3)
+            .any(|row| row.contains("Expand model reasoning")),
+        "the description must appear on the following line(s)"
+    );
 }
 
 #[test]
@@ -565,6 +827,7 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
                 SettingsProps {
                     category_index,
                     detail_index: 0,
+                    hover_index: None,
                     focus: ConfigFocus::Detail,
                     color_scheme: "zen",
                     custom_color_scheme: &custom,
@@ -607,6 +870,7 @@ fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
             SettingsProps {
                 category_index: 0, // Appearance
                 detail_index: 1,
+                hover_index: None,
                 focus: ConfigFocus::Detail,
                 color_scheme: "zen",
                 custom_color_scheme: &custom,

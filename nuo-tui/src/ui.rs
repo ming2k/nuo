@@ -49,6 +49,9 @@ pub enum UiKey {
     Toast,
     PreAttach,
     SettingsOption(usize),
+    /// A visible (non-cursor) Settings detail row that exists only as a pointer
+    /// hover target so the row under the mouse can light up.
+    SettingsRow(usize),
 }
 
 /// The application has one mounted UI runtime. Semantic text mappings travel
@@ -284,7 +287,7 @@ impl ComponentTree {
                 InputPolicy::Modal,
                 true,
             ),
-            UiKey::SettingsOption(_) => (
+            UiKey::SettingsOption(_) | UiKey::SettingsRow(_) => (
                 Some(UiKey::Root),
                 31,
                 PointerPolicy::Target,

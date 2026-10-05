@@ -1,5 +1,12 @@
 //! Modular Settings View (`/settings`): first-class, full-screen configuration center (ADR-0141).
 //!
+//! Layout: a `SETTINGS` head band, the `Ctrl-x` namespace row, then a two-pane
+//! body — a left category nav (`panel` tone) and the right detail pane (a sunken
+//! body tone). There is no footer band: the exits live on the namespace row.
+//! There is also no per-pane prose header naming the selected category — the
+//! highlighted nav item already says which pane is active, so the right pane is
+//! pure content.
+//!
 //! Subdivided into dedicated per-category modules:
 //! - [`appearance`]: Themes and palette swatches
 //! - [`components`]: Interactive component styles, default disclosure states, and auto-scroll
@@ -15,8 +22,8 @@ pub use web::{build_websearch_provider_dropdown, build_websearch_reader_dropdown
 
 use nuo_wire::ColorSchemeConfig;
 use nuotc::{
-    Alignment, Block as RtBlock, Clear, Constraint, Direction, Frame, Layout, Line, Modifier,
-    Paragraph, Rect, Span, Style, Wrap,
+    Block as RtBlock, Clear, Constraint, Direction, Frame, Layout, Line, Modifier, Paragraph, Rect,
+    Span, Style, Wrap,
 };
 
 use crate::primitives::{ElevationContainer, SCROLL_EDGE_MARGIN, draw_scrollbar, resolve_scroll};
@@ -24,6 +31,27 @@ use crate::render::Theme;
 use crate::view_header::{
     ViewHeader, ViewHints, ViewKind, draw_view_header, draw_view_header_hints,
 };
+
+/// Width of the left navigation pane (its outer rect, before inner padding).
+const NAV_WIDTH: u16 = 22;
+
+/// Inner padding applied to each pane: 1 row top/bottom and 2 columns
+/// left/right. Symmetric so the two panes' content aligns, neither hugs the
+/// pane border, and the wider column inset gives the identity columns room to
+/// breathe against the pane edge.
+const BODY_PAD_ROWS: u16 = 1;
+const BODY_PAD_COLS: u16 = 2;
+
+/// Shrink a rect by the shared pane padding (`rows` vertically, `cols`
+/// horizontally, saturating).
+fn inset_body(rect: Rect) -> Rect {
+    Rect {
+        x: rect.x.saturating_add(BODY_PAD_COLS),
+        y: rect.y.saturating_add(BODY_PAD_ROWS),
+        width: rect.width.saturating_sub(BODY_PAD_COLS.saturating_mul(2)),
+        height: rect.height.saturating_sub(BODY_PAD_ROWS.saturating_mul(2)),
+    }
+}
 
 /// Which pane of the Settings View currently owns keyboard focus.
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
@@ -114,29 +142,6 @@ impl ConfigCategory {
             ConfigCategory::System => "System & Info",
         }
     }
-
-    pub fn subtitle(self) -> &'static str {
-        self.description()
-    }
-
-    /// Concise, refined one-line summary for the category.
-    pub fn description(self) -> &'static str {
-        match self {
-            ConfigCategory::Appearance => "Theme selection and color palette customization.",
-            ConfigCategory::Components => {
-                "Interactive component styles, default disclosure states, and expansion behaviors."
-            }
-            ConfigCategory::WebSearch => {
-                "Choose how the agent discovers relevant pages and sources."
-            }
-            ConfigCategory::WebReader => {
-                "Choose how the agent reads and extracts content from a URL."
-            }
-            ConfigCategory::System => {
-                "Configuration file paths, runtime diagnostics, and system info."
-            }
-        }
-    }
 }
 
 impl std::fmt::Display for ConfigCategory {
@@ -158,19 +163,26 @@ impl std::str::FromStr for ConfigCategory {
 }
 
 /// Geometry sub-rects returned by [`draw_settings_view`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub struct ConfigRects {
     pub area: Rect,
     pub category_body: Rect,
     pub detail_body: Rect,
     pub selected_row_rect: Option<Rect>,
+    /// Every visible detail row as `(detail_index, rect)`, mounted as pointer
+    /// targets so the row under the mouse can light up.
+    pub row_rects: Vec<(usize, Rect)>,
 }
 
 /// Properties passed to render the complete Settings View.
 pub struct SettingsProps<'a> {
     pub category_index: usize,
     pub detail_index: usize,
+    /// Detail row currently under the mouse pointer, if any. Drives the row's
+    /// hover band so the pointer and the keyboard cursor share one affordance;
+    /// `None` when the pointer is elsewhere.
+    pub hover_index: Option<usize>,
     pub focus: ConfigFocus,
     pub color_scheme: &'a str,
     pub custom_color_scheme: &'a ColorSchemeConfig,
@@ -195,21 +207,23 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         area,
     );
 
-    // 4 vertical zones: Top Header (1 row), Breadcrumbs Subhead (1 row), Center Body (flexible), Bottom Footer (3 rows).
+    // 3 vertical zones: Top Header (1 row), Actions Subhead (1 row), Body
+    // (flexible). There is deliberately **no footer band**: the Settings
+    // center's own affordances — including its exit — already live on the head
+    // band's namespace row, so a redundant bottom keycap strip only stole
+    // vertical space from the panes it described.
     let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(6),
-            Constraint::Length(3),
         ])
         .split(area);
 
     let header_rect = vertical_chunks[0];
     let subhead_rect = vertical_chunks[1];
     let body_rect = vertical_chunks[2];
-    let footer_rect = vertical_chunks[3];
 
     let category = ConfigCategory::from_index(props.category_index);
 
@@ -225,69 +239,59 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
     };
     draw_view_header_hints(frame, subhead_rect, &view_hints, props.theme);
 
-    // 3. Center Body (Inset by 2 columns horizontally and 1 row vertically)
-    let inner_body = Rect {
-        x: body_rect.x.saturating_add(2),
-        y: body_rect.y.saturating_add(1),
-        width: body_rect.width.saturating_sub(4),
-        height: body_rect.height.saturating_sub(2),
-    };
+    // 3. Center Body. The two panes each carry a 1-row / 2-column inner padding,
+    // and the two panes are colour-differentiated from each other: the left nav
+    // sits on `panel()`, the right detail body on the deeper `pane_sunken()`
+    // rung — neither collapses onto the `raised()` head band above them.
+    let inner_body = body_rect;
 
     let body_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(22), Constraint::Min(20)])
+        .constraints([Constraint::Length(NAV_WIDTH), Constraint::Min(20)])
         .split(inner_body);
 
     let category_rect = body_chunks[0];
     let detail_rect = body_chunks[1];
 
     // Left pane contrasting surface (panel tone, distinct from view surface)
-    let category_inner = ElevationContainer::panel().render(frame, category_rect, props.theme);
+    let category_pane = ElevationContainer::panel().render(frame, category_rect, props.theme);
 
-    // Right pane main canvas body (body tone, distinct from view surface and left nav)
-    let _ = ElevationContainer::card().render(frame, detail_rect, props.theme);
+    // Right pane main canvas body (sunken tone, distinct from the head band
+    // above and the left nav beside it).
+    let detail_pane = Rect {
+        x: detail_rect.x,
+        y: detail_rect.y,
+        width: detail_rect.width,
+        height: detail_rect.height,
+    };
+    frame.render_widget(
+        RtBlock::default().style(Style::default().bg(props.theme.pane_sunken())),
+        detail_pane,
+    );
 
-    // Left pane nav: top/bottom 1 row, left/right 2 cols
+    // Left pane nav body, inset by the shared pane padding.
+    let category_inner = inset_body(category_pane);
     draw_categories_pane(frame, category_inner, &mut props);
 
-    // Right pane: split into Head (1 row, indented 1 col), 1 row gap, Detail Content (indented 1 col)
-    let detail_vertical_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // Head row 1 row
-            Constraint::Length(1), // Gap 1 row below head
-            Constraint::Min(1),    // Content below
-        ])
-        .split(detail_rect);
+    // Right pane: the detail body fills the pane beneath the shared padding.
+    // There is deliberately **no per-pane header band**: the selected category
+    // is already named by the highlighted left-nav item, so a prose header
+    // restating it ("Theme selection and color palette customization.") only
+    // repeated the navigation and spent a strip of chrome saying nothing. The
+    // body's own `pane_sunken` tone already separates this pane from the left
+    // nav (`panel`) and from the head band above (`raised`).
+    let detail_content = inset_body(detail_pane);
 
-    let head_row = detail_vertical_chunks[0];
-    let content_row = detail_vertical_chunks[2];
+    // The detail body carries the sunken tone, so its rows rest on it.
+    frame.render_widget(
+        RtBlock::default().style(Style::default().bg(props.theme.pane_sunken())),
+        detail_content,
+    );
 
-    let head_inner_rect = Rect {
-        x: head_row.x.saturating_add(1),
-        y: head_row.y,
-        width: head_row.width.saturating_sub(2),
-        height: head_row.height,
-    };
-
-    let desc = category.description();
-    let truncated_desc = truncate_ellipsis(desc, head_inner_rect.width as usize);
-    let head_para = Paragraph::new(Line::from(Span::styled(
-        truncated_desc,
-        Style::default().fg(props.theme.muted()),
-    )))
-    .style(Style::default().bg(props.theme.body()));
-    frame.render_widget(head_para, head_inner_rect);
-
-    let detail_inner_rect = Rect {
-        x: content_row.x.saturating_add(1),
-        y: content_row.y,
-        width: content_row.width.saturating_sub(2),
-        height: content_row.height,
-    };
+    let detail_inner_rect = detail_content;
 
     let focused = props.focus == ConfigFocus::Detail;
-    let selected_row_rect = match category {
+    let detail = match category {
         ConfigCategory::Appearance => {
             appearance::draw_appearance_detail(frame, detail_inner_rect, &mut props, focused)
         }
@@ -305,38 +309,16 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         }
     };
 
-    // 4. Bottom Footer (3-Row Subagent-Style with raised background, centered flexible equal division)
-    draw_footer(frame, footer_rect, props.focus, props.theme);
+    // No footer band: the Settings center has no bottom key strip. Its own
+    // affordances (and its exit) already live on the head band's namespace row.
 
     ConfigRects {
         area,
         category_body: category_rect,
         detail_body: detail_rect,
-        selected_row_rect,
+        selected_row_rect: detail.selected_row,
+        row_rects: detail.rows,
     }
-}
-
-fn truncate_ellipsis(text: &str, max_width: usize) -> String {
-    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-    if text.width() <= max_width {
-        return text.to_string();
-    }
-    if max_width <= 3 {
-        return "...".chars().take(max_width).collect();
-    }
-    let target_width = max_width - 3;
-    let mut current_width = 0;
-    let mut result = String::new();
-    for c in text.chars() {
-        let cw = c.width().unwrap_or(0);
-        if current_width + cw > target_width {
-            break;
-        }
-        current_width += cw;
-        result.push(c);
-    }
-    result.push_str("...");
-    result
 }
 
 fn draw_categories_pane(frame: &mut Frame, area: Rect, props: &mut SettingsProps<'_>) {
@@ -367,12 +349,9 @@ fn draw_categories_pane(frame: &mut Frame, area: Rect, props: &mut SettingsProps
         lines.push(Line::from(""));
     }
 
-    let inner_area = Rect {
-        x: area.x.saturating_add(1),
-        y: area.y,
-        width: area.width.saturating_sub(2),
-        height: area.height,
-    };
+    // The pane's 1-row / 2-column padding is applied by the caller, so the nav
+    // body fills this rect as-is.
+    let inner_area = area;
 
     let visible_rows = inner_area.height as usize;
     let content_len = lines.len();
@@ -390,99 +369,116 @@ fn draw_categories_pane(frame: &mut Frame, area: Rect, props: &mut SettingsProps
         .style(Style::default().bg(props.theme.panel()));
     frame.render_widget(p, inner_area);
 
-    if max_scroll > 0 {
-        draw_scrollbar(frame, area, content_offset, max_scroll, props.theme);
+    if max_scroll > 0 && area.width > 5 {
+        // Keep the track inside the nav pane's own right edge (its last column,
+        // always blank) instead of the adjacent detail pane.
+        let track_host = Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width.saturating_sub(2),
+            height: area.height,
+        };
+        draw_scrollbar(frame, track_host, content_offset, max_scroll, props.theme);
     }
 }
 
-fn draw_footer(frame: &mut Frame, rect: Rect, focus: ConfigFocus, theme: &Theme) {
-    if rect.height == 0 {
-        return;
-    }
-
-    let bg = theme.raised();
-    let fill = Style::default().bg(bg);
-    frame.render_widget(RtBlock::default().style(fill), rect);
-
-    use crate::components::keycap::KeyAffordance;
-    use crate::keymap::{Key, keyvocab};
-
-    let pairs: Vec<KeyAffordance> = match focus {
-        ConfigFocus::Categories => vec![
-            KeyAffordance::from_glyph(keyvocab::ARROWS_UD, "select"),
-            KeyAffordance::from_key(Key::ENTER, "enter panel"),
-            KeyAffordance::from_key(Key::ESC, "close"),
-        ],
-        ConfigFocus::Detail => vec![
-            KeyAffordance::from_glyph(keyvocab::ARROWS_UD, "navigate"),
-            KeyAffordance::from_glyph("Enter/Space", "apply/toggle"),
-            KeyAffordance::from_key(Key::ESC, "back to nav"),
-        ],
-    };
-
-    let row_rect = Rect {
-        x: rect.x,
-        y: rect.y + 1,
-        width: rect.width,
-        height: 1,
-    };
-
-    let n = pairs.len();
-    if n == 0 || row_rect.width == 0 {
-        return;
-    }
-
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(vec![Constraint::Min(0); n])
-        .split(row_rect);
-
-    for (i, affordance) in pairs.iter().enumerate() {
-        let [key_span, label_span] = affordance.render_spans(theme, bg);
-        let p = Paragraph::new(Line::from(vec![key_span, label_span]))
-            .alignment(Alignment::Center)
-            .style(fill);
-        frame.render_widget(p, chunks[i]);
-    }
+/// Screen rects reported by a scrollable detail pane.
+pub(super) struct ScrollableRects {
+    /// The keyboard cursor's row (used to anchor dropdown popovers).
+    pub selected_row: Option<Rect>,
+    /// Every *visible* selectable row, as `(detail_index, rect)`. Mounted as
+    /// pointer hit targets so a row can light up under the mouse.
+    pub rows: Vec<(usize, Rect)>,
 }
 
-pub(super) fn render_scrollable(
+/// Render a scrollable detail pane and report where its selectable rows landed.
+///
+/// `selectable` maps each selectable row's `detail_index` to the content line
+/// where that row begins, in ascending line order. Each row's reported rect
+/// spans every line up to the next row's start — the row's own label line, any
+/// wrapped description lines, and the blank separator beneath it — so the whole
+/// block responds to the pointer with no dead gaps. Rows scrolled out of the
+/// viewport are omitted.
+///
+/// Rows that carry no highlight rest on the pane's own sunken body tone
+/// (`theme.pane_sunken()`), so a detail pane reads as a recessed region distinct
+/// from the `raised` head band above it.
+pub(super) fn render_scrollable_indexed(
     frame: &mut Frame,
     rect: Rect,
     lines: Vec<Line<'static>>,
     scroll: &mut usize,
     selected_line: Option<usize>,
+    selectable: &[(usize, usize)],
     theme: &Theme,
-) -> Option<Rect> {
-    let visible_rows = rect.height as usize;
+) -> ScrollableRects {
+    let visible = rect.height as usize;
     let content_len = lines.len();
+    let body_bg = theme.pane_sunken();
 
     let (content_offset, max_scroll) = resolve_scroll(
         scroll,
-        visible_rows,
+        visible,
         content_len,
         selected_line,
         SCROLL_EDGE_MARGIN,
     );
 
+    // The detail pane owns the full pane width (no outer margin), so the
+    // scrollbar has nowhere to live *outside* the content. Draw it in the
+    // pane's own last column instead: every detail row pads itself to the full
+    // width, so that column is always the row's own blank space and the track
+    // never covers text. (Passing a body two columns narrower makes
+    // `draw_scrollbar`'s `body.width + SCROLLBAR_GAP` land on the last column.)
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
         .scroll(content_offset as u16, 0)
-        .style(Style::default().bg(theme.body()));
+        .style(Style::default().bg(body_bg));
     frame.render_widget(p, rect);
 
-    if max_scroll > 0 {
-        draw_scrollbar(frame, rect, content_offset, max_scroll, theme);
+    if max_scroll > 0 && rect.width > 4 {
+        let track_host = Rect {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width.saturating_sub(2),
+            height: rect.height,
+        };
+        draw_scrollbar(frame, track_host, content_offset, max_scroll, theme);
     }
 
-    selected_line.and_then(|sel| {
-        if sel >= content_offset && sel < content_offset + visible_rows {
-            let row_y = rect.y + (sel - content_offset) as u16;
+    let rect_for_line = |line: usize| -> Option<Rect> {
+        if line >= content_offset && line < content_offset + visible {
+            let row_y = rect.y + (line - content_offset) as u16;
             Some(Rect::new(rect.x, row_y, rect.width, 1))
         } else {
             None
         }
-    })
+    };
+
+    let selected_row = selected_line.and_then(rect_for_line);
+    let rows = selectable
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &(index, line))| {
+            // Block extent: this row's start through the next row's start (the
+            // last row runs to the end of the content).
+            let end = selectable
+                .get(i + 1)
+                .map(|&(_, next)| next)
+                .unwrap_or(content_len)
+                .max(line + 1);
+            let start_y = line.saturating_sub(content_offset).min(visible);
+            let end_y = end.saturating_sub(content_offset).min(visible);
+            if start_y >= visible || end_y <= start_y {
+                return None;
+            }
+            let top = rect.y + start_y as u16;
+            let height = (end_y - start_y) as u16;
+            Some((index, Rect::new(rect.x, top, rect.width, height)))
+        })
+        .collect();
+
+    ScrollableRects { selected_row, rows }
 }
 
 #[cfg(test)]
@@ -594,17 +590,7 @@ mod tests {
             assert_eq!(format!("{cat}"), slug);
             let parsed: ConfigCategory = slug.parse().unwrap();
             assert_eq!(parsed, cat);
-            assert!(!cat.description().is_empty());
+            assert!(!cat.title().is_empty());
         }
-    }
-
-    #[test]
-    fn test_truncate_ellipsis() {
-        assert_eq!(truncate_ellipsis("short", 10), "short");
-        assert_eq!(truncate_ellipsis("exact", 5), "exact");
-        assert_eq!(truncate_ellipsis("longer text here", 10), "longer ...");
-        assert_eq!(truncate_ellipsis("hello", 3), "...");
-        assert_eq!(truncate_ellipsis("hello", 2), "..");
-        assert_eq!(truncate_ellipsis("hello", 0), "");
     }
 }

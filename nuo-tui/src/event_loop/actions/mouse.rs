@@ -68,6 +68,13 @@ pub(super) async fn handle_selection_start(
             app.config_focus = crate::overlays::ConfigFocus::Detail;
             app.config_detail_index = index;
         }
+        Some(UiKey::SettingsRow(index)) => {
+            // A hover-only row: a click parks the keyboard cursor on it, the
+            // same way clicking the cursor row does. Applying the choice stays
+            // an explicit Enter/Space.
+            app.config_focus = crate::overlays::ConfigFocus::Detail;
+            app.config_detail_index = index;
+        }
         Some(UiKey::Overlay(_) | UiKey::OauthUrl | UiKey::OauthCode) => {
             if let Some(cursor) = app
                 .ui
@@ -389,6 +396,16 @@ pub(super) fn handle_select_block(app: &mut App, x: u16, y: u16) {
 
 /// Loop stage (input dispatch): the `Hover` arm of the action match.
 pub(super) async fn handle_hover(app: &mut App, _runtime: &UiRuntime, x: u16, y: u16) {
+    // Settings detail rows are pointer targets too: resting on a row lights it
+    // up to the shared palette-derived hover band so the mouse and the keyboard
+    // cursor read as one affordance. Recomputed on every motion — moving off a
+    // row (or off the pane) clears it.
+    app.config_hover_index = match app.ui.target(x, y) {
+        Some(crate::ui::UiKey::SettingsOption(index))
+        | Some(crate::ui::UiKey::SettingsRow(index)) => Some(index),
+        _ => None,
+    };
+
     // Every step summary (tool step, subagent task, reasoning
     // trace) carries the same hover affordance. When the pointer
     // rests on one — either the inline summary or the sticky
