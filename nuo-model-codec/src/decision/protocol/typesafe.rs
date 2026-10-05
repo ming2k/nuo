@@ -24,9 +24,13 @@ pub fn build_request(
         http::header::CONTENT_TYPE,
         http::HeaderValue::from_static("application/json"),
     );
+    // Track the crate version from one place; a static literal here would drift
+    // on every version bump.
+    const USER_AGENT: &str =
+        concat!("nuo-model-codec/", env!("CARGO_PKG_VERSION"), " (SystemOne; Jev)");
     headers.insert(
         http::header::USER_AGENT,
-        http::HeaderValue::from_static("nuo-model-codec/0.0.2 (SystemOne; Jev)"),
+        http::HeaderValue::from_static(USER_AGENT),
     );
 
     if !token.is_empty() {
