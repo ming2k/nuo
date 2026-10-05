@@ -4,7 +4,7 @@
 //! hostile input can point it at internal infrastructure: the cloud instance
 //! metadata endpoint `169.254.169.254`, a private service on `10.x`/`192.168.x`,
 //! loopback, or a link-local address. Resolving and fetching that URL from the
-//! host running muta would leak credentials or poke internal services.
+//! host running nuo would leak credentials or poke internal services.
 //!
 //! [`assert_public_url`] resolves the host and rejects any address that is not
 //! globally routable *before* the request is issued. Per-hop coverage is

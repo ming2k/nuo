@@ -260,7 +260,7 @@ impl AssetSpec {
 pub enum AssetLocator {
     /// User-level MCP server declared in global config.toml.
     UserMcp { name: String },
-    /// User-level custom skill in ~/.config/muta/skills or global paths.
+    /// User-level custom skill in ~/.config/nuo/skills or global paths.
     UserSkill { name: String },
     /// User-level lifecycle hook in global configuration.
     UserHook { event: String },

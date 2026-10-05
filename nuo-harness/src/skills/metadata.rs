@@ -10,13 +10,13 @@ use std::path::{Path, PathBuf};
 pub enum SkillScope {
     /// Skills downloaded from a remote skill repository.
     Remote,
-    /// User-global skills: XDG (`$XDG_DATA_HOME/muta/skills`). See ADR-0013/0014.
+    /// User-global skills: XDG (`$XDG_DATA_HOME/nuo/skills`). See ADR-0013/0014.
     User,
-    /// Role-scoped skills: XDG (`$XDG_DATA_HOME/muta/roles/<name>/skills/`). See ADR-0253.
+    /// Role-scoped skills: XDG (`$XDG_DATA_HOME/nuo/roles/<name>/skills/`). See ADR-0253.
     Role,
     /// Additional paths configured in `config.toml`.
     Extra,
-    /// Project-local skills (`.muta/skills`, `skills/` in the project working tree).
+    /// Project-local skills (`.nuo/skills`, `skills/` in the project working tree).
     Repo,
 }
 

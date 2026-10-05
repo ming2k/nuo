@@ -2,9 +2,9 @@
 //! (ADR-0022).
 //!
 //! Follows the bounded-subagent split of the retired `session_review` (ADR-0016):
-//! domain types and pure helpers live here in `muta-contracts`, while the
+//! domain types and pure helpers live here in `nuo-wire`, while the
 //! LLM-backed subagent that drives the `TITLE` profile lives in
-//! `muta-agent`. There is no trait here because a
+//! `nuo-agent`. There is no trait here because a
 //! title is a single concept rather than a set of extensible dimensions — the
 //! only shared logic is the pure post-processing that turns a model's free-form
 //! answer into a valid title string.

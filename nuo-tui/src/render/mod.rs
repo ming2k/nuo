@@ -217,7 +217,7 @@ pub struct TranscriptProps<'a> {
     /// visual indicator that does not compete with the hover/expand luminance
     /// channel. `None` means no step is focused.
     pub focused_target: Option<InteractiveTarget>,
-    /// User-supplied ASCII logo lines (from `$XDG_CONFIG_HOME/muta/logo.txt`)
+    /// User-supplied ASCII logo lines (from `$XDG_CONFIG_HOME/nuo/logo.txt`)
     /// that replace the built-in wordmark on the empty-state hero. `None` when
     /// no user logo is configured; the hero falls back to the built-in art.
     /// Ignored entirely when the transcript is non-empty.

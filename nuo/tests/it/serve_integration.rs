@@ -302,7 +302,7 @@ async fn test_select_then_attach_round_trip() {
     let tmp = tempfile::tempdir().unwrap();
     // `for_path` keeps every artifact (session json/jsonl + blobs) inside the
     // tempdir; `load_for_project` would instead resolve the real XDG project
-    // bucket and mint files under ~/.local/share/muta.
+    // bucket and mint files under ~/.local/share/nuo.
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
     let session_id = session.id().await;
     let (registry, mut req_rx, bc_tx) = prehosted(session).await;
@@ -416,7 +416,7 @@ async fn attach_receives_restored_todos_after_welcome() {
     let tmp = tempfile::tempdir().unwrap();
     // `for_path` keeps every artifact (session json/jsonl + blobs) inside the
     // tempdir; `load_for_project` would instead resolve the real XDG project
-    // bucket and mint files under ~/.local/share/muta.
+    // bucket and mint files under ~/.local/share/nuo.
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
     let session_id = session.id().await;
 
@@ -496,7 +496,7 @@ async fn attach_receives_buffered_provider_state_after_welcome() {
     let tmp = tempfile::tempdir().unwrap();
     // `for_path` keeps every artifact (session json/jsonl + blobs) inside the
     // tempdir; `load_for_project` would instead resolve the real XDG project
-    // bucket and mint files under ~/.local/share/muta.
+    // bucket and mint files under ~/.local/share/nuo.
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
     let (registry, _req_rx, bc_tx) = prehosted(session).await;
 
@@ -571,7 +571,7 @@ async fn unknown_id_is_an_error() {
     let tmp = tempfile::tempdir().unwrap();
     // `for_path` keeps every artifact (session json/jsonl + blobs) inside the
     // tempdir; `load_for_project` would instead resolve the real XDG project
-    // bucket and mint files under ~/.local/share/muta.
+    // bucket and mint files under ~/.local/share/nuo.
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
     let (registry, _req_rx, _bc_tx) = prehosted(session).await;
     let mut handle = serve::start_server(serve::ServeOptions::default(), registry);
@@ -751,7 +751,7 @@ async fn monitor_handshake_yields_snapshot_then_diffs() {
     let tmp = tempfile::tempdir().unwrap();
     // `for_path` keeps every artifact (session json/jsonl + blobs) inside the
     // tempdir; `load_for_project` would instead resolve the real XDG project
-    // bucket and mint files under ~/.local/share/muta.
+    // bucket and mint files under ~/.local/share/nuo.
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
     let session_id = session.id().await;
     let (registry, _req_rx, bc_tx) = prehosted(session).await;
@@ -889,7 +889,7 @@ async fn monitor_one_shot_closes_after_snapshot() {
     let tmp = tempfile::tempdir().unwrap();
     // `for_path` keeps every artifact (session json/jsonl + blobs) inside the
     // tempdir; `load_for_project` would instead resolve the real XDG project
-    // bucket and mint files under ~/.local/share/muta.
+    // bucket and mint files under ~/.local/share/nuo.
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
     let (registry, _req_rx, _bc_tx) = prehosted(session).await;
     let mut handle = serve::start_server(serve::ServeOptions::default(), registry);
@@ -1534,7 +1534,7 @@ async fn version_skew_is_refused_with_both_versions() {
     let tmp = tempfile::tempdir().unwrap();
     // `for_path` keeps every artifact (session json/jsonl + blobs) inside the
     // tempdir; `load_for_project` would instead resolve the real XDG project
-    // bucket and mint files under ~/.local/share/muta.
+    // bucket and mint files under ~/.local/share/nuo.
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
     let (registry, _req_rx, _tx) = prehosted(session).await;
     let mut handle = serve::start_server(serve::ServeOptions::default(), registry);
@@ -1573,7 +1573,7 @@ async fn version_skew_is_refused_with_both_versions() {
                 "names the daemon build: {message}"
             );
             assert!(
-                message.contains("update your muta client"),
+                message.contains("update your nuo client"),
                 "names the client update recommendation: {message}"
             );
         }
@@ -1591,7 +1591,7 @@ async fn version_skew_is_refused_with_both_versions() {
                 "names the daemon build: {message}"
             );
             assert!(
-                message.contains("muta stop"),
+                message.contains("nuo stop"),
                 "names the daemon restart fix: {message}"
             );
         }
@@ -1626,6 +1626,7 @@ fn global_record_carries_the_daemon_version() {
         version: Some(serve::daemon_version().to_string()),
         grace_secs: None,
         protocol: None,
+        ..Default::default()
     };
     let json = serde_json::to_string(&record).unwrap();
     assert!(json.contains(serve::daemon_version()));
@@ -1687,7 +1688,7 @@ async fn protocol_window_governs_when_declared() {
     match first_frame(port, None, Some(PROTOCOL_VERSION + 1)).await {
         Wire::Error { message, code } => {
             assert_eq!(code.as_deref(), Some("protocol_mismatch"));
-            assert!(message.contains("muta stop"), "names the fix: {message}");
+            assert!(message.contains("nuo stop"), "names the fix: {message}");
             assert!(
                 message.contains(&format!("protocol {}", PROTOCOL_VERSION + 1)),
                 "names the client's protocol number: {message}"
@@ -1703,7 +1704,7 @@ async fn protocol_window_governs_when_declared() {
             Wire::Error { message, code } => {
                 assert_eq!(code.as_deref(), Some("protocol_mismatch"));
                 assert!(
-                    message.contains("update your muta client"),
+                    message.contains("update your nuo client"),
                     "names the update fix: {message}"
                 );
             }

@@ -5,7 +5,7 @@
 //! from `nuo-agent` per ADR-0009 to remove the `nuo-wire → nuo-agent`
 //! inversion.
 //!
-//! Kept identity-agnostic: nothing here hardcodes "muta" or "coding". The
+//! Kept identity-agnostic: nothing here hardcodes "nuo" or "coding". The
 //! embedding (a CLI, a server) supplies the fields, so the same engine can be
 //! repurposed as a different persona or for a different mission (research, ops,
 //! writing) by passing different values.
@@ -13,7 +13,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Who an agent is and what it is for. Identity-agnostic: it does not hardcode
-/// "muta" or "coding". The embedding (the CLI, a future frontend) supplies
+/// "nuo" or "coding". The embedding (the CLI, a future frontend) supplies
 /// the fields so the same engine can be repurposed as a different persona or
 /// for a different mission (research, ops, writing) by passing different
 /// values. Everything else in the system prompt (tone, todo/ask_user guidance)

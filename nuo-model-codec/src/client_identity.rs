@@ -9,7 +9,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Default user agent this project sends to providers.
 pub const NUO_USER_AGENT: &str = concat!("nuo/", env!("CARGO_PKG_VERSION"));
 
-/// OpenCode version emulated by muta.
+/// OpenCode version emulated by nuo.
 pub const OPENCODE_VERSION: &str = "1.18.20";
 
 /// User-Agent header value sent for OpenCode client profile.
@@ -18,7 +18,7 @@ pub const OPENCODE_USER_AGENT: &str = "opencode/1.18.20";
 /// Client identity headers used for OpenCode profile.
 pub const OPENCODE_CLIENT_HEADERS: &[(&str, &str)] = &[("x-opencode-client", "cli")];
 
-/// Claude Code version emulated by muta.
+/// Claude Code version emulated by nuo.
 pub const CLAUDE_CODE_VERSION: &str = "0.2.29";
 
 /// User-Agent header value sent for Claude Code client profile.
@@ -36,7 +36,7 @@ macro_rules! codex_version {
     };
 }
 
-/// OpenAI Codex CLI compatibility version emulated by muta. The remote model
+/// OpenAI Codex CLI compatibility version emulated by nuo. The remote model
 /// catalog uses this request value when selecting its representation.
 pub const CODEX_VERSION: &str = codex_version!();
 
@@ -49,7 +49,7 @@ pub const CODEX_CLIENT_HEADERS: &[(&str, &str)] = &[
     ("x-initiator", "user"),
 ];
 
-/// Cline extension version emulated by muta.
+/// Cline extension version emulated by nuo.
 pub const CLINE_VERSION: &str = "3.5.0";
 
 /// User-Agent header value sent for Cline client profile.
@@ -59,7 +59,7 @@ pub const CLINE_USER_AGENT: &str = "Cline/3.5.0";
 pub const CLINE_CLIENT_HEADERS: &[(&str, &str)] =
     &[("X-Title", "Cline"), ("HTTP-Referer", "https://cline.bot")];
 
-/// Cursor version emulated by muta.
+/// Cursor version emulated by nuo.
 pub const CURSOR_VERSION: &str = "0.45.0";
 
 /// User-Agent header value sent for Cursor client profile.
@@ -72,7 +72,7 @@ pub const CURSOR_CLIENT_HEADERS: &[(&str, &str)] = &[
     ("x-ghost-mode", "true"),
 ];
 
-/// Kilo Code version emulated by muta.
+/// Kilo Code version emulated by nuo.
 pub const KILO_CODE_VERSION: &str = "5.3.0";
 
 /// User-Agent header value sent for Kilo Code client profile.
@@ -85,7 +85,7 @@ pub const KILO_CODE_CLIENT_HEADERS: &[(&str, &str)] = &[
     ("HTTP-Referer", "https://kilocode.ai"),
 ];
 
-/// Roo Code version emulated by muta.
+/// Roo Code version emulated by nuo.
 pub const ROO_CODE_VERSION: &str = "3.8.0";
 
 /// User-Agent header value sent for Roo Code client profile.
@@ -97,7 +97,7 @@ pub const ROO_CODE_CLIENT_HEADERS: &[(&str, &str)] = &[
     ("HTTP-Referer", "https://github.com/RooVetGit/Roo-Cline"),
 ];
 
-/// Windsurf version emulated by muta.
+/// Windsurf version emulated by nuo.
 pub const WINDSURF_VERSION: &str = "1.0.0";
 
 /// User-Agent header value sent for Windsurf client profile.
@@ -109,7 +109,7 @@ pub const WINDSURF_CLIENT_HEADERS: &[(&str, &str)] = &[
     ("HTTP-Referer", "https://codeium.com/windsurf"),
 ];
 
-/// Aider version emulated by muta.
+/// Aider version emulated by nuo.
 pub const AIDER_VERSION: &str = "0.74.0";
 
 /// User-Agent header value sent for Aider client profile.
@@ -119,7 +119,7 @@ pub const AIDER_USER_AGENT: &str = "aider/0.74.0";
 pub const AIDER_CLIENT_HEADERS: &[(&str, &str)] =
     &[("X-Title", "Aider"), ("HTTP-Referer", "https://aider.chat")];
 
-/// Zhipu ZCode version emulated by muta.
+/// Zhipu ZCode version emulated by nuo.
 pub const ZCODE_VERSION: &str = "3.5.3";
 
 /// User-Agent header value sent for Zhipu ZCode client profile.
@@ -145,7 +145,7 @@ pub const ANTIGRAVITY_BRAND_NAME: &str = "Antigravity CLI";
 /// Google Jetski fallback brand name.
 pub const ANTIGRAVITY_JETSKI_BRAND_NAME: &str = "Jetski CLI";
 
-/// Google Antigravity CLI product version emulated by muta.
+/// Google Antigravity CLI product version emulated by nuo.
 ///
 /// This is the *standalone CLI* (`agy`) version, not an IDE build number: the
 /// Cloud Code inference backend admits requests only from the `antigravity/cli/`
@@ -181,7 +181,7 @@ pub const ANTIGRAVITY_AUTH_METHOD_CONSUMER: &str = "consumer";
 /// Faithful to the identity the current `agy` CLI emits on every Cloud Code
 /// request: `antigravity/cli/<version> (<kind>; os_type=…; arch=…; cl=…;
 /// auth_method=…)`. The `cl=` build number is a build-internal counter the
-/// backend does not discriminate on (ADR-0289), so muta carries a stable
+/// backend does not discriminate on (ADR-0289), so nuo carries a stable
 /// placeholder rather than tracking Google's build numbering.
 pub const ANTIGRAVITY_USER_AGENT: &str = "antigravity/cli/1.2.12 \
      (aidev_client; os_type=linux; arch=amd64; cl=0; auth_method=consumer)";
@@ -323,10 +323,10 @@ pub struct ClientCapabilities {
     pub has_client_headers: bool,
 }
 
-/// Standard client identity presets supported by muta.
+/// Standard client identity presets supported by nuo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum ClientPreset {
-    /// Default native identity (`User-Agent: muta/<version>`).
+    /// Default native identity (`User-Agent: nuo/<version>`).
     #[default]
     Native,
     /// OpenCode coding environment.
@@ -556,7 +556,7 @@ impl<'de> Deserialize<'de> for ClientPreset {
 /// First-class client profile presets and custom identity for connection emulation.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ClientProfile {
-    /// Default native identity (`User-Agent: muta/<version>`).
+    /// Default native identity (`User-Agent: nuo/<version>`).
     #[default]
     Native,
     /// Emulate OpenCode (`User-Agent: opencode/1.18.18`).

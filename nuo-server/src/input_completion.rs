@@ -37,7 +37,7 @@ impl InputCompletionEngine {
     }
 
     /// Produce one race-safe protocol response. `cursor` is a Unicode-scalar
-    /// index, matching the wire contract in `muta-contracts`.
+    /// index, matching the wire contract in `nuo-wire`.
     pub async fn complete(&self, request_id: u64, input: String, cursor: usize) -> AgentResponse {
         let items = match char_to_byte(&input, cursor) {
             Some(cursor_byte) => self.complete_items(&input, cursor_byte).await,

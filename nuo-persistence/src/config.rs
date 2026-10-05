@@ -617,13 +617,13 @@ pub fn resolve_web_config(config: &WebConfig, credentials: &Credentials) -> Reso
 }
 
 /// Discovered model lists and fitted capabilities, cached under
-/// `$XDG_STATE_HOME/muta/remote_catalog.json`.
+/// `$XDG_STATE_HOME/nuo/remote_catalog.json`.
 ///
 /// Lives under state (not cache) since the contents — discovered model ids,
 /// ETag revalidation metadata, advertised capability fields — are
 /// program-generated state the user expects to survive restarts rather than
 /// regenerable-from-scratch cache data. A pre-0.43 build wrote this file under
-/// `$XDG_CACHE_HOME/muta/remote_catalog.json`; that legacy copy is read once
+/// `$XDG_CACHE_HOME/nuo/remote_catalog.json`; that legacy copy is read once
 /// on first load after upgrade and adopted into the state path (see
 /// [`Self::load`]).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -677,7 +677,7 @@ impl RemoteCatalogCache {
     /// Read `remote_catalog.json`, returning an empty value if missing or unparseable.
     ///
     /// Clean break (ADR-0203 §29): no cache-dir migration shim. A file left at
-    /// the retired `$XDG_CACHE_HOME/muta/remote_catalog.json` location is
+    /// the retired `$XDG_CACHE_HOME/nuo/remote_catalog.json` location is
     /// ignored and re-derived — the catalog is program-generated state, so a
     /// missing read costs one refresh, not correctness.
     pub fn load() -> Self {
@@ -688,7 +688,7 @@ impl RemoteCatalogCache {
         Self::default()
     }
 
-    /// Persist atomically to `$XDG_STATE_HOME/muta/remote_catalog.json`.
+    /// Persist atomically to `$XDG_STATE_HOME/nuo/remote_catalog.json`.
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let bytes = serde_json::to_vec_pretty(self)?;
         fsutil::atomic_write_bytes(&Self::file_path(), &bytes)?;
@@ -1163,7 +1163,7 @@ impl Config {
                         // entire setup with no trace of why. Warn loudly (the
                         // log carries the file and the error) so a typo'd
                         // config.toml is diagnosable instead of reading as
-                        // "muta forgot my settings".
+                        // "nuo forgot my settings".
                         tracing::error!(
                             path = %config_path.display(),
                             %error,
@@ -1282,7 +1282,7 @@ impl Config {
         servers
     }
 
-    /// Load role-scoped MCP servers from `$XDG_CONFIG_HOME/muta/roles/<role>/mcp.json` (ADR-0253).
+    /// Load role-scoped MCP servers from `$XDG_CONFIG_HOME/nuo/roles/<role>/mcp.json` (ADR-0253).
     pub fn load_role_mcp(role: &str) -> HashMap<String, McpServerConfig> {
         let json_path = paths::get().role_mcp_file(role);
         let mut servers = HashMap::new();
@@ -1559,7 +1559,7 @@ impl Config {
     /// lives on for the daemon's whole lifetime, while the file can change
     /// under it at any moment. A naive whole-file rewrite therefore resurrects
     /// anything the user deleted — the reported bug: removing
-    /// `[workspace].additional_roots` from `~/.config/muta/config.toml` while a
+    /// `[workspace].additional_roots` from `~/.config/nuo/config.toml` while a
     /// session was open, then doing anything that saves (a `/models` switch, a
     /// favorite toggle), put the deleted entries straight back.
     ///
@@ -1576,7 +1576,7 @@ impl Config {
     ///   agent, mcp, hooks, …) is taken verbatim from disk. The disk was
     ///   potentially edited *after* the snapshot was taken, so it is the
     ///   newer truth; a stale snapshot must never overwrite it. Runtime
-    ///   mutations of user-owned tables (web settings, favorites, `muta mcp
+    ///   mutations of user-owned tables (web settings, favorites, `nuo mcp
     ///   add`) follow load → mutate → save, so their in-memory copy already
     ///   matches disk and this rule is a no-op for them — with one bounded
     ///   exception: a runtime mutation racing a same-table hand edit in the
@@ -1598,7 +1598,7 @@ impl Config {
         &self,
         preserve_connection_selection: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Serialise against other `muta` instances so concurrent config
+        // Serialise against other `nuo` instances so concurrent config
         // writes do not lost-update each other (ADR-0018 pattern). The lock is
         // held on the companion `.lock` file (not the data file, which is
         // rewritten via temp + rename and swaps inodes) for the whole RMW.

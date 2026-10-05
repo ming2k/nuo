@@ -13,7 +13,7 @@ impl App {
     /// whenever the user deletes or edits a chip — by backspace, selection
     /// delete, or hand-typing over the chip text. Mirrors codex's
     /// `reconcile_deleted_elements` and claude-code's `parseReferences`
-    /// effect, adapted to muta's "chip text lives in the input" model.
+    /// effect, adapted to nuo's "chip text lives in the input" model.
     pub fn reconcile_attachments(&mut self) {
         let new_input = composer_attachments::reconcile(
             &self.input,

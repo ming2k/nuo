@@ -83,6 +83,7 @@ pub async fn stop_daemon() -> Result<(), Box<dyn std::error::Error>> {
                         version: None,
                         grace_secs: None,
                         protocol: None,
+                        ..Default::default()
                     }
                 } else {
                     eprintln!("nuo: no daemon is running.");

@@ -18,7 +18,7 @@
 //! the same provider never duplicate or drift a channel set, and the app never
 //! persists production data it can re-derive.
 //!
-//! Stored in `$XDG_STATE_HOME/muta/connections.toml` — a program-managed
+//! Stored in `$XDG_STATE_HOME/nuo/connections.toml` — a program-managed
 //! state file, separate from the user-edited `config.toml`.
 
 use nuo_wire::model_providers::{canonical_provider_id, is_known_model_provider};
@@ -58,7 +58,7 @@ pub struct Connection {
     /// `credentials.toml`. Declared once per connection, never per route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_env: Option<String>,
-    /// Client profile specifying User-Agent and client identity headers (Native/muta, OpenCode, ZCode, Claude Code, etc.).
+    /// Client profile specifying User-Agent and client identity headers (Native/nuo, OpenCode, ZCode, Claude Code, etc.).
     /// Defaults to [`nuo_wire::ClientProfile::Native`].
     #[serde(default, alias = "client_profile")]
     pub client_identity: ClientIdentity,

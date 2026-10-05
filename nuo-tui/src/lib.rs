@@ -2477,7 +2477,7 @@ mod streaming_appends_tests {
     }
 }
 
-/// Load the user-supplied ASCII logo from `$XDG_CONFIG_HOME/muta/logo.txt`,
+/// Load the user-supplied ASCII logo from `$XDG_CONFIG_HOME/nuo/logo.txt`,
 /// clamped to the empty-state bounding box. Best-effort: a missing or unreadable
 /// file returns `None`, leaving the built-in wordmark in place.
 fn load_user_logo() -> Option<Vec<String>> {

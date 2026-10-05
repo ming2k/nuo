@@ -454,7 +454,7 @@ async fn sleep_ms(ms: u64) {
 ///
 /// The key is generated once per device at login and persisted with the
 /// connection — rotating it would look like device churn to Qoder's risk
-/// layer. The generator lives beside [`CosyIdentity`] in `muta-llm-client` so
+/// layer. The generator lives beside [`CosyIdentity`] in `nuo-llm-client` so
 /// generation and consumption share one definition; this re-export keeps the
 /// credential layer's call site unchanged.
 pub use crate::wire::generate_machine_key_hex;

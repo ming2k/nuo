@@ -15,11 +15,10 @@ use tokio_tungstenite::tungstenite::http::StatusCode;
 use crate::shutdown::ShutdownGate;
 use crate::wire_channel::{BoxWireSink, BoxWireStream, native_framed_split, websocket_split};
 
-// The transport envelope and its constants live in `muta-contracts` since
-// ADR-0134 — one serde source of truth for the whole wire surface, next to
-// the payload types. Re-exported here so every existing `serve::Wire` /
-// `serve::AttachAction` path (tests, examples, the TUI, the CLI) keeps
-// working unchanged.
+// The transport envelope and its constants live in `nuo-client::wire` — one
+// source of truth for the whole wire surface, next to the payload types.
+// Re-exported here so every existing `serve::Wire` / `serve::AttachAction`
+// path (tests, examples, the TUI, the CLI) keeps working unchanged.
 pub use nuo_client::wire::{AttachAction, ControlRequest, Wire};
 
 /// How long a draining daemon waits, per connection, for the client to
@@ -233,15 +232,15 @@ fn protocol_mismatch_error(client: u32, client_version: Option<&str>) -> String 
         format!(
             "client/daemon wire protocol mismatch: client protocol {client} is older \
              than the oldest this daemon serves ({window}). \
-             Please update your muta client to build {daemon} or newer{builds}.",
+             Please update your nuo client to build {daemon} or newer{builds}.",
             daemon = daemon_version()
         )
     } else {
         format!(
             "client/daemon wire protocol mismatch: client protocol {client} is newer \
              than this daemon's protocol {current}. \
-             Stop the daemon and let it restart on demand: `muta stop`, then rerun \
-             this command (or `muta start` to bring it up explicitly){builds}.",
+             Stop the daemon and let it restart on demand: `nuo stop`, then rerun \
+             this command (or `nuo start` to bring it up explicitly){builds}.",
             current = PROTOCOL_VERSION
         )
     }
@@ -253,21 +252,21 @@ fn protocol_mismatch_error(client: u32, client_version: Option<&str>) -> String 
 /// field (ADR-0134) — a client that declares a protocol number is judged on
 /// the window alone, its product version never enters the decision.
 fn version_mismatch_error(client: &str, daemon: &str) -> String {
-    use crate::client::{VersionRelation, compare_versions};
+    use nuo_client::{VersionRelation, compare_versions};
     match compare_versions(client, daemon) {
         VersionRelation::ClientOlder => format!(
             "client/daemon version mismatch: client ({client}) is older than daemon ({daemon}). \
-             Please update your muta client to version {daemon} or newer."
+             Please update your nuo client to version {daemon} or newer."
         ),
         VersionRelation::ClientNewer => format!(
             "client/daemon version mismatch: daemon ({daemon}) is older than client ({client}). \
-             Stop the daemon and let it restart on demand: `muta stop`, then rerun \
-             this command (or `muta start` to bring it up explicitly)."
+             Stop the daemon and let it restart on demand: `nuo stop`, then rerun \
+             this command (or `nuo start` to bring it up explicitly)."
         ),
         VersionRelation::Equal | VersionRelation::Unknown => format!(
             "client/daemon version mismatch: client {client} vs daemon {daemon}. \
-             Stop the daemon and let it restart on demand: `muta stop`, then rerun \
-             this command (or `muta start` to bring it up explicitly)."
+             Stop the daemon and let it restart on demand: `nuo stop`, then rerun \
+             this command (or `nuo start` to bring it up explicitly)."
         ),
     }
 }
@@ -455,7 +454,7 @@ pub struct ServeHandle {
     pub tasks: Arc<crate::shutdown::TaskBook>,
     pub token: Option<String>,
     /// The daemon's shutdown gate: `ControlRequest::Shutdown` (the
-    /// `muta stop` verb) funnels into it like any other trigger.
+    /// `nuo stop` verb) funnels into it like any other trigger.
     pub gate: Arc<ShutdownGate>,
     /// This daemon build's version, echoed to clients during handshake
     /// version negotiation (ADR-0100 rule 4).
@@ -507,7 +506,7 @@ pub fn start_server(
             let listener = match bind_tcp(bind_addr, port_fallback).await {
                 Ok((l, actual)) => {
                     let _ = actual_port_tx.send(Ok(actual));
-                    tracing::info!(%bind_addr,actual_port=actual,auth=tf.is_some(),"muta daemon: listener started");
+                    tracing::info!(%bind_addr,actual_port=actual,auth=tf.is_some(),"nuo daemon: listener started");
                     l
                 }
                 Err(e) => {
@@ -526,8 +525,8 @@ pub fn start_server(
             // instead of a hot spin; any success resets it.
             let mut backoff = std::time::Duration::from_millis(5);
             loop {
-                tokio::select! {_=cc.cancelled()=>{tracing::info!("muta daemon: cancelled");break;}
-                ac=listener.accept()=>{let(stream,peer)=match ac{Ok(c)=>c,Err(e)=>{tracing::warn!(error=%e,backoff_ms=backoff.as_millis() as u64,"muta daemon: accept failed");tokio::time::sleep(backoff).await;backoff=(backoff*2).min(ACCEPT_BACKOFF_CAP);continue;}};
+                tokio::select! {_=cc.cancelled()=>{tracing::info!("nuo daemon: cancelled");break;}
+                ac=listener.accept()=>{let(stream,peer)=match ac{Ok(c)=>c,Err(e)=>{tracing::warn!(error=%e,backoff_ms=backoff.as_millis() as u64,"nuo daemon: accept failed");tokio::time::sleep(backoff).await;backoff=(backoff*2).min(ACCEPT_BACKOFF_CAP);continue;}};
                 backoff=std::time::Duration::from_millis(5);
                 spawn_tcp_connection(
                     stream,
@@ -558,17 +557,17 @@ pub fn start_server(
                         l
                     }
                     Err(e) => {
-                        tracing::error!(endpoint=?endpoint,error=%e,"muta daemon: local IPC bind failed");
+                        tracing::error!(endpoint=?endpoint,error=%e,"nuo daemon: local IPC bind failed");
                         let _ = local_tx.send(Err(e));
                         return;
                     }
                 };
-                tracing::info!(endpoint=?endpoint,"muta daemon: local IPC listener started");
+                tracing::info!(endpoint=?endpoint,"nuo daemon: local IPC listener started");
                 let mut backoff = std::time::Duration::from_millis(5);
                 loop {
                     tokio::select! {
                         _ = cc.cancelled() => {
-                            tracing::info!("muta daemon: local IPC cancelled");
+                            tracing::info!("nuo daemon: local IPC cancelled");
                             break;
                         }
                         ac = listener.accept() => {
@@ -578,7 +577,7 @@ pub fn start_server(
                                     tracing::warn!(
                                         error = %e,
                                         backoff_ms = backoff.as_millis() as u64,
-                                        "muta daemon: local IPC accept failed"
+                                        "nuo daemon: local IPC accept failed"
                                     );
                                     tokio::time::sleep(backoff).await;
                                     backoff = (backoff * 2).min(ACCEPT_BACKOFF_CAP);
@@ -633,7 +632,7 @@ async fn bind_tcp(addr: SocketAddr, port_fallback: bool) -> std::io::Result<(Tcp
         Err(e)
             if port_fallback && addr.port() != 0 && e.kind() == std::io::ErrorKind::AddrInUse =>
         {
-            tracing::warn!(%addr, "muta daemon: requested port in use; falling back to an ephemeral port");
+            tracing::warn!(%addr, "nuo daemon: requested port in use; falling back to an ephemeral port");
             let fallback: SocketAddr = (addr.ip(), 0).into();
             let l = TcpListener::bind(fallback).await?;
             let actual = l.local_addr().map(|a| a.port()).unwrap_or(0);
@@ -671,7 +670,7 @@ fn spawn_tcp_connection(
                     crate::health_http::serve(stream, gate.version_of_daemon(), expected_token)
                         .await
                 {
-                    tracing::debug!(%peer, error=%e, "muta daemon: http error");
+                    tracing::debug!(%peer, error=%e, "nuo daemon: http error");
                 }
             }
             Ok(TcpTransport::WebSocket) => {
@@ -689,7 +688,7 @@ fn spawn_tcp_connection(
                 );
             }
             Err(e) => {
-                tracing::debug!(%peer, error=%e, "muta daemon: transport classify failed");
+                tracing::debug!(%peer, error=%e, "nuo daemon: transport classify failed");
             }
         }
     });
@@ -731,12 +730,12 @@ where
         let result = tokio::select! {
             r = handle_wire_stream(wire_sink, wire_source, registry, gate, listeners) => r,
             _ = conn_cancel.cancelled() => {
-                tracing::debug!(%peer, "muta daemon: closing local connection for drain");
+                tracing::debug!(%peer, "nuo daemon: closing local connection for drain");
                 Ok(())
             }
         };
         if let Err(e) = result {
-            tracing::warn!(%peer, error=%e, "muta daemon: local connection ended");
+            tracing::warn!(%peer, error=%e, "nuo daemon: local connection ended");
         }
     });
 }
@@ -772,12 +771,12 @@ fn spawn_connection<S>(
             // with backoff. (Sending a graceful Close frame from *here* is
             // not possible: the WS sink is owned by the inner future.)
             _ = conn_cancel.cancelled() => {
-                tracing::debug!(%peer, "muta daemon: closing connection for drain");
+                tracing::debug!(%peer, "nuo daemon: closing connection for drain");
                 Ok(())
             }
         };
         if let Err(e) = result {
-            tracing::warn!(%peer, error=%e, "muta daemon: connection ended");
+            tracing::warn!(%peer, error=%e, "nuo daemon: connection ended");
         }
     });
 }
@@ -844,7 +843,7 @@ async fn run_control(
                     if let Some(text) = prompt
                         && let Err(e) = registry.send_prompt(&id, text).await
                     {
-                        tracing::warn!(session=%id,error=%e,"muta daemon: create-session prompt failed");
+                        tracing::warn!(session=%id,error=%e,"nuo daemon: create-session prompt failed");
                     }
                     (true, Some(id), None)
                 }
@@ -1149,7 +1148,7 @@ async fn handle_wire_stream(
     tracing::info!(
         session_id = %attached_session_id,
         effective = ?after_attach,
-        "muta daemon: human channel accounted"
+        "nuo daemon: human channel accounted"
     );
     // Replay the buffered attach-sync events (ADR-0096) so a client that
     // attached after the session began hydrates its picker/key/context
@@ -1204,7 +1203,7 @@ async fn handle_wire_stream(
                     // Re-anchor instead: replay the attach-sync buffer —
                     // the same idempotent startup state a fresh attach gets
                     // — so the client resynchronizes instead of drifting.
-                    tracing::warn!(skipped = n, "muta daemon: client lagged; resyncing from attach-sync buffer");
+                    tracing::warn!(skipped = n, "nuo daemon: client lagged; resyncing from attach-sync buffer");
                     for event in snapshot_attach_sync(&bound.sync_buffer).await {
                         if let Err(e) = wire_sink.send(Wire::Response { response: event }).await {
                             return Err(format!("wire send: {e}"));
@@ -1230,7 +1229,7 @@ async fn handle_wire_stream(
                     match registry.kill_session(&session_id).await {
                         Ok(()) => tracing::info!(
                             session = %session_id,
-                            "muta daemon: client declared session end"
+                            "nuo daemon: client declared session end"
                         ),
                         // Already gone — which is exactly what the
                         // client asked for (e.g. another client ended it
@@ -1238,7 +1237,7 @@ async fn handle_wire_stream(
                         Err(e) => tracing::debug!(
                             session = %session_id,
                             error = %e,
-                            "muta daemon: session already gone on client end"
+                            "nuo daemon: session already gone on client end"
                         ),
                     }
                     // `kill_session` broadcast the terminal
@@ -1260,7 +1259,7 @@ async fn handle_wire_stream(
                     match req_tx.try_send(request) {
                         Ok(()) => {}
                         Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                            tracing::warn!("muta daemon: session request queue full, shedding load");
+                            tracing::warn!("nuo daemon: session request queue full, shedding load");
                             let err = Wire::Error {
                                 message: "daemon session request queue is full (server busy)".to_string(),
                                 code: Some("server_busy".to_string()),
@@ -1268,13 +1267,13 @@ async fn handle_wire_stream(
                             let _ = wire_sink.send(err).await;
                         }
                         Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                            tracing::warn!("muta daemon: session driver channel closed");
+                            tracing::warn!("nuo daemon: session driver channel closed");
                             break;
                         }
                     }
                 }
                 Some(Ok(_)) => {}
-                Some(Err(e)) => tracing::warn!(error = %e, "muta daemon: bad wire request"),
+                Some(Err(e)) => tracing::warn!(error = %e, "nuo daemon: bad wire request"),
                 None => break,
             },
         }
@@ -1287,7 +1286,7 @@ async fn handle_wire_stream(
     tracing::info!(
         session_id = %detached_session_id,
         effective = ?after_detach,
-        "muta daemon: human channel released"
+        "nuo daemon: human channel released"
     );
     Ok(())
 }
@@ -1376,7 +1375,7 @@ async fn run_monitor(
                         // the safest resync is a fresh snapshot.
                         tracing::warn!(
                             skipped = n,
-                            "muta daemon: monitor client lagged, resyncing"
+                            "nuo daemon: monitor client lagged, resyncing"
                         );
                         let snapshot = registry.monitor_snapshot(action).await;
                         send_monitor(&mut wire_sink, MonitorEvent::Snapshot(snapshot)).await?;
@@ -1525,7 +1524,7 @@ fn validate_origin(req: &Request, expose: ServeExpose) -> Result<(), ErrorRespon
     if allowed {
         Ok(())
     } else {
-        tracing::warn!(%origin, "muta daemon: refused WebSocket handshake from foreign browser origin");
+        tracing::warn!(%origin, "nuo daemon: refused WebSocket handshake from foreign browser origin");
         Err(reject_forbidden(
             "browser origin not allowed: the muta control plane only serves pages hosted on loopback",
         ))

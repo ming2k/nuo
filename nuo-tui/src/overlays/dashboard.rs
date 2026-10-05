@@ -504,7 +504,7 @@ fn dock_columns(body_width: u16) -> usize {
 const DOCK_COLUMN_W: usize = 36;
 
 /// One session card as a single line of spans:
-/// `#3  muta  2h14m  running` — sequence · workspace · uptime · status.
+/// `#3  nuo  2h14m  running` — sequence · workspace · uptime · status.
 /// The workspace name is the flexible field, truncated to fit; everything
 /// else has a fixed reservation.
 fn dock_card_line(
@@ -1192,7 +1192,7 @@ pub enum ConsoleCommand {
     /// `text` as the opening prompt.
     New { text: Option<String> },
     /// `? text` / `/ask text` — ask the Archivist (ADR-0208), the
-    /// muta-level retrieval agent, one question. The answer arrives as a
+    /// nuo-level retrieval agent, one question. The answer arrives as a
     /// console receipt (synchronous control round).
     Archivist { text: String },
     /// `/help` — the verb table as a notice block.
@@ -1708,7 +1708,7 @@ mod tests {
 
     #[test]
     fn archivist_address_parses_question_mark_and_ask_verb() {
-        // ADR-0208: `? text` asks the muta-level retrieval agent.
+        // ADR-0208: `? text` asks the nuo-level retrieval agent.
         match parse_console_command("? where did we debug the retry loop") {
             ConsoleCommand::Archivist { text } => {
                 assert_eq!(text, "where did we debug the retry loop");

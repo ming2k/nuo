@@ -105,7 +105,7 @@ pub fn atomic_write_json<T: serde::Serialize + ?Sized>(
 /// Guard for a blocking exclusive advisory lock held on a companion
 /// `<path>.lock` file. Used to serialise short read-modify-write windows on
 /// shared global files (`provider_usage.json`, slash-command history, the
-/// per-project embedding index) so two concurrently-running `muta` instances
+/// per-project embedding index) so two concurrently-running `nuo` instances
 /// in the same project — or across projects — never silently lose each other's
 /// updates. Dropping the guard closes the fd and releases the lock.
 ///

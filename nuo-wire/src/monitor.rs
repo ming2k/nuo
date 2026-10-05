@@ -23,7 +23,7 @@ use crate::events::SessionForkKind;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorAction {
     /// Keep the connection open and stream `MonitorEvent::Diff`s after the
-    /// initial snapshot (`muta status --watch`, live control apps). When
+    /// initial snapshot (`nuo status --watch`, live control apps). When
     /// `false` the server sends the snapshot and closes the connection.
     #[serde(default)]
     pub watch: bool,
@@ -308,7 +308,7 @@ impl SessionStatus {
         !matches!(self, Self::Idle)
     }
 
-    /// The wire string, also used directly by the `muta status` table.
+    /// The wire string, also used directly by the `nuo status` table.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Idle => "idle",

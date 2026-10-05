@@ -27,7 +27,7 @@
 //! Those tier sets are per-model ladders below; the shared clamp machinery
 //! never emits a rung a model rejected. Thinking on/off rides the same knob:
 //! `enable_thinking` is restricted to `true` on the always-thinking GLM-5.3
-//! and pointless on the effort-gated models, so muta sends no extra field.
+//! and pointless on the effort-gated models, so nuo sends no extra field.
 
 use nuo_model_codec::reasoning::ReasoningSupport;
 use nuo_model_codec::{Model, WireProtocol};
@@ -81,7 +81,7 @@ pub const MODELS: &[Model] = &[
     // GLM (Zhipu, Alibaba-hosted), DeepSeek (V4 / V4.1), and Kimi K2.7 Code
     // are deliberately NOT re-declared here: the same ids are already owned
     // by their home providers' baselines (`glm-cn`, `deepseek`, `opencode-go`),
-    // and a duplicate baseline must be field-identical — muta's capability
+    // and a duplicate baseline must be field-identical — nuo's capability
     // union is keyed by model id, not by route (see
     // `shared_baseline_ids_are_identical_across_provider_tables`). Their
     // cross-vendor tier sets differ from the home ladders (live-verified:

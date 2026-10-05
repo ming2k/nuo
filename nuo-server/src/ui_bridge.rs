@@ -1,6 +1,6 @@
 //! Frontend capability abstraction for the slash-command dispatcher.
 //!
-//! The slash handlers live in `muta-runtime` and are frontend-agnostic, but
+//! The slash handlers live in `nuo-server` and are frontend-agnostic, but
 //! one command (`/export`) needs to interact with the user's clipboard — a
 //! capability that only the running frontend possesses (the TUI uses
 //! arboard/osc52; a browser frontend would use the navigator.clipboard API).

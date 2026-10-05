@@ -177,7 +177,7 @@ impl Serialize for RoleWorkspace {
 ///
 /// The declaration only: name, identity material, capability lists, and the
 /// workspace policy. Discovery, file loading, and the built-in fallbacks are the
-/// host's (`muta-persistence::roles`), which resolves a declaration into a
+/// host's (`nuo-persistence::roles`), which resolves a declaration into a
 /// [`crate::SessionRoleManifest`] or an [`crate::AgentRoleProfile`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use nuo_host::paths;
 
 /// The discovery record, written once the bound port is known.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct Discovery {
     /// The serving process's id (staleness probe for readers).
     pub pid: u32,
@@ -35,6 +35,18 @@ pub struct Discovery {
     /// The wire protocol number this daemon speaks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol: Option<u32>,
+    /// Bounded content digest (lowercase hex) of the daemon's own executable
+    /// image: its exact length folded with a sampled SHA-256, captured once at
+    /// boot (ADR-0021). Lets a client detect a stale *same-version* daemon by
+    /// executable **content** — portably across Linux, macOS, and Windows —
+    /// instead of the Linux-only inode probe. `None` on records predating the
+    /// field; clients then fall back to inode equality.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_digest: Option<String>,
+    /// Byte length of the daemon's executable image: a cheap pre-hash gate
+    /// paired with `image_digest` (ADR-0021).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_len: Option<u64>,
 }
 
 impl Discovery {

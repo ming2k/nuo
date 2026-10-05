@@ -252,7 +252,7 @@ impl CommandRecord {
     }
 }
 
-/// Mirror of `muta-runtime::review::format_review_report`, kept here so
+/// Mirror of `nuo-server::review::format_review_report`, kept here so
 /// `CommandResult::to_text` owns the rendering and transport stays a thin
 /// caller. Kept in sync with the transport report by construction (the TUI
 /// renders the persisted variant through this function on resume).

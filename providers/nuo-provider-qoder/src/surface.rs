@@ -37,7 +37,7 @@ pub const CATALOG_PATH: &str = "/algo/api/v2/model/list";
 /// `ultimate`/`performance`/`efficient`/`advanced` are quality tiers, and the
 /// selector groups them under `modelSelector.functionSwitch.*`. Sending one as
 /// `X-Model-Key` delegates model choice to the server, which makes every
-/// capability muta fits for the channel (effort, thinking, context window)
+/// capability nuo fits for the channel (effort, thinking, context window)
 /// describe a model nobody selected — `performance` even advertises a
 /// `272K` window that no real entry carries.
 ///

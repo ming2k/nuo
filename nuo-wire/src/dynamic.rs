@@ -1,6 +1,6 @@
 //! Dynamic catalog abstraction — the unified pattern for lists that change.
 //!
-//! muta has several lists that evolve over time: skills (local + remote
+//! nuo has several lists that evolve over time: skills (local + remote
 //! repos), MCP server tools (runtime
 //! discovery), and permission rules. Hardcoding any of them means code changes
 //! every time the world changes. Instead, each follows the same philosophy:

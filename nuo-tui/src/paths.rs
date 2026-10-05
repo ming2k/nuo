@@ -2,7 +2,7 @@
 //!
 //! Follows XDG Base Directory Specification and decouples client TUI paths
 //! (`$XDG_CONFIG_HOME/mutx`, `$XDG_STATE_HOME/mutx`) from the core daemon
-//! (`$XDG_CONFIG_HOME/muta`, `$XDG_STATE_HOME/muta`).
+//! (`$XDG_CONFIG_HOME/nuo`, `$XDG_STATE_HOME/nuo`).
 
 use std::path::PathBuf;
 use std::sync::OnceLock;

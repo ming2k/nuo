@@ -38,7 +38,7 @@ pub(crate) fn panic_detail(payload: Box<dyn std::any::Any + Send>) -> String {
 ///
 /// Currently only exercised by tests in this module: the production restart
 /// call sites live where the supervised loops are defined (e.g. the schedule
-/// scheduler in `muta-agent`), which size their own tables. Kept here as
+/// scheduler in `nuo-agent`), which size their own tables. Kept here as
 /// the shared reference schedule the daemon's supervision policy documents.
 #[cfg(test)]
 const SUPERVISED_RESTART_BACKOFF_MS: [u64; 4] = [250, 1_000, 4_000, 15_000];

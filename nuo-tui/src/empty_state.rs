@@ -22,7 +22,7 @@
 //! setup blocker (ADR-0057) — nothing rotates until the blocker clears.
 //!
 //! The logo source is pluggable: a caller may pass user-supplied lines (loaded
-//! from `$XDG_CONFIG_HOME/muta/logo.txt`); when absent the built-in figlet
+//! from `$XDG_CONFIG_HOME/nuo/logo.txt`); when absent the built-in figlet
 //! wordmark is used. Either way the art is clamped to a safe bounding box so a
 //! giant paste can never blow out the welcome screen.
 

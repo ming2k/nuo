@@ -17,7 +17,7 @@ use nuo_wire::CustomRole;
 /// The kernel switches an agent's role on request (`/role`, a subagent's
 /// staffing) and must resolve a *declaration* to do it. Reading the file,
 /// merging workspace overrides, and deciding what counts as a valid id are the
-/// host's (`muta-persistence::roles`); the kernel only asks by name.
+/// host's (`nuo-persistence::roles`); the kernel only asks by name.
 pub trait RoleCatalog: Send + Sync + 'static {
     /// The declaration for `role`, if the user declared one.
     ///

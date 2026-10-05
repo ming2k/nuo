@@ -1,8 +1,8 @@
 //! Shared configuration schema for skills.
 //!
-//! Lives in `muta-contracts` for the same reason [`crate::WebSearchConfig`] and
+//! Lives in `nuo-wire` for the same reason [`crate::WebSearchConfig`] and
 //! [`crate::McpServerConfig`] do: the app-layer `Config` owns the `[skills]`
-//! table and the loader in `muta-skills` needs to read it, while the store
+//! table and the loader in `nuo-skills` needs to read it, while the store
 //! does not depend on that implementation crate.
 
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,7 @@ pub struct SkillsConfig {
     /// `skills/`) resolve from. Runtime-populated
     /// by the session bootstrap — never deserialized from `config.toml`
     /// (a config file must not name a workspace) — and `None` in contexts
-    /// without a designated project (tests, `muta config`), where
+    /// without a designated project (tests, `nuo config`), where
     /// discovery falls back to the process cwd. Under the unified daemon
     /// (ADR-0096) one process hosts sessions for many projects, so this
     /// field is what keeps each session's skill catalog scoped to its own

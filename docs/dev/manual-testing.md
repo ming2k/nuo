@@ -475,7 +475,26 @@ rm -rf "$NUO_HOME"
   - Daemon survives client disconnect without panicking.
   - `--resume` reconnects to the existing session, recovers the transcript up to the last persisted turn, and allows continuing the conversation.
 
-#### Scenario 8.3: Terminal Resize Stress Testing
+#### Scenario 8.3: Rebuilt-Binary Daemon Self-Heal (ADR-0021)
+- **Action**:
+  ```bash
+  # 1. Start a daemon and leave it idle
+  nuo start
+  nuo status --diagnostic   # note "Core Image" digests; they should match
+
+  # 2. Rebuild the binary under the live daemon (same version, no protocol change)
+  cargo build -p nuo
+
+  # 3. Discover it, then start again
+  nuo status --diagnostic   # "Daemon sha256" now differs -> "REBUILT/STALE" + drift diagnosis
+  nuo                        # must reclaim the idle daemon automatically, no manual `nuo stop`
+  ```
+- **Expected Outcome**:
+  - `nuo status --diagnostic` shows a `Core Image` block naming the installed path and both short digests; after the rebuild the daemon digest is flagged `differs from installed — REBUILT/STALE` and the top-level diagnosis reads `Rebuilt-binary drift`.
+  - With **no active sessions and no daemon tasks**, the next `nuo` invocation reclaims the stale daemon and respawns the freshly built image transparently — no `client/daemon binary mismatch` error.
+  - With a **live session** running, the same invocation instead refuses with `client/daemon binary mismatch … still hosting N active session(s)` and does **not** interrupt the work.
+
+#### Scenario 8.4: Terminal Resize Stress Testing
 - **Action**:
   - In `nuo`, repeatedly rapidly resize the terminal window between 80x24 and 160x50 columns while a response is streaming.
 - **Expected Outcome**:

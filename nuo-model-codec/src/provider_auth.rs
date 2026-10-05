@@ -1,6 +1,6 @@
 //! Per-provider OAuth2 client configuration & dynamic client emulator.
 //!
-//! muta's OAuth engine provides an ultra-flexible, industrial-grade abstraction
+//! nuo's OAuth engine provides an ultra-flexible, industrial-grade abstraction
 //! capable of emulating any OAuth 2.0 client (Google Antigravity, OpenAI Codex,
 //! xAI SuperGrok, GitHub Copilot, or custom enterprise OAuth endpoints).
 //!

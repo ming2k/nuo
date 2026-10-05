@@ -715,7 +715,7 @@ fn models_modal_renders_three_labeled_sections() {
 #[test]
 fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
     // Qoder parity: the server catalog lists subscription-locked models, the
-    // official `/model` menu renders them greyed-out, and muta's picker now
+    // official `/model` menu renders them greyed-out, and nuo's picker now
     // does the same — the row stays visible (so the account can see what an
     // upgrade unlocks) with a leading `locked` tag instead of being dropped.
     let theme = Theme::default();
@@ -790,7 +790,7 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
     assert!(text.contains("locked"), "lock tag renders");
 }
 
-/// ADR-0273: when the provider states a reason, the row shows *that* — muta
+/// ADR-0273: when the provider states a reason, the row shows *that* — nuo
 /// must never invent "locked for the current plan", which is a different,
 /// unstated diagnosis (the `403 code 110` quota incident is exactly a case
 /// where the plan is fine).

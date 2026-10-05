@@ -257,7 +257,7 @@ mod tests {
 
 // --- High-level application path resolution and Dirs ---
 
-//  Centralised path resolution for muta's on-disk footprint.
+//  Centralised path resolution for nuo's on-disk footprint.
 // 
 //  Every persistent path the program writes flows through [`Dirs`]. Resolution
 //  honours the XDG Base Directory Specification and layers overrides in this
@@ -268,7 +268,7 @@ mod tests {
 //     per-category overrides; more specific than the root, so one
 //     category can still be carved out of a sandbox).
 //  2. `NUO_HOME` — the instance selector: one variable
-//     moves the entire footprint (`<home>/muta/{config,data,state,
+//     moves the entire footprint (`<home>/nuo/{config,data,state,
 //     cache}` plus the daemon's runtime files under `instance/`), so a
 //     dev or test build can never touch the host installation's state.
 //  3. `XDG_CONFIG_HOME` / `XDG_DATA_HOME` / `XDG_STATE_HOME` /
@@ -301,18 +301,18 @@ pub struct PathsOverride {
     pub cache_dir: Option<PathBuf>,
 }
 
-/// The resolved on-disk layout. All paths are absolute and contain the `muta`
-/// segment as their final component (e.g. `~/.config/muta`).
+/// The resolved on-disk layout. All paths are absolute and contain the `nuo`
+/// segment as their final component (e.g. `~/.config/nuo`).
 #[derive(Debug, Clone)]
 pub struct Dirs {
     pub config_dir: PathBuf,
     pub data_dir: PathBuf,
     pub state_dir: PathBuf,
-    /// `$XDG_CACHE_HOME/muta`. Written by the remote-skill cache (see
+    /// `$XDG_CACHE_HOME/nuo`. Written by the remote-skill cache (see
     /// [`Self::remote_skills_cache`]) and otherwise kept lazily by `fsutil`
     /// on first write.
     pub cache_dir: PathBuf,
-    /// `$XDG_RUNTIME_DIR/muta` when set, otherwise `None` (callers fall
+    /// `$XDG_RUNTIME_DIR/nuo` when set, otherwise `None` (callers fall
     /// back to `state_dir` for portability and to avoid surprising tmpfs
     /// use). For the daemon's runtime files prefer [`Self::instance_dir`],
     /// which folds this field together with the `NUO_HOME`
@@ -325,13 +325,13 @@ impl Dirs {
     pub fn resolve(overrides: &PathsOverride) -> Self {
         // A single application component is intentional. Supplying the app
         // name as both organization and application produces
-        // `%APPDATA%\muta\muta` on Windows and an equally duplicated
+        // `%APPDATA%\nuo\nuo` on Windows and an equally duplicated
         // macOS bundle path. Linux ignores those fields, which hid the bug.
         let project = ProjectDirs::from("", "", "nuo");
-        // The instance root (ADR-0121): `NUO_HOME` is normalised to the `muta`-suffixed
+        // The instance root (ADR-0121): `NUO_HOME` is normalised to the `nuo`-suffixed
         // base once, so every category and the instance dir hang off one
-        // location: `<home>/muta/{config,data,state,cache,instance}`.
-        // `app_dir_from_root` also tolerates a root that already ends in `muta`.
+        // location: `<home>/nuo/{config,data,state,cache,instance}`.
+        // `app_dir_from_root` also tolerates a root that already ends in `nuo`.
         let home_base = nuo_home().map(app_dir_from_root);
         Self {
             config_dir: resolve_kind(
@@ -370,45 +370,45 @@ impl Dirs {
 
     // well-known files
 
-    /// User-edited configuration. `$XDG_CONFIG_HOME/muta/config.toml`.
+    /// User-edited configuration. `$XDG_CONFIG_HOME/nuo/config.toml`.
     pub fn config_file(&self) -> PathBuf {
         self.config_dir.join("config.toml")
     }
 
-    /// User-authored persistent roles (`$XDG_CONFIG_HOME/muta/roles.toml`).
+    /// User-authored persistent roles (`$XDG_CONFIG_HOME/nuo/roles.toml`).
     /// A user-global registry of named agent roles, kept beside `config.toml`
     /// as user-edited config (never program state).
     pub fn roles_file(&self) -> PathBuf {
         self.config_dir.join("roles.toml")
     }
 
-    /// Role-scoped config directory (`$XDG_CONFIG_HOME/muta/roles/<name>/`, ADR-0253).
+    /// Role-scoped config directory (`$XDG_CONFIG_HOME/nuo/roles/<name>/`, ADR-0253).
     pub fn role_config_dir(&self, role: &str) -> PathBuf {
         self.config_dir.join("roles").join(role)
     }
 
-    /// Role-scoped MCP file (`$XDG_CONFIG_HOME/muta/roles/<name>/mcp.json`, ADR-0253).
+    /// Role-scoped MCP file (`$XDG_CONFIG_HOME/nuo/roles/<name>/mcp.json`, ADR-0253).
     pub fn role_mcp_file(&self, role: &str) -> PathBuf {
         self.role_config_dir(role).join("mcp.json")
     }
 
-    /// Role-scoped data directory (`$XDG_DATA_HOME/muta/roles/<name>/`, ADR-0253).
+    /// Role-scoped data directory (`$XDG_DATA_HOME/nuo/roles/<name>/`, ADR-0253).
     pub fn role_data_dir(&self, role: &str) -> PathBuf {
         self.data_dir.join("roles").join(role)
     }
 
-    /// Role-scoped skills directory (`$XDG_DATA_HOME/muta/roles/<name>/skills/`, ADR-0253).
+    /// Role-scoped skills directory (`$XDG_DATA_HOME/nuo/roles/<name>/skills/`, ADR-0253).
     pub fn role_skills_dir(&self, role: &str) -> PathBuf {
         self.role_data_dir(role).join("skills")
     }
 
     /// User-declared model provider customizations
-    /// (`$XDG_CONFIG_HOME/muta/model_providers.toml`, ADR-0199, ADR-0201).
+    /// (`$XDG_CONFIG_HOME/nuo/model_providers.toml`, ADR-0199, ADR-0201).
     pub fn model_providers_file(&self) -> PathBuf {
         self.config_dir.join("model_providers.toml")
     }
 
-    /// User-supplied color scheme files (`$XDG_CONFIG_HOME/muta/themes`).
+    /// User-supplied color scheme files (`$XDG_CONFIG_HOME/nuo/themes`).
     /// Each `*.toml` in this directory defines a named theme with metadata
     /// and semantic palette / component overrides.
     pub fn themes_dir(&self) -> PathBuf {
@@ -416,7 +416,7 @@ impl Dirs {
     }
 
     /// User-supplied ASCII logo for the empty-state hero.
-    /// `$XDG_CONFIG_HOME/muta/logo.txt`. When present, its lines replace the
+    /// `$XDG_CONFIG_HOME/nuo/logo.txt`. When present, its lines replace the
     /// built-in figlet wordmark on the welcome screen (see `empty_state`).
     /// Optional and best-effort: missing/unreadable → built-in logo.
     pub fn logo_file(&self) -> PathBuf {
@@ -431,18 +431,18 @@ impl Dirs {
     /// `config.toml` keeps the provider *definitions* (id/name/transport/
     /// base_url/model). Resolution precedence — env var > credentials.toml >
     /// config inline — lives in the config layer.
-    /// `$XDG_CONFIG_HOME/muta/credentials.toml`.
+    /// `$XDG_CONFIG_HOME/nuo/credentials.toml`.
     pub fn credentials_file(&self) -> PathBuf {
         self.config_dir.join("credentials.toml")
     }
 
     /// OAuth token sets, keyed by exact connection id (`auth.toml`, 0600).
-    /// Stored in `$XDG_STATE_HOME/muta/auth.toml` as dynamic runtime state.
+    /// Stored in `$XDG_STATE_HOME/nuo/auth.toml` as dynamic runtime state.
     pub fn auth_file(&self) -> PathBuf {
         self.state_dir.join("auth.toml")
     }
 
-    /// Connections (`$XDG_STATE_HOME/muta/connections.toml`). The
+    /// Connections (`$XDG_STATE_HOME/nuo/connections.toml`). The
     /// program-managed "who I connect to" records — deliberately NOT in the
     /// user-edited `config.toml`, which holds behavior only. See
     /// the connections store.
@@ -450,14 +450,14 @@ impl Dirs {
         self.state_dir.join("connections.toml")
     }
 
-    /// Legacy web connections (`$XDG_STATE_HOME/muta/web_connections.toml`).
+    /// Legacy web connections (`$XDG_STATE_HOME/nuo/web_connections.toml`).
     /// Read only as a migration source; current runtime state does not depend on it.
     pub fn web_connections_file(&self) -> PathBuf {
         self.state_dir.join("web_connections.toml")
     }
 
     /// Cached model discovery lists and capability metadata
-    /// (`$XDG_STATE_HOME/muta/remote_catalog.json`).
+    /// (`$XDG_STATE_HOME/nuo/remote_catalog.json`).
     ///
     /// Lives under state (not cache) because the contents — discovered model
     /// ids, ETag revalidation state, advertised capability metadata — are
@@ -478,7 +478,7 @@ impl Dirs {
         self.state_dir.join("models_discovery.json")
     }
 
-    /// Retired cache-dir catalog location (`$XDG_CACHE_HOME/muta/`), read only
+    /// Retired cache-dir catalog location (`$XDG_CACHE_HOME/nuo/`), read only
     /// as the source of the one-shot `route_settings` fold, which recovers
     /// **user reasoning overrides** (non-derivable user data) from the pre-split
     /// file. The on-disk name `models_discovery.json` is a frozen historical
@@ -520,27 +520,27 @@ impl Dirs {
         self.projects_dir().join(project_bucket_name(project_root))
     }
 
-    /// User-global skills (`$XDG_DATA_HOME/muta/skills`). Per-project skills
+    /// User-global skills (`$XDG_DATA_HOME/nuo/skills`). Per-project skills
     /// still live under the project's working directory (`.nuo/skills/`)
     /// and are not stored here.
     pub fn user_skills_dir(&self) -> PathBuf {
         self.data_dir.join("skills")
     }
 
-    /// Cached remote skills (`$XDG_CACHE_HOME/muta/skills/remote`). Safe to
+    /// Cached remote skills (`$XDG_CACHE_HOME/nuo/skills/remote`). Safe to
     /// delete; repopulated on next `fetch_remote_repo`.
     pub fn remote_skills_cache(&self) -> PathBuf {
         self.cache_dir.join("skills").join("remote")
     }
 
-    /// User-global slash commands (`$XDG_DATA_HOME/muta/commands`). Project
+    /// User-global slash commands (`$XDG_DATA_HOME/nuo/commands`). Project
     /// commands still live under `.nuo/commands/` in the working directory.
     pub fn user_commands_dir(&self) -> PathBuf {
         self.data_dir.join("commands")
     }
 
     /// Per-project directory holding every session file. As of ADR-0018 each
-    /// live `muta` instance pins its own `sessions/<id>.json` plus
+    /// live `nuo` instance pins its own `sessions/<id>.json` plus
     /// `sessions/<id>.jsonl` here, so concurrent instances never share a
     /// mutable file. Replaces the legacy single project-root `session.json`.
     pub fn project_sessions_dir(&self, project_root: &Path) -> PathBuf {
@@ -594,7 +594,7 @@ impl Dirs {
     }
 
     /// Structured log directory for the rolling appender, under
-    /// `$XDG_STATE_HOME/muta/log`. Used by `init_tracing` at startup
+    /// `$XDG_STATE_HOME/nuo/log`. Used by `init_tracing` at startup
     /// and by `Self::ensure` in tests.
     pub fn log_dir(&self) -> PathBuf {
         self.state_dir.join("log")
@@ -608,8 +608,8 @@ impl Dirs {
     /// (legacy records) — and nothing else (ADR-0121).
     ///
     /// It is exactly [`Self::runtime_dir`] when a runtime location resolves
-    /// (`NUO_HOME` → `<home>/muta/instance`, else
-    /// `$XDG_RUNTIME_DIR/muta`), else the data dir as the portable
+    /// (`NUO_HOME` → `<home>/nuo/instance`, else
+    /// `$XDG_RUNTIME_DIR/nuo`), else the data dir as the portable
     /// fallback. Windows instead uses `state_dir/instance`, keeping process
     /// coordination out of the roaming profile. The rule is named once here.
     ///
@@ -628,7 +628,7 @@ impl Dirs {
         })
     }
 
-    /// Best-effort initial creation of every directory muta may write to.
+    /// Best-effort initial creation of every directory nuo may write to.
     /// Idempotent. Errors are surfaced as a single aggregate `String`. Used by
     /// tests; production creates directories lazily via `fsutil` on first write.
     #[cfg(test)]
@@ -775,7 +775,7 @@ impl Kind {
 
     /// The subdirectory under an instance root (ADR-0121). Plain names,
     /// not XDG segments: the instance root is not an XDG hierarchy and
-    /// `app_dir_from_root` appends the `muta` segment once.
+    /// `app_dir_from_root` appends the `nuo` segment once.
     fn home_segment(self) -> &'static str {
         match self {
             Kind::Config => "config",
@@ -795,7 +795,7 @@ impl Kind {
                 {
                     // State is machine-local and must not roam with the user
                     // profile. `data_local_dir` ends in `data`; use its app
-                    // parent to produce `%LOCALAPPDATA%\muta\state`.
+                    // parent to produce `%LOCALAPPDATA%\nuo\state`.
                     return p
                         .data_local_dir()
                         .parent()
@@ -837,7 +837,7 @@ fn nuo_home() -> Option<PathBuf> {
 
 /// Resolve the daemon's runtime location (ADR-0121): the instance root's
 /// `instance/` subdirectory when one is active, else `$XDG_RUNTIME_DIR/
-/// muta` (pre-0121 behaviour, unchanged). A relative or empty env value
+/// nuo` (pre-0121 behaviour, unchanged). A relative or empty env value
 /// is ignored with a warning: an instance root only isolates when both
 /// processes see the same absolute location.
 fn resolve_runtime(home_base: Option<&Path>) -> Option<PathBuf> {
@@ -872,7 +872,7 @@ fn resolve_kind(
         return app_dir_from_root(PathBuf::from(p));
     }
     // 3. Instance root (ADR-0121): `NUO_HOME` env.
-    //    `home` is already the `muta`-suffixed base, so only the category
+    //    `home` is already the `nuo`-suffixed base, so only the category
     //    segment appends.
     if let Some(base) = home {
         return base.join(kind.home_segment());
@@ -901,8 +901,8 @@ fn resolve_kind(
 }
 
 /// Given a root directory (e.g. `--data-dir=/tmp/x` or `$XDG_DATA_HOME=/foo`),
-/// append the `muta` segment unless the caller already named a directory that
-/// ends in `muta` (so `--data-dir=~/.local/share/muta` and
+/// append the `nuo` segment unless the caller already named a directory that
+/// ends in `nuo` (so `--data-dir=~/.local/share/nuo` and
 /// `--data-dir=~/.local/share` both do the right thing).
 fn app_dir_from_root(root: PathBuf) -> PathBuf {
     if root

@@ -11,9 +11,9 @@
 //!    body, [`super::super::wire::codec`]).
 //! 3. Decoded, it is `{"inferNodes":[{"url":"https://api3.qoder.sh",…}], …}`.
 //!
-//! muta adopts `inferNodes[0].url` — and only after it passes the strict
+//! nuo adopts `inferNodes[0].url` — and only after it passes the strict
 //! allowlist below; a hostile or malformed region map must never redirect
-//! muta's traffic. Anything that fails syncs degrades to the pinned
+//! nuo's traffic. Anything that fails syncs degrades to the pinned
 //! `MODEL_PROVIDER_SPEC.root_url` (ADR-0227: failure never diminishes a
 //! connection).
 
@@ -50,7 +50,7 @@ pub struct RegionNode {
     pub r#type: Option<String>,
 }
 
-/// The decoded region-endpoints payload (roles muta consumes; extra roles
+/// The decoded region-endpoints payload (roles nuo consumes; extra roles
 /// such as `centerNodes`/`codebase` are ignored).
 #[derive(Debug, Deserialize)]
 pub struct RegionEndpoints {

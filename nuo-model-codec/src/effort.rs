@@ -1,6 +1,6 @@
 //! Reasoning **depth** — "how hard should the model think before answering?"
 //!
-//! muta models every provider's reasoning-depth control as a single
+//! nuo models every provider's reasoning-depth control as a single
 //! provider-independent abstraction: the [`Effort`] enum. This keeps two
 //! concerns separate that are easy to conflate, and each lives on its own
 //! layer:
@@ -8,7 +8,7 @@
 //! # Layer A — the abstraction (this module): `Effort` → public API specs
 //!
 //! [`Effort`] is the **only** depth concept in the codebase. The protocol layer
-//! in `muta-llm-client` translates a chosen [`Effort`] onto each **public API
+//! in `nuo-llm-client` translates a chosen [`Effort`] onto each **public API
 //! specification** a provider speaks — not onto "a brand", but onto the wire
 //! shape the spec defines:
 //!
@@ -41,13 +41,13 @@
 //! ```text
 //! live discovery (a preset whose RemoteCatalogSource carries effort tiers)
 //!        ↓  only Kimi & Copilot advertise tiers here
-//! static baseline  ←  model capability ladders in `muta-providers::registry::effort_ladders`
+//! static baseline  ←  model capability ladders in `nuo-provider-adapters::registry::effort_ladders`
 //!        ↓  the compiled-in fallback when upstream advertises nothing
 //! COMMON_LADDER / &[]  (generic conservative fallback / non-reasoning model)
 //! ```
 //!
 //! Specific model family capability ladders (`CLAUDE_*`, `OPENAI_GPT_*`, `GLM_*`, etc.)
-//! are housed in the provider registry (`muta-providers::registry::effort_ladders`).
+//! are housed in the provider registry (`nuo-provider-adapters::registry::effort_ladders`).
 //! This module defines only the universal abstract vocabulary and the vendor-neutral
 //! conservative fallback [`COMMON_LADDER`].
 //!
@@ -274,7 +274,7 @@ impl Effort {
     ///
     /// A chosen [`Effort`] **pins** the budget — it is a deliberate request,
     /// never "let the server decide". (Gemini's own "dynamic" is `-1`, the
-    /// server default when the field is *omitted*; muta reaches that by not
+    /// server default when the field is *omitted*; nuo reaches that by not
     /// stamping the field at all — an unset channel effort — not by mapping any
     /// rung to `-1`.) `minimal` ~10%,
     /// `low` ~25%, `medium` ~50% of `max_budget`; `high`/`xhigh`/`max` all pin
@@ -309,7 +309,7 @@ impl Effort {
 
 /// A reasoning-depth level **as a channel knows it** — either a known rung of
 /// the [`Effort`] vocabulary or an opaque wire string a provider advertises that
-/// muta has no name for yet.
+/// nuo has no name for yet.
 ///
 /// This is the **open** companion to the closed [`Effort`] enum. [`Effort`] is
 /// the ordered vocabulary clamp/UI/config key off of; it must stay small and
@@ -410,7 +410,7 @@ const fn nonzero(tokens: u64) -> i64 {
 ///
 /// Safe default subset for any model whose deeper tiers (`xhigh`/`max`) are
 /// unknown. Concrete vendor/model family capability ladders are maintained in
-/// `muta-providers::registry::effort_ladders`.
+/// `nuo-provider-adapters::registry::effort_ladders`.
 pub const COMMON_LADDER: &[Effort] = &[Effort::Low, Effort::Medium, Effort::High];
 
 #[cfg(test)]

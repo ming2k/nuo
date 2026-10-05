@@ -240,6 +240,100 @@ pub fn process_image_matches_path(pid: u32, expected: &std::path::Path) -> bool 
     native::native_process_image_matches_path(pid, expected)
 }
 
+/// Bytes sampled per window when digesting an image larger than the window
+/// budget; small images are digested whole.
+const IMAGE_DIGEST_WINDOW: u64 = 64 * 1024;
+
+/// Number of evenly-spaced windows sampled across a large image. The first
+/// (head) and last (tail) are always included: the head carries the ELF
+/// header and build-id note, the tail the section headers — both rewritten on
+/// relink, so the sampled signal is strong for the drift case.
+const IMAGE_DIGEST_WINDOWS: u64 = 8;
+
+/// A **bounded content digest** of an executable image reachable at `path`:
+/// its exact byte length plus the lowercase-hex SHA-256 of a positionally
+/// sampled content window. `None` when the file cannot be read (missing,
+/// permission denied, a directory) — callers treat that as "no evidence",
+/// never as drift.
+///
+/// This is used by a **client** to fingerprint the image it *would spawn*:
+/// deliberately by path, because the client's question is "is the daemon
+/// running the file that now sits at this path?".
+pub fn image_digest_len(path: &std::path::Path) -> Option<(u64, String)> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    Some((len, digest_sampled(&mut file, len)?))
+}
+
+/// The fingerprint of the executable image this process actually **holds in
+/// memory** — *not* whatever may now sit at its path.
+///
+/// This asymmetry matters: a **client** fingerprints by path (the file it
+/// would exec), but a **daemon** must fingerprint the very image the kernel
+/// loaded into it. On Linux `/proc/self/exe` is a magic link that resolves to
+/// the *held inode* (and to `… (deleted)` once the on-disk file has been
+/// replaced), which is exactly that image. Re-opening [`current_exe`]'s *path*
+/// would instead follow the path to any newly dropped file — the precise
+/// dev-rebuild race this feature exists to catch — so we never do that here.
+/// (Confirmed: on Linux `current_exe()` readlinks `/proc/self/exe` and returns
+/// the *dereferenced path string*, so opening it hits the new file.)
+///
+/// On platforms with no equivalent handle (macOS, Windows) the held image
+/// cannot be read reliably, so this returns `None`: the daemon then publishes
+/// no digest and clients keep the pre-ADR-0021 inode probe, rather than
+/// trusting a digest that might describe the wrong file. Absence of evidence
+/// is not drift.
+pub fn current_exe_digest_len() -> Option<(u64, String)> {
+    #[cfg(target_os = "linux")]
+    {
+        let mut file = std::fs::File::open("/proc/self/exe").ok()?;
+        let len = file.metadata().ok()?.len();
+        Some((len, digest_sampled(&mut file, len)?))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+/// The shared, constant-cost sampling core: fold the exact length in first (a
+/// size change is definitive drift), then digest up to
+/// [`IMAGE_DIGEST_WINDOWS`] evenly-spaced [`IMAGE_DIGEST_WINDOW`] windows (head
+/// and tail always included), or the whole image when it fits the window
+/// budget. A relink rewrites the ELF head (build-id note) and tail (section
+/// headers), so the sampled signal is strong for the case that matters.
+fn digest_sampled(file: &mut std::fs::File, len: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(len.to_le_bytes());
+    let span = IMAGE_DIGEST_WINDOWS * IMAGE_DIGEST_WINDOW;
+    if len <= span {
+        let mut whole = Vec::with_capacity(len as usize);
+        file.read_to_end(&mut whole).ok()?;
+        hasher.update(&whole);
+    } else {
+        let mut buf = vec![0u8; IMAGE_DIGEST_WINDOW as usize];
+        for i in 0..IMAGE_DIGEST_WINDOWS {
+            let pos = (len - IMAGE_DIGEST_WINDOW) * i / (IMAGE_DIGEST_WINDOWS - 1);
+            if file.seek(SeekFrom::Start(pos)).is_err() {
+                return None;
+            }
+            let mut filled = 0;
+            while filled < buf.len() {
+                match file.read(&mut buf[filled..]) {
+                    Ok(0) => break,
+                    Ok(n) => filled += n,
+                    Err(_) => return None,
+                }
+            }
+            hasher.update(&buf[..filled]);
+        }
+    }
+    Some(format!("{:x}", hasher.finalize()))
+}
+
 #[cfg(unix)]
 mod native {
     use super::*;
@@ -515,6 +609,49 @@ mod tests {
         assert_eq!(first, second);
         assert_ne!(first.birth_token, 0);
         assert!(process_is_alive(first));
+    }
+
+    #[test]
+    fn image_digest_is_deterministic_and_detects_change() {
+        // ADR-0021: the bounded content digest must be stable for identical
+        // bytes and must change when the image changes, including via a
+        // length-preserving edit in the sampled tail region.
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a");
+        let b = dir.path().join("b");
+        std::fs::write(&a, b"identical image bytes").unwrap();
+        std::fs::write(&b, b"identical image bytes").unwrap();
+        let da = image_digest_len(&a).unwrap();
+        let db = image_digest_len(&b).unwrap();
+        assert_eq!(da, db, "equal bytes must digest equal");
+        assert_eq!(da.0, 21);
+        assert_eq!(image_digest_len(&a).unwrap(), da, "digest is deterministic");
+
+        // A length-preserving change is caught by the content sample.
+        std::fs::write(&b, b"identical image byteZ").unwrap();
+        assert_eq!(image_digest_len(&b).unwrap().0, 21);
+        assert_ne!(image_digest_len(&b).unwrap().1, da.1);
+
+        // Missing file: no evidence, `None`.
+        assert!(image_digest_len(&dir.path().join("missing")).is_none());
+    }
+
+    /// On Linux the daemon's self-fingerprint must describe the image the
+    /// kernel **loaded into this process** (`/proc/self/exe`), not whatever
+    /// sits at `current_exe()`'s path — the asymmetry that keeps the daemon's
+    /// attestation honest when the on-disk file is later replaced.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn current_exe_digest_reads_the_held_image() {
+        let (len, digest) = current_exe_digest_len().expect("held image readable on linux");
+        assert!(len > 0, "held image has a length");
+        assert_eq!(digest.len(), 64, "sha256 hex digest");
+        // Deterministic across calls.
+        assert_eq!(current_exe_digest_len().unwrap(), (len, digest.clone()));
+        // It fingerprints the same held image `/proc/self/exe` resolves to.
+        let via_proc = image_digest_len(std::path::Path::new("/proc/self/exe"))
+            .expect("readable via /proc/self/exe");
+        assert_eq!(via_proc, (len, digest));
     }
 }
 

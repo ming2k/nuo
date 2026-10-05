@@ -1,4 +1,4 @@
-//! Native operating-system capabilities used by muta's business layers.
+//! Native operating-system capabilities used by nuo's business layers.
 //!
 //! The public API is expressed in semantic operations (local IPC, an owned
 //! process tree, daemon detachment, and an advisory process lock). OS-specific

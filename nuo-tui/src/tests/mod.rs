@@ -255,7 +255,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         input_history_dedup: true,
         input_history_record_commands: false,
         // Tests must not touch the developer's real database: with the
-        // guard off, `record_input_history` writes to muta.db
+        // guard off, `record_input_history` writes to nuo.db
         // — a leak that polluted the file with synthetic `prompt N` rows.
         input_history_persist: false,
         pending_images: Vec::new(),

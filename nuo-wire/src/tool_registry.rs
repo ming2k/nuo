@@ -8,8 +8,8 @@
 //!
 //! Tools that need runtime state (config blobs, shared registries) pull it out
 //! of an opaque [`ToolContext`]: a type-keyed service map. This keeps
-//! `muta-contracts` free of dependencies on the concrete state types, which live
-//! in higher crates (e.g. `SkillRegistry` in `muta-skills`). The map is the
+//! `nuo-wire` free of dependencies on the concrete state types, which live
+//! in higher crates (e.g. `SkillRegistry` in `nuo-skills`). The map is the
 //! only seam.
 //!
 //! A handful of "meta" tools genuinely cannot self-register — e.g. a subagent
@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 /// An opaque, type-keyed bag of services handed to each [`ToolFactory`] at
 /// build time. Tools look their concrete dependencies up by Rust type. There
-/// is intentionally no typed list of fields: that would force `muta-contracts` to
+/// is intentionally no typed list of fields: that would force `nuo-wire` to
 /// depend on every higher crate's state types. The map is the seam.
 ///
 /// Cheaply [`Clone`](self::ToolContext#method.clone)-able (shared via `Arc`);
@@ -64,7 +64,7 @@ impl ToolContext {
 /// newtype (not a bare `PathBuf`) so a future provider of the same path under
 /// a different meaning cannot collide with it in the type-keyed map.
 ///
-/// Provided by the bootstrap that assembles the session (`muta-runtime`).
+/// Provided by the bootstrap that assembles the session (`nuo-server`).
 /// A context without one (unit tests, subagent sub-agents built from a static
 /// snapshot) leaves the service unset and tools fall back to the process cwd —
 /// the historical behaviour — which remains correct wherever one process

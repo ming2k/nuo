@@ -2,7 +2,7 @@
 
 This document defines the operational procedures, versioning invariants, Git tagging conventions, and release playbooks for all crates within the **Nuo** repository.
 
-It translates the architectural mandate of **[ADR-0008](../adr/0008-federated-cluster-semver-and-release-topology.md)** (*Federated Cluster SemVer and Release Topology*) into daily development rules and release engineering runbooks.
+It translates the architectural mandate of **[ADR-0004](../adr/0004-federated-cluster-semver-and-release-topology.md)** (*Federated Cluster SemVer and Release Topology*) into daily development rules and release engineering runbooks.
 
 ---
 

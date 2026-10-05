@@ -2,12 +2,12 @@
 //! wire contract when Qoder ships a new client. Run manually:
 //!
 //! ```text
-//! cargo run -p muta-providers --example qoder_catalog_dump -- <connection> [out.json]
+//! cargo run -p nuo-provider-adapters --example qoder_catalog_dump -- <connection> [out.json]
 //! ```
 //!
 //! It writes the response **verbatim** (pretty-printed, no field filtering) so
 //! the artifact stays a faithful record of what the server said rather than of
-//! what muta currently parses out of it — a parser bug must not be able to hide
+//! what nuo currently parses out of it — a parser bug must not be able to hide
 //! inside its own evidence base.
 //!
 //! This exists because the recon fixtures that originally characterized the

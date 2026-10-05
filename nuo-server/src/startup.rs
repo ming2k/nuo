@@ -3,7 +3,7 @@
 //! distinguishes built-in commands from user-defined ones.
 //!
 //! The *command-line parser* no longer lives here (ADR-0116): parsing is a
-//! frontend concern and moved to `mutx::cli`, which also owns help
+//! frontend concern and moved to the `nuo` binary's `cli`, which also owns help
 //! text and shell completions. What remains is what the session runtime
 //! itself needs to start a session and interpret slash commands.
 
@@ -473,7 +473,7 @@ define_builtin_commands! {
 impl BuiltinCmd {
     /// Backward-compatible aliases for renamed commands. Unlike the legacy
     /// behaviour, aliases are **first-class completion candidates** (see
-    /// `CommandAlias` in `muta-contracts`): typing `/set` offers a `setup`
+    /// `CommandAlias` in `nuo-wire`): typing `/set` offers a `setup`
     /// row that stays `/setup` when selected — the alias is only resolved to
     /// its target at dispatch time. They remain absent from
     /// [`BuiltinCmd::ALL`] so `/help` keeps listing canonical names only.
@@ -687,7 +687,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
 ///
 /// A TUI cannot log to stdout (it would corrupt the display), so tracing
 /// always writes to a **file** under the XDG state directory:
-/// `$XDG_STATE_HOME/muta/log/muta.log` (daily-rotated, so each calendar
+/// `$XDG_STATE_HOME/nuo/log/nuo.log` (daily-rotated, so each calendar
 /// day rolls into its own file).
 ///
 /// # Verbosity
@@ -698,7 +698,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
 /// - _unrecognised / unset_ — defaults to `info`.
 ///
 /// `RUST_LOG` still takes precedence per-target when set (e.g.
-/// `RUST_LOG=muta=debug,muta_runtime=trace`), because
+/// `RUST_LOG=nuo=debug,muta_runtime=trace`), because
 /// `EnvFilter::try_from_default_env` is consulted first. This keeps the
 /// familiar `RUST_LOG` ergonomics for fine-grained filtering while giving a
 /// sane always-on default out of the box.
@@ -717,7 +717,7 @@ pub fn init_tracing() -> Option<WorkerGuard> {
     if let Err(e) = std::fs::create_dir_all(&dir) {
         // Last-resort: never block startup over logging. Drop to stderr-free
         // no-op by returning None; diagnostics are impossible from a TUI anyway.
-        eprintln!("muta: could not create log dir {}: {e}", dir.display());
+        eprintln!("nuo: could not create log dir {}: {e}", dir.display());
         return None;
     }
 
@@ -728,7 +728,7 @@ pub fn init_tracing() -> Option<WorkerGuard> {
     ));
 
     // Per-target RUST_LOG wins; otherwise apply the MUTA_LOG level to the
-    // muta crates and keep everything else quiet.
+    // nuo crates and keep everything else quiet.
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         let l = level.to_ascii_lowercase();
         let lvl = matches!(l.as_str(), "error" | "warn" | "info" | "debug" | "trace")

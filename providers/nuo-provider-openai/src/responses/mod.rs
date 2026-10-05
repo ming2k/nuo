@@ -155,7 +155,7 @@ pub struct OpenAiResponsesProvider {
     /// Channel-scoped capability view. A trusted remote catalogue overrides the
     /// static baseline only for this provider/model route.
     pub capabilities: nuo_model_codec::ModelCapabilities,
-    /// When `true`, attach ChatGPT Subscription headers (`originator: muta` and
+    /// When `true`, attach ChatGPT Subscription headers (`originator: nuo` and
     /// `ChatGPT-Account-Id`).
     pub dialect: nuo_model_codec::OpenAiResponsesDialect,
     /// Whether upstream persists response state and accepts

@@ -1,4 +1,4 @@
-//! The Archivist (ADR-0208): a conversational muta-level agent co-stationed
+//! The Archivist (ADR-0208): a conversational nuo-level agent co-stationed
 //! on the Hypervisor.
 //!
 //! The Hypervisor station (ADR-0167) is the daemon's single workspace-free
@@ -8,7 +8,7 @@
 //! session this instance has ever hosted, where they live, and how to find
 //! them back. Its toolset is deliberately retrieval-only (search / list /
 //! read, all read-only, inherently cross-project because they read the one
-//! shared `muta.db`); anything that must act on files is delegated to a
+//! shared `nuo.db`); anything that must act on files is delegated to a
 //! workspace master over the mesh, keeping the workspace-security posture
 //! (ADR-0146/0147) intact.
 //!

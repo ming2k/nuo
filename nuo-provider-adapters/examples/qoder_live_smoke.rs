@@ -1,6 +1,6 @@
 //! One-shot live smoke: full Rust wire path (provider → pipeline → live
 //! Qoder endpoint) with the local daemon's stored credentials. Run manually:
-//! `cargo run -p muta-providers --example qoder_live_smoke` — hits the real
+//! `cargo run -p nuo-provider-adapters --example qoder_live_smoke` — hits the real
 //! API, so it is deliberately an example, not a test.
 
 // Failing loudly on a broken pre-condition is the point of a smoke run.

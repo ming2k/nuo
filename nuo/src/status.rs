@@ -2,14 +2,14 @@
 //! monitor protocol. One-shot by default (`nuo status`), a live table with
 //! `--watch`, machine-readable frames with `--json`.
 //!
-//! Unlike `mutx attach`, status never spawns a daemon: observing is only
+//! Unlike `nuo attach`, status never spawns a daemon: observing is only
 //! meaningful when a host is already running, so a missing/stale discovery
 //! record is a clean "no daemon" report, not an excuse to start one.
 //!
 //! This module is presentation only: the monitor-protocol client
 //! ([`nuo_client::monitor_stream`]) and the stream-folding helper
 //! ([`nuo_client::upsert_session_row`]) live with the wire protocol
-//! in `muta-runtime`; what remains here is the terminal rendering of the
+//! in `nuo-client`; what remains here is the terminal rendering of the
 //! snapshot.
 
 use std::path::Path;
@@ -113,6 +113,11 @@ pub fn render_diagnostics(diag: &DaemonDiagnostics, json: bool) {
     }
 }
 
+/// Shorten a 64-char SHA-256 hex digest to its first 12 chars for display.
+fn short_hash(sha: &str) -> String {
+    sha.chars().take(12).collect()
+}
+
 /// The human-readable daemon diagnostics output.
 pub(crate) fn format_diagnostics(diag: &DaemonDiagnostics) -> String {
     let mut out = String::new();
@@ -146,6 +151,38 @@ pub(crate) fn format_diagnostics(diag: &DaemonDiagnostics) -> String {
         None => {
             out.push_str(&format!("missing ({})\n", diag.discovery_path.display()));
         }
+    }
+
+    // Executable image identity (ADR-0021): the daemon's published hash
+    // versus the installed image this client would spawn. This is the
+    // comparison a "rebuilt binary under a live daemon" verdict rests on, so
+    // it is rendered as first-class evidence rather than left to inference.
+    out.push_str("  Core Image:       ");
+    match &diag.installed_image {
+        Some(path) => {
+            out.push_str(&format!("{}\n", path.display()));
+            let sha = diag
+                .installed_image_digest
+                .as_deref()
+                .map(short_hash)
+                .unwrap_or_else(|| "unreadable".to_string());
+            out.push_str(&format!("    • Installed sha256: {sha}\n"));
+        }
+        None => out.push_str("installed image not found\n"),
+    }
+    match &diag.daemon_image_digest {
+        Some(sha) => out.push_str(&format!(
+            "    • Daemon sha256:    {} ({})\n",
+            short_hash(sha),
+            if diag.daemon_image_current {
+                "matches installed — current"
+            } else {
+                "differs from installed — REBUILT/STALE"
+            }
+        )),
+        None => out.push_str(
+            "    • Daemon sha256:    unpublished (pre-ADR-0021 record; inode probe in use)\n",
+        ),
     }
 
     // Instance Lock
@@ -201,7 +238,15 @@ pub(crate) fn format_diagnostics(diag: &DaemonDiagnostics) -> String {
 
     // High level diagnosis
     out.push_str("  Diagnosis:        ");
-    if diag.discovery_valid && diag.tcp_listening {
+    if diag.discovery_record.is_some() && !diag.daemon_image_current {
+        // ADR-0021: the executable drifted under a live daemon. This takes
+        // precedence over the generic "healthy" line: the daemon answers, but
+        // it is not the binary the operator thinks they are running.
+        out.push_str(
+            "Rebuilt-binary drift: the running daemon's executable differs from the installed image.\n",
+        );
+        out.push_str("                    `nuo` reclaims it automatically when idle; stop it now with `nuo stop`.\n");
+    } else if diag.discovery_valid && diag.tcp_listening {
         out.push_str("Daemon is running and healthy. (Observe with `muta status --watch`)\n");
     } else if diag.lock_held && diag.discovery_record.is_none() {
         out.push_str(
@@ -539,7 +584,42 @@ mod tests {
             tcp_listening: false,
             startup_log_path: std::path::PathBuf::from("/tmp/startup.log"),
             last_startup_log: None,
+            installed_image: None,
+            installed_image_digest: None,
+            daemon_image_digest: None,
+            daemon_image_current: true,
         }
+    }
+
+    #[test]
+    fn diagnostics_flag_rebuilt_binary_drift() {
+        // ADR-0021: a live record whose published hash differs from the
+        // installed image must be surfaced as rebuilt-binary drift, taking
+        // precedence over the generic "healthy" line.
+        let diag = DaemonDiagnostics {
+            discovery_record: Some(nuo_client::DaemonInfo {
+                pid: 12345,
+                version: Some("0.25.1".to_string()),
+                protocol: Some(1),
+                image_digest: Some("aa".repeat(32)),
+                ..Default::default()
+            }),
+            discovery_valid: true,
+            tcp_listening: true,
+            lock_held: true,
+            lock_holder_pid: Some(12345),
+            lock_holder_alive: true,
+            installed_image: Some(std::path::PathBuf::from("/usr/bin/nuo")),
+            installed_image_digest: Some("bb".repeat(32)),
+            daemon_image_digest: Some("aa".repeat(32)),
+            daemon_image_current: false,
+            ..base_diag()
+        };
+        let text = format_diagnostics(&diag);
+        assert!(text.contains("Rebuilt-binary drift"), "{text}");
+        assert!(text.contains("Core Image:"), "{text}");
+        assert!(text.contains("REBUILT/STALE"), "{text}");
+        assert!(!text.contains("running and healthy"), "{text}");
     }
 
     #[test]
@@ -557,6 +637,7 @@ mod tests {
                 version: Some("0.25.1".to_string()),
                 grace_secs: Some(10),
                 protocol: None,
+                ..Default::default()
             }),
             discovery_valid: true,
             lock_held: true,

@@ -1,4 +1,4 @@
-//! muta configuration initialization.
+//! nuo configuration initialization.
 //!
 //! `init_muta_config` materializes a `.nuo/` configuration tree in a
 //! directory (skills, commands, agents) for the `/init` slash command.

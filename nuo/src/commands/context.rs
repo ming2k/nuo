@@ -1,4 +1,4 @@
-//! `muta context migrate` — the offline legacy→canonical conversion surface
+//! `nuo context migrate` — the offline legacy→canonical conversion surface
 //! (ADR-0280 §4).
 //!
 //! This command is the only entry point to the migration tool. It runs outside
@@ -10,7 +10,7 @@
 use crate::cli::ContextAction;
 use std::path::Path;
 
-/// Run a `muta context …` action.
+/// Run a `nuo context …` action.
 pub fn run(action: ContextAction) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         ContextAction::Migrate { legacy, target } => {

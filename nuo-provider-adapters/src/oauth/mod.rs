@@ -1,6 +1,6 @@
 //! OAuth2 + PKCE authentication engine & client emulator.
 //!
-//! muta's OAuth subsystem provides an ultra-flexible, industrial-grade architecture
+//! nuo's OAuth subsystem provides an ultra-flexible, industrial-grade architecture
 //! supporting:
 //! - Multi-provider presets (Google Antigravity, OpenAI Codex, xAI SuperGrok, GitHub Copilot)
 //! - Dynamic client emulation (custom client IDs, secrets, endpoints, headers, PKCE modes, port strategies)

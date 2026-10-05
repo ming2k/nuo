@@ -14,7 +14,7 @@ pub use nuo_model_codec::model_providers::OPENCODE_GO_MODELS;
 ///
 /// The relay's `/models` payload carries ids only
 /// (`docs/explanation/opencode-provider-integration.md` §4.2), so this table is
-/// the only capability source — every id the relay serves that muta intends to
+/// the only capability source — every id the relay serves that nuo intends to
 /// present as a first-class model needs an entry here. The Go endpoint table
 /// (`opencode.ai/docs/go`) is the upstream authority for what exists; ids the
 /// table has dropped (the bare `deepseek-flash` residue of the V4.1-Flash

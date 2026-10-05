@@ -3,7 +3,7 @@
 //! reasoning ladder), driven against the real Token Plan endpoint. Run
 //! manually with the plan key in the environment:
 //!
-//! `QIANWEN_API_KEY=sk-sp-… cargo run -p muta-providers --example qianwen_live_smoke`
+//! `QIANWEN_API_KEY=sk-sp-… cargo run -p nuo-provider-adapters --example qianwen_live_smoke`
 //!
 //! Hits the real API, so it is deliberately an example, not a test.
 #![allow(clippy::expect_used)]

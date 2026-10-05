@@ -10,13 +10,13 @@
 //! [`scan_references`] or a call to [`mention_range_at`], never a second copy of
 //! the scan.
 //!
-//! ## Why this lives in `muta-contracts` (ADR-0057)
+//! ## Why this lives in `nuo-wire` (ADR-0057)
 //!
 //! The admission rule requires that an item is exchanged by *multiple
 //! independent workspace layers* or *breaks a dependency cycle*. The grammar is
-//! consumed by `muta-agent`, `muta-skills`, `muta-runtime`, and the terminal
-//! app, and it cannot live in any one of them: `muta-skills` must not depend on
-//! `muta-agent` (that would invert the `agent → skills` edge, ADR-0059), and
+//! consumed by `nuo-agent`, `nuo-harness`, `nuo-server`, and the terminal
+//! app, and it cannot live in any one of them: the harness must not depend on
+//! `nuo-agent` (that would invert the `agent → skills` edge, ADR-0059), and
 //! both runtime and the terminal need the same guard. This module is therefore
 //! the only acyclic, single-source home. It stays **pure and I/O-free** — it
 //! recognizes and segments references, and resolves nothing.

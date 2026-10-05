@@ -1,7 +1,7 @@
 //! Shared configuration schema for MCP servers.
 //!
-//! Lives in `muta-contracts` for the same reason `WebSearchConfig` does: both the
-//! app-layer `Config` (which owns the `[mcp]` table), `muta-agent` (which owns the MCP connector), and the
+//! Lives in `nuo-wire` for the same reason `WebSearchConfig` does: both the
+//! app-layer `Config` (which owns the `[mcp]` table), `nuo-agent` (which owns the MCP connector), and the
 //! session/frontend layers exchange these values without depending on one
 //! another's implementation details.
 
@@ -71,9 +71,9 @@ impl McpServerConfig {
     }
 }
 
-/// Runtime status reported by `muta-agent` (MCP connector) for each configured server.
+/// Runtime status reported by `nuo-agent` (MCP connector) for each configured server.
 ///
-/// Lives in `muta-contracts` (alongside [`McpServerConfig`]) so the TUI can
+/// Lives in `nuo-wire` (alongside [`McpServerConfig`]) so the TUI can
 /// consume it without depending on the connector implementation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McpConnectionStatus {

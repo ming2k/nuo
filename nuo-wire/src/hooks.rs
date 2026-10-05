@@ -1,14 +1,14 @@
 //! Lifecycle event hooks (ADR-0025): user-configurable interception at
 //! session, round, turn, and tool-call points.
 //!
-//! muta keeps a single event axis — the context-threshold, turn-count, and
+//! nuo keeps a single event axis — the context-threshold, turn-count, and
 //! clock concerns are already owned by `CompactionPolicy` and `/repeat` and
 //! are deliberately **not** re-exposed here. The capability a
 //! hook has (block / inject / observe) is implicit in the event it fires on,
 //! matching Claude Code's model: a `PreToolUse` hook may deny, a `Stop` hook
 //! may force another turn, the rest only observe or inject context.
 //!
-//! v1 ships a single command-handler implementation (see `muta`); the
+//! v1 ships a single command-handler implementation (see `nuo`); the
 //! [`Hook`] trait lives here so the registry and insertion points in
 //! `muta_agent` stay frontend-agnostic and so future handler types
 //! (`http`, `mcp_tool`) slot in without re-touching the loop.
@@ -195,7 +195,7 @@ pub enum RestorePoint {
 /// One user-configurable lifecycle hook (ADR-0025). A hook declares the
 /// [`HookEventKind`] it wants and an optional tool-name matcher, then reacts
 /// to each matching fire. The built-in implementation runs a shell command
-/// (see `muta`); the trait lives here so the registry and insertion
+/// (see `nuo`); the trait lives here so the registry and insertion
 /// points in `muta_agent` stay frontend-agnostic.
 #[async_trait]
 pub trait Hook: Send + Sync {

@@ -3,7 +3,7 @@
 //! The schema's compatibility policy is "unknown keys are ignored" (so a
 //! rename never breaks parsing), which buys resilience at the cost of signal:
 //! a typo'd key — or a key a newer release renamed — produced *no* output
-//! anywhere and silently fell back to a default. `muta config check`
+//! anywhere and silently fell back to a default. `nuo config check`
 //! restores the signal without changing the policy: it re-parses the file
 //! as a raw table and reports (a) hard syntax/type errors that made a load
 //! fall back to defaults, (b) keys that parse but match nothing in the
@@ -73,7 +73,7 @@ pub fn check_config_file(path: Option<PathBuf>) -> Vec<ConfigFinding> {
 }
 
 /// Keys the current schema knows, as a nested map (empty map = a leaf).
-/// Kept for the drift test and any future `muta config` completions: the
+/// Kept for the drift test and any future `nuo config` completions: the
 /// test asserts every section the schema serializes appears here.
 pub fn schema_key_tree() -> BTreeMap<String, BTreeMap<String, String>> {
     let mut root = BTreeMap::new();
@@ -99,7 +99,7 @@ pub fn schema_key_tree() -> BTreeMap<String, BTreeMap<String, String>> {
 }
 
 /// Top-level schema keys (flat view of the section tree), exposed for the
-/// tests and any future `muta config` completions.
+/// tests and any future `nuo config` completions.
 pub const CONFIG_KEYS: &[&str] = &[
     "default_connection",
     "default_model",

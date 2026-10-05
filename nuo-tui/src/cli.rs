@@ -2,7 +2,7 @@
 //!
 //! `nuox` is a client of the Nuo daemon. It owns interactive and headless
 //! terminal workflows; daemon lifecycle, configuration, credentials, MCP,
-//! skills, and daemon administration belong to the `muta` core command.
+//! skills, and daemon administration belong to the `nuo` core command.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

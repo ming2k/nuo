@@ -1,6 +1,6 @@
 //! End-to-end daemon spawn coverage owned by the CLI package so Cargo supplies
-//! the exact freshly-built `muta` binary through `CARGO_BIN_EXE_nuo`.
-//! This must never discover an incidental or stale `target/debug/muta`.
+//! the exact freshly-built `nuo` binary through `CARGO_BIN_EXE_nuo`.
+//! This must never discover an incidental or stale `target/debug/nuo`.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
@@ -68,10 +68,10 @@ fn discovery_path(root: &Path) -> PathBuf {
 }
 
 /// ADR-0121's inheritance invariant plus ADR-0129's detachment invariant:
-/// a real client binary carrying `MUTA_HOME` starts this exact build in a
+/// a real client binary carrying `NUO_HOME` starts this exact build in a
 /// fresh Unix session and keeps every daemon artifact inside the sandbox.
 #[tokio::test]
-async fn spawned_daemon_inherits_the_muta_home_sandbox() {
+async fn spawned_daemon_inherits_the_nuo_home_sandbox() {
     let own = tempfile::tempdir().unwrap();
     let own_root = own.path().to_path_buf();
     let cli = PathBuf::from(env!("CARGO_BIN_EXE_nuo"));

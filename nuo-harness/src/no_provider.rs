@@ -4,7 +4,7 @@
 //! When the catalog cannot resolve a real channel for a provider id (unknown
 //! id, or the entry has no usable channel), the startup install site installs
 //! a [`NoProvider`] into the shared holder so the type still satisfies
-//! `Arc<dyn Provider>`. The chat dispatch in `muta-runtime` checks
+//! `Arc<dyn Provider>`. The chat dispatch in `nuo-server` checks
 //! [`NoProvider::ID`] up-front and refuses the send with a user-facing
 //! notification, so a [`NoProvider`] should never actually be invoked — its
 //! [`nuo_wire::Provider`] impl is a defensive backstop that
@@ -23,7 +23,7 @@ pub const NO_PROVIDER_ID: &str = "none";
 /// resolve a real provider/channel.
 ///
 /// Installed into the shared provider holder at startup so the holder always
-/// contains *something*. The chat dispatch in `muta-runtime` refuses
+/// contains *something*. The chat dispatch in `nuo-server` refuses
 /// up-front when the live provider is a [`NoProvider`]; this impl is the
 /// defensive backstop in case a code path reaches it without the gate.
 pub struct NoProvider;

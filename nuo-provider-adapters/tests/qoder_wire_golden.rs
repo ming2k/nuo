@@ -6,7 +6,7 @@
 //! 0.50.5→0.50.7 pipeline refactor left the phases unwired and every
 //! phase-level test stayed green while production 404'd. This crate hosts the
 //! tests because it is the only one that can reference both the executor
-//! (`muta-llm-client`) and the Qoder wire implementation without inverting the
+//! (`nuo-llm-client`) and the Qoder wire implementation without inverting the
 //! dependency graph.
 
 // Golden-wire tests assert on parsed JSON; an `expect` that names the missing

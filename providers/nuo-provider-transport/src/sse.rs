@@ -50,7 +50,7 @@ pub fn data_payloads(
 /// Core decoder over an arbitrary byte-chunk stream.
 ///
 /// The transport is a parameter, not an assumption: this is the seam that lets
-/// any byte source — `reqwest` today, the owned `muta-net` transport tomorrow —
+/// any byte source — `reqwest` today, the owned `nuo-net` transport tomorrow —
 /// feed the *same* SSE reassembly, so the two can be compared byte for byte
 /// (ADR-0200's shadow criterion). `map_error` turns the source's error type into
 /// the provider error the retry classifier understands.

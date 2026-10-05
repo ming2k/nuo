@@ -181,7 +181,7 @@ impl nuo_provider::CatalogSigning for QoderCatalogSigning {
 /// unavailable — keeps the model universe pure: a switch that becomes
 /// `enable:true` on a paid plan must not surface as a selectable model, because
 /// selecting it hands model choice to the server and invalidates every
-/// capability muta fitted for the channel.
+/// capability nuo fitted for the channel.
 pub fn parse_scene_catalog(json: &Value, scene: &str) -> Vec<nuo_provider::DiscoveredModel> {
     let Some(scenes) = json.as_object() else {
         return Vec::new();
@@ -226,7 +226,7 @@ pub fn parse_scene_catalog(json: &Value, scene: &str) -> Vec<nuo_provider::Disco
 /// recording it and nothing more: the key is stored as the provider stated it,
 /// and no surface resolves it against the vendor's own text table — that would
 /// localize the reason (`[INV-AVAIL-03]`) and would put a vendor copy table in
-/// muta's core (ADR-0281).
+/// nuo's core (ADR-0281).
 fn disabled_reason(entry: &Value) -> Option<String> {
     entry
         .get("strategies")
@@ -500,7 +500,7 @@ mod tests {
 
     /// The seed ids and the baseline capability table must describe the *same*
     /// models in the *same* order. They live in two crates because the TUI
-    /// cannot depend on `muta-providers`, so the agreement is an invariant this
+    /// cannot depend on `nuo-provider-adapters`, so the agreement is an invariant this
     /// test owns rather than something the compiler can express — it is exactly
     /// the invariant the old duplicated `qoder3*` seed silently broke.
     #[test]

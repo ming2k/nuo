@@ -4,8 +4,8 @@
 //! settings (set from the model `e` editor); deleting them loses user
 //! configuration that no endpoint can re-derive. They therefore live in
 //! SQLite under the `state:route_settings` key (mirrored from the legacy
-//! `$XDG_STATE_HOME/muta/route_settings.json`), separate from
-//! `$XDG_STATE_HOME/muta/remote_catalog.json`, whose contents are program-
+//! `$XDG_STATE_HOME/nuo/route_settings.json`), separate from
+//! `$XDG_STATE_HOME/nuo/remote_catalog.json`, whose contents are program-
 //! generated and re-derivable on the next live `GET /models` ("reset caches"
 //! must not erase the user's reasoning overrides).
 //!
@@ -75,7 +75,7 @@ struct RouteSettingsFile {
 }
 
 /// The user's per-route reasoning overrides, backed by
-/// `$XDG_STATE_HOME/muta/route_settings.json`.
+/// `$XDG_STATE_HOME/nuo/route_settings.json`.
 #[derive(Debug, Clone, Default)]
 pub struct RouteSettingsStore {
     file: RouteSettingsFile,

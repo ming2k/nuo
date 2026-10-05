@@ -135,7 +135,7 @@ pub struct AgentChatSpec {
     /// The `parameters.max_tokens` fallback when the catalog advertises no
     /// output cap for the model.
     ///
-    /// This is the reference client's own normalizer default, not a muta
+    /// This is the reference client's own normalizer default, not a nuo
     /// invention: its token-count normalizer returns this value for an absent
     /// or non-positive input, and the surface's catalog publishes no
     /// `max_output_tokens`, so every turn the client sends carries it. Declaring

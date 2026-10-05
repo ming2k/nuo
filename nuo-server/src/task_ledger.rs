@@ -161,7 +161,7 @@ mod tests {
     use super::*;
 
     /// A store-private actor over a temp database: the same write path
-    /// production uses, without touching the user's real `muta.db`.
+    /// production uses, without touching the user's real `nuo.db`.
     fn writer() -> (PersistenceHandle, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
         let handle = PersistenceHandle::spawn(tmp.path().join("muta.db"), None);

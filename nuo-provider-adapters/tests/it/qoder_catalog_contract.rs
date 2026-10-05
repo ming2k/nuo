@@ -3,7 +3,7 @@
 //! The parser decides two things from the payload: which entries are models at
 //! all (membership — function switches are excluded) and whether an entry is
 //! usable (availability). Both are only as good as the vocabulary they classify
-//! against, and the payload is a vendor surface muta does not control. This
+//! against, and the payload is a vendor surface nuo does not control. This
 //! suite pins that vocabulary to a real capture so drift fails a test instead
 //! of silently changing what a user may select.
 //!

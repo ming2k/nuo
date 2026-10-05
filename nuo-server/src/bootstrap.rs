@@ -2,7 +2,7 @@
 //! Step 6).
 //!
 //! [`assemble`] performs the full session startup that used to live inline in
-//! the `muta` binary's `main`: channel creation, custom-command discovery,
+//! the `nuo` binary's `main`: channel creation, custom-command discovery,
 //! config load + migrations, persisted model catalogs, store opens,
 //! the repeat scheduler, provider/skills/toolset wiring, `SubagentTool` layering,
 //! agent construction, MCP background connect, pursuit/todo/session-state
@@ -666,15 +666,15 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         ));
     }
     let command_catalog = crate::startup::command_catalog(&[]);
-    // Wire universal asset attestation verifier into muta-mcp (ADR-0243, ADR-0252).
+    // Wire universal asset attestation verifier into nuo-mcp (ADR-0243, ADR-0252).
     let attestation_ledger = nuo_persistence::AssetAttestationLedger::load();
     let ledger_for_mcp = attestation_ledger.clone();
     crate::mcp::set_attestation_verifier(Arc::new(move |locator, spec| {
         ledger_for_mcp.is_trusted(locator, spec)
     }));
 
-    // Wire workspace security trust verifier into muta-mcp so MCP server
-    // connections can verify sandbox trust without depending on muta-persistence.
+    // Wire workspace security trust verifier into nuo-mcp so MCP server
+    // connections can verify sandbox trust without depending on nuo-persistence.
     let ws_security_for_mcp = workspace_security.clone();
     crate::mcp::set_trust_verifier(Arc::new(move |root| {
         ws_security_for_mcp
@@ -762,7 +762,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // ADR-0209: The authoritative usage telemetry lives in shared_provider_usage.
     // Read the current state for startup model resolution without redundant disk I/O.
 
-    // `mutx attach` (no id) opens the sessions picker at startup instead of
+    // `nuo attach` (no id) opens the sessions picker at startup instead of
     // loading any session: no transcript, todos, or SessionStart hooks should
     // run against the throwaway fresh session — the real session is restored
     // only once the user picks one from the picker (`/session open`). Fresh and

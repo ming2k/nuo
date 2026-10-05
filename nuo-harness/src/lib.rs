@@ -46,7 +46,7 @@
 //!   of providers. The catalog is fundamentally a factory consumed by
 //!   orchestration, so it lives where orchestration lives.
 //! - **`SubagentTool`** spawns subagents via `Agent::new`. It used to live
-//!   in the former `muta-tools` crate, which forced tools to depend on
+//!   in the former `nuo-tools` crate, which forced tools to depend on
 //!   this crate —
 //!   another inversion, since tools are below the agent layer. The
 //!   subagent tool is fundamentally an orchestration primitive that

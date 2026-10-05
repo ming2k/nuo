@@ -332,7 +332,7 @@ impl SessionRegistry {
     /// Subscribe the durability-health tap (ADR-0196 D4): the persistence
     /// supervisor's transitions are folded into the snapshot cache and
     /// published as `MonitorEvent::PersistenceHealth` diffs, so every
-    /// frontend (and `muta status`) sees degradation, not just the log.
+    /// frontend (and `nuo status`) sees degradation, not just the log.
     #[allow(clippy::unwrap_used)] // A poisoned snapshot mutex is an unrecoverable registry invariant.
     pub fn start_persistence_health_monitor(self: &Arc<Self>) {
         let registry = Arc::downgrade(self);

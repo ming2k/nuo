@@ -1,5 +1,5 @@
 //! The application plane's kernel host: the product's implementations of the
-//! ports `muta-agent` needs but must not resolve itself.
+//! ports `nuo-agent` needs but must not resolve itself.
 //!
 //! Two ports, both about durable material the kernel reads or writes without
 //! owning (ADR-0300 §1, ADR-0303 §1):

@@ -1,4 +1,4 @@
-//! Durable state and configuration for the muta agent stack.
+//! Durable state and configuration for the nuo agent stack.
 //!
 //! `nuo-wire` holds the pure domain (types & traits), zero I/O. This
 //! crate sits one layer above it: the durable state and configuration a

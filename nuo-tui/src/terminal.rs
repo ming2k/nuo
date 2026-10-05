@@ -54,7 +54,7 @@ pub(super) fn enter_terminal(profile: &nuotc::TerminalProfile) -> io::Result<()>
 
 /// Undo raw mode, leave the alternate screen, disable bracketed paste, and turn off mouse tracking.
 /// Used both on graceful shutdown and from the signal guard so an externally
-/// killed process (e.g. `pkill muta`) does not strand the terminal in a
+/// killed process (e.g. `pkill nuo`) does not strand the terminal in a
 /// state where every mouse move spews SGR escape codes into the shell.
 pub(super) fn restore_terminal() {
     let mut stdout = io::stdout();

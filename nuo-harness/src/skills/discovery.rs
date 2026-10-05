@@ -46,7 +46,7 @@ pub struct DiscoveryResult {
 /// Sources are scanned from lowest to highest priority so that higher-priority
 /// skills override lower-priority skills with the same name.
 ///
-/// Project-local sources (`.muta/skills`, `skills/`) are discovered transparently in
+/// Project-local sources (`.nuo/skills`, `skills/`) are discovered transparently in
 /// all trust states (ADR-0165). While the workspace's skills-domain state is
 /// [`WorkspaceTrustState::Quarantined`], project skills are marked `quarantined: true`
 /// and `enabled: false`, surfaced in TUI and CLI with actionable `/trust skills` guidance
@@ -121,7 +121,7 @@ async fn skill_sources(
     //    When a fetch fails (network down, server error), fall back to the
     //    last successful download's cache so a transient outage never silently
     //    removes skills — the cache-as-fallback pattern every remote catalog
-    //    in muta uses.
+    //    in nuo uses.
     for url in &config.urls {
         match fetch_remote_repo(url).await {
             Ok(roots) if !roots.is_empty() => {
@@ -143,14 +143,14 @@ async fn skill_sources(
         }
     }
 
-    // 2. User-global muta skills (XDG; the canonical user location).
+    // 2. User-global nuo skills (XDG; the canonical user location).
     sources.push(SkillSource::Local {
         root: dirs.user_skills_dir(),
         scope: SkillScope::User,
         quarantined: false,
     });
 
-    // 2.5 Role-scoped skills ($XDG_DATA_HOME/muta/roles/<name>/skills/, ADR-0253).
+    // 2.5 Role-scoped skills ($XDG_DATA_HOME/nuo/roles/<name>/skills/, ADR-0253).
     if let Some(role) = &config.role {
         sources.push(SkillSource::Local {
             root: dirs.role_skills_dir(role),
@@ -218,10 +218,10 @@ pub fn discoverable_skill_directories(config: &SkillsConfig) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let paths_helper = paths::get();
 
-    // 1. User-global muta skills ($XDG_DATA_HOME/muta/skills)
+    // 1. User-global nuo skills ($XDG_DATA_HOME/nuo/skills)
     dirs.push(paths_helper.user_skills_dir());
 
-    // 1.5 Role-scoped skills ($XDG_DATA_HOME/muta/roles/<name>/skills/, ADR-0253)
+    // 1.5 Role-scoped skills ($XDG_DATA_HOME/nuo/roles/<name>/skills/, ADR-0253)
     if let Some(role) = &config.role {
         dirs.push(paths_helper.role_skills_dir(role));
     }
@@ -236,7 +236,7 @@ pub fn discoverable_skill_directories(config: &SkillsConfig) -> Vec<PathBuf> {
     dirs.push(project_root.join(PROJECT_NUO_SKILLS_DIR));
     dirs.push(project_root.join(PROJECT_GENERIC_SKILLS_DIR));
 
-    // 4. Remote cache root ($XDG_CACHE_HOME/muta/skills/remote)
+    // 4. Remote cache root ($XDG_CACHE_HOME/nuo/skills/remote)
     dirs.push(paths_helper.remote_skills_cache());
 
     dirs
@@ -409,7 +409,7 @@ mod tests {
         );
 
         // Without a pinned root the same config discovers nothing here: the
-        // process cwd (the test binary's) has no `.muta/skills/pinned`.
+        // process cwd (the test binary's) has no `.nuo/skills/pinned`.
         let unpinned = nuo_wire::SkillsConfig::default();
         let result = discover_all_with_trust_state(&unpinned, WorkspaceTrustState::Trusted).await;
         assert!(

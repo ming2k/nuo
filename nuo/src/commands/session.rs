@@ -1,7 +1,7 @@
-//! `muta session …` (ADR-0116): the session noun. Removing lives here;
-//! *joining* a session is `mutx attach` (a top-level verb — it is the
+//! `nuo session …` (ADR-0116): the session noun. Removing lives here;
+//! *joining* a session is `nuo attach` (a top-level verb — it is the
 //! primary interactive act, not a sub-management task), and *listing* is
-//! `muta status` — the session table is the daemon's view of what
+//! `nuo status` — the session table is the daemon's view of what
 //! it hosts, so a `session ls` would duplicate it verbatim.
 
 use crate::cli::SessionAction;

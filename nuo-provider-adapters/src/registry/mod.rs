@@ -30,7 +30,7 @@ pub(crate) mod opencode;
 pub(crate) mod opencode_go;
 pub(crate) mod opencode_zen;
 mod openrouter;
-/// Public: the Qoder dialect's wire implementation is exercised by muta-llm-client's
+/// Public: the Qoder dialect's wire implementation is exercised by nuo-llm-client's
 /// golden-wire tests ([INV-WIRE-01], ADR-0271), which need the pipeline builder
 /// and the codec's decode half.
 pub use nuo_provider_qoder as qoder;
@@ -74,8 +74,8 @@ pub use nuo_model_codec::RemoteCatalogSource;
 /// A connection records its provider's stable [`id`](ModelProviderSpec::id).
 /// At startup the catalog uses the provider protocol and baseline `models` to
 /// reconcile the connection. This struct is the source of truth for that
-/// mapping; it intentionally lives in `muta-providers` (where the model
-/// constants live) so the reconciliation layer in `muta-agent` and the UI in
+/// mapping; it intentionally lives in `nuo-provider-adapters` (where the model
+/// constants live) so the reconciliation layer in `nuo-agent` and the UI in
 /// `mutx` both read one table. The UI-only fields (label / description /
 pub use nuo_provider::spec::{
     ModelProviderSpec, PromptCachePolicy, unsupported_prompt_cache,
@@ -248,7 +248,7 @@ pub use nuo_provider::spec::endpoint_for;
 /// Construct the concrete `Provider` for a [`nuo_model_codec::catalog::Channel`].
 ///
 /// This is the construction layer that knows about every concrete `Provider`
-/// implementation; it lives in `muta-providers` (not `muta-contracts`) so the
+/// implementation; it lives in `nuo-provider-adapters` (not `nuo-wire`) so the
 /// domain crate stays free of HTTP I/O. `entry_id` becomes the provider's
 /// attribution id (`Provider::provider_id`) so assistant responses are
 /// attributed to the logical model even after a mid-session switch.

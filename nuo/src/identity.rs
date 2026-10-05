@@ -1,6 +1,6 @@
 //! This CLI's identity + role profile.
 //!
-//! Lives in the application layer (`muta`), NOT in `muta-runtime`.
+//! Lives in the application layer (`nuo`), NOT in `nuo-server`.
 //! The server layer stays application-neutral — a future sibling binary
 //! brings its own identity/role. The server's `/btw` side
 //! session reuses the primary agent's identity via `Agent::identity()`,
@@ -10,12 +10,12 @@
 //!
 //! The engine composes an identity preamble only when the embedding supplies
 //! one ([`nuo_wire::AgentIdentity`]); this CLI supplies none. Nothing in the harness
-//! reads the model's self-name: no feature parses "I am muta", addressing is
+//! reads the model's self-name: no feature parses "I am nuo", addressing is
 //! user-side (`@role:` / `/role`), and the product name already travels
 //! with the binary, the UI chrome, and the config paths. Capabilities are
 //! declared by the tool schemas, the environment by the host section, and the
 //! work ethos by the persistence policy — so a
-//! `"You are muta, an expert AI coding assistant."` opening would spend the
+//! `"You are nuo, an expert AI coding assistant."` opening would spend the
 //! prompt's most salient slot on a label that steers no behaviour, and it
 //! invites the model to answer identity questions with a product name it has
 //! no grounded knowledge of. The baseline prompt therefore opens at the host
@@ -49,6 +49,6 @@ impl nuo::UiBridge for DaemonUiBridge {
 }
 
 // Built-in roles (`developer`, `philosophist`, `ops`) and the `/role` switching mechanism
-// are declared in `muta-contracts` as shared vocabulary (`MainAgentRole`,
+// are declared in `nuo-wire` as shared vocabulary (`MainAgentRole`,
 // `AgentRoleProfile::from_role`) and applied via `Agent::apply_role`,
 // so this binary does not need its own role registry — both frontends share one.

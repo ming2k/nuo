@@ -269,7 +269,7 @@ pub struct SessionDriver {
     pub project_root: Option<PathBuf>,
     /// Startup mode of the session.
     pub startup: SessionStart,
-    /// Whether the sessions picker should open on launch (`mutx attach`
+    /// Whether the sessions picker should open on launch (`nuo attach`
     /// with no id).
     pub open_picker_on_start: bool,
     /// Frontend clipboard bridge (ADR-0037 step 3). The TUI provides a real
@@ -283,7 +283,7 @@ pub struct SessionDriver {
     /// Application-registered slash command handlers (the extension point for
     /// commands that run Rust logic, e.g. a sibling binary's custom command).
     /// The dispatcher consults this in its unknown-built-in arm
-    /// before falling back to the markdown-template path. Empty for `muta`
+    /// before falling back to the markdown-template path. Empty for `nuo`
     /// today; populated by embeddings that need it.
     pub extra_commands: Arc<crate::slash_handler::SlashCommandRegistry>,
     /// Shared hot-reloadable resolved `[web]` configuration. The web tools hold
@@ -2113,7 +2113,7 @@ mod tests {
         // Two scenarios land here. (a) A graceful daemon kill: the registry
         // records `Terminated` but the round is exactly as resumable as a
         // crash's — suppressing the point would resurrect the bug for every
-        // `muta stop`. (b) A crash *during* a `/retry` resume: the resumed
+        // `nuo stop`. (b) A crash *during* a `/retry` resume: the resumed
         // round keeps its number, so the earlier run's `Terminated` record is
         // already present when the second crash is recovered. The interrupt
         // explains the transcript; the point offers recovery — independent.

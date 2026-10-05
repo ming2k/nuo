@@ -598,14 +598,14 @@ pub fn complete_for_frontend_test(
 
 
 // Client side of the daemon control plane: discovery, the attach handshake
-// (`connect`), one-shot control verbs (`control`), and the monitor stream
-// (ADR-0093/0096). `mutx` and other protocol clients drive
-// sessions owned by the Muta daemon (`muta`) through
-// this module. Discovery is global (one daemon per user); connections
-// prefer platform-native local IPC and fall back to TCP.
+// (`connect`), one-shot control verbs (`control`), and the monitor stream.
+// The `nuo` TUI and other protocol clients drive sessions owned by the `nuo`
+// daemon through this module. Discovery is global (one daemon per user);
+// connections prefer platform-native local IPC and fall back to TCP.
 //
-// The wire protocol this client speaks is [`crate::serve::Wire`] — client
-// and server live in the same crate so the protocol cannot drift.
+// The wire protocol this client speaks is [`nuo_client::wire`] (the `Wire`
+// envelope) — the same definition the daemon drives, from one crate, so the
+// protocol cannot drift.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -622,7 +622,7 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 
 /// ADR-0141: the human-channel posture this process declares when attaching.
 /// Defaults to `Interactive` (a TUI is a human by construction). Headless
-/// entrypoints (`muta -p`, remote automation) call [`set_posture`] with
+/// entrypoints (`nuo -p`, remote automation) call [`set_posture`] with
 /// `Autonomous` before connecting so the session knows no human can answer
 /// parked requests. Process-wide because one process plays one role.
 static POSTURE_OVERRIDE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
@@ -769,6 +769,7 @@ pub fn discover(_project_root: &Path) -> Option<DaemonInfo> {
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
                 grace_secs: None,
                 protocol: Some(PROTOCOL_VERSION),
+                ..Default::default()
             };
             tracing::info!(
                 pid,
@@ -848,7 +849,7 @@ pub fn incompatibility_error(info: &DaemonInfo) -> String {
     {
         protocol_mismatch(info)
     } else if info.version.as_deref() == Some(env!("CARGO_PKG_VERSION"))
-        && !daemon_image_is_current(info.pid)
+        && !daemon_image_is_current(info)
     {
         format!(
             "client/daemon binary mismatch: running daemon (pid {}, version {}) executable differs from the installed nuo core image (rebuilt binary). \
@@ -858,6 +859,109 @@ pub fn incompatibility_error(info: &DaemonInfo) -> String {
         )
     } else {
         version_mismatch(info)
+    }
+}
+
+/// Whether the running daemon is the ADR-0021 **dev-drift** case: the record
+/// declares this client's protocol window and this client's product version,
+/// yet the daemon's executable image is no longer the installed one. This is
+/// precisely the state a `cargo` rebuild of the binary leaves behind, where
+/// every version signal agrees and only content identity can see it.
+///
+/// Any other incompatibility (out-of-window protocol, different product
+/// version) is *not* drift and keeps the pre-ADR-0021 "prompt, never act"
+/// behaviour: an upgrade leftover is deliberately served (the daemon restarts
+/// on idle exit) and a skewed peer needs the directional upgrade message.
+fn is_dev_drift(info: &DaemonInfo) -> bool {
+    let protocol_in_window = info.protocol.is_none_or(protocol_accepts);
+    let same_version = info.version.as_deref() == Some(env!("CARGO_PKG_VERSION"));
+    protocol_in_window && same_version && !daemon_image_is_current(info)
+}
+
+/// What a live daemon is currently doing with its sessions, as seen through a
+/// best-effort monitor probe (ADR-0021). The distinction drives whether a
+/// dev-drift daemon may be reclaimed (`Idle`) or must be left alone with an
+/// explanatory refusal (`Busy`/`Unreachable`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DaemonActivity {
+    /// No live session, no daemon-level task: safe to reclaim.
+    Idle { sessions: usize, tasks: usize },
+    /// At least one live session or daemon task: reclaiming would interrupt
+    /// agent work. Carries the counts for the refusal message.
+    Busy { sessions: usize, tasks: usize },
+    /// The monitor probe could not be completed (unresponsive control plane).
+    /// Treated as "not provably idle" — the fail-safe side of the gate.
+    Unreachable,
+}
+
+/// Probe a daemon's live activity without modifying state. Because a
+/// dev-drift daemon still speaks this client's wire protocol (that is what
+/// makes it drift rather than skew), the ordinary monitor handshake reaches
+/// it; any failure collapses to [`DaemonActivity::Unreachable`], which the
+/// reclaimer treats as "busy".
+async fn probe_daemon_activity(info: &DaemonInfo) -> DaemonActivity {
+    let action = MonitorAction {
+        watch: false,
+        include_idle: true,
+    };
+    let Ok(mut rx) = monitor_stream(info, action).await else {
+        return DaemonActivity::Unreachable;
+    };
+    match rx.recv().await {
+        Some(MonitorEvent::Snapshot(snapshot)) => {
+            // `include_idle` is set, so an idle session still appears as a
+            // row; only rows that are actively working (running, blocked on a
+            // human, resuming) count as busy. Daemon-level tasks (rehosted
+            // services) are never safe to interrupt regardless.
+            let busy = snapshot
+                .sessions
+                .iter()
+                .filter(|row| row.status.is_active())
+                .count();
+            if busy == 0 && snapshot.tasks.is_empty() {
+                DaemonActivity::Idle {
+                    sessions: snapshot.sessions.len(),
+                    tasks: 0,
+                }
+            } else {
+                DaemonActivity::Busy {
+                    sessions: busy,
+                    tasks: snapshot.tasks.len(),
+                }
+            }
+        }
+        _ => DaemonActivity::Unreachable,
+    }
+}
+
+/// The actionable refusal when a rebuilt (dev-drift) daemon is still hosting
+/// work: name the incompatibility *and* the cost of reclaiming it, so the
+/// operator's `nuo stop` is an informed choice (ADR-0021). Mirrors
+/// [`incompatibility_error`]'s binary-mismatch text for the busy case.
+fn drift_refusal_error(info: &DaemonInfo, activity: &DaemonActivity) -> String {
+    let head = format!(
+        "client/daemon binary mismatch: running daemon (pid {}, version {}) executable differs from the installed nuo core image (rebuilt binary).",
+        info.pid,
+        env!("CARGO_PKG_VERSION")
+    );
+    match activity {
+        DaemonActivity::Busy { sessions, tasks } => {
+            let mut held = Vec::new();
+            if *sessions > 0 {
+                held.push(format!("{sessions} active session(s)"));
+            }
+            if *tasks > 0 {
+                held.push(format!("{tasks} daemon task(s)"));
+            }
+            format!(
+                "{head} The daemon is still hosting {} — it was not reclaimed automatically. \
+                 Stop it with `nuo stop` to run the rebuilt binary; that will interrupt the work above.",
+                held.join(" and ")
+            )
+        }
+        DaemonActivity::Unreachable | DaemonActivity::Idle { .. } => format!(
+            "{head} Stop it with `nuo stop` and rerun — the daemon restarts on demand."
+        ),
     }
 }
 
@@ -887,7 +991,7 @@ pub fn version_mismatch(info: &DaemonInfo) -> String {
             info.pid
         ),
         VersionRelation::Equal => {
-            if !daemon_image_is_current(info.pid) {
+            if !daemon_image_is_current(info) {
                 format!(
                     "client/daemon binary mismatch: running daemon (pid {}, version {daemon_ver}) executable differs from the installed nuo core image (rebuilt binary). \
                      Stop it with `nuo stop` and rerun — the daemon restarts on demand.",
@@ -958,7 +1062,7 @@ pub fn versions_compatible(info: &DaemonInfo) -> bool {
     local_pair_compatible(
         info.protocol,
         info.version.as_deref(),
-        daemon_image_is_current(info.pid),
+        daemon_image_is_current(info),
     )
 }
 
@@ -988,25 +1092,75 @@ fn local_pair_compatible(
     version.is_some_and(|v| v == env!("CARGO_PKG_VERSION")) && daemon_image_is_current
 }
 
-/// Whether the running daemon's executable is still the resolved `muta`
+/// Whether the running daemon's executable is still the resolved `nuo`
 /// core image. During a development loop a rebuild replaces that file;
 /// the kernel keeps the old image alive under a `(deleted)` link while the
-/// discovery record still names the same path and version. Comparing the
-/// daemon's `/proc/<pid>/exe` inode with the sibling/installed `muta` image
-/// detects that drift — the same-version stale-daemon case version checks
-/// cannot see.
+/// discovery record still names the same path and version.
 ///
-/// Returns `true` when the check is unavailable (non-Linux, unreadable
-/// `/proc`, an unresolvable core image): absence of evidence must not
-/// flag a healthy production daemon. A daemon spawned by an *installed*
-/// binary matches the sibling `muta` resolved by `mutx`; the TUI executable
-/// itself is deliberately not part of this comparison.
-pub fn daemon_image_is_current(pid: u32) -> bool {
+/// Since ADR-0021 the primary signal is **content identity**: the daemon
+/// publishes a bounded content digest of its own image (exact length + a
+/// sampled SHA-256) in the discovery record, and a client compares it with the
+/// installed image it would spawn. That is portable (Linux, macOS, Windows)
+/// and, unlike inode equality, does not false-positive when an *identical*
+/// binary is reinstalled at the same path. A record without the digest
+/// (pre-ADR-0021 daemon) falls back to the historical Linux-only inode probe.
+///
+/// Returns `true` when no signal can be resolved (non-Linux with no record
+/// hash, unreadable `/proc`, or an unresolvable installed image): absence of
+/// evidence must not flag a healthy production daemon. A daemon spawned by
+/// an *installed* binary matches the sibling `nuo` resolved by `nuox`; the
+/// TUI executable itself is deliberately not part of this comparison.
+pub fn daemon_image_is_current(info: &DaemonInfo) -> bool {
+    let expected = daemon_program();
+    if !expected.is_file() {
+        return true;
+    }
+    if info.image_digest.is_some() {
+        // Content identity (ADR-0021): the installed image's hash is the
+        // authority. `image_content_digest` returning `None` (unreadable image)
+        // is "no evidence" and must not flag drift.
+        return content_matches_record(image_content_digest(&expected), info);
+    }
+    // Legacy record (no published hash): the Linux-only inode probe.
+    daemon_image_is_current_by_inode(info.pid)
+}
+
+/// The pure core of the content-identity check (ADR-0021), split out so the
+/// policy is unit-testable without depending on the ambient build layout:
+/// `installed` is the resolved on-disk image's `(len, digest)` (or `None`
+/// when unreadable), `info` the daemon's published identity.
+fn content_matches_record(installed: Option<(u64, String)>, info: &DaemonInfo) -> bool {
+    let Some(published) = info.image_digest.as_deref() else {
+        // No published hash: no content evidence, never a content-based drift.
+        return true;
+    };
+    match installed {
+        Some((len, digest)) => {
+            // Cheap length pre-gate, then the digest. A size change is enough
+            // to prove the image differs.
+            let len_matches = info.image_len.is_none_or(|expected_len| expected_len == len);
+            len_matches && digest.eq_ignore_ascii_case(published)
+        }
+        None => true,
+    }
+}
+
+/// The historical inode-equality probe, retained as the ADR-0021 fallback for
+/// discovery records that predate `image_digest`.
+fn daemon_image_is_current_by_inode(pid: u32) -> bool {
     let expected = daemon_program();
     if !expected.is_file() {
         return true;
     }
     nuo_host::process::process_image_matches_path(pid, &expected)
+}
+
+/// A **bounded content digest** of an executable image (ADR-0021), delegated
+/// to the host's shared implementation so the daemon's published digest and the
+/// client's comparison are computed identically. `None` when the file cannot
+/// be read — callers treat that as "no evidence", never as drift.
+fn image_content_digest(path: &Path) -> Option<(u64, String)> {
+    nuo_host::process::image_digest_len(path)
 }
 
 /// `(dev, inode)` equality. A rebuilt binary legitimately occupies the same
@@ -1162,9 +1316,30 @@ pub async fn ensure_daemon(project_root: &Path) -> Result<DaemonInfo, String> {
         if versions_compatible(&info) {
             return Ok(info);
         }
-        // Incompatible daemon is running. Do not stop or kill it to avoid
-        // interrupting ongoing tasks. Prompt the user about the incompatibility.
-        return Err(incompatibility_error(&info));
+        if is_dev_drift(&info) {
+            // ADR-0021 dev-drift: same product version, same wire window, but
+            // a different executable image — the daily `cargo`-rebuild-under-a-
+            // live-daemon case. Self-heal by reclaiming the daemon *only* when
+            // doing so cannot interrupt work; otherwise refuse with an enriched
+            // message naming what would be lost.
+            match probe_daemon_activity(&info).await {
+                DaemonActivity::Idle { .. } => {
+                    tracing::info!(
+                        pid = info.pid,
+                        "ensure_daemon: reclaiming idle daemon whose executable was rebuilt"
+                    );
+                    stop(&info).await?;
+                    // Fall through: the instance lock is released and the
+                    // spawn path below starts the freshly built image.
+                }
+                activity => return Err(drift_refusal_error(&info, &activity)),
+            }
+        } else {
+            // A version/protocol-skewed daemon is running. Do not stop or
+            // kill it to avoid interrupting ongoing tasks. Prompt the user
+            // about the incompatibility.
+            return Err(incompatibility_error(&info));
+        }
     }
 
     // Check if another daemon is holding the instance lock
@@ -1282,15 +1457,16 @@ fn spawn_daemon() -> Result<std::process::Child, String> {
         .spawn()
         .map_err(|error| {
             format!(
-                "could not start the muta daemon with {}: {error}. Install `muta` beside `mutx` or make it available on PATH",
+                "could not start the nuo daemon with {}: {error}. Rebuild `nuo` (cargo build -p nuo) or make it available on PATH",
                 program.display()
             )
         })
 }
 
 /// Resolve the core daemon executable without ever re-entering the client.
-/// Release archives install `muta` and `mutx` side by side; PATH is the
-/// fallback for package-manager layouts that split them across directories.
+/// A unified install places `nuo` on PATH; the sibling of the running
+/// executable is preferred so a source build spawns its own freshly built
+/// binary.
 fn daemon_program() -> PathBuf {
     if let Some(program) = std::env::var_os("NUO_BIN")
         .or_else(|| std::env::var_os("MUTA_BIN"))
@@ -1351,6 +1527,20 @@ pub struct DaemonDiagnostics {
     pub tcp_listening: bool,
     pub startup_log_path: PathBuf,
     pub last_startup_log: Option<String>,
+    /// ADR-0021 comparison info: the installed daemon image this client would
+    /// spawn and its bounded content digest, when resolvable. `None` when no
+    /// installed image is found.
+    pub installed_image: Option<PathBuf>,
+    pub installed_image_digest: Option<String>,
+    /// The daemon's published image identity (from its discovery record).
+    /// `None` on a pre-ADR-0021 record, which means clients fall back to the
+    /// Linux-only inode probe for drift detection.
+    pub daemon_image_digest: Option<String>,
+    /// Whether the running daemon's image is still the installed one, judged
+    /// by ADR-0021's content-identity rule (with the inode fallback for a
+    /// record without a published hash). `true` when no daemon is running, or
+    /// when no signal can be resolved (absence of evidence).
+    pub daemon_image_current: bool,
 }
 
 /// Perform a diagnostic probe of the daemon environment without modifying state.
@@ -1390,11 +1580,24 @@ pub fn diagnose_daemon() -> DaemonDiagnostics {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
+    // ADR-0021 comparison info: name the installed image and its content
+    // identity next to the daemon's published one, so a drift verdict is
+    // legible without reasoning about inodes.
+    let installed_image = daemon_program();
+    let installed_image = installed_image.is_file().then_some(installed_image);
+    let installed_image_digest =
+        installed_image.as_ref().and_then(|p| image_content_digest(p).map(|(_, d)| d));
+    let discovery_record = discovery_record.or(raw_record);
+    let daemon_image_digest = discovery_record.as_ref().and_then(|r| r.image_digest.clone());
+    let daemon_image_current = discovery_record
+        .as_ref()
+        .is_none_or(daemon_image_is_current);
+
     DaemonDiagnostics {
         instance_dir: discovery::instance_dir(),
         default_port: 9527,
         discovery_path,
-        discovery_record: discovery_record.or(raw_record),
+        discovery_record,
         discovery_valid: discover_at(&discovery::global_discovery_path()).is_some(),
         lock_path,
         lock_held,
@@ -1407,6 +1610,10 @@ pub fn diagnose_daemon() -> DaemonDiagnostics {
         tcp_listening,
         startup_log_path: startup_log,
         last_startup_log,
+        installed_image,
+        installed_image_digest,
+        daemon_image_digest,
+        daemon_image_current,
     }
 }
 
@@ -1991,10 +2198,119 @@ mod tests {
     }
 
     #[test]
+    fn dev_drift_predicate_is_narrow() {
+        // Same version + in-window protocol + stale image => drift (the only
+        // case `ensure_daemon` may reclaim). The published hash "0000" cannot
+        // match any real installed image, so this is drift whenever an
+        // installed image resolves (always true under `cargo test`).
+        let drift = DaemonInfo {
+            pid: 1,
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            protocol: Some(PROTOCOL_VERSION),
+            image_digest: Some("0000".to_string()),
+            image_len: Some(0),
+            ..Default::default()
+        };
+        if daemon_program().is_file() {
+            assert!(is_dev_drift(&drift));
+        }
+
+        // Different product version => not drift (upgrade leftover: served).
+        let older = DaemonInfo {
+            version: Some("0.0.0".to_string()),
+            protocol: Some(PROTOCOL_VERSION),
+            image_digest: Some("0000".to_string()),
+            ..Default::default()
+        };
+        assert!(!is_dev_drift(&older));
+
+        // Out-of-window protocol => not drift (skew, not drift).
+        let skewed = DaemonInfo {
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            protocol: Some(0),
+            image_digest: Some("0000".to_string()),
+            ..Default::default()
+        };
+        assert!(!is_dev_drift(&skewed));
+    }
+
+    #[test]
+    fn drift_refusal_error_names_the_work_it_would_interrupt() {
+        let info = DaemonInfo {
+            pid: 42,
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            ..Default::default()
+        };
+        let busy = drift_refusal_error(&info, &DaemonActivity::Busy { sessions: 2, tasks: 1 });
+        assert!(busy.contains("binary mismatch"), "{busy}");
+        assert!(busy.contains("2 active session(s)"), "{busy}");
+        assert!(busy.contains("1 daemon task(s)"), "{busy}");
+        assert!(busy.contains("nuo stop"), "{busy}");
+
+        let idle = drift_refusal_error(&info, &DaemonActivity::Idle { sessions: 0, tasks: 0 });
+        assert!(idle.contains("restarts on demand"), "{idle}");
+    }
+
+    #[test]
     fn daemon_image_is_current_tolerates_missing_proc_entry() {
-        // A pid that does not exist (or /proc unavailable): no evidence of
-        // drift, so the daemon must not be disturbed.
-        assert!(daemon_image_is_current(u32::MAX - 1));
+        // A legacy record (no published hash) for a pid that does not exist
+        // (or /proc unavailable): no evidence of drift, so the daemon must
+        // not be disturbed.
+        let info = DaemonInfo {
+            pid: u32::MAX - 1,
+            image_digest: None,
+            ..Default::default()
+        };
+        assert!(daemon_image_is_current(&info));
+    }
+
+    #[test]
+    fn content_hash_detects_a_rebuilt_image_and_accepts_an_identical_one() {
+        // ADR-0021: with a published image hash, detection is content-based.
+        // Fabricate an installed image whose real hash we compute, then a
+        // daemon record claiming (a) that exact hash -> current, (b) a
+        // different hash -> drifted, (c) matching hash but wrong length ->
+        // drifted (the cheap length pre-gate).
+        let tmp = tempfile::tempdir().unwrap();
+        let image = tmp.path().join("nuo-image");
+        std::fs::write(&image, b"the installed daemon image bytes").unwrap();
+        let (len, digest) = image_content_digest(&image).unwrap();
+
+        let current = DaemonInfo {
+            pid: 1,
+            image_digest: Some(digest.clone()),
+            image_len: Some(len),
+            ..Default::default()
+        };
+        let drifted = DaemonInfo {
+            pid: 1,
+            image_digest: Some("deadbeef".to_string()),
+            image_len: Some(len),
+            ..Default::default()
+        };
+        let wrong_len = DaemonInfo {
+            pid: 1,
+            image_digest: Some(digest.clone()),
+            image_len: Some(len.wrapping_add(1)),
+            ..Default::default()
+        };
+        // `daemon_image_is_current` resolves the *installed* image through
+        // `daemon_program()`, so assert on the pure core directly instead of
+        // depending on the ambient build layout. The installed image is the
+        // real `(len, digest)`; only the daemon's published identity varies.
+        let installed = Some((len, digest.clone()));
+        assert!(content_matches_record(installed.clone(), &current));
+        assert!(!content_matches_record(installed.clone(), &drifted));
+        assert!(!content_matches_record(installed.clone(), &wrong_len));
+        // No published hash (legacy daemon): never a content-based drift.
+        assert!(content_matches_record(
+            installed,
+            &DaemonInfo {
+                pid: 1,
+                image_digest: None,
+                ..Default::default()
+            }
+        ));
     }
 
     #[test]
@@ -2037,6 +2353,8 @@ mod tests {
             version: Some("0.0.0".to_string()),
             grace_secs: None,
             protocol: None,
+            image_digest: None,
+            image_len: None,
         };
         let msg = version_mismatch(&daemon_older);
         assert!(msg.contains("is older than this client"));
@@ -2054,6 +2372,8 @@ mod tests {
             version: Some("99.0.0".to_string()),
             grace_secs: None,
             protocol: None,
+            image_digest: None,
+            image_len: None,
         };
         let msg = version_mismatch(&daemon_newer);
         assert!(msg.contains("older than the running daemon"));
@@ -2071,6 +2391,8 @@ mod tests {
             version: None,
             grace_secs: None,
             protocol: None,
+            image_digest: None,
+            image_len: None,
         };
         let msg = version_mismatch(&daemon_none);
         assert!(msg.contains("unknown (older than 0.24)"));
@@ -2088,6 +2410,8 @@ mod tests {
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
             grace_secs: None,
             protocol: None,
+            image_digest: None,
+            image_len: None,
         };
         let msg = version_mismatch(&daemon_equal_drift);
         assert!(msg.contains("client/daemon"));
@@ -2106,6 +2430,8 @@ mod tests {
             version: None,
             grace_secs: None,
             protocol: None,
+            image_digest: None,
+            image_len: None,
         }
     }
     fn dead_port() -> u16 {
@@ -2143,6 +2469,8 @@ mod tests {
             version: None,
             grace_secs: None,
             protocol: None,
+            image_digest: None,
+            image_len: None,
         };
         std::fs::write(&path, serde_json::to_vec(&live_rec).unwrap()).unwrap();
         assert!(discover_at(&path).is_none());
@@ -2175,6 +2503,8 @@ mod tests {
             version: Some("0.0.1".to_string()),
             grace_secs: None,
             protocol: None,
+            image_digest: None,
+            image_len: None,
         };
         let res = stop(&info).await;
         assert!(res.is_ok());
@@ -2195,6 +2525,8 @@ mod tests {
             version: Some("0.0.1".to_string()),
             grace_secs: None,
             protocol: None,
+            image_digest: None,
+            image_len: None,
         };
         let error = stop(&info).await.unwrap_err();
         assert!(error.contains("process identity is stale"));

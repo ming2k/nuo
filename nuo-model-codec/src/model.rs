@@ -334,7 +334,7 @@ impl ModelCapabilities {
 /// inputs, or an account whose plan caps the context window lower than the
 /// model card claims).
 ///
-/// This lives in `muta-contracts` (not persistence) so the merge function can
+/// This lives in `nuo-wire` (not persistence) so the merge function can
 /// live beside the structure it overrides -- persistence keys it per
 /// `(instance_id, model_id)` inside `RouteSettings` and owns only storage.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -733,7 +733,7 @@ mod capability_tests {
 /// **Mechanism lives here; data lives with the providers.** This crate owns
 /// only the lookup machinery ([`resolve`], [`model_by_id`], [`fallback_model`],
 /// the [`FittedModel`] overlay). The per-provider baseline tables live beside
-/// each provider's other registry data (today: `muta-providers`' registry
+/// each provider's other registry data (today: `nuo-provider-adapters`' registry
 /// modules), and each table is submitted once at link time:
 ///
 /// ```ignore

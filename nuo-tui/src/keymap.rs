@@ -1831,7 +1831,7 @@ pub mod scene_namespace {
         Leave,
         /// Open (or close) the Command Palette / surface switcher.
         Switcher,
-        /// Quit muta — the same armed double-press as the global `Ctrl+C`.
+        /// Quit nuo — the same armed double-press as the global `Ctrl+C`.
         Quit,
     }
 

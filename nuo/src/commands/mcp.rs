@@ -2,7 +2,7 @@ use crate::cli::McpAction;
 use nuo_wire::mcp::McpServerConfig;
 use nuo_persistence::config::Config;
 
-/// `muta mcp …` — read-only discovery and inspection for MCP servers (ADR-0252).
+/// `nuo mcp …` — read-only discovery and inspection for MCP servers (ADR-0252).
 ///
 /// Imperative CLI mutations (add, rm, enable, disable, import) have been
 /// permanently retired in ADR-0252. Configuration is declarative-only in
@@ -95,7 +95,7 @@ fn print_server(name: &str, server: &McpServerConfig) {
     }
 }
 
-/// `muta mcp probe <name>` — connect to one configured server, list the tools
+/// `nuo mcp probe <name>` — connect to one configured server, list the tools
 /// it advertises, then drop the connection. Async because the MCP client is
 /// tokio-based; dispatched directly from `main`.
 pub async fn probe(name: &str) -> Result<(), Box<dyn std::error::Error>> {

@@ -3,8 +3,8 @@
 //! control plane (owner-only native local IPC by default, TCP + bearer token
 //! with `--public`) so TUI/CLI/web clients can drive, observe, and manage them.
 //!
-//! Vocabulary: the *role* is the **daemon**; `muta start --fg` runs
-//! it in the foreground and `muta start` detaches it.
+//! Vocabulary: the *role* is the **daemon**; `nuo start --fg` runs
+//! it in the foreground and `nuo start` detaches it.
 //!
 //! # Lifecycle (ADR-0101)
 //!
@@ -245,7 +245,7 @@ async fn run_inner(
             // than a magic number (ADR-0101/0116).
             let budget =
                 lifecycle.shutdown_grace.max(Duration::from_secs(10)) + Duration::from_secs(5);
-            tracing::warn!(%busy, budget_secs = budget.as_secs(), "muta daemon: another daemon holds the instance lock; waiting for it to exit");
+            tracing::warn!(%busy, budget_secs = budget.as_secs(), "nuo daemon: another daemon holds the instance lock; waiting for it to exit");
             match wait_for_lock(&lock_path, budget).await {
                 Ok(lock) => Some(lock),
                 Err(_) => {
@@ -320,6 +320,12 @@ async fn run_inner(
     // transports are confirmed bound, carrying the daemon's version for skew
     // detection.
     // The lease removes it on *every* exit path (Drop), including panics.
+    //
+    // ADR-0021: capture the daemon's own executable image identity once, here
+    // at boot, before the image can be replaced under us. It is the daemon's
+    // half of the content-based dev-drift check a client performs; a `None`
+    // (unreadable image) simply leaves the client on the legacy inode probe.
+    let image_identity = nuo_host::process::current_exe_digest_len();
     let record = discovery::Discovery {
         pid: std::process::id(),
         process_birth_token: Some(process_identity.birth_token),
@@ -334,7 +340,11 @@ async fn run_inner(
         local_endpoint: bound_local.clone(),
         version: Some(crate::serve::daemon_version().to_string()),
         protocol: Some(nuo_client::wire::PROTOCOL_VERSION),
-        // Publish the drain budget so `muta stop` waits *this*
+        // ADR-0021: the daemon's own image identity, so a client can tell a
+        // rebuilt binary apart from a live one by content, not just by path.
+        image_digest: image_identity.as_ref().map(|(_, digest)| digest.clone()),
+        image_len: image_identity.as_ref().map(|(len, _)| *len),
+        // Publish the drain budget so `nuo stop` waits *this*
         // daemon's grace before escalating (ADR-0116): an early SIGTERM
         // would force-exit the daemon and skip the very session teardown
         // the stop requested.
@@ -363,12 +373,12 @@ async fn run_inner(
         "127.0.0.1"
     };
     if let Some(endpoint) = &bound_local {
-        eprintln!("muta: local control plane on {endpoint}");
+        eprintln!("nuo: local control plane on {endpoint}");
     }
-    eprintln!("muta: serving sessions on ws://{bind}:{port}");
-    eprintln!("muta: health probe on http://{bind}:{port}/healthz");
+    eprintln!("nuo: serving sessions on ws://{bind}:{port}");
+    eprintln!("nuo: health probe on http://{bind}:{port}/healthz");
     eprintln!(
-        "muta: observe with `muta status --watch`, drive with `mutx attach [id]`, stop with `muta stop`"
+        "nuo: observe with `nuo status --watch`, drive with `nuo attach [id]`, stop with `nuo stop`"
     );
     if handle.token.is_some() {
         // Never print the token itself: it is a credential and stderr lands
@@ -381,15 +391,15 @@ async fn run_inner(
         };
         match discovery::global_discovery_path().exists() {
             true => eprintln!(
-                "muta: {scope} requires a bearer token; read it from the discovery file {}",
+                "nuo: {scope} requires a bearer token; read it from the discovery file {}",
                 discovery::global_discovery_path().display()
             ),
             false => eprintln!(
-                "muta: {scope} requires a bearer token, but the discovery file could not be written — check the logs"
+                "nuo: {scope} requires a bearer token, but the discovery file could not be written — check the logs"
             ),
         }
     }
-    tracing::info!(%bind, port, "muta daemon: listening");
+    tracing::info!(%bind, port, "nuo daemon: listening");
 
     // Boot rehost (ADR-0190 D4, the general successor of ADR-0125's
     // armed-schedule rehost): every service task in the durable task ledger
@@ -443,7 +453,7 @@ async fn run_inner(
     let reason = gate
         .reason()
         .unwrap_or(ShutdownReason::Fatal("unknown".into()));
-    tracing::info!(%reason, remaining_budget =? lifecycle.shutdown_grace, "muta daemon: draining");
+    tracing::info!(%reason, remaining_budget =? lifecycle.shutdown_grace, "nuo daemon: draining");
     let deadline = tokio::time::Instant::now() + lifecycle.shutdown_grace;
 
     // Test seam: park here so a test can land an escalation (or observe the
@@ -470,7 +480,7 @@ async fn run_inner(
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         let hung = tasks.join_all_with_budget(remaining).await;
         for (name, why) in &hung {
-            tracing::warn!(task = %name, %why, "muta daemon: task did not stop within the grace budget");
+            tracing::warn!(task = %name, %why, "nuo daemon: task did not stop within the grace budget");
         }
     }
 
@@ -499,7 +509,7 @@ async fn run_inner(
     if forced {
         tracing::warn!(
             %reason,
-            "muta daemon: forced exit — some teardown work was abandoned (see the task warnings above)"
+            "nuo daemon: forced exit — some teardown work was abandoned (see the task warnings above)"
         );
         RunOutcome::ForcedExit { reason }
     } else {

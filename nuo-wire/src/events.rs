@@ -467,7 +467,7 @@ pub enum AgentRequest {
     /// [`AgentResponse::WebSearchConfigSnapshot`].
     QueryWebSearchConfig,
     /// Cross-project session history search (ADR-0208): BM25 FTS over all
-    /// persisted transcript entries in the shared `muta.db`, optionally
+    /// persisted transcript entries in the shared `nuo.db`, optionally
     /// narrowed to one workspace root. The daemon is the source of truth; the
     /// frontend never opens the database directly (ADR-0197). Replies with
     /// [`AgentResponse::HistorySearch`].
@@ -1306,7 +1306,7 @@ pub struct BtwAsideSummary {
 
 /// Coarse, display-level status of a session's round lifecycle, mirrored to
 /// the TUI activity bar. This is a badge, not the protocol state: the round
-/// lifecycle itself (`RoundLifecycle` in muta-agent) is binary — no active
+/// lifecycle itself (`RoundLifecycle` in nuo-agent) is binary — no active
 /// round, or an active round identified by a generation.
 /// Awaiting-permission / awaiting-input are overlays derived from the
 /// parked-request tables (see [`ParentStatus`]), not values here: they carry
@@ -1692,7 +1692,7 @@ pub struct SessionSnapshot {
 /// class that is safe to apply at the next ReAct-turn boundary.
 ///
 /// Modeled on codex's `Op` (`codex-rs/protocol/src/protocol.rs`), trimmed to
-/// muta's driver shape: the agent owns an `mpsc` inbox whose receiver is
+/// nuo's driver shape: the agent owns an `mpsc` inbox whose receiver is
 /// drained at the top of every ReAct turn (and, for `Interrupt`, raced against
 /// the live stream). The top-level agent and spawned subagents share the same
 /// `Op` vocabulary — a subagent is just an agent whose inbox sender the

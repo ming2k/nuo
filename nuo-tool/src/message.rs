@@ -129,12 +129,12 @@ pub enum InjectionKind {
     SessionReviewInput,
     /// Implicit skill auto-load: the latest user round mentioned a skill name,
     /// so the skill body was injected in-context. Site:
-    /// `muta-agent`'s conversation-context skill injection policy.
+    /// `nuo-agent`'s conversation-context skill injection policy.
     ImplicitSkill,
     /// Implicit file auto-load: the latest user round referenced a path via
     /// `@file:` / `@files:`, so the file's contents were injected in-context
     /// (sandboxed to the workspace root and capped in size). The companion to
-    /// `ImplicitSkill` for source files. Site: `muta-agent`'s
+    /// `ImplicitSkill` for source files. Site: `nuo-agent`'s
     /// conversation-context file injection policy.
     ImplicitFile,
     /// System-prompt assembly: the harness rebuilt the head system message

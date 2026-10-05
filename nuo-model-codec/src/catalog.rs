@@ -9,7 +9,7 @@
 //! This module owns the *types* and the provider *construction* path. It is
 //! deliberately decoupled from any specific config struct: a [`Channel`] already
 //! carries resolved credentials and the wire model id, so constructing a
-//! provider from it (see `build_provider_for_channel` in `muta-providers`)
+//! provider from it (see `build_provider_for_channel` in `nuo-provider-adapters`)
 //! is a pure operation. Resolution (environment variable then config field)
 //! lives in the loader, not here, so the same types serve both built-in
 //! presets and future user-defined entries.
@@ -241,7 +241,7 @@ impl OpenAiChatDialect {
 pub type GoogleGeminiDialect = GoogleGenerateContentDialect;
 
 /// How a [`Channel`] speaks to its model. Determines which `Provider`
-/// implementation is constructed for it (in `muta-providers`).
+/// implementation is constructed for it (in `nuo-provider-adapters`).
 ///
 /// Variants carry only the endpoint shape intrinsic to the transport.
 /// Per-call credentials and the wire model id live on the [`Channel`] itself,

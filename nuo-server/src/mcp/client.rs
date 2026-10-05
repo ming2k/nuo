@@ -1,7 +1,7 @@
 //! Minimal MCP client support for local stdio servers.
 //!
 //! Each configured server is initialized once at startup. Its advertised tools
-//! are adapted to muta's `Tool` trait and use the same agent execution path
+//! are adapted to nuo's `Tool` trait and use the same agent execution path
 //! as built-in tools.
 //!
 //! # Error model

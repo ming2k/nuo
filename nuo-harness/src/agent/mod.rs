@@ -313,7 +313,7 @@ pub struct Agent {
     /// Who this agent is and what it is for. The single string the system
     /// prompt opens with — supplied by the *embedding* (e.g. the CLI), so this
     /// crate stays identity-agnostic and can be reused by frontends that are
-    /// not "muta". See [`AgentIdentity`].
+    /// not "nuo". See [`AgentIdentity`].
     ///
     /// Behind a `RwLock` so a master-role switch ([`Self::set_identity`],
     /// driven by `/master` / `@master:`) can replace it live and the next

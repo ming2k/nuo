@@ -1,35 +1,25 @@
 //! Discovery file: how co-process clients find a live session daemon's
 //! endpoint.
 //!
-//! Since ADR-0096 the record that matters is **global**: the unified daemon
-//! (`muta`, run by `muta start`) writes one `daemon.json` per user
-//! ([`global_discovery_path`], in `$XDG_RUNTIME_DIR/muta/` when a runtime
-//! dir exists) once its port is bound, and removes it on clean shutdown.
-//! Clients (an attaching `mutx` TUI, the web app, the
-//! dashboard) read that record to reach the already-running daemon instead of
-//! spawning a second one. The module lives in this crate — not in either
-//! binary — so writer and reader share one definition of the record and of
-//! the path-resolution rule.
+//! The record that matters is **global**: the unified daemon (`nuo`) writes
+//! one `daemon.json` per user ([`global_discovery_path`], in the resolved
+//! instance dir) once its port is bound, and removes it on clean shutdown.
+//! Clients (an attaching `nuo` TUI, the web app, the dashboard) read that
+//! record to reach the already-running daemon instead of spawning a second
+//! one. The module lives in this crate while the read-side contract is shared
+//! with `nuo-client`, so writer and reader agree on the record and the
+//! path-resolution rule.
 //!
-//! The per-project path resolution below is the **legacy** pre-ADR-0096
-//! scheme, retained for reading (and cleaning up) old records:
-//!
-//! - `$XDG_RUNTIME_DIR/muta/serve/<bucket>.json` when a runtime dir exists
-//!   ([`paths::Dirs::runtime_dir`]) — ephemeral tmpfs is the right home for a
-//!   live process's PID/port; the record vanishes with the login session.
-//! - `<data>/muta/projects/<bucket>/serve.json` as the fallback
-//!   ([`paths::Dirs::project_dir`]) — the bucket always exists because the
-//!   project's sessions already live under it.
-//!
-//! `<bucket>` is [`paths::project_bucket_name`], the same sha256[..16] hash
-//! that names the project's session bucket.
+//! The pre-`daemon.json` per-project layout (`serve/<bucket>.json`) is dead:
+//! current clients discover through `daemon.json` only, so nothing here
+//! resolves a per-project path any more.
 
 use std::path::{Path, PathBuf};
 
 use nuo_persistence::paths;
 
 /// The discovery record, written once the bound port is known.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct Discovery {
     /// The serving process's id (staleness probe for readers).
     pub pid: u32,
@@ -65,7 +55,7 @@ pub struct Discovery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     /// The daemon's configured graceful-drain budget, **seconds**
-    /// (ADR-0116). `muta stop` reads this so its escalation
+    /// (ADR-0116). `nuo stop` reads this so its escalation
     /// tiers wait *the daemon's own budget* before SIGTERM/SIGKILL: a
     /// signal arriving mid-drain escalates the daemon to a forced exit,
     /// so a client that escalates early destroys the graceful drain it
@@ -80,6 +70,19 @@ pub struct Discovery {
     /// product-version judgment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol: Option<u32>,
+    /// Bounded content digest (lowercase hex) of the daemon's own executable
+    /// image: its exact length folded with a sampled SHA-256, captured once at
+    /// boot (ADR-0021). Lets a client detect a stale *same-version* daemon by
+    /// executable **content** — portably across Linux, macOS, and Windows —
+    /// instead of the Linux-only inode probe. `None` on records predating the
+    /// field; clients then fall back to inode equality.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_digest: Option<String>,
+    /// Byte length of the daemon's executable image: a cheap pre-hash gate
+    /// paired with `image_digest`, so a client can reject a size-changed
+    /// image without hashing (ADR-0021).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_len: Option<u64>,
 }
 
 impl Discovery {
@@ -190,6 +193,8 @@ mod lease_tests {
                 version: None,
                 grace_secs: None,
                 protocol: None,
+                image_digest: None,
+                image_len: None,
             },
         )
         .unwrap();
@@ -217,6 +222,8 @@ mod lease_tests {
                 version: None,
                 grace_secs: None,
                 protocol: None,
+                image_digest: None,
+                image_len: None,
             },
         )
         .unwrap();
@@ -242,6 +249,8 @@ mod lease_tests {
                 version: None,
                 grace_secs: None,
                 protocol: None,
+                image_digest: None,
+                image_len: None,
             },
         )
         .unwrap();
@@ -256,17 +265,6 @@ pub fn write_global(record: &Discovery) -> Result<PathBuf, String> {
     let path = global_discovery_path();
     write_to(&path, record)?;
     Ok(path)
-}
-
-/// Resolve the discovery-file path for `project_root` against the
-/// process-wide [`paths::get`] dirs (see module docs).
-pub fn discovery_path(project_root: &Path) -> PathBuf {
-    let _ = project_root;
-    // The pre-ADR-0096 per-project `serve/<bucket>.json` layout is dead:
-    // current clients discover through `daemon.json` only. This function is
-    // kept solely because the doc-commented layout is still described in
-    // `paths.md`'s legacy table; it resolves nothing new.
-    global_discovery_path()
 }
 
 /// Best-effort removal on clean shutdown (and of stale records by readers).
@@ -323,6 +321,8 @@ mod tests {
             version: Some("0.30.2".to_string()),
             grace_secs: None,
             protocol: None,
+            image_digest: None,
+            image_len: None,
         }
     }
 

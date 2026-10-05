@@ -6,7 +6,7 @@
 //! compiled baseline seeds for initial capability resolution and static registration.
 //!
 //! These constants are provider/model capability metadata and belong here in
-//! the provider registry rather than in the core `muta-contracts` domain vocabulary.
+//! the provider registry rather than in the core `nuo-wire` domain vocabulary.
 
 use nuo_model_codec::effort::Effort;
 

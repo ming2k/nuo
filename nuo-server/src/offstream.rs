@@ -1,4 +1,4 @@
-//! Concrete [`OffstreamSource`] implementations for `muta-runtime` (ADR-0262).
+//! Concrete [`OffstreamSource`] implementations for `nuo-server` (ADR-0262).
 //!
 //! Provides lock-free offstream readers for:
 //! - `sub:`: Subagent session transcripts and trajectories

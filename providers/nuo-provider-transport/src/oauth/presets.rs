@@ -1,6 +1,6 @@
 //! Official OAuth 2.0 client presets and credentials for subscription providers.
 //!
-//! Pinned and maintained in `muta-providers` (not `muta-contracts`), keeping core
+//! Pinned and maintained in `nuo-provider-adapters` (not `nuo-wire`), keeping core
 //! domain contracts 100% free of vendor-specific secrets, client IDs, and endpoints.
 
 use nuo_model_codec::LoginMethod;
@@ -328,7 +328,7 @@ mod tests {
 
     /// The bundled Antigravity presets must ship *matched* client-id/secret
     /// pairs. Google rejects a crossed pair with `invalid_client` at the token
-    /// endpoint, and muta's own google-antigravity channel would then fail every
+    /// endpoint, and nuo's own google-antigravity channel would then fail every
     /// token exchange. Verified live against `oauth2.googleapis.com/token`
     /// (ADR-0289).
     #[test]

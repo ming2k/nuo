@@ -130,7 +130,7 @@ impl SessionStore {
 
     /// Construct a store pinned to a brand-new, empty session file in
     /// `sessions_dir`. The session is **not** written until the session gains
-    /// real content, so a `muta` that starts and exits without a round
+    /// real content, so a `nuo` that starts and exits without a round
     /// leaves no empty-file litter behind.
     fn pin_fresh(
         workspace: Option<nuo_wire::WorkspaceBinding>,

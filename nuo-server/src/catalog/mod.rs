@@ -83,7 +83,7 @@ impl Stores {
 /// Where this process keeps OAuth credentials.
 ///
 /// The catalog is application-plane policy (it resolves product state by design)
-/// and so is the only place here that names a path. `muta-runtime` builds the
+/// and so is the only place here that names a path. `nuo-server` builds the
 /// same host for the daemon's own flows; the duplication collapses when the
 /// catalog moves to the application plane (ADR-0300 §5).
 pub(crate) fn credential_host() -> CredentialHost {

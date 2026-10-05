@@ -2,11 +2,11 @@
 //!
 //! Skills are markdown files with YAML frontmatter, stored (in priority order,
 //! lowest first) across:
-//!   - Remote skill repositories fetched into `$XDG_CACHE_HOME/muta/skills/remote/`.
-//!   - User-global skills: `$XDG_DATA_HOME/muta/skills/` (XDG-resolved via
+//!   - Remote skill repositories fetched into `$XDG_CACHE_HOME/nuo/skills/remote/`.
+//!   - User-global skills: `$XDG_DATA_HOME/nuo/skills/` (XDG-resolved via
 //!     [`nuo_persistence::paths`]).
 //!   - Configured extra paths (`[skills] paths = [...]` in `config.toml`).
-//!   - Project-local skills: `.muta/skills/<name>/SKILL.md` (highest priority).
+//!   - Project-local skills: `.nuo/skills/<name>/SKILL.md` (highest priority).
 //!
 //! Frontmatter schema:
 //!   ```yaml

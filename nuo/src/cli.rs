@@ -1,13 +1,13 @@
-//! The `muta` command line — parsed where it belongs (ADR-0116).
+//! The `nuo` command line — parsed where it belongs (ADR-0116).
 //!
-//! For most of the project's life this lived in `muta-runtime::startup`
+//! For most of the project's life this lived in `nuo-server::startup`
 //! (`parse_args`), which put a frontend concern inside the session-runtime
 //! library and let two flag tables drift independently. ADR-0116 fixes both:
 //!
 //! - **One noun per resource, one verb per action.** The daemon is managed
-//!   by the top-level `muta start|stop|status|token` verbs; sessions by
-//!   `muta session rm` (listing is `status`). Interactive
-//!   run/attach/dashboard commands belong exclusively to `mutx`. The former
+//!   by the top-level `nuo start|stop|status|token` verbs; sessions by
+//!   `nuo session rm` (listing is `status`). Interactive
+//!   run/attach/dashboard commands are top-level `nuo` verbs. The former
 //!   spellings (`serve`, the `daemon` noun, `resume`, `exec`) are removed
 //!   outright: no alias, no teaching error — an unknown word is an
 //!   unrecognized command.
@@ -33,14 +33,14 @@ pub enum Mode {
     Daemon(DaemonAction),
     Config(ConfigAction),
     Auth(AuthAction),
-    /// `muta mcp ls` — list configured MCP servers.
+    /// `nuo mcp ls` — list configured MCP servers.
     Mcp(McpAction),
-    /// `muta skill ls` — list discovered skills.
+    /// `nuo skill ls` — list discovered skills.
     Skill(SkillAction),
-    /// `muta context migrate` — offline legacy→canonical conversion (ADR-0280).
+    /// `nuo context migrate` — offline legacy→canonical conversion (ADR-0280).
     Context(ContextAction),
     Doctor,
-    /// `muta completions <shell>`.
+    /// `nuo completions <shell>`.
     Completions(Shell),
     /// `--version` / `-V`.
     Version,
@@ -48,42 +48,42 @@ pub enum Mode {
     Help(Option<String>),
 }
 
-/// `muta mcp …` (ADR-0252: read-only inspection; mutations are file-authored)
+/// `nuo mcp …` (ADR-0252: read-only inspection; mutations are file-authored)
 #[derive(Debug, Clone, PartialEq)]
 pub enum McpAction {
-    /// `muta mcp ls` — list configured MCP servers.
+    /// `nuo mcp ls` — list configured MCP servers.
     List,
-    /// `muta mcp get <name>` — print one server's effective TOML entry.
+    /// `nuo mcp get <name>` — print one server's effective TOML entry.
     Get { name: String },
-    /// `muta mcp probe <name>` — connect once, list the advertised tools.
+    /// `nuo mcp probe <name>` — connect once, list the advertised tools.
     Probe { name: String },
 }
 
-/// `muta skill …`
+/// `nuo skill …`
 #[derive(Debug, Clone, PartialEq)]
 pub enum SkillAction {
-    /// `muta skill ls` — list discovered skills.
+    /// `nuo skill ls` — list discovered skills.
     List,
-    /// `muta skill show <name>` — print one skill's full markdown instructions.
+    /// `nuo skill show <name>` — print one skill's full markdown instructions.
     Show { name: String },
-    /// `muta skill info <name>` — print one skill's diagnostics and metadata.
+    /// `nuo skill info <name>` — print one skill's diagnostics and metadata.
     Info { name: String },
-    /// `muta skill init <name> [--user]` — scaffold a new skill folder with standard templates.
+    /// `nuo skill init <name> [--user]` — scaffold a new skill folder with standard templates.
     Init { name: String, user: bool },
 }
 
-/// `muta session …`
+/// `nuo session …`
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionAction {
-    /// `muta session rm <id>` — terminate a hosted session. Listing is
-    /// `muta status`: the session table is the daemon's view.
+    /// `nuo session rm <id>` — terminate a hosted session. Listing is
+    /// `nuo status`: the session table is the daemon's view.
     Delete(String),
 }
 
-/// `muta` daemon verbs (top-level: start, stop, status, token)
+/// `nuo` daemon verbs (top-level: start, stop, status, token)
 #[derive(Debug, Clone, PartialEq)]
 pub enum DaemonAction {
-    /// `muta start` — start the session daemon.
+    /// `nuo start` — start the session daemon.
     Start {
         /// `--fg`: stay in the foreground (the systemd/tmux shape).
         /// Detaching is the default because "start" asks for a daemon,
@@ -96,11 +96,11 @@ pub enum DaemonAction {
         idle_exit_minutes: Option<u64>,
         shutdown_grace_secs: Option<u64>,
     },
-    /// `muta stop` — graceful, budget-aware drain.
+    /// `nuo stop` — graceful, budget-aware drain.
     Stop,
-    /// `muta token` — print the local daemon's bearer token.
+    /// `nuo token` — print the local daemon's bearer token.
     Token,
-    /// `muta status` — the daemon's session table and endpoints.
+    /// `nuo status` — the daemon's session table and endpoints.
     Status {
         watch: bool,
         json: bool,
@@ -109,7 +109,7 @@ pub enum DaemonAction {
     },
 }
 
-/// `muta config …`
+/// `nuo config …`
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfigAction {
     List,
@@ -119,12 +119,12 @@ pub enum ConfigAction {
         key: String,
         value: String,
     },
-    /// `muta config check` — validate `config.toml` against the schema:
+    /// `nuo config check` — validate `config.toml` against the schema:
     /// hard errors, typo'd keys, and dead legacy spellings.
     Check,
 }
 
-/// `muta auth …`
+/// `nuo auth …`
 #[derive(Debug, Clone, PartialEq)]
 pub enum AuthAction {
     List,
@@ -132,10 +132,10 @@ pub enum AuthAction {
     Set { provider: String, key: String },
 }
 
-/// `muta context …` (ADR-0280 §4): the offline migration surface.
+/// `nuo context …` (ADR-0280 §4): the offline migration surface.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ContextAction {
-    /// `muta context migrate --legacy <db> --target <db>` — convert a legacy
+    /// `nuo context migrate --legacy <db> --target <db>` — convert a legacy
     /// database into a canonical one, offline, never in the runtime path.
     Migrate {
         /// The legacy database to read.
@@ -143,7 +143,7 @@ pub enum ContextAction {
         /// The canonical database to write.
         target: String,
     },
-    /// `muta context verify --db <db> [--json]` — emit a machine-readable
+    /// `nuo context verify --db <db> [--json]` — emit a machine-readable
     /// integrity report for a canonical database.
     Verify {
         /// The canonical database to verify.
@@ -153,7 +153,7 @@ pub enum ContextAction {
     },
 }
 
-/// A shell whose completion script `muta completions` can print.
+/// A shell whose completion script `nuo completions` can print.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shell {
     Bash,
@@ -193,9 +193,9 @@ struct Spec {
 }
 
 const SESSION_SUBS: &[Spec] = &[
-    // The listing is `muta status`, not a session subcommand: the
+    // The listing is `nuo status`, not a session subcommand: the
     // session table is the daemon's view of what it hosts (ADR-0116's
-    // one-noun-per-resource — `session ls` duplicated `muta status`
+    // one-noun-per-resource — `session ls` duplicated `nuo status`
     // verbatim).
     Spec {
         name: "rm",
@@ -437,7 +437,7 @@ fn parse_u64(flag: &str, value: &str) -> Result<u64, FlagError> {
         .map_err(|_| FlagError::new(flag, format!("'{value}' is not a number")))
 }
 
-/// The `muta start` flags (one table — the `serve` duplication is gone).
+/// The `nuo start` flags (one table — the `serve` duplication is gone).
 #[derive(Default)]
 struct DaemonStartFlags {
     foreground: bool,
@@ -783,7 +783,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         "mcp" => {
             let extra_str: Vec<&str> = extra.iter().map(String::as_str).collect();
             match extra_str.as_slice() {
-                // A bare `muta mcp` teaches the subcommand rather than
+                // A bare `nuo mcp` teaches the subcommand rather than
                 // silently running the only one (ADR-0119's noun-verb
                 // shape; `config`/`auth` default to `list` because they
                 // have several — `mcp` now does too, but the lesson
@@ -978,7 +978,7 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
                     "\nNUO_HOME points the whole instance (config, data, daemon files,\n",
                 );
                 out.push_str("port default via NUO_PORT) at an isolated root — the dev/test\n");
-                out.push_str("sandbox shape. See docs/reference/paths.md.\n");
+                out.push_str("sandbox shape. See `nuo --help` for the config paths.\n");
             }
         }
     }

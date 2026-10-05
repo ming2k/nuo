@@ -2,7 +2,7 @@
 //!
 //! `tracing_appender::rolling::daily` rotates but never deletes: a long-lived
 //! installation accumulates one file per calendar day forever. This module is
-//! the drop-in replacement — same `muta.log.YYYY-MM-DD` naming (so existing
+//! the drop-in replacement — same `nuo.log.YYYY-MM-DD` naming (so existing
 //! files keep their place in the sort order), plus a retention sweep on every
 //! rollover and once at startup, keeping only the newest
 //! [`MAX_LOG_FILES_DEFAULT`] files (override with `MUTA_LOG_RETENTION`).

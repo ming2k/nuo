@@ -1,7 +1,7 @@
 //! The application plane's skills host: where the product keeps skills, and who
 //! may admit a workspace's own skill content.
 //!
-//! `muta-skills` is a kernel crate: it discovers and serves skills, but it does
+//! `nuo-skills` is a kernel crate: it discovers and serves skills, but it does
 //! not know where the product stores anything and it does not own the trust
 //! decision (ADR-0300 §1, ADR-0303 §1). Both enter through
 //! [`nuo_harness::skills::SkillHost`], and this module is the shipped product's

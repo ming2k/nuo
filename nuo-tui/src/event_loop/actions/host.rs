@@ -164,7 +164,7 @@ pub(super) fn suspend_selected(app: &mut App, runtime: &UiRuntime) {
 }
 
 /// Ask the Archivist (ADR-0208) one question: a synchronous control round
-/// whose answer lands as a console receipt. The Archivist is the muta-level
+/// whose answer lands as a console receipt. The Archivist is the nuo-level
 /// retrieval agent — it searches every project's sessions, so no `@N` target
 /// and no dock selection are involved.
 async fn dispatch_archivist(app: &mut App, runtime: &UiRuntime, raw: &str, text: &str) {

@@ -980,7 +980,7 @@ pub struct App {
     /// From `[tui] click_outside_dismiss` (default `true`): when true, an
     /// outside click dismisses a dismissable modal like Esc (the draft is
     /// parked, so nothing is lost). Modals holding precious in-progress input
-    /// are never click-dismissable regardless of this flag, and the `muta
+    /// are never click-dismissable regardless of this flag, and the `nuo
     /// resume` startup picker's click-outside still quits. Esc / Ctrl+C always
     /// close/quit regardless of this flag.
     pub click_outside_dismiss: bool,
@@ -1213,7 +1213,7 @@ pub struct App {
     /// Terminal capability profile (ADR-0180).
     pub profile: nuotc::TerminalProfile,
     /// User-supplied ASCII logo lines loaded at startup from
-    /// `$XDG_CONFIG_HOME/muta/logo.txt` (clamped to the empty-state bounding
+    /// `$XDG_CONFIG_HOME/nuo/logo.txt` (clamped to the empty-state bounding
     /// box). `None` when no user logo is present → built-in wordmark is used.
     /// Passed into the empty-state hero via `TranscriptProps::logo`.
     pub logo: Option<Vec<String>>,

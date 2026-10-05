@@ -22,7 +22,7 @@ use nuo_wire::WorkspaceTrustState;
 /// Every field is a decision the product made; the kernel only reads them.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SkillRoots {
-    /// User-global skill root (e.g. `<XDG_DATA_HOME>/muta/skills`).
+    /// User-global skill root (e.g. `<XDG_DATA_HOME>/nuo/skills`).
     pub user: PathBuf,
     /// Role-scoped skill root, when the session runs under a role with one
     /// (ADR-0253).
