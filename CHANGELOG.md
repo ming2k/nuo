@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.7] - 2026-10-06
+
 ### Changed
 
 - **Listing blocks (`find_files` / `list_dir`) are now layered, matching the
