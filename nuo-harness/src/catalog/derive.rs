@@ -40,7 +40,7 @@ pub struct DerivationInputs<'a> {
     pub creds: &'a Credentials,
     /// The host's provider declarations, as a value (ADR-0300 §1).
     pub providers: &'a ModelProviders,
-    /// Where OAuth credentials live for dynamic sources (ADR-0303 §1).
+    /// Where OAuth credentials live for dynamic sources (host-provided).
     pub credentials: &'a CredentialHost,
 }
 

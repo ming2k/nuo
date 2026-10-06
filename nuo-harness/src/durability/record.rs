@@ -15,7 +15,7 @@
 //! - **facts** — the `ExecutionGraph` of what happened (immutable, append-only);
 //! - **registers** — the `GraphState` the round reads and writes;
 //! - **a watermark** — the highest fact sequence handed to the sink;
-//! - **the sink** — where acknowledged facts go (ADR-0303 §2).
+//! - **the sink** — where acknowledged facts go.
 //!
 //! # What it is not
 //!
@@ -29,7 +29,7 @@
 //! `commit` drains the delta since the watermark, hands it to the sink, and only
 //! advances the watermark when the sink *acknowledges* it. A sink failure leaves
 //! the watermark where it was, so the next commit re-sends — which is what makes
-//! a retry safe and a "durable" claim true (ADR-0303 `[INV-DURABILITY-06]`).
+//! a retry safe and a "durable" claim true.
 
 use std::sync::Arc;
 
@@ -114,7 +114,7 @@ impl ExecutionRecord {
     }
 
     /// A record hydrated from facts the host read out of its own store
-    /// (ADR-0303 §3: hydration is an input, never a query).
+    /// (hydration is an input, never a query).
     ///
     /// The watermark starts at the highest hydrated sequence, because those facts
     /// are already durable — re-sending them would be a wasted round trip, and a
@@ -662,7 +662,7 @@ mod tests {
         original.append_message("n1", 1_000, message("stored"));
         original.commit().await.unwrap();
 
-        // A host reads its own store and hands the facts in (ADR-0303 §3). The
+        // A host reads its own store and hands the facts in. The
         // cursor is not supplied, so hydration defaults it to the newest fact.
         let mut resumed = ExecutionRecord::hydrate(
             "instance-a",

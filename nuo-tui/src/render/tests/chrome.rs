@@ -2,7 +2,7 @@
 
 use super::*;
 
-/// A fixed session head for the scene tests (ADR-0302): the head band's top row
+/// A fixed session head for the scene tests (ADR-0024): the head band's top row
 /// is now the uniform session identity drawn by the settings/dashboard views.
 fn test_session_head() -> SessionHead<'static> {
     SessionHead {
@@ -398,7 +398,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
         );
     });
     // Row 1 is the uniform session identity; the scene name + breadcrumb live on
-    // row 2 (ADR-0302).
+    // row 2 (ADR-0024).
     assert!(grid_row(&terminal, 0).contains("SESSION"));
     assert!(!grid_row(&terminal, 0).contains("⚙"));
     assert!(!grid_row(&terminal, 0).contains("Appearance"));
@@ -1301,7 +1301,7 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
     );
 }
 
-/// ADR-0301/0302: the head band's scene row stands up on **every** scene. On
+/// ADR-0023/0024: the head band's scene row stands up on **every** scene. On
 /// the main view it names the scene (`conversation`) and carries the chat title
 /// as its context, with the `C-x menu` namespace pair on the right.
 #[test]
@@ -1331,7 +1331,7 @@ fn main_view_shows_the_conversation_scene_row() {
     );
 }
 
-/// ADR-0302: the run-mode flags ride the scene row's right edge, so a
+/// ADR-0024: the run-mode flags ride the scene row's right edge, so a
 /// conversation read-out states the session's persistent posture alongside the
 /// scene name and title.
 #[test]

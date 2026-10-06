@@ -94,7 +94,7 @@ pub struct Bootstrap {
     /// The frontend's response receiver (the driver holds the sender).
     pub resp_rx: mpsc::UnboundedReceiver<AgentResponse>,
     /// An `Arc` handle on the primary agent so the caller can fire
-    /// SessionEnd hooks (ADR-0025) after its UI returns — the driver task
+    /// SessionEnd hooks after its UI returns — the driver task
     /// owns the agent by then.
     pub agent_for_session_end: Arc<Agent>,
     /// The primary session store, shared with the driver.
@@ -817,7 +817,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // destructive denies and explicit high-risk confirmations remain here.
     agent.set_bash_policy(&config.bash_policy);
 
-    // Lifecycle event hooks (ADR-0025): each `[[hooks]]` entry runs a shell
+    // Lifecycle event hooks: each `[[hooks]]` entry runs a shell
     // command at one lifecycle point (PreToolUse / PostToolUse / Stop / …).
     agent.set_hooks(crate::hooks::build_hook_registry(&config.hooks, &agent));
 
@@ -863,7 +863,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
             );
         }
 
-        // SessionStart hooks (ADR-0025): inject setup context before the first
+        // SessionStart hooks: inject setup context before the first
         // round. Resume vs fresh start is surfaced so a hook can branch.
         {
             let source = match &startup {
@@ -909,7 +909,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         catalog::resolved_model_name_with_usage(&config, &initial_provider_name, &provider_usage)
             .unwrap_or_default();
 
-    // Keep an Arc handle for the caller so SessionEnd hooks (ADR-0025) can
+    // Keep an Arc handle for the caller so SessionEnd hooks can
     // fire after its UI returns — the driver below moves `agent`.
     let agent_for_session_end = Arc::clone(&agent);
     // Shared token-source ledger: the agent books each turn's token usage

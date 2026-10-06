@@ -124,6 +124,13 @@ pub enum ResultKind {
     WebSearch,
     /// Article reader view for web pages, rendering clean markdown prose without code gutters.
     WebArticle,
+    /// An `ask_user` clarifying-question request resolved to a question→answer
+    /// list. Unlike the code-style default, the body is driven by the call's
+    /// `arguments` (the question headers, texts, option counts, and
+    /// multi-select flags) paired with the recorded selection from the result
+    /// text — so the questions stay traceable after the answer lands instead of
+    /// collapsing into a bare JSON array.
+    Questions,
 }
 
 /// How a tool's arguments are rendered in the expanded step body.

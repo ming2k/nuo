@@ -459,6 +459,30 @@ impl SubagentHandle {
         }
     }
 
+    /// Abort this child's in-flight round at its next safe boundary
+    /// ([`AgentOp::Interrupt`]). Returns `false` if the agent has been dropped
+    /// or no inbox was ever installed. This is the **scene-scoped** interrupt
+    /// verb (ADR-0205): it stops this child only, leaving the parent round and
+    /// every sibling subagent untouched — the handle counterpart to the
+    /// [`AgentRequest::InterruptSubagent`] wire request, whose round loop then
+    /// returns its partial transcript so the parent records it as an
+    /// interrupted (resumable) result rather than a failure.
+    ///
+    /// Mirrors the primary interrupt's eager human-channel drain: a child parked
+    /// on a permission / `ask_user` / stdin request is unblocked first (its
+    /// parked oneshot resolves as cancelled), so the inbox op is observed
+    /// promptly instead of waiting behind a gate that would never clear.
+    ///
+    /// [`AgentRequest::InterruptSubagent`]: nuo_wire::AgentRequest::InterruptSubagent
+    pub fn interrupt(&self) -> bool {
+        if let Some(agent) = self.weak.upgrade() {
+            agent.reject_pending_permissions();
+            agent.reject_pending_user_questions();
+            agent.reject_pending_inputs();
+        }
+        self.submit(AgentOp::Interrupt)
+    }
+
     /// Whether the underlying agent is still alive (its dispatcher still holds
     /// the `Arc`). Lets a caller drop a stale handle instead of no-op-ing.
     pub fn is_alive(&self) -> bool {

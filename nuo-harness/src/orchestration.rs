@@ -1960,6 +1960,14 @@ pub fn relay_agent_event(
         AgentEvent::ToolStream { id, stream } => {
             round_response(session_id, RoundEvent::ToolStream { id, stream })
         }
+        AgentEvent::ToolCallStarted { index, id, name } => round_response(
+            session_id,
+            RoundEvent::ToolCallStarted { index, id, name },
+        ),
+        AgentEvent::ToolInputProgress { index, id, bytes } => round_response(
+            session_id,
+            RoundEvent::ToolInputProgress { index, id, bytes },
+        ),
         AgentEvent::TodosUpdated(todos) => {
             round_response(session_id, RoundEvent::TodosUpdated(todos))
         }

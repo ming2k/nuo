@@ -1357,3 +1357,47 @@ fn wrap_cache_is_transparent() {
         }
     }
 }
+
+#[test]
+fn announced_tool_step_collapses_and_tracks_input_bytes() {
+    // ADR-0026: a call announced before its arguments finish.
+    let mut step = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
+        .with_input_slot(0)
+        .with_round(1)
+        .with_turn(2);
+    assert!(step.is_announced_pending_tool_step());
+    assert!(step.is_announced_pending_tool_step_for_slot(0));
+    assert!(!step.is_announced_pending_tool_step_for_slot(1));
+
+    // Count-only progress records the bytes and renders a static clause.
+    assert!(step.set_tool_input_bytes("", 4096));
+    let summary = step.tool_step_summary().expect("summary");
+    assert!(summary.contains("receiving input"), "got: {summary}");
+    assert!(summary.contains("KB"), "got: {summary}");
+
+    // Dispatch collapses: re-key onto the call id and clear pre-dispatch state.
+    assert!(step.rekey_tool_step("call_9"));
+    assert_eq!(step.tool_step_call_id(), Some("call_9"));
+    assert!(!step.is_announced_pending_tool_step());
+    let summary = step.tool_step_summary().expect("summary");
+    assert!(!summary.contains("receiving input"), "got: {summary}");
+
+    // Output streaming then resolves by the collapsed id.
+    assert!(step.push_tool_stream("call_9", &nuo_wire::ToolStream::Stdout("x\n".into())));
+}
+
+#[test]
+fn orphan_announced_tool_step_is_cancelled_not_left_running() {
+    // ADR-0023 safety net: an announced-but-never-dispatched step must not hang.
+    let mut step = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
+        .with_input_slot(0);
+    assert!(step.set_tool_input_bytes("", 1024));
+    assert!(step.cancel_pending_announced_tool_step());
+    assert_eq!(step.tool_step_status(), Some(ToolStepStatus::Cancelled));
+
+    // A dispatched (id-bearing) step is NOT touched by the orphan sweep.
+    let mut dispatched = TranscriptMessage::tool_step("call_1", "read_text", "{}");
+    assert!(dispatched.push_tool_stream("call_1", &nuo_wire::ToolStream::Stdout("y\n".into())));
+    assert!(!dispatched.cancel_pending_announced_tool_step());
+    assert_eq!(dispatched.tool_step_status(), Some(ToolStepStatus::Running));
+}

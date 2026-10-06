@@ -449,16 +449,49 @@ pub(crate) fn handle_ctrl_c(
     ActionFlow::Handled
 }
 
-/// Loop stage (input dispatch): the shared `Interrupt` / `InterruptSide` arm
-/// of the action match. Both views run the same press-twice contract — the
-/// first Esc arms a wall-clock [`App::ESC_ARM_WINDOW`] confirmation window
-/// (the "Esc again interrupts" toast), a second press inside it interrupts.
-/// `side` routes the request at the viewed aside (`InterruptSide`), which is
-/// only meaningful while the aside view is actually open.
-pub(crate) fn handle_esc_interrupt(app: &mut App, side: bool) -> bool {
+/// Who a double-Esc (`Esc Esc`) interrupt targets. The chord is **scene-scoped**
+/// (ADR-0205): the scene the user stands in decides which round the confirmation
+/// window stops, so an interrupt fired inside a nested view can never penetrate
+/// its scene boundary and stop an outer one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InterruptTarget {
+    /// The primary session's running round. The Conversation scene's Esc.
+    Primary,
+    /// The `/btw` aside view's running round (ADR-0103 §2), addressed by
+    /// `App::side_session_id`. Never closes the aside.
+    Aside,
+    /// One subagent spawned by the session, addressed by its parent tool-call
+    /// id (ADR-0205). The Subagent scene's Esc: it stops only the viewed child
+    /// and leaves the enclosing primary round and every sibling running.
+    Subagent,
+}
+
+/// Loop stage (input dispatch): the shared `Interrupt` / `InterruptSide` /
+/// `InterruptSubagent` arm of the action match. All three views run the same
+/// press-twice contract — the first Esc arms a wall-clock [`App::ESC_ARM_WINDOW`]
+/// confirmation window (the "Esc again interrupts" toast), a second press inside
+/// it interrupts. `target` routes the request at the scene the user stands in,
+/// so the chord never crosses a scene boundary (ADR-0205).
+pub(crate) fn handle_esc_interrupt(app: &mut App, target: InterruptTarget) -> bool {
     if !app.esc_press() {
         return false;
     }
+    match target {
+        InterruptTarget::Subagent => {
+            // Scene-scoped: stop only the viewed subagent. The request carries
+            // its parent tool-call id and is routed by the driver into that one
+            // child — the primary round and its siblings are untouched, so
+            // (unlike the primary/aside paths) there is nothing to flip at the
+            // session level and no prompt row to cancel here: the child's own
+            // `SubagentEvent`s repaint the nested view.
+            if let Some(call_id) = app.focused_subagent_call_id().map(str::to_owned) {
+                app.send_intent(AgentRequest::InterruptSubagent { call_id });
+            }
+            return true;
+        }
+        InterruptTarget::Primary | InterruptTarget::Aside => {}
+    }
+    let side = matches!(target, InterruptTarget::Aside);
     let target_session_id = if side {
         app.side_session_id.clone()
     } else if !app.current_session_id.is_empty() {
@@ -497,16 +530,22 @@ pub(crate) fn handle_esc_interrupt(app: &mut App, side: bool) -> bool {
 pub(crate) async fn handle_esc_interrupt_with_runtime(
     app: &mut App,
     runtime: &UiRuntime,
-    side: bool,
+    target: InterruptTarget,
 ) {
-    if !handle_esc_interrupt(app, side) {
+    if !handle_esc_interrupt(app, target) {
+        return;
+    }
+    // The scene-scoped subagent interrupt leaves the primary runtime running:
+    // only the primary/aside paths clear the global responding flag and reset
+    // the viewed transcript's in-flight prompt row.
+    if matches!(target, InterruptTarget::Subagent) {
         return;
     }
     runtime.is_responding.store(false, Ordering::SeqCst);
     // The round is being stopped: no request is in flight any more, so the
     // transport-setback clause goes with the phase (ADR-0235).
     app.set_phase(None);
-    let msgs = if side {
+    let msgs = if matches!(target, InterruptTarget::Aside) {
         &mut app.side_messages
     } else {
         &mut app.messages

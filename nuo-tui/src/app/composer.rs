@@ -88,24 +88,32 @@ impl App {
     }
 
     /// Per-frame bookkeeping for the Esc interrupt window: lapse it once
-    /// the wall-clock deadline passes, or immediately when the *viewed*
-    /// session no longer has a running round — there is nothing left to
-    /// interrupt, so keeping the toast up would mislead. Scoped to the
-    /// viewed session (the same `running_sessions` predicate the keymap
-    /// uses to map Esc to an interrupt), never the runtime's global
-    /// primary-only `is_responding` flag: an aside view armed from its own
-    /// running round must survive the primary being idle.
+    /// the wall-clock deadline passes, or immediately when the *scene-scoped*
+    /// interrupt target no longer has a running round — there is nothing left
+    /// to interrupt, so keeping the toast up would mislead. The target is the
+    /// one the scene's Esc resolves to (ADR-0205 scene scope): the viewed
+    /// session on the Conversation/Aside scenes (`running_sessions`), or the
+    /// focused child's own liveness on the Subagent scene. Never the runtime's
+    /// global primary-only `is_responding` flag: an aside view armed from its
+    /// own running round must survive the primary being idle, and a subagent
+    /// arm must lapse the moment *that child* settles even while the parent
+    /// keeps running.
     pub fn tick_esc_arm(&mut self) {
         if let Some(until) = self.esc_armed_until
             && std::time::Instant::now() >= until
         {
             self.esc_armed_until = None;
         }
-        if self.esc_armed()
-            && !self
-                .running_sessions
+        if !self.esc_armed() {
+            return;
+        }
+        let target_running = if self.current_scene() == crate::surfaces::SceneKind::TaskInspection {
+            self.focused_subagent_running()
+        } else {
+            self.running_sessions
                 .contains(self.current_session_id.as_str())
-        {
+        };
+        if !target_running {
             self.esc_armed_until = None;
         }
     }

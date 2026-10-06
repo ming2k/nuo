@@ -354,7 +354,7 @@ pub fn route_event(
             // CopySelection, and the user-remappable globals. The Command
             // Palette is deliberately absent from the canonical table: its
             // canonical entry is the `C-x` scene namespace's switcher verb
-            // (`C-x p`, ADR-0298 §1 / ADR-0301), resolved above — before any
+            // (`C-x p`, ADR-0023), resolved above — before any
             // scene or modal arm — so `C-x p` opens it from every context and
             // the old `Ctrl-L`-behind-a-modal prohibition is gone.
             if let Some(cmd_id) =
@@ -363,7 +363,7 @@ pub fn route_event(
                 match cmd_id {
                     crate::keymap::CommandId::CommandPalette => {
                         // Only reachable through a user remap of the palette
-                        // command (the canonical chord was retired, ADR-0301).
+                        // command (the canonical chord was retired, ADR-0023).
                         // Mirror the namespace exactly: open at the top level,
                         // close while already open, and — with no modal
                         // prohibition any more — switch to it from behind
@@ -563,8 +563,7 @@ pub fn route_event(
                     InputAction::None
                 }
                 // Ctrl+L is inert: the palette's canonical chord is the `C-x`
-                // scene namespace's switcher verb (`C-x p`, ADR-0298 §1 /
-                // ADR-0301), so `Ctrl-L` no longer maps to any command. Swallow
+                // scene namespace's switcher verb (`C-x p`, ADR-0023), so `Ctrl-L` no longer maps to any command. Swallow
                 // it explicitly (like the inert Ctrl-H above) so the generic
                 // printable arm never inserts a literal `l`. A user who prefers
                 // `Ctrl-L` can still remap `palette` to it in `[keybindings]`,

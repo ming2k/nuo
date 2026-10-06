@@ -1,7 +1,7 @@
 //! Modular Settings View (`/settings`): first-class, full-screen configuration center (ADR-0141).
 //!
 //! Layout: the shared two-row head band (row 1 the session identity, row 2 the
-//! scene row naming `settings` with the category breadcrumb, ADR-0302), then a
+//! scene row naming `settings` with the category breadcrumb, ADR-0024), then a
 //! two-pane body — a left category nav (`panel` tone) and the right detail pane
 //! (a sunken body tone). There is no footer band: the exits live on the scene
 //! row. There is also no per-pane prose header naming the selected category —
@@ -194,7 +194,7 @@ pub struct SettingsProps<'a> {
     pub theme: &'a Theme,
     pub profile: &'a nuotc::TerminalProfile,
     pub tui_config: &'a crate::config::TuiConfig,
-    /// The session identity for the head band's top row (ADR-0302): the band is
+    /// The session identity for the head band's top row (ADR-0024): the band is
     /// uniform across scenes, so Settings draws the same `SESSION` row as the
     /// conversation. `None` hides row 1. Crate-visible only (`SessionHead` is
     /// crate-private; the shell is the sole caller).
@@ -216,7 +216,7 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
     );
 
     // 3 vertical zones: the two-row head band (session identity + scene row,
-    // ADR-0302), then the body (flexible). There is deliberately **no footer
+    // ADR-0024), then the body (flexible). There is deliberately **no footer
     // band**: the Settings center's own affordances — including its exit —
     // already live on the head band's scene row, so a redundant bottom keycap
     // strip only stole vertical space from the panes it described.
@@ -241,7 +241,7 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
     }
 
     // 2. Scene row: the `settings` scene name, the category breadcrumb context,
-    //    the run-mode flags, and the namespace pair (ADR-0302).
+    //    the run-mode flags, and the namespace pair (ADR-0024).
     let view_hints = ViewHints {
         kind: ViewKind::Settings,
         context: props.breadcrumbs.map(str::trim),

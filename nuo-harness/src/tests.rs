@@ -638,6 +638,73 @@ async fn streaming_tool_deltas_are_reassembled_and_executed() {
 }
 
 #[tokio::test]
+async fn streamed_tool_input_is_announced_then_progressed_before_completion() {
+    // ADR-0026: a tool call whose arguments stream is (1) announced with its
+    // name before the arguments finish, and (2) ticked with a count-only byte
+    // progress — both strictly before the whole-argument `ToolCall` that gates
+    // dispatch ([INV-STREAM-TOOL-01]/[INV-STREAM-TOOL-02]).
+    let arg_a = format!("{{\"value\":\"{}", "a".repeat(3000));
+    let arg_b = format!("{}\"}}", "b".repeat(3000));
+    let total = arg_a.len() + arg_b.len();
+    let agent = Arc::new(Agent::new(
+        Arc::new(ScriptedProvider::new(vec![
+            vec![
+                ProviderStreamEvent::ToolCallDelta {
+                    index: 0,
+                    id: Some("call_x".to_string()),
+                    name: Some("big_tool".to_string()),
+                    arguments: arg_a,
+                },
+                ProviderStreamEvent::ToolCallDelta {
+                    index: 0,
+                    id: None,
+                    name: None,
+                    arguments: arg_b,
+                },
+            ],
+            text_turn("finished"),
+        ])),
+        vec![Arc::new(RecordingTool::read("big_tool", "ok"))],
+        crate::AgentIdentity::default(),
+    ));
+    let mut messages = vec![Message::new(Role::User, "go")];
+    let mut events = Vec::new();
+    let _ = agent
+        .run_streaming_with_events(&mut messages, &CancellationToken::new(), |event| {
+            events.push(event)
+        })
+        .await;
+
+    let started = events
+        .iter()
+        .position(|event| {
+            matches!(event, AgentEvent::ToolCallStarted { name, .. } if name == "big_tool")
+        })
+        .expect("the call must be announced before its arguments finish");
+    let completed = events
+        .iter()
+        .position(|event| {
+            matches!(event, AgentEvent::ToolCall { name, .. } if name == "big_tool")
+        })
+        .expect("the whole-argument ToolCall must still fire");
+    let progress = events
+        .iter()
+        .position(|event| {
+            matches!(event, AgentEvent::ToolInputProgress { bytes, .. } if *bytes == total)
+        })
+        .expect("count-only progress must tick at the bounded cadence");
+
+    assert!(started < completed, "announcement must precede completion");
+    assert!(progress < completed, "progress must precede completion");
+    // Exactly one announcement per provider slot, however fragmented the stream.
+    let announcements = events
+        .iter()
+        .filter(|event| matches!(event, AgentEvent::ToolCallStarted { .. }))
+        .count();
+    assert_eq!(announcements, 1);
+}
+
+#[tokio::test]
 async fn turn_persist_fires_at_each_react_turn_boundary() {
     // ADR-0048: the mid-round save point must fire once per completed
     // tool-carrying turn, carrying the full history including that turn's
@@ -2036,6 +2103,12 @@ fn transcript(events: &[AgentEvent]) -> Vec<String> {
             AgentEvent::ToolCall {
                 name, arguments, ..
             } => Some(format!("tool-call {name} {arguments}")),
+            AgentEvent::ToolCallStarted { index, name, .. } => {
+                Some(format!("tool-call-started {index} {name}"))
+            }
+            AgentEvent::ToolInputProgress { index, bytes, .. } => {
+                Some(format!("tool-input-progress {index} {bytes}"))
+            }
             AgentEvent::ToolResult { name, output, .. } => {
                 Some(format!("tool-result {name} {output:?}"))
             }
@@ -2116,6 +2189,8 @@ async fn golden_native_tool_turn_then_final_text() {
         vec![
             "model-request turn=0",
             "context-tokens",
+            "tool-call-started 0 alpha",
+            "tool-call-started 1 beta",
             "tool-call alpha {\"k\":1}",
             "tool-call beta {\"k\":2}",
             "tool-result alpha \"A-out\"",

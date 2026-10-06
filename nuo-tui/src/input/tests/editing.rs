@@ -1244,7 +1244,7 @@ fn keybinding_modals_are_not_text_commands() {
 
 #[test]
 fn ctrl_l_is_inert_not_a_palette_chord() {
-    // ADR-0301: the palette's canonical chord is the `C-x` scene namespace's
+    // ADR-0023: the palette's canonical chord is the `C-x` scene namespace's
     // switcher verb (`C-x p`). `Ctrl-L` is no longer bound, so it must be inert
     // — never open the palette *and* never insert a literal `l`.
     let mut input = "draft".to_string();
@@ -1269,7 +1269,7 @@ fn ctrl_l_is_inert_not_a_palette_chord() {
     assert_eq!(input, "draft", "Ctrl-L must not insert a literal `l`");
 }
 
-/// ADR-0301: a user can still remap `palette` to `Ctrl-L`; the remapped chord
+/// ADR-0023: a user can still remap `palette` to `Ctrl-L`; the remapped chord
 /// then opens the switcher through the Stage-5 globals, exactly like the
 /// namespace's `C-x p`.
 #[test]

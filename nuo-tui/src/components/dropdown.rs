@@ -550,7 +550,7 @@ pub fn draw_dropdown<T>(
 
     // 3. Build card chrome. Modern terminals (Chromatic) get a **borderless**
     //    elevated surface — the panel background alone separates the popup from
-    //    what is behind it (the toast's visual language, ADR-0301). Hybrid /
+    //    what is behind it (the toast's visual language, ADR-0023). Hybrid /
     //    Structured keep the thick frame, where the background delta is not a
     //    reliable channel.
     let is_borderless = matches!(theme.elevation, nuotc::ElevationArchetype::Chromatic);

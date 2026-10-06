@@ -1,4 +1,4 @@
-//! The command-handler hook implementation and registry builder (ADR-0025).
+//! The command-handler hook implementation and registry builder.
 //!
 //! Each `[hooks]` entry becomes one [`CommandHook`] that spawns a shell
 //! process: the [`HookContext`] is serialized to JSON on stdin, and the
@@ -19,7 +19,7 @@ use serde_json::json;
 /// wedges the agent loop. Generous enough for a linter or CI shard.
 const HOOK_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// A lifecycle hook that runs a shell command (ADR-0025). Built from a
+/// A lifecycle hook that runs a shell command. Built from a
 /// [`HookSpec`]; the command runs with the project root as cwd and receives
 /// the hook context as JSON on stdin.
 #[derive(Debug)]

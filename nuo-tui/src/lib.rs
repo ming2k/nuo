@@ -585,6 +585,13 @@ pub async fn run_tui(
             // sessions can stream concurrently, so a single global counter
             // cannot reliably stamp transcript components for semantic spacing.
             let mut positions_by_session = HashMap::<String, (u64, u64)>::new();
+            // ADR-0026: per-session announced-but-unclaimed provider slots, in
+            // announcement order. The translator stamps the step's `input_slot`;
+            // the applier resolves the collapse and the progress ticks by that
+            // slot. A whole-argument provider never announces, so the queue
+            // stays empty and every `ToolCall` inserts normally.
+            let mut announced_slots_by_session =
+                HashMap::<String, std::collections::VecDeque<usize>>::new();
             // A session switch replaces the transcript before its authoritative
             // idle HarnessState arrives. Rebase the reconstructed tail exactly
             // once when that snapshot supplies the persisted round counter.
@@ -1096,6 +1103,56 @@ pub async fn run_tui(
                                     duration_ms,
                                 });
                             }
+                            RoundEvent::ToolCallStarted { index, id, name } => {
+                                // ADR-0026: the call is named but its arguments
+                                // are still streaming. Show a running step and
+                                // move the phase to the tool verb now, instead
+                                // of leaving the bar on the misleading
+                                // `answering` phase for the whole argument
+                                // stream. The step's call id stays empty until
+                                // dispatch; `ToolCall` collapses onto it.
+                                let _ = id;
+                                announced_slots_by_session
+                                    .entry(session_id.clone())
+                                    .or_default()
+                                    .push_back(index);
+                                if !routes_to_side {
+                                    mutations
+                                        .send(M::SetPhase(Some(Phase::Tool(
+                                            event_loop::tool_verb_for(&name),
+                                        ))))
+                                        .await;
+                                    mutations.send(M::SetResponding(true)).await;
+                                }
+                                chrome!(event_loop::mutations::ChromeEdit::PhaseOnly(Some(
+                                    Phase::Tool(event_loop::tool_verb_for(&name)),
+                                )));
+                                let (provider, model) = attribution!();
+                                let effort = picker_effort!();
+                                let position = positions_by_session.get(&session_id).copied();
+                                let mut message =
+                                    TranscriptMessage::tool_step(String::new(), name.clone(), String::new())
+                                        .with_attribution(provider, model)
+                                        .with_effort(effort)
+                                        .with_input_slot(index);
+                                if let Some((round, turn)) = position {
+                                    message = message.with_round(round).with_turn(turn);
+                                }
+                                transcript!(E::ToolAnnounce {
+                                    slot: index,
+                                    name,
+                                    message,
+                                });
+                            }
+                            RoundEvent::ToolInputProgress { index, id, bytes } => {
+                                // ADR-0026: count-only progress while the
+                                // arguments stream ([INV-STREAM-TOOL-03]).
+                                let _ = id;
+                                if !routes_to_side {
+                                    mutations.send(M::SetResponding(true)).await;
+                                }
+                                transcript!(E::ToolInputProgress { slot: index, bytes });
+                            }
                             RoundEvent::ToolCall {
                                 id,
                                 name,
@@ -1113,14 +1170,30 @@ pub async fn run_tui(
                                 retry_attempts = 0;
                                 let position = positions_by_session.get(&session_id).copied();
                                 let sent_at_ms = now_ms!();
-                                let mut message = TranscriptMessage::tool_step(id, name, arguments)
-                                    .with_attribution(provider, model)
-                                    .with_effort(effort)
-                                    .with_sent_at_ms(sent_at_ms);
-                                if let Some((round, turn)) = position {
-                                    message = message.with_round(round).with_turn(turn);
+                                // ADR-0026: collapse onto the announced step for
+                                // this call's provider slot, if one is pending.
+                                // Otherwise (a whole-argument provider, or an
+                                // announcement that never arrived) insert
+                                // normally.
+                                let announced_slot = announced_slots_by_session
+                                    .get_mut(&session_id)
+                                    .and_then(|queue| queue.pop_front());
+                                match announced_slot {
+                                    Some(slot) => {
+                                        transcript!(E::ToolCallCollapse { slot, call_id: id });
+                                    }
+                                    None => {
+                                        let mut message =
+                                            TranscriptMessage::tool_step(id, name, arguments)
+                                                .with_attribution(provider, model)
+                                                .with_effort(effort)
+                                                .with_sent_at_ms(sent_at_ms);
+                                        if let Some((round, turn)) = position {
+                                            message = message.with_round(round).with_turn(turn);
+                                        }
+                                        transcript!(E::ToolStart { message });
+                                    }
                                 }
-                                transcript!(E::ToolStart { message });
                                 if !routes_to_side {
                                     mutations.send(M::SetResponding(true)).await;
                                 }
@@ -1368,8 +1441,16 @@ pub async fn run_tui(
                                     .map(|started| started.elapsed().as_millis() as u64);
                                 if !running {
                                     retry_attempts = 0;
+                                    // ADR-0026: no announced step survives its
+                                    // round; the queue is drained so a later
+                                    // call cannot claim a stale slot.
+                                    announced_slots_by_session.remove(&session_id);
                                 }
                                 transcript!(E::FinalizeOrphanedReasoning { duration_ms });
+                                // ADR-0026: safety net — a step announced but
+                                // never dispatched (its round died mid
+                                // arguments) is cancelled, never left running.
+                                transcript!(E::FrozenOrphanToolSteps);
                             }
                             RoundEvent::TodosUpdated(_) => {}
                             RoundEvent::UnattendedChanged(enabled) => {
@@ -2431,59 +2512,4 @@ mod streaming_appends_tests {
         assert_eq!(id, messages[1].id);
         let MessageKind::Reasoning { content, .. } = &messages[1].kind else {
             panic!()
-        };
-        assert_eq!(content, "second attempt…");
-        let MessageKind::Reasoning { content, .. } = &messages[0].kind else {
-            panic!()
-        };
-        assert_eq!(content, "first attempt");
-    }
-
-    #[test]
-    fn reasoning_delta_rejects_foreign_positions() {
-        // A delta for another turn must not graft onto an older turn's entry.
-        let mut messages = vec![reasoning_entry(8, 1, "old")];
-        assert_eq!(
-            append_reasoning_delta(&mut messages, Some(8), Some(2), "new"),
-            None
-        );
-        assert_eq!(
-            append_reasoning_delta(&mut messages, Some(9), Some(1), "new"),
-            None
-        );
-    }
-
-    #[test]
-    fn text_delta_appends_across_an_intervening_command_entry() {
-        use nuo_wire::Role;
-        let mut text = TranscriptMessage::new(Role::Assistant, "hello ");
-        text.round = Some(3);
-        text.turn = Some(1);
-        let mut messages = vec![text];
-        messages.push(TranscriptMessage::pending_command("delegate", "on").with_sent_at_ms(1_000));
-
-        let id = append_stream_text_delta(&mut messages, Some(3), Some(1), "world")
-            .expect("must resolve the original text entry");
-        assert_eq!(id, messages[0].id);
-        assert!(messages[0].raw.contains("world"));
-        assert_eq!(
-            messages.iter().filter(|m| m.raw.contains("world")).count(),
-            1,
-            "the delta must not fork a second text entry"
-        );
-    }
-}
-
-/// Load the user-supplied ASCII logo from `$XDG_CONFIG_HOME/nuo/logo.txt`,
-/// clamped to the empty-state bounding box. Best-effort: a missing or unreadable
-/// file returns `None`, leaving the built-in wordmark in place.
-fn load_user_logo() -> Option<Vec<String>> {
-    let path = nuo_host::paths::get().logo_file();
-    let content = std::fs::read_to_string(&path).ok()?;
-    // Re-use the renderer's parser so the clamp stays defined in one place.
-    // The parser already strips CRLF/trailing blanks and truncates to the box.
-    render::parse_logo(&content)
-}
-
-#[cfg(test)]
-pub(crate) mod tests;
+  

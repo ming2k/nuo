@@ -15,7 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo TUI Working Group
 - Consulted: Presentation, Interaction, and Empty-State maintainers
 - Informed: System Architects
-- Amends: the terminal-size guard of `draw_transcript` (the "terminal too small" notice) and the empty-state hero of the empty session (ADR-0033 / ADR-0057 / ADR-0104)
+- Amends: the terminal-size guard of `draw_transcript` (the "terminal too small" notice) and the empty-state hero of the empty session
 
 ---
 
@@ -117,5 +117,5 @@ Chosen option: **"Option 1"**.
 ## Links
 
 - Implementation: `nuo-tui/src/design.rs` (`MIN_TERMINAL_COLS`, `MIN_TERMINAL_ROWS`, `below_minimum`), `nuo-tui/src/event_loop/mod.rs` (freeze branch, `frozen_event_passthrough`), `nuo-tui/src/render/mod.rs` (`draw_too_small`, too-small guard), `nuo-tui/src/empty_state.rs` (`plan_hero`, `HeroLayout`, `MIN_LOGO_*`, carousel pages).
-- Related ADRs: ADR-0033 / ADR-0057 (empty-state hero and contextual guidance), ADR-0104 (capability carousel), ADR-0038 (retained grid + differential render that makes the one-notice frame cheap), ADR-0205 (surface router — no background surface may act while frozen).
+- Related ADRs: [ADR-0003](0003-autonomous-terminal-canvas-substrate-nuotc.md) (retained terminal canvas and differential rendering), [ADR-0011](0011-nuo-tui-presentation-and-nuo-server-container.md) (TUI presentation decoupling).
 - Related docs: `AGENTS.md` machine invariants ([INV-AGENT-01] negative knowledge, [INV-AGENT-02] context routing).

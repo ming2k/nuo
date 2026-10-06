@@ -4,6 +4,7 @@ assertion_line: 357
 expression: "render_grid(&m, 80, 40)"
 ---
 - Search "foo" in src
+  Found 3 matches · 2 files
   src/a.rs
   10  let foo = 1;
   22  foo();
@@ -11,10 +12,11 @@ expression: "render_grid(&m, 80, 40)"
    5  foo,
 
 backgrounds:
-A=#070808  B=#111312  .=reset
+A=#070808  B=#252A26  C=#1C1E1C  D=#111312  .=reset
 0: A80
 1: B80
-2: B80
-3: B80
-4: B80
-5: B80
+2: C80
+3: D80
+4: D80
+5: C80
+6: D80

@@ -4,7 +4,7 @@
 //! (the bash policy evaluator, the permission broker) must be able to express
 //! "this command is refused" or "this tool call is pre-approved" without linking
 //! the crate that reads `config.toml` — the schema is vocabulary, the file and
-//! its resolution are the host's (ADR-0300 §1, ADR-0303 §1).
+//! its resolution are the host's.
 //!
 //! Same placement rule as [`crate::SkillsConfig`] and
 //! [`crate::model_providers::UserDeclaredProvider`]: several layers exchange the

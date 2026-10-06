@@ -15,7 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group
 - Consulted: Runtime, Client SDK, and Developer-Experience maintainers
 - Informed: System Architects
-- Amends: the **same-version, same-protocol** refusal path of the daemon version gate (ADR-0100 rule 4) and the wire-protocol gate (ADR-0134)
+- Amends: the **same-version, same-protocol** refusal path of the daemon version gate and the wire-protocol gate
 
 ---
 
@@ -71,7 +71,7 @@ Chosen option: **"Option 1"**, because content identity is the only signal that 
 - **Bounded digest ([INV-IMG-06])**: the digest is the exact byte length folded with a positional sample of at most eight 64 KiB windows (head and tail always included). It is deliberately **not** a full-file hash: a 472 MB debug binary is digested on every daemon boot and, in the drift-eligible case, on every client start, so the cost must be constant (measured: ~0.4 ms vs ~1 s for the whole file). A relink rewrites the ELF head (build-id note) and tail (section headers), and any size change is caught outright, so sampled detection is strong in practice.
 - **Fingerprint-source asymmetry ([INV-IMG-07])**: the two sides fingerprint *different objects on purpose*. The **client** fingerprints by **path** — the file it would exec. The **daemon** fingerprints the **held image** — `/proc/self/exe` on Linux, a magic link that resolves to the actually-loaded inode (and to `… (deleted)` once the on-disk file is replaced). It must *not* re-open `current_exe()`'s path string: on Linux `current_exe()` readlinks `/proc/self/exe` and returns the *dereferenced* path, so opening it follows the path to any newly dropped file — the exact dev-rebuild race this feature catches. On macOS/Windows there is no reliable handle to the held image, so the daemon publishes no digest and clients keep the inode/`None` path rather than a digest that might describe the wrong file.
 - **Drift predicate**: dev-drift is the narrow conjunction *in-window protocol* ∧ *same product version* ∧ *image differs*. An out-of-window protocol is skew (not drift); a different product version is an upgrade leftover and remains deliberately served (the daemon retires on idle exit). Only the drift case is eligible for self-heal.
-- **Idle-gated self-heal**: when `ensure_daemon` observes drift, it probes the daemon's live activity over the monitor protocol (which a drift daemon, by definition, still speaks). Reclaim is permitted only on `Idle` (zero active sessions, zero daemon tasks); the existing budget-aware `stop` pipeline (tiered graceful drain, ADR-0116) is reused, then the normal spawn path starts the freshly built image. `Busy` and `Unreachable` both refuse.
+- **Idle-gated self-heal**: when `ensure_daemon` observes drift, it probes the daemon's live activity over the monitor protocol (which a drift daemon, by definition, still speaks). Reclaim is permitted only on `Idle` (zero active sessions, zero daemon tasks); the existing budget-aware `stop` pipeline (tiered graceful drain) is reused, then the normal spawn path starts the freshly built image. `Busy` and `Unreachable` both refuse.
 
 ### Invariants & Behavioral Boundaries
 
@@ -79,7 +79,7 @@ Chosen option: **"Option 1"**, because content identity is the only signal that 
 - **[INV-IMG-02] Absence of evidence is not drift**: an unreadable installed image, an unreadable daemon record, or a record with no published digest MUST resolve to "current" for the content path, preserving the pre-existing "never disturb a healthy production daemon" posture.
 - **[INV-IMG-03] Reclaim only provably-idle daemons**: automatic self-heal MUST be gated on a positive idle probe (zero active sessions and zero daemon tasks). A busy or unreachable daemon MUST be refused with a message naming what would be lost.
 - **[INV-IMG-04] No build-system coupling**: the signal MUST NOT depend on a `build.rs`, git metadata, or CI-injected provenance. Release and installed builds, which have no repository, MUST behave identically to dev builds.
-- **[INV-IMG-05] Self-heal reuses the canonical stop pipeline**: reclaim MUST go through the identity-checked, budget-coordinated `stop` (ADR-0116), never an ad-hoc kill.
+- **[INV-IMG-05] Self-heal reuses the canonical stop pipeline**: reclaim MUST go through the identity-checked, budget-coordinated `stop`, never an ad-hoc kill.
 - **[INV-IMG-06] Constant-cost image digest**: the image digest MUST be bounded (a fixed number of sampled windows plus the exact length), never a whole-file hash, so daemon boot and client start never scale with binary size.
 - **[INV-IMG-07] Fingerprint the right object**: the client MUST fingerprint the image at the resolved path (what it would spawn); the daemon MUST fingerprint the image it *holds* (`/proc/self/exe` on Linux), never re-resolving its own executable by path — re-resolving would attribute a freshly dropped file to a process that never loaded it.
 
@@ -126,5 +126,5 @@ Chosen option: **"Option 1"**, because content identity is the only signal that 
 ## Links
 
 - Implementation: `nuo-client` (detection, drift predicate, idle probe, self-heal), `nuo-server` (record publication at boot), `nuo-host` (`image_digest_len` / `current_exe_digest_len`), `nuo` (`nuo status --diagnostic` rendering).
-- Related ADRs: ADR-0100 (version gate rule 4, amended here for the same-version case), ADR-0116 (budget-coordinated stop reused for reclaim), ADR-0096 (global daemon discovery).
+- Related ADRs: [ADR-0005](0005-unified-binary-and-concentric-runtime-architecture.md) (unified binary coordinator and lifecycle separation).
 - Related docs: [Release & Versioning](../../dev/release-and-versioning.md).

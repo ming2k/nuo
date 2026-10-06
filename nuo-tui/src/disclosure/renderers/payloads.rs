@@ -9,6 +9,7 @@ use super::base::{
     MARKER_COLLAPSED, MARKER_EXPANDED, RenderCtx, nonempty_wrapped, truncate_to_width,
 };
 use crate::components::inline_layout::SemanticLine;
+use crate::design::{QUESTION_ANSWER_GAP_COLS, QUESTION_ANSWER_GLYPH};
 use crate::model::layout::{BlockRegion, LinkHit};
 use crate::model::selection::SelectionState;
 use crate::render::{
@@ -532,6 +533,350 @@ pub(crate) fn draw_checklist_content(
             ctx.paint_text_row(line, mi, block_idx, &block_wl, prefix_cols as u16, &[]);
         }
         offset += logical_line.len() + 1;
+    }
+}
+
+/// One question parsed out of an `ask_user` call's arguments, reduced to the
+/// fields the expanded body paints. Mirrors the wire `UserQuestion` shape but is
+/// parsed defensively from JSON so a restored / partially-persisted call still
+/// renders (a missing field degrades, never panics).
+struct QuestionSpec {
+    header: Option<String>,
+    question: String,
+    option_count: usize,
+    multi_select: bool,
+}
+
+/// Parse the `questions` array out of an `ask_user` call's raw arguments.
+/// Entries without a `question` string are dropped; malformed JSON yields an
+/// empty list (the caller then falls back to the raw result text).
+fn parse_question_specs(arguments: &str) -> Vec<QuestionSpec> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(arguments) else {
+        return Vec::new();
+    };
+    let Some(questions) = value.get("questions").and_then(|q| q.as_array()) else {
+        return Vec::new();
+    };
+    questions
+        .iter()
+        .filter_map(|q| {
+            let question = q.get("question").and_then(|v| v.as_str())?;
+            Some(QuestionSpec {
+                header: q
+                    .get("header")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|h| !h.is_empty())
+                    .map(str::to_string),
+                question: question.to_string(),
+                option_count: q
+                    .get("options")
+                    .and_then(|v| v.as_array())
+                    .map(|o| o.len())
+                    .unwrap_or(0),
+                multi_select: q
+                    .get("multi_select")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            })
+        })
+        .collect()
+}
+
+/// Recover the recorded selection from the tool's result text, or `None` when
+/// the request was cancelled (or the result is not an answer payload at all).
+///
+/// The harness returns the answers as a pretty JSON array-of-arrays, either
+/// bare or behind prose ("User answered the question(s). Selected option
+/// labels:", or the autonomous "[answered by policy, not by user]" framing).
+/// Try the whole string first, then the trailing JSON array — so an answered
+/// step renders its selections regardless of which framing produced it.
+fn parse_question_answers(output: &str) -> Option<Vec<Vec<String>>> {
+    let trimmed = output.trim();
+    if let Ok(answers) = serde_json::from_str::<Vec<Vec<String>>>(trimmed) {
+        return Some(answers);
+    }
+    let idx = trimmed.find('[')?;
+    serde_json::from_str::<Vec<Vec<String>>>(trimmed[idx..].trim()).ok()
+}
+
+/// Emit one logical (already-parsed) row of the question/answer list at
+/// `indent` under `style`, wrapping text to `wrap_w` columns (the caller passes
+/// the row's own content width — `inner_w` for a flush row, narrowed for an
+/// indented continuation answer). When `meta` is provided it is appended,
+/// dimmed, to the last wrapped row if it fits within the full row width;
+/// otherwise it drops to its own dim row so the tag is never clipped at the
+/// right edge.
+///
+/// Each painted row records a [`BlockRegion`] anchored in the block's *logical*
+/// text via `*offset` (advanced by every row's text so a selection spanning the
+/// list copies the questions and answers in reading order). The `meta`
+/// decoration stays outside the recorded range, like the bash `$ command`
+/// prompt line.
+#[allow(clippy::too_many_arguments)]
+fn emit_question_text(
+    ctx: &mut RenderCtx<'_, '_>,
+    mi: usize,
+    block_idx: usize,
+    indent: usize,
+    wrap_w: usize,
+    text: &str,
+    style: Style,
+    meta: Option<&str>,
+    meta_style: Style,
+    sel_range: Option<(usize, Option<usize>)>,
+    offset: &mut usize,
+) {
+    let bg = style.bg;
+    let pad = Style::default().bg(bg);
+    let wrapped = nonempty_wrapped(wrap_text(text, wrap_w.max(1)));
+    let last = wrapped.len().saturating_sub(1);
+    let mut deferred_meta: Option<String> = None;
+    for (i, wl) in wrapped.iter().enumerate() {
+        let block_wl = WrappedLine {
+            text: wl.text.clone(),
+            start_byte: *offset + wl.start_byte,
+            end_byte: *offset + wl.end_byte,
+        };
+        let mut line = line_spans(
+            &" ".repeat(indent),
+            pad,
+            &wl.text,
+            line_selection(sel_range, &block_wl),
+            style,
+            ctx.theme.selected(),
+        );
+        let mut used = indent + wl.text.width();
+        if i == last
+            && let Some(m) = meta
+        {
+            if used + 1 + m.width() <= ctx.full_width {
+                line.spans.push(Span::styled(" ".to_string(), meta_style));
+                line.spans.push(Span::styled(m.to_string(), meta_style));
+                used += 1 + m.width();
+            } else {
+                deferred_meta = Some(m.to_string());
+            }
+        }
+        line.spans.push(Span::styled(padded_tail(ctx.full_width, used), pad));
+        ctx.paint_text_row(line, mi, block_idx, &block_wl, indent as u16, &[]);
+    }
+    *offset += text.len() + 1;
+
+    if let Some(m) = deferred_meta {
+        let mw = m.width();
+        let wl = WrappedLine {
+            text: m.clone(),
+            start_byte: *offset,
+            end_byte: *offset,
+        };
+        let line = Line::from(vec![
+            Span::styled(" ".repeat(indent), pad),
+            Span::styled(m, meta_style),
+            Span::styled(padded_tail(ctx.full_width, indent + mw), pad),
+        ]);
+        ctx.paint_text_row(line, mi, block_idx, &wl, indent as u16, &[]);
+    }
+}
+
+/// Render an expanded `ask_user` step as a question→answer list.
+///
+/// The old path let the step fall through to the generic code renderer, which
+/// dumped the harness's answer JSON as an unreadable line-numbered blob and
+/// never showed the questions at all. Here the questions are recovered from the
+/// call's `arguments` (header chip, text, option count, multi-select flag) and
+/// re-paired with the recorded selection from the result (`output`), so the
+/// reader sees *what was asked* and *what was chosen* — and a cancelled request
+/// reads as `↳ cancelled — no answer` rather than an empty array.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn draw_questions_content(
+    ctx: &mut RenderCtx<'_, '_>,
+    mi: usize,
+    block_idx: usize,
+    output: &str,
+    arguments: &str,
+    selection: &SelectionState,
+    indent: usize,
+    inner_w: usize,
+) {
+    let code_bg = ctx.theme.code_surface();
+    let pad = Style::default().bg(code_bg);
+    let sel_range = block_selection_range(selection, mi, block_idx);
+    // Rows at `indent` wrap to `inner_w` (the caller's content width); an
+    // indented continuation answer wraps to whatever that indent leaves.
+    let content_w = inner_w.max(1);
+
+    let questions = parse_question_specs(arguments);
+    let answers = parse_question_answers(output);
+
+    // Legacy / truncated arguments (no parseable questions): render the raw
+    // result text so the step is never blank instead of silently empty.
+    if questions.is_empty() {
+        let fallback = Style::default().bg(code_bg).fg(ctx.theme.muted());
+        let text = output.trim();
+        let text = if text.is_empty() {
+            "(no question recorded)"
+        } else {
+            text
+        };
+        let mut offset = 0usize;
+        emit_question_text(
+            ctx,
+            mi,
+            block_idx,
+            indent,
+            content_w,
+            text,
+            fallback,
+            None,
+            fallback,
+            sel_range,
+            &mut offset,
+        );
+        return;
+    }
+
+    let header_style = Style::default()
+        .bg(code_bg)
+        .fg(ctx.theme.info())
+        .add_modifier(Modifier::BOLD);
+    let question_style = Style::default().bg(code_bg).fg(ctx.theme.fg());
+    let meta_style = Style::default().bg(code_bg).fg(ctx.theme.dim());
+    let answer_style = Style::default().bg(code_bg).fg(ctx.theme.muted());
+    let cancel_style = Style::default().bg(code_bg).fg(ctx.theme.warn());
+
+    // A continuation answer (the 2nd+ option of a multi-select) aligns under the
+    // first answer's label: the glyph width plus its gap.
+    let label_indent = indent + QUESTION_ANSWER_GLYPH.width() + QUESTION_ANSWER_GAP_COLS;
+    let label_w = content_w.saturating_sub(label_indent.saturating_sub(indent)).max(1);
+
+    let policy_answered = output.contains("answered by policy");
+    let total = questions.len();
+    let mut offset = 0usize;
+
+    for (q_idx, q) in questions.iter().enumerate() {
+        if q_idx > 0 {
+            ctx.paint(Line::from(Span::styled(padded_tail(ctx.full_width, 0), pad)));
+        }
+
+        if let Some(header) = &q.header {
+            emit_question_text(
+                ctx,
+                mi,
+                block_idx,
+                indent,
+                content_w,
+                header,
+                header_style,
+                None,
+                meta_style,
+                sel_range,
+                &mut offset,
+            );
+        }
+
+        let meta = format!(
+            "({} option{}{})",
+            q.option_count,
+            if q.option_count == 1 { "" } else { "s" },
+            if q.multi_select { ", multi-select" } else { "" }
+        );
+        emit_question_text(
+            ctx,
+            mi,
+            block_idx,
+            indent,
+            content_w,
+            &q.question,
+            question_style,
+            Some(&meta),
+            meta_style,
+            sel_range,
+            &mut offset,
+        );
+
+        match &answers {
+            Some(all) => {
+                let labels = all.get(q_idx).map(Vec::as_slice).unwrap_or(&[]);
+                if labels.is_empty() {
+                    emit_question_text(
+                        ctx,
+                        mi,
+                        block_idx,
+                        indent,
+                        content_w,
+                        "<no option selected>",
+                        meta_style,
+                        None,
+                        meta_style,
+                        sel_range,
+                        &mut offset,
+                    );
+                    continue;
+                }
+                for (i, label) in labels.iter().enumerate() {
+                    let (row_indent, row_w, text) = if i == 0 {
+                        (
+                            indent,
+                            content_w,
+                            format!("{QUESTION_ANSWER_GLYPH} {label}"),
+                        )
+                    } else {
+                        (label_indent, label_w, label.clone())
+                    };
+                    emit_question_text(
+                        ctx,
+                        mi,
+                        block_idx,
+                        row_indent,
+                        row_w,
+                        &text,
+                        answer_style,
+                        None,
+                        meta_style,
+                        sel_range,
+                        &mut offset,
+                    );
+                }
+            }
+            None => {
+                // Cancelled: one step-level status, shown once after the last
+                // question so it reads as "the whole request was dropped".
+                if q_idx + 1 == total {
+                    emit_question_text(
+                        ctx,
+                        mi,
+                        block_idx,
+                        indent,
+                        content_w,
+                        &format!("{QUESTION_ANSWER_GLYPH} cancelled — no answer"),
+                        cancel_style,
+                        None,
+                        meta_style,
+                        sel_range,
+                        &mut offset,
+                    );
+                }
+            }
+        }
+    }
+
+    if policy_answered {
+        // Autonomous sessions settle by policy, not by a human — label it so the
+        // answers are never mistaken for a real user decision.
+        emit_question_text(
+            ctx,
+            mi,
+            block_idx,
+            indent,
+            content_w,
+            "[answered by policy, not by the user]",
+            meta_style,
+            None,
+            meta_style,
+            sel_range,
+            &mut offset,
+        );
     }
 }
 
@@ -1081,6 +1426,152 @@ struct MatchLine<'a> {
     content_offset: usize,
 }
 
+/// A search block's leading count line — the `Found N match(es):` header the
+/// `search_text` tool emits — parsed into a friendlier `(matches, files)`
+/// summary for the block's top band.
+struct MatchesHeader {
+    count: usize,
+    files: usize,
+}
+
+/// Parse a search block's leading `Found N match(es):` count line and tally
+/// the distinct file paths that follow it. Returns `None` when the first
+/// logical line is not the tool's count header (a structured `Matches` payload
+/// drops the header, and a restored session may start at the first match), in
+/// which case the renderer draws the matches alone with no count band.
+fn parse_matches_header(logical: &[(usize, &str)]) -> Option<MatchesHeader> {
+    let (_, first) = logical.first()?;
+    let rest = first.strip_prefix("Found ")?.strip_suffix("match(es):")?;
+    let count: usize = rest.trim().parse().ok()?;
+    let mut files: Vec<&str> = Vec::new();
+    for (_, line) in &logical[1..] {
+        if let Some(p) = parse_match_line(line)
+            && !files.contains(&p.path)
+        {
+            files.push(p.path);
+        }
+    }
+    Some(MatchesHeader {
+        count,
+        files: files.len(),
+    })
+}
+
+/// Recover the literal search query from a `search_text` call's arguments.
+/// Returns `None` when the query is absent/empty or was run as a regex — only a
+/// plain literal is safe to bold inside a `path:line:content` line, since those
+/// lines carry no per-match column ranges and a regex would make substring
+/// matching misleading.
+fn literal_query(arguments: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(arguments).ok()?;
+    if value
+        .get("regex")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let query = value
+        .get("query")
+        .and_then(serde_json::Value::as_str)?;
+    (!query.is_empty()).then(|| query.to_string())
+}
+
+/// Segment `text` into non-overlapping `(lo, hi, is_match)` byte ranges: every
+/// case-sensitive occurrence of the literal `query` is marked `true` (adjacent
+/// occurrences merged), everything between them `false`. When `query` is
+/// `None`/empty the whole `text` is one plain range. The ranges tile `text`
+/// exactly, so callers can style each slice and reassemble the line verbatim.
+/// A literal `str::find` always lands on char boundaries, so the byte ranges are
+/// always safe to slice.
+fn segment_matches(text: &str, query: Option<&str>) -> Vec<(usize, usize, bool)> {
+    let Some(q) = query.filter(|q| !q.is_empty()) else {
+        return if text.is_empty() {
+            Vec::new()
+        } else {
+            vec![(0, text.len(), false)]
+        };
+    };
+    let mut spans: Vec<(usize, usize, bool)> = Vec::new();
+    let mut cursor = 0usize;
+    let mut from = 0usize;
+    while let Some(rel) = text[from..].find(q) {
+        let start = from + rel;
+        let end = start + q.len();
+        if start > cursor {
+            spans.push((cursor, start, false));
+        }
+        // Merge into the previous span when it was itself an occurrence ending
+        // exactly at this one (adjacent matches read as one bold run).
+        match spans.last_mut() {
+            Some(last) if last.2 && last.1 == start => last.1 = end,
+            _ => spans.push((start, end, true)),
+        }
+        cursor = end;
+        from = end;
+    }
+    if cursor < text.len() {
+        spans.push((cursor, text.len(), false));
+    }
+    spans
+}
+
+/// Split one wrapped match row into styled spans: base text in `base`, any
+/// literal-query occurrence(s) in bold (`highlight_fg`) so the matched text
+/// stands out, and the selected byte range on the selection background. Match
+/// and selection are independent layers, so a bold match inside the selection
+/// keeps both (bold foreground *and* selection band).
+fn match_content_spans(
+    text: &str,
+    query: Option<&str>,
+    base: Style,
+    selected: Option<(usize, usize)>,
+    highlight_fg: Color,
+    selected_bg: Color,
+) -> Vec<Span<'static>> {
+    let selected = clamp_selection_range(selected, text);
+    let mut spans = Vec::new();
+    for (lo, hi, is_match) in segment_matches(text, query) {
+        if lo >= hi {
+            continue;
+        }
+        let style = if is_match {
+            base.fg(highlight_fg).add_modifier(Modifier::BOLD)
+        } else {
+            base
+        };
+        match selected {
+            None => spans.push(Span::styled(text[lo..hi].to_string(), style)),
+            Some((s_lo, s_hi)) => {
+                let lo_c = lo.max(s_lo);
+                let hi_c = hi.min(s_hi);
+                if lo_c >= hi_c {
+                    spans.push(Span::styled(text[lo..hi].to_string(), style));
+                } else {
+                    if lo_c > lo {
+                        spans.push(Span::styled(text[lo..lo_c].to_string(), style));
+                    }
+                    spans.push(Span::styled(text[lo_c..hi_c].to_string(), style.bg(selected_bg)));
+                    if hi_c < hi {
+                        spans.push(Span::styled(text[hi_c..hi].to_string(), style));
+                    }
+                }
+            }
+        }
+    }
+    spans
+}
+
+/// `"{count} {noun}"` with a naive `-s` plural — the labels here are fixed
+/// (`match`/`file`), so a full pluralization pass would be overkill.
+fn plural(count: usize, one: &str, many: &str) -> String {
+    if count == 1 {
+        one.to_string()
+    } else {
+        many.to_string()
+    }
+}
+
 /// Parse `path:linenum:content` (ripgrep's default with `-n`). Paths may
 /// contain `:` (e.g. Windows `C:\foo`), so the scan accepts the first colon
 /// that is followed by an all-digit run and another colon as the
@@ -1120,8 +1611,8 @@ fn parse_match_line(line: &str) -> Option<MatchLine<'_>> {
 /// Emit `text` as one or more wrapped rows at column `indent`, all styled
 /// with `style` on `pad`'s background, recording a selectable [`BlockRegion`]
 /// per row whose byte range is anchored at `abs_start` within the tool
-/// output. Used for search path headers, ripgrep separator rows, and any
-/// other "simple" result row that doesn't need a line-number gutter.
+/// output. Used for ripgrep separator rows and any other "simple" result row
+/// that doesn't need a line-number gutter.
 #[allow(clippy::too_many_arguments)]
 fn emit_simple_rows(
     ctx: &mut RenderCtx<'_, '_>,
@@ -1157,31 +1648,44 @@ fn emit_simple_rows(
     }
 }
 
-/// Render a `search_text` result by grouping matches under their file path. Each
-/// new path is printed once as a bold `heading_fg` header row; each match
-/// is shown as `{lineno}  {content}` with the line number dimmed and the
-/// line-number column aligned across the whole result. Non-match lines
-/// (ripgrep block separators, etc.) fall back to a dimmed plain row.
-/// Selection byte ranges are anchored in the original tool output so
-/// copy/cut works across the visible match content.
+/// Render a `search_text` result as a *layered* block: a top count band
+/// (`Found N matches · M files`), then per file a distinct title band carrying
+/// the path, then its match rows (`{lineno}  {content}`) with the line number
+/// dimmed and the literal query bolded. Each of the three tiers sits on its own
+/// background (`match_count_surface` > `match_title_surface` > `code_surface`)
+/// and/or its own weight, so the file heading and the matched text read as part
+/// of a real result tree instead of one flat run of text.
+///
+/// The count band only appears when the tool's `Found N match(es):` header is
+/// present (structural parity: a structured `Matches` payload drops it, so no
+/// band is invented). The line-number column is aligned across the whole result
+/// (widest lineno wins), and selection byte ranges stay anchored in the original
+/// tool output — but the count band is decoration, like the raw header today, so
+/// it is not registered as a selectable row.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_matches_content(
     ctx: &mut RenderCtx<'_, '_>,
     mi: usize,
     block_idx: usize,
     content: &str,
+    arguments: &str,
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
 ) {
     let code_bg = ctx.theme.code_surface();
+    let count_bg = ctx.theme.match_count_surface();
+    let title_bg = ctx.theme.match_title_surface();
     let pad = Style::default().bg(code_bg);
-    let header_style = Style::default()
-        .bg(code_bg)
+    let title_style = Style::default()
+        .bg(title_bg)
         .fg(ctx.theme.heading())
         .add_modifier(Modifier::BOLD);
     let dim = Style::default().bg(code_bg).fg(ctx.theme.dim());
     let match_style = Style::default().bg(code_bg).fg(ctx.theme.code_text());
     let sel_range = block_selection_range(selection, mi, block_idx);
+    // Only a plain literal query is safe to bold in `path:line:content` lines.
+    let query = literal_query(arguments);
 
     // Walk logical lines with their byte offsets in `content`.
     let mut logical: Vec<(usize, &str)> = Vec::new();
@@ -1191,10 +1695,39 @@ pub(crate) fn draw_matches_content(
         offset += line.len() + 1;
     }
 
-    // Width of the line-number column: the widest lineno across all matches,
-    // so the content column stays aligned within and across files.
+    // Optional count band: parse the leading `Found N match(es):` header and
+    // tally the files beneath it. `header_idx` is the logical-line index where
+    // the match rows begin (0 without a header, 1 with one).
+    let header = parse_matches_header(&logical);
+    let header_idx = if header.is_some() { 1 } else { 0 };
+    if let Some(h) = &header {
+        let text = format!(
+            "Found {} {} · {} {}",
+            h.count,
+            plural(h.count, "match", "matches"),
+            h.files,
+            plural(h.files, "file", "files"),
+        );
+        let label_style = Style::default()
+            .bg(count_bg)
+            .fg(ctx.theme.brand())
+            .add_modifier(Modifier::BOLD);
+        let band_pad = Style::default().bg(count_bg);
+        let used = indent + text.width();
+        let line = Line::from(vec![
+            Span::styled(" ".repeat(indent), band_pad),
+            Span::styled(text, label_style),
+            Span::styled(padded_tail(ctx.full_width, used), band_pad),
+        ]);
+        // Decoration, not content: like the raw `Found N …:` header today it is
+        // not registered as a selectable block region.
+        let _ = ctx.paint(line);
+    }
+
+    // Width of the line-number column: the widest lineno across all matches, so
+    // the content column stays aligned within and across files.
     let mut lineno_width = 1usize;
-    for (_, line) in &logical {
+    for (_, line) in &logical[header_idx..] {
         if let Some(p) = parse_match_line(line) {
             lineno_width = lineno_width.max(p.lineno.len());
         }
@@ -1205,7 +1738,7 @@ pub(crate) fn draw_matches_content(
 
     let mut current_path: Option<&str> = None;
 
-    for (line_start_byte, logical_line) in &logical {
+    for (line_start_byte, logical_line) in &logical[header_idx..] {
         match parse_match_line(logical_line) {
             Some(parsed) => {
                 if current_path != Some(parsed.path) {
@@ -1213,17 +1746,31 @@ pub(crate) fn draw_matches_content(
                     let normalized = crate::components::path::PathView::from_str(parsed.path)
                         .maybe_base_dir(ctx.workspace_root)
                         .format_text();
-                    emit_simple_rows(
-                        ctx,
-                        mi,
-                        block_idx,
-                        indent,
-                        &normalized,
-                        *line_start_byte,
-                        pad,
-                        header_style,
-                        sel_range,
-                    );
+                    // File title band: distinct background + bold, wrapped at the
+                    // full inner width (a title owns its own tier, not the gutter
+                    // column the match rows align to).
+                    let title_pad = Style::default().bg(title_bg);
+                    let wrap_w = ctx.full_width.saturating_sub(indent).max(1);
+                    let wrapped = nonempty_wrapped(wrap_text(&normalized, wrap_w));
+                    for wl in &wrapped {
+                        let block_wl = WrappedLine {
+                            text: wl.text.clone(),
+                            start_byte: *line_start_byte,
+                            end_byte: *line_start_byte + normalized.len(),
+                        };
+                        let mut line = line_spans(
+                            &" ".repeat(indent),
+                            title_pad,
+                            &wl.text,
+                            line_selection(sel_range, &block_wl),
+                            title_style,
+                            ctx.theme.selected(),
+                        );
+                        let used = indent + wl.text.width();
+                        line.spans
+                            .push(Span::styled(padded_tail(ctx.full_width, used), title_pad));
+                        ctx.paint_text_row(line, mi, block_idx, &block_wl, indent as u16, &[]);
+                    }
                 }
                 // Absolute byte offset of `content` within the tool output.
                 let content_abs = line_start_byte + parsed.content_offset;
@@ -1247,21 +1794,14 @@ pub(crate) fn draw_matches_content(
                         lineno_span,
                         Span::styled(" ".repeat(gap), pad),
                     ];
-                    match selected {
-                        None => spans.push(Span::styled(wl.text.clone(), match_style)),
-                        Some((lo, hi)) => {
-                            if lo > 0 {
-                                spans.push(Span::styled(wl.text[..lo].to_string(), match_style));
-                            }
-                            spans.push(Span::styled(
-                                wl.text[lo..hi].to_string(),
-                                match_style.bg(ctx.theme.selected()),
-                            ));
-                            if hi < wl.text.len() {
-                                spans.push(Span::styled(wl.text[hi..].to_string(), match_style));
-                            }
-                        }
-                    }
+                    spans.extend(match_content_spans(
+                        &wl.text,
+                        query.as_deref(),
+                        match_style,
+                        selected,
+                        ctx.theme.heading(),
+                        ctx.theme.selected(),
+                    ));
                     let used = content_cols + wl.text.width();
                     spans.push(Span::styled(padded_tail(ctx.full_width, used), pad));
                     ctx.paint_text_row(
@@ -1784,9 +2324,9 @@ pub(crate) fn draw_tool_result(
         ResultKind::Listing => {
             draw_listing_content(ctx, mi, block_idx, output, selection, indent, inner_w)
         }
-        ResultKind::Matches => {
-            draw_matches_content(ctx, mi, block_idx, output, selection, indent, inner_w)
-        }
+        ResultKind::Matches => draw_matches_content(
+            ctx, mi, block_idx, output, arguments, selection, indent, inner_w,
+        ),
         ResultKind::Command => {
             let command = command_for(structured, arguments);
             draw_command_content(
@@ -1908,6 +2448,11 @@ pub(crate) fn draw_tool_result(
         ResultKind::WebArticle => {
             draw_web_article_content(
                 ctx, mi, block_idx, output, arguments, structured, selection, indent, inner_w,
+            );
+        }
+        ResultKind::Questions => {
+            draw_questions_content(
+                ctx, mi, block_idx, output, arguments, selection, indent, inner_w,
             );
         }
     }
@@ -2383,5 +2928,66 @@ mod tests {
         let (text, style) = footer.unwrap();
         assert_eq!(text, "[process killed]   runaway stream detected");
         assert_eq!(style.fg, theme.warn());
+    }
+
+    #[test]
+    fn parse_matches_header_reads_count_and_distinct_files() {
+        let content = "Found 3 match(es):\nsrc/a.rs:10:let foo = 1;\nsrc/a.rs:22:foo();\nsrc/b.rs:5:foo,";
+        let logical: Vec<(usize, &str)> = {
+            let mut v = Vec::new();
+            let mut off = 0usize;
+            for line in content.split('\n') {
+                v.push((off, line));
+                off += line.len() + 1;
+            }
+            v
+        };
+        let header = parse_matches_header(&logical).expect("header parses");
+        assert_eq!(header.count, 3);
+        assert_eq!(header.files, 2, "two distinct files: src/a.rs and src/b.rs");
+    }
+
+    #[test]
+    fn parse_matches_header_is_none_without_the_count_line() {
+        // A structured payload (or restored session) starts at the first match.
+        let logical = vec![(0usize, "src/a.rs:10:let foo = 1;")];
+        assert!(parse_matches_header(&logical).is_none());
+    }
+
+    #[test]
+    fn literal_query_rejects_regex_and_empty() {
+        assert_eq!(
+            literal_query(r#"{"query":"foo","path":"src"}"#).as_deref(),
+            Some("foo")
+        );
+        assert!(literal_query(r#"{"query":"f.o","regex":true}"#).is_none());
+        assert!(literal_query(r#"{"query":""}"#).is_none());
+        assert!(literal_query(r#"{"path":"src"}"#).is_none());
+    }
+
+    #[test]
+    fn segment_matches_tiles_text_and_marks_every_occurrence() {
+        let segments = segment_matches("let foo = foo;", Some("foo"));
+        // Ranges must tile the whole string with no gaps and no overlap.
+        let mut cursor = 0usize;
+        for &(lo, hi, _) in &segments {
+            assert_eq!(lo, cursor, "ranges must be contiguous");
+            assert!(hi > lo, "no empty ranges");
+            cursor = hi;
+        }
+        assert_eq!(cursor, "let foo = foo;".len());
+        let matched: Vec<&str> = segments
+            .iter()
+            .filter(|(_, _, m)| *m)
+            .map(|&(lo, hi, _)| &"let foo = foo;"[lo..hi])
+            .collect();
+        assert_eq!(matched, vec!["foo", "foo"]);
+    }
+
+    #[test]
+    fn segment_matches_none_or_empty_query_is_one_plain_range() {
+        assert_eq!(segment_matches("plain text", None), vec![(0, 10, false)]);
+        assert_eq!(segment_matches("plain text", Some("")), vec![(0, 10, false)]);
+        assert!(segment_matches("", Some("foo")).is_empty());
     }
 }

@@ -2,7 +2,7 @@
 //!
 //! The engine executes agents; it does not decide where a product keeps its
 //! files or which role declarations a user wrote. Both arrive as ports
-//! (ADR-0300 §1, ADR-0303 §1), supplied once at construction and consulted on
+//! (supplied by the application host), supplied once at construction and consulted on
 //! use. Each has a null implementation whose behaviour is stated rather than
 //! implied, so an embedding that supplies nothing gets a documented outcome
 //! instead of a silent default.

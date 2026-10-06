@@ -149,7 +149,7 @@ impl AnchoredPopover {
 
         // Modern terminals (Chromatic) get a **borderless** popover shell — the
         // elevated panel background alone separates it (the toast's visual
-        // language, ADR-0301). Hybrid / Structured keep an explicit frame.
+        // language, ADR-0023). Hybrid / Structured keep an explicit frame.
         let is_borderless = matches!(theme.elevation, nuotc::ElevationArchetype::Chromatic);
         let inner_rect = if is_borderless {
             frame.render_widget(

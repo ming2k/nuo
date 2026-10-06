@@ -1,4 +1,4 @@
-//! Floating which-key card for the `C-x` scene namespace (ADR-0298 / ADR-0301).
+//! Floating which-key card for the `C-x` scene namespace (ADR-0023).
 //!
 //! Rendered in the bottom-right corner while the namespace is armed. The card
 //! is **generated from the namespace's own verb table**
@@ -10,7 +10,7 @@
 //! On **modern terminals** (`Chromatic`: TrueColor / 256-color, which can
 //! render a distinct background) the card is **borderless** and reads purely by
 //! its elevated background — an edge-free floating pill, matching the toast
-//! component's visual language (ADR-0301). On `Hybrid` (ANSI-16) and
+//! component's visual language (ADR-0023). On `Hybrid` (ANSI-16) and
 //! `Structured` (monochrome / Linux VT) terminals, where a background delta is
 //! indistinguishable or unavailable, it keeps an explicit frame via
 //! [`Theme::elevation`], mirroring `elevation::modal_frame`.
@@ -106,7 +106,7 @@ pub(crate) fn draw_which_key_overlay(
     // 1. Wipe underlying text cleanly with Clear widget
     frame.render_widget(Clear, area);
 
-    // 2. Surface + framing per archetype (ADR-0181 / ADR-0301). Modern
+    // 2. Surface + framing per archetype (ADR-0023). Modern
     //    terminals (`Chromatic`) distinguish the card by its elevated
     //    background alone — a borderless floating pill (the toast's visual
     //    language). `Hybrid` / `Structured` cannot rely on a background delta,
@@ -194,7 +194,7 @@ mod tests {
         assert!(content.contains("cancel"));
     }
 
-    /// ADR-0301: on a modern (`Chromatic`) terminal the card is borderless —
+    /// ADR-0023: on a modern (`Chromatic`) terminal the card is borderless —
     /// it reads by its elevated background alone, with no box glyphs — matching
     /// the toast's visual language. On `Structured` (monochrome) a background
     /// delta is unavailable, so the card keeps an explicit frame.

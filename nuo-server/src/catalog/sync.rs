@@ -117,7 +117,7 @@ struct CatalogSyncJob {
     source: CatalogFetchSource,
     api_key: nuo_wire::SecretString,
     /// Where the fetch resolves OAuth bearers and signed-catalog identity
-    /// (ADR-0303 §1).
+    /// (host credentials provider).
     credentials: nuo_provider::CredentialHost,
 }
 

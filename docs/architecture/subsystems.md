@@ -1,7 +1,7 @@
 # Subsystem Architecture: Nuo System Blueprint
 
 - Status: Living Blueprint
-- Last Updated: 2026-10-02
+- Last Updated: 2026-10-08
 - Scope: workspace/topology, architecture/subsystems, substrate/tools, microkernel/topology, terminal/nuotc
 - Maintainers: Nuo Architecture Working Group
 
@@ -141,3 +141,4 @@ It is organized as a flat Cargo workspace containing 14 specialized crates arran
 | **ADR-0004** | Federated Cluster SemVer and Release Topology | Partition workspace into 4 SemVer clusters with dual-resolving version and path dependencies | Release engineering, manifests, versioning |
 | **ADR-0014** | Model Provider Invocation Schemes: Local Direct, and the Subscription Server-Proxy Lane | Ratify three-lane dispatch (`ConnectionAuth::{ApiKey, Subscription}` over trait-object credential sources + verified SSPL `/alpha/generate` server-proxy DialectSurface); entitlement authority belongs to the credential-holding lane, never to client UI gating | `nuo-providers`, `nuo-model-codec`, `nuo-persistence/connections`, `nuo-server` |
 | **ADR-0015** | Canonical Model Provider Contract Crate (nuo-provider) and Dedicated Providers Namespace Architecture | Establish canonical leaf contract crate `nuo-provider`, dedicate `providers/nuo-provider-*` namespace matching `tools/`, extract `nuo-provider-transport`, and sandbox cryptographic dialects | `nuo-provider`, `providers/nuo-provider-*`, `nuo-harness`, `nuo-server` |
+| **ADR-0026** | Streamed Tool-Input Progress: Announce the Tool Call Before Its Arguments Finish | Emit `ToolCallStarted` (name known, arguments still streaming) plus a count-only `ToolInputProgress` tick; the full argument object still gates execution, so a running step and the tool phase appear before arguments finish | `nuo-harness`, `nuo-wire`, `nuo-tui` |

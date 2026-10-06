@@ -522,6 +522,11 @@ pub enum InputAction {
     /// Interrupt the viewed aside's in-flight round (Esc inside an aside
     /// view, ADR-0103 §2). Interrupting never closes the aside.
     InterruptSide,
+    /// Interrupt the viewed subagent's in-flight round (Esc inside the Subagent
+    /// scene, ADR-0205). Scene-scoped: it stops only the focused child and never
+    /// the enclosing primary round or a sibling subagent. The target is the top
+    /// of the focus stack.
+    InterruptSubagent,
     /// Toggle the in-dialog localized key reference overlay (`?` inside an active dialog).
     ToggleDialogKeys,
     /// Scroll the in-dialog localized key reference overlay (`↑`/`↓`/`PgUp`/`PgDn`).

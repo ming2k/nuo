@@ -247,7 +247,7 @@ handful of turns, then answer.",
         allow_model_stdin: false,
     };
 
-    /// The session-titling role (ADR-0022). Read-only and non-interactive, its
+    /// The session-titling role. Read-only and non-interactive, its
     /// task is pure text-in/text-out — it admits no tool loop at all.
     pub const TITLE: Self = SubAgentProfile {
         name: "title",

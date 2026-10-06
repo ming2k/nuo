@@ -2,8 +2,8 @@
 //! credentials and this installation's device identity.
 //!
 //! `nuo-provider-adapters` implements the flows; it does not know where their durable
-//! material lives (ADR-0300 §1, ADR-0303 §1). This module is the shipped
-//! product's answer, resolved from the path topology (ADR-0013) once per process
+//! material lives. This module is the shipped
+//! product's answer, resolved from the path topology ([ADR-0013](0013-decoupled-tool-namespace-and-infrastructure-purity.md)) once per process
 //! and shared.
 //!
 //! One process, one host: the device identity is cached inside its

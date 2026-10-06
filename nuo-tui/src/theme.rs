@@ -1048,6 +1048,32 @@ impl Theme {
     pub fn code_surface(&self) -> Color {
         self.code_bg
     }
+    /// Background band of a search-result **file title** row: one subtle step
+    /// above the code surface so a file heading reads as a layered header band
+    /// over the match rows beneath it (the "title vs content" contrast a search
+    /// block otherwise lacks when every row shares one flat surface). Derived
+    /// from the code surface — never a literal — and collapsed to that surface
+    /// itself on Reset-based archetypes (ANSI-16 / monochrome), which have no
+    /// RGB ladder to step.
+    pub fn match_title_surface(&self) -> Color {
+        match self.code_bg {
+            Color::Rgb(..) => mix(self.code_bg, self.text, 0.055),
+            _ => self.code_bg,
+        }
+    }
+    /// Background band of a search-result **count row** — the `Found N matches`
+    /// summary at the top of a match block. Tinted toward the brand hue so the
+    /// summary reads as the block's strongest header, a notch above the neutral
+    /// [`Theme::match_title_surface`]. Same Reset-based fallback: an archetype
+    /// with no color steps keeps the plain code surface, so the band still
+    /// renders (bold + brand foreground) without a background tier it cannot
+    /// express.
+    pub fn match_count_surface(&self) -> Color {
+        match self.code_bg {
+            Color::Rgb(..) => mix(self.code_bg, self.primary, 0.16),
+            _ => self.code_bg,
+        }
+    }
     /// Diff block row band — the low-chroma tint a whole added line sits on.
     /// The reference block-level renderer's colors are first-class tokens so
     /// every block-level surface shares one palette contract.

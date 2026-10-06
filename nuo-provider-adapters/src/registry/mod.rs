@@ -144,7 +144,7 @@ pub fn register_user_declared_provider(
 /// Replace the dynamic snapshot atomically; removed entries are released once readers finish.
 ///
 /// The declarations arrive as a value: reading `model_providers.toml` is the
-/// host's job, this crate only serves the registry (ADR-0300 §1, ADR-0303 §1).
+/// host's job, this crate only serves the registry.
 /// Invalid input preserves the last valid snapshot and propagates the error.
 pub fn sync_user_declared_providers(
     declared: &impl AsRef<std::collections::BTreeMap<String, nuo_model_codec::model_providers::UserDeclaredProvider>>,
@@ -202,7 +202,7 @@ pub fn sync_user_declared_providers(
 /// declared-provider registry through
 /// [`sync_user_declared_providers`] (the daemon does so at startup and again
 /// whenever it writes a declaration), and a lookup that silently did I/O would
-/// make a derivation's result depend on when it happened to run (ADR-0303 §1).
+/// make a derivation's result depend on when it happened to run.
 pub fn model_provider_spec(id: &str) -> Option<Arc<ModelProviderSpec>> {
     let canonical = nuo_model_codec::model_providers::canonical_provider_id(id)
         .unwrap_or_else(|| id.to_string());

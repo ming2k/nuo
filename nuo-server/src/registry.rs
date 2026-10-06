@@ -87,7 +87,7 @@ pub struct HostedSession {
     pub activity_tick: Arc<std::sync::atomic::AtomicU64>,
     /// Handle on the session's primary agent (the same `Arc` the bootstrap
     /// hands out as `agent_for_session_end`) so the registry can fire
-    /// SessionEnd hooks (ADR-0025) when the session ends — killed over the
+    /// SessionEnd hooks when the session ends — killed over the
     /// control plane, reaped, or torn down on daemon shutdown. The driver
     /// task owns the agent otherwise. `None` only for hand-built test
     /// entries, which carry no agent and fire nothing.
@@ -781,7 +781,7 @@ impl SessionRegistry {
     }
 
     /// Control plane (ADR-0096): tear down a hosted session — cancel its
-    /// driver, fire its SessionEnd hooks (ADR-0025: a killed session is a
+    /// driver, fire its SessionEnd hooks (a killed session is a
     /// session that ended), drop it from the registry, and tell monitors it
     /// is gone.
     ///
@@ -789,7 +789,7 @@ impl SessionRegistry {
     /// SessionEnd hook runs an external process; a hung one must never pin
     /// the daemon's shutdown (or this verb) open. On timeout the remaining
     /// hook work is abandoned — the hook's side effects are best-effort by
-    /// design (ADR-0025) — and the teardown continues.
+    /// design — and the teardown continues.
     pub async fn kill_session(&self, session_id: &str) -> Result<(), String> {
         self.kill_session_with_hook_budget(session_id, DEFAULT_SESSION_END_HOOK_BUDGET)
             .await
@@ -1074,7 +1074,7 @@ impl SessionRegistry {
 
     /// Graceful daemon shutdown (ADR-0096): tear down every hosted session
     /// via [`Self::kill_session_with_hook_budget`], so each one's SessionEnd
-    /// hooks (ADR-0025) fire before the process exits. `host::run` calls
+    /// hooks fire before the process exits. `host::run` calls
     /// this after the listeners stop accepting and the connections drain
     /// (ADR-0101).
     ///

@@ -195,7 +195,7 @@ fn subagent_step_and_view_render_without_panicking() {
     });
 
     // Zoomed-in TaskInspection scene: the task's children are the message stream
-    // and the shared two-row head band names the scene (ADR-0302).
+    // and the shared two-row head band names the scene (ADR-0024).
     let children = root_messages[1].subagent_children().unwrap().to_vec();
     terminal.draw(|f| {
         let mut layout_map = LayoutMap::new();
@@ -229,7 +229,7 @@ fn subagent_step_and_view_render_without_panicking() {
                     total: 2,
                 }),
                 side_banner: None,
-                // ADR-0302: `subagent_bar` drives footer suppression only; the
+                // ADR-0024: `subagent_bar` drives footer suppression only; the
                 // head band's scene row is pre-resolved by the caller exactly as
                 // `event_loop/render.rs` does for the Subagent scene.
                 page_hints: Some(ViewHints {
@@ -265,7 +265,7 @@ fn subagent_step_and_view_render_without_panicking() {
             .map(|cell| cell.symbol())
             .collect()
     };
-    // Row 1 is the uniform session identity (ADR-0302), not a subagent crumb.
+    // Row 1 is the uniform session identity (ADR-0024), not a subagent crumb.
     let head_row = row_text(0);
     assert!(
         head_row.contains("SESSION"),
@@ -652,7 +652,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
 /// of remappable sibling walks) cannot be rendered faithfully by a fixed
 /// keycap row (ADR-0205/ADR-0104). Discovery lives in the Command Palette and
 /// Help instead.
-/// ADR-0302: every scene's head band stands up **two** rows — the session
+/// ADR-0024: every scene's head band stands up **two** rows — the session
 /// identity on row 1 and the scene row (`subagent` here) on row 2. The scene
 /// row names the scene and carries the namespace pair; there is no crumb-less
 /// page that collapses the band to a single row.
@@ -665,7 +665,7 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
         unattended: false,
         confined: true,
     };
-    assert!(hints.has_content(), "every scene stands up row 2 (ADR-0302)");
+    assert!(hints.has_content(), "every scene stands up row 2 (ADR-0024)");
     let terminal = render_full_view(80, 24, &[], Some(hints));
     let row1 = grid_row(&terminal, 1);
     assert!(row1.starts_with("  subagent"), "scene name leads: {row1:?}");
@@ -677,6 +677,74 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
         row1.contains("Ctrl-x") && row1.contains("menu"),
         "namespace pair retained: {row1:?}"
     );
+}
+
+/// A `search_text` block renders as three layered tiers — a top count band, a
+/// per-file title band, and the match rows — each on its own background so the
+/// heading/content contrast is visible without color-only weight. This locks the
+/// layering (`match_count_surface` > `match_title_surface` > `code_surface`) and
+/// the count/title wording.
+#[test]
+fn search_text_block_layers_count_title_and_content_backgrounds() {
+    let theme = Theme::default();
+    let mut m = TranscriptMessage::tool_step(
+        "call_test",
+        "search_text",
+        r#"{"query":"foo","path":"src"}"#,
+    );
+    let output = "Found 3 match(es):\nsrc/a.rs:10:let foo = 1;\nsrc/a.rs:22:foo();\nsrc/b.rs:5:foo,";
+    if let crate::model::document::MessageKind::ToolStep {
+        output: out,
+        expanded,
+        ..
+    } = &mut m.kind
+    {
+        *out = Some(output.to_string());
+        *expanded = true;
+    }
+
+    let terminal = render_full_view(80, 24, &[m], None);
+    let buffer = terminal.buffer();
+    let width = buffer.area().width as usize;
+    let row_text = |y: usize| -> String {
+        (0..width)
+            .map(|x| buffer[(x as u16, y as u16)].symbol())
+            .collect()
+    };
+    let bg_at = |y: usize, x: usize| buffer[(x as u16, y as u16)].style().bg;
+
+    // Locate the three tiers by their text; each is a distinct row.
+    let (mut count_y, mut title_y, mut match_y) = (None, None, None);
+    for y in 0..buffer.area().height as usize {
+        let text = row_text(y);
+        if text.contains("Found 3 matches · 2 files") {
+            count_y = Some(y);
+        } else if text.contains("src/a.rs") {
+            title_y = Some(y);
+        } else if text.contains("let foo = 1;") {
+            match_y = Some(y);
+        }
+    }
+    let count_y = count_y.expect("count band renders");
+    let title_y = title_y.expect("file title band renders");
+    let match_y = match_y.expect("match row renders");
+
+    let content_bg = theme.code_surface();
+    let title_bg = theme.match_title_surface();
+    let count_bg = theme.match_count_surface();
+    assert_ne!(
+        title_bg, content_bg,
+        "the file title band must layer above the content surface"
+    );
+    assert_ne!(
+        count_bg, title_bg,
+        "the count band must layer above the title band"
+    );
+
+    // Sampled at column 40 (past the short heading text, inside each full-width band).
+    assert_eq!(bg_at(count_y, 40), count_bg, "count row band background");
+    assert_eq!(bg_at(title_y, 40), title_bg, "title row band background");
+    assert_eq!(bg_at(match_y, 40), content_bg, "match row surface background");
 }
 
 /// A checklist/todo tool step rendered while an active selection spans the block

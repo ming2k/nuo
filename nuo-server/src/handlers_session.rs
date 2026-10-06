@@ -47,7 +47,7 @@ pub async fn delete(
 /// `AgentRequest::RenameSession` — set (or clear) a session's manual title by
 /// id (or short-id prefix) and push a fresh sessions-overview snapshot, or
 /// surface the storage error. `title = None` clears the manual override, so
-/// the overview falls back to the AI-title / first-prompt preview (ADR-0022).
+/// the overview falls back to the AI-title / first-prompt preview.
 /// The pushed overview also refreshes the hosted session's monitor row: the
 /// registry's broadcast-tap folds it into the tracker and republishes
 /// `MonitorEvent::SessionUpdated` with the new title.

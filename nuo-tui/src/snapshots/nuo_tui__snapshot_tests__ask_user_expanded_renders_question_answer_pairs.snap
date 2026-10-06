@@ -1,14 +1,16 @@
 ---
-source: apps/terminal/crates/mutx/src/snapshot_tests.rs
+source: nuo-tui/src/snapshot_tests.rs
 expression: "render_grid(&m, 80, 14)"
 ---
-- Ask: 这 次 改 动 的 范 围 定 多 大 ? · Which layout pieces?
-    Scope · 这 次 改 动 的 范 围 定 多 大 ? (2 options)
-  ↳ 整 个  telemetry modal 重 构
+- Ask 2 questions · Scope · Layout (0ms)
+  Scope
+  How large should the refactor be? (2 options)
+  ↳ Rework the whole telemetry modal
 
-    Which layout pieces? (3 options, multi-select)
-  ↳ 垂 直 阶 梯
-    差 值 列
+  Layout
+  Which layout pieces? (3 options, multi-select)
+  ↳ Vertical stepper
+    Delta column
 
 backgrounds:
 A=#070808  B=#111312  .=reset
@@ -20,3 +22,4 @@ A=#070808  B=#111312  .=reset
 5: B80
 6: B80
 7: B80
+8: B80

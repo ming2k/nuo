@@ -1,5 +1,4 @@
-//! Session-level AI title: domain vocabulary for the titling subagent
-//! (ADR-0022).
+//! Session-level AI title: domain vocabulary for the titling subagent.
 //!
 //! Follows the bounded-subagent split of the retired `session_review` (ADR-0016):
 //! domain types and pure helpers live here in `nuo-wire`, while the

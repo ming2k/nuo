@@ -23,9 +23,29 @@ fn only_high_frequency_stream_updates_are_coalesced() {
         session_id: "session".to_string(),
         event: RoundEvent::StreamEnd("done".to_string()),
     };
+    let tool_input_progress = AgentResponse::Round {
+        session_id: "session".to_string(),
+        event: RoundEvent::ToolInputProgress {
+            index: 0,
+            id: None,
+            bytes: 4096,
+        },
+    };
+    let tool_call_started = AgentResponse::Round {
+        session_id: "session".to_string(),
+        event: RoundEvent::ToolCallStarted {
+            index: 0,
+            id: None,
+            name: "edit_text".to_string(),
+        },
+    };
 
     assert!(is_coalescible_stream_update(&stream_delta));
     assert!(is_coalescible_stream_update(&tool_stream));
+    // ADR-0026: count-only progress rides the frame budget...
+    assert!(is_coalescible_stream_update(&tool_input_progress));
+    // ...but the one-shot announcement must wake the loop immediately.
+    assert!(!is_coalescible_stream_update(&tool_call_started));
     assert!(!is_coalescible_stream_update(&stream_start));
     assert!(!is_coalescible_stream_update(&stream_end));
 }
@@ -496,7 +516,10 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
 
     // Press Esc Esc to interrupt
     app.esc_armed_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
-    crate::event_loop::handle_esc_interrupt(&mut app, false);
+    crate::event_loop::handle_esc_interrupt(
+        &mut app,
+        crate::event_loop::InterruptTarget::Primary,
+    );
 
     // Verify interrupt request was sent to agent
     let req = rx.try_recv().expect("must send interrupt request");

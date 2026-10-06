@@ -36,7 +36,9 @@ pub(crate) use modals::{
 
 pub(super) use commands::split_command_word;
 #[allow(unused_imports)]
-pub(crate) use commands::{handle_esc_interrupt, handle_esc_interrupt_with_runtime};
+pub(crate) use commands::{
+    InterruptTarget, handle_esc_interrupt, handle_esc_interrupt_with_runtime,
+};
 
 #[cfg(test)]
 pub(crate) use commands::handle_ctrl_c;
@@ -641,7 +643,8 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // within that window actually interrupts the running task. A
             // press after the window lapsed starts a fresh window rather
             // than firing a stale confirmation.
-            handle_esc_interrupt_with_runtime(app, runtime, false).await;
+            handle_esc_interrupt_with_runtime(app, runtime, commands::InterruptTarget::Primary)
+                .await;
         }
         input::InputAction::OpenSessions => {
             enter_panel(
@@ -1685,7 +1688,18 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // aside's round with the same armed press-twice contract as the
             // main view's Esc interrupt. Never leaves the view, never closes
             // the aside.
-            handle_esc_interrupt_with_runtime(app, runtime, true).await;
+            handle_esc_interrupt_with_runtime(app, runtime, commands::InterruptTarget::Aside).await;
+        }
+        input::InputAction::InterruptSubagent => {
+            // Esc inside the Subagent scene (ADR-0205): interrupt only the
+            // viewed child, with the same armed press-twice contract. It never
+            // reaches the primary round, so the outer turn keeps running.
+            handle_esc_interrupt_with_runtime(
+                app,
+                runtime,
+                commands::InterruptTarget::Subagent,
+            )
+            .await;
         }
         input::InputAction::OpenBtwList => {
             // F5 / `/btw list` (ADR-0103 §5): ask the harness for a fresh
@@ -2860,7 +2874,12 @@ async fn execute_command_by_id(
             }
         }
         CommandId::InterruptTask => {
-            handle_esc_interrupt_with_runtime(app, runtime, false).await;
+            handle_esc_interrupt_with_runtime(
+                app,
+                runtime,
+                commands::InterruptTarget::Primary,
+            )
+            .await;
         }
         CommandId::Quit => {
             app.send_intent(AgentRequest::EndSession);

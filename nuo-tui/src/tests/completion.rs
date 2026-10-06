@@ -1144,9 +1144,15 @@ fn esc_interrupt_fires_on_second_press_and_rearms_after() {
 
     // Main view: arm, then fire. Driven through the real dispatch arm so
     // the wire request (not just the state flip) is asserted.
-    super::event_loop::handle_esc_interrupt(&mut app, false);
+    super::event_loop::handle_esc_interrupt(
+        &mut app,
+        super::event_loop::InterruptTarget::Primary,
+    );
     assert!(app.esc_armed(), "the first Esc arms the window");
-    super::event_loop::handle_esc_interrupt(&mut app, false);
+    super::event_loop::handle_esc_interrupt(
+        &mut app,
+        super::event_loop::InterruptTarget::Primary,
+    );
     assert!(matches!(rx.try_recv(), Ok(AgentRequest::Interrupt)));
     assert!(!app.esc_armed(), "firing consumes the arm");
 
@@ -1162,12 +1168,111 @@ fn esc_interrupt_fires_on_second_press_and_rearms_after() {
     // while the aside view is actually open.
     app.side_session_id = Some("aside-1".to_string());
     app.in_side_view = true;
-    super::event_loop::handle_esc_interrupt(&mut app, true); // arm
-    super::event_loop::handle_esc_interrupt(&mut app, true); // fire
+    super::event_loop::handle_esc_interrupt(&mut app, super::event_loop::InterruptTarget::Aside); // arm
+    super::event_loop::handle_esc_interrupt(&mut app, super::event_loop::InterruptTarget::Aside); // fire
     assert!(matches!(
         rx.try_recv(),
         Ok(AgentRequest::InterruptSide { .. })
     ));
+}
+
+/// The Esc interrupt is **scene-scoped** (ADR-0205): `Esc Esc` inside the
+/// Subagent scene must interrupt only the viewed child — never the enclosing
+/// primary round. Regression guard for the bug where the Subagent scene's Esc
+/// borrowed the Conversation's `Interrupt` and stopped the outer round.
+#[test]
+fn subagent_scene_esc_interrupts_only_the_viewed_child() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    app.tx = tx;
+
+    // A running subagent task in the transcript, zoomed in. The primary
+    // session is ALSO running — exactly the state where the old code leaked the
+    // primary interrupt through the scene boundary.
+    let task = TranscriptMessage::tool_step(
+        "call_zoom",
+        "spawn_agent",
+        r#"{"description":"explore","prompt":"..."}"#,
+    );
+    app.messages.push(task);
+    app.running_sessions.insert(app.current_session_id.clone());
+    app.enter_subagent("call_zoom".to_string());
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::TaskInspection);
+    assert!(app.focused_subagent_running(), "the zoomed child runs");
+
+    // Arm + fire via the real dispatch arm.
+    super::event_loop::handle_esc_interrupt(&mut app, super::event_loop::InterruptTarget::Subagent);
+    assert!(app.esc_armed(), "the first Esc arms the window");
+    super::event_loop::handle_esc_interrupt(&mut app, super::event_loop::InterruptTarget::Subagent);
+
+    // The wire request is the child-scoped verb, carrying the zoomed call id —
+    // NOT the primary `Interrupt`.
+    match rx.try_recv() {
+        Ok(request) => match request {
+            AgentRequest::InterruptSubagent { call_id } => assert_eq!(call_id, "call_zoom"),
+            other => panic!("expected a subagent-scoped interrupt, got {other:?}"),
+        },
+        Err(error) => panic!("expected a subagent-scoped interrupt, got recv error {error:?}"),
+    }
+
+    // The primary round is untouched: its queue is not blocked and the runtime
+    // keeps its responding flag (the scene-scoped path deliberately skips the
+    // session-level flip the primary/aside paths perform).
+    assert!(
+        app.running_sessions.contains(&app.current_session_id),
+        "the enclosing primary round must keep running"
+    );
+}
+
+/// A finished viewed child under a still-running primary advertises no
+/// interrupt: the Subagent scene's Esc is inert, and the armed window lapses
+/// the moment that child settles. Completes the scene-scope guard above.
+#[test]
+fn finished_viewed_child_advertises_no_subagent_interrupt() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let mut task = TranscriptMessage::tool_step(
+        "call_done",
+        "spawn_agent",
+        r#"{"description":"explore","prompt":"..."}"#,
+    );
+    // Drive the step to a terminal state (the child finished).
+    task.cancel_tool_step("call_done");
+    app.messages.push(task);
+    // The primary round still runs.
+    app.running_sessions.insert(app.current_session_id.clone());
+    app.enter_subagent("call_done".to_string());
+
+    assert!(
+        !app.focused_subagent_running(),
+        "a finished child is not running even while the primary is"
+    );
+
+    // The Esc interrupt arm is inert: no `InterruptSubagent`, so no wire verb.
+    let action = crate::session::resolve_scene_key(
+        crate::surfaces::SceneKind::TaskInspection,
+        crate::keymap::Key::ESC,
+        &crate::session::SceneKeys {
+            is_responding: true, // primary running
+            focused_subagent_running: app.focused_subagent_running(),
+            ..Default::default()
+        },
+        &mut String::new(),
+        &mut 0,
+    );
+    assert_eq!(
+        action, None,
+        "a finished viewed child owns no Esc arm; the primary interrupt must \
+         not leak through the Subagent scene"
+    );
+
+    // An arm taken before the child settled lapses on the next frame's tick.
+    app.arm_esc(Some(std::time::Instant::now() + std::time::Duration::from_secs(5)));
+    app.tick_esc_arm();
+    assert!(
+        !app.esc_armed(),
+        "the armed window lapses once the viewed child settles, even while the \
+         primary keeps running"
+    );
 }
 
 #[test]

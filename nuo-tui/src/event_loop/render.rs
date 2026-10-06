@@ -236,10 +236,16 @@ fn compose_frame(
     // show a contextual first-row header; otherwise render the
     // root conversation.
     let view_messages = app.focused_messages();
-    // `/btw` aside scene context (ADR-0017/0103, ADR-0302): shown only while
+    // `/btw` aside scene context (ADR-0017, ADR-0024): shown only while
     // the aside view is active. Subagent zoom and the aside view are mutually
     // exclusive, so the two modes never coexist.
     let side_banner = app.in_side_view.then_some(app.parent_status);
+    // The viewed session's run state, consumed by the overlay/palette
+    // availability filters. The Subagent scene's own activity advertising is
+    // suppressed entirely (`in_subagent` below), and its Esc interrupt is
+    // resolved scene-scoped in `session::resolve_subagent_key`, so this stays
+    // the *viewed session's* state — an overlay opened over the zoom still
+    // reflects the (primary) round a palette `Interrupt Task` would stop.
     let viewed_running = app.running_sessions.contains(viewed_session_id);
     let subagent_bar = app.focus_stack.last().and_then(|current| {
         let tasks: Vec<&TranscriptMessage> = app
@@ -257,7 +263,7 @@ fn compose_frame(
             total: tasks.len(),
         })
     });
-    // The scene row (ADR-0302): the scene the user stands in, named plainly,
+    // The scene row (ADR-0024): the scene the user stands in, named plainly,
     // followed by the scene's own context. Subagent outranks the aside view in
     // this resolution (they are mutually exclusive in the app; keeping a
     // deterministic precedence guards a malformed caller).
@@ -1491,7 +1497,7 @@ fn mcp_connecting_status(app: &App) -> Option<String> {
     Some(format!("connecting MCP ({connected}/{total}: {names})…"))
 }
 
-/// The conversation scene's row-2 context (ADR-0302): the chat's title. The
+/// The conversation scene's row-2 context (ADR-0024): the chat's title. The
 /// title is derived from the first real chat prompt the user drove the
 /// conversation with — a slash command or steering insert is not a title — and
 /// cleaned to a single bounded line by the same rule the session titler uses

@@ -72,6 +72,13 @@ pub struct SceneKeys {
     pub focused_target: bool,
     /// Whether the transcript holds browse focus.
     pub transcript_focused: bool,
+    /// Whether the subagent the Subagent scene is focused on (the top of the
+    /// focus stack) currently has a live round. Scene-local, exactly like the
+    /// side view's [`Self::is_responding`]: the Subagent scene owns its own
+    /// `Esc` interrupt (ADR-0205), and it must NOT read the primary's
+    /// `is_responding` (which would advertise an interrupt for an
+    /// already-finished child whenever the parent round still runs).
+    pub focused_subagent_running: bool,
 }
 
 /// Run states the composer hint row advertises. (HistorySearch is a modal and
@@ -198,7 +205,7 @@ pub(crate) fn resolve_chat_surface_key(
             resolve_enter(keys, input, cursor_position)
         }
         KeyCode::Tab => resolve_tab(keys),
-        KeyCode::Esc => resolve_esc(keys),
+        KeyCode::Esc => resolve_esc(keys, keys.is_responding, InputAction::Interrupt),
         KeyCode::Up => resolve_up(keys, input, cursor_position),
         KeyCode::Down => resolve_down(keys, input, cursor_position),
         // Only unmodified (or Shift-capitalized) characters are owned as
@@ -231,8 +238,8 @@ pub(crate) fn resolve_chat_surface_key(
 
 /// The Subagent scene's own scheme (ADR-0205): the zoom owns its exit (`q`)
 /// and sibling navigation (`[`/`]`, a remappable `session.prev_sibling` /
-/// `session.next_sibling` verb), and delegates every other key to the shared
-/// chat core for step-focus walking.
+/// `session.next_sibling` verb), its **scene-scoped** `Esc` interrupt, and
+/// delegates every other key to the shared chat core for step-focus walking.
 pub(crate) fn resolve_subagent_key(
     key: crate::keymap::Key,
     keys: &SceneKeys,
@@ -250,12 +257,20 @@ pub(crate) fn resolve_subagent_key(
     if ov.matches(key, SurfaceVerb::NextSibling) && !keys.focused_target && input.is_empty() {
         return Some(InputAction::NextSibling);
     }
-    // The zoom owns no scene-exit chord: leaving is the `C-x` namespace's job
-    // alone (ADR-0298), and `Esc` never closes a Scene (ADR-0205
-    // `[INV-TUI-CLEAN-02]`). Every other key is the shared chat core — `↑`/`↓`
-    // and `Alt+↑`/`Alt+↓` walk steps, `Enter` activates the focused one, `Esc`
-    // clears focus, and printables reach the shared editing layer exactly as
-    // they always have.
+    // Esc in the Subagent scene interrupts the *viewed child* (ADR-0205 scene
+    // scope) once a completion and step/browse focus are clear — never the
+    // enclosing primary round. It keys off [`SceneKeys::focused_subagent_running`]
+    // (this child's own liveness), not the primary `is_responding`, so a
+    // finished child under a still-running parent advertises no interrupt and
+    // falls through to the shared chat core (which clears step focus and is
+    // idle-inert otherwise): `Esc` still never leaves the Scene
+    // (ADR-0205 `[INV-TUI-CLEAN-02]`). Every other key is the shared chat core —
+    // `↑`/`↓` and `Alt+↑`/`Alt+↓` walk steps, `Enter` activates the focused
+    // one, `Esc` clears focus, and printables reach the shared editing layer
+    // exactly as they always have.
+    if key.code == KeyCode::Esc {
+        return resolve_esc(keys, keys.focused_subagent_running, InputAction::InterruptSubagent);
+    }
     resolve_chat_surface_key(key, keys, input, cursor_position)
 }
 
@@ -269,20 +284,15 @@ pub(crate) fn resolve_side_key(
     input: &mut String,
     cursor_position: &mut usize,
 ) -> Option<InputAction> {
-    match key.code {
-        // Esc in an aside interrupts the viewed aside's round (ADR-0103 §2)
-        // once a completion and step/browse focus are clear. It never leaves
-        // the view: `Esc` is the universal interrupt, not a scene exit.
-        KeyCode::Esc
-            if keys.completion_kind == crate::completion::CompletionKind::None
-                && !keys.focused_target
-                && !keys.transcript_focused
-                && keys.is_responding =>
-        {
-            Some(InputAction::InterruptSide)
-        }
-        _ => resolve_chat_surface_key(key, keys, input, cursor_position),
+    // Esc in an aside interrupts the viewed aside's round (ADR-0103 §2) once a
+    // completion and step/browse focus are clear. It never leaves the view:
+    // `Esc` is the universal interrupt, not a scene exit. Routed through the
+    // shared `resolve_esc` ladder so the priority order (dismiss completion →
+    // clear focus → interrupt) can never drift from the Conversation's.
+    if key.code == KeyCode::Esc {
+        return resolve_esc(keys, keys.is_responding, InputAction::InterruptSide);
     }
+    resolve_chat_surface_key(key, keys, input, cursor_position)
 }
 
 /// Route a key to the full-screen scene's own scheme (ADR-0205). Dashboard and
@@ -405,9 +415,15 @@ fn resolve_tab(keys: &SceneKeys) -> Option<InputAction> {
 /// arm: dismiss an open completion first, then clear step focus, then interrupt
 /// a running round. Inline history recall is preserved across Esc (so edits
 /// are not lost and interrupt is not intercepted; Ctrl-c clears the input).
-/// (Subagent and Side own their own Esc exits in
-/// [`resolve_subagent_key`] / [`resolve_side_key`].)
-fn resolve_esc(keys: &SceneKeys) -> Option<InputAction> {
+///
+/// `responding` and `interrupt` are the caller's scene-scoped liveness and
+/// interrupt target: the Conversation scene passes its own `is_responding` and
+/// [`InputAction::Interrupt`]; the Subagent scene passes the *viewed child's*
+/// liveness and [`InputAction::InterruptSubagent`], so a finished child never
+/// emits the primary interrupt (ADR-0205 scene scope). The earlier priority
+/// arms (dismiss completion, clear focus) are identical in both cases. (The
+/// aside scene owns its own Esc arm in [`resolve_side_key`].)
+fn resolve_esc(keys: &SceneKeys, responding: bool, interrupt: InputAction) -> Option<InputAction> {
     if keys.completion_kind != crate::completion::CompletionKind::None && !keys.completion_dismissed
     {
         Some(InputAction::CloseCompletion)
@@ -418,8 +434,8 @@ fn resolve_esc(keys: &SceneKeys) -> Option<InputAction> {
         && !keys.completion_dismissed
     {
         Some(InputAction::CloseCompletion)
-    } else if keys.is_responding {
-        Some(InputAction::Interrupt)
+    } else if responding {
+        Some(interrupt)
     } else {
         None
     }
@@ -601,10 +617,19 @@ mod tests {
             );
         }
 
-        // The subagent and aside scenes own Esc only while their viewed round
-        // is interruptible; idle, it is inert (they have no Esc exit).
-        for mode in [Mode::Subagent, Mode::Side] {
-            let mut c = ctx(mode, |c| c.is_responding = true);
+        // The subagent and aside scenes own Esc only while their *viewed*
+        // round is interruptible; idle, it is inert (they have no Esc exit).
+        // Each scene reads its own scene-local liveness: the aside its
+        // `is_responding`, the subagent the viewed child's
+        // `focused_subagent_running` — never the primary's `is_responding`.
+        for (mode, expected) in [
+            (Mode::Side, InputAction::InterruptSide),
+            (Mode::Subagent, InputAction::InterruptSubagent),
+        ] {
+            let mut c = ctx(mode, |c| {
+                c.is_responding = true;
+                c.focused_subagent_running = true;
+            });
             let mut input = String::new();
             let mut cursor = 0;
             let resolved = resolve_scene_key(
@@ -614,14 +639,13 @@ mod tests {
                 &mut input,
                 &mut cursor,
             );
-            assert!(
-                matches!(
-                    resolved,
-                    Some(InputAction::Interrupt | InputAction::InterruptSide)
-                ),
-                "a running {mode:?} scene owns Esc as its interrupt: {resolved:?}"
+            assert_eq!(
+                resolved,
+                Some(expected),
+                "a running {mode:?} scene owns Esc as its *scene-scoped* interrupt"
             );
             c.is_responding = false;
+            c.focused_subagent_running = false;
             assert!(
                 resolve_scene_key(
                     scene_of(mode),
@@ -1067,6 +1091,39 @@ mod tests {
             ),
             Some(InputAction::ClearFocusedTarget),
             "subagent Esc clears the focused step"
+        );
+        // Scene scope (the regression this guards): a Subagent-scene Esc must
+        // NEVER resolve to the primary `Interrupt`. When the viewed child has
+        // finished but the *primary* round still runs, the zoom's Esc is inert —
+        // it must not penetrate the scene boundary and stop the outer round.
+        assert_eq!(
+            resolve_scene_key(
+                SceneKind::TaskInspection,
+                Key::ESC,
+                &ctx(Mode::Subagent, |c| {
+                    c.is_responding = true; // the *primary* is running
+                    c.focused_subagent_running = false; // the viewed child finished
+                }),
+                &mut String::new(),
+                &mut 0
+            ),
+            None,
+            "a finished viewed child under a running primary owns no Esc: the \
+             primary interrupt must not leak through the Subagent scene"
+        );
+        assert_eq!(
+            resolve_scene_key(
+                SceneKind::TaskInspection,
+                Key::ESC,
+                &ctx(Mode::Subagent, |c| {
+                    c.is_responding = true;
+                    c.focused_subagent_running = true;
+                }),
+                &mut String::new(),
+                &mut 0
+            ),
+            Some(InputAction::InterruptSubagent),
+            "a running viewed child owns Esc as the scene-scoped interrupt"
         );
         // `[` / `]` walk siblings while the composer is empty and no step is
         // focused; a focused step bounces the key to the composer instead.

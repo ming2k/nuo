@@ -9,7 +9,7 @@
 //!   so this crate never consults a path resolver.
 //! - **Whether a workspace's skill content is admitted.** Repo-scoped skills are
 //!   a prompt-injection surface, so the *host* owns the trust decision and
-//!   exposes it through [`SkillTrust`] (ADR-0303 §1). The kernel asks per use and
+//!   exposes it through [`SkillTrust`]. The kernel asks per use and
 //!   never caches a verdict.
 
 use std::path::{Path, PathBuf};

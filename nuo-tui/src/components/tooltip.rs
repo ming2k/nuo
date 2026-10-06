@@ -95,7 +95,7 @@ impl AnchoredTooltip {
 
         // Borderless on modern terminals (Chromatic: TrueColor / 256-color):
         // the balloon reads by its elevated background alone, matching the
-        // toast's edge-free visual language (ADR-0301). Hybrid / Structured
+        // toast's edge-free visual language (ADR-0023). Hybrid / Structured
         // keep the framed balloon, where a background delta is unavailable or
         // indistinct.
         let bordered =

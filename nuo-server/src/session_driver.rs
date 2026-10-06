@@ -748,6 +748,13 @@ impl SessionDriver {
                     crate::handlers_permission::interrupt(&agent, &session, &resp_tx, &lifecycle)
                         .await;
                 }
+                AgentRequest::InterruptSubagent { call_id } => {
+                    // Scene-scoped interrupt (ADR-0205): stop only the viewed
+                    // subagent — its token races its in-flight request, the
+                    // parent round and every sibling keep running. A no-op for
+                    // a finished or unknown call.
+                    crate::handlers_permission::interrupt_subagent(&subagent_registry, &call_id);
+                }
                 AgentRequest::PermissionReply {
                     request_id,
                     decision,
@@ -1918,6 +1925,9 @@ mod tests {
         }));
         assert!(!round_owned_request(&AgentRequest::InterruptSide {
             side_id: "s".to_string()
+        }));
+        assert!(!round_owned_request(&AgentRequest::InterruptSubagent {
+            call_id: "call_1".to_string()
         }));
         assert!(!round_owned_request(&AgentRequest::CloseSide {
             side_id: "s".to_string()

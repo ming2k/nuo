@@ -1,7 +1,7 @@
 //! Two-row head band for every scene.
 //!
 //! The head band is the fixed, always-present chrome pinned to the terminal's
-//! top edge. It is **two rows by default** (ADR-0302) and each row has one
+//! top edge. It is **two rows by default** (ADR-0024) and each row has one
 //! job:
 //!
 //! - **Row 1 — session identity.** The ambient *session* facts that never
@@ -17,11 +17,9 @@
 //!   an aside the primary's status. The right edge carries the session's
 //!   persistent run-mode flags (`UNATTENDED`, `UNCONFINED`) followed by the
 //!   standing `C-x menu` namespace pair — the single entry point for the
-//!   Command Palette / surface switcher (ADR-0301 `[INV-HINT-01]`).
+//!   Command Palette / surface switcher (ADR-0023 `[INV-HINT-01]`).
 //!
-//! Esc is never the advertised exit: it does not close Scenes (ADR-0205
-//! `[INV-TUI-CLEAN-02]`), so the legend points at the namespace that does
-//! (ADR-0298 §3). Keeping this outside disclosure rendering also leaves one
+//! Esc is never the advertised exit: it does not close Scenes, so the legend points at the namespace that does. Keeping this outside disclosure rendering also leaves one
 //! clear extension point for future focused scenes.
 
 use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
@@ -30,12 +28,12 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use super::{STEP_MIN_WIDTH, TRANSCRIPT_H_INSET, Theme};
 
 /// Row-2 (scene) context for every scene. One struct because the row's
-/// *shape* is shared across scenes (ADR-0302): a leading scene label — the
+/// *shape* is shared across scenes (ADR-0024): a leading scene label — the
 /// scene the user is standing in, named plainly — then the scene's own
 /// context on the left, and the session's persistent run-mode flags plus the
 /// standing `C-x menu` namespace pair on the right.
 ///
-/// Row 2 **stands up on every scene** (ADR-0301 `[INV-HINT-01]`): it always
+/// Row 2 **stands up on every scene** (ADR-0023 `[INV-HINT-01]`): it always
 /// carries the `C-x menu` namespace pair — the single entry point for the
 /// Command Palette / surface switcher — so that shortcut is discoverable
 /// everywhere. Scene-specific context (the conversation's chat title, an
@@ -68,7 +66,7 @@ pub(crate) struct ViewHints<'a> {
 }
 
 impl ViewHints<'_> {
-    /// Row 2 always has content (ADR-0302): the scene label and the `C-x menu`
+    /// Row 2 always has content (ADR-0024): the scene label and the `C-x menu`
     /// namespace pair stand up on every scene, so the head band is always two
     /// rows. Retained as a method so callers keep one place to ask the band's
     /// row inventory.
@@ -89,7 +87,7 @@ pub(crate) enum ViewKind {
 
 impl ViewKind {
     /// The plain, lowercase name of the scene shown as row 2's leading label
-    /// (ADR-0302): the default home scene is `conversation`; the rest name
+    /// (ADR-0024): the default home scene is `conversation`; the rest name
     /// themselves.
     pub(crate) fn scene_label(self) -> &'static str {
         match self {
@@ -103,7 +101,7 @@ impl ViewKind {
 }
 
 /// Row-1 content: the ambient session identity. Uniform across **every**
-/// scene (ADR-0302) — the head band's top row always describes the session the
+/// scene (ADR-0024) — the head band's top row always describes the session the
 /// client is attached to, never the scene beneath it. The scene the user
 /// stands in is named by row 2 ([`ViewHints`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -120,7 +118,7 @@ pub(crate) struct SessionHead<'a> {
 }
 
 /// Draw the head band's first row: the **session identity**, uniform on every
-/// scene (ADR-0302). `SESSION` + the persistent-id tail (dimmed) + the `[ROLE]`
+/// scene (ADR-0024). `SESSION` + the persistent-id tail (dimmed) + the `[ROLE]`
 /// badge (brand) + the tilde-shortened workspace, or, while a session switch is
 /// loading, the target id. The scene the user stands in is named on row 2
 /// ([`draw_view_header_hints`]), so this row never changes as the user moves
@@ -196,7 +194,7 @@ pub(crate) fn draw_view_header(
     // Trailing pad so the band's background owns the row out to the terminal's
     // right edge. The palette affordance is deliberately **not** on this row:
     // it lives on the row-2 namespace legend (`C-x menu`), the same entry point
-    // on every scene (ADR-0301).
+    // on every scene (ADR-0023).
     spans.push(Span::styled(
         " ".repeat(gap + pad),
         fill,
@@ -205,13 +203,13 @@ pub(crate) fn draw_view_header(
     frame.render_widget(Paragraph::new(Line::from(spans)), rect);
 }
 
-/// Draw the header band's second row: the **scene row** (ADR-0302). It names
+/// Draw the header band's second row: the **scene row** (ADR-0024). It names
 /// the scene the user is standing in (the plain lowercase label — `conversation`
 /// for the default home scene, `dashboard`, `settings`, `subagent`, `aside`),
 /// then the scene's own context (the chat title, the aside's parent status, a
 /// subagent's task label, the dashboard's fleet summary), and finally — on the
 /// right — the session's persistent run-mode flags (`UNATTENDED`, `UNCONFINED`)
-/// ahead of the standing `C-x menu` namespace pair (ADR-0301 `[INV-HINT-01]`).
+/// ahead of the standing `C-x menu` namespace pair (ADR-0023 `[INV-HINT-01]`).
 pub(crate) fn draw_view_header_hints(
     frame: &mut Frame,
     rect: Rect,
@@ -237,7 +235,7 @@ pub(crate) fn draw_view_header_hints(
     let text_width = width.saturating_sub(2 * pad);
 
     // The right side: the session's persistent run-mode flags, then the
-    // standing `C-x menu` namespace pair (ADR-0301). The flags are the session
+    // standing `C-x menu` namespace pair (ADR-0023). The flags are the session
     // facts the user most needs never to lose sight of, so they sit here on the
     // scene row rather than competing with row 1's identity.
     let mut flags = String::new();
@@ -287,8 +285,8 @@ pub(crate) fn draw_view_header_hints(
     frame.render_widget(Paragraph::new(Line::from(spans)), rect);
 }
 
-/// The scene row's name for the `C-x` scene namespace (ADR-0298 §3 /
-/// ADR-0301). The keycap names the namespace — now **`menu`**, because the
+/// The scene row's name for the `C-x` scene namespace (ADR-0023).
+/// The keycap names the namespace — now **`menu`**, because the
 /// namespace's headline verb is the palette / switcher (`C-x p`) — rather than
 /// one of its lifecycle verbs: `w`/`k` close a scene, but the same row is
 /// shared by pages already at their home scene, where there is nothing to
@@ -335,7 +333,7 @@ fn id_tail(id: &str) -> String {
 }
 
 /// The aside scene's row-2 context: the coarse primary-session status, phrased
-/// as a short clause after the scene label (ADR-0302), e.g.
+/// as a short clause after the scene label (ADR-0024), e.g.
 /// `aside  main running`. The attention states carry the `⚠` marker the caller
 /// pairs with [`ViewHints::context_warn`].
 pub(crate) fn parent_status_context(parent: nuo_wire::ParentStatus) -> &'static str {
@@ -407,7 +405,7 @@ mod tests {
 
     /// Row 1 is the session identity, uniform across scenes: `SESSION`, the
     /// id tail, the `[ROLE]` badge, and the workspace. It no longer carries the
-    /// run-mode flags (those moved to row 2 with the chat title, ADR-0302).
+    /// run-mode flags (those moved to row 2 with the chat title, ADR-0024).
     #[test]
     fn row1_is_session_identity() {
         let head = SessionHead {
@@ -489,7 +487,7 @@ mod tests {
     }
 
     /// Row 2 names the scene the user stands in, then the scene's context, and
-    /// keeps the `C-x menu` namespace pair on the right (ADR-0301/0302).
+    /// keeps the `C-x menu` namespace pair on the right (ADR-0023/0024).
     #[test]
     fn row2_names_the_scene_with_context_and_the_namespace() {
         let row = render_row2(
@@ -588,7 +586,7 @@ mod tests {
         );
     }
 
-    /// Every scene stands up row 2 (ADR-0301 `[INV-HINT-01]`): the band is
+    /// Every scene stands up row 2 (ADR-0023 `[INV-HINT-01]`): the band is
     /// always two rows, so the namespace pair is discoverable everywhere.
     #[test]
     fn row2_stands_up_on_every_scene() {

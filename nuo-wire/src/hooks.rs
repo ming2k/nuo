@@ -1,4 +1,4 @@
-//! Lifecycle event hooks (ADR-0025): user-configurable interception at
+//! Lifecycle event hooks: user-configurable interception at
 //! session, round, turn, and tool-call points.
 //!
 //! nuo keeps a single event axis — the context-threshold, turn-count, and
@@ -192,7 +192,7 @@ pub enum RestorePoint {
     RoundEnd,
 }
 
-/// One user-configurable lifecycle hook (ADR-0025). A hook declares the
+/// One user-configurable lifecycle hook. A hook declares the
 /// [`HookEventKind`] it wants and an optional tool-name matcher, then reacts
 /// to each matching fire. The built-in implementation runs a shell command
 /// (see `nuo`); the trait lives here so the registry and insertion

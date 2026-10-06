@@ -30,6 +30,18 @@ enum PostEdit {
     ClearCache,
 }
 
+/// ADR-0026: resolve a *still-pending* announced tool step by its provider
+/// `slot`. Pending steps carry an empty call id and are stamped with their slot
+/// at announcement, so the match is exact and unique per turn.
+fn find_pending_announced_tool_step_mut(
+    messages: &mut [crate::model::document::TranscriptMessage],
+    slot: usize,
+) -> Option<&mut crate::model::document::TranscriptMessage> {
+    messages
+        .iter_mut()
+        .rfind(|message| message.is_announced_pending_tool_step_for_slot(slot))
+}
+
 /// Apply one mutation. Returns whether anything changed that a frame must
 /// observe (the loop ORs this into its dirty computation).
 pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -> bool {
@@ -640,6 +652,51 @@ fn apply_transcript(app: &mut App, buffer: Buffer, edit: TranscriptEdit) -> bool
             }
             TranscriptEdit::ToolStart { message } => {
                 messages.push(message);
+            }
+            TranscriptEdit::ToolAnnounce {
+                slot,
+                name,
+                message,
+            } => {
+                let _ = slot;
+                // Insert the announced (pending) step, applying the same
+                // lifecycle-aware disclosure default a finished step gets; the
+                // following `ToolCallCollapse` re-keys it onto the dispatch id.
+                // A just-pushed message has no cached height to evict.
+                let mut message = message;
+                if let Some(status) = message.tool_step_status() {
+                    let default = crate::step_interaction::default_tool_expanded(
+                        status,
+                        &name,
+                        &tui_config,
+                        tool_density,
+                    );
+                    message.set_tool_step_expanded(default);
+                }
+                messages.push(message);
+            }
+            TranscriptEdit::ToolCallCollapse { slot, call_id } => {
+                if let Some(step) = find_pending_announced_tool_step_mut(messages, slot) {
+                    // Re-key onto the dispatch id and clear the pre-dispatch
+                    // slot/byte state in one transition.
+                    step.rekey_tool_step(call_id);
+                    post = PostEdit::Invalidate(step.id);
+                }
+            }
+            TranscriptEdit::ToolInputProgress { slot, bytes } => {
+                if let Some(step) = find_pending_announced_tool_step_mut(messages, slot) {
+                    let id = step.tool_step_call_id().unwrap_or_default().to_string();
+                    if step.set_tool_input_bytes(&id, bytes) {
+                        post = PostEdit::Invalidate(step.id);
+                    }
+                }
+            }
+            TranscriptEdit::FrozenOrphanToolSteps => {
+                for message in messages.iter_mut() {
+                    if message.cancel_pending_announced_tool_step() {
+                        post = PostEdit::Invalidate(message.id);
+                    }
+                }
             }
             TranscriptEdit::ToolResult {
                 id,

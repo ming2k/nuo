@@ -64,6 +64,27 @@ pub async fn interrupt(
     lifecycle.cancel_current().await;
 }
 
+/// `AgentRequest::InterruptSubagent` — interrupt one in-flight subagent spawned
+/// by this session, addressed by the parent tool-call id (ADR-0205 scene scope).
+///
+/// Esc Esc inside the Subagent scene resolves here instead of the primary
+/// [`interrupt`]: the chord is scoped to the viewed child, so stopping it must
+/// **not** cancel the enclosing primary round (which the primary `Interrupt`
+/// would, propagating the cancellation down into every in-flight child via
+/// `Tool::request_cancel`). The registry handle → `SubagentHandle::interrupt`
+/// routes the stop into that one child; its round loop observes it at the next
+/// safe boundary and returns its partial transcript, which the parent records
+/// as an interrupted (resumable) result.
+///
+/// Unlike the primary / aside paths this emits **no** session-level activity
+/// flip or `PermissionsCleared`: the primary chrome is untouched, and the
+/// child's own `SubagentEvent`s (its interrupted tool result) repaint the
+/// nested view. An unknown or already-finished `call_id` degrades to a no-op —
+/// the child already settled, so there is nothing to stop.
+pub fn interrupt_subagent(subagent_registry: &Arc<SubagentRegistry>, call_id: &str) {
+    subagent_registry.interrupt(call_id);
+}
+
 /// `AgentRequest::PermissionReply` — full-duplex routing (ADR-0029): a reply
 /// tagged with a `parent_call_id` targets a subagent's parked oneshot via the
 /// registry handle; `None` keeps the legacy top-level (/btw side) path. A late

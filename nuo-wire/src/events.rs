@@ -94,6 +94,20 @@ pub enum AgentRequest {
         cursor: usize,
     },
     Interrupt,
+    /// Interrupt one in-flight subagent spawned by the session, addressed by the
+    /// parent tool-call id that spawned it (the same key the
+    /// `SubagentRegistry`/`SubagentHandle` duplex path uses, ADR-0029). Esc Esc
+    /// inside the Subagent scene resolves to this so the chord is *scene-scoped*:
+    /// it stops only the viewed child and leaves the enclosing primary round and
+    /// every sibling subagent untouched (ADR-0205 scene scope). The child's round
+    /// loop observes the cancellation at its next safe boundary, returns its
+    /// partial transcript, and the parent records it as an interrupted (not
+    /// failed) result — identical to the drain the primary interrupt triggers when
+    /// the parent turn is stopped. An unknown or already-finished `call_id`
+    /// degrades to a no-op.
+    InterruptSubagent {
+        call_id: String,
+    },
     /// The client declares this session over (ADR-0112). Sent on the paths
     /// where the operator's intent is "I am done with this session", not
     /// "I am detaching": the TUI's `/exit` and double-Ctrl+C quit, a
@@ -1168,6 +1182,22 @@ pub enum RoundEvent {
         id: String,
         name: String,
     },
+    /// A tool call announced **before its arguments finished streaming**
+    /// (ADR-0026). Mirrors [`AgentEvent::ToolCallStarted`]: `name` is known,
+    /// `arguments` are still arriving, `index` keys the announced step so the
+    /// later whole-argument [`RoundEvent::ToolCall`] collapses onto it.
+    ToolCallStarted {
+        index: usize,
+        id: Option<String>,
+        name: String,
+    },
+    /// Count-only progress for a still-streaming tool call's arguments
+    /// (ADR-0026, `[INV-STREAM-TOOL-03]`): bytes received, never the bytes.
+    ToolInputProgress {
+        index: usize,
+        id: Option<String>,
+        bytes: usize,
+    },
     PermissionRequest(PermissionRequest),
     UserQuestionRequest(UserQuestionRequest),
     /// Mirrors [`AgentEvent::StdinRequest`]: an interactive `bash` command
@@ -1770,6 +1800,30 @@ pub enum AgentEvent {
     ToolCancelled {
         id: String,
         name: String,
+    },
+    /// A tool call whose **name is known but whose arguments are still
+    /// streaming** (ADR-0026). Announced as soon as the provider names the
+    /// call, strictly before the arguments finish, so a frontend can create a
+    /// running step and move the activity phase to the tool verb instead of
+    /// showing the misleading `answering` phase while the model plans a call.
+    /// `index` is the provider's tool-call slot; the whole-argument
+    /// [`AgentEvent::ToolCall`] for the same slot later collapses onto the step
+    /// this announced. `id` is the provider-supplied id once it has arrived
+    /// (may be `None` — the harness mints the dispatch id only at dispatch).
+    ToolCallStarted {
+        index: usize,
+        id: Option<String>,
+        name: String,
+    },
+    /// Count-only progress for a still-streaming tool call's arguments
+    /// (ADR-0023, `[INV-STREAM-TOOL-03]`). `bytes` is the number of argument
+    /// bytes received so far — **never the bytes themselves**; a frontend
+    /// renders it as a static, non-animated clause (ADR-0008: the activity bar
+    /// is the single breathing anchor).
+    ToolInputProgress {
+        index: usize,
+        id: Option<String>,
+        bytes: usize,
     },
     /// The task list changed (`todo` / `todo_update`). The TUI uses this to refresh the
     /// unified sticky panel above the input box.

@@ -506,6 +506,19 @@ impl Agent {
             // genuinely mid-generation answer is still cut.
             let mut finish_drain: Option<std::time::Instant> = None;
             let mut turn_streamed = false;
+            // ADR-0026: which tool-call slots have been announced (their name
+            // has arrived) and the argument-byte count last reported per slot.
+            // Announcement fires once per slot at the first named fragment;
+            // progress ticks fire only when the byte count advances by
+            // `TOOL_INPUT_PROGRESS_STEP`, never per fragment
+            // ([INV-STREAM-TOOL-04]). Nothing here weakens the execution gate:
+            // dispatch still waits for the whole object after the stream ends
+            // ([INV-STREAM-TOOL-01]).
+            const TOOL_INPUT_PROGRESS_STEP: usize = 4096;
+            let mut announced_tool_calls: std::collections::HashSet<usize> =
+                std::collections::HashSet::new();
+            let mut reported_tool_input_bytes: std::collections::HashMap<usize, usize> =
+                std::collections::HashMap::new();
 
             loop {
                 tokio::select! {
@@ -733,6 +746,41 @@ impl Agent {
                                     call.name.push_str(&name);
                                 }
                                 call.arguments.push_str(&arguments);
+                                // ADR-0026: the moment this slot first has a
+                                // name, announce the call so the frontend can
+                                // show a running step and the tool phase while
+                                // the arguments keep streaming. The execution
+                                // gate is untouched — dispatch still waits for
+                                // the whole object after the stream ends.
+                                if !announced_tool_calls.contains(&index)
+                                    && !call.name.is_empty()
+                                {
+                                    announced_tool_calls.insert(index);
+                                    let announced_id =
+                                        (!call.id.is_empty()).then(|| call.id.clone());
+                                    let announced_name = call.name.clone();
+                                    on_event(AgentEvent::ToolCallStarted {
+                                        index,
+                                        id: announced_id,
+                                        name: announced_name,
+                                    });
+                                }
+                                // Count-only progress, throttled to a bounded
+                                // cadence — never per fragment, never the bytes
+                                // ([INV-STREAM-TOOL-03] / [INV-STREAM-TOOL-04]).
+                                let total = call.arguments.len();
+                                let reported =
+                                    reported_tool_input_bytes.get(&index).copied().unwrap_or(0);
+                                if total.saturating_sub(reported) >= TOOL_INPUT_PROGRESS_STEP {
+                                    reported_tool_input_bytes.insert(index, total);
+                                    let progress_id =
+                                        (!call.id.is_empty()).then(|| call.id.clone());
+                                    on_event(AgentEvent::ToolInputProgress {
+                                        index,
+                                        id: progress_id,
+                                        bytes: total,
+                                    });
+                                }
                             }
                             ProviderStreamEvent::Usage(usage) => {
                                 // Take the last reported usage (providers may

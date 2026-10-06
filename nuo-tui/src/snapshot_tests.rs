@@ -1955,3 +1955,77 @@ fn user_prompt_sending_and_cancelled_render_clean_headers() {
     );
 }
 
+// `ask_user` (clarifying questions) rendering
+//
+// An expanded `ask_user` step is a question→answer list, not a code block: the
+// questions are recovered from the call's `arguments` and re-paired with the
+// recorded selection from the result text. These lock that the questions are
+// traceable (never reduced to a bare answer array) and that a cancelled request
+// reads as `↳ cancelled — no answer`.
+
+#[test]
+fn ask_user_expanded_renders_question_answer_pairs() {
+    let arguments = serde_json::json!({
+        "questions": [
+            {
+                "header": "Scope",
+                "question": "How large should the refactor be?",
+                "options": [
+                    { "label": "Rework the whole telemetry modal" },
+                    { "label": "Keep it minimal" }
+                ]
+            },
+            {
+                "header": "Layout",
+                "question": "Which layout pieces?",
+                "options": [
+                    { "label": "Vertical stepper" },
+                    { "label": "Delta column" },
+                    { "label": "Both" }
+                ],
+                "multi_select": true
+            }
+        ]
+    })
+    .to_string();
+    // The harness serializes the selection as a JSON array-of-arrays; the second
+    // question is multi-select, so its inner array holds two labels.
+    let answer = serde_json::json!([
+        ["Rework the whole telemetry modal"],
+        ["Vertical stepper", "Delta column"]
+    ])
+    .to_string();
+    let m = tool_step_structured(
+        "ask_user",
+        &arguments,
+        nuo_wire::ToolOutput::Text(format!(
+            "User answered the question(s). Selected option labels:\n{answer}"
+        )),
+        true,
+    );
+    insta::assert_snapshot!(render_grid(&m, 80, 14));
+}
+
+#[test]
+fn ask_user_expanded_cancelled_renders_no_answer() {
+    let arguments = serde_json::json!({
+        "questions": [
+            {
+                "question": "Proceed with the risky path?",
+                "options": [ { "label": "Yes" }, { "label": "No" } ]
+            }
+        ]
+    })
+    .to_string();
+    let m = tool_step_structured(
+        "ask_user",
+        &arguments,
+        nuo_wire::ToolOutput::Text(
+            "User cancelled the question; no answer was provided.".to_string(),
+        ),
+        true,
+    );
+    insta::assert_snapshot!(render_grid(&m, 80, 8));
+}
+
+

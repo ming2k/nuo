@@ -1,16 +1,16 @@
 //! The product's durability sink: the SQLite session store behind the kernel's
-//! `FactSink` port (ADR-0303 §2).
+//! `FactSink` port.
 //!
 //! The store already speaks the port's language — `save_session_delta` writes a
 //! batch, `load_session_ir` reads the facts back — so this adapter is thin on
 //! purpose. What it adds is the port's *contract*: an acknowledgement that means
 //! something, a health reading the kernel can report, and a conformance test
 //! (`the_store_is_a_conformant_sink`) that makes "this store is a valid sink" a
-//! checked claim rather than an assumption (ADR-0303 §4).
+//! checked claim rather than an assumption.
 //!
 //! # Why the store implements the port rather than a trait being extracted from it
 //!
-//! ADR-0303 rejected abstracting the session store into a kernel trait: to be
+//! The design rejected abstracting the session store into a kernel trait: to be
 //! useful such a trait would have to declare lineage, forking, projection, and
 //! title semantics — the product's state model wearing a trait. The kernel's port
 //! is stated in *facts*, and this adapter is the one place the two meet. The
@@ -127,7 +127,7 @@ fn classify(error: PersistenceError) -> SinkError {
 
 /// Hydrate an instance's facts from the store.
 ///
-/// The kernel's other half of the durability contract (ADR-0303 §3): the host
+/// The kernel's other half of the durability contract: the host
 /// reads its own store and hands the facts in. Returns the instance's causal
 /// nodes in sequence order, which is what `FactSink`'s order contract promises
 /// and what the conformance suite checks.
@@ -170,7 +170,7 @@ mod tests {
         (root, guard)
     }
 
-    /// The store is a conformant sink (ADR-0303 §4).
+    /// The store is a conformant sink.
     ///
     /// This is the claim the port's whole design rests on: a store used with the
     /// kernel must round-trip the kernel's facts losslessly, in order, with

@@ -26,8 +26,8 @@ pub(crate) use actions::host_test_shims;
 #[cfg(test)]
 #[allow(unused_imports)]
 pub(crate) use actions::{
-    handle_close_modal, handle_ctrl_c, handle_esc_interrupt, handle_modal_down, handle_modal_up,
-    handle_send_slash, open_active_connection_detail,
+    InterruptTarget, handle_close_modal, handle_ctrl_c, handle_esc_interrupt, handle_modal_down,
+    handle_modal_up, handle_send_slash, open_active_connection_detail,
 };
 
 use std::io;
@@ -567,6 +567,10 @@ async fn process_one_event(
         _ => app.surfaces.active_overlay(),
     };
     let is_responding = app.viewed_chrome().responding;
+    // Scene-local liveness for the Subagent scene's Esc interrupt (ADR-0205):
+    // the viewed child's own round state, precomputed here so it does not fight
+    // the `&mut app.input` borrow in the dispatch call below.
+    let focused_subagent_running = app.focused_subagent_running();
     let completion_kind = app.completion_kind();
     let active_sheet = keyboard_path.iter().find_map(|key| match key {
         crate::ui::UiKey::Sheet(kind) => Some(*kind),
@@ -691,6 +695,7 @@ async fn process_one_event(
                 surface_overrides: app.surface_overrides.clone(),
                 focused_target: has_focused_target,
                 transcript_focused,
+                focused_subagent_running,
             },
             &mut app.drag,
         )

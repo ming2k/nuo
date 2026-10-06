@@ -190,8 +190,8 @@ opt-in per component.
 ### 5. Give notices and command entries disclosure markers for visual uniformity
 
 *Why rejected*: A `+`/`-` marker is a promise that the body folds. Neither
-entry has a folding state to honor (ADR-0111 ratified marker-free command
-entries), so adding the marker would create the very affordance gap this ADR
+entry has a folding state to honor (command entries are designed marker-free), so
+adding the marker would create the very affordance gap this ADR
 exists to close — a control that looks operable and isn't. Uniformity of
 *meaning* is preserved by the shared severity glyph and header contract;
 uniformity of *glyph* is not a goal.

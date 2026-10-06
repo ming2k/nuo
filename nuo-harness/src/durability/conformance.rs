@@ -1,4 +1,4 @@
-//! The durability port's conformance suite (ADR-0303 §4).
+//! The durability port's conformance suite.
 //!
 //! "Hydration parity is tested, not assumed": any store used with the kernel must
 //! pass this suite, and the suite *is* the definition of a valid sink. The
@@ -9,7 +9,7 @@
 //!
 //! The suite drives a sink through a [`FactSink`] and a hydration function the
 //! host supplies, because the kernel cannot know how a host reads its own store
-//! (ADR-0303 §3: hydration is an input). A host test is then three lines:
+//! (hydration is an input). A host test is then three lines:
 //!
 //! ```ignore
 //! let report = run_conformance(&MySink::new(), |expected| {
@@ -354,8 +354,8 @@ mod tests {
     async fn the_null_sink_passes_every_check_that_does_not_require_storage() {
         // `NullSink` stores nothing, so it cannot pass hydration — and the suite
         // must say exactly that rather than pass it by accident. This is the
-        // distinction between "conformant store" and "legal sink": ADR-0303
-        // `[INV-DURABILITY-05]` makes the null sink legal, not conformant.
+        // distinction between "conformant store" and "legal sink": the contract
+        // makes the null sink legal, not conformant.
         let report = run_conformance(
             "instance-conformance",
             &crate::durability::NullSink,

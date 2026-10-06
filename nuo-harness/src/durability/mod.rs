@@ -1,5 +1,5 @@
 //! The kernel's durability port: where a fact batch goes, and what the kernel
-//! is allowed to claim about it (ADR-0303 §2).
+//! is allowed to claim about it.
 
 use futures::future::BoxFuture;
 use nuo_wire::SessionDelta;

@@ -1,5 +1,5 @@
 ---
-id: ADR-0301
+id: ADR-0023
 title: "Scene-Namespace Palette Entry, Standing Head Legend, and Borderless Elevation Popups"
 status: accepted
 date: 2026-10-06
@@ -8,23 +8,22 @@ superseded_by: null
 negative_knowledge: true
 ---
 
-# 0301. Scene-Namespace Palette Entry, Standing Head Legend, and Borderless Elevation Popups
+# 0023. Scene-Namespace Palette Entry, Standing Head Legend, and Borderless Elevation Popups
 
 - Status: Accepted
 - Date: 2026-10-06
 - Deciders: Nuo Architecture Working Group
 - Consulted: TUI, Interaction, and Design-System maintainers
 - Informed: System Architects
-- Amends: ADR-0298 §3 (row-2 legend), ADR-0104 (demand-driven row 2), ADR-0238
-  (chrome-vs-dispatch keycap honesty)
-- Amended by: ADR-0302 §2 (row 2 now carries the scene name + scene context +
+- Amends: row-2 legend demand-gating, Command Palette entry unification, and chrome-vs-dispatch keycap honesty
+- Amended by: [ADR-0024](0024-two-row-head-band-session-identity-and-scene-row.md) §2 (row 2 now carries the scene name + scene context +
   run-mode flags, with the `C-x menu` pair still standing on every scene)
 
 ---
 
 ## Context and Problem Statement
 
-The `Ctrl+X` **scene namespace** (ADR-0298) introduced a two-stroke prefix whose
+The `Ctrl+X` **scene namespace** introduced a two-stroke prefix whose
 verbs are resolved *before* scene and modal dispatch, so a namespace verb fires
 from **every** context — top level, behind a dialog, behind a sheet. The
 Command Palette / surface switcher is one of those verbs (`C-x p`), and the
@@ -50,13 +49,12 @@ Two frictions followed:
 
 1. **Two entry points, one of them impaired.** `Ctrl-L` was a shadow path that
    behaved differently depending on the foreground — precisely the kind of
-   context-sensitive divergence ADR-0238 exists to stamp out. The namespace
-   entry (`C-x p`) is the genuinely universal one.
+   context-sensitive divergence. The namespace entry (`C-x p`) is the genuinely universal one.
 2. **Chrome told the wrong story.** The palette affordance lived as a
    right-aligned `Ctrl-l palette` keycap on the *session head's* row 1, so the
    shortcut appeared only on the main view and named a chord that was not the
-   canonical one. Row 2 — the proper home for view affordances (ADR-0103 §3) —
-   was demand-gated (ADR-0104) and showed the namespace pair only on
+   canonical one. Row 2 — the proper home for view affordances —
+   was demand-gated and showed the namespace pair only on
    breadcrumb / settings / dashboard pages.
 3. **Popups drew edge lines.** The floating which-key card, dropdown, popover,
    and tooltip all rendered explicit box borders even on modern
@@ -74,13 +72,13 @@ and, under [INV-AGENT-01], records the rejected alternatives.
 ## Decision Drivers
 
 - **One entry point, one behaviour**: a shortcut must mean the same thing in
-  every context, or chrome cannot advertise it honestly (ADR-0238).
+  every context, or chrome cannot advertise it honestly.
 - **Discoverability**: the palette is the app's discovery surface; its entry
   point must be visible on every scene, not just the main view.
 - **Visual consistency**: popups should follow the same elevation language as
   toasts, not a per-component stroke decision.
 - **Terminal independence**: the treatment must degrade correctly on ANSI-16
-  and monochrome terminals (ADR-0003 / ADR-0181).
+  and monochrome terminals ([ADR-0003](0003-autonomous-terminal-canvas-substrate-nuotc.md)).
 - **No silent regressions**: retiring a chord must not make it insert a literal
   character (control characters fall through to the printable-insert arm unless
   explicitly swallowed).
@@ -134,7 +132,7 @@ palette / switcher). Scene-specific segments (the aside chip, the breadcrumb)
 lead it. Only the unreachable crumb-less aside/subagent page reports
 `false` (so a malformed hint set still paints nothing).
 
-> **Amended by ADR-0302**: row 2's scene-specific segments are now defined as
+> **Amended by ADR-0024**: row 2's scene-specific segments are now defined as
 > the **scene row** — the scene's plain lowercase name, then its context, with
 > the session's run-mode flags leading the `C-x menu` pair. The aside chip and
 > the `Main › …` breadcrumb are superseded by the scene name and the scene's
@@ -152,7 +150,7 @@ terminals** (TrueColor / 256-color) and read by their elevated panel background
 alone, matching the toast's visual language. On `Hybrid` (ANSI-16) and
 `Structured` (monochrome / Linux VT), where a background delta is unavailable or
 indistinct, they keep an explicit frame. This mirrors `elevation::modal_frame`'s
-existing archetype split (ADR-0181).
+existing archetype split.
 
 ### Invariants & Behavioral Boundaries
 
@@ -163,7 +161,7 @@ existing archetype split (ADR-0181).
   surface — it never inserts a literal character.
 - **INV-HINT-01**: Every reachable scene's head band renders a row-2 namespace
   pair named `menu`; chrome never advertises a chord the dispatcher does not
-  honour (ADR-0238).
+  honour.
 - **INV-POPUP-01**: On `Chromatic`, floating popups draw **no** edge glyphs;
   on `Hybrid`/`Structured` they keep a frame. The archetype — never a per-call
   boolean — is the single switch.
@@ -198,7 +196,7 @@ existing archetype split (ADR-0181).
 
 ### Option 3 (Rejected) — keep the chord and prohibition, relabel only
 - Why considered: smallest possible diff.
-- Why rejected: it preserves the exact ADR-0238 defect (a chord that means
+- Why rejected: it preserves the exact defect (a chord that means
   different things by context) and leaves the palette invisible off the main
   view.
 
@@ -211,7 +209,7 @@ existing archetype split (ADR-0181).
 
 ### Rejected sub-idea — put the namespace keycap on row 1
 - Why considered: keep the head single-row.
-- Why rejected: row 1 is identity + status (ADR-0103 §3); a navigation affordance
+- Why rejected: row 1 is identity + status; a navigation affordance
   there re-creates the exact confusion this ADR removes, and a row-1 affordance
   cannot be shared with the crumb-identified pages that already own row 2.
 
@@ -219,9 +217,9 @@ existing archetype split (ADR-0181).
 
 ## Links
 
-- Related ADRs: ADR-0298 (scene namespace), ADR-0103 §3 (row-2 legend),
-  ADR-0104 (demand-driven band), ADR-0238 (chrome-vs-dispatch honesty),
-  ADR-0181 (elevation archetypes)
+- Related ADRs: [ADR-0003](0003-autonomous-terminal-canvas-substrate-nuotc.md) (retained terminal canvas),
+  [ADR-0011](0011-nuo-tui-presentation-and-nuo-server-container.md) (TUI presentation),
+  [ADR-0024](0024-two-row-head-band-session-identity-and-scene-row.md) (two-row head band)
 - Related modules: `nuo-tui::keymap` (`scene_namespace`, registry),
   `nuo-tui::input::router`, `nuo-tui::view_header`,
   `nuo-tui::components::which_key`, `nuo-tui::components::{dropdown,popover,tooltip}`

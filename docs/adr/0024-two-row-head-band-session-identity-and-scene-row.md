@@ -1,5 +1,5 @@
 ---
-id: ADR-0302
+id: ADR-0024
 title: "Two-Row Head Band: Uniform Session-Identity Row and Scene Row"
 status: accepted
 date: 2026-10-06
@@ -8,22 +8,21 @@ superseded_by: null
 negative_knowledge: true
 ---
 
-# 0302. Two-Row Head Band: Uniform Session-Identity Row and Scene Row
+# 0024. Two-Row Head Band: Uniform Session-Identity Row and Scene Row
 
 - Status: Accepted
 - Date: 2026-10-06
 - Deciders: Nuo Architecture Working Group
 - Consulted: TUI, Interaction, and Design-System maintainers
 - Informed: System Architects
-- Amends: ADR-0301 §2 (the row-2 legend's *content*), ADR-0103 §3
-  (row-2 home for view affordances), ADR-0298 §4 (shared head band)
+- Amends: [ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md) §2 (the row-2 legend's *content*)
 
 ---
 
 ## Context and Problem Statement
 
 Every scene draws a fixed head band pinned to the terminal's top edge. After
-ADR-0301 the band was described as "identity + status on row 1, the `C-x menu`
+[ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md) the band was described as "identity + status on row 1, the `C-x menu`
 namespace legend on row 2", but in practice each scene read its rows
 differently:
 
@@ -55,7 +54,7 @@ was already surfaced in the sessions picker.
 This ADR ratifies a **uniform two-row head band**: row 1 is always the ambient
 **session identity**; row 2 is the **scene row** — the scene named plainly, its
 context, and the session's persistent run-mode flags beside the standing
-namespace pair (ADR-0301 `[INV-HINT-01]` preserved). Under [INV-AGENT-01] it
+namespace pair ([ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md) `[INV-HINT-01]` preserved). Under [INV-AGENT-01] it
 records the rejected alternatives.
 
 ---
@@ -71,7 +70,7 @@ records the rejected alternatives.
 - **Title discoverability**: the conversation's chat title should be visible in
   the head, not only in the sessions picker.
 - **Namespace discoverability**: the `C-x menu` pair stays a standing row-2
-  affordance on every scene (ADR-0301 `[INV-HINT-01]`).
+  affordance on every scene ([ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md) `[INV-HINT-01]`).
 
 ---
 
@@ -128,7 +127,7 @@ width pressure):
 Row 2's right edge carries the session's persistent run-mode flags —
 `UNATTENDED` (warning tone) when `--unattended` / `/unattended on`, and
 `UNCONFINED` (warning tone) when `/confinement off` — followed by the standing
-`C-x menu` namespace pair (ADR-0301 `[INV-HINT-01]`). The flags are session
+`C-x menu` namespace pair ([ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md) `[INV-HINT-01]`). The flags are session
 facts the user must never lose sight of, so they sit beside the namespace pair
 that is present on every scene.
 
@@ -138,7 +137,7 @@ that is present on every scene.
   session identity (on scenes that have an ambient session), row 2 the scene
   row. Row 2 always leads with the scene's plain lowercase name and always
   carries the `C-x menu` namespace pair; chrome never advertises a chord the
-  dispatcher does not honour (ADR-0238, ADR-0301 `[INV-HINT-01]`).
+  dispatcher does not honour ([ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md) `[INV-HINT-01]`).
 - **INV-HINT-03**: The session's run-mode flags (`UNATTENDED`, `UNCONFINED`)
   render on **row 2's right edge** on every scene that shows them — never on
   row 1 — so their location never migrates with the scene.
@@ -179,7 +178,7 @@ that is present on every scene.
 - Why considered: keeps the band one row and reclaims a line for the transcript.
 - Why rejected: a single row cannot carry the scene context (title / fleet
   summary / breadcrumb) *and* the identity without one crowding out the other,
-  and it re-creates the ADR-0301 confusion of mixing identity and affordance on
+  and it re-creates the confusion of mixing identity and affordance on
   one row. The two-row band's jobs are the reason it reads cleanly.
 
 ### Option 4 (Rejected) — keep the status quo, add the title to row 1
@@ -189,7 +188,7 @@ that is present on every scene.
   the title in competition with the run-mode flags for row-1 space.
 
 ### Rejected sub-idea — Title-case scene names (`Conversation`, `Dashboard`)
-- Why considered: reads as a proper noun; matches the old `SETTINGS` caps.
+- Why considered: reads as a proper noun; matches the old caps style.
 - Why rejected: the scene name is *meta* chrome (where am I), not an identity
   brand; lowercase keeps it visually subordinate to the `SESSION` identity and
   distinct from keycap labels, and matches the switcher's own lowercase hints.
@@ -198,9 +197,8 @@ that is present on every scene.
 
 ## Links
 
-- Related ADRs: ADR-0301 (scene namespace + standing legend), ADR-0298 (§4
-  shared head band), ADR-0103 §3 (row 2 for view affordances), ADR-0238
-  (chrome-vs-dispatch honesty), ADR-0022 (session title lifecycle)
+- Related ADRs: [ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md) (scene namespace + standing legend),
+  [ADR-0011](0011-nuo-tui-presentation-and-nuo-server-container.md) (TUI presentation)
 - Related modules: `nuo-tui::view_header` (`ViewHints`, `ViewKind::scene_label`,
   `SessionHead`, `parent_status_context`), `nuo-tui::render::draw_transcript`,
   `nuo-tui::event_loop::render`, `nuo-tui::overlays::dashboard`,

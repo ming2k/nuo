@@ -103,6 +103,28 @@ pub(crate) enum TranscriptEdit {
     },
     /// A tool step started (`message` is fully built and stamped).
     ToolStart { message: TranscriptMessage },
+    /// ADR-0026: announce a tool call whose name is known but whose arguments
+    /// are still streaming. Creates a `Running` step keyed by the provider
+    /// `slot`; the later whole-argument `ToolCall` collapses it onto the
+    /// dispatch-assigned call id via [`TranscriptEdit::ToolCallCollapse`].
+    ToolAnnounce {
+        /// Provider tool-call slot (the correlation key, unique per turn).
+        slot: usize,
+        /// The tool name (for the disclosure default; the step carries it too).
+        name: String,
+        /// The step to insert (call id empty until dispatch).
+        message: TranscriptMessage,
+    },
+    /// ADR-0026: collapse a provider-streamed announcement onto the
+    /// dispatch-assigned call id, selecting the pending step announced for
+    /// `slot`. A no-op when no announcement is pending (providers that deliver
+    /// whole arguments never announce), so the caller falls through to a normal
+    /// insert.
+    ToolCallCollapse { slot: usize, call_id: String },
+    /// ADR-0026: count-only argument-progress tick for a still-streaming call.
+    /// Resolves the announced step by `slot` and stores the byte count for the
+    /// static summary clause.
+    ToolInputProgress { slot: usize, bytes: usize },
     /// A tool step finished. Resolves by call id and applies the
     /// lifecycle-aware default disclosure; `fallback` is the synthesized
     /// finished step when no in-flight call matched (history-restored turn).
@@ -120,6 +142,10 @@ pub(crate) enum TranscriptEdit {
         id: String,
         fallback: Option<TranscriptMessage>,
     },
+    /// ADR-0026: freeze any tool step that was announced but never dispatched
+    /// (its round ended mid-arguments). `Cancelled` is the honest terminal
+    /// state; this is a safety net so an announced step can never hang.
+    FrozenOrphanToolSteps,
     /// Live partial tool output (bash stdout) accumulating into the running
     /// step.
     ToolStream { id: String, stream: ToolStream },

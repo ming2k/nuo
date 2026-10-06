@@ -2,7 +2,7 @@
 //! ports `nuo-agent` needs but must not resolve itself.
 //!
 //! Two ports, both about durable material the kernel reads or writes without
-//! owning (ADR-0300 §1, ADR-0303 §1):
+//! owning:
 //!
 //! - [`ProductRoles`] resolves a role *declaration* from `roles.toml` plus the
 //!   workspace's `.nuo/roles.toml` override, which is the product's file layout

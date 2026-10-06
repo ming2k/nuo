@@ -51,7 +51,7 @@ pub struct ContextProjectionCheckpoint {
 ///
 /// `archived_originals` are handed back rather than dropped so the caller can
 /// persist them: a projection that loses its own inputs cannot be audited, and
-/// the kernel does not own storage (ADR-0303 §1).
+/// the kernel does not own storage (storage is host-owned).
 #[derive(Debug, Clone)]
 pub struct ContextProjectionResult {
     pub model_window: Vec<crate::Message>,

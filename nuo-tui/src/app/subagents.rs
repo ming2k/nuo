@@ -317,6 +317,31 @@ impl App {
         self.current_scene() == crate::surfaces::SceneKind::TaskInspection
     }
 
+    /// The parent tool-call id of the subagent the zoom is focused on — the top
+    /// of the focus stack, which is also the addressable identity the
+    /// `SubagentRegistry` keys the live child by. `None` when not zoomed.
+    pub fn focused_subagent_call_id(&self) -> Option<&str> {
+        self.focus_stack.last().map(|frame| frame.call_id.as_str())
+    }
+
+    /// Whether the focused subagent task's own round is still live — the
+    /// scene-local liveness that gates the Subagent scene's `Esc` interrupt
+    /// (ADR-0205). Distinct from the primary's `is_responding`: a finished
+    /// child under a still-running parent reports `false`, so the zoom never
+    /// advertises (or fires) a primary interrupt. Derived from the step's
+    /// status, not a session-scoped mirror, because a subagent has no entry in
+    /// `running_sessions` (it runs *inside* the parent's round).
+    pub fn focused_subagent_running(&self) -> bool {
+        let Some(call_id) = self.focused_subagent_call_id() else {
+            return false;
+        };
+        self.messages.iter().any(|message| {
+            message.is_subagent_task()
+                && message.tool_step_call_id() == Some(call_id)
+                && message.tool_step_status() == Some(crate::model::document::ToolStepStatus::Running)
+        })
+    }
+
     /// The message slice currently in view: the `/btw` side transcript when
     /// the side view is active (ADR-0017), the focused subagent task's child
     /// messages when zoomed, or the root conversation otherwise.

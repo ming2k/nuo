@@ -209,17 +209,17 @@ pub struct TranscriptProps<'a> {
     pub persistence_health: Option<&'a nuo_wire::monitor::PersistenceHealth>,
     /// When set, the view is zoomed into a subagent task: `messages` is the
     /// focused task's child stream. The head band's scene row names the scene
-    /// `subagent` and carries the task's `[ROLE] label (i/n)` context (ADR-0302).
+    /// `subagent` and carries the task's `[ROLE] label (i/n)` context (ADR-0024).
     pub subagent_bar: Option<SubagentBarInfo>,
-    /// When set, the view is inside a `/btw` aside (ADR-0017/0103): the head
+    /// When set, the view is inside a `/btw` aside (ADR-0017): the head
     /// band's scene row names the scene `aside` and carries the coarse
     /// primary-session status as its context (`main running`, …).
     pub side_banner: Option<nuo_wire::ParentStatus>,
-    /// The head band's **scene row** (ADR-0302): the scene the user stands in,
+    /// The head band's **scene row** (ADR-0024): the scene the user stands in,
     /// its context, and the session's run-mode flags + the `C-x menu` namespace
     /// pair. `None` suppresses the row entirely (non-app contexts).
     pub page_hints: Option<view_header::ViewHints<'a>>,
-    /// The head band's **session-identity row** (ADR-0302), uniform across
+    /// The head band's **session-identity row** (ADR-0024), uniform across
     /// scenes: `SESSION` plus the persistent-id tail, `[ROLE]` badge, and
     /// tilde-shortened workspace on the left. `None` only in non-session
     /// contexts (tests/showcase) where no ambient session exists.
@@ -697,11 +697,11 @@ pub fn draw_transcript(
         };
     }
 
-    // The head band is a fixed two-row stack (ADR-0302): row 1 is the ambient
+    // The head band is a fixed two-row stack (ADR-0024): row 1 is the ambient
     // **session identity** (`SESSION`, id tail, `[ROLE]` badge, workspace),
     // uniform on every scene; row 2 is the **scene row** — the scene the user
     // stands in named plainly, the scene's own context, and the session's
-    // run-mode flags plus the standing `C-x menu` namespace pair (ADR-0301
+    // run-mode flags plus the standing `C-x menu` namespace pair (ADR-0023
     // `[INV-HINT-01]`). `page_hints` is pre-resolved by the caller (it needs
     // app-level state — the scene kind and its context).
     let page_hints_view = page_hints.filter(|hints: &ViewHints<'_>| hints.has_content());

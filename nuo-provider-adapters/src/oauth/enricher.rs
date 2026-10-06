@@ -24,7 +24,7 @@ pub trait OAuthTokenEnricher: Send + Sync {
     /// before the login — `None` on a first login. It exists so an enricher can
     /// preserve durable identity material across a re-login without reaching for
     /// a store of its own: the caller owns the store, the enricher owns the
-    /// policy (ADR-0303 §1).
+    /// policy.
     async fn on_login_success(
         &self,
         client: &crate::http::Http,

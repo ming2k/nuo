@@ -170,12 +170,12 @@ pub struct DashboardProps<'a> {
     // The frame-level caret verdict (ADR-0205): the inline prompt borrows the
     // composer buffer but owns the cursor through this scene's own footer band.
     pub show_caret: bool,
-    /// The session identity for the head band's top row (ADR-0302): the band is
+    /// The session identity for the head band's top row (ADR-0024): the band is
     /// uniform across scenes, so the dashboard draws the same `SESSION` row as
     /// the conversation. `None` hides row 1 (the body then starts at row 0).
     pub session_head: Option<SessionHead<'a>>,
     /// The session's persistent run-mode flags for the head band's scene row
-    /// (ADR-0302): unattended execution and confinement. Mirrors the ambient
+    /// (ADR-0024): unattended execution and confinement. Mirrors the ambient
     /// session state the conversation scene reads from `App`.
     pub unattended: bool,
     pub confined: bool,
@@ -219,7 +219,7 @@ pub fn draw_dashboard(
     let area = viewport_rect(frame);
     let tier = LayoutTier::from_rect(area, theme.elevation);
     /// The shared head band's height: session-identity row + scene row
-    /// (ADR-0302).
+    /// (ADR-0024).
     const BAND_ROWS: u16 = 2;
     let body = Rect {
         y: area.y.saturating_add(BAND_ROWS),
@@ -305,7 +305,7 @@ pub fn draw_dashboard(
         };
 
     // The head band, drawn by the shared renderer so the dashboard is
-    // chrome-identical to every other scene (ADR-0298 §4 / ADR-0302). Row 1 is
+    // chrome-identical to every other scene (ADR-0024). Row 1 is
     // the uniform session identity; row 2 names the scene (`dashboard`) and
     // carries the live fleet summary as its context, with the session's
     // run-mode flags and the namespace pair on the right.
@@ -372,7 +372,7 @@ pub fn draw_dashboard(
 ///
 /// The rows themselves are drawn by [`crate::render::draw_view_header`] and
 /// [`crate::render::draw_view_header_hints`] — the same band every other scene
-/// uses (ADR-0298 §3 / ADR-0302: one head, one scene row). This function only
+/// uses (ADR-0024: one head, one scene row). This function only
 /// computes the dashboard's own context string and its attention flag.
 fn header_content(rows: &[MonitoredSession]) -> (String, bool) {
     let needing = rows
@@ -1412,7 +1412,7 @@ fn console_lines(
 mod tests {
     use super::*;
 
-    /// ADR-0302: the dashboard carries the same two-row head band as every
+    /// ADR-0024: the dashboard carries the same two-row head band as every
     /// other scene — row 1 the uniform session identity, row 2 the scene name
     /// (`dashboard`) with the live fleet summary as its context and the
     /// namespace pair on the right. This pins the rendered rows end to end,

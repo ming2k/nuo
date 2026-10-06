@@ -71,6 +71,21 @@ pub(crate) const QUOTE_PREFIX_COLS: usize = 5;
 /// the rendered width and [`QUOTE_PREFIX_COLS`] can never disagree.
 pub(crate) const QUOTE_PREFIX: &str = "   ▎ ";
 
+/// Lead glyph on an answered question's selected-option row inside an expanded
+/// `ask_user` step. The rightward hook visually ties each answer back to the
+/// question above it, so a multi-question request reads as a Q→A list rather
+/// than two independent columns of text. Only the *first* selected option of a
+/// question carries it; further options align under the label column so a
+/// multi-select answer reads as one block.
+pub(crate) const QUESTION_ANSWER_GLYPH: &str = "↳";
+
+/// Columns between the answer glyph and the selected label text.
+pub(crate) const QUESTION_ANSWER_GAP_COLS: usize = 1;
+
+/// Separator between a question's short `header` chip, its text, and its
+/// option-count meta on one rendered line (`Scope · … (2 options)`).
+pub(crate) const QUESTION_META_SEPARATOR: &str = " · ";
+
 /// Vertical chrome rows around a sent user message panel: one top transition
 /// row and one bottom transition row.
 pub(crate) const USER_MESSAGE_TRANSITION_ROWS: usize = 1;
@@ -195,7 +210,7 @@ pub(crate) const FOOTER_TOP_GAP_ROWS: u16 = 0;
 /// Settings all share this single chrome slot. Row 1 is always the ambient
 /// **session identity**; row 2 is the **scene row** — the scene the user
 /// stands in, named plainly, with its context and the session's run-mode flags
-/// plus the standing `C-x menu` namespace pair (ADR-0302, amending ADR-0301).
+/// plus the standing `C-x menu` namespace pair (ADR-0024, amending ADR-0023).
 /// The band is two rows on every reachable scene (`ViewHints::has_content` is
 /// always `true`); it halves to a single row only for non-session contexts
 /// (tests/showcase) that supply no `session_head`.

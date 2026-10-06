@@ -1451,6 +1451,7 @@ fn esc_preserves_recalled_history_and_interrupts_when_running() {
         surface_overrides: Default::default(),
         focused_target: false,
         transcript_focused: false,
+        focused_subagent_running: false,
     };
 
     let mut input = "recalled command with edits".to_string();
