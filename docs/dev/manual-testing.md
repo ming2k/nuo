@@ -72,7 +72,7 @@ rm -rf "$NUO_HOME"
   ```
 - **Expected Outcome**:
   - Help text renders cleanly with accurate usage patterns, subcommands, and environment variable documentation (`NUO_HOME`, `NUO_PORT`).
-  - Version strings print matching the workspace version (e.g., `0.0.4`).
+  - Version strings print matching the workspace version (e.g., `0.0.5`).
   - Commands exit with status `0`.
 
 #### Scenario 1.2: Shell Completions Generation
@@ -289,12 +289,32 @@ rm -rf "$NUO_HOME"
   - Press `Enter` and `Space` on a focused notice (e.g. a provider-retry entry).
 - **Expected Outcome**:
   - Every summary that shows a `+`/`-` marker is focusable, clickable, and
-    lights up with the affordance hue on hover/focus (ADR-0174).
+    lights up with the affordance hue on hover/focus (ADR-0020).
   - The compaction card toggles on click and on `Enter`/`Space`; its hint names
     only those chords.
   - Notices and command entries carry no `+`/`-` marker — their body is fully
     disclosed — and neither advertises a folding chord.
   - A click on prose selects text rather than toggling anything.
+
+#### Scenario 4.7: `ask_user` Steps Render as a Question→Answer List
+- **Action**:
+  - Prompt the agent so it calls `ask_user` with more than one question (e.g.
+    "Ask me two questions to pin down the scope before you start"). Answer the
+    questions, then expand the resulting step (`Enter` / click its summary).
+  - Repeat, but cancel the question sheet (`Esc`) instead of answering.
+- **Expected Outcome**:
+  - The collapsed header is **count-led** (`Ask 2 questions · Scope · Layout`
+    when the questions carry `header` chips; `Ask 1 question` when they do not)
+    and never privileges one question over the others.
+  - The expanded body is a question→answer list, **not** a JSON blob: each
+    question shows its header chip (if any) and its text with an option-count tag
+    (`Which layout pieces? (3 options, multi-select)`), with the selected labels
+    on dim `↳` rows beneath it.
+  - A multi-select answer lists each pick; continuations align under the first
+    label rather than repeating the `↳` glyph.
+  - A cancelled request renders `↳ cancelled — no answer` — never an empty array.
+  - Selecting the block and copying yields the questions and answers in reading
+    order (the option-count tag is decoration and is not copied).
 
 ---
 
