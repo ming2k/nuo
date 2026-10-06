@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-10-06
+
 ### Changed
 
 - **Client-lifecycle-bound daemon, explicit foreground headless host, and aggressive interface takeover (ADR-0029).**
