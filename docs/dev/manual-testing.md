@@ -72,7 +72,7 @@ rm -rf "$NUO_HOME"
   ```
 - **Expected Outcome**:
   - Help text renders cleanly with accurate usage patterns, subcommands, and environment variable documentation (`NUO_HOME`, `NUO_PORT`).
-  - Version strings print matching the workspace version (e.g., `0.0.5`).
+  - Version strings print matching the workspace version (e.g., `0.0.6`).
   - Commands exit with status `0`.
 
 #### Scenario 1.2: Shell Completions Generation

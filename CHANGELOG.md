@@ -8,6 +8,39 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-10-06
+
+### Changed
+
+- **Canonical, strongly-typed built-in tool identity (`BuiltinTool`).** The
+  native tools are now enumerated once in `nuo_tool::BuiltinTool` (re-exported
+  through `nuo-wire`) and tool identity — `Tool::name`, role and subagent
+  whitelists, capability admission, and the TUI's verb/expansion tables — keys
+  off the enum instead of raw strings. This removes silent misspellings,
+  phantom tools, and registration drift across crates. New surface:
+  `Tool::builtin`, `Capability::admits`, `ToolScope::admits_builtin` /
+  `admits_tool`, `ToolSelection::only_builtin`,
+  `SessionRoleManifest::builtin_tools`, and typed `ToolPolicy::allowed_tools`.
+- **Tool admission now honours aliases.** A capability is admitted when either
+  its canonical name or any registered variant alias matches the scope, so a
+  scope that names a compatibility alias still resolves the canonical tool.
+
+### Removed
+
+- **The legacy `run_command`, `bash`, and `read` tool spellings are retired.**
+  `execute_command` is the single canonical name; the shell family's old aliases
+  no longer resolve, and the trajectory guard, TUI verb/expansion policy,
+  session export, and token-pressure heuristics no longer special-case them.
+
+### Fixed
+
+- **Restored source accidentally truncated by the previous commit.** The tails
+  of `nuo-tui/src/model/document.rs` (the compaction card, command settlement,
+  and all ADR-0026 tool-step methods) and `nuo-tui/src/lib.rs` (the user-logo
+  loader and test module) were lost mid-write; the missing code and the
+  ADR-0026 announce/collapse methods are restored so the workspace builds and
+  the suite runs.
+
 ## [0.0.5] - 2026-10-08
 
 ### Added
