@@ -130,7 +130,7 @@ impl DialogKind {
             DialogKind::Queue => "/queue",
             DialogKind::Sessions => "/sessions",
             DialogKind::SessionTree => "/tree",
-            DialogKind::Switcher => "Ctrl-l",
+            DialogKind::Switcher => "C-x p",
         }
     }
 

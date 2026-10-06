@@ -164,7 +164,7 @@ mod tests {
     /// production uses, without touching the user's real `nuo.db`.
     fn writer() -> (PersistenceHandle, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
-        let handle = PersistenceHandle::spawn(tmp.path().join("muta.db"), None);
+        let handle = PersistenceHandle::spawn(tmp.path().join("nuo.db"), None);
         (handle, tmp)
     }
 

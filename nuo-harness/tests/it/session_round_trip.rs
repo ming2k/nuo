@@ -30,7 +30,7 @@ use nuo_harness::orchestration::{
 use nuo_persistence::session::SessionStore;
 
 /// Concatenation of the chunks emitted by [`TestStreamProvider::stream_chat`].
-const MOCK_REPLY: &str = "This is a streaming mock response from muta!";
+const MOCK_REPLY: &str = "This is a streaming mock response from nuo!";
 
 /// Minimal provider whose `stream_chat` emits `MOCK_REPLY` in chunks.
 struct TestStreamProvider;
@@ -62,7 +62,7 @@ impl Provider for TestStreamProvider {
             "mock ",
             "response ",
             "from ",
-            "muta!",
+            "nuo!",
         ];
         Ok(futures::stream::iter(chunks.into_iter().map(|c| Ok(c.to_string()))).boxed())
     }
@@ -71,7 +71,7 @@ impl Provider for TestStreamProvider {
 #[tokio::test]
 async fn execute_round_persists_a_session_that_resume_reopens() {
     let directory = std::env::temp_dir().join(format!(
-        "muta-it-session-roundtrip-{}",
+        "nuo-it-session-roundtrip-{}",
         uuid::Uuid::new_v4()
     ));
     let session_path = directory.join("session.json");

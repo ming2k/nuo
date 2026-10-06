@@ -43,6 +43,36 @@ pub const MODELS: &[Model] = &[
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
     },
+    // CommandCode names its models `vendor/model`, and the server resolves the
+    // upstream family per turn (ADR-0014): a declared `deepseek/deepseek-v4-flash`
+    // is served as `deepseek-v4.1-flash` (`x-cli-constants.featureLaneModels`
+    // lists both `deepseek-v4.1-flash` and `deepseek-v4-pro` as real ids). These
+    // two siblings therefore need their own baseline entries — without one, an id
+    // nothing else registers falls through to `fallback_model`, whose empty
+    // `effort_levels` collapses the picker's effort slider (the id is
+    // selectable but its depth is not adjustable).
+    Model {
+        id: "deepseek/deepseek-v4.1-flash",
+        family: "deepseek",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: false,
+        protocol: WireProtocol::ChatCompletions,
+        model_guidance: "",
+        effort_levels: effort_ladders::LOW_HIGH_MAX,
+    },
+    Model {
+        id: "deepseek/deepseek-v4-pro",
+        family: "deepseek",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: false,
+        protocol: WireProtocol::ChatCompletions,
+        model_guidance: "",
+        effort_levels: effort_ladders::LOW_HIGH_MAX,
+    },
 ];
 
 inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));

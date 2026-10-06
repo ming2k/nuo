@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn atomic_write_round_trips_and_removes_tmp() {
-        let dir = std::env::temp_dir().join(format!("muta-fsutil-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("nuo-fsutil-{}", uuid::Uuid::new_v4()));
         let path = dir.join("payload.json");
         atomic_write_json(&path, &Sample { name: "ok", n: 7 }).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -180,7 +180,7 @@ mod tests {
     #[test]
     fn atomic_write_sets_owner_only_permissions() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("muta-fsutil-{}-perm", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("nuo-fsutil-{}-perm", uuid::Uuid::new_v4()));
         let path = dir.join("secret.json");
         atomic_write_json(&path, &Sample { name: "k", n: 1 }).unwrap();
         let file_mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn atomic_write_overwrites_existing() {
-        let dir = std::env::temp_dir().join(format!("muta-fsutil-{}-2", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("nuo-fsutil-{}-2", uuid::Uuid::new_v4()));
         let path = dir.join("payload.json");
         atomic_write_json(&path, &Sample { name: "v1", n: 1 }).unwrap();
         atomic_write_json(&path, &Sample { name: "v2", n: 2 }).unwrap();
@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn concurrent_atomic_writers_use_disjoint_temporary_files() {
         let dir =
-            std::env::temp_dir().join(format!("muta-fsutil-{}-concurrent", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("nuo-fsutil-{}-concurrent", uuid::Uuid::new_v4()));
         let path = dir.join("payload.json");
         let payloads = (0..16)
             .map(|index| format!("writer-{index}:{}", "x".repeat(16_384)))

@@ -136,7 +136,7 @@ impl SystemOpener {
 /// Detect if running in a headless (SSH, no display, container) environment.
 pub fn is_headless() -> bool {
     // Explicit headless override
-    if std::env::var_os("MUTA_HEADLESS").is_some() {
+    if std::env::var_os("NUO_HEADLESS").is_some() {
         return true;
     }
 

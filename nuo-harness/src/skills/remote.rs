@@ -36,7 +36,7 @@ pub struct RemoteSkillIndex {
 }
 
 /// Directory where remote skill repos are cached. Resolved via the project's
-/// central XDG `Dirs` so `--cache-dir` / `$XDG_CACHE_HOME` / `MUTA_CACHE_DIR`
+/// central XDG `Dirs` so `--cache-dir` / `$XDG_CACHE_HOME` / `NUO_CACHE_DIR`
 /// overrides all land in one place. See ADR-0013.
 pub fn remote_cache_root() -> PathBuf {
     paths::get().remote_skills_cache()
@@ -75,7 +75,7 @@ impl Fetcher {
                 connector,
                 netune::Pool::default(),
                 netune::ClientConfig {
-                    user_agent: "muta/0.1 (+ai-coding-agent)".to_string(),
+                    user_agent: format!("nuo/{} (+ai-coding-agent)", env!("CARGO_PKG_VERSION")),
                     ..Default::default()
                 },
             ),
@@ -243,7 +243,7 @@ mod tests {
         // one valid (has SKILL.md) and one incomplete. Verify the path
         // helpers produce the expected structure.
         let tmp = std::env::temp_dir().join(format!(
-            "muta-skill-cache-test-{}",
+            "nuo-skill-cache-test-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

@@ -62,7 +62,7 @@ async fn prehosted_with_catalog(
     // needs its own directory: the
     // atomic-write path chmods the *parent* private (0700), which fails
     // with EPERM on the shared root-owned /tmp itself.
-    let state_dir = std::env::temp_dir().join(format!("muta-serve-it-{}", uuid::Uuid::new_v4()));
+    let state_dir = std::env::temp_dir().join(format!("nuo-serve-it-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&state_dir).unwrap();
     let security = Arc::new(
         nuo_persistence::workspace_security::WorkspaceSecurityStore::load_from(
@@ -103,7 +103,7 @@ async fn prehosted_with_catalog(
     });
     registry
         .host(HostedSession {
-            workspace_root: Some(std::path::PathBuf::from("/tmp/muta-test-project")),
+            workspace_root: Some(std::path::PathBuf::from("/tmp/nuo-test-project")),
             human_channel: std::sync::Arc::new(
                 nuo_wire::human_request::HumanChannelAccountant::new(),
             ),
@@ -609,8 +609,8 @@ async fn unknown_id_is_an_error() {
 #[tokio::test]
 async fn select_project_scopes_auto_attach() {
     let registry = Arc::new(SessionRegistry::prehost_only());
-    let project_a = std::env::temp_dir().join(format!("muta-scope-a-{}", uuid::Uuid::new_v4()));
-    let project_b = std::env::temp_dir().join(format!("muta-scope-b-{}", uuid::Uuid::new_v4()));
+    let project_a = std::env::temp_dir().join(format!("nuo-scope-a-{}", uuid::Uuid::new_v4()));
+    let project_b = std::env::temp_dir().join(format!("nuo-scope-b-{}", uuid::Uuid::new_v4()));
     let id_a = host_with_project(&registry, project_a.clone()).await;
     let _id_b = host_with_project(&registry, project_b).await;
 
@@ -652,7 +652,7 @@ async fn select_project_scopes_auto_attach() {
 async fn select_without_project_falls_back_to_daemon_cwd() {
     let cwd = std::env::current_dir().unwrap();
     let sessions_dir = cwd.join("sessions");
-    let elsewhere = std::env::temp_dir().join(format!("muta-scope-c-{}", uuid::Uuid::new_v4()));
+    let elsewhere = std::env::temp_dir().join(format!("nuo-scope-c-{}", uuid::Uuid::new_v4()));
     let elsewhere_sessions = elsewhere.join("sessions");
     let _ = std::fs::remove_dir_all(&sessions_dir);
 
@@ -700,15 +700,15 @@ async fn select_without_project_falls_back_to_daemon_cwd() {
 /// Regression (the "wrong workspace" bug): a client that *declared* its
 /// project must never be silently auto-bound to the daemon's one hosted
 /// session when that session belongs to a different project. Launching
-/// `mutx attach` from project A with only project B's session live used to
+/// `nuo attach` from project A with only project B's session live used to
 /// attach straight into B's session — the model then read and edited B while
 /// the header showed A. The declared-project client now gets the picker; the
 /// cross-project session remains an explicit choice.
 #[tokio::test]
 async fn declared_project_is_never_auto_bound_to_a_foreign_session() {
     let registry = Arc::new(SessionRegistry::prehost_only());
-    let project_a = std::env::temp_dir().join(format!("muta-scope-d-{}", uuid::Uuid::new_v4()));
-    let project_b = std::env::temp_dir().join(format!("muta-scope-e-{}", uuid::Uuid::new_v4()));
+    let project_a = std::env::temp_dir().join(format!("nuo-scope-d-{}", uuid::Uuid::new_v4()));
+    let project_b = std::env::temp_dir().join(format!("nuo-scope-e-{}", uuid::Uuid::new_v4()));
     let id_b = host_with_project(&registry, project_b.clone()).await;
 
     let mut handle = serve::start_server(serve::ServeOptions::default(), registry);
@@ -1272,7 +1272,7 @@ async fn host_bare(
     let id = session.id().await;
     registry
         .host(HostedSession {
-            workspace_root: Some(std::env::temp_dir().join("muta-reaper-project")),
+            workspace_root: Some(std::env::temp_dir().join("nuo-reaper-project")),
             human_channel: std::sync::Arc::new(
                 nuo_wire::human_request::HumanChannelAccountant::new(),
             ),
@@ -1299,7 +1299,7 @@ async fn host_bare(
 
 /// A fresh project dir + SessionStore that has never persisted (empty).
 fn fresh_empty_store(tag: &str) -> (std::path::PathBuf, Arc<SessionStore>) {
-    let dir = std::env::temp_dir().join(format!("muta-reaper-{tag}-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("nuo-reaper-{tag}-{}", uuid::Uuid::new_v4()));
     // `for_path` keeps every artifact under the throwaway dir; nothing lands
     // in the real XDG project bucket.
     let store = Arc::new(SessionStore::for_path(dir.join("session.json")));
@@ -2115,7 +2115,7 @@ async fn changed_workspace_keeps_banner_escalation_on_attach() {
 #[tokio::test]
 async fn second_client_attach_receives_complete_non_drained_sync_state() {
     let session = Arc::new(SessionStore::load_for_project(std::path::PathBuf::from(
-        "/tmp/muta-test-multi-attach",
+        "/tmp/nuo-test-multi-attach",
     )));
     let (registry, _req_rx, bc_tx) = prehosted(session.clone()).await;
 
@@ -2216,7 +2216,7 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
 #[tokio::test]
 async fn bounded_request_ingress_sheds_load_with_server_busy() {
     let session = Arc::new(SessionStore::load_for_project(std::path::PathBuf::from(
-        "/tmp/muta-test-overload",
+        "/tmp/nuo-test-overload",
     )));
     // Intentionally do NOT drain _req_rx so the bounded channel fills up
     let (registry, _req_rx, _bc_tx) = prehosted(session.clone()).await;

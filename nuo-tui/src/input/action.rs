@@ -495,7 +495,7 @@ pub enum InputAction {
     },
     /// Open the `/btw` asides list modal (ADR-0103 §5). Mapped from F5.
     OpenBtwList,
-    /// Open the global view quick switcher (ADR-0139, `Ctrl+L`). A transient
+    /// Open the global view quick switcher (ADR-0139, `C-x p`). A transient
     /// chooser over every browse surface: open views first in MRU order,
     /// then the rest as discovery. Esc closes it with nothing changed.
     ViewSwitcherToggle,

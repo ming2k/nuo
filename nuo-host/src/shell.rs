@@ -111,7 +111,7 @@ impl ShellDialect {
             }
             Self::PowerShell => {
                 format!(
-                    "{}\r\n$__muta_ec = if ($null -ne $LASTEXITCODE) {{ $LASTEXITCODE }} elseif ($?) {{ 0 }} else {{ 1 }}; Write-Output \"`r`n{}:$__muta_ec`r`n\"\r\n",
+                    "{}\r\n$__nuo_ec = if ($null -ne $LASTEXITCODE) {{ $LASTEXITCODE }} elseif ($?) {{ 0 }} else {{ 1 }}; Write-Output \"`r`n{}:$__nuo_ec`r`n\"\r\n",
                     command, sentinel_id
                 )
             }
@@ -225,7 +225,7 @@ mod tests {
     fn powershell_sentinel_format() {
         let formatted =
             ShellDialect::PowerShell.format_sentinel_command("Write-Output test", "TOKEN123");
-        assert!(formatted.contains("TOKEN123:$__muta_ec"));
+        assert!(formatted.contains("TOKEN123:$__nuo_ec"));
         assert!(formatted.contains("Write-Output"));
     }
 

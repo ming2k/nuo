@@ -18,14 +18,14 @@ use nuo_persistence::paths;
 pub const DEFAULT_SERVE_PORT: u16 = 9800;
 
 /// The port a daemon binds when no `--port` was given, honouring
-/// `MUTA_PORT` (ADR-0121): an isolated instance — `MUTA_HOME` sandbox,
+/// `NUO_PORT` (ADR-0121): an isolated instance — `NUO_HOME` sandbox,
 /// second user session, container — must not fight the host daemon over the
 /// well-known port. Explicit `--port` still wins over the env var. An
 /// unparsable value falls back to the well-known default (an env var is
 /// ambient configuration; failing the daemon over a typo would be worse
 /// than the collision it prevents).
 pub fn env_default_port() -> u16 {
-    std::env::var("MUTA_PORT")
+    std::env::var("NUO_PORT")
         .ok()
         .and_then(|raw| raw.trim().parse::<u16>().ok())
         .unwrap_or(DEFAULT_SERVE_PORT)
@@ -692,13 +692,13 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
 ///
 /// # Verbosity
 ///
-/// `MUTA_LOG` controls the level. Recognised values:
+/// `NUO_LOG` controls the level. Recognised values:
 /// - `off` — disable tracing entirely (no file, no guard).
 /// - `error` / `warn` / `info` / `debug` / `trace` — global level.
 /// - _unrecognised / unset_ — defaults to `info`.
 ///
 /// `RUST_LOG` still takes precedence per-target when set (e.g.
-/// `RUST_LOG=nuo=debug,muta_runtime=trace`), because
+/// `RUST_LOG=nuo=debug,nuo_server=trace`), because
 /// `EnvFilter::try_from_default_env` is consulted first. This keeps the
 /// familiar `RUST_LOG` ergonomics for fine-grained filtering while giving a
 /// sane always-on default out of the box.
@@ -706,8 +706,8 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
 /// The returned guard flushes the non-blocking writer on drop and must live
 /// for the whole process (main binds it to a local).
 pub fn init_tracing() -> Option<WorkerGuard> {
-    // Level via MUTA_LOG; "off" disables tracing entirely.
-    let level = std::env::var("MUTA_LOG").unwrap_or_else(|_| String::from("info"));
+    // Level via NUO_LOG; "off" disables tracing entirely.
+    let level = std::env::var("NUO_LOG").unwrap_or_else(|_| String::from("info"));
     if level.eq_ignore_ascii_case("off") {
         return None;
     }
@@ -723,11 +723,11 @@ pub fn init_tracing() -> Option<WorkerGuard> {
 
     let (writer, guard) = tracing_appender::non_blocking(RetainedRollingFile::new(
         dir.clone(),
-        "muta.log",
+        "nuo.log",
         crate::log_rotate::retention_from_env(),
     ));
 
-    // Per-target RUST_LOG wins; otherwise apply the MUTA_LOG level to the
+    // Per-target RUST_LOG wins; otherwise apply the NUO_LOG level to the
     // nuo crates and keep everything else quiet.
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         let l = level.to_ascii_lowercase();
@@ -735,7 +735,7 @@ pub fn init_tracing() -> Option<WorkerGuard> {
             .then_some(l.as_str())
             .unwrap_or("info");
         tracing_subscriber::EnvFilter::new(format!(
-            "muta={lvl},nuo_wire={lvl},muta_runtime={lvl}"
+            "nuo={lvl},nuo_wire={lvl},nuo_server={lvl}"
         ))
     });
     tracing_subscriber::fmt()
@@ -743,7 +743,7 @@ pub fn init_tracing() -> Option<WorkerGuard> {
         .with_writer(writer)
         .with_ansi(false)
         .init();
-    tracing::info!(log_dir = %dir.display(), level = %level, "muta tracing initialised");
+    tracing::info!(log_dir = %dir.display(), level = %level, "nuo tracing initialised");
     Some(guard)
 }
 

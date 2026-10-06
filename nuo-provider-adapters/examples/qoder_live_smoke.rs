@@ -34,7 +34,7 @@ impl nuo_model_codec::CredentialSource for StoreSource {
 #[tokio::main]
 async fn main() {
     let auth_toml =
-        std::fs::read_to_string(std::path::Path::new(env!("HOME")).join(".local/state/muta/auth.toml"))
+        std::fs::read_to_string(std::path::Path::new(env!("HOME")).join(".local/state/nuo/auth.toml"))
             .expect("auth store");
     // Scope the grab to the qoder connection's TOML section: the first
     // `access =` in the file may belong to another provider (e.g. ChatGPT's

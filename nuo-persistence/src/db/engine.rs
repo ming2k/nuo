@@ -6,11 +6,7 @@ impl DatabaseEngine {
     /// Open or create a database engine on a file path.
     pub(crate) fn open(db_path: &Path, blob_store: Option<BlobStore>) -> Result<Self> {
         let conn = initialize_db(db_path)?;
-        let engine = Self { conn, blob_store };
-        if db_path == crate::paths::get().db_file() {
-            let _ = engine.migrate_legacy_input_history();
-        }
-        Ok(engine)
+        Ok(Self { conn, blob_store })
     }
 
     /// Open an in-memory database engine. Test-only: the shipped surface has
@@ -1843,68 +1839,6 @@ impl DatabaseEngine {
         };
         Ok(deleted)
     }
-
-    /// Migrate legacy history.json files into SQLite and purge them from disk.
-    pub(crate) fn migrate_legacy_input_history(&self) -> usize {
-        let mut candidates = Vec::new();
-        let muta_state = crate::paths::get().state_dir;
-        candidates.push(muta_state.join("history.json"));
-        if let Some(parent) = muta_state.parent() {
-            candidates.push(parent.join("mutx").join("history.json"));
-            candidates.push(parent.join("neenee").join("history.json"));
-        }
-
-        if let Some(state_home) = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from) {
-            candidates.push(state_home.join("mutx").join("history.json"));
-            candidates.push(state_home.join("muta").join("history.json"));
-            candidates.push(state_home.join("neenee").join("history.json"));
-        } else if let Some(home) = std::env::var_os("HOME")
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-        {
-            let state_home = home.join(".local").join("state");
-            candidates.push(state_home.join("mutx").join("history.json"));
-            candidates.push(state_home.join("muta").join("history.json"));
-            candidates.push(state_home.join("neenee").join("history.json"));
-        }
-
-        candidates.sort();
-        candidates.dedup();
-
-        let mut total = 0;
-        for file in candidates {
-            if !file.exists() {
-                continue;
-            }
-            let Ok(content) = std::fs::read_to_string(&file) else {
-                continue;
-            };
-            let Ok(entries) = serde_json::from_str::<Vec<nuo_wire::HistoryEntry>>(&content)
-            else {
-                let _ = std::fs::remove_file(&file);
-                continue;
-            };
-
-            if !entries.is_empty() {
-                let count = entries.len();
-                if self.save_input_history(&entries, true).is_ok() {
-                    total += count;
-                    let _ = std::fs::remove_file(&file);
-                    info!(
-                        path = %file.display(),
-                        count,
-                        "Migrated legacy input history JSON file into SQLite nuo.db and purged file"
-                    );
-                }
-            } else {
-                let _ = std::fs::remove_file(&file);
-            }
-        }
-
-        total
-    }
-
-    // Legacy Flat-File Migration (ADR-0168)
 }
 
 // ---------------------------------------------------------------------------

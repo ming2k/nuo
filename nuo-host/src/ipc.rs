@@ -161,8 +161,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn unix_endpoint_display_is_an_explicit_uri() {
-        let endpoint = LocalEndpoint::UnixSocket(PathBuf::from("/tmp/muta.sock"));
-        assert_eq!(endpoint.to_string(), "unix:///tmp/muta.sock");
+        let endpoint = LocalEndpoint::UnixSocket(PathBuf::from("/tmp/nuo.sock"));
+        assert_eq!(endpoint.to_string(), "unix:///tmp/nuo.sock");
     }
 
     #[cfg(unix)]
@@ -189,8 +189,8 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_endpoint_display_is_an_explicit_uri() {
-        let endpoint = LocalEndpoint::WindowsNamedPipe(r"\\.\pipe\muta-test".to_string());
-        assert_eq!(endpoint.to_string(), r"npipe://\\.\pipe\muta-test");
+        let endpoint = LocalEndpoint::WindowsNamedPipe(r"\\.\pipe\nuo-test".to_string());
+        assert_eq!(endpoint.to_string(), r"npipe://\\.\pipe\nuo-test");
     }
 }
 
@@ -302,7 +302,7 @@ mod native {
             ));
         }
         Ok(LocalEndpoint::WindowsNamedPipe(format!(
-            r"\\.\pipe\muta-{sid}-{key}"
+            r"\\.\pipe\nuo-{sid}-{key}"
         )))
     }
 

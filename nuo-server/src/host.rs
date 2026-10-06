@@ -250,7 +250,7 @@ async fn run_inner(
                 Ok(lock) => Some(lock),
                 Err(_) => {
                     return RunOutcome::StartupFailed(format!(
-                        "another muta daemon is running (lock held at {})",
+                        "another nuo daemon is running (lock held at {})",
                         lock_path.display()
                     ));
                 }

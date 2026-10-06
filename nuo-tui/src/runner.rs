@@ -19,25 +19,20 @@ pub fn run_main() -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn ensure_dev_environment() {
     let is_debug_build = cfg!(debug_assertions);
-    let dev_opt_out = std::env::var("NUOX_NO_DEV")
-        .or_else(|_| std::env::var("NUOX_NO_DEV"))
+    let dev_opt_out = std::env::var("NUO_NO_DEV")
         .map(|v| v != "0")
         .unwrap_or(false);
     let dev_mode = (is_debug_build && !dev_opt_out)
-        || std::env::var("NUOX_DEV").map(|v| v != "0").unwrap_or(false)
         || std::env::var("NUO_DEV").map(|v| v != "0").unwrap_or(false)
-        || std::env::var("NUOX_DEV").map(|v| v != "0").unwrap_or(false)
-        || std::env::var("MUTA_DEV").map(|v| v != "0").unwrap_or(false)
-        || std::env::var("NUOX_DEV_TOAST").is_ok()
-        || std::env::var("NUOX_DEV_TOAST").is_ok()
-        || std::env::var("NUOX_TOAST").is_ok();
+        || std::env::var("NUO_DEV_TOAST").is_ok()
+        || std::env::var("NUO_TOAST").is_ok();
 
     if !dev_mode {
         return;
     }
 
-    // 1. Isolate home so it never conflicts with host installed nuo
-    if std::env::var_os("NUO_HOME").is_none() && std::env::var_os("MUTA_HOME").is_none() {
+    // 1. Isolate home so it never conflicts with the host-installed nuo.
+    if std::env::var_os("NUO_HOME").is_none() {
         let dev_home = if let Ok(current) = std::env::current_exe() {
             if let Some(target) = current.parent().and_then(|p| p.parent()) {
                 target.join("nuo-dev")
@@ -51,20 +46,18 @@ pub fn ensure_dev_environment() {
         let _ = std::fs::create_dir_all(&dev_home);
         unsafe {
             std::env::set_var("NUO_HOME", &dev_home);
-            std::env::set_var("MUTA_HOME", &dev_home);
         }
         let _ = nuo_host::paths::set_default(nuo_host::paths::Dirs::system());
     }
 
-    // 2. Point NUO_BIN / MUTA_BIN to local source-built nuo, building it if not yet present
+    // 2. Point NUO_BIN at the local source-built nuo, building it if not yet present.
     if std::env::var_os("NUO_BIN").is_none()
-        && std::env::var_os("MUTA_BIN").is_none()
         && let Ok(current) = std::env::current_exe()
     {
         let sibling = current.with_file_name(format!("nuo{}", std::env::consts::EXE_SUFFIX));
         if !sibling.is_file() {
             eprintln!(
-                "[nuox-dev] Local nuo binary not found at {}. Compiling via cargo...",
+                "[nuo-dev] Local nuo binary not found at {}. Compiling via cargo...",
                 sibling.display()
             );
             let status = std::process::Command::new("cargo")
@@ -73,13 +66,12 @@ pub fn ensure_dev_environment() {
             if let Ok(status) = status
                 && !status.success()
             {
-                eprintln!("[nuox-dev] Warning: Failed to build local nuo from source.");
+                eprintln!("[nuo-dev] Warning: Failed to build local nuo from source.");
             }
         }
         if sibling.is_file() {
             unsafe {
                 std::env::set_var("NUO_BIN", &sibling);
-                std::env::set_var("MUTA_BIN", &sibling);
             }
         }
     }
@@ -170,8 +162,8 @@ pub async fn run_cli_args(raw_args: &[String]) -> Result<(), Box<dyn std::error:
         }
         Mode::Settings { category } => {
             let cat_str = category.or_else(|| {
-                std::env::var("NUOX_SETTINGS_NAV")
-                    .or_else(|_| std::env::var("NUOX_SETTINGS_CATEGORY"))
+                std::env::var("NUO_SETTINGS_NAV")
+                    .or_else(|_| std::env::var("NUO_SETTINGS_CATEGORY"))
                     .ok()
             });
             let cat = cat_str
@@ -431,10 +423,10 @@ pub async fn run_attached(
             })
             .map_err(|error| format!("daemon link lost before initial prompt: {error}"))?;
         }
-        let mutx_config = crate::config::TuiConfig::load();
+        let base_config = crate::config::TuiConfig::load();
         let input_history = Vec::new();
-        let tui_config = mutx_config.clone();
-        let input_history_config = mutx_config.input_history.clone();
+        let tui_config = base_config.clone();
+        let input_history_config = base_config.input_history.clone();
         let startup_overlay =
             std::mem::replace(&mut startup_overlay_pending, crate::StartupOverlay::None);
         let exit_tx = tx.clone();
@@ -463,7 +455,7 @@ pub async fn run_attached(
         .await?;
         if let Err(error) = exit_tx.send(nuo_wire::AgentRequest::RecordInputHistory {
             entries: outcome.history,
-            dedup: mutx_config.input_history.dedup,
+            dedup: base_config.input_history.dedup,
         }) {
             tracing::error!(%error, "daemon link lost before exit history flush");
         }

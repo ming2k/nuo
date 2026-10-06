@@ -1,4 +1,4 @@
-//! The mutx embedded test suite, split by surface.
+//! The nuo embedded test suite, split by surface.
 //!
 //! Shared fixtures live here in `mod.rs`; the per-surface test groups are
 //! sibling modules.
@@ -475,15 +475,15 @@ async fn console_dispatch(app: &mut App, line: &str, create_when_bare: bool) {
 fn test_dev_toast_env_parsing() {
     // Safety: single-threaded test environment manipulation for env verification
     unsafe {
-        std::env::remove_var("NUOX_DEV_TOAST");
-        std::env::remove_var("NUOX_TOAST");
+        std::env::remove_var("NUO_DEV_TOAST");
+        std::env::remove_var("NUO_TOAST");
     }
     let res = crate::init_dev_toast();
     assert!(res.0.is_none());
     assert!(res.3.is_none());
 
     unsafe {
-        std::env::set_var("NUOX_DEV_TOAST", "ok:copied to clipboard");
+        std::env::set_var("NUO_DEV_TOAST", "ok:copied to clipboard");
     }
     let res = crate::init_dev_toast();
     assert!(res.0.is_some());
@@ -492,7 +492,7 @@ fn test_dev_toast_env_parsing() {
     assert!(res.6);
 
     unsafe {
-        std::env::set_var("NUOX_DEV_TOAST", "err:paste dropped");
+        std::env::set_var("NUO_DEV_TOAST", "err:paste dropped");
     }
     let res = crate::init_dev_toast();
     assert!(res.0.is_some());
@@ -500,7 +500,7 @@ fn test_dev_toast_env_parsing() {
     assert!(res.2);
 
     unsafe {
-        std::env::set_var("NUOX_DEV_TOAST", "warn:Esc again interrupts");
+        std::env::set_var("NUO_DEV_TOAST", "warn:Esc again interrupts");
     }
     let res = crate::init_dev_toast();
     assert!(res.3.is_some());
@@ -508,7 +508,7 @@ fn test_dev_toast_env_parsing() {
     assert_eq!(res.5, crate::model::document::NoticeSeverity::Warning);
 
     unsafe {
-        std::env::remove_var("NUOX_DEV_TOAST");
+        std::env::remove_var("NUO_DEV_TOAST");
     }
 }
 

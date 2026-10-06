@@ -24,7 +24,7 @@ pub trait UiBridge: Send + Sync {
 
 /// Initialize client logging guard.
 pub fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
-    let level = std::env::var("NUO_LOG").or_else(|_| std::env::var("MUTA_LOG")).unwrap_or_else(|_| String::from("info"));
+    let level = std::env::var("NUO_LOG").unwrap_or_else(|_| String::from("info"));
     if level.eq_ignore_ascii_case("off") {
         return None;
     }
@@ -1468,20 +1468,13 @@ fn spawn_daemon() -> Result<std::process::Child, String> {
 /// executable is preferred so a source build spawns its own freshly built
 /// binary.
 fn daemon_program() -> PathBuf {
-    if let Some(program) = std::env::var_os("NUO_BIN")
-        .or_else(|| std::env::var_os("MUTA_BIN"))
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(program) = std::env::var_os("NUO_BIN").filter(|value| !value.is_empty()) {
         return PathBuf::from(program);
     }
     if let Ok(current) = std::env::current_exe() {
         let sibling_nuo = current.with_file_name(format!("nuo{}", std::env::consts::EXE_SUFFIX));
         if sibling_nuo.is_file() {
             return sibling_nuo;
-        }
-        let sibling = current.with_file_name(format!("muta{}", std::env::consts::EXE_SUFFIX));
-        if sibling.is_file() {
-            return sibling;
         }
     }
     PathBuf::from(format!("nuo{}", std::env::consts::EXE_SUFFIX))
@@ -1507,10 +1500,10 @@ pub fn configure_daemon_detachment(command: &mut std::process::Command) {
 pub struct DaemonDiagnostics {
     /// The resolved daemon instance directory (ADR-0121): the root of every
     /// daemon runtime file this report probes. Surfaced so an operator can
-    /// see which instance — host or `MUTA_HOME` sandbox — a client is
+    /// see which instance — host or `NUO_HOME` sandbox — a client is
     /// talking about before reading anything else below.
     pub instance_dir: PathBuf,
-    /// The default port this client resolves (`--port` > `MUTA_PORT` >
+    /// The default port this client resolves (`--port` > `NUO_PORT` >
     /// 9800), for the same reason as `instance_dir`.
     pub default_port: u16,
     pub discovery_path: PathBuf,

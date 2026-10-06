@@ -51,7 +51,7 @@ async fn mock_process_subagent_scripted_response() {
             "cargo build",
             nuo_wire::execution::ProcessOutput {
                 exit_code: Some(0),
-                stdout: b"Compiling muta v0.1.0\nFinished dev target(s)".to_vec(),
+                stdout: b"Compiling nuo v0.1.0\nFinished dev target(s)".to_vec(),
                 stderr: Vec::new(),
                 timed_out: false,
             },
@@ -71,7 +71,7 @@ async fn mock_process_subagent_scripted_response() {
 
     assert!(out.is_success());
     assert_eq!(out.exit_code, Some(0));
-    assert!(out.stdout_lossy().contains("Compiling muta"));
+    assert!(out.stdout_lossy().contains("Compiling nuo"));
 }
 
 #[tokio::test]
@@ -157,7 +157,7 @@ async fn workspace_jail_middleware_blocks_sensitive_roots() {
     assert!(res.unwrap_err().contains("Security Denial"));
 
     // Tilde path outside workspace is also blocked when confined
-    let tilde_args = serde_json::json!({ "path": "~/.local/state/muta/auth.toml" });
+    let tilde_args = serde_json::json!({ "path": "~/.local/state/nuo/auth.toml" });
     let res_tilde = jail.pre_execute("search_text", &tilde_args, &env).await;
     assert!(res_tilde.is_err());
     assert!(res_tilde.unwrap_err().contains("Security Denial"));

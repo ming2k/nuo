@@ -667,7 +667,7 @@ mod tests {
         let agent = Arc::new(
             Agent::builder(Arc::new(NoProvider), Vec::new(), AgentIdentity::default()).build(),
         );
-        let dir = std::env::temp_dir().join(format!("muta-side-test-{id}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nuo-side-test-{id}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mkdir fixture");
         let store = SessionStore::for_path(dir.join(format!("{id}.json")));
         SideSession {

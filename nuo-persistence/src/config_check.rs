@@ -173,11 +173,11 @@ const LEGACY_KEYS: &[(&str, &str)] = &[
     ),
     (
         "tui",
-        "decoupled into the dedicated TUI client configuration `$XDG_CONFIG_HOME/mutx/config.toml` (ADR-0136)",
+        "decoupled into the TUI client configuration `$XDG_CONFIG_HOME/nuo/tui.toml` (ADR-0011)",
     ),
     (
         "input_history",
-        "decoupled into the dedicated TUI client configuration `$XDG_CONFIG_HOME/mutx/config.toml` (ADR-0136)",
+        "decoupled into the TUI client configuration `$XDG_CONFIG_HOME/nuo/tui.toml` (ADR-0011)",
     ),
     ("providers", "moved to `connections.toml`"),
     (
@@ -241,7 +241,7 @@ fn unknown_keys(table: &toml::Table, known: &[&str], prefix: &str) -> Vec<Config
                 message: if value.is_table() {
                     "unknown section (a typo here silently falls back to defaults)".to_string()
                 } else {
-                    "unknown key (ignored; check the spelling against `muta config list`)"
+                    "unknown key (ignored; check the spelling against `nuo config list`)"
                         .to_string()
                 },
                 is_legacy: false,

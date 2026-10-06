@@ -1,9 +1,9 @@
-# muta Tokenizer 语料库测试样本（中文）
+# nuo Tokenizer 语料库测试样本（中文）
 
 ## 概述
 
 上下文压力是根据消息列表估算的 Token 数与模型上下文窗口的比较结果，用于触发上下文修剪、摘要以及压缩。
-在 `muta-contracts` 中，分词器采用 OpenAI `cl100k_base` BPE 算法进行本地无依赖的分词计算。
+在 `nuo-contracts` 中，分词器采用 OpenAI `cl100k_base` BPE 算法进行本地无依赖的分词计算。
 
 ### 设计目标与原则
 

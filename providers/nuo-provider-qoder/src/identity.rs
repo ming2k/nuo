@@ -39,7 +39,7 @@ impl QoderRequestIdentity {
         serde_json::json!({
             "uid": self.uid,
             "aid": "",
-            "name": "Muta",
+            "name": "Nuo",
             "email": email,
             "security_oauth_token": bearer,
         })

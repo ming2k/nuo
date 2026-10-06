@@ -1335,7 +1335,7 @@ pub fn migrate_schema(conn: &mut Connection) -> Result<()> {
     if current_version > CURRENT_DB_VERSION {
         return Err(rusqlite::Error::InvalidParameterName(format!(
             "database schema v{current_version} is newer than this binary (v{CURRENT_DB_VERSION}); \
-             refusing to open — upgrade muta to work with this state"
+             refusing to open — upgrade nuo to work with this state"
         )));
     }
 
@@ -1367,7 +1367,7 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
     if current_version > CURRENT_DB_VERSION {
         return Err(rusqlite::Error::InvalidParameterName(format!(
             "database schema v{current_version} is newer than this binary (v{CURRENT_DB_VERSION}); \
-             refusing to open — upgrade muta to work with this state"
+             refusing to open — upgrade nuo to work with this state"
         )));
     }
 

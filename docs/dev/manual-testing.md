@@ -276,7 +276,7 @@ rm -rf "$NUO_HOME"
   - A component's toggle applies to **every** name that component claims, so an
     alias spelling never ignores the user's choice.
   - Toggling one component never changes another's state.
-  - `[tui.default_expanded]` in `$XDG_CONFIG_HOME/mutx/config.toml` carries one
+  - `[default_expanded]` in `$XDG_CONFIG_HOME/nuo/tui.toml` carries one
     entry per alias of each toggled component.
 
 #### Scenario 4.6: Interactive Markers Are Honest

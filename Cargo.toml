@@ -136,7 +136,7 @@ nuo-mcp = { version = "0.0.3", path = "nuo-mcp" }
 nuo-model-codec = { version = "0.0.3", path = "nuo-model-codec", default-features = false }
 
 # Terminal Substrate (Nuotc)
-nuotc = "0.0.1"
+nuotc = "0.0.2"
 
 # In-house Nuo crates
 nuo-wire = { version = "0.0.3", path = "nuo-wire" }

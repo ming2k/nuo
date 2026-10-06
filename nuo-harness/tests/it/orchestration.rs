@@ -1,7 +1,7 @@
 //! Orchestration-layer integration tests: provider retry behavior, the
 //! proxy provider, retry-delay math, context-overflow classification, and
 //! the self-registration of built-in tools via `inventory`. These live with
-//! the code under test (they were historically parked in the `mutx`
+//! the code under test (they were historically parked in the `nuo`
 //! binary, which exercised this layer end-to-end before ADR-0096 moved
 //! session hosting into the daemon).
 
@@ -508,7 +508,7 @@ impl Provider for TelemetryPublishingProvider {
 #[tokio::test]
 async fn each_attempt_carries_its_own_transport_telemetry_across_a_retry() {
     let directory =
-        std::env::temp_dir().join(format!("muta-telemetry-test-{}", uuid::Uuid::new_v4()));
+        std::env::temp_dir().join(format!("nuo-telemetry-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&directory).expect("create test directory");
     let session = Arc::new(SessionStore::for_path(directory.join("session.json")));
     let agent = Arc::new(Agent::new(
@@ -593,7 +593,7 @@ async fn each_attempt_carries_its_own_transport_telemetry_across_a_retry() {
 
 #[tokio::test]
 async fn turn_retries_transient_provider_failure_before_tool_activity() {
-    let directory = std::env::temp_dir().join(format!("muta-retry-test-{}", uuid::Uuid::new_v4()));
+    let directory = std::env::temp_dir().join(format!("nuo-retry-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&directory).expect("create test directory");
     let session = Arc::new(SessionStore::for_path(directory.join("session.json")));
     let agent = Arc::new(Agent::new(
@@ -701,7 +701,7 @@ async fn turn_retries_transient_provider_failure_before_tool_activity() {
 /// key-addressed archive, and that archive never enters the model window.
 #[tokio::test]
 async fn execute_round_archives_a_request_projection_outside_the_window() {
-    let directory = std::env::temp_dir().join(format!("muta-projection-{}", uuid::Uuid::new_v4()));
+    let directory = std::env::temp_dir().join(format!("nuo-projection-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&directory).expect("create test directory");
     let session = Arc::new(SessionStore::for_path(directory.join("session.json")));
     let agent = Arc::new(Agent::new(
@@ -772,7 +772,7 @@ async fn execute_round_archives_a_request_projection_outside_the_window() {
 #[tokio::test]
 async fn partial_tool_stream_is_not_executed_before_provider_retry() {
     let directory =
-        std::env::temp_dir().join(format!("muta-retry-partial-tool-{}", uuid::Uuid::new_v4()));
+        std::env::temp_dir().join(format!("nuo-retry-partial-tool-{}", uuid::Uuid::new_v4()));
     let _ = std::fs::create_dir_all(&directory);
     let session = Arc::new(SessionStore::for_path(directory.join("session.json")));
     let tool_calls = Arc::new(AtomicUsize::new(0));
@@ -841,7 +841,7 @@ async fn partial_tool_stream_is_not_executed_before_provider_retry() {
 
 #[tokio::test]
 async fn turn_resumes_provider_request_after_completed_tool_activity() {
-    let directory = std::env::temp_dir().join(format!("muta-retry-tool-{}", uuid::Uuid::new_v4()));
+    let directory = std::env::temp_dir().join(format!("nuo-retry-tool-{}", uuid::Uuid::new_v4()));
     let _ = std::fs::create_dir_all(&directory);
     let session = Arc::new(SessionStore::for_path(directory.join("session.json")));
     let requests = Arc::new(Mutex::new(Vec::new()));
@@ -915,7 +915,7 @@ async fn turn_resumes_provider_request_after_completed_tool_activity() {
 #[tokio::test]
 async fn turn_exhaustion_message_explains_retry_budget() {
     let directory =
-        std::env::temp_dir().join(format!("muta-retry-exhaust-{}", uuid::Uuid::new_v4()));
+        std::env::temp_dir().join(format!("nuo-retry-exhaust-{}", uuid::Uuid::new_v4()));
     let _ = std::fs::create_dir_all(&directory);
     let session = Arc::new(SessionStore::for_path(directory.join("session.json")));
     let agent = Arc::new(Agent::new(
@@ -1099,7 +1099,7 @@ impl Provider for FailThenSucceedProvider {
 #[tokio::test]
 async fn retry_resumes_stopped_round_without_breaking_turn_sequence() {
     let directory =
-        std::env::temp_dir().join(format!("muta-retry-resume-{}", uuid::Uuid::new_v4()));
+        std::env::temp_dir().join(format!("nuo-retry-resume-{}", uuid::Uuid::new_v4()));
     let _ = std::fs::create_dir_all(&directory);
     let session = Arc::new(SessionStore::for_path(directory.join("session.json")));
     let requests = Arc::new(Mutex::new(Vec::new()));
@@ -1409,7 +1409,7 @@ struct InteractiveRoundFixture {
 }
 
 async fn interactive_round_fixture(provider: Arc<dyn Provider>) -> InteractiveRoundFixture {
-    let directory = std::env::temp_dir().join(format!("muta-intr-{}", uuid::Uuid::new_v4()));
+    let directory = std::env::temp_dir().join(format!("nuo-intr-{}", uuid::Uuid::new_v4()));
     let _ = std::fs::create_dir_all(&directory);
     let session = Arc::new(SessionStore::for_path(directory.join("session.json")));
     let agent = Arc::new(Agent::new(
@@ -1884,7 +1884,7 @@ impl Provider for ImageRejectingProvider {
 /// identical turn succeed), and later requests stop carrying them.
 #[tokio::test]
 async fn image_refusal_is_learned_and_the_round_continues_without_images() {
-    let directory = std::env::temp_dir().join(format!("muta-image-learn-{}", uuid::Uuid::new_v4()));
+    let directory = std::env::temp_dir().join(format!("nuo-image-learn-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&directory).expect("create test directory");
     let session = Arc::new(SessionStore::for_path(directory.join("session.json")));
     let images_per_request = Arc::new(Mutex::new(Vec::new()));
@@ -1975,7 +1975,7 @@ async fn image_refusal_is_learned_and_the_round_continues_without_images() {
 /// vendor's envelope.
 #[tokio::test]
 async fn an_unrecognized_refusal_is_probed_and_confirmed_by_outcome() {
-    let directory = std::env::temp_dir().join(format!("muta-image-probe-{}", uuid::Uuid::new_v4()));
+    let directory = std::env::temp_dir().join(format!("nuo-image-probe-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&directory).expect("create test directory");
     let session = Arc::new(SessionStore::for_path(directory.join("session.json")));
     let images_per_request = Arc::new(Mutex::new(Vec::new()));
@@ -2049,7 +2049,7 @@ async fn an_unrecognized_refusal_is_probed_and_confirmed_by_outcome() {
 #[tokio::test]
 async fn an_unrelated_refusal_is_not_blamed_on_images() {
     let directory =
-        std::env::temp_dir().join(format!("muta-image-disprove-{}", uuid::Uuid::new_v4()));
+        std::env::temp_dir().join(format!("nuo-image-disprove-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&directory).expect("create test directory");
     let session = Arc::new(SessionStore::for_path(directory.join("session.json")));
     let images_per_request = Arc::new(Mutex::new(Vec::new()));

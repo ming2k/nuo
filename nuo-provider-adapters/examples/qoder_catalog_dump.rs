@@ -58,7 +58,7 @@ async fn main() {
     // machine's state directory; the example is an operator tool, so the paths
     // are the shipped ones.
     let home = std::env::var("HOME").expect("HOME");
-    let state_dir = std::path::Path::new(&home).join(".local/state/muta");
+    let state_dir = std::path::Path::new(&home).join(".local/state/nuo");
     let host = nuo_provider_adapters::CredentialHost::file_backed(
         state_dir.join("auth.toml"),
         state_dir.join("machine_id"),

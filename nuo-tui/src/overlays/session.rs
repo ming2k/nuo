@@ -37,7 +37,7 @@ fn absolute_time(ts: u64) -> String {
 /// manual scroll, mirroring the other list modals).
 ///
 /// `startup_picker` is `true` only when the picker opened at startup
-/// (`mutx attach` with no id). In that mode Esc/click-outside quits the
+/// (`nuo attach` with no id). In that mode Esc/click-outside quits the
 /// program (there is no conversation behind the modal yet), so the footer
 /// hint reads "quit" instead of "close".
 ///

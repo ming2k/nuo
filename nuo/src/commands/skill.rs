@@ -19,7 +19,7 @@ async fn list() -> Result<(), Box<dyn std::error::Error>> {
     if result.skills.is_empty() {
         println!("No skills discovered.");
         println!(
-            "Tip: Scaffold a new skill with `muta skill init <name>` or place files in .nuo/skills/<name>/SKILL.md."
+            "Tip: Scaffold a new skill with `nuo skill init <name>` or place files in .nuo/skills/<name>/SKILL.md."
         );
         return Ok(());
     }
@@ -97,7 +97,7 @@ async fn show(name: &str) -> Result<(), Box<dyn std::error::Error>> {
         }
         None => {
             eprintln!(
-                "Error: Skill '{name}' not found. Run `muta skill ls` to see available skills."
+                "Error: Skill '{name}' not found. Run `nuo skill ls` to see available skills."
             );
             std::process::exit(1);
         }
@@ -136,7 +136,7 @@ async fn info(name: &str) -> Result<(), Box<dyn std::error::Error>> {
         }
         None => {
             eprintln!(
-                "Error: Skill '{name}' not found. Run `muta skill ls` to see available skills."
+                "Error: Skill '{name}' not found. Run `nuo skill ls` to see available skills."
             );
             std::process::exit(1);
         }
@@ -193,7 +193,7 @@ async fn init(name: &str, user: bool) -> Result<(), Box<dyn std::error::Error>> 
     println!("   ├── scripts/");
     println!("   └── assets/");
     println!(
-        "\nNext steps: Edit {}/SKILL.md and run `muta skill ls` to verify.",
+        "\nNext steps: Edit {}/SKILL.md and run `nuo skill ls` to verify.",
         target_dir.display()
     );
 

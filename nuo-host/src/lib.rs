@@ -48,4 +48,4 @@ pub use web_config::*;
 mod windows_security;
 
 #[cfg(not(any(unix, windows)))]
-compile_error!("muta-platform supports Unix and Windows targets only");
+compile_error!("nuo-platform supports Unix and Windows targets only");

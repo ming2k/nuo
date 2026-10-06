@@ -8,7 +8,7 @@
 //! Regenerate baselines after an intentional visual change:
 //!
 //! ```sh
-//! INSTA_UPDATE=always cargo test -p mutx-engine paint::snapshot_tests
+//! INSTA_UPDATE=always cargo test -p nuo-tui snapshot_tests
 //! ```
 
 #![cfg(test)]
@@ -251,6 +251,33 @@ fn read_text_with_offset_numbers_from_start_line() {
         true,
     );
     insta::assert_snapshot!(render_grid(&m, 80, 40));
+}
+
+#[test]
+fn read_text_structured_code_hides_model_framing_and_numbers_from_offset() {
+    // The structured `Code` carries model-facing `prefix`/`suffix` framing; the
+    // renderer must draw only the pure `text` with a gutter based at
+    // `start_line` — never the `[Lines …]` header or the continuation hint.
+    let m = tool_step_structured(
+        "read_text",
+        r#"{"path":"src/lib.rs","offset":100,"limit":2}"#,
+        nuo_wire::ToolOutput::Code {
+            lang: Some("rs".into()),
+            text: "fn a() {}\nfn b() {}".into(),
+            start_line: 100,
+            prefix: Some("[Lines 100-101 of 500 from `src/lib.rs`]".into()),
+            suffix: Some("[398 more lines — read with offset=102]".into()),
+        },
+        true,
+    );
+    let grid = render_grid(&m, 80, 40);
+    assert!(grid.contains("100 fn a() {}"), "grid:\n{grid}");
+    assert!(grid.contains("101 fn b() {}"), "grid:\n{grid}");
+    assert!(!grid.contains("[Lines"), "model framing leaked:\n{grid}");
+    assert!(
+        !grid.contains("more lines"),
+        "continuation hint leaked:\n{grid}"
+    );
 }
 
 #[test]
@@ -498,7 +525,7 @@ fn execute_command_running_streams_live_preview() {
         r#"{"command":"cargo build"}"#,
         nuo_wire::ToolOutput::Shell {
             command: "cargo build".into(),
-            stdout: "Compiling muta-contracts v0.1.0\nCompiling mutx-engine v0.1.0".into(),
+            stdout: "Compiling nuotc v0.1.0\nCompiling nuo v0.1.0".into(),
             stderr: String::new(),
             lines: Vec::new(),
             exit: None,

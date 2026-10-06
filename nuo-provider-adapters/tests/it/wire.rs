@@ -57,7 +57,7 @@ async fn openai_chat_completions_parses_content_reasoning_tool_calls_and_headers
         .mock("POST", "/v1/chat/completions")
         // The bearer token and chosen user agent must reach the wire.
         .match_header("authorization", "Bearer test-key")
-        .match_header("user-agent", "muta-test/1")
+        .match_header("user-agent", "nuo-test/1")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -70,7 +70,7 @@ async fn openai_chat_completions_parses_content_reasoning_tool_calls_and_headers
         "test-key".to_string(),
         "gpt-test".to_string(),
         &url,
-        "muta-test/1",
+        "nuo-test/1",
     );
     let message = provider
         .chat(vec![Message::new(Role::User, "hi")].into())
@@ -353,7 +353,7 @@ async fn openrouter_stream_uses_gateway_dialect_and_returns_replay_artifacts() {
     let _mock = server
         .mock("POST", "/api/v1/chat/completions")
         .match_header("authorization", "Bearer sk-or-test")
-        .match_header("x-openrouter-title", "Muta")
+        .match_header("x-openrouter-title", "Nuo")
         .match_body(Matcher::PartialJson(json!({
             "model": "nex-agi/nex-n2.5-pro:free",
             "stream": true,

@@ -108,7 +108,7 @@ pub fn run(action: ConfigAction) -> Result<(), Box<dyn std::error::Error>> {
                     println!("{}", config.context.inspect_page_tokens)
                 }
                 k if k.starts_with("compaction.") || k.starts_with("compaction_") => {
-                    eprintln!("legacy 'compaction.*' configuration is retired under ADR-0280 [INV-POLICY-01]; run `muta context migrate` to convert to versioned `context.*` policy");
+                    eprintln!("legacy 'compaction.*' configuration is retired under ADR-0280 [INV-POLICY-01]; run `nuo context migrate` to convert to versioned `context.*` policy");
                 }
                 "agent.hard_stop_turns" | "master.hard_stop_turns" => {
                     println!("{}", config.agent.hard_stop_turns)
@@ -141,7 +141,7 @@ pub fn run(action: ConfigAction) -> Result<(), Box<dyn std::error::Error>> {
                 | "input_history.dedup"
                 | "input_history.record_commands" => {
                     return Err(
-                        "TUI presentation settings have been decoupled to $XDG_CONFIG_HOME/mutx/config.toml (ADR-0136)"
+                        "TUI presentation settings live in $XDG_CONFIG_HOME/nuo/tui.toml (ADR-0011)"
                             .into(),
                     );
                 }
@@ -195,7 +195,7 @@ pub fn run(action: ConfigAction) -> Result<(), Box<dyn std::error::Error>> {
                         .map_err(|_| "invalid integer for context.inspect_page_tokens")?;
                 }
                 k if k.starts_with("compaction.") || k.starts_with("compaction_") => {
-                    return Err("legacy 'compaction.*' configuration is retired under ADR-0280 [INV-POLICY-01]; run `muta context migrate` to convert to versioned `context.*` policy".into());
+                    return Err("legacy 'compaction.*' configuration is retired under ADR-0280 [INV-POLICY-01]; run `nuo context migrate` to convert to versioned `context.*` policy".into());
                 }
                 "agent.hard_stop_turns" | "master.hard_stop_turns" => {
                     config.agent.hard_stop_turns = value
@@ -254,7 +254,7 @@ pub fn run(action: ConfigAction) -> Result<(), Box<dyn std::error::Error>> {
                 | "input_history.dedup"
                 | "input_history.record_commands" => {
                     return Err(
-                        "TUI presentation settings have been decoupled to $XDG_CONFIG_HOME/mutx/config.toml (ADR-0136)"
+                        "TUI presentation settings live in $XDG_CONFIG_HOME/nuo/tui.toml (ADR-0011)"
                             .into(),
                     );
                 }

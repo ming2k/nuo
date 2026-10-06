@@ -45,7 +45,7 @@ fn input_box_grows_with_wrapped_content() {
     let messages: Vec<TranscriptMessage> = Vec::new();
 
     fn render_with(theme: &Theme, messages: &[TranscriptMessage], input: &str) -> Rect {
-        let mut terminal = nuotc::TestTerminal::new(40, 24);
+        let mut terminal = nuotc::TestTerminal::new(46, 24);
         let mut rect = Rect::default();
         terminal.draw(|f| {
             let mut layout_map = LayoutMap::new();
@@ -1529,7 +1529,7 @@ fn queued_user_message_renders_badge_and_dimmer_bg() {
     let theme = Theme::default();
     let _queued_bg = theme.user_surface_queued();
     let delivered_bg = theme.user_surface();
-    let width = 40u16;
+    let width = 46u16;
     let mut terminal = nuotc::TestTerminal::new(width, 20);
 
     let messages = vec![

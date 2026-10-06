@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn put_is_idempotent_and_get_round_trips() {
-        let dir = std::env::temp_dir().join(format!("muta-blobs-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("nuo-blobs-{}", uuid::Uuid::new_v4()));
         let store = BlobStore::new(dir.clone());
         let bytes = b"hello world";
         let hash1 = store.put(bytes).unwrap();
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn different_bytes_get_different_hashes() {
-        let dir = std::env::temp_dir().join(format!("muta-blobs-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("nuo-blobs-{}", uuid::Uuid::new_v4()));
         let store = BlobStore::new(dir.clone());
         let a = store.put(b"a").unwrap();
         let b = store.put(b"b").unwrap();

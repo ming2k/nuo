@@ -24,7 +24,7 @@ impl InputReader {
         let shutdown = Arc::new(AtomicBool::new(false));
         let thread_shutdown = shutdown.clone();
         std::thread::Builder::new()
-            .name("mutx-engine-input".into())
+            .name("nuotc-input".into())
             .spawn(move || {
                 let mut sink = SgrReassemblySink::new(tx);
                 while !thread_shutdown.load(Ordering::Acquire) {

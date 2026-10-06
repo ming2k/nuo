@@ -12,7 +12,7 @@
 //! session, so the user lands in a familiar composer immediately.
 //!
 //! Beneath the logo the hero carries a **capability carousel** (ADR-0104): one
-//! durable capability hint at a time (`/btw`, `Ctrl-R`, `!` shell,
+//! durable capability hint at a time (`/btw`, `Ctrl-r`, `@` mentions,
 //! …) rotating on a wall-clock cadence, one line at a time (no position
 //! indicator — the copy is self-explaining) and nothing else — the static
 //! "type a message" tagline is retired, since the carousel's own first page
@@ -23,8 +23,12 @@
 //!
 //! The logo source is pluggable: a caller may pass user-supplied lines (loaded
 //! from `$XDG_CONFIG_HOME/nuo/logo.txt`); when absent the built-in figlet
-//! wordmark is used. Either way the art is clamped to a safe bounding box so a
-//! giant paste can never blow out the welcome screen.
+//! wordmark is used. Either way the art is clamped to a [`MIN_LOGO_COLS`] ×
+//! [`MIN_LOGO_ROWS`] floor and a [`MAX_LOGO_COLS`] × [`MAX_LOGO_ROWS`]
+//! ceiling, then only drawn when it fits the viewport without wrapping or
+//! clipping ([`plan_hero`]). When the terminal is too short (or the art too
+//! large) the wordmark is dropped and the guidance line is shown alone,
+//! vertically centred — never a squashed or truncated logo.
 
 use nuotc::{
     Alignment, Frame, Paragraph, Rect, {Line, Span}, {Modifier, Style},
@@ -44,6 +48,22 @@ pub(crate) const MAX_LOGO_COLS: usize = 60;
 /// 24-row terminal even before vertical centering.
 pub(crate) const MAX_LOGO_ROWS: usize = 20;
 
+/// Hard width floor (in terminal columns) for a logo that is allowed to
+/// render. A mark narrower than this reads as noise rather than a wordmark,
+/// so the hero drops the art entirely and shows the guidance line alone —
+/// a small logo is worse for the first impression than no logo at all.
+pub(crate) const MIN_LOGO_COLS: usize = 8;
+
+/// Hard height floor (in rows) for a logo that is allowed to render. Below
+/// this the art cannot carry a wordmark at a glance, so the hero drops it in
+/// favour of the carousel line.
+pub(crate) const MIN_LOGO_ROWS: usize = 3;
+
+/// Blank rows inserted between the logo block and the guidance section (the
+/// carousel page or the pinned blocker) when the logo is shown. Counted by
+/// [`HeroLayout::total_rows`] so scroll accounting matches what is painted.
+pub(crate) const HERO_LOGO_GAP_ROWS: usize = 1;
+
 /// How long one carousel page stays on screen before rotating to the next
 /// (ADR-0104). Long enough to read a one-line hint at a glance, short
 /// enough that a user who lingers on the empty state sees several pages.
@@ -57,11 +77,16 @@ pub(crate) const CAROUSEL_SLIDE_SECS: u64 = 8;
 /// reads as an affordance the way the hint bar's `◆ effort` tag does.
 ///
 /// The copy is intentionally **durable**: every page teaches a capability
-/// that remains true for the life of the product (send, queue, asides,
-/// history, models, shell escape), never a transient state. The list
-/// is static — there is nothing session-specific to compute — and new pages
-/// can be appended freely: the modulo rotation is derived from the slice
-/// length, so no other code needs to know the count.
+/// that remains true for the life of the product (send, steer/queue, asides,
+/// history, models, mentions, the command palette, sessions), never a
+/// transient state. The list is static — there is nothing session-specific to
+/// compute — and new pages can be appended freely: the modulo rotation is
+/// derived from the slice length, so no other code needs to know the count.
+///
+/// Every page is kept short enough to fit the minimum terminal width on one
+/// centered line (`carousel_pages_fit_the_minimum_terminal_width` asserts
+/// it); a page that wrapped would break the wrap-independent height
+/// accounting in [`HeroLayout`].
 pub(crate) fn carousel_pages() -> Vec<CarouselPage> {
     use CarouselToken as Tok;
     vec![
@@ -70,28 +95,37 @@ pub(crate) fn carousel_pages() -> Vec<CarouselPage> {
             tokens: vec![Tok::Key("/"), Tok::Text(" for commands")],
         },
         CarouselPage {
-            lead: "Mid-round, Enter ",
-            tokens: vec![Tok::Text("queues it")],
+            lead: "Mid-round, ",
+            tokens: vec![
+                Tok::Key("Enter"),
+                Tok::Text(" steers, "),
+                Tok::Key("Tab"),
+                Tok::Text(" queues"),
+            ],
         },
         CarouselPage {
-            lead: "Start a background side chat with ",
+            lead: "Start a background aside with ",
             tokens: vec![Tok::Key("/btw")],
         },
         CarouselPage {
-            lead: "Recall what you typed with ",
+            lead: "Recall past prompts with ",
             tokens: vec![Tok::Key(crate::keymap::Key::CTRL_R.display())],
         },
         CarouselPage {
             lead: "Switch models with ",
-            tokens: vec![
-                Tok::Key(crate::keymap::Key::CTRL_M.display()),
-                Tok::Text(" or "),
-                Tok::Key("/models"),
-            ],
+            tokens: vec![Tok::Key("/models")],
         },
         CarouselPage {
             lead: "Mention files with ",
-            tokens: vec![Tok::Key("@"), Tok::Text(" — tab completes")],
+            tokens: vec![Tok::Key("@"), Tok::Text(" — Tab completes")],
+        },
+        CarouselPage {
+            lead: "Open the command palette with ",
+            tokens: vec![Tok::Key(crate::keymap::Key::CTRL_L.display())],
+        },
+        CarouselPage {
+            lead: "Jump between sessions with ",
+            tokens: vec![Tok::Key("/sessions")],
         },
     ]
 }
@@ -200,26 +234,54 @@ fn truncate_chars(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
-/// Compute the height the empty state occupies for a given logo + guidance,
-/// without drawing. Lets the transcript renderer keep its `content_lines`
-/// accounting honest so the app loop does not treat an empty session as a
-/// zero-height stream. `logo` is the effective lines (user-supplied or
-/// built-in); `guidance` adds the lines beneath the gap (the carousel's
-/// current page or the pinned blocker).
-fn empty_state_height(logo: &[&str], guidance: EmptyStateGuidance) -> usize {
-    logo.len() + 2 // logo rows + blank gap before the guidance section
-        + guidance_line_count(guidance)
+/// How the empty-state hero lays itself out for a given viewport. Split out
+/// so the renderer and any caller can derive the exact same decision and row
+/// count — the app loop's `content_lines` accounting must match what is
+/// painted, or the empty session would mis-pin the scroll position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HeroLayout {
+    /// Whether the wordmark is shown. `false` means the hero carries the
+    /// guidance section alone, vertically centred.
+    pub show_logo: bool,
+    /// Logo rows that will be drawn (0 when [`Self::show_logo`] is false).
+    pub logo_rows: usize,
+    /// Guidance rows beneath the logo (carousel page or pinned blocker).
+    pub guidance_rows: usize,
 }
 
-/// Resolve the effective logo lines: user-supplied lines when present,
-/// otherwise the built-in wordmark.
-fn effective_logo(user_logo: Option<&[String]>) -> Vec<&str> {
-    if let Some(lines) = user_logo
-        && !lines.is_empty()
-    {
-        return lines.iter().map(String::as_str).collect();
+impl HeroLayout {
+    /// Total rows the hero occupies, gap included.
+    pub fn total_rows(&self) -> usize {
+        if self.show_logo {
+            self.logo_rows + HERO_LOGO_GAP_ROWS + self.guidance_rows
+        } else {
+            self.guidance_rows
+        }
     }
-    BUILTIN_LOGO.to_vec()
+}
+
+/// Decide the hero layout for `area`.
+///
+/// The logo is shown only when it respects the [`MIN_LOGO_COLS`] ×
+/// [`MIN_LOGO_ROWS`] floor **and** fits the available band without wrapping or
+/// clipping: its width must not exceed `area.width` and its height plus the
+/// gap plus the guidance must not exceed `area.height`. Otherwise the artwork
+/// is dropped and the guidance section is shown alone — a wrapped or clipped
+/// logo damages the first impression more than no logo at all.
+pub(crate) fn plan_hero(logo: &[&str], area: Rect, guidance: &EmptyStateGuidance) -> HeroLayout {
+    let guidance_rows = guidance_line_count(guidance);
+    let logo_rows = logo.len();
+    let logo_cols = logo.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+    let fits = !logo.is_empty()
+        && logo_cols >= MIN_LOGO_COLS
+        && logo_rows >= MIN_LOGO_ROWS
+        && logo_cols <= area.width as usize
+        && logo_rows + HERO_LOGO_GAP_ROWS + guidance_rows <= area.height as usize;
+    HeroLayout {
+        show_logo: fits,
+        logo_rows: if fits { logo_rows } else { 0 },
+        guidance_rows,
+    }
 }
 
 /// Which guidance variant the empty-state hero shows beneath the logo.
@@ -265,11 +327,11 @@ impl EmptyStateGuidance {
 }
 
 /// Number of text lines the guidance section renders beneath the logo + gap.
-/// Used by [`empty_state_content_lines`] to keep the app loop's scroll
-/// accounting honest without needing a `Theme` — the count is variant-only,
-/// never wrap-dependent (every guidance line fits the minimum terminal width;
-/// the carousel contributes exactly its current page line).
-fn guidance_line_count(guidance: EmptyStateGuidance) -> usize {
+/// Used by [`plan_hero`] to keep the hero's row count honest without needing a
+/// `Theme` — the count is variant-only, never wrap-dependent (every guidance
+/// line fits the minimum terminal width; the carousel contributes exactly its
+/// current page line).
+fn guidance_line_count(guidance: &EmptyStateGuidance) -> usize {
     match guidance {
         // the current carousel page (no static tagline above it — page 0
         // already teaches "send a message or /")
@@ -346,7 +408,8 @@ fn guidance_section(
     }
 }
 
-/// Draw the empty-state hero centered in `area`. Paints nothing outside the
+/// Draw the empty-state hero centered in `area`, returning the number of rows
+/// it painted (for `content_lines` accounting). Paints nothing outside the
 /// given rect.
 ///
 /// `user_logo` — when `Some` and non-empty, replaces the built-in wordmark.
@@ -359,6 +422,10 @@ fn guidance_section(
 ///
 /// `carousel_index` picks the tour page (see [`carousel_page_for`]); the
 /// caller derives it from wall-clock elapsed time.
+///
+/// When the viewport cannot show the wordmark without wrapping or clipping,
+/// [`plan_hero`] drops it and only the guidance section is drawn, vertically
+/// centred.
 pub(crate) fn draw_empty_state(
     frame: &mut Frame,
     area: Rect,
@@ -366,7 +433,7 @@ pub(crate) fn draw_empty_state(
     guidance: EmptyStateGuidance,
     carousel_index: usize,
     theme: &Theme,
-) {
+) -> usize {
     // If the user logo somehow slipped through un-clamped, clamp it here too so
     // rendering stays within bounds even if a caller bypassed `parse_logo`.
     let user_clamped: Option<Vec<String>> =
@@ -384,19 +451,23 @@ pub(crate) fn draw_empty_state(
     let logo_fg = theme.brand();
     let logo_style = Style::default().fg(logo_fg).add_modifier(Modifier::BOLD);
 
+    let plan = plan_hero(&logo_refs, area, &guidance);
     let section = guidance_section(guidance, carousel_index, theme);
 
-    let mut lines: Vec<Line> = Vec::with_capacity(logo_refs.len() + 2 + section.len());
-    for row in &logo_refs {
-        lines.push(Line::from(vec![Span::styled(*row, logo_style)]));
+    let mut lines: Vec<Line> = Vec::with_capacity(plan.total_rows());
+    if plan.show_logo {
+        for row in &logo_refs[..plan.logo_rows] {
+            lines.push(Line::from(vec![Span::styled(*row, logo_style)]));
+        }
+        // Blank gap, then the guidance section (carousel page or blocker).
+        lines.push(Line::raw(""));
     }
-    // Blank gap, then the guidance section (carousel page or blocker).
-    lines.push(Line::raw(""));
     lines.extend(section);
 
+    let rendered = lines.len();
     // Center vertically: push the whole block down by half the slack so it sits
     // roughly in the middle of the viewport rather than pinned to the top.
-    let slack = area.height.saturating_sub(lines.len() as u16) / 2;
+    let slack = area.height.saturating_sub(rendered as u16) / 2;
     let top = area.y + slack;
 
     let para = Paragraph::new(lines).alignment(Alignment::Center);
@@ -404,17 +475,7 @@ pub(crate) fn draw_empty_state(
         para,
         Rect::new(area.x, top, area.width, area.height - slack),
     );
-}
-
-/// Height the empty state reports for `content_lines` accounting. Uses the
-/// user logo's line count when supplied (clamped), else the built-in height,
-/// plus the guidance section's line count.
-pub(crate) fn empty_state_content_lines(
-    user_logo: Option<&[String]>,
-    guidance: EmptyStateGuidance,
-) -> usize {
-    let refs = effective_logo(user_logo);
-    empty_state_height(&refs, guidance)
+    rendered
 }
 
 #[cfg(test)]
@@ -434,7 +495,13 @@ mod tests {
     fn empty_state_renders_user_logo_without_panicking() {
         let mut terminal = nuotc::TestTerminal::new(80, 24);
         let theme = Theme::default();
-        let logo = vec!["  X X  ".to_string(), " X X X ".to_string()];
+        // A logo at or above the floor so this exercises the logo path, not
+        // the drop-to-guidance fallback.
+        let logo = vec![
+            " X X X X ".to_string(),
+            "  X   X  ".to_string(),
+            " X X X X ".to_string(),
+        ];
         terminal.draw(|f| {
             draw_empty_state(
                 f,
@@ -506,12 +573,12 @@ mod tests {
 
     #[test]
     fn carousel_pages_fit_the_minimum_terminal_width() {
-        // MIN_TERMINAL_COLS = 40: every page must stay on one centered line
-        // even there, or the copy would wrap and break the height accounting
-        // (`guidance_line_count` is wrap-independent by contract).
+        // Every page must stay on one centered line even at the narrowest
+        // supported terminal, or the copy would wrap and break the
+        // wrap-independent height accounting (`guidance_line_count`).
         for page in carousel_pages() {
             assert!(
-                page.width() <= 40,
+                page.width() <= crate::design::MIN_TERMINAL_COLS as usize,
                 "carousel page too wide ({} cols): {:?}",
                 page.width(),
                 page.lead
@@ -590,40 +657,73 @@ mod tests {
     }
 
     #[test]
-    fn builtin_height_matches_logo_plus_gap() {
-        let refs = effective_logo(None);
+    fn plan_hero_shows_builtin_when_the_viewport_is_tall_enough() {
+        let area = Rect::new(0, 0, 80, 24);
+        let logo: Vec<&str> = BUILTIN_LOGO.to_vec();
+        let plan = plan_hero(&logo, area, &EmptyStateGuidance::Tour);
+        assert!(plan.show_logo, "80×24 fits the built-in wordmark");
+        assert_eq!(plan.logo_rows, BUILTIN_LOGO.len());
         assert_eq!(
-            empty_state_height(&refs, EmptyStateGuidance::Tour),
-            BUILTIN_LOGO.len() + 2 + CAROUSEL_LINES
+            plan.total_rows(),
+            BUILTIN_LOGO.len() + HERO_LOGO_GAP_ROWS + CAROUSEL_LINES
         );
     }
 
     #[test]
-    fn content_lines_reflects_user_logo_size() {
-        let user = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-        // Tour guidance: 3 logo + 2 (blank gap) + 1 carousel page = 6.
-        assert_eq!(
-            empty_state_content_lines(Some(&user), EmptyStateGuidance::Tour),
-            6
-        );
-        assert_eq!(
-            empty_state_content_lines(None, EmptyStateGuidance::Tour),
-            BUILTIN_LOGO.len() + 2 + CAROUSEL_LINES
+    fn plan_hero_drops_the_logo_when_the_viewport_is_too_short() {
+        // The full hero needs logo + gap + carousel; one row short must drop
+        // the art rather than clip it, leaving only the guidance line.
+        let logo: Vec<&str> = BUILTIN_LOGO.to_vec();
+        let needed = BUILTIN_LOGO.len() + HERO_LOGO_GAP_ROWS + CAROUSEL_LINES;
+        let short = Rect::new(0, 0, 80, (needed - 1) as u16);
+        let plan = plan_hero(&logo, short, &EmptyStateGuidance::Tour);
+        assert!(!plan.show_logo, "too few rows → guidance only");
+        assert_eq!(plan.logo_rows, 0);
+        assert_eq!(plan.total_rows(), CAROUSEL_LINES);
+
+        let exact = Rect::new(0, 0, 80, needed as u16);
+        assert!(
+            plan_hero(&logo, exact, &EmptyStateGuidance::Tour).show_logo,
+            "exactly enough rows shows the logo"
         );
     }
 
     #[test]
-    fn content_lines_reflects_guidance_variant() {
-        // Same logo, two guidance tiers — tour (one page line) and blocker
-        // (blocker + action). The blocker is one row taller.
-        let base_logo = None::<&[String]>;
-        let tour = empty_state_content_lines(base_logo, EmptyStateGuidance::Tour);
-        let needs = empty_state_content_lines(base_logo, EmptyStateGuidance::NeedsProvider);
+    fn plan_hero_drops_the_logo_when_the_viewport_is_too_narrow() {
+        // One column narrower than the art would wrap (deform) the wordmark.
+        let logo: Vec<&str> = BUILTIN_LOGO.to_vec();
+        let area = Rect::new(0, 0, (BUILTIN_LOGO[0].len() - 1) as u16, 40);
+        let plan = plan_hero(&logo, area, &EmptyStateGuidance::Tour);
+        assert!(!plan.show_logo, "narrower than the art → guidance only");
+        assert_eq!(plan.total_rows(), CAROUSEL_LINES);
+    }
+
+    #[test]
+    fn plan_hero_enforces_the_minimum_logo_floor() {
+        // A mark below the floor (too narrow or too short) is dropped even on
+        // a roomy viewport — a speck is worse than no logo.
+        let area = Rect::new(0, 0, 80, 24);
+        let too_narrow: Vec<&str> = vec!["x", "x", "x"];
+        assert!(!plan_hero(&too_narrow, area, &EmptyStateGuidance::Tour).show_logo);
+
+        let too_short: Vec<&str> = vec!["xxxxxxxx", "xxxxxxxx"];
+        assert!(!plan_hero(&too_short, area, &EmptyStateGuidance::Tour).show_logo);
+
+        let just_enough: Vec<&str> = vec!["xxxxxxxx", "xxxxxxxx", "xxxxxxxx"];
+        assert!(plan_hero(&just_enough, area, &EmptyStateGuidance::Tour).show_logo);
+    }
+
+    #[test]
+    fn plan_hero_counts_the_blocker_as_two_rows() {
+        let area = Rect::new(0, 0, 80, 24);
+        let logo: Vec<&str> = BUILTIN_LOGO.to_vec();
+        let tour = plan_hero(&logo, area, &EmptyStateGuidance::Tour);
+        let needs = plan_hero(&logo, area, &EmptyStateGuidance::NeedsProvider);
         assert_eq!(
-            guidance_line_count(EmptyStateGuidance::Tour),
+            guidance_line_count(&EmptyStateGuidance::Tour),
             CAROUSEL_LINES
         );
-        assert_eq!(guidance_line_count(EmptyStateGuidance::NeedsProvider), 2);
-        assert_eq!(needs, tour + 1, "blocker adds its action row");
+        assert_eq!(guidance_line_count(&EmptyStateGuidance::NeedsProvider), 2);
+        assert_eq!(needs.total_rows(), tour.total_rows() + 1);
     }
 }

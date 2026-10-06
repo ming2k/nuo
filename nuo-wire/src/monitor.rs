@@ -11,7 +11,7 @@
 //!
 //! The types are pure contracts (ADR-0057): no I/O, no derivations. The
 //! session status machine that produces [`SessionStatus`] values from the
-//! `AgentResponse` stream lives in `muta_runtime::monitor`.
+//! `AgentResponse` stream lives in `nuo_runtime::monitor`.
 
 use serde::{Deserialize, Serialize};
 

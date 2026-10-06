@@ -78,7 +78,7 @@ pub fn run(action: ContextAction) -> Result<(), Box<dyn std::error::Error>> {
             }
             println!(
                 "\nMigration complete. Verify the report, then switch the primary \
-                 database pointer and schema version.\nRun `muta context verify --db {target}` to check integrity."
+                 database pointer and schema version.\nRun `nuo context verify --db {target}` to check integrity."
             );
             Ok(())
         }

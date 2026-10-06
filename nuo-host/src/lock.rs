@@ -28,7 +28,7 @@ impl ProcessLock {
                 .unwrap_or_default();
             return Err(format!(
                 "could not acquire advisory lock on {}: {error}{holder} \
-                 (another muta instance may already be running for this project)",
+                 (another nuo instance may already be running for this project)",
                 path.display()
             ));
         }
@@ -71,7 +71,7 @@ impl ProcessLock {
                 Err(_) => {
                     return Err(format!(
                         "could not acquire advisory lock on {} within {:.0}s \
-                         (another muta daemon appears to be running)",
+                         (another nuo daemon appears to be running)",
                         path.display(),
                         timeout.as_secs_f32()
                     ));

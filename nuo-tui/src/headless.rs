@@ -395,7 +395,7 @@ async fn handle_permission_request(
 
     if !is_tty {
         eprintln!(
-            "mutx: authority is missing for tool '{}' in non-interactive mode; rejecting. Configure workspace authority or a narrow persistent permission first.",
+            "nuo: authority is missing for tool '{}' in non-interactive mode; rejecting. Configure workspace authority or a narrow persistent permission first.",
             req.tool
         );
         send_intent(
@@ -454,7 +454,7 @@ async fn handle_user_question_request(
     // legacy daemon), fail closed rather than inventing an answer.
     if !is_tty {
         eprintln!(
-            "mutx: agent asked a question but stdin is not a TTY and no \
+            "nuo: agent asked a question but stdin is not a TTY and no \
              human channel is attached; cancelling the question. Run with a \
              terminal, or configure `[agent] ask_user_fallback` for \
              autonomous answering."

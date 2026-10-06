@@ -1,7 +1,10 @@
-//! TUI presentation configuration and state for `mutx`.
+//! TUI presentation configuration and state.
 //!
-//! Stored in `$XDG_CONFIG_HOME/mutx/config.toml` (and SQLite `muta.db`),
-//! cleanly decoupled from the core Muta daemon's configuration (ADR-0136).
+//! Stored in the unified `nuo` namespace at `$XDG_CONFIG_HOME/nuo/tui.toml`
+//! — a sibling of the daemon's `config.toml`, not a field inside it — so the
+//! frontend's presentation state and the daemon's behavioural policy stay
+//! cleanly decoupled while both live under one application directory
+//! (ADR-0011).
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -33,7 +36,7 @@ impl Default for InputHistoryConfig {
     }
 }
 
-/// Complete configuration for the `mutx` TUI frontend application.
+/// Complete configuration for the TUI frontend application.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TuiConfig {
@@ -99,21 +102,19 @@ impl TuiConfig {
     pub fn surface_key_overrides(&self) -> crate::keymap::SurfaceOverrides {
         crate::keymap::SurfaceOverrides::from_config(&self.keybindings.session)
     }
-    /// Load configuration from `$XDG_CONFIG_HOME/mutx/config.toml`.
+    /// Load configuration from `$XDG_CONFIG_HOME/nuo/tui.toml`.
     pub fn load() -> Self {
-        let path = crate::paths::get().config_file();
-        if let Ok(content) = fs::read_to_string(&path)
-            && let Ok(cfg) = toml::from_str::<TuiConfig>(&content)
-        {
-            return cfg;
-        }
-
-        Self::default()
+        Self::read_from(&nuo_host::paths::get().tui_config_file()).unwrap_or_default()
     }
 
-    /// Save the configuration to `$XDG_CONFIG_HOME/mutx/config.toml`.
+    fn read_from(path: &Path) -> Option<Self> {
+        let content = fs::read_to_string(path).ok()?;
+        toml::from_str::<TuiConfig>(&content).ok()
+    }
+
+    /// Save the configuration to `$XDG_CONFIG_HOME/nuo/tui.toml`.
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let path = crate::paths::get().config_file();
+        let path = nuo_host::paths::get().tui_config_file();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -163,59 +164,34 @@ pub fn set_component_default_expanded(
     }
 }
 
-/// Discover all candidate theme directories across project workspace and user configuration roots.
+/// Discover all candidate theme directories: project-local `.nuo/themes` (and
+/// a plain `themes/`) for the workspace and current directory, then the
+/// unified user directory `$XDG_CONFIG_HOME/nuo/themes`.
 pub fn candidate_theme_dirs(workspace: Option<&Path>) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
-    // 1. Workspace / project-local paths
+    // 1. Project-local: `.nuo/themes`, then a plain `themes/` directory.
+    let push_project = |base: &Path, dirs: &mut Vec<PathBuf>| {
+        for rel in [Path::new(".nuo").join("themes"), PathBuf::from("themes")] {
+            let p = base.join(rel);
+            if !dirs.contains(&p) {
+                dirs.push(p);
+            }
+        }
+    };
     if let Some(ws) = workspace
         && !ws.as_os_str().is_empty()
     {
-        dirs.push(ws.join(".nuox").join("themes"));
-        dirs.push(ws.join(".nuo").join("themes"));
-        dirs.push(ws.join("themes"));
+        push_project(ws, &mut dirs);
     }
     if let Ok(cwd) = std::env::current_dir() {
-        let cwd_nuox = cwd.join(".nuox").join("themes");
-        if !dirs.contains(&cwd_nuox) {
-            dirs.push(cwd_nuox);
-        }
-        let cwd_nuo = cwd.join(".nuo").join("themes");
-        if !dirs.contains(&cwd_nuo) {
-            dirs.push(cwd_nuo);
-        }
-        let cwd_themes = cwd.join("themes");
-        if !dirs.contains(&cwd_themes) {
-            dirs.push(cwd_themes);
-        }
+        push_project(&cwd, &mut dirs);
     }
 
-    // 2. User config directories
-    let nuox_themes = crate::paths::get().themes_dir();
-    if !dirs.contains(&nuox_themes) {
-        dirs.push(nuox_themes);
-    }
-    if let Some(home) = dirs::home_dir() {
-        let dot_nuox = home.join(".nuox").join("themes");
-        if !dirs.contains(&dot_nuox) {
-            dirs.push(dot_nuox);
-        }
-        let dot_nuo = home.join(".nuo").join("themes");
-        if !dirs.contains(&dot_nuo) {
-            dirs.push(dot_nuo);
-        }
-    }
-
-    // 3. User data directories
-    if let Some(data_dir) = dirs::data_local_dir().or_else(dirs::data_dir) {
-        let data_nuox = data_dir.join("nuox").join("themes");
-        if !dirs.contains(&data_nuox) {
-            dirs.push(data_nuox);
-        }
-        let data_nuo = data_dir.join("nuo").join("themes");
-        if !dirs.contains(&data_nuo) {
-            dirs.push(data_nuo);
-        }
+    // 2. The unified user theme directory: `$XDG_CONFIG_HOME/nuo/themes`.
+    let nuo_themes = nuo_host::paths::get().themes_dir();
+    if !dirs.contains(&nuo_themes) {
+        dirs.push(nuo_themes);
     }
 
     dirs
@@ -515,7 +491,7 @@ caret = "#00ffff"
     fn load_all_theme_files_discovers_workspace_themes_and_deduplicates() {
         let temp = tempfile::tempdir().expect("temp dir");
         let ws_dir = temp.path().join("my-project");
-        let ws_themes = ws_dir.join(".nuox").join("themes");
+        let ws_themes = ws_dir.join(".nuo").join("themes");
         std::fs::create_dir_all(&ws_themes).unwrap();
 
         let theme_proj = r##"

@@ -106,7 +106,7 @@ mod native {
             let parent = wide(parent);
             let descriptor = SecurityDescriptor::current_user_only()?;
             // Tighten both newly-created and pre-existing leaf directories.
-            // This makes custom MUTA_HOME roots obey the same privacy
+            // This makes custom NUO_HOME roots obey the same privacy
             // contract as native profile directories.
             if unsafe {
                 SetFileSecurityW(

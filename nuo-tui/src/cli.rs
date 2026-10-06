@@ -269,7 +269,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
 
     if CORE_COMMANDS.contains(&cmd.as_str()) {
         return Err(format!(
-            "'{cmd}' is a muta service command; run `muta {cmd}` instead"
+            "'{cmd}' is a nuo service command; run `nuo {cmd}` instead"
         ));
     }
 
@@ -524,10 +524,10 @@ mod tests {
     }
 
     #[test]
-    fn core_commands_point_to_muta() {
+    fn core_commands_point_to_nuo() {
         for command in CORE_COMMANDS {
             let error = parse(&[command]).unwrap_err();
-            assert!(error.contains("muta service command"), "{command}: {error}");
+            assert!(error.contains("nuo service command"), "{command}: {error}");
         }
     }
 
@@ -625,8 +625,8 @@ mod tests {
             "help should not expose NUO_HOME"
         );
         assert!(
-            !help.contains("NUOX_STARTUP_VIEW"),
-            "help should not expose NUOX_STARTUP_VIEW"
+            !help.contains("NUO_STARTUP_VIEW"),
+            "help should not expose NUO_STARTUP_VIEW"
         );
     }
 }

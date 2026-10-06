@@ -521,7 +521,7 @@ fn view_state_is_forgotten_on_session_change() {
 
 #[test]
 fn view_switcher_restore_roundtrip() {
-    // The Ctrl+L switcher's verbs: open over a browse view, Esc cancels
+    // The `C-x p` switcher's verbs: open over a browse view, Esc cancels
     // back to it (state intact); Enter on another view hides the origin
     // and focuses the target with its own retained state.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
@@ -682,24 +682,22 @@ fn startup_overlay_env_resolution_accepts_settings_and_nav() {
         // We test the parsing logic directly by setting/unsetting env vars
         unsafe {
             if let Some(v) = view {
-                std::env::set_var("NUOX_STARTUP_VIEW", v);
+                std::env::set_var("NUO_STARTUP_VIEW", v);
             } else {
-                std::env::remove_var("NUOX_STARTUP_VIEW");
-                std::env::remove_var("MUTX_VIEW");
+                std::env::remove_var("NUO_STARTUP_VIEW");
             }
             if let Some(n) = nav {
-                std::env::set_var("NUOX_SETTINGS_NAV", n);
+                std::env::set_var("NUO_SETTINGS_NAV", n);
             } else {
-                std::env::remove_var("NUOX_SETTINGS_NAV");
-                std::env::remove_var("NUOX_SETTINGS_CATEGORY");
+                std::env::remove_var("NUO_SETTINGS_NAV");
+                std::env::remove_var("NUO_SETTINGS_CATEGORY");
             }
         }
         let res = crate::StartupOverlay::resolve_from_env();
         unsafe {
-            std::env::remove_var("NUOX_STARTUP_VIEW");
-            std::env::remove_var("MUTX_VIEW");
-            std::env::remove_var("NUOX_SETTINGS_NAV");
-            std::env::remove_var("NUOX_SETTINGS_CATEGORY");
+            std::env::remove_var("NUO_STARTUP_VIEW");
+            std::env::remove_var("NUO_SETTINGS_NAV");
+            std::env::remove_var("NUO_SETTINGS_CATEGORY");
         }
         res
     };

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use crate::message::{Message, Role};
 
-pub const CONTINUATION_ARTIFACT_KEY: &str = "muta.continuation";
+pub const CONTINUATION_ARTIFACT_KEY: &str = "nuo.continuation";
 pub const OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY: &str = "openai.response.output";
 pub const OPENAI_RESPONSE_ID_ARTIFACT_KEY: &str = "openai.response.id";
 

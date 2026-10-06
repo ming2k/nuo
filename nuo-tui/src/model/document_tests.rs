@@ -238,7 +238,7 @@ fn markdown_soft_breaks_flow_but_hard_breaks_are_preserved() {
 #[test]
 fn parses_task_lists_and_tables() {
     let blocks =
-        parse_blocks("- [x] done\n- [ ] next\n\n| Name | State |\n| --- | --- |\n| muta | ready |");
+        parse_blocks("- [x] done\n- [ ] next\n\n| Name | State |\n| --- | --- |\n| nuo | ready |");
 
     assert!(blocks.iter().any(|block| matches!(
         block,
@@ -262,7 +262,7 @@ fn parses_task_lists_and_tables() {
     });
     let (headers, rows) = table.expect("table block present");
     assert_eq!(headers, &["Name".to_string(), "State".to_string()]);
-    assert_eq!(rows, &[vec!["muta".to_string(), "ready".to_string()]]);
+    assert_eq!(rows, &[vec!["nuo".to_string(), "ready".to_string()]]);
 
     // The rendered grid must align columns and separate the header from
     // the body, the regression that motivated reintroducing Block::Table.

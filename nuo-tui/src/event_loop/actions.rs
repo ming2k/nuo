@@ -1417,7 +1417,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // An overlay floating above the scene is the visual foreground, so
             // it is dismissed first; the scene itself is left on the next
             // press (ADR-0298 §1). Leaving a *standalone* scene (a startup
-            // `mutx dashboard` / `mutx settings` with no requested
+            // `nuo dashboard` / `nuo settings` with no requested
             // conversation) is a program exit instead: there is no
             // conversation to return to. The leader arm itself is cleared by
             // the shared pre-dispatch reset, so neither branch repeats it.
@@ -1958,10 +1958,10 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::QueueToggleBlock => {
-            // `Ctrl+P` (top-level or inside the queue modal): toggle the
-            // hard block on the viewed session's outbox. ADR-0197 M4: the
-            // pause is the *daemon's* queue flag — the local toggle is the
-            // optimistic projection and the verb is authoritative.
+            // `Ctrl+P` inside the queue modal: toggle the hard block on the
+            // viewed session's outbox. ADR-0197 M4: the pause is the
+            // *daemon's* queue flag — the local toggle is the optimistic
+            // projection and the verb is authoritative.
             let paused = !app.is_queue_blocked(viewed_session_id);
             app.set_queue_blocked(viewed_session_id, paused);
             app.send_intent(AgentRequest::QueuePaused {
@@ -3106,7 +3106,7 @@ async fn apply_pre_attach_decision(
         crate::PreAttachDecision::Trust { domains } => {
             tracing::info!(
                 ?domains,
-                "mutx: PreAttach decision — granting workspace trust directly"
+                "nuo: PreAttach decision — granting workspace trust directly"
             );
             app.send_intent(AgentRequest::TrustWorkspace { domains });
             // The per-frame sync clears `pre_attach` once the
@@ -3114,7 +3114,7 @@ async fn apply_pre_attach_decision(
             // shows a `Trusting workspace...` state while awaiting the snapshot.
         }
         crate::PreAttachDecision::Quit => {
-            tracing::info!("mutx: PreAttach decision — quitting (keep quarantined)");
+            tracing::info!("nuo: PreAttach decision — quitting (keep quarantined)");
             // Drop the PreAttach state so the listener's
             // `trust_gate_dismissed` latch (set below) is what stops
             // a subsequent snapshot from re-mounting within this

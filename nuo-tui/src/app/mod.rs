@@ -549,7 +549,7 @@ pub struct App {
     /// ritual. Root scenes are not registered here: their state already
     /// persists on `App`.
     pub(crate) surface_store: crate::surfaces::SurfaceStore,
-    /// The command palette's live fuzzy query (Ctrl+L).
+    /// The command palette's live fuzzy query (`C-x p`).
     pub(crate) command_palette_query: String,
     pub(crate) command_palette_selected: usize,
     pub(crate) command_palette_scroll: usize,
@@ -761,7 +761,7 @@ pub struct App {
     /// option list freely, and re-set the moment they navigate again. Mirrors
     /// `session_modal_follow` / `history_modal_follow`.
     pub question_modal_follow: bool,
-    /// Rows shown in the sessions picker (`/sessions` or `mutx attach`).
+    /// Rows shown in the sessions picker (`/sessions` or `nuo attach`).
     pub sessions_overview: Vec<SessionOverview>,
     /// Set of expanded trunk session IDs in the sessions picker (ADR-0251).
     pub sessions_expanded: std::collections::HashSet<String>,
@@ -823,7 +823,7 @@ pub struct App {
     /// per-frame render paints a full-screen black interstitial
     /// instead of chat; the per-frame sync clears it once a
     /// subsequent `HarnessState` reports `aggregate() == Trusted`.
-    /// Force-mounted by `NUOX_FORCE_PRE_ATTACH=1` for acceptance.
+    /// Force-mounted by `NUO_FORCE_PRE_ATTACH=1` for acceptance.
     pub pre_attach: Option<crate::PreAttachState>,
     pub permission_confirm_always: bool,
     /// Whether the inline permission sheet is expanded to show the full
@@ -931,8 +931,7 @@ pub struct App {
     /// blocked, no queued message auto-drains — not even after its round
     /// reaches natural completion and the harness goes idle. The queue modal
     /// blocks a session on open (so items can be managed safely) and resumes
-    /// on close; `Ctrl+P` toggles the block from the bar without opening
-    /// the modal.
+    /// on close; `Ctrl+P` toggles the block from inside the modal.
     /// Independent of the transient "paused" coloring: a session can be idle
     /// (visibly paused) without being blocked, and vice versa.
     pub queue_blocked_sessions: std::collections::HashSet<String>,
@@ -1023,7 +1022,7 @@ pub struct App {
     pub notice_toast_until: Option<std::time::Instant>,
     pub notice_toast_message: String,
     pub notice_toast_severity: NoticeSeverity,
-    /// When set (e.g. via `NUOX_DEV_TOAST`), keeps the toast pinned during keypresses for visual dev inspection.
+    /// When set (e.g. via `NUO_DEV_TOAST`), keeps the toast pinned during keypresses for visual dev inspection.
     pub dev_toast_pinned: bool,
     /// Deadline until which a second Ctrl+C quits. Wall-clock based (like
     /// the copy/notice toasts) so the quit window is a real duration —

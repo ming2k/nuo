@@ -633,7 +633,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     let extra: Vec<String> = rest[1..].to_vec();
     let unexpected = |arg: &str| {
         Err(format!(
-            "unexpected argument '{arg}' found for 'muta {cmd}'"
+            "unexpected argument '{arg}' found for 'nuo {cmd}'"
         ))
     };
 
@@ -700,8 +700,8 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         },
         "session" => {
             if extra.is_empty() {
-                return Err("muta session needs a subcommand: `muta session rm <id>` \
-                     (to list sessions, use `muta status`)"
+                return Err("nuo session needs a subcommand: `nuo session rm <id>` \
+                     (to list sessions, use `nuo status`)"
                     .into());
             }
             let sub = match resolve(&extra[0], SESSION_SUBS) {
@@ -788,19 +788,19 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 // shape; `config`/`auth` default to `list` because they
                 // have several — `mcp` now does too, but the lesson
                 // stays worth the keystroke).
-                [] => return Err("muta mcp needs a subcommand: `muta mcp ls`, `muta mcp get <name>`, `muta mcp probe <name>`".into()),
+                [] => return Err("nuo mcp needs a subcommand: `nuo mcp ls`, `nuo mcp get <name>`, `nuo mcp probe <name>`".into()),
                 ["ls"] | ["list"] => Mode::Mcp(McpAction::List),
                 ["get", name] => Mode::Mcp(McpAction::Get {
                     name: (*name).to_string(),
                 }),
-                ["get"] => return Err("muta mcp get requires a server name".into()),
+                ["get"] => return Err("nuo mcp get requires a server name".into()),
                 ["probe", name] => Mode::Mcp(McpAction::Probe {
                     name: (*name).to_string(),
                 }),
-                ["probe"] => return Err("muta mcp probe requires a server name".into()),
+                ["probe"] => return Err("nuo mcp probe requires a server name".into()),
                 ["add", ..] | ["rm", ..] | ["remove", ..] | ["enable", ..] | ["disable", ..] | ["import", ..] => {
                     return Err(
-                        "muta mcp mutation commands (add, rm, enable, disable, import) are retired (ADR-0252). \
+                        "nuo mcp mutation commands (add, rm, enable, disable, import) are retired (ADR-0252). \
                          Configure MCP servers declaratively in ~/.config/nuo/config.toml or .nuo/config.toml."
                             .into(),
                     );
@@ -811,7 +811,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         "skill" => {
             let extra_str: Vec<&str> = extra.iter().map(String::as_str).collect();
             match extra_str.as_slice() {
-                [] => return Err("muta skill needs a subcommand: `muta skill ls`, `muta skill show <name>`, `muta skill info <name>`, `muta skill init <name>`".into()),
+                [] => return Err("nuo skill needs a subcommand: `nuo skill ls`, `nuo skill show <name>`, `nuo skill info <name>`, `nuo skill init <name>`".into()),
                 ["ls"] | ["list"] => Mode::Skill(SkillAction::List),
                 ["show", name] => Mode::Skill(SkillAction::Show { name: (*name).to_string() }),
                 ["info", name] => Mode::Skill(SkillAction::Info { name: (*name).to_string() }),
@@ -946,8 +946,8 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
         }
         Some(topic) => {
             let spec = resolve(topic, COMMANDS)?;
-            out.push_str(&format!("muta {} — {}\n\n", spec.name, spec.about));
-            out.push_str(&format!("Usage: muta {}", spec.name));
+            out.push_str(&format!("nuo {} — {}\n\n", spec.name, spec.about));
+            out.push_str(&format!("Usage: nuo {}", spec.name));
             if let Some(subs) = subs_of(spec.name) {
                 out.push_str(" [COMMAND]\n\nCommands:\n");
                 let width = subs.iter().map(|s| s.name.len()).max().unwrap_or(0);
@@ -1040,8 +1040,8 @@ fn bash_completion() -> String {
         }
     }
     format!(
-        "# bash completion for muta — eval \"$(muta completions bash)\"\n\
-         _muta() {{\n\
+        "# bash completion for nuo — eval \"$(nuo completions bash)\"\n\
+         _nuo() {{\n\
          \x20   local cur cmd\n\
          \x20   cur=\"${{COMP_WORDS[COMP_CWORD]}}\"\n\
          \x20   cmd=\"${{COMP_WORDS[1]}}\"\n\
@@ -1052,7 +1052,7 @@ fn bash_completion() -> String {
          \x20   case \"$cmd\" in\n{}\n\
          \x20   esac\n\
          }}\n\
-         complete -F _muta muta\n",
+         complete -F _nuo nuo\n",
         cmds.join(" "),
         cases
     )
@@ -1085,9 +1085,9 @@ fn zsh_completion() -> String {
         }
     }
     format!(
-        "#compdef muta\n\
-         # zsh completion for muta — save as `_muta` on $fpath\n\
-         _muta() {{\n\
+        "#compdef nuo\n\
+         # zsh completion for nuo — save as `_nuo` on $fpath\n\
+         _nuo() {{\n\
          \x20   local -a cmds\n\
          \x20   cmds=(\n{}\n\
          \x20   )\n\
@@ -1098,7 +1098,7 @@ fn zsh_completion() -> String {
          \x20   case \"$words[2]\" in\n{}\
          \x20   esac\n\
          }}\n\
-         _muta \"$@\"\n",
+         _nuo \"$@\"\n",
         cmds, cases
     )
 }
@@ -1113,17 +1113,17 @@ fn subs_about(cmd: &str, sub: &str) -> &'static str {
 fn fish_completion() -> String {
     let cmds: Vec<&str> = COMMANDS.iter().map(|s| s.name).collect();
     let mut out = format!(
-        "# fish completion for muta — save to ~/.config/fish/completions/muta.fish\n\
+        "# fish completion for nuo — save to ~/.config/fish/completions/nuo.fish\n\
          set -l cmds {}\n\
-         complete -c muta -n '__fish_use_subcommand' -f\n\
-         complete -c muta -n '__fish_use_subcommand' -a \"$cmds\"\n",
+         complete -c nuo -n '__fish_use_subcommand' -f\n\
+         complete -c nuo -n '__fish_use_subcommand' -a \"$cmds\"\n",
         cmds.join(" ")
     );
     for spec in COMMANDS {
         let (subs, flags) = subs_and_flags(spec.name);
         for sub in subs {
             out.push_str(&format!(
-                "complete -c muta -n '__fish_seen_subcommand_from {}' -f -a '{}' -d '{}'\n",
+                "complete -c nuo -n '__fish_seen_subcommand_from {}' -f -a '{}' -d '{}'\n",
                 spec.name,
                 sub,
                 subs_about(spec.name, sub)
@@ -1131,7 +1131,7 @@ fn fish_completion() -> String {
         }
         for flag in flags {
             out.push_str(&format!(
-                "complete -c muta -n '__fish_seen_subcommand_from {}' -l '{}' -d 'flag'\n",
+                "complete -c nuo -n '__fish_seen_subcommand_from {}' -l '{}' -d 'flag'\n",
                 spec.name,
                 flag.trim_start_matches("--")
             ));

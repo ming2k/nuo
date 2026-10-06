@@ -1,11 +1,12 @@
 //! Modular Settings View (`/settings`): first-class, full-screen configuration center (ADR-0141).
 //!
-//! Layout: a `SETTINGS` head band, the `Ctrl-x` namespace row, then a two-pane
-//! body — a left category nav (`panel` tone) and the right detail pane (a sunken
-//! body tone). There is no footer band: the exits live on the namespace row.
-//! There is also no per-pane prose header naming the selected category — the
-//! highlighted nav item already says which pane is active, so the right pane is
-//! pure content.
+//! Layout: the shared two-row head band (row 1 the session identity, row 2 the
+//! scene row naming `settings` with the category breadcrumb, ADR-0302), then a
+//! two-pane body — a left category nav (`panel` tone) and the right detail pane
+//! (a sunken body tone). There is no footer band: the exits live on the scene
+//! row. There is also no per-pane prose header naming the selected category —
+//! the highlighted nav item already says which pane is active, so the right pane
+//! is pure content.
 //!
 //! Subdivided into dedicated per-category modules:
 //! - [`appearance`]: Themes and palette swatches
@@ -29,9 +30,8 @@ use nuotc::{
 use crate::primitives::{ElevationContainer, SCROLL_EDGE_MARGIN, draw_scrollbar, resolve_scroll};
 use crate::render::Theme;
 use crate::view_header::{
-    ViewHeader, ViewHints, ViewKind, draw_view_header, draw_view_header_hints,
+    SessionHead, ViewHints, ViewKind, draw_view_header, draw_view_header_hints,
 };
-
 /// Width of the left navigation pane (its outer rect, before inner padding).
 const NAV_WIDTH: u16 = 22;
 
@@ -194,6 +194,14 @@ pub struct SettingsProps<'a> {
     pub theme: &'a Theme,
     pub profile: &'a nuotc::TerminalProfile,
     pub tui_config: &'a crate::config::TuiConfig,
+    /// The session identity for the head band's top row (ADR-0302): the band is
+    /// uniform across scenes, so Settings draws the same `SESSION` row as the
+    /// conversation. `None` hides row 1. Crate-visible only (`SessionHead` is
+    /// crate-private; the shell is the sole caller).
+    pub(crate) session_head: Option<SessionHead<'a>>,
+    /// The session's persistent run-mode flags for the head band's scene row.
+    pub(crate) unattended: bool,
+    pub(crate) confined: bool,
 }
 
 /// Draw the full-screen Settings View.
@@ -207,11 +215,11 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         area,
     );
 
-    // 3 vertical zones: Top Header (1 row), Actions Subhead (1 row), Body
-    // (flexible). There is deliberately **no footer band**: the Settings
-    // center's own affordances — including its exit — already live on the head
-    // band's namespace row, so a redundant bottom keycap strip only stole
-    // vertical space from the panes it described.
+    // 3 vertical zones: the two-row head band (session identity + scene row,
+    // ADR-0302), then the body (flexible). There is deliberately **no footer
+    // band**: the Settings center's own affordances — including its exit —
+    // already live on the head band's scene row, so a redundant bottom keycap
+    // strip only stole vertical space from the panes it described.
     let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -227,15 +235,19 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
 
     let category = ConfigCategory::from_index(props.category_index);
 
-    // 1. Top Header Row (Settings only)
-    let header = ViewHeader::Settings;
-    draw_view_header(frame, header_rect, &header, props.theme);
+    // 1. Top Header Row (session identity, shared across scenes)
+    if let Some(head) = props.session_head {
+        draw_view_header(frame, header_rect, &head, props.theme);
+    }
 
-    // 2. View Stack Breadcrumbs & Affordance
+    // 2. Scene row: the `settings` scene name, the category breadcrumb context,
+    //    the run-mode flags, and the namespace pair (ADR-0302).
     let view_hints = ViewHints {
         kind: ViewKind::Settings,
-        asides: None,
-        breadcrumbs: props.breadcrumbs,
+        context: props.breadcrumbs.map(str::trim),
+        context_warn: false,
+        unattended: props.unattended,
+        confined: props.confined,
     };
     draw_view_header_hints(frame, subhead_rect, &view_hints, props.theme);
 

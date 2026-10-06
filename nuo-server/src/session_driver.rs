@@ -2014,7 +2014,7 @@ mod tests {
         // "Nothing to retry". Recovery must arm it from the durable
         // `InFlight` usage record.
         let directory =
-            std::env::temp_dir().join(format!("muta-crash-retry-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("nuo-crash-retry-{}", uuid::Uuid::new_v4()));
         let store = residue_store(&directory);
         let session_id = store.id().await;
         // Round 2 in flight (turn 2 = the second ReAct turn, the one that
@@ -2080,7 +2080,7 @@ mod tests {
     #[tokio::test]
     async fn crash_residue_ignores_settled_sessions_and_lower_in_flight_rounds() {
         let directory =
-            std::env::temp_dir().join(format!("muta-crash-settled-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("nuo-crash-settled-{}", uuid::Uuid::new_v4()));
         let store = residue_store(&directory);
         // Nothing in flight → no residue at all.
         let empty = recover_crashed_round(&store, Vec::new(), 1).await;
@@ -2118,7 +2118,7 @@ mod tests {
         // already present when the second crash is recovered. The interrupt
         // explains the transcript; the point offers recovery — independent.
         let directory =
-            std::env::temp_dir().join(format!("muta-crash-graceful-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("nuo-crash-graceful-{}", uuid::Uuid::new_v4()));
         let store = residue_store(&directory);
         let session_id = store.id().await;
         store
@@ -2159,7 +2159,7 @@ mod tests {
         // durable, nothing streamed through yet → zero committed turns. A
         // prior round's assistant reply must not be counted into it.
         let directory =
-            std::env::temp_dir().join(format!("muta-crash-first-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("nuo-crash-first-{}", uuid::Uuid::new_v4()));
         let store = residue_store(&directory);
         let session_id = store.id().await;
         store

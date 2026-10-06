@@ -1433,6 +1433,12 @@ components:
                 `off|low|high|max` (deepseek v4 / v4.1 lanes), `low|high|max`
                 (Kimi-K3/GLM-5.3). Unsupported efforts are silently dropped client-side.
           x-reasoning-effort-ladder:
+            # Upstream ladder per resolved family. Nuo models the DeepSeek lanes
+            # with `effort_ladders::LOW_HIGH_MAX` (low/high/max): the `off` rung
+            # is dropped because the `provider/v1` relay's token for it is not
+            # wire-verified, and offering a rung is the failure mode to avoid —
+            # `off` is a *reduction* of capability, so omitting it is safe while
+            # omitting an accepted rung (e.g. `low` on v4.1) is not.
             premium: [low, medium, high, xhigh, max]
             smallGateway: [low, medium, high]
             deepseek-v4: [off, high, max]

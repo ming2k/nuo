@@ -745,7 +745,7 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
     assert!(app.should_quit.load(Ordering::SeqCst));
 }
 
-/// Ctrl+C at the `mutx attach` startup picker must quit the program — the
+/// Ctrl+C at the `nuo attach` startup picker must quit the program — the
 /// same as Esc and an outside click — NOT drop into an empty session. Regression
 /// for a bug where Ctrl+C closed the picker (cleared the overlay stack) but never set
 /// `should_quit`, so the user landed in a bare empty chat (which a stray
@@ -786,7 +786,7 @@ fn ctrl_c_at_startup_picker_quits_instead_of_dropping_to_empty_session() {
     assert!(app.active_dialog().is_some(), "quit path wins over close");
 }
 
-/// `mutx dashboard` opens the session dashboard (`Modal::Host`) over a
+/// `nuo dashboard` opens the session dashboard (`Modal::Host`) over a
 /// carrier session at startup. The user asked for a dashboard, not a
 /// conversation, so leaving the screen must quit the whole TUI — the
 /// dashboard is the app while it is open. These tests lock the exits:

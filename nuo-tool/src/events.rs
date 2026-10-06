@@ -327,7 +327,7 @@ impl AgentNotice {
     /// in [`crate::RoundEvent::Notice`] (via `round_response`), not as a
     /// top-level `AgentResponse::Notice`. Wrapping it routes the toast to the
     /// frontend over the session's broadcast tap so every attached client (the
-    /// in-process TUI, `mutx attach`, `/serve`) sees the same confirmation,
+    /// in-process TUI, `nuo attach`, `/serve`) sees the same confirmation,
     /// and it is what the TUI's toast drain actually listens for.
     pub fn command_ack(title: impl Into<String>) -> Self {
         Self::new(

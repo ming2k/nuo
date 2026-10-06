@@ -691,7 +691,7 @@ impl ClientProfile {
             _ => self
                 .preset()
                 .map(|p| p.spec().label)
-                .unwrap_or("muta (Native)"),
+                .unwrap_or("nuo (Native)"),
         }
     }
 
@@ -737,7 +737,7 @@ impl ClientProfile {
     /// Parse a preset from an id or common alias.
     pub fn from_id(id: &str) -> Option<Self> {
         match id.trim().to_ascii_lowercase().as_str() {
-            "native" | "muta" | "default" => Some(Self::Native),
+            "native" | "nuo" | "default" => Some(Self::Native),
             "opencode" => Some(Self::OpenCode),
             "claude" | "claude-code" | "claudecode" => Some(Self::ClaudeCode),
             "codex" | "openai-codex" => Some(Self::Codex),

@@ -554,7 +554,7 @@ pub(crate) mod workspace_tests {
         // Absolute paths under the platform temp dir are admitted without any
         // configured additional root, and both read and write flow through.
         let scratch_file = std::env::temp_dir().join(format!(
-            "muta-temp-admission-{}-scratch.txt",
+            "nuo-temp-admission-{}-scratch.txt",
             uuid::Uuid::new_v4().simple()
         ));
         env.fs().write(&scratch_file, b"temp").await.unwrap();

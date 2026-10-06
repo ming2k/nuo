@@ -1153,7 +1153,7 @@ mod tests {
     // reads like a flip-book of the modal responding to keystrokes — the
     // "can I see this component behave correctly?" debug loop the old inline
     // arms made impossible. Regenerate after an intentional visual change:
-    //   INSTA_UPDATE=always cargo test -p mutx question_modal_film
+    //   INSTA_UPDATE=always cargo test -p nuo-tui question_modal_film
 
     /// Render a question model into a trimmed grid of cell symbols at a fixed
     /// size, mirroring `paint::snapshot_tests::render_grid` but for the modal

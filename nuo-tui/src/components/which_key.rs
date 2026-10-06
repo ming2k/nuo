@@ -1,4 +1,4 @@
-//! Floating which-key card for the `Ctrl+X` scene namespace (ADR-0298).
+//! Floating which-key card for the `C-x` scene namespace (ADR-0298 / ADR-0301).
 //!
 //! Rendered in the bottom-right corner while the namespace is armed. The card
 //! is **generated from the namespace's own verb table**
@@ -6,11 +6,20 @@
 //! against — so a verb can never be dispatchable without being advertised, nor
 //! advertised without being dispatchable (ADR-0238). Completely decoupled from
 //! View layouts, with zero layout shift.
+//!
+//! On **modern terminals** (`Chromatic`: TrueColor / 256-color, which can
+//! render a distinct background) the card is **borderless** and reads purely by
+//! its elevated background — an edge-free floating pill, matching the toast
+//! component's visual language (ADR-0301). On `Hybrid` (ANSI-16) and
+//! `Structured` (monochrome / Linux VT) terminals, where a background delta is
+//! indistinguishable or unavailable, it keeps an explicit frame via
+//! [`Theme::elevation`], mirroring `elevation::modal_frame`.
 
-use nuotc::{Block as RtBlock, Borders, Clear, Frame, Line, Paragraph, Rect, Span, Style};
+use nuotc::{
+    Block as RtBlock, BorderType, Borders, Clear, Frame, Line, Paragraph, Rect, Span, Style,
+};
 
 use super::super::Theme;
-use super::keycap::keycap_span;
 use crate::keymap::scene_namespace::SceneVerb;
 
 /// What the leave verb does when a foreground dialog is up: dismiss it.
@@ -79,7 +88,7 @@ pub(crate) fn draw_which_key_overlay(
     // the one second stroke a user is most likely to reach for.
     items.push(("Esc".to_string(), "cancel", false));
 
-    let title = "C-x (Scene)";
+    let title = "C-x menu";
     let card_width: u16 = 36;
     let card_height: u16 = (items.len() as u16) + 3; // title + items + padding
 
@@ -97,47 +106,70 @@ pub(crate) fn draw_which_key_overlay(
     // 1. Wipe underlying text cleanly with Clear widget
     frame.render_widget(Clear, area);
 
-    // 2. Build card block
-    let block = RtBlock::default()
-        .borders(Borders::LEFT | Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
-        .border_type(nuotc::BorderType::Thick)
-        .border_style(Style::default().fg(theme.brand()))
-        .style(Style::default().bg(theme.panel()));
+    // 2. Surface + framing per archetype (ADR-0181 / ADR-0301). Modern
+    //    terminals (`Chromatic`) distinguish the card by its elevated
+    //    background alone — a borderless floating pill (the toast's visual
+    //    language). `Hybrid` / `Structured` cannot rely on a background delta,
+    //    so they keep an explicit thick frame.
+    let bg = theme.panel();
+    let fill = Style::default().bg(bg);
+    let is_borderless = matches!(theme.elevation, nuotc::ElevationArchetype::Chromatic);
 
-    // 3. Build action lines
+    let (content_area, left_pad) = if is_borderless {
+        // Fill the entire card rect with the elevated surface first, so the
+        // two trailing padding rows are part of the band (Paragraph only
+        // paints the rows it has lines for).
+        frame.render_widget(RtBlock::default().style(fill), area);
+        (area, 1usize)
+    } else {
+        let block = RtBlock::default()
+            .borders(Borders::LEFT | Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
+            .border_type(BorderType::Thick)
+            .border_style(Style::default().fg(theme.brand()))
+            .style(fill);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        // One column of inner padding inside the frame, as before.
+        (inner, 1usize)
+    };
+
+    // 3. Build action lines. Spans carry the card's background so the whole
+    //    surface reads as one elevated band (no stray default-bg cells).
+    let pad = " ".repeat(left_pad);
     let mut lines = Vec::with_capacity(items.len() + 2);
     lines.push(Line::from(vec![
-        Span::raw(" "),
+        Span::styled(pad.clone(), fill),
         Span::styled(
             title,
-            Style::default()
-                .fg(theme.brand())
-                .add_modifier(nuotc::Modifier::BOLD),
+            fill.fg(theme.brand()).add_modifier(nuotc::Modifier::BOLD),
         ),
     ]));
     for (key, desc, is_primary) in &items {
-        let key_span = keycap_span(theme, key);
-        let pad = match key.len() {
+        let key_span = Span::styled(
+            key.to_string(),
+            theme.keycap_style().bg(bg),
+        );
+        let gap = match key.len() {
             1 => "   ",
             2 => "  ",
             3 => " ",
             _ => " ",
         };
         let desc_style = if *is_primary {
-            Style::default().fg(theme.fg())
+            fill.fg(theme.fg())
         } else {
-            Style::default().fg(theme.dim())
+            fill.fg(theme.dim())
         };
         lines.push(Line::from(vec![
-            Span::raw(" "),
+            Span::styled(pad.clone(), fill),
             key_span,
-            Span::raw(pad),
+            Span::styled(gap.to_string(), fill),
             Span::styled(*desc, desc_style),
         ]));
     }
 
-    let paragraph = Paragraph::new(lines).block(block);
-    frame.render_widget(paragraph, area);
+    let paragraph = Paragraph::new(lines).style(fill);
+    frame.render_widget(paragraph, content_area);
 }
 
 #[cfg(test)]
@@ -157,9 +189,63 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect();
-        assert!(content.contains("C-x (Scene)"));
+        assert!(content.contains("C-x menu"));
         assert!(content.contains("leave scene"));
         assert!(content.contains("cancel"));
+    }
+
+    /// ADR-0301: on a modern (`Chromatic`) terminal the card is borderless —
+    /// it reads by its elevated background alone, with no box glyphs — matching
+    /// the toast's visual language. On `Structured` (monochrome) a background
+    /// delta is unavailable, so the card keeps an explicit frame.
+    #[test]
+    fn which_key_card_is_borderless_on_modern_and_framed_on_monochrome() {
+        let theme = Theme::default();
+        assert_eq!(theme.elevation, nuotc::ElevationArchetype::Chromatic);
+        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        terminal.draw(|f| {
+            draw_which_key_overlay(f, &theme, true, CLOSE_SCENE_LABEL, f.area());
+        });
+        let content: String = terminal
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(
+            !content.contains('┏') && !content.contains('┃') && !content.contains('━'),
+            "the modern card must draw no heavy border glyphs: {content}"
+        );
+        // The card's own cells carry the elevated panel background, not the
+        // default — that background *is* the separation.
+        let card_cell = terminal
+            .buffer()
+            .content
+            .iter()
+            .find(|c| c.symbol() == "C")
+            .expect("title text present");
+        assert_eq!(
+            card_cell.bg,
+            theme.panel(),
+            "card cells paint the elevated panel surface"
+        );
+
+        // Structured fallback keeps the frame.
+        let mono = Theme::monochrome();
+        let mut mono_term = nuotc::TestTerminal::new(80, 24);
+        mono_term.draw(|f| {
+            draw_which_key_overlay(f, &mono, true, CLOSE_SCENE_LABEL, f.area());
+        });
+        let mono_content: String = mono_term
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(
+            mono_content.contains("C-x menu"),
+            "the framed fallback still renders the namespace title: {mono_content}"
+        );
     }
 
     /// ADR-0238: the card spells the resolved action. At the bare home scene

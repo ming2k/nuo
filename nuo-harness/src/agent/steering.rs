@@ -873,10 +873,10 @@ mod tests {
     #[tokio::test]
     async fn apply_role_custom_role_preserves_role_id_in_active_role() {
         let temp = tempfile::tempdir().unwrap();
-        let dot_muta = temp.path().join(".nuo");
-        std::fs::create_dir_all(&dot_muta).unwrap();
+        let dot_nuo = temp.path().join(".nuo");
+        std::fs::create_dir_all(&dot_nuo).unwrap();
         std::fs::write(
-            dot_muta.join("roles.toml"),
+            dot_nuo.join("roles.toml"),
             r#"
 [roles.sec-auditor]
 name = "Security Auditor"

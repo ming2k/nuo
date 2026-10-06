@@ -510,8 +510,8 @@ mod tests {
         // Scanning order encodes priority (lowest first). A skill with the same
         // name in a later-scanned (higher-priority) source must override the
         // earlier one, while keeping the first-seen catalog position.
-        let low = std::env::temp_dir().join(format!("muta-skill-{}", uuid::Uuid::new_v4()));
-        let high = std::env::temp_dir().join(format!("muta-skill-{}", uuid::Uuid::new_v4()));
+        let low = std::env::temp_dir().join(format!("nuo-skill-{}", uuid::Uuid::new_v4()));
+        let high = std::env::temp_dir().join(format!("nuo-skill-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(low.join("shared")).unwrap();
         std::fs::create_dir_all(high.join("shared")).unwrap();
         std::fs::write(
@@ -565,8 +565,8 @@ mod tests {
     #[test]
     fn disabled_flag_survives_override() {
         // A higher-priority source still honours [skills] disabled for its name.
-        let low = std::env::temp_dir().join(format!("muta-skill-{}", uuid::Uuid::new_v4()));
-        let high = std::env::temp_dir().join(format!("muta-skill-{}", uuid::Uuid::new_v4()));
+        let low = std::env::temp_dir().join(format!("nuo-skill-{}", uuid::Uuid::new_v4()));
+        let high = std::env::temp_dir().join(format!("nuo-skill-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(low.join("x")).unwrap();
         std::fs::create_dir_all(high.join("x")).unwrap();
         std::fs::write(low.join("x").join("SKILL.md"), "---\nname: x\n---\nlow").unwrap();
@@ -610,8 +610,8 @@ mod tests {
         // A project-local (Repo) skill that claims a name already held by a
         // user-scope skill wins by priority — and must leave exactly one
         // shadow record so the runtime can warn about the silent override.
-        let user = std::env::temp_dir().join(format!("muta-skill-{}", uuid::Uuid::new_v4()));
-        let repo = std::env::temp_dir().join(format!("muta-skill-{}", uuid::Uuid::new_v4()));
+        let user = std::env::temp_dir().join(format!("nuo-skill-{}", uuid::Uuid::new_v4()));
+        let repo = std::env::temp_dir().join(format!("nuo-skill-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(user.join("shared")).unwrap();
         std::fs::create_dir_all(repo.join("shared")).unwrap();
         std::fs::write(
@@ -665,8 +665,8 @@ mod tests {
     fn same_scope_or_lower_scope_overrides_are_not_shadow_records() {
         // Repo-over-Repo (two project dirs) and User-over-Remote are routine
         // priority resolution within one trust domain — no warning.
-        let low = std::env::temp_dir().join(format!("muta-skill-{}", uuid::Uuid::new_v4()));
-        let high = std::env::temp_dir().join(format!("muta-skill-{}", uuid::Uuid::new_v4()));
+        let low = std::env::temp_dir().join(format!("nuo-skill-{}", uuid::Uuid::new_v4()));
+        let high = std::env::temp_dir().join(format!("nuo-skill-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(low.join("x")).unwrap();
         std::fs::create_dir_all(high.join("x")).unwrap();
         std::fs::write(low.join("x").join("SKILL.md"), "---\nname: x\n---\nlow").unwrap();

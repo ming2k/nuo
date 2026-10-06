@@ -330,7 +330,7 @@ pub fn rejects_thinking_config(error: &str) -> bool {
 /// this model id — not a transient fault. `429 RESOURCE_EXHAUSTED` explains
 /// quota / rate limits. Other errors pass through unchanged.
 ///
-/// The input may be a `[MUTA_RETRYABLE]`-enveloped error (429/5xx from
+/// The input may be a `[NUO_RETRYABLE]`-enveloped error (429/5xx from
 /// [`ensure_success`](crate::transport::ensure_success)); appending to the
 /// envelope verbatim would corrupt its JSON and strip the error of its
 /// retryable classification downstream, so the guidance is folded **into**

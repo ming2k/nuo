@@ -350,13 +350,13 @@ pub fn admits_temp_path(path: &Path) -> bool {
 /// Global skills roots that are admitted for progressive disclosure skill reading.
 pub fn global_skills_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
-    if let Ok(muta_home) = std::env::var("MUTA_HOME") {
-        let base = PathBuf::from(muta_home);
+    if let Ok(nuo_home) = std::env::var("NUO_HOME") {
+        let base = PathBuf::from(nuo_home);
         roots.push(base.join("data").join("skills"));
         roots.push(base.join("cache").join("skills"));
     }
     if let Ok(xdg_data) = std::env::var("XDG_DATA_HOME") {
-        roots.push(PathBuf::from(xdg_data).join("muta").join("skills"));
+        roots.push(PathBuf::from(xdg_data).join("nuo").join("skills"));
     }
     if let Ok(xdg_cache) = std::env::var("XDG_CACHE_HOME") {
         roots.push(PathBuf::from(xdg_cache).join("nuo").join("skills"));
@@ -608,7 +608,7 @@ mod tests {
         }
 
         // Containment: anything under temp is admitted, everything else is not.
-        let probe = std::env::temp_dir().join("muta-probe/scratch.txt");
+        let probe = std::env::temp_dir().join("nuo-probe/scratch.txt");
         assert!(admits_temp_path(&probe));
         assert!(admits_temp_path(Path::new("/tmp/anything")));
         assert!(!admits_temp_path(Path::new("/etc/passwd")));
@@ -626,7 +626,7 @@ mod tests {
             additional: Vec::new(),
             confined: true,
         };
-        let tmp = std::env::temp_dir().join("muta-resolve-probe/build.log");
+        let tmp = std::env::temp_dir().join("nuo-resolve-probe/build.log");
         env.resolve_path(tmp.to_str().unwrap()).unwrap();
         env.resolve_path("/tmp/scratch.txt").unwrap();
         // Non-temp absolute paths stay denied.
@@ -638,8 +638,8 @@ mod tests {
         if let Some(home) = dirs::home_dir() {
             assert_eq!(expand_tilde(Path::new("~")), home);
             assert_eq!(
-                expand_tilde(Path::new("~/.local/state/muta/auth.toml")),
-                home.join(".local/state/muta/auth.toml")
+                expand_tilde(Path::new("~/.local/state/nuo/auth.toml")),
+                home.join(".local/state/nuo/auth.toml")
             );
         }
         assert_eq!(

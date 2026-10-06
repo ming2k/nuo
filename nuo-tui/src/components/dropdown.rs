@@ -548,15 +548,25 @@ pub fn draw_dropdown<T>(
     let visible_capacity = (inner_height as usize) / rows_per_item;
     state.sync_viewport(visible_capacity.max(1));
 
-    // 3. Build card block
-    let block = RtBlock::default()
-        .borders(Borders::LEFT | Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
-        .border_type(BorderType::Thick)
-        .border_style(Style::default().fg(theme.brand()))
-        .style(Style::default().bg(theme.panel()));
-
-    // 4. Render block chrome
-    f.render_widget(block, popup_area);
+    // 3. Build card chrome. Modern terminals (Chromatic) get a **borderless**
+    //    elevated surface — the panel background alone separates the popup from
+    //    what is behind it (the toast's visual language, ADR-0301). Hybrid /
+    //    Structured keep the thick frame, where the background delta is not a
+    //    reliable channel.
+    let is_borderless = matches!(theme.elevation, nuotc::ElevationArchetype::Chromatic);
+    if is_borderless {
+        f.render_widget(
+            RtBlock::default().style(Style::default().bg(theme.panel())),
+            popup_area,
+        );
+    } else {
+        let block = RtBlock::default()
+            .borders(Borders::LEFT | Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
+            .border_type(BorderType::Thick)
+            .border_style(Style::default().fg(theme.brand()))
+            .style(Style::default().bg(theme.panel()));
+        f.render_widget(block, popup_area);
+    }
 
     let inner_x = popup_area.x + 2;
     let inner_y = popup_area.y + 1;

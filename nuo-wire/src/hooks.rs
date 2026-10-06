@@ -10,7 +10,7 @@
 //!
 //! v1 ships a single command-handler implementation (see `nuo`); the
 //! [`Hook`] trait lives here so the registry and insertion points in
-//! `muta_agent` stay frontend-agnostic and so future handler types
+//! `nuo_agent` stay frontend-agnostic and so future handler types
 //! (`http`, `mcp_tool`) slot in without re-touching the loop.
 
 use crate::async_trait;
@@ -26,7 +26,7 @@ pub enum SessionSource {
 
 /// Which lifecycle point a hook fires on — the routing key only. The payload
 /// travels in [`HookContext`]; matcher evaluation lives in the registry
-/// (`muta_agent::hooks`), not here, so core stays free of the `regex` crate.
+/// (`nuo_agent::hooks`), not here, so core stays free of the `regex` crate.
 pub use nuo_model_codec::message::HookEventKind;
 
 /// Owned snapshot of the moment a hook fires. Serialized to JSON and piped to
@@ -196,14 +196,14 @@ pub enum RestorePoint {
 /// [`HookEventKind`] it wants and an optional tool-name matcher, then reacts
 /// to each matching fire. The built-in implementation runs a shell command
 /// (see `nuo`); the trait lives here so the registry and insertion
-/// points in `muta_agent` stay frontend-agnostic.
+/// points in `nuo_agent` stay frontend-agnostic.
 #[async_trait]
 pub trait Hook: Send + Sync {
     fn kind(&self) -> HookEventKind;
     /// Tool-name filter. `None` matches every event; only tool events honour
     /// it. Syntax: a `|`-separated list of exact names (`"Write|Edit"`) when
     /// it matches `[a-zA-Z0-9_|]+`, otherwise a regular expression. Matching
-    /// is implemented in `muta_agent::hooks`.
+    /// is implemented in `nuo_agent::hooks`.
     fn matcher(&self) -> Option<&str> {
         None
     }

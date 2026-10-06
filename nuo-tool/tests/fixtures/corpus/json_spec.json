@@ -1,5 +1,5 @@
 {
-  "protocol": "muta/v1",
+  "protocol": "nuo/v1",
   "version": "0.37.21",
   "capabilities": {
     "streaming": true,
@@ -24,7 +24,7 @@
     }
   },
   "metadata": {
-    "author": "muta-team",
+    "author": "nuo-team",
     "created_at": 1700000000
   }
 }

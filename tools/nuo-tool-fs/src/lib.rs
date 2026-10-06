@@ -119,23 +119,38 @@ impl Tool for ReadTextTool {
         };
 
         let slice = &lines[start_idx..end_idx];
-        let mut formatted = Vec::with_capacity(slice.len() + 1);
+        let start_line = start_idx + 1;
 
-        for (idx, line) in slice.iter().enumerate() {
-            let line_num = start_idx + idx + 1;
-            formatted.push(format!("{line_num:4} | {line}"));
-        }
+        // Keep presentation out of the payload: `text` is pure file content
+        // and `start_line` carries the read offset, so the TUI's code band
+        // numbers each row from its true file line and syntax-highlights by
+        // path. The model still needs to know where the slice sits and how to
+        // continue, so that framing rides in the model-only `prefix` / `suffix`
+        // that `ToolOutput::to_text` composes (and the renderer ignores).
+        let prefix = Some(format!(
+            "[Lines {}-{} of {} from `{}`]",
+            start_line, end_idx, total_lines, raw_path
+        ));
+        let remaining = total_lines - end_idx;
+        let suffix = (remaining > 0).then(|| {
+            format!(
+                "[{remaining} more line{} — read with offset={}]",
+                if remaining == 1 { "" } else { "s" },
+                end_idx + 1
+            )
+        });
+        let lang = Path::new(raw_path)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(str::to_ascii_lowercase);
 
-        let summary = format!(
-            "[Lines {}-{} of {} from `{}`]\n{}",
-            start_idx + 1,
-            end_idx,
-            total_lines,
-            raw_path,
-            formatted.join("\n")
-        );
-
-        Ok(ToolOutput::success(summary))
+        Ok(ToolOutput::Code {
+            lang,
+            text: slice.join("\n"),
+            start_line,
+            prefix,
+            suffix,
+        })
     }
 }
 
@@ -815,6 +830,73 @@ mod tests {
             .await
             .unwrap();
         assert!(list_res.content().contains("hello.txt"));
+    }
+
+    #[tokio::test]
+    async fn read_text_emits_structured_code_with_pagination_framing() {
+        let dir = tempdir().unwrap();
+        let ctx = Arc::new(SystemToolContext::new(dir.path()));
+        let t_ctx = ToolContext::default();
+        fs::write(dir.path().join("src.rs"), "a\nb\nc\nd\n").unwrap();
+
+        let out = ReadTextTool::new(ctx)
+            .execute(&t_ctx, json!({"path": "src.rs", "offset": 2, "limit": 2}))
+            .await
+            .unwrap();
+
+        match &out {
+            ToolOutput::Code {
+                lang,
+                text,
+                start_line,
+                prefix,
+                suffix,
+            } => {
+                // Pure content: no baked gutter and no range header.
+                assert_eq!(text, "b\nc");
+                assert_eq!(*start_line, 2);
+                assert_eq!(lang.as_deref(), Some("rs"));
+                assert_eq!(prefix.as_deref(), Some("[Lines 2-3 of 4 from `src.rs`]"));
+                assert_eq!(suffix.as_deref(), Some("[1 more line — read with offset=4]"));
+            }
+            other => panic!("expected ToolOutput::Code, got {other:?}"),
+        }
+
+        // The model still sees the range header and per-line file numbers,
+        // composed at `to_text` time instead of baked into `text`.
+        assert_eq!(
+            out.to_text(),
+            "[Lines 2-3 of 4 from `src.rs`]\n2: b\n3: c\n[1 more line — read with offset=4]"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_text_to_eof_has_no_continuation_hint() {
+        let dir = tempdir().unwrap();
+        let ctx = Arc::new(SystemToolContext::new(dir.path()));
+        let t_ctx = ToolContext::default();
+        fs::write(dir.path().join("full.txt"), "one\ntwo\n").unwrap();
+
+        let out = ReadTextTool::new(ctx)
+            .execute(&t_ctx, json!({"path": "full.txt"}))
+            .await
+            .unwrap();
+
+        match out {
+            ToolOutput::Code {
+                text,
+                start_line,
+                prefix,
+                suffix,
+                ..
+            } => {
+                assert_eq!(text, "one\ntwo");
+                assert_eq!(start_line, 1);
+                assert_eq!(prefix.as_deref(), Some("[Lines 1-2 of 2 from `full.txt`]"));
+                assert_eq!(suffix, None);
+            }
+            other => panic!("expected ToolOutput::Code, got {other:?}"),
+        }
     }
 
     #[tokio::test]

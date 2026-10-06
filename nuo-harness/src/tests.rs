@@ -2846,7 +2846,7 @@ async fn unattended_preserves_schema_and_intercepts_ask_user_at_runtime() {
 
 #[tokio::test]
 async fn always_permission_persists_across_agents_for_same_project() {
-    let tmp = std::env::temp_dir().join(format!("muta-perms-{}", uuid::Uuid::new_v4()));
+    let tmp = std::env::temp_dir().join(format!("nuo-perms-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&tmp).expect("create temp data dir");
     let dirs = nuo_persistence::paths::Dirs {
         config_dir: tmp.join("config"),
@@ -2855,7 +2855,7 @@ async fn always_permission_persists_across_agents_for_same_project() {
         cache_dir: tmp.join("cache"),
         runtime_dir: None,
     };
-    let project_root = std::path::PathBuf::from("/tmp/muta-perms-fixture-project");
+    let project_root = std::path::PathBuf::from("/tmp/nuo-perms-fixture-project");
     let perms_path = dirs.project_permissions(&project_root);
 
     // First agent: prompt for a write_test permission and approve Always.
@@ -2930,7 +2930,7 @@ async fn always_permission_persists_across_agents_for_same_project() {
     assert_eq!(after_revoke["rules"].as_array().unwrap().len(), 0);
 
     // A different project root must NOT see the first project's rules.
-    let other_root = std::path::PathBuf::from("/tmp/muta-perms-fixture-other-project");
+    let other_root = std::path::PathBuf::from("/tmp/nuo-perms-fixture-other-project");
     let agent3 = Agent::new(
         Arc::new(TestProvider),
         vec![Arc::new(WriteTestTool)],
@@ -2947,7 +2947,7 @@ async fn always_permission_persists_across_agents_for_same_project() {
 
 #[tokio::test]
 async fn agent_without_project_root_never_writes_permissions_file() {
-    let tmp = std::env::temp_dir().join(format!("muta-perms-noset-{}", uuid::Uuid::new_v4()));
+    let tmp = std::env::temp_dir().join(format!("nuo-perms-noset-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&tmp).expect("create temp data dir");
     let dirs = nuo_persistence::paths::Dirs {
         config_dir: tmp.join("config"),
@@ -2956,7 +2956,7 @@ async fn agent_without_project_root_never_writes_permissions_file() {
         cache_dir: tmp.join("cache"),
         runtime_dir: None,
     };
-    let project_root = std::path::PathBuf::from("/tmp/muta-perms-noset-fixture");
+    let project_root = std::path::PathBuf::from("/tmp/nuo-perms-noset-fixture");
     let perms_path = dirs.project_permissions(&project_root);
 
     // No set_project_root call: the agent stays ephemeral, so an Always
@@ -3135,7 +3135,7 @@ impl Provider for TwoEventProvider {
 }
 
 fn capture_dir() -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("muta-capture-{}", uuid::Uuid::new_v4()))
+    std::env::temp_dir().join(format!("nuo-capture-{}", uuid::Uuid::new_v4()))
 }
 
 #[tokio::test]

@@ -802,7 +802,7 @@ pub fn draw_permission_sheet(
 
     if confirm_always {
         body_lines.push(Line::from(Span::styled(
-            "Grants this tool until muta exits.",
+            "Grants this tool until nuo exits.",
             Style::default().fg(theme.muted()),
         )));
     } else if show_details {

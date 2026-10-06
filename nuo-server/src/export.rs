@@ -3,7 +3,7 @@
 //! the `/export` slash command, which copies the result to the system clipboard.
 //!
 //! Format matches the clean conversational Markdown specification:
-//! - Top-level `# Muta conversation` title.
+//! - Top-level `# Nuo conversation` title.
 //! - Clean `## User`, `## Reasoning`, `## Assistant`, and `## Activity` sections.
 //! - Activities render tool invocations and outputs as indented code blocks (4 spaces).
 //! - Hidden and system messages are skipped. Subagent transcripts are summarised inline.
@@ -30,7 +30,7 @@ pub fn format_export_markdown(
     messages: &[Message],
     commands: &[nuo_wire::CommandRecord],
 ) -> String {
-    let mut out = String::from("# Muta conversation\n\n");
+    let mut out = String::from("# Nuo conversation\n\n");
     let mut emitted_any = false;
     let mut tool_call_cursor: std::collections::HashMap<&str, usize> =
         std::collections::HashMap::new();
@@ -370,7 +370,7 @@ fn format_tool_activity(
     (header, status, body)
 }
 
-/// Parse shell stdout/stderr and exit status from Muta's shell tool output.
+/// Parse shell stdout/stderr and exit status from Nuo's shell tool output.
 fn parse_shell_output(output: &str) -> (String, Vec<String>) {
     let trimmed = output.trim_matches('\n');
     if trimmed.is_empty() {
@@ -513,7 +513,7 @@ mod tests {
             &[user("hello")],
             &[],
         );
-        assert!(out.starts_with("# Muta conversation\n\n"));
+        assert!(out.starts_with("# Nuo conversation\n\n"));
         assert!(out.contains("## User\n\nhello"));
     }
 

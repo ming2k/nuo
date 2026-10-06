@@ -21,7 +21,7 @@ use super::session_route::{
     SessionRoute, parse_confinement_arg, parse_unattended_arg, session_route,
 };
 use crate::agent_setup::active_context_window;
-use crate::project::init_muta_config;
+use crate::project::init_nuo_config;
 use crate::session_view::{build_sessions_overview, short_session_id};
 use crate::side::{
     SideEnv, SideSession, publish_btw_list, refuse_if_no_provider, spawn_parent_status_watcher,
@@ -220,7 +220,7 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
 
             if !roles_config.is_empty() {
                 lines.push(String::new());
-                lines.push("  User roles (~/.config/muta/roles.toml):".to_string());
+                lines.push("  User roles (~/.config/nuo/roles.toml):".to_string());
                 for (id, p) in &roles_config.roles {
                     let desc = p.description.as_deref().unwrap_or(p.name.as_str());
                     let mcp_info =
@@ -1033,7 +1033,7 @@ pub(crate) async fn init(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&st
         resp_tx, session, ..
     } = env;
     let target = parts.get(1).copied().unwrap_or(".");
-    match init_muta_config(std::path::Path::new(target)) {
+    match init_nuo_config(std::path::Path::new(target)) {
         Ok(created) if created.is_empty() => {
             record_command(
                 session,
@@ -1041,7 +1041,7 @@ pub(crate) async fn init(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&st
                 name,
                 args,
                 CommandResult::Text(format!(
-                    "muta is already configured in '{}'. Nothing to do.",
+                    "nuo is already configured in '{}'. Nothing to do.",
                     target
                 )),
             )
@@ -1054,7 +1054,7 @@ pub(crate) async fn init(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&st
                 name,
                 args,
                 CommandResult::Text(format!(
-                    "Initialized muta configuration in '{}'.\nCreated:\n{}",
+                    "Initialized nuo configuration in '{}'.\nCreated:\n{}",
                     target,
                     created
                         .iter()
@@ -1469,7 +1469,7 @@ pub(crate) async fn export(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[
                 args,
                 CommandResult::Text(format!(
                     "Session exported via OSC52 ({} messages, {} chars). \
-                                     If your terminal did not capture it, run muta in a \
+                                     If your terminal did not capture it, run nuo in a \
                                      clipboard-capable environment.",
                     messages.len(),
                     char_count

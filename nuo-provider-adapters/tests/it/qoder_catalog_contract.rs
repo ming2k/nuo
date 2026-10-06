@@ -359,7 +359,7 @@ fn reason_is_taken_verbatim_only_when_the_payload_states_one() {
     assert_eq!(
         reason_for("f_enabled_strategy"),
         Some("codeSafeModelReason".to_string()),
-        "the key is stated on the entry either way; muta records what the \
+        "the key is stated on the entry either way; nuo records what the \
          payload said and lets `usable` carry the verdict"
     );
 }

@@ -180,7 +180,7 @@ impl Tool for ArchivistSearchHistoryTool {
     }
 
     fn description(&self) -> &str {
-        "Full-text search across every session transcript this muta instance has ever \
+        "Full-text search across every session transcript this nuo instance has ever \
          persisted, across all projects/workspaces. Matches message text (BM25-ranked) \
          and returns session ids, titles, roles, and highlighted snippets. Use this \
          when the user describes a past conversation by content ('the one where we \
@@ -265,7 +265,7 @@ impl Tool for ArchivistListSessionsTool {
     }
 
     fn description(&self) -> &str {
-        "List every session this muta instance has ever persisted, across all scopes \
+        "List every session this nuo instance has ever persisted, across all scopes \
          — id, title, digest (intent + history), scope, message count, and \
          timestamps, newest activity first. Use this to survey what conversations exist \
          or to filter by title/intent before reading one in detail."
@@ -435,7 +435,7 @@ fn strip_highlight(snippet: &str) -> String {
 mod tests {
     use super::*;
 
-    /// Sandbox the process-wide store to a temp `MUTA_HOME` before any test
+    /// Sandbox the process-wide store to a temp `NUO_HOME` before any test
     /// opens it.
     fn sandbox_once() {
         use std::sync::Once;
@@ -443,7 +443,7 @@ mod tests {
         static KEEP: std::sync::Mutex<Option<tempfile::TempDir>> = std::sync::Mutex::new(None);
         SANDBOX.call_once(|| {
             let tmp = tempfile::tempdir().unwrap();
-            unsafe { std::env::set_var("MUTA_HOME", tmp.path()) };
+            unsafe { std::env::set_var("NUO_HOME", tmp.path()) };
             *KEEP.lock().unwrap() = Some(tmp);
         });
     }

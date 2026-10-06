@@ -1891,7 +1891,7 @@ pub struct PermissionRuleInfo {
 }
 
 /// One skill in the registry, shown in the modal's Skills pane. `source` is the
-/// [`SkillScope`](../muta_skills/enum.SkillScope.html) display string
+/// [`SkillScope`](../nuo_skills/enum.SkillScope.html) display string
 /// (system / remote / user / extra / repo).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SkillInfo {

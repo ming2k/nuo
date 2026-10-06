@@ -92,7 +92,7 @@ pub async fn run(
             // `nuo status` re-discovers (or reports none running).
             MonitorEvent::DaemonDraining => {
                 if !opts.json {
-                    eprintln!("muta: daemon is shutting down; watch ended.");
+                    eprintln!("nuo: daemon is shutting down; watch ended.");
                 }
                 return Ok(());
             }
@@ -125,7 +125,7 @@ pub(crate) fn format_diagnostics(diag: &DaemonDiagnostics) -> String {
 
     // Instance scope first (ADR-0121): every path below reads differently
     // once the reader knows whether this client resolves the host instance
-    // or an isolated `MUTA_HOME` sandbox.
+    // or an isolated `NUO_HOME` sandbox.
     out.push_str(&format!(
         "  Instance:          {} (default port {})\n",
         diag.instance_dir.display(),
@@ -247,7 +247,7 @@ pub(crate) fn format_diagnostics(diag: &DaemonDiagnostics) -> String {
         );
         out.push_str("                    `nuo` reclaims it automatically when idle; stop it now with `nuo stop`.\n");
     } else if diag.discovery_valid && diag.tcp_listening {
-        out.push_str("Daemon is running and healthy. (Observe with `muta status --watch`)\n");
+        out.push_str("Daemon is running and healthy. (Observe with `nuo status --watch`)\n");
     } else if diag.lock_held && diag.discovery_record.is_none() {
         out.push_str(
             "Ghost daemon detected: Instance lock is held but discovery record is missing.\n",
@@ -566,17 +566,17 @@ mod tests {
 
     fn base_diag() -> DaemonDiagnostics {
         DaemonDiagnostics {
-            instance_dir: std::path::PathBuf::from("/run/user/1000/muta"),
+            instance_dir: std::path::PathBuf::from("/run/user/1000/nuo"),
             default_port: 9800,
-            discovery_path: std::path::PathBuf::from("/run/user/1000/muta/daemon.json"),
+            discovery_path: std::path::PathBuf::from("/run/user/1000/nuo/daemon.json"),
             discovery_record: None,
             discovery_valid: true,
-            lock_path: std::path::PathBuf::from("/run/user/1000/muta/daemon.lock"),
+            lock_path: std::path::PathBuf::from("/run/user/1000/nuo/daemon.lock"),
             lock_held: false,
             lock_holder_pid: None,
             lock_holder_alive: false,
             local_endpoint: Some(nuo_host::ipc::LocalEndpoint::UnixSocket(
-                std::path::PathBuf::from("/run/user/1000/muta/daemon.sock"),
+                std::path::PathBuf::from("/run/user/1000/nuo/daemon.sock"),
             )),
             local_endpoint_exists: false,
             local_endpoint_connectable: false,
@@ -632,7 +632,7 @@ mod tests {
                 token: None,
                 project_root: String::new(),
                 started_at: 1000,
-                uds_path: Some(std::path::PathBuf::from("/run/user/1000/muta/daemon.sock")),
+                uds_path: Some(std::path::PathBuf::from("/run/user/1000/nuo/daemon.sock")),
                 local_endpoint: None,
                 version: Some("0.25.1".to_string()),
                 grace_secs: Some(10),
@@ -683,11 +683,11 @@ mod tests {
         // client-resolved default port, so "two daemons, one discovered"
         // becomes a one-command diagnosis.
         let mut diag = base_diag();
-        diag.instance_dir = std::path::PathBuf::from("/tmp/muta-dev/muta/instance");
+        diag.instance_dir = std::path::PathBuf::from("/tmp/nuo-dev/nuo/instance");
         diag.default_port = 9801;
         let text = format_diagnostics(&diag);
         assert!(
-            text.contains("/tmp/muta-dev/muta/instance (default port 9801)"),
+            text.contains("/tmp/nuo-dev/nuo/instance (default port 9801)"),
             "{text}"
         );
     }

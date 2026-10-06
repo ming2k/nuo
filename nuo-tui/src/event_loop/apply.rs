@@ -77,7 +77,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
                     crate::trust_gate::gate_request(&snapshot.workspace_security).is_some();
                 if !gate_needed {
                     tracing::info!(
-                        "mutx: clearing PreAttach interstitial (workspace review resolved)"
+                        "nuo: clearing PreAttach interstitial (workspace review resolved)"
                     );
                     app.pre_attach = None;
                     runtime
@@ -438,7 +438,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
                 && let Some(state) = crate::PreAttachState::from_snapshot(&signal.snapshot)
                 && app.pre_attach.is_none()
             {
-                tracing::info!("mutx: mounting PreAttach interstitial");
+                tracing::info!("nuo: mounting PreAttach interstitial");
                 app.pre_attach = Some(state);
                 // PreAttach claims the keyboard; reset the composer/sheet
                 // state the way an ordinary sheet mount does.

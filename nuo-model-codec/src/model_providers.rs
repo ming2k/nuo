@@ -65,10 +65,17 @@ pub const OPENROUTER_BUILTIN_MODELS: &[&str] = &["nex-agi/nex-n2.5-pro:free"];
 
 /// Seed models for Command Code Provider API. Its live `/models` endpoint is authoritative;
 /// this keeps the flagship models selectable before the first refresh.
+///
+/// The ids are CommandCode's own `vendor/model` wire ids; the DeepSeek siblings
+/// are listed because the server resolves them per turn (ADR-0014) and each
+/// carries a registered effort ladder, so the picker exposes its depth control
+/// offline as well.
 pub const COMMANDCODE_BUILTIN_MODELS: &[&str] = &[
     "claude-sonnet-5-5",
     "gpt-5.6-sol",
     "deepseek/deepseek-v4-flash",
+    "deepseek/deepseek-v4.1-flash",
+    "deepseek/deepseek-v4-pro",
 ];
 
 pub const OPENCODE_GO_MODELS: &[&str] = &[

@@ -425,7 +425,7 @@ impl Theme {
         for preset in &COLOR_SCHEMES {
             list.push(preset.clone());
         }
-        // 2. Custom files from workspace, mutx themes_dir, and legacy muta themes_dir
+        // 2. Custom files from the workspace and the unified `nuo` themes dir.
         let files = crate::config::load_all_theme_files(workspace);
         for file in files {
             if !list
@@ -1492,7 +1492,7 @@ mod tests {
     fn discovers_workspace_themes_in_available_color_schemes() {
         let temp = tempfile::tempdir().expect("temp dir");
         let ws = temp.path().join("proj");
-        let ws_themes = ws.join(".nuox").join("themes");
+        let ws_themes = ws.join(".nuo").join("themes");
         std::fs::create_dir_all(&ws_themes).unwrap();
 
         let raw = r##"

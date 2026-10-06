@@ -1,4 +1,4 @@
-//! Authoritative Unified Command Palette (Ctrl+L).
+//! Authoritative Unified Command Palette (`C-x p`).
 //!
 //! Merges Quick Switcher, Which-Key, Actions menu, surface navigation, settings,
 //! and rare administrative commands into one searchable, keyboard-first modal.

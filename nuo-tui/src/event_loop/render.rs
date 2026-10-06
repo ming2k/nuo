@@ -66,7 +66,7 @@ fn compose_frame(
     if app.startup_overlay == crate::StartupOverlay::SessionsPicker
         && app.active_dialog() == Some(DialogKind::Sessions)
     {
-        // `mutx attach` (no id): initial launch opens ONLY the sessions picker
+        // `nuo attach` (no id): initial launch opens ONLY the sessions picker
         // on a clean background. Do not open/render the chat interface, empty state,
         // composer input box, status bar, or header components until a session is selected.
         f.render_widget(
@@ -236,26 +236,11 @@ fn compose_frame(
     // show a contextual first-row header; otherwise render the
     // root conversation.
     let view_messages = app.focused_messages();
-    // `/btw` aside page-header context (ADR-0017/0103): shown only while the
-    // aside view is active. Subagent zoom and the aside view are mutually
+    // `/btw` aside scene context (ADR-0017/0103, ADR-0302): shown only while
+    // the aside view is active. Subagent zoom and the aside view are mutually
     // exclusive, so the two modes never coexist.
-    let side_banner = app.in_side_view.then_some(render::BtwHead {
-        parent: app.parent_status,
-    });
-    // Row-2 affordance legend inputs (ADR-0103 §3): the aside chip is
-    // offered on the main view only (inside an aside, `F5 asides` is a bare
-    // pair without the count); interruptibility follows whether the viewed
-    // page's session has a live round. The running count is derived from
-    // `running_sessions` (maintained per session id by the HarnessState
-    // outbox signal), not the list snapshot — so a background aside's
-    // round finishing flips the chip on the very next frame without a list
-    // refetch.
+    let side_banner = app.in_side_view.then_some(app.parent_status);
     let viewed_running = app.running_sessions.contains(viewed_session_id);
-    let aside_running = app
-        .btw_list
-        .iter()
-        .filter(|row| app.running_sessions.contains(row.id.as_str()))
-        .count();
     let subagent_bar = app.focus_stack.last().and_then(|current| {
         let tasks: Vec<&TranscriptMessage> = app
             .messages
@@ -272,27 +257,47 @@ fn compose_frame(
             total: tasks.len(),
         })
     });
-    let breadcrumbs_string: Option<String> = if app.in_side_view {
-        Some("Main › Aside".to_string())
-    } else if let Some(ref bar) = subagent_bar {
-        let role = bar.role.as_deref().unwrap_or("subagent");
-        Some(format!("Main › Subagent[{role}]"))
-    } else {
-        None
-    };
-    let page_hints = render::ViewHints {
-        kind: if side_banner.is_some() {
-            render::ViewKind::Btw
-        } else if app.in_subagent_view() {
-            render::ViewKind::Subagent
+    // The scene row (ADR-0302): the scene the user stands in, named plainly,
+    // followed by the scene's own context. Subagent outranks the aside view in
+    // this resolution (they are mutually exclusive in the app; keeping a
+    // deterministic precedence guards a malformed caller).
+    let (scene_kind, scene_context, scene_context_warn): (render::ViewKind, Option<String>, bool) =
+        if let Some(bar) = subagent_bar.as_ref() {
+            let role = bar
+                .role
+                .as_deref()
+                .map(|role| format!("[{}]", role.to_uppercase()))
+                .unwrap_or_default();
+            let count = if bar.total > 1 {
+                format!(" ({}/{})", bar.index, bar.total)
+            } else {
+                String::new()
+            };
+            let context = if role.is_empty() {
+                format!("{}{count}", bar.label)
+            } else {
+                format!("{role} {}{count}", bar.label)
+            };
+            (render::ViewKind::Subagent, Some(context), false)
+        } else if let Some(parent) = side_banner {
+            (
+                render::ViewKind::Btw,
+                Some(render::parent_status_context(parent).to_string()),
+                render::parent_status_needs_attention(parent),
+            )
         } else {
-            render::ViewKind::Session
-        },
-        asides: (!app.in_side_view && !app.btw_list.is_empty()).then_some(render::AsidesChip {
-            total: app.btw_list.len(),
-            running: aside_running,
-        }),
-        breadcrumbs: breadcrumbs_string.as_deref(),
+            (
+                render::ViewKind::Session,
+                conversation_title(app.focused_messages()),
+                false,
+            )
+        };
+    let page_hints = render::ViewHints {
+        kind: scene_kind,
+        context: scene_context.as_deref(),
+        context_warn: scene_context_warn,
+        unattended: app.unattended,
+        confined: app.confined,
     };
 
     // Empty-state guidance policy (ADR-0057/0104): the app shell picks the
@@ -405,14 +410,7 @@ fn compose_frame(
                     session_id: viewed_session_id,
                     workspace: &app.current_workspace,
                     role: app.current_role.as_deref(),
-                    unattended: app.unattended,
-                    confined: app.confined,
                     switching_target: app.switching_session.as_deref(),
-                    // ADR-0238: chrome renders the chord that fires, so a user
-                    // remap shows through; an unbound palette has no keycap.
-                    palette_key: app
-                        .key_overrides
-                        .effective_binding(crate::keymap::CommandId::CommandPalette),
                 }),
                 // View-scoped: the elapsed-timer origin belongs to the viewed
                 // session's round (an aside view times the aside's round, not
@@ -1279,6 +1277,14 @@ fn compose_frame(
                         prompt_text: &app.input,
                         current_session_id: viewed_session_id,
                         show_caret: scene_prompt_owns_caret,
+                        session_head: Some(render::SessionHead {
+                            session_id: viewed_session_id,
+                            workspace: &app.current_workspace,
+                            role: app.current_role.as_deref(),
+                            switching_target: app.switching_session.as_deref(),
+                        }),
+                        unattended: app.unattended,
+                        confined: app.confined,
                     },
                     &app.theme,
                 );
@@ -1314,6 +1320,14 @@ fn compose_frame(
                         theme: &app.theme,
                         profile: &app.profile,
                         tui_config: &app.tui_config,
+                        session_head: Some(render::SessionHead {
+                            session_id: viewed_session_id,
+                            workspace: &app.current_workspace,
+                            role: app.current_role.as_deref(),
+                            switching_target: app.switching_session.as_deref(),
+                        }),
+                        unattended: app.unattended,
+                        confined: app.confined,
                     },
                 );
                 app.config_selected_rect = rects.selected_row_rect;
@@ -1475,4 +1489,20 @@ fn mcp_connecting_status(app: &App) -> Option<String> {
     let connected = snapshot.mcp.iter().filter(|s| s.connected).count();
     let names = connecting.join(", ");
     Some(format!("connecting MCP ({connected}/{total}: {names})…"))
+}
+
+/// The conversation scene's row-2 context (ADR-0302): the chat's title. The
+/// title is derived from the first real chat prompt the user drove the
+/// conversation with — a slash command or steering insert is not a title — and
+/// cleaned to a single bounded line by the same rule the session titler uses
+/// ([`nuo_wire::clean_title`]). `None` before the first real prompt, so the
+/// scene row shows only its label.
+fn conversation_title(messages: &[TranscriptMessage]) -> Option<String> {
+    let prompt = messages.iter().find(|m| {
+        m.role == nuo_wire::Role::User && m.origin == crate::model::document::UserMessageOrigin::Chat
+    })?;
+    // `clean_title` collapses to the first non-empty line and caps the length
+    // (with an ellipsis), so a multi-line first prompt still yields a tidy
+    // one-line title.
+    nuo_wire::clean_title(&prompt.raw)
 }

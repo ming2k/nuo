@@ -673,7 +673,7 @@ impl QoderApiKeyCredentialSource {
             if let Err(error) = session.commit().await {
                 tracing::warn!(connection = %self.connection_id, %error, "qoder: could not persist resolved uid");
             }
-        } else if std::env::var("MUTA_QODER_DEBUG").is_ok() {
+        } else if std::env::var("NUO_QODER_DEBUG").is_ok() {
             eprintln!("QODER_UID_PERSIST_SKIPPED connection={}", self.connection_id);
         }
         uid

@@ -96,7 +96,7 @@ impl Discovery {
 }
 
 /// The global discovery path for the unified daemon (ADR-0096): one record
-/// per user, in the instance dir (ADR-0121: `MUTA_HOME`, else
+/// per user, in the instance dir (ADR-0121: `NUO_HOME`, else
 /// `$XDG_RUNTIME_DIR`, else the native data/state fallback).
 pub fn global_discovery_path() -> PathBuf {
     paths::get().instance_dir().join("daemon.json")

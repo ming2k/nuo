@@ -61,7 +61,7 @@ pub fn available() -> bool {
                 return false;
             }
             let probe_root = std::env::temp_dir().join(format!(
-                "muta-workspace-sandbox-probe-{}",
+                "nuo-workspace-sandbox-probe-{}",
                 std::process::id()
             ));
             if std::fs::create_dir_all(&probe_root).is_err() {
@@ -260,7 +260,7 @@ pub fn command_with_roots(
             "--clearenv",
             "--setenv",
             "HOME",
-            "/tmp/muta-home",
+            "/tmp/nuo-home",
             "--setenv",
             "PATH",
             &path,
@@ -354,7 +354,7 @@ mod tests {
 
     fn scratch() -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "muta-platform-sandbox-{}-{}",
+            "nuo-platform-sandbox-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -411,7 +411,7 @@ mod tests {
         std::fs::write(
             root.join("probe.sh"),
             format!(
-                "cat {}/sibling.txt && touch {}/written && ! touch /etc/muta_leak_test 2>/dev/null",
+                "cat {}/sibling.txt && touch {}/written && ! touch /etc/nuo_leak_test 2>/dev/null",
                 sibling.display(),
                 sibling.display()
             ),
@@ -441,7 +441,7 @@ mod tests {
         let root = scratch();
         std::fs::write(root.join("visible"), "ok").unwrap();
         let mut command = shell(
-            "test -r visible && ! touch created 2>/dev/null && ! touch /etc/muta_leak_test 2>/dev/null",
+            "test -r visible && ! touch created 2>/dev/null && ! touch /etc/nuo_leak_test 2>/dev/null",
             &root,
             WorkspaceAccess::ReadOnly,
             NetworkAccess::Disabled,

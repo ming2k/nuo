@@ -963,7 +963,7 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
         api_key_masked: Some("sk-...".to_string()),
         api_key_source: "credentials.toml".to_string(),
         client_identity: nuo_wire::ClientIdentity::Native,
-        user_agent: "muta".to_string(),
+        user_agent: "nuo".to_string(),
         models: vec![],
         model_info: vec![],
         active_model: None,

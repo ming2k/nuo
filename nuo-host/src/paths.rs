@@ -370,9 +370,19 @@ impl Dirs {
 
     // well-known files
 
-    /// User-edited configuration. `$XDG_CONFIG_HOME/nuo/config.toml`.
+    /// Daemon configuration. `$XDG_CONFIG_HOME/nuo/config.toml`.
     pub fn config_file(&self) -> PathBuf {
         self.config_dir.join("config.toml")
+    }
+
+    /// TUI presentation preferences (`$XDG_CONFIG_HOME/nuo/tui.toml`).
+    ///
+    /// The terminal frontend keeps its own file beside — never inside — the
+    /// daemon-managed `config.toml`, so theme/keybinding/disclosure state and
+    /// the daemon's behavioural policy can evolve independently without
+    /// sharing a schema (ADR-0011).
+    pub fn tui_config_file(&self) -> PathBuf {
+        self.config_dir.join("tui.toml")
     }
 
     /// User-authored persistent roles (`$XDG_CONFIG_HOME/nuo/roles.toml`).
@@ -690,7 +700,7 @@ pub static TEST_OVERRIDE_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(())
 /// Returns `Ok(None)` on first install or `Ok(Some(previous))` if a value was
 /// already set (the new value is NOT stored in that case).
 ///
-/// `mutx`'s `main` calls this once at startup to install the
+/// `nuo`'s `main` calls this once at startup to install the
 /// `NUO_HOME` override (ADR-0121) before any path is resolved; library
 /// code that runs outside `main` (tests, examples) falls back to
 /// [`Dirs::system`] via [`get`].
@@ -988,7 +998,7 @@ mod dir_tests {
     use super::*;
     use std::sync::Mutex;
 
-    /// Tests that mutate process-wide env vars (`XDG_*`, `MUTA_*`, `HOME`)
+    /// Tests that mutate process-wide env vars (`XDG_*`, `NUO_*`, `HOME`)
     /// cannot run in parallel with each other or with tests that read those
     /// vars. We serialise them through this global lock. Tests that don't touch
     /// env vars omit the guard and can still run in parallel.
@@ -1006,7 +1016,7 @@ mod dir_tests {
     }
 
     #[test]
-    fn app_dir_from_root_appends_muta_segment() {
+    fn app_dir_from_root_appends_nuo_segment() {
         let p = app_dir_from_root(PathBuf::from("/tmp/foo"));
         assert_eq!(p, PathBuf::from("/tmp/foo/nuo"));
     }
@@ -1047,16 +1057,16 @@ mod dir_tests {
     #[test]
     fn resolve_honours_nuo_env_over_xdg_env() {
         env_locked!({
-            let muta_data = absolute_test_root("nuo-data");
+            let nuo_data = absolute_test_root("nuo-data");
             let xdg_data = absolute_test_root("xdg-data");
             unsafe {
-                std::env::set_var("NUO_DATA_DIR", &muta_data);
+                std::env::set_var("NUO_DATA_DIR", &nuo_data);
             }
             unsafe {
                 std::env::set_var("XDG_DATA_HOME", xdg_data);
             }
             let dirs = Dirs::resolve(&PathsOverride::default());
-            assert_eq!(dirs.data_dir, muta_data.join("nuo"));
+            assert_eq!(dirs.data_dir, nuo_data.join("nuo"));
             unsafe {
                 std::env::remove_var("NUO_DATA_DIR");
             }
@@ -1260,8 +1270,8 @@ mod dir_tests {
 
     #[test]
     fn project_bucket_name_is_stable_and_ascii_safe() {
-        let n1 = project_bucket_name(Path::new("/home/user/code/muta"));
-        let n2 = project_bucket_name(Path::new("/home/user/code/muta"));
+        let n1 = project_bucket_name(Path::new("/home/user/code/nuo"));
+        let n2 = project_bucket_name(Path::new("/home/user/code/nuo"));
         assert_eq!(n1, n2, "must be stable for the same input");
         assert_eq!(n1.len(), 16, "must be 16 hex chars (8 bytes)");
         assert!(n1.chars().all(|c| c.is_ascii_hexdigit()));
@@ -1306,6 +1316,21 @@ mod dir_tests {
         assert_eq!(
             dirs.project_permissions(project_root),
             PathBuf::from(format!("/tmp/nd/nuo/projects/{bucket}/permissions.json"))
+        );
+    }
+
+    /// The unified `nuo` config directory holds one file per concern: the
+    /// daemon's `config.toml` and the TUI's sibling `tui.toml`.
+    #[test]
+    fn tui_config_is_a_sibling_of_daemon_config() {
+        let dirs = Dirs::resolve(&PathsOverride {
+            config_dir: Some(PathBuf::from("/tmp/nc")),
+            ..Default::default()
+        });
+        assert_eq!(dirs.config_file(), PathBuf::from("/tmp/nc/nuo/config.toml"));
+        assert_eq!(
+            dirs.tui_config_file(),
+            PathBuf::from("/tmp/nc/nuo/tui.toml")
         );
     }
 }

@@ -39,6 +39,7 @@ use crate::primitives::{
     ElevationContainer, LayoutTier, SCROLL_EDGE_MARGIN, resolve_scroll, viewport_rect,
 };
 use crate::render::Theme;
+use crate::view_header::SessionHead;
 
 /// Which zone of the dashboard currently owns the keyboard.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -169,6 +170,15 @@ pub struct DashboardProps<'a> {
     // The frame-level caret verdict (ADR-0205): the inline prompt borrows the
     // composer buffer but owns the cursor through this scene's own footer band.
     pub show_caret: bool,
+    /// The session identity for the head band's top row (ADR-0302): the band is
+    /// uniform across scenes, so the dashboard draws the same `SESSION` row as
+    /// the conversation. `None` hides row 1 (the body then starts at row 0).
+    pub session_head: Option<SessionHead<'a>>,
+    /// The session's persistent run-mode flags for the head band's scene row
+    /// (ADR-0302): unattended execution and confinement. Mirrors the ambient
+    /// session state the conversation scene reads from `App`.
+    pub unattended: bool,
+    pub confined: bool,
 }
 
 /// Draw the full-screen dashboard view.
@@ -190,6 +200,9 @@ pub fn draw_dashboard(
         prompt_text,
         current_session_id,
         show_caret,
+        session_head,
+        unattended,
+        confined,
     } = props;
     // A true full-screen surface: clear the whole frame and paint our own
     // backdrop.
@@ -205,7 +218,8 @@ pub fn draw_dashboard(
     let full = frame.area();
     let area = viewport_rect(frame);
     let tier = LayoutTier::from_rect(area, theme.elevation);
-    /// The shared head band's height: identity row + namespace row (ADR-0298 §4).
+    /// The shared head band's height: session-identity row + scene row
+    /// (ADR-0302).
     const BAND_ROWS: u16 = 2;
     let body = Rect {
         y: area.y.saturating_add(BAND_ROWS),
@@ -291,20 +305,23 @@ pub fn draw_dashboard(
         };
 
     // The head band, drawn by the shared renderer so the dashboard is
-    // chrome-identical to every other scene.
+    // chrome-identical to every other scene (ADR-0298 §4 / ADR-0302). Row 1 is
+    // the uniform session identity; row 2 names the scene (`dashboard`) and
+    // carries the live fleet summary as its context, with the session's
+    // run-mode flags and the namespace pair on the right.
+    if let Some(head) = session_head.as_ref() {
+        crate::render::draw_view_header(frame, header_rect, head, theme);
+    }
     let (summary, needs_attention) = header_content(rows);
-    let head = crate::render::ViewHeader::Dashboard(crate::render::DashboardHead {
-        summary,
-        needs_attention,
-    });
-    crate::render::draw_view_header(frame, header_rect, &head, theme);
     crate::render::draw_view_header_hints(
         frame,
         hints_rect,
         &crate::render::ViewHints {
             kind: crate::render::ViewKind::Dashboard,
-            asides: None,
-            breadcrumbs: None,
+            context: Some(summary.trim_end()),
+            context_warn: needs_attention,
+            unattended,
+            confined,
         },
         theme,
     );
@@ -350,12 +367,13 @@ pub fn draw_dashboard(
     }
 }
 
-/// The dashboard's head-row context: the fleet summary the shared head band
-/// renders on its right edge.
+/// The dashboard's scene-row context: the fleet summary the shared head band
+/// renders after the `dashboard` scene name.
 ///
-/// The row itself is drawn by [`crate::render::draw_view_header`] — the same
-/// band every other scene uses (ADR-0298 §3: one head, one row-2 legend). This
-/// function only computes the scene's own content for it.
+/// The rows themselves are drawn by [`crate::render::draw_view_header`] and
+/// [`crate::render::draw_view_header_hints`] — the same band every other scene
+/// uses (ADR-0298 §3 / ADR-0302: one head, one scene row). This function only
+/// computes the dashboard's own context string and its attention flag.
 fn header_content(rows: &[MonitoredSession]) -> (String, bool) {
     let needing = rows
         .iter()
@@ -809,7 +827,7 @@ fn render_footer(
             ("i", "interrupt"),
             ("k", "kill"),
             ("s", "suspend"),
-            ("C-x", "scene"),
+            ("C-x", "menu"),
         ],
         DashboardFocus::Detail => vec![
             ("↑/↓", "scroll"),
@@ -817,7 +835,7 @@ fn render_footer(
             ("n", "new session"),
             ("p", "prompt"),
             ("a", "attach"),
-            ("C-x", "scene"),
+            ("C-x", "menu"),
         ],
     };
 
@@ -1394,11 +1412,11 @@ fn console_lines(
 mod tests {
     use super::*;
 
-    /// ADR-0298 §4: the dashboard is chrome-identical to every other scene. Its
-    /// head is the shared two-row band — row 1 identity + fleet summary, row 2
-    /// the `Ctrl-x scene` namespace — not the homegrown one-row header plus gap
-    /// row it used to carry. This pins the rendered rows end to end, because the
-    /// layout split is what makes the namespace row reachable at all.
+    /// ADR-0302: the dashboard carries the same two-row head band as every
+    /// other scene — row 1 the uniform session identity, row 2 the scene name
+    /// (`dashboard`) with the live fleet summary as its context and the
+    /// namespace pair on the right. This pins the rendered rows end to end,
+    /// because the layout split is what makes the scene row reachable.
     #[test]
     fn dashboard_head_renders_the_shared_two_row_band() {
         let theme = Theme::default();
@@ -1406,6 +1424,12 @@ mod tests {
         let mut terminal = nuotc::TestTerminal::new(100, 24);
         let mut list_scroll = 0usize;
         let mut detail_scroll = 0usize;
+        let head = SessionHead {
+            session_id: "sess-01a2b3c4",
+            workspace: "~/work",
+            role: Some("developer"),
+            switching_target: None,
+        };
         terminal.draw(|f| {
             draw_dashboard(
                 f,
@@ -1422,6 +1446,9 @@ mod tests {
                     prompt_text: "",
                     current_session_id: "a-1",
                     show_caret: false,
+                    session_head: Some(head),
+                    unattended: true,
+                    confined: true,
                 },
                 &theme,
             );
@@ -1438,22 +1465,26 @@ mod tests {
                 .collect()
         };
 
-        // Row 1: identity, scope, and the live fleet summary.
+        // Row 1: the uniform session identity.
         let head = row_text(0);
-        assert!(head.contains("DASHBOARD"), "identity on row 1: {head:?}");
-        assert!(head.contains("all projects"), "scope on row 1: {head:?}");
-        assert!(head.contains("1 session(s)"), "fleet summary: {head:?}");
-        assert!(head.contains("1 running"), "running count: {head:?}");
+        assert!(head.contains("SESSION"), "session identity on row 1: {head:?}");
+        assert!(head.contains("b3c4"), "id tail on row 1: {head:?}");
+        assert!(head.contains("~/work"), "workspace on row 1: {head:?}");
 
-        // Row 2: the namespace legend — the row the old layout had no slot for.
-        let legend = row_text(1);
+        // Row 2: the scene name, the fleet summary context, the run-mode flag,
+        // and the namespace pair.
+        let scene = row_text(1);
+        assert!(scene.contains("dashboard"), "scene name on row 2: {scene:?}");
+        assert!(scene.contains("1 session(s)"), "fleet summary context: {scene:?}");
+        assert!(scene.contains("1 running"), "running count: {scene:?}");
+        assert!(scene.contains("UNATTENDED"), "run-mode flag: {scene:?}");
         assert!(
-            legend.contains("Ctrl-x") && legend.contains("scene"),
-            "row 2 advertises the scene namespace: {legend:?}"
+            scene.contains("Ctrl-x") && scene.contains("menu"),
+            "row 2 advertises the scene namespace: {scene:?}"
         );
         assert!(
-            !legend.contains("Esc"),
-            "Esc is never advertised as a scene exit: {legend:?}"
+            !scene.contains("Esc"),
+            "Esc is never advertised as a scene exit: {scene:?}"
         );
     }
 
@@ -1521,28 +1552,28 @@ mod tests {
     #[test]
     fn workspace_names_use_basename_until_they_collide() {
         let rows = vec![
-            row("one", 1, "/home/ming/projects/muta", SessionStatus::Idle),
+            row("one", 1, "/home/ming/projects/nuo", SessionStatus::Idle),
             row("two", 2, "/home/ming/projects/app", SessionStatus::Idle),
         ];
         let entries = dock_entries(&rows);
-        assert_eq!(entries[0].workspace, "muta");
+        assert_eq!(entries[0].workspace, "nuo");
         assert_eq!(entries[1].workspace, "app");
 
         // Same basename in two different parents → both fall back to full
         // paths (a bare "src" would be ambiguous AND meaningless).
         let rows = vec![
-            row("one", 1, "/home/ming/projects/muta", SessionStatus::Idle),
-            row("two", 2, "/tmp/worktree/muta", SessionStatus::Idle),
+            row("one", 1, "/home/ming/projects/nuo", SessionStatus::Idle),
+            row("two", 2, "/tmp/worktree/nuo", SessionStatus::Idle),
         ];
         let entries = dock_entries(&rows);
-        assert_eq!(entries[0].workspace, "/home/ming/projects/muta");
-        assert_eq!(entries[1].workspace, "/tmp/worktree/muta");
+        assert_eq!(entries[0].workspace, "/home/ming/projects/nuo");
+        assert_eq!(entries[1].workspace, "/tmp/worktree/nuo");
     }
 
     #[test]
     fn workspace_basename_never_shows_a_parent() {
-        assert_eq!(workspace_basename("/home/ming/projects/muta"), "muta");
-        assert_eq!(workspace_basename("/home/ming/projects/muta/"), "muta");
+        assert_eq!(workspace_basename("/home/ming/projects/nuo"), "nuo");
+        assert_eq!(workspace_basename("/home/ming/projects/nuo/"), "nuo");
         assert_eq!(workspace_basename("/"), "/");
         assert_eq!(workspace_basename("/src"), "src");
     }
@@ -1563,14 +1594,14 @@ mod tests {
         let r = row(
             "x",
             now - (2 * 3600 + 14 * 60),
-            "/work/muta",
+            "/work/nuo",
             SessionStatus::Running,
         );
         let entries = dock_entries(std::slice::from_ref(&r));
         let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("#1"), "{text}");
-        assert!(text.contains("muta"), "{text}");
+        assert!(text.contains("nuo"), "{text}");
         assert!(text.contains("2h14m"), "{text}");
         assert!(text.contains("running"), "{text}");
     }
@@ -1644,7 +1675,7 @@ mod tests {
     fn dock_card_at_minimum_width_keeps_fixed_fields() {
         let theme = Theme::default();
         let now = 1_000u64;
-        let r = row("x", now, "/work/muta", SessionStatus::Running);
+        let r = row("x", now, "/work/nuo", SessionStatus::Running);
         let entries = dock_entries(std::slice::from_ref(&r));
         // A degenerate 30-cell cell (below the 36 target): seq, uptime and
         // status all survive; the name field just gets cramped.
@@ -1835,7 +1866,7 @@ mod tests {
     #[test]
     fn session_detail_lines_renders_cognitive_digest_intent_and_milestones() {
         let theme = Theme::default();
-        let mut r = row("s-123", 1000, "/work/muta", SessionStatus::Running);
+        let mut r = row("s-123", 1000, "/work/nuo", SessionStatus::Running);
         r.digest = Some(nuo_wire::SessionDigest {
             title: "Refactor Auth Middleware".to_string(),
             intent: "Rewrite token validator to support ECDSA signatures.".to_string(),
@@ -1883,7 +1914,7 @@ mod tests {
     #[test]
     fn session_detail_lines_falls_back_to_overview_when_no_digest() {
         let theme = Theme::default();
-        let mut r = row("s-456", 1000, "/work/muta", SessionStatus::Idle);
+        let mut r = row("s-456", 1000, "/work/nuo", SessionStatus::Idle);
         r.overview = "Plain user prompt without digest".to_string();
         r.digest = None;
 

@@ -2,7 +2,7 @@
 //!
 //! ADR-0200 replaces `reqwest` with an owned transport, and the switch must not
 //! reach the protocol adapters. The seam is drawn at "given a fully formed
-//! request, give me a response": [`Egress`] is implemented by [`MutaNetEgress`]
+//! request, give me a response": [`Egress`] is implemented by [`NuoNetEgress`]
 //! (production) and, behind the `reqwest-oracle` feature, by `ReqwestEgress`
 //! — which exists only so the differential and shadow comparisons have a
 //! reference implementation. `reqwest` is therefore a *dev/test* dependency;
@@ -94,7 +94,6 @@ pub trait Egress: Send + Sync {
 }
 
 pub use owned::{NuoNetEgress, TraceSink};
-pub type MutaNetEgress = NuoNetEgress;
 
 /// Map an owned-transport failure onto the provider error the retry classifier
 /// reads, so both transports classify identically.

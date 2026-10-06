@@ -1526,7 +1526,7 @@ fn validate_origin(req: &Request, expose: ServeExpose) -> Result<(), ErrorRespon
     } else {
         tracing::warn!(%origin, "nuo daemon: refused WebSocket handshake from foreign browser origin");
         Err(reject_forbidden(
-            "browser origin not allowed: the muta control plane only serves pages hosted on loopback",
+            "browser origin not allowed: the nuo control plane only serves pages hosted on loopback",
         ))
     }
 }

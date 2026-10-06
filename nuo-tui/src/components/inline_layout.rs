@@ -307,16 +307,16 @@ mod tests {
             .push_flexible("\"draw.rs\"")
             .push_fixed(" in ")
             .push_path(PathView::from_str(
-                "apps/terminal/crates/mutx/src/overlays/telemetry",
+                "apps/terminal/crates/nuo/src/overlays/telemetry",
             ));
 
         assert_eq!(
             line.to_plain_text(),
-            "Search \"draw.rs\" in apps/terminal/crates/mutx/src/overlays/telemetry"
+            "Search \"draw.rs\" in apps/terminal/crates/nuo/src/overlays/telemetry"
         );
         assert_eq!(
             format!("{}", line),
-            "Search \"draw.rs\" in apps/terminal/crates/mutx/src/overlays/telemetry"
+            "Search \"draw.rs\" in apps/terminal/crates/nuo/src/overlays/telemetry"
         );
     }
 
@@ -328,7 +328,7 @@ mod tests {
             .push_flexible("\"draw.rs\"")
             .push_fixed(" in ")
             .push_path(PathView::from_str(
-                "apps/terminal/crates/mutx/src/overlays/telemetry",
+                "apps/terminal/crates/nuo/src/overlays/telemetry",
             ));
 
         let spans = line.resolve(
@@ -340,7 +340,7 @@ mod tests {
 
         let full_text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(full_text.ends_with(" (3ms)"));
-        assert!(full_text.contains("apps/terminal/crates/mutx/src/overlays/telemetry"));
+        assert!(full_text.contains("apps/terminal/crates/nuo/src/overlays/telemetry"));
         assert!(full_text.width() <= 120);
     }
 
@@ -352,7 +352,7 @@ mod tests {
             .push_flexible("\"draw.rs\"")
             .push_fixed(" in ")
             .push_path(PathView::from_str(
-                "apps/terminal/crates/mutx/src/overlays/telemetry",
+                "apps/terminal/crates/nuo/src/overlays/telemetry",
             ));
 
         // Constrained width: 50 columns
@@ -385,10 +385,10 @@ mod tests {
 
     #[test]
     fn test_semantic_line_with_base_dir() {
-        let base = Path::new("/workspace/muta");
+        let base = Path::new("/workspace/nuo");
         let line = SemanticLine::new()
             .push_fixed("Read ")
-            .push_path(PathView::from_str("/workspace/muta/src/main.rs").base_dir(base));
+            .push_path(PathView::from_str("/workspace/nuo/src/main.rs").base_dir(base));
 
         assert_eq!(line.to_plain_text(), "Read src/main.rs");
     }

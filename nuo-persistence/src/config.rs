@@ -1071,7 +1071,7 @@ impl<'de> Deserialize<'de> for Config {
             || raw.compaction_prune_protect_tokens.is_some()
         {
             return Err(serde::de::Error::custom(
-                "legacy 'compaction.*' configuration is retired under ADR-0280 [INV-POLICY-01]; run `muta context migrate` to convert to versioned `context.*` policy",
+                "legacy 'compaction.*' configuration is retired under ADR-0280 [INV-POLICY-01]; run `nuo context migrate` to convert to versioned `context.*` policy",
             ));
         }
         if let Some(ctx) = raw.context {
@@ -1211,7 +1211,7 @@ impl Config {
         };
 
         // `.nuo/mcp.json` follows the common MCP client shape while retaining
-        // Muta's `read_only` and `enabled` policy fields. A JSON definition with
+        // Nuo's `read_only` and `enabled` policy fields. A JSON definition with
         // the same name replaces the TOML entry, giving the dedicated file a
         // deterministic precedence.
         #[derive(Deserialize, Default)]
@@ -1793,7 +1793,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let guard = PATHS_GUARD.lock().unwrap_or_else(|e| e.into_inner());
-        let tmp = std::env::temp_dir().join(format!("muta-creds-{}", uuid::Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("nuo-creds-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&tmp).unwrap();
         let dirs = paths::Dirs {
             config_dir: tmp.clone(),
@@ -2167,7 +2167,7 @@ name = "DeepSeek"
     fn resolve_workspace_additional_roots_resolves_relative_and_absolute_entries() {
         let root = scratch_project_root();
         let sibling =
-            std::env::temp_dir().join(format!("muta-additional-root-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("nuo-additional-root-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&sibling).unwrap();
         let mut config = Config::default();
         config.workspace.additional_roots = vec![
@@ -2183,7 +2183,7 @@ name = "DeepSeek"
     fn resolve_workspace_additional_roots_skips_missing_and_nested_entries() {
         let root = scratch_project_root();
         let sibling =
-            std::env::temp_dir().join(format!("muta-additional-root-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("nuo-additional-root-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&sibling).unwrap();
         std::fs::create_dir_all(root.join("nested")).unwrap();
 
@@ -2208,7 +2208,7 @@ name = "DeepSeek"
     fn project_config_cannot_widen_workspace_roots() {
         let root = scratch_project_root();
         let sibling =
-            std::env::temp_dir().join(format!("muta-additional-root-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("nuo-additional-root-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&sibling).unwrap();
         std::fs::write(
             root.join(".nuo/config.toml"),
@@ -2228,7 +2228,7 @@ name = "DeepSeek"
     }
 
     #[test]
-    fn load_project_mcp_reads_muta_config_table() {
+    fn load_project_mcp_reads_nuo_config_table() {
         let root = scratch_project_root();
         std::fs::write(
             root.join(".nuo/config.toml"),

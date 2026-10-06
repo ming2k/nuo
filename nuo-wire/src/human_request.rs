@@ -5,7 +5,7 @@
 //! maintained its own oneshot lifecycle while sharing the same settlement
 //! rule (`requested/parked --> replied | cancelled`, see
 //! `docs/reference/state-model.md`). This module is the shared vocabulary
-//! that lets one broker (`muta_agent::human_broker`) own all three.
+//! that lets one broker (`nuo_agent::human_broker`) own all three.
 //!
 //! The axis the old protocol lacked is *provenance*: who actually settled a
 //! request. A non-TTY headless client used to answer `ask_user` with the

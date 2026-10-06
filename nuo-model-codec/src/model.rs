@@ -887,7 +887,7 @@ struct FittedEntry {
 
 /// Process-wide overlay of runtime-fitted models. Populated at startup from
 /// persisted discovery results and refreshed after a live fetch (the feeding
-/// layer lives in `muta_agent::catalog`).
+/// layer lives in `nuo_agent::catalog`).
 static FITTED_MODELS: std::sync::OnceLock<
     std::sync::RwLock<std::collections::HashMap<&'static str, FittedEntry>>,
 > = std::sync::OnceLock::new();

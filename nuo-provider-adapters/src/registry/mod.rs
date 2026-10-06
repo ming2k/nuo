@@ -76,7 +76,7 @@ pub use nuo_model_codec::RemoteCatalogSource;
 /// reconcile the connection. This struct is the source of truth for that
 /// mapping; it intentionally lives in `nuo-provider-adapters` (where the model
 /// constants live) so the reconciliation layer in `nuo-agent` and the UI in
-/// `mutx` both read one table. The UI-only fields (label / description /
+/// `nuo` both read one table. The UI-only fields (label / description /
 pub use nuo_provider::spec::{
     ModelProviderSpec, PromptCachePolicy, unsupported_prompt_cache,
 };
@@ -645,6 +645,38 @@ mod spec_tests {
             endpoint,
             "https://api.commandcode.ai/provider/v1/chat/completions"
         );
+    }
+
+    #[test]
+    fn commandcode_deepseek_siblings_have_baselines_and_effort_ladders() {
+        // The `vendor/model` DeepSeek siblings are registered baselines, not
+        // fallbacks: a missing entry would resolve to `fallback_model`, whose
+        // empty `effort_levels` collapses the picker's effort slider. Each must
+        // route over chat-completions and expose the DeepSeek effort ladder.
+        for id in [
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4.1-flash",
+            "deepseek/deepseek-v4-pro",
+        ] {
+            let baseline = nuo_model_codec::model::model_by_id(id)
+                .unwrap_or_else(|| panic!("{id} is not a registered baseline"));
+            assert_eq!(
+                baseline.family, "deepseek",
+                "{id}: family must group under deepseek"
+            );
+            assert_eq!(
+                baseline.effort_levels,
+                effort_ladders::LOW_HIGH_MAX,
+                "{id}: the effort ladder is what makes depth adjustable"
+            );
+            let (wire, endpoint, _) =
+                route_for_model("commandcode-plan", id).unwrap_or_else(|| panic!("{id} routes"));
+            assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
+            assert_eq!(
+                endpoint,
+                "https://api.commandcode.ai/provider/v1/chat/completions"
+            );
+        }
     }
 
     #[test]

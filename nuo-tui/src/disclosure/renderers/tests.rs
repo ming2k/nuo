@@ -48,7 +48,7 @@ fn semantic_tool_summary_line_preserves_suffix_under_tight_budget() {
         .push_flexible("\"draw.rs\"")
         .push_fixed(" in ")
         .push_path(PathView::from_str(
-            "apps/terminal/crates/mutx/src/overlays/telemetry",
+            "apps/terminal/crates/nuo/src/overlays/telemetry",
         ));
 
     // Tight 45 columns width

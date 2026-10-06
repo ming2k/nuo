@@ -119,7 +119,7 @@ pub struct ProcessSpawnOptions<'a> {
 impl BackgroundJobManager {
     pub fn new() -> Self {
         let (event_tx, _) = broadcast::channel(256);
-        let log_dir = std::env::temp_dir().join("muta-jobs");
+        let log_dir = std::env::temp_dir().join("nuo-jobs");
         let _ = std::fs::create_dir_all(&log_dir);
 
         Self {
@@ -2076,7 +2076,7 @@ mod tests {
                 exit_code: 0,
             },
             summary: "the produced result".to_string(),
-            log_path: Some(PathBuf::from("/tmp/muta-jobs/job_readable.log")),
+            log_path: Some(PathBuf::from("/tmp/nuo-jobs/job_readable.log")),
         };
         mgr.inner.write().unwrap().insert(
             job.clone(),
@@ -2117,7 +2117,7 @@ mod tests {
         assert_eq!(after.summary, "the produced result");
         assert_eq!(
             after.log_path.as_deref(),
-            Some(Path::new("/tmp/muta-jobs/job_readable.log"))
+            Some(Path::new("/tmp/nuo-jobs/job_readable.log"))
         );
     }
 

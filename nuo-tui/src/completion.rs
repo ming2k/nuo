@@ -1,7 +1,7 @@
 //! Client-side presentation adapter for daemon-owned composer completion.
 //!
 //! Matching, intent steering, project scanning, and path resolution happen in
-//! Muta. Mutx only requests results, translates wire offsets into Rust byte
+//! Nuo. The TUI only requests results, translates wire offsets into Rust byte
 //! offsets, and renders/applies the returned edits.
 
 use crate::App;

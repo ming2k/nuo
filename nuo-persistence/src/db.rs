@@ -253,7 +253,7 @@ struct EntryEnvelope<'a> {
     payload: &'a str,
 }
 
-/// Authoritative relational database access object for Muta persistence.
+/// Authoritative relational database access object for Nuo persistence.
 pub(crate) struct DatabaseEngine {
     conn: Connection,
     /// CAS store used to offload oversized entry bodies at insert time

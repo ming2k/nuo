@@ -10,7 +10,7 @@
 //! 3. **Visible, predictable, recoverable focus**: overlays trap focus, closing restores source.
 //! 4. **Single semantic origin**: one action has one semantic source.
 //! 5. **Unified derivation**: shortcuts, Footer, and Command Palette are derived from this registry.
-//! 6. **Discovery over memorization**: rare actions are found via `Ctrl+L` Command Palette.
+//! 6. **Discovery over memorization**: rare actions are found via the `C-x p` Command Palette.
 //! 7. **No modal penetration**: overlays strictly isolate input from background views.
 //! 8. **Zero loss of printable characters**: typing in transcript bounces back to composer.
 //! 9. **Terminal independence**: core workflows work without Kitty enhanced keyboard protocol.
@@ -755,7 +755,7 @@ pub enum DisclosurePriority {
     L0Footer,
     /// L1: Local action displayed in a focused region bar.
     L1FocusRegion,
-    /// L2: Searchable through the `Ctrl+P` Command Palette.
+    /// L2: Searchable through the `C-x p` Command Palette.
     L2Palette,
     /// L3: Full contextual reference retained for exhaustive command coverage.
     L3Reference,
@@ -848,15 +848,23 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::CommandPalette,
         label: "Command Palette",
-        hint: "Ctrl-l",
+        // Advertised as `C-x p` — the scene namespace's switcher verb
+        // ([`scene_namespace::SceneVerb::Switcher`]), which is the palette's
+        // sole canonical entry point (ADR-0298 §1 / ADR-0301). There is **no**
+        // single-stroke default binding: the namespace resolves *before* modal
+        // dispatch, so `C-x p` reaches the palette from every context, and the
+        // former `Ctrl-L` chord (whose modal prohibition the namespace makes
+        // redundant) was retired rather than kept as a shadow path. The command
+        // stays user-remappable through `[keybindings]`.
+        hint: "C-x p",
         category: CommandCategory::Global,
         scope: Scope::Global,
-        bindings: &[Key::CTRL_L],
+        bindings: &[],
         slash: Some("/commands"),
         availability: avail_always,
         disclosure: DisclosurePriority::L0Footer,
         danger: DangerLevel::Safe,
-        description: "Open unified command palette and surface switcher",
+        description: "Open unified command palette and surface switcher (C-x p)",
     },
     CommandSpec {
         id: CommandId::CancelOrBack,
@@ -886,7 +894,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     },
     CommandSpec {
         id: CommandId::Quit,
-        label: "Quit Muta",
+        label: "Quit Nuo",
         hint: "Ctrl-c",
         category: CommandCategory::Global,
         scope: Scope::Global,
@@ -1894,7 +1902,7 @@ pub mod scene_namespace {
             match self {
                 SceneVerb::Leave => "leave scene",
                 SceneVerb::Switcher => "command palette",
-                SceneVerb::Quit => "quit muta",
+                SceneVerb::Quit => "quit nuo",
             }
         }
 
@@ -1963,10 +1971,17 @@ pub mod scene_namespace {
 /// config (ADR-0172 §"user-overridable schemes"). `Ctrl+X` is deliberately
 /// absent: it is the two-stroke *scene namespace*'s opening stroke
 /// ([`scene_namespace`]), resolved in the router before this table, so it has
-/// no single-stroke `CommandId` to name (ADR-0298 §1).
+/// no single-stroke `CommandId` to name (ADR-0298 §1). The Command Palette has
+/// **no** canonical single-stroke chord either: it is opened by that
+/// namespace's `p` verb (`C-x p`, ADR-0301) and remains remappable here.
 fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
     match cmd {
-        CommandId::CommandPalette => Some(Key::CTRL_L),
+        // No canonical single-stroke chord: the palette is opened by the
+        // `C-x` scene namespace's switcher verb (ADR-0298 §1 / ADR-0301),
+        // which the router resolves before the global table. This keeps the
+        // keycap/footer display path (ADR-0238) honest — chrome renders no
+        // keycap for a chord the global layer does not own.
+        CommandId::CommandPalette => None,
         CommandId::Quit => Some(Key::CTRL_C),
         CommandId::CopySelection => Some(Key::CTRL_SHIFT_C),
         CommandId::OpenTelemetry => Some(Key::CTRL_O),
@@ -1985,14 +2000,13 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
 }
 
 /// The canonical resolution table (the hard-bound globals + the bar chords:
-/// Ctrl+L palette, Ctrl+O session stats,
-/// Ctrl+Q queue, Esc dismiss/step-back, Ctrl+C quit, Ctrl+Shift+C copy),
-/// ignoring user overrides. Esc resolves to [`CommandId::CancelOrBack`], which
-/// never navigates between Scenes (ADR-0298).
+/// Ctrl+O session stats, Ctrl+Q queue, Esc dismiss/step-back, Ctrl+C quit,
+/// Ctrl+Shift+C copy), ignoring user overrides. Esc resolves to
+/// [`CommandId::CancelOrBack`], which never navigates between Scenes
+/// (ADR-0298). The Command Palette has **no** single-stroke global chord — it
+/// is opened by the `C-x` scene namespace (ADR-0301).
 fn canonical_global_key(key: Key) -> Option<CommandId> {
-    if key == Key::CTRL_L {
-        Some(CommandId::CommandPalette)
-    } else if key == Key::CTRL_O {
+    if key == Key::CTRL_O {
         Some(CommandId::OpenTelemetry)
     } else if key == Key::CTRL_Q {
         Some(CommandId::OpenQueue)
@@ -2012,7 +2026,7 @@ pub fn command_id_from_name(name: &str) -> Option<CommandId> {
     Some(match name.trim().to_ascii_lowercase().as_str() {
         "command_palette" | "command-palette" | "palette" => CommandId::CommandPalette,
         "interrupt" | "interrupt_task" | "interrupt-task" => CommandId::InterruptTask,
-        "quit" | "quit_muta" | "quit-muta" => CommandId::Quit,
+        "quit" | "quit_nuo" | "quit-nuo" => CommandId::Quit,
         "copy" | "copy_selection" | "copy-selection" => CommandId::CopySelection,
         "stats" | "session_stats" | "session-stats" | "telemetry" | "open_telemetry"
         | "open-telemetry" => CommandId::OpenTelemetry,
@@ -2339,10 +2353,9 @@ mod tests {
 
     #[test]
     fn global_keys_resolve_correctly() {
-        assert_eq!(
-            resolve_global_key(Key::CTRL_L),
-            Some(CommandId::CommandPalette)
-        );
+        // The Command Palette has no canonical single-stroke chord: it is
+        // opened by the `C-x` scene namespace's `p` verb (ADR-0301).
+        assert_eq!(resolve_global_key(Key::CTRL_L), None);
         assert_eq!(
             resolve_global_key(Key::CTRL_O),
             Some(CommandId::OpenTelemetry)
@@ -2498,7 +2511,8 @@ mod tests {
         map.insert("not_a_command".to_string(), "ctrl+z".to_string());
         let o = GlobalOverrides::from_config(&map);
 
-        // The remapped chord fires; the canonical chord is dead.
+        // The remapped chord fires; the retired canonical chord stays dead
+        // (the palette has no canonical single-stroke chord at all now — ADR-0301).
         assert_eq!(
             resolve_global_key_with(Key::ctrl('k'), &o),
             Some(CommandId::CommandPalette)

@@ -396,7 +396,7 @@ mod tests {
     #[test]
     fn rejects_absolute_path() {
         let tmp = tempdir();
-        let absolute = std::env::temp_dir().join("muta-absolute-path-probe");
+        let absolute = std::env::temp_dir().join("nuo-absolute-path-probe");
         let err = load_sandboxed(tmp.path(), absolute.to_str().unwrap()).unwrap_err();
         assert!(err.contains("absolute paths are not allowed"));
     }

@@ -623,7 +623,7 @@ mod tests {
             } else if i % 250 == 0 {
                 items.push("cargo build --release");
             } else {
-                items.push("echo hello world from muta agent");
+                items.push("echo hello world from nuo agent");
             }
         }
 

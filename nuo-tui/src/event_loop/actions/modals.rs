@@ -466,7 +466,7 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
     } else if app.startup_overlay == crate::StartupOverlay::SessionsPicker
         && app.active_dialog() == Some(DialogKind::Sessions)
     {
-        // `mutx attach` (no id) opened the picker at startup
+        // `nuo attach` (no id) opened the picker at startup
         // instead of loading any session: there is no real
         // conversation behind the modal, so closing the *list*
         // (not a sub-view — those are handled above) must quit
@@ -507,8 +507,8 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
 }
 
 /// Loop stage (input dispatch): leaving a root scene that has no other way
-/// out, when that scene was opened *standalone* at startup (`mutx dashboard`,
-/// `mutx settings` with no carrier session the user asked to converse with).
+/// out, when that scene was opened *standalone* at startup (`nuo dashboard`,
+/// `nuo settings` with no carrier session the user asked to converse with).
 ///
 /// This is a **program exit**, not a scene transition: with no conversation
 /// ever requested, "returning" to the carrier chat would trap the user in an

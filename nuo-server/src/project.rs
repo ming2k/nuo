@@ -1,6 +1,6 @@
 //! nuo configuration initialization.
 //!
-//! `init_muta_config` materializes a `.nuo/` configuration tree in a
+//! `init_nuo_config` materializes a `.nuo/` configuration tree in a
 //! directory (skills, commands, agents) for the `/init` slash command.
 
 use std::path::Path;
@@ -33,7 +33,7 @@ pub fn load_project_rules(base: &Path) -> Result<String, String> {
 
 /// Materialize a `.nuo/` tree. Returns the list of newly created relative
 /// paths (existing files are left untouched and not reported).
-pub fn init_muta_config(base: &Path) -> Result<Vec<String>, String> {
+pub fn init_nuo_config(base: &Path) -> Result<Vec<String>, String> {
     let mut created = Vec::new();
     let dirs = ["skills", "agents"];
     for dir in dirs {
@@ -68,7 +68,7 @@ pub fn init_muta_config(base: &Path) -> Result<Vec<String>, String> {
 
     let gitignore = base.join(".gitignore");
     if !gitignore.exists() {
-        std::fs::write(&gitignore, muta_gitignore())
+        std::fs::write(&gitignore, nuo_gitignore())
             .map_err(|e| format!("Failed to write .gitignore: {}", e))?;
         created.push(".gitignore".to_string());
     }
@@ -86,7 +86,7 @@ fn example_skill_template() -> &'static str {
      # Example Skill\n\
      \n\
      Edit this file or add more `.nuo/skills/<name>/SKILL.md` files to teach\n\
-     muta domain-specific conventions, build steps, or review checklists.\n"
+     nuo domain-specific conventions, build steps, or review checklists.\n"
 }
 
 fn agents_md_template(base: &Path) -> String {
@@ -115,8 +115,8 @@ fn agents_md_template(base: &Path) -> String {
     )
 }
 
-fn muta_gitignore() -> &'static str {
-    "# muta\n.nuo/session.json\n.nuo/sessions/\n"
+fn nuo_gitignore() -> &'static str {
+    "# nuo\n.nuo/session.json\n.nuo/sessions/\n"
 }
 
 #[cfg(test)]
@@ -124,12 +124,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn init_muta_is_idempotent() {
+    fn init_nuo_is_idempotent() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
-        let first = init_muta_config(dir).unwrap();
+        let first = init_nuo_config(dir).unwrap();
         assert!(first.iter().any(|p| p == "AGENTS.md"));
-        let second = init_muta_config(dir).unwrap();
+        let second = init_nuo_config(dir).unwrap();
         assert!(second.is_empty());
     }
 

@@ -246,7 +246,7 @@ impl OAuthCredentialSource {
             return Ok(stored);
         };
         let resolved = super::qoder::fetch_uid(&client, stored.access.expose_secret()).await;
-        if std::env::var("MUTA_QODER_DEBUG").is_ok() {
+        if std::env::var("NUO_QODER_DEBUG").is_ok() {
             eprintln!("QODER_UID_RESOLVE connection={} result={resolved:?}", self.connection_id);
         }
         let Ok(uid) = resolved else {

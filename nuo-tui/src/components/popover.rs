@@ -4,8 +4,8 @@
 //! clamping, elevation styling, title and footer affordances, and inner layout solving.
 
 use nuotc::{
-    Alignment, Block as RtBlock, BorderType, Borders, Clear, Frame, Line, Modifier, Paragraph,
-    Rect, Span, Style,
+    Alignment, Block as RtBlock, BorderType, Borders, Clear, Frame, Line, Margin, Modifier,
+    Paragraph, Rect, Span, Style,
     anchor::{
         AnchorAlignment, AnchorConstraints, AnchorPlacement, AnchorTarget, compute_anchored_rect,
     },
@@ -147,15 +147,30 @@ impl AnchoredPopover {
         // Render elevation container background
         let _ = ElevationContainer::overlay().render(frame, outer_rect, theme);
 
-        // Frame borders
-        let block = RtBlock::default()
-            .borders(Borders::ALL)
-            .border_type(self.border_type)
-            .border_style(Style::default().fg(theme.brand()))
-            .style(Style::default().bg(theme.panel()));
-
-        let inner_rect = block.inner(outer_rect);
-        frame.render_widget(block, outer_rect);
+        // Modern terminals (Chromatic) get a **borderless** popover shell — the
+        // elevated panel background alone separates it (the toast's visual
+        // language, ADR-0301). Hybrid / Structured keep an explicit frame.
+        let is_borderless = matches!(theme.elevation, nuotc::ElevationArchetype::Chromatic);
+        let inner_rect = if is_borderless {
+            frame.render_widget(
+                RtBlock::default().style(Style::default().bg(theme.panel())),
+                outer_rect,
+            );
+            outer_rect.inner(Margin {
+                horizontal: 2,
+                vertical: 1,
+            })
+        } else {
+            // Frame borders
+            let block = RtBlock::default()
+                .borders(Borders::ALL)
+                .border_type(self.border_type)
+                .border_style(Style::default().fg(theme.brand()))
+                .style(Style::default().bg(theme.panel()));
+            let inner = block.inner(outer_rect);
+            frame.render_widget(block, outer_rect);
+            inner
+        };
 
         let mut actual_inner = inner_rect;
 

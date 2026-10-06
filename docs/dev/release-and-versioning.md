@@ -102,6 +102,41 @@ nuo-harness = { version = "0.1.0", path = "nuo-harness" }
 - **Local Development Velocity (`path`)**: Cargo resolves the local filesystem path directly. Any code changes in `acp`, `nuo-host`, or `nuotc` are immediately reflected across the entire workspace without requiring intermediate local releases or cache invalidations.
 - **Publish-Ready Distribution (`version`)**: When running `cargo publish`, Cargo automatically removes the local `path` field and emits a `.crate` tarball specifying only the semver requirement. If `version` is missing, `cargo publish` fails immediately.
 
+### Local-Only Override for the External `nuotc` Substrate
+
+`nuotc` is developed in its own repository and consumed here as a published
+crates.io dependency, so the root manifest declares a registry requirement only
+(no `path` field):
+
+```toml
+[workspace.dependencies]
+nuotc = "0.0.2"
+```
+
+For day-to-day development against the sibling checkout, a developer keeps an
+**untracked** `.cargo/config.toml` (git-ignored via `/.cargo`) that overrides the
+registry source with a path patch:
+
+```toml
+# .cargo/config.toml  (local only, never committed)
+[patch.crates-io]
+nuotc = { path = "../nuotc" }
+```
+
+Cargo applies that patch **only when the sibling crate's version satisfies the
+requirement above**. When they drift, Cargo discards the patch, emits an
+`unused patch` warning, and builds the crates.io release instead — which
+typically surfaces as a burst of misleading `E0599` method-not-found errors
+later in the build. There is no separate guard: keeping the two versions in sync
+is a release-process responsibility, and Cargo's own warning is the signal.
+
+Consequences:
+- Whenever `nuotc` is bumped, the **same change** must update its version in the
+  root `[workspace.dependencies]` (see Playbook 1).
+- If a local build suddenly reports `E0599` on `nuotc` APIs, check for
+  `warning: patch ... was not used in the crate graph`: it means the sibling and
+  the root requirement have drifted apart.
+
 ---
 
 ## 4. Git Tagging & Release Playbooks
@@ -121,6 +156,9 @@ When a standalone crate reaches a new protocol or engine milestone:
 2. **Bump Crate Version**:
    - Update `version = "X.Y.Z"` inside `acp/Cargo.toml`.
    - Update `acp = { version = "X.Y.Z", path = "acp" }` in root `Cargo.toml`.
+   - For `nuotc` (separate repository), update the registry requirement
+     `nuotc = "X.Y.Z"` in root `Cargo.toml`; it is picked up locally through the
+     `.cargo/config.toml` path patch (see §3).
    - Update `acp/CHANGELOG.md` with release highlights.
 3. **Commit & Tag**:
    ```bash

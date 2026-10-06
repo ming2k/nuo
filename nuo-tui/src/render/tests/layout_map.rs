@@ -11,7 +11,7 @@ use super::*;
 #[test]
 fn transcript_content_rect_spans_band_and_gap_rows() {
     let theme = Theme::default();
-    let width = 40u16;
+    let width = 46u16;
     let mut terminal = nuotc::TestTerminal::new(width, 24);
     // Two assistant text messages so a `MESSAGE_GAP_ROWS` blank row is
     // emitted between them — that row is rendered but never registered.

@@ -602,8 +602,8 @@ mod tests {
         assert_eq!(input[1]["call_id"], "duplicate");
         assert_eq!(input[2]["id"], "fc_2");
         assert_eq!(input[2]["status"], "completed");
-        assert_eq!(input[2]["call_id"], "call_muta_1");
-        assert_eq!(input[3]["call_id"], "call_muta_1");
+        assert_eq!(input[2]["call_id"], "call_nuo_1");
+        assert_eq!(input[3]["call_id"], "call_nuo_1");
     }
 
     #[test]

@@ -2,6 +2,17 @@
 
 use super::*;
 
+/// A fixed session head for the scene tests (ADR-0302): the head band's top row
+/// is now the uniform session identity drawn by the settings/dashboard views.
+fn test_session_head() -> SessionHead<'static> {
+    SessionHead {
+        session_id: "sess-01a2b3c4",
+        workspace: "~/workspace",
+        role: Some("developer"),
+        switching_target: None,
+    }
+}
+
 /// Smoke-render every redesigned component into a buffer to catch panics
 /// (border math, rect underflows, empty content) without a live terminal.
 #[test]
@@ -215,7 +226,7 @@ fn redesigned_components_render_without_panicking() {
                 token_buf: "tok",
                 model_buf: "GPT-4o",
                 protocol_display: "Chat Completions",
-                identity_display: "muta (Native)",
+                identity_display: "nuo (Native)",
                 url_hint: "https://relay.example.com/v1/chat/completions",
                 input: "gpt",
                 cursor_position: 3,
@@ -380,16 +391,22 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
+                session_head: Some(test_session_head()),
+                unattended: false,
+                confined: true,
             },
         );
     });
-    assert!(grid_row(&terminal, 0).contains("SETTINGS"));
+    // Row 1 is the uniform session identity; the scene name + breadcrumb live on
+    // row 2 (ADR-0302).
+    assert!(grid_row(&terminal, 0).contains("SESSION"));
     assert!(!grid_row(&terminal, 0).contains("⚙"));
-    assert!(!grid_row(&terminal, 0).contains("~/workspace"));
     assert!(!grid_row(&terminal, 0).contains("Appearance"));
+    let scene_row = grid_row(&terminal, 1);
+    assert!(scene_row.contains("settings"), "scene name on row 2: {scene_row:?}");
     assert!(
-        grid_row(&terminal, 1).contains("Main › Settings"),
-        "Row 1 must show the view stack breadcrumbs"
+        scene_row.contains("Main › Settings"),
+        "Row 2 must show the view stack breadcrumbs: {scene_row:?}"
     );
     assert!(!grid_row(&terminal, 3).contains("◐"));
 
@@ -411,10 +428,13 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
+                session_head: Some(test_session_head()),
+                unattended: false,
+                confined: true,
             },
         );
     });
-    assert!(grid_row(&terminal, 0).contains("SETTINGS"));
+    assert!(grid_row(&terminal, 0).contains("SESSION"));
 }
 
 /// The Settings center has no bottom footer band and no per-pane prose header:
@@ -447,6 +467,9 @@ fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
+                session_head: Some(test_session_head()),
+                unattended: false,
+                confined: true,
             },
         );
     });
@@ -546,6 +569,9 @@ fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() 
                         theme: &theme,
                         profile: &nuotc::TerminalProfile::direct_color(),
                         tui_config: &tui_config,
+                        session_head: Some(test_session_head()),
+                        unattended: false,
+                        confined: true,
                     },
                 );
             });
@@ -593,6 +619,9 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
                 theme: &theme_direct,
                 profile: &direct_profile,
                 tui_config: &tui_config,
+                session_head: Some(test_session_head()),
+                unattended: false,
+                confined: true,
             },
         );
     });
@@ -626,6 +655,9 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
                 theme: &theme_mono,
                 profile: &mono_profile,
                 tui_config: &tui_config,
+                session_head: Some(test_session_head()),
+                unattended: false,
+                confined: true,
             },
         );
     });
@@ -673,6 +705,9 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
                     theme,
                     profile: &nuotc::TerminalProfile::direct_color(),
                     tui_config,
+                    session_head: Some(test_session_head()),
+                    unattended: false,
+                    confined: true,
                 },
             );
         });
@@ -768,6 +803,9 @@ fn components_rows_use_text_and_band_not_selection_dots_with_description_below()
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
+                session_head: Some(test_session_head()),
+                unattended: false,
+                confined: true,
             },
         );
     });
@@ -839,6 +877,9 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
                     theme: &theme,
                     profile: &nuotc::TerminalProfile::direct_color(),
                     tui_config: &tui_config,
+                    session_head: Some(test_session_head()),
+                    unattended: false,
+                    confined: true,
                 },
             );
         });
@@ -882,6 +923,9 @@ fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
+                session_head: Some(test_session_head()),
+                unattended: false,
+                confined: true,
             },
         );
         selected_rect = rects.selected_row_rect;
@@ -1035,6 +1079,33 @@ fn too_small_terminal_shows_notice_and_zeroed_render() {
     );
 }
 
+/// The loop's frozen screen (`draw_too_small`) paints the notice and the
+/// paused-state line, and nothing else — it is the one frame the event loop
+/// commits while collapsed below the minimum.
+#[test]
+fn draw_too_small_paints_the_frozen_notice_only() {
+    let theme = Theme::default();
+    let mut terminal = nuotc::TestTerminal::new(30, 10);
+    terminal.draw(|f| draw_too_small(f, &theme));
+    let buffer = terminal.buffer();
+    let rendered: String = (0..buffer.area().height)
+        .flat_map(|y| (0..buffer.area().width).map(move |x| buffer[(x, y)].symbol().to_string()))
+        .collect::<String>();
+    assert!(
+        rendered.contains("Terminal too small"),
+        "notice: {rendered}"
+    );
+    assert!(
+        rendered.contains("paused"),
+        "frozen state announces that input is blocked: {rendered}"
+    );
+    // The normal chrome must not be present.
+    assert!(
+        !rendered.contains("Enter send"),
+        "no composer chrome while frozen: {rendered}"
+    );
+}
+
 /// With no messages, `draw_transcript` renders the empty-state hero in
 /// place of the stream: `content_lines` is non-zero (so the app loop does
 /// not treat it as a zero-height stream) and the call does not panic.
@@ -1164,24 +1235,20 @@ fn nonempty_session_does_not_render_empty_state() {
 
 /// A user-supplied logo (from `logo.txt`) replaces the built-in wordmark
 /// on the empty state, and `content_lines` tracks its (clamped) height so
-/// scroll accounting stays honest. A four-line user logo yields seven
-/// reported lines (4 + blank gap + carousel page), distinct from the
+/// scroll accounting stays honest. A three-line user logo yields five
+/// reported lines (3 + blank gap + carousel page), distinct from the
 /// built-in wordmark's height.
 #[test]
 fn empty_session_uses_user_logo_and_reports_its_height() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
     let messages: Vec<TranscriptMessage> = Vec::new();
-    // Four lines → reported content is 4 + 2 (gap + carousel page) = 7.
+    // Three 9-column lines → reported content is 3 + 1 (gap) + 1 (carousel) = 5.
     let logo: Vec<String> = vec![
-        "  N N  ".to_string(),
-        " N N N ".to_string(),
-        "  N N  ".to_string(),
-        "       ".to_string(),
-    ]
-    .into_iter()
-    .chain(std::iter::repeat_n("xxxxx".to_string(), 0))
-    .collect();
+        "NN     NN".to_string(),
+        "NNN   NNN".to_string(),
+        "NN     NN".to_string(),
+    ];
 
     let mut render_opt: Option<TranscriptRender> = None;
     terminal.draw(|f| {
@@ -1227,57 +1294,64 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
     });
     let render = render_opt.expect("draw_transcript must return a render");
 
-    // 4 logo lines + 2 blank gap + 1 carousel page = 7.
+    // 3 logo lines + 1 blank gap + 1 carousel page = 5.
     assert_eq!(
-        render.content_lines, 7,
+        render.content_lines, 5,
         "user-logo content_lines must be logo rows + gap + guidance rows"
     );
 }
 
-/// ADR-0104: the head band's row 2 is demand-driven. On the main view
-/// with no live asides (the common idle case) the band is a single row —
-/// the legend line stays blank and the empty-state hero moves up one row.
+/// ADR-0301/0302: the head band's scene row stands up on **every** scene. On
+/// the main view it names the scene (`conversation`) and carries the chat title
+/// as its context, with the `C-x menu` namespace pair on the right.
 #[test]
-fn main_view_without_asides_renders_a_single_row_head_band() {
+fn main_view_shows_the_conversation_scene_row() {
     let terminal = render_full_view(
         80,
         24,
         &[],
         Some(ViewHints {
             kind: ViewKind::Session,
-            asides: None,
-            breadcrumbs: None,
+            context: Some("Fix the retry loop"),
+            context_warn: false,
+            unattended: false,
+            confined: true,
         }),
     );
     assert!(grid_row(&terminal, 0).contains("SESSION"));
     let row1 = grid_row(&terminal, 1);
+    assert!(row1.starts_with("  conversation"), "scene name: {row1:?}");
     assert!(
-        row1.trim().is_empty(),
-        "row 2 must stay blank without asides: {row1:?}"
+        row1.contains("Fix the retry loop"),
+        "chat title context: {row1:?}"
+    );
+    assert!(
+        row1.contains("Ctrl-x") && row1.contains("menu"),
+        "row 2 always offers the namespace pair: {row1:?}"
     );
 }
 
-/// ADR-0104: with live asides the row-2 legend appears (chip + `F5
-/// asides`), and it never carries an interrupt pair — the activity bar's
-/// `Esc Esc interrupt` is the authoritative copy.
+/// ADR-0302: the run-mode flags ride the scene row's right edge, so a
+/// conversation read-out states the session's persistent posture alongside the
+/// scene name and title.
 #[test]
-fn main_view_with_asides_shows_the_legend_row() {
+fn main_view_scene_row_carries_run_mode_flags() {
     let terminal = render_full_view(
         80,
         24,
         &[],
         Some(ViewHints {
             kind: ViewKind::Session,
-            asides: Some(AsidesChip {
-                total: 2,
-                running: 1,
-            }),
-            breadcrumbs: None,
+            context: None,
+            context_warn: false,
+            unattended: true,
+            confined: false,
         }),
     );
     let row1 = grid_row(&terminal, 1);
-    assert!(row1.contains("btw: 2 total (1 active)"), "chip: {row1:?}");
-    assert!(row1.contains("F5"), "aside jump pair: {row1:?}");
+    assert!(row1.contains("UNATTENDED"), "unattended flag: {row1:?}");
+    assert!(row1.contains("UNCONFINED"), "unconfined flag: {row1:?}");
+    assert!(row1.contains("Ctrl-x menu"), "namespace pair: {row1:?}");
     assert!(!row1.contains("Esc"), "no interrupt pair: {row1:?}");
     assert!(!row1.contains("F1"), "no global help pair: {row1:?}");
 }

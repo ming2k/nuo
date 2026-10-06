@@ -248,10 +248,10 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // Session loading honors the startup mode. Under ADR-0018
     // `load_for_project` pins a fresh `sessions/<id>.{json,jsonl}`, so a bare
     // start always begins a new session; prior sessions stay on disk and are
-    // reachable through the picker or `attach`. `mutx attach <id>` opens
+    // reachable through the picker or `attach`. `nuo attach <id>` opens
     // that exact session — a missing target is a hard error (propagated via
     // `?`) rather than a silent fresh-session fallback, so the operator knows
-    // the attach never happened. `mutx attach` (no id) opens the sessions
+    // the attach never happened. `nuo attach` (no id) opens the sessions
     // picker overlay instead of guessing.
     let session = Arc::new(SessionStore::for_workspace(workspace, role));
     let open_picker_on_start = match &startup {
@@ -766,7 +766,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // loading any session: no transcript, todos, or SessionStart hooks should
     // run against the throwaway fresh session — the real session is restored
     // only once the user picks one from the picker (`/session open`). Fresh and
-    // `mutx attach <id>` loads eagerly as before.
+    // `nuo attach <id>` loads eagerly as before.
     let is_picker = matches!(startup, SessionStart::Picker);
 
     let restored_messages = if is_picker {
@@ -1025,14 +1025,14 @@ fn spawn_mcp_config_watcher(
             // Dynamic watch attachment: if .nuo was just created, start watching it.
             if let Some(ref root) = workspace_root {
                 let ws_nuo = root.join(".nuo");
-                let canon_muta = root
+                let canon_nuo = root
                     .canonicalize()
                     .unwrap_or_else(|_| root.clone())
                     .join(".nuo");
                 if event.paths.iter().any(|p| {
                     p == &ws_nuo
-                        || p == &canon_muta
-                        || p.canonicalize().ok().as_ref() == Some(&canon_muta)
+                        || p == &canon_nuo
+                        || p.canonicalize().ok().as_ref() == Some(&canon_nuo)
                 }) && ws_nuo.exists()
                 {
                     let _ = watcher.watch(&ws_nuo, false);
@@ -1071,11 +1071,11 @@ fn spawn_mcp_config_watcher(
                     let is_target_file = p
                         .file_name()
                         .is_some_and(|n| n == "config.toml" || n == "mcp.json");
-                    let is_in_muta = p
+                    let is_in_nuo = p
                         .parent()
                         .is_some_and(|parent| parent.file_name().is_some_and(|d| d == ".nuo"));
                     is_target_file
-                        && is_in_muta
+                        && is_in_nuo
                         && (p.starts_with(root)
                             || p.starts_with(&canon_root)
                             || canon_p.starts_with(root)

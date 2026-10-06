@@ -73,6 +73,17 @@ pub const XAI_GROK: &[Effort] = &[
 ];
 
 /// `low`/`high`/`max`: shared capability set for DeepSeek and Moonshot Kimi K3.
+///
+/// This is the DeepSeek **V4 / V4.1** family ladder, live-verified on the
+/// DeepSeek platform and its OpenAI-compatible relays as the accepted
+/// `low`/`high`/`max` presets (integer efforts are rejected upstream with HTTP
+/// 400). It is the ladder every DeepSeek id on a relay surface carries —
+/// including the CommandCode `provider/v1` DeepSeek lanes, whose declared
+/// `deepseek/deepseek-v4-flash` the server rewrites to a `deepseek-v4.1-flash`
+/// upstream (ADR-0014), so the V4.1 rungs are the ones that actually land.
+/// Omitting a supported rung is the failure mode to avoid here; see
+/// `docs/reference/commandcode-api.yml` `x-reasoning-effort-ladder` for the
+/// full per-family reference table.
 pub const LOW_HIGH_MAX: &[Effort] = &[
     Effort::Low,
     Effort::High,

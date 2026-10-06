@@ -50,7 +50,7 @@ tempfile = { workspace = true }
 # `test-path-override` exposes `paths::set_test_default` so catalog discovery
 # tests can sandbox the XDG roots; without it a `DiscoveryCache::save()` in a
 # test writes `test-instance` rows into the developer's real
-# `$XDG_STATE_HOME/muta/models_discovery.json`.
+# `$XDG_STATE_HOME/nuo/models_discovery.json`.
 nuo-host = { workspace = true, features = ["test-path-override"] }
 
 [lints]

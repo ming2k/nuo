@@ -93,7 +93,15 @@ impl AnchoredTooltip {
         let bg = theme.raised();
         let fg = contrast_fg(bg);
 
-        if self.bordered && rect.height >= 3 {
+        // Borderless on modern terminals (Chromatic: TrueColor / 256-color):
+        // the balloon reads by its elevated background alone, matching the
+        // toast's edge-free visual language (ADR-0301). Hybrid / Structured
+        // keep the framed balloon, where a background delta is unavailable or
+        // indistinct.
+        let bordered =
+            self.bordered && !matches!(theme.elevation, nuotc::ElevationArchetype::Chromatic);
+
+        if bordered && rect.height >= 3 {
             let block = RtBlock::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Plain)
@@ -108,13 +116,18 @@ impl AnchoredTooltip {
             )));
             frame.render_widget(p, inner);
         } else {
+            // Borderless balloon: fill the whole rect with the elevated
+            // surface, then center the single text line — no edge glyphs,
+            // separation by background alone.
+            frame.render_widget(RtBlock::default().style(Style::default().bg(bg)), rect);
+            let mid = Rect::new(rect.x, rect.y + rect.height.saturating_sub(1) / 2, rect.width, 1);
             let p = Paragraph::new(Line::from(vec![
                 Span::styled(" ", Style::default().bg(bg)),
                 Span::styled(self.text.as_str(), Style::default().fg(fg).bg(bg)),
                 Span::styled(" ", Style::default().bg(bg)),
             ]))
             .style(Style::default().bg(bg));
-            frame.render_widget(p, rect);
+            frame.render_widget(p, mid);
         }
 
         rect

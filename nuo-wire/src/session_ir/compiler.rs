@@ -456,7 +456,7 @@ mod tests {
     fn test_compiler_pipeline_full_flow() {
         let policy = SessionPolicy {
             rules: RuleSet {
-                system_persona: Some("You are Muta AI".to_string()),
+                system_persona: Some("You are Nuo AI".to_string()),
                 workspace_root: Some("/workspace".to_string()),
                 project_rules: vec!["Rule 1: Be fast".to_string()],
             },

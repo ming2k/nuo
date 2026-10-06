@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn missing_cache_loads_none() {
-        let cache = CachedResource::new(PathBuf::from("/nonexistent/muta-test-cache.json"));
+        let cache = CachedResource::new(PathBuf::from("/nonexistent/nuo-test-cache.json"));
         assert!(cache.load().is_none());
         assert!(cache.load_json::<Vec<String>>().is_none());
         assert!(!cache.exists());
@@ -89,7 +89,7 @@ mod tests {
     #[test]
     fn store_then_load_roundtrips() {
         let dir = std::env::temp_dir().join(format!(
-            "muta-cache-test-{}",
+            "nuo-cache-test-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -111,7 +111,7 @@ mod tests {
     #[test]
     fn corrupt_cache_loads_none() {
         let dir = std::env::temp_dir().join(format!(
-            "muta-cache-corrupt-{}",
+            "nuo-cache-corrupt-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn empty_cache_loads_none() {
         let dir = std::env::temp_dir().join(format!(
-            "muta-cache-empty-{}",
+            "nuo-cache-empty-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

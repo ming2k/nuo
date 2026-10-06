@@ -1,7 +1,7 @@
 //! Terminal UI frontend, in three layers:
 //!
-//! - `mutx-engine` — the in-house grid engine (a retained cell grid
-//!   with dirty tracking and a back/front diff; ADR-0038) plus the crossterm
+//! - the in-house grid engine (`nuotc`) — a retained cell grid
+//!   with dirty tracking and a back/front diff; ADR-0038 — plus the crossterm
 //!   backend.
 //! - the view modules under this one — the drawing tree + semantic document
 //!   model, painting `nuo_wire` domain types into the engine grid:
@@ -15,8 +15,7 @@
 //! - the app shell (this module's remaining submodules): application state
 //!   ([`app`]), input mapping ([`input`]), and the event/render loop
 //!   (`event_loop`). [`start_tui`] is the entry point wired by the
-//!   `muta` binary (`mutx`), which stays a thin shell over this
-//!   crate.
+//!   `nuo` binary, which stays a thin shell over this crate.
 //!
 //! The seam between shell and view is the borrowed `render::TranscriptProps`
 //! the event loop fills in each frame; the view modules never reach back into
@@ -38,7 +37,6 @@ pub mod headless;
 pub mod input;
 pub mod interaction;
 pub mod keymap;
-pub mod paths;
 pub mod phase;
 mod pre_attach;
 pub mod question_model;
@@ -51,7 +49,7 @@ mod terminal;
 mod transcript;
 pub mod trust_gate;
 
-// View layer (merged from the former `mutx-view` crate)
+// View layer (merged from the former `nuo-tui` crate)
 
 // Semantic data model.
 pub(crate) mod model;
@@ -157,33 +155,32 @@ impl SessionSource {
 /// instead of a conversation view. In that mode the overlay is not a transient
 /// modal — there is no conversation the user asked for behind it — so closing
 /// it quits the program rather than dropping into an empty chat (mirrors how
-/// `mutx attach`'s picker behaves). Distinct from `None`, where the TUI
+/// `nuo attach`'s picker behaves). Distinct from `None`, where the TUI
 /// opens directly onto a conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StartupOverlay {
     /// Ordinary startup: land on the conversation.
     None,
-    /// `mutx attach` (no id): open the sessions picker to choose a session.
+    /// `nuo attach` (no id): open the sessions picker to choose a session.
     SessionsPicker,
-    /// `mutx dashboard`: open the session dashboard over the carrier session.
+    /// `nuo dashboard`: open the session dashboard over the carrier session.
     Dashboard,
-    /// `mutx settings`: open the settings view directly (optional category index).
+    /// `nuo settings`: open the settings view directly (optional category index).
     Settings { category: Option<usize> },
 }
 
 impl StartupOverlay {
     /// Resolve startup overlay intent from acceptance / test / launch environment variables:
-    /// - `NUOX_STARTUP_VIEW` / `MUTX_VIEW`: e.g. `settings`, `settings:web`, `settings:3`, `dashboard`, `sessions`.
-    /// - `MUTX_SETTINGS_NAV` / `MUTX_SETTINGS_CATEGORY`: e.g. `appearance`, `components`, `search`, `web`, `system`, `0..4`.
+    /// - `NUO_STARTUP_VIEW`: e.g. `settings`, `settings:web`, `settings:3`, `dashboard`, `sessions`.
+    /// - `NUO_SETTINGS_NAV` / `NUO_SETTINGS_CATEGORY`: e.g. `appearance`, `components`, `search`, `web`, `system`, `0..4`.
     pub fn resolve_from_env() -> Option<Self> {
-        let view_val = std::env::var("NUOX_STARTUP_VIEW")
-            .or_else(|_| std::env::var("MUTX_VIEW"))
+        let view_val = std::env::var("NUO_STARTUP_VIEW")
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
-        let nav_val = std::env::var("NUOX_SETTINGS_NAV")
-            .or_else(|_| std::env::var("NUOX_SETTINGS_CATEGORY"))
+        let nav_val = std::env::var("NUO_SETTINGS_NAV")
+            .or_else(|_| std::env::var("NUO_SETTINGS_CATEGORY"))
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
@@ -226,12 +223,12 @@ impl StartupOverlay {
 /// every token. Starts, ends, errors, permissions, and tool lifecycle changes
 /// Initial `App::pre_attach` value resolved from the acceptance
 /// environment. Returns the PreAttach acceptance fixture when
-/// `NUOX_FORCE_PRE_ATTACH` is set to a truthy value (`1`, `true`,
+/// `NUO_FORCE_PRE_ATTACH` is set to a truthy value (`1`, `true`,
 /// `yes`, `on` — case-insensitive); `None` otherwise, so the
 /// per-frame sync owns the production mounting path through the
 /// `pre_attach_signal` cell.
 ///
-/// Documented alongside the other `MUTX_*` acceptance toggles per
+/// Documented alongside the other `NUO_*` acceptance toggles per
 /// ADR-0175 §6.
 fn init_dev_toast() -> (
     Option<std::time::Instant>,
@@ -242,8 +239,8 @@ fn init_dev_toast() -> (
     NoticeSeverity,
     bool,
 ) {
-    let raw = std::env::var("NUOX_DEV_TOAST")
-        .or_else(|_| std::env::var("NUOX_TOAST"))
+    let raw = std::env::var("NUO_DEV_TOAST")
+        .or_else(|_| std::env::var("NUO_TOAST"))
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
@@ -260,7 +257,7 @@ fn init_dev_toast() -> (
         );
     };
 
-    let pinned = std::env::var("NUOX_DEV_TOAST_PINNED")
+    let pinned = std::env::var("NUO_DEV_TOAST_PINNED")
         .map(|v| {
             !matches!(
                 v.trim().to_ascii_lowercase().as_str(),
@@ -349,13 +346,13 @@ fn init_dev_toast() -> (
 }
 
 fn pre_attach_initial() -> Option<PreAttachState> {
-    let raw = std::env::var("NUOX_FORCE_PRE_ATTACH")
+    let raw = std::env::var("NUO_FORCE_PRE_ATTACH")
         .ok()
         .map(|s| s.trim().to_ascii_lowercase())
         .filter(|s| !s.is_empty());
     let truthy = |v: &str| matches!(v, "1" | "true" | "yes" | "on");
     if raw.as_deref().is_some_and(truthy) {
-        tracing::info!("mutx: NUOX_FORCE_PRE_ATTACH set — mounting PreAttach acceptance fixture");
+        tracing::info!("nuo: NUO_FORCE_PRE_ATTACH set — mounting PreAttach acceptance fixture");
         Some(PreAttachState::acceptance_fixture())
     } else {
         None
@@ -422,7 +419,7 @@ pub async fn run_tui(
     let profile = nuotc::TerminalProfile::detect();
     terminal::enter_terminal(&profile)?;
     let stdout = io::stdout();
-    // The mutx-engine engine owns its grid + diff + crossterm I/O directly. No
+    // The nuotc engine owns its grid + diff + crossterm I/O directly. No
     // ratatui, no WideHealBackend wrapper — the engine's retained grid writes
     // wide-glyph trailing cells with the glyph's own background at write time,
     // so ghost cells cannot occur regardless of terminal or multiplexer
@@ -2105,7 +2102,7 @@ pub async fn run_tui(
         pending_permission: None,
         active_sheet: None,
         pending_permission_depth: 0,
-        // ADR-0175 §6: `NUOX_FORCE_PRE_ATTACH=1` force-mounts the
+        // ADR-0175 §6: `NUO_FORCE_PRE_ATTACH=1` force-mounts the
         // PreAttach interstitial at startup so operators can verify
         // the surface — wording, highlight, navigation, transition —
         // without preparing a quarantined workspace. Resolved to

@@ -50,7 +50,7 @@ pub fn headers(api_key: &str, dialect: OpenAiChatDialect) -> Vec<(&'static str, 
         // Optional OpenRouter app attribution. The User-Agent is already
         // supplied by Endpoint; the title makes dashboard traffic readable
         // without inventing a project URL for HTTP-Referer.
-        h.push(("X-OpenRouter-Title", "Muta".to_string()));
+        h.push(("X-OpenRouter-Title", "Nuo".to_string()));
     }
     // Qoder has no branch here on purpose. Its wire is built entirely by
     // `build_qoder_request` (the executor routes the Qoder dialect there and
@@ -517,7 +517,7 @@ mod tests {
         assert!(
             headers
                 .iter()
-                .any(|(name, value)| { *name == "X-OpenRouter-Title" && value == "Muta" })
+                .any(|(name, value)| { *name == "X-OpenRouter-Title" && value == "Nuo" })
         );
     }
 

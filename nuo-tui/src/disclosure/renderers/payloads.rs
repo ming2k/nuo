@@ -1814,17 +1814,19 @@ pub(crate) fn draw_tool_result(
                 }) => (new.as_str(), *start_line, None),
                 _ => (output, 0, None),
             };
-            let syntax_lang = explicit_lang
-                .map(crate::syntax::Language::from_path)
-                .or_else(|| {
-                    serde_json::from_str::<serde_json::Value>(arguments)
-                        .ok()
-                        .and_then(|v| {
-                            v.get("path")
-                                .and_then(|p| p.as_str())
-                                .map(crate::syntax::Language::from_path)
-                        })
-                })
+            // The file path is authoritative for file content; `lang` is a
+            // narrow extension hint (e.g. `"rs"`) whose whole job is the
+            // language-tag line. Preferring the path keeps syntax highlighting
+            // when the hint is a bare extension that `from_path` can't resolve.
+            let path_lang = serde_json::from_str::<serde_json::Value>(arguments)
+                .ok()
+                .and_then(|v| {
+                    v.get("path")
+                        .and_then(|p| p.as_str())
+                        .map(crate::syntax::Language::from_path)
+                });
+            let syntax_lang = path_lang
+                .or_else(|| explicit_lang.map(crate::syntax::Language::from_path))
                 .unwrap_or(crate::syntax::Language::Plain);
 
             draw_code_content(

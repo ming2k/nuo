@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn parses_frontmatter_and_body() {
-        let dir = std::env::temp_dir().join(format!("muta-skill-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("nuo-skill-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("SKILL.md");
         std::fs::write(
@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn derives_name_from_parent_directory_without_frontmatter() {
-        let dir = std::env::temp_dir().join(format!("muta-skill-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("nuo-skill-{}", uuid::Uuid::new_v4()));
         let root = dir.join("my-skill");
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("SKILL.md");
@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn rejects_empty_name() {
-        let dir = std::env::temp_dir().join(format!("muta-skill-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("nuo-skill-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("SKILL.md");
         std::fs::write(&path, "---\nname: ''\n---\nbody").unwrap();

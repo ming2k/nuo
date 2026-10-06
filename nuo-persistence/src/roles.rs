@@ -213,14 +213,14 @@ name = "Bad"
     #[test]
     fn workspace_role_override_replaces_global_definition() {
         let temp = tempfile::tempdir().unwrap();
-        let muta_dir = temp.path().join(".nuo");
-        std::fs::create_dir_all(&muta_dir).unwrap();
+        let nuo_dir = temp.path().join(".nuo");
+        std::fs::create_dir_all(&nuo_dir).unwrap();
         let project_cfg = r#"
 [roles.coder]
 name = "Workspace Coder"
 admit_mcp = ["internal_pg"]
 "#;
-        std::fs::write(muta_dir.join("config.toml"), project_cfg).unwrap();
+        std::fs::write(nuo_dir.join("config.toml"), project_cfg).unwrap();
 
         let cfg = RolesConfig::load_for_workspace(Some(temp.path()));
         let coder = cfg.get("coder").unwrap();

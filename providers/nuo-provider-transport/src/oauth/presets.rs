@@ -109,7 +109,7 @@ pub fn xai_preset() -> OAuthConfig {
         scope: Cow::Borrowed("openid profile email offline_access grok-cli:access api:access"),
         extra_authorize_params: vec![
             (Cow::Borrowed("plan"), Cow::Borrowed("generic")),
-            (Cow::Borrowed("referrer"), Cow::Borrowed("muta")),
+            (Cow::Borrowed("referrer"), Cow::Borrowed("nuo")),
         ],
         extra_token_params: Vec::new(),
         extra_refresh_params: Vec::new(),

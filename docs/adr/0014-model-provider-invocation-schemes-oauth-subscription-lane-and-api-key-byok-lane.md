@@ -125,6 +125,16 @@ Subscription endpoints (discovered from the binary and probed live):
 
 Plan ID vocabulary (`individual-go` 10 · `individual-go-v1` 10 · `individual-goat` 70 · `individual-provider` 15 · `individual-pro` 30 · `individual-pro-v1` 80 · `individual-max` 150 · `individual-ultra` 300 · `teams-pro` 40/pooled) is **server data**, never const'd into the TS/Rust client; Nuo snapshot titles using this vocabulary are display-only.
 
+### Client-side projection of the subscription lane
+
+The SSPL lane is read-only from the client: entitlement, credit balance, and window usage are all **projections of a server answer**, never locally computed (`[INV-LANE-03]`, `[INV-LANE-05]`).
+
+- **Reasoning-effort ladders.** A CommandCode model id the client can name (`vendor/model`) must carry a **registered baseline** with a non-empty `effort_levels`; a missing entry resolves to `fallback_model`, whose empty ladder collapses the model-settings editor's effort slider (the model stays selectable but its depth is not adjustable — the exact symptom observed on `deepseek/deepseek-v4.1-flash`). Two facts make the ladder non-obvious here and are why the corrected DeepSeek ladders live in the provider registry, not in the request builder:
+  - The declared id is a hint the server **rewrites** per turn, so the rungs that actually land are the *resolved* family's (`deepseek/deepseek-v4-flash` → `deepseek-v4.1-flash` at `novita`). The shared `low`/`high`/`max` DeepSeek ladder is therefore the correct baseline for every CommandCode DeepSeek lane; offering fewer rungs would hide a supported depth.
+  - The vendor/model ids are **server data** (`x-cli-constants.featureLaneModels`), but the *ladder* is a client capability fact, so it is safe (and required) to compile the ladder in. The effort field is stamped only when the resolved ladder is non-empty (`reasoning_effort` on chat-completions), so a model the client cannot classify sends no effort field rather than an unsupported one.
+  - The full per-family reference table is `docs/reference/commandcode-api.yml` → `x-reasoning-effort-ladder`.
+- **Windowed usage / credits.** `GET /alpha/billing/credits` is projected onto the generic usage model: `credits.{monthly,purchased,free}Credits` → the primary balance plus a `BalanceQuota`; `windowLimits.{fiveHour,weekly}` → typed `PeriodicQuota` buckets (rolling-5h / weekly) with the reported `resetAt` tick; and the resolved `planId` becomes the display badge. A tripped window (`windowLimits.exceeded`) is surfaced **verbatim** as the provider's own reason string, never parsed into a client decision. The fetcher must match the canonical provider id `commandcode-plan` (`commandcode` is a legacy alias only) — matching only the legacy spelling silently disables the query.
+
 ### Positive Consequences
 
 - Remote-side billing/entitlement logic never leaks into the vendor request builders; `AnthropicMessagesProvider` / `OpenAiResponsesProvider` / `GoogleProvider` remain honest, testable, and vendor-clause-only.

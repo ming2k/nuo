@@ -4,7 +4,7 @@ use super::*;
 
 /// Render both the compact Subagent step (root view) and the zoomed-in
 /// TaskInspection scene with its page header, ensuring no layout panics.
-/// Visual verification (run with MUTA_VISUAL=1 --nocapture): a subagent
+/// Visual verification (run with NUO_VISUAL=1 --nocapture): a subagent
 /// zoom view with two ReAct turns, each emitting a concurrent tool-call
 /// batch, groups into turn bands with flush same-turn calls and a blank
 /// line between turns — exactly like the main session.
@@ -97,7 +97,7 @@ fn subagent_view_groups_children_into_turn_bands() {
                 .collect()
         })
         .collect();
-    if std::env::var("MUTA_VISUAL").is_ok() {
+    if std::env::var("NUO_VISUAL").is_ok() {
         eprintln!("\n┌─ Subagent zoom (turn-banded) ─");
         for r in &rows {
             eprintln!("│{r}");
@@ -195,7 +195,7 @@ fn subagent_step_and_view_render_without_panicking() {
     });
 
     // Zoomed-in TaskInspection scene: the task's children are the message stream
-    // and the contextual header is shown on the first row.
+    // and the shared two-row head band names the scene (ADR-0302).
     let children = root_messages[1].subagent_children().unwrap().to_vec();
     terminal.draw(|f| {
         let mut layout_map = LayoutMap::new();
@@ -229,8 +229,22 @@ fn subagent_step_and_view_render_without_panicking() {
                     total: 2,
                 }),
                 side_banner: None,
-                page_hints: None,
-                session_head: None,
+                // ADR-0302: `subagent_bar` drives footer suppression only; the
+                // head band's scene row is pre-resolved by the caller exactly as
+                // `event_loop/render.rs` does for the Subagent scene.
+                page_hints: Some(ViewHints {
+                    kind: ViewKind::Subagent,
+                    context: Some("[EXPLORE] the codebase (1/2)"),
+                    context_warn: false,
+                    unattended: false,
+                    confined: true,
+                }),
+                session_head: Some(SessionHead {
+                    session_id: "sess-01a2b3c4",
+                    workspace: "~/projects/nuo",
+                    role: None,
+                    switching_target: None,
+                }),
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -251,20 +265,32 @@ fn subagent_step_and_view_render_without_panicking() {
             .map(|cell| cell.symbol())
             .collect()
     };
+    // Row 1 is the uniform session identity (ADR-0302), not a subagent crumb.
     let head_row = row_text(0);
-    // The symbol row is unchanged by the full-width band (the pads and the
-    // old inset columns were all spaces); only the background differs —
-    // the whole row now paints `body`, asserted in view_header's tests.
-    assert_eq!(
-        head_row,
-        "   SUBAGENT [EXPLORE] the codebase                                      (1/2)   ",
-        "Subagent identity, role tag, title and sibling index on the head row"
+    assert!(
+        head_row.contains("SESSION"),
+        "session identity on row 1: {head_row:?}"
     );
-    // The TaskInspection scene carries no shortcut legend at all (ADR-0205):
-    // its three chords are one `Esc` and a pair of remappable sibling walks,
-    // which a fixed keycap row cannot advertise faithfully under a remap. The
-    // scene is therefore exactly one head row plus the transcript — the last
-    // terminal row is transcript, not chrome.
+    // Row 2 is the scene row: the scene name, then the task's `[ROLE] label
+    // (i/n)` context, with the `C-x menu` namespace pair on the right.
+    let scene_row = row_text(1);
+    assert!(
+        scene_row.trim_start().starts_with("subagent"),
+        "scene name leads row 2: {scene_row:?}"
+    );
+    assert!(
+        scene_row.contains("[EXPLORE] the codebase (1/2)"),
+        "role tag, title and sibling index on the scene row: {scene_row:?}"
+    );
+    assert!(
+        scene_row.contains("Ctrl-x") && scene_row.contains("menu"),
+        "the scene row offers the namespace pair: {scene_row:?}"
+    );
+    // The TaskInspection scene carries no *shortcut legend* row beyond the
+    // shared band (ADR-0205): its three chords are one `Esc` and a pair of
+    // remappable sibling walks, which a fixed keycap row cannot advertise
+    // faithfully under a remap. So the last terminal row is transcript, not a
+    // pinned legend strip.
     let last_row = row_text(29);
     assert!(
         !last_row.contains("Esc back") && !last_row.contains("prev") && !last_row.contains("next"),
@@ -626,17 +652,31 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
 /// of remappable sibling walks) cannot be rendered faithfully by a fixed
 /// keycap row (ADR-0205/ADR-0104). Discovery lives in the Command Palette and
 /// Help instead.
+/// ADR-0302: every scene's head band stands up **two** rows — the session
+/// identity on row 1 and the scene row (`subagent` here) on row 2. The scene
+/// row names the scene and carries the namespace pair; there is no crumb-less
+/// page that collapses the band to a single row.
 #[test]
-fn subagent_view_omits_row2_entirely() {
+fn subagent_scene_row_draws_the_scene_name_and_namespace() {
     let hints = ViewHints {
         kind: ViewKind::Subagent,
-        asides: None,
-        breadcrumbs: None,
+        context: Some("[EXPLORE] inspect the renderer (1/2)"),
+        context_warn: false,
+        unattended: false,
+        confined: true,
     };
-    assert!(!hints.has_content());
+    assert!(hints.has_content(), "every scene stands up row 2 (ADR-0302)");
     let terminal = render_full_view(80, 24, &[], Some(hints));
     let row1 = grid_row(&terminal, 1);
-    assert!(row1.trim().is_empty(), "row 2 blank on subagent: {row1:?}");
+    assert!(row1.starts_with("  subagent"), "scene name leads: {row1:?}");
+    assert!(
+        row1.contains("[EXPLORE] inspect the renderer (1/2)"),
+        "task context follows: {row1:?}"
+    );
+    assert!(
+        row1.contains("Ctrl-x") && row1.contains("menu"),
+        "namespace pair retained: {row1:?}"
+    );
 }
 
 /// A checklist/todo tool step rendered while an active selection spans the block

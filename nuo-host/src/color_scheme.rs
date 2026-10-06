@@ -160,7 +160,7 @@ pub struct ComponentThemesConfig {
     pub keycap: Option<KeycapThemeConfig>,
 }
 
-/// Full standalone theme file loaded from `$XDG_CONFIG_HOME/mutx/themes/<id>.toml`.
+/// Full standalone theme file loaded from `$XDG_CONFIG_HOME/nuo/themes/<id>.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThemeFile {

@@ -191,13 +191,14 @@ pub(crate) const STREAM_BOTTOM_GAP_ROWS: usize = 1;
 /// via [`STREAM_TOP_GAP_ROWS`] and [`STREAM_BOTTOM_GAP_ROWS`].
 pub(crate) const FOOTER_TOP_GAP_ROWS: u16 = 0;
 /// Maximum height of the head band shown at the top of every transcript
-/// page — Main (session identity + workspace + mode), `/btw`, Subagent, and
-/// future focused pages all share this single chrome slot. Row 1 is always
-/// identity + status; row 2 is the view-level affordance legend (ADR-0103
-/// §3), reserved only while the view has page-specific affordances that no
-/// other surface already carries — demand-driven per ADR-0104 (see
-/// `ViewHints::has_content`), so the common cases render a single-row band
-/// and the transcript reclaims the line.
+/// page — Main (session identity + workspace), `/btw`, Subagent, Dashboard, and
+/// Settings all share this single chrome slot. Row 1 is always the ambient
+/// **session identity**; row 2 is the **scene row** — the scene the user
+/// stands in, named plainly, with its context and the session's run-mode flags
+/// plus the standing `C-x menu` namespace pair (ADR-0302, amending ADR-0301).
+/// The band is two rows on every reachable scene (`ViewHints::has_content` is
+/// always `true`); it halves to a single row only for non-session contexts
+/// (tests/showcase) that supply no `session_head`.
 pub(crate) const PAGE_HEADER_ROWS: u16 = 2;
 
 /// Horizontal inset applied to the footer area containing status/composer/hints.
@@ -326,15 +327,27 @@ pub(crate) const BASH_FOLD_TAIL_ROWS: usize = 3;
 // width/height at which the normal footer (status bar + composer + hint bar)
 // plus a one-line transcript row all fit.
 
-/// Minimum terminal width (columns) for a usable layout. The footer needs the
-/// horizontal inset on both sides plus the composer prompt prefix and right
-/// pad; a narrower terminal cannot render even the input box legibly.
-pub(crate) const MIN_TERMINAL_COLS: u16 = 40;
+/// Minimum terminal width (columns) for a usable layout. 44 is the width at
+/// which the built-in 42-column wordmark fits with one column of margin on
+/// each side, so the empty-state hero never has to wrap or truncate the logo
+/// to fit the narrowest supported terminal (see [`crate::empty_state`]). The
+/// footer keeps its own room: the horizontal inset on both sides plus the
+/// composer prompt prefix and right pad.
+pub(crate) const MIN_TERMINAL_COLS: u16 = 44;
 
 /// Minimum terminal height (rows) for a usable layout. Accounts for the
 /// viewport's top margin (1 row; the bottom margin is 0 — the hint bar pins
 /// flush to the terminal's bottom edge), the minimum footer chrome (the
 /// permanent transcript/footer gap, the composer minimum, and the hint bar —
 /// the activity bar and queue bar appear only while active/pending), and at
-/// least a couple of transcript rows.
+/// least a couple of transcript rows. Below this the hero degrades to the
+/// carousel line alone rather than clipping the wordmark.
 pub(crate) const MIN_TERMINAL_ROWS: u16 = 12;
+
+/// Whether a terminal geometry is below the usable minimum. This is the one
+/// authority for the "terminal too small" state: the renderer uses it to swap
+/// the whole UI for the notice, and the event loop uses it to freeze input and
+/// animation so nothing changes behind the notice (see [`crate::event_loop`]).
+pub(crate) fn below_minimum(width: u16, height: u16) -> bool {
+    width < MIN_TERMINAL_COLS || height < MIN_TERMINAL_ROWS
+}

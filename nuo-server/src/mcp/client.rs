@@ -288,7 +288,7 @@ impl McpClient {
                     "protocolVersion": MCP_PROTOCOL_VERSIONS[0],
                     "capabilities": {},
                     "clientInfo": {
-                        "name": "muta",
+                        "name": "nuo",
                         "version": env!("CARGO_PKG_VERSION")
                     }
                 }),
@@ -371,7 +371,7 @@ impl McpClient {
                 json!({
                     "io.modelcontextprotocol/protocolVersion": MCP_STATELESS_VERSION,
                     "io.modelcontextprotocol/clientInfo": {
-                        "name": "muta",
+                        "name": "nuo",
                         "version": env!("CARGO_PKG_VERSION")
                     },
                     "io.modelcontextprotocol/clientCapabilities": {}
@@ -1030,7 +1030,7 @@ pub(crate) fn compact_mcp_output(raw: &str) -> String {
     // Spill full raw output to a temp file in $TMPDIR per [INV-MCP-05].
     let temp_dir = std::env::temp_dir();
     let file_name = format!(
-        "muta-mcp-output-{}-{}.txt",
+        "nuo-mcp-output-{}-{}.txt",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

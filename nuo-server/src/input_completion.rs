@@ -1137,7 +1137,7 @@ mod tests {
         let registry = nuo_harness::skills::SkillRegistry::empty();
         let skill: nuo_harness::skills::Skill = serde_json::from_value(serde_json::json!({
             "name": "skill-creator",
-            "description": "Create and optimize muta skills",
+            "description": "Create and optimize nuo skills",
             "scope": "User",
             "source": "/skills/skill-creator/SKILL.md",
             "root": ".",

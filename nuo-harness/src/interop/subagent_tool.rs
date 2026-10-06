@@ -1160,7 +1160,7 @@ mod tests {
 
     /// Fails the first `stream_chat_events` call with a retryable transport
     /// error, succeeds afterwards — the exact shape of a GLM long SSE stream
-    /// cut off mid-body (`Kind::Decode` → `[MUTA_RETRYABLE]`), which before
+    /// cut off mid-body (`Kind::Decode` → `[NUO_RETRYABLE]`), which before
     /// the subagent retry loop killed the sub-task outright.
     struct FlakyThenOkProvider {
         calls: std::sync::atomic::AtomicUsize,

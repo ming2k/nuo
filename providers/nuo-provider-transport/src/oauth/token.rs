@@ -673,7 +673,7 @@ mod tests {
         let url = build_authorize_url(&cfg, &pkce, "ST", "N", "http://127.0.0.1:56121/callback");
         assert!(url.starts_with("https://auth.x.ai/oauth2/authorize?"));
         assert!(url.contains("plan=generic"), "plan=generic must be present");
-        assert!(url.contains("referrer=muta"));
+        assert!(url.contains("referrer=nuo"));
         assert!(url.contains("client_id=b1a00492-073a-47ea-816f-4c329264a828"));
         assert!(url.contains("code_challenge=c"));
         assert!(url.contains("code_challenge_method=S256"));

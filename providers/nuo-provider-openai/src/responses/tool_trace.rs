@@ -259,7 +259,7 @@ pub(super) fn project(
             original
         } else {
             loop {
-                let candidate = format!("call_muta_{synthetic_ordinal}");
+                let candidate = format!("call_nuo_{synthetic_ordinal}");
                 synthetic_ordinal += 1;
                 if !reserved_ids.contains(&candidate) && used_ids.insert(candidate.clone()) {
                     break candidate;
@@ -328,16 +328,16 @@ mod tests {
         );
         assert_eq!(items[0]["call_id"], "call_244115");
         assert_eq!(items[1]["call_id"], "call_244115");
-        assert_eq!(items[2]["call_id"], "call_muta_1");
-        assert_eq!(items[3]["call_id"], "call_muta_1");
+        assert_eq!(items[2]["call_id"], "call_nuo_1");
+        assert_eq!(items[3]["call_id"], "call_nuo_1");
     }
 
     #[test]
     fn synthetic_ids_skip_provider_owned_reservations() {
         let items = wire(
             vec![
-                call("call_muta_1", "reserved"),
-                output("call_muta_1", "reserved"),
+                call("call_nuo_1", "reserved"),
+                output("call_nuo_1", "reserved"),
                 call("duplicate", "first"),
                 output("duplicate", "first"),
                 call("duplicate", "second"),
@@ -345,8 +345,8 @@ mod tests {
             ],
             &[],
         );
-        assert_eq!(items[4]["call_id"], "call_muta_2");
-        assert_eq!(items[5]["call_id"], "call_muta_2");
+        assert_eq!(items[4]["call_id"], "call_nuo_2");
+        assert_eq!(items[5]["call_id"], "call_nuo_2");
     }
 
     #[test]
@@ -396,8 +396,8 @@ mod tests {
             &["remote_call"],
         );
         assert_eq!(items[0]["call_id"], "remote_call");
-        assert_eq!(items[1]["call_id"], "call_muta_1");
-        assert_eq!(items[2]["call_id"], "call_muta_1");
+        assert_eq!(items[1]["call_id"], "call_nuo_1");
+        assert_eq!(items[2]["call_id"], "call_nuo_1");
     }
 
     #[test]
@@ -427,7 +427,7 @@ mod tests {
         );
         assert_eq!(items[2]["id"], "fc_2");
         assert_eq!(items[2]["status"], "completed");
-        assert_eq!(items[2]["call_id"], "call_muta_1");
-        assert_eq!(items[3]["call_id"], "call_muta_1");
+        assert_eq!(items[2]["call_id"], "call_nuo_1");
+        assert_eq!(items[3]["call_id"], "call_nuo_1");
     }
 }

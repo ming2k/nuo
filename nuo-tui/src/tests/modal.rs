@@ -1006,7 +1006,7 @@ fn modal_page_step_tracks_body_height_and_floors_at_one() {
     assert_eq!(modal_page_step(&app), 1);
 }
 
-/// `mutx attach` (no id) opens the sessions picker at startup instead of
+/// `nuo attach` (no id) opens the sessions picker at startup instead of
 /// loading any session, so the `startup_overlay` state must gate quit-on-close.
 /// This pins the two state transitions the event loop relies on:
 ///
@@ -1024,7 +1024,7 @@ fn startup_picker_flag_governs_sessions_modal_quit_and_resets_on_open() {
     // Default: an in-session App never treats the picker as a startup gate.
     assert_eq!(app.startup_overlay, crate::StartupOverlay::None);
 
-    // Simulate the startup path (`mutx attach` with no id): the picker
+    // Simulate the startup path (`nuo attach` with no id): the picker
     // opens and `startup_overlay` is armed. Closing it must quit.
     app.startup_overlay = crate::StartupOverlay::SessionsPicker;
     app.open_dialog(crate::surfaces::DialogKind::Sessions);

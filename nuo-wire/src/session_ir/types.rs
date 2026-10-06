@@ -810,7 +810,7 @@ mod tests {
         assert_eq!(ir.session_id, "session-1");
         assert!(ir.state.active_leaf.is_none());
 
-        let msg1 = Message::new(Role::User, "Hello muta");
+        let msg1 = Message::new(Role::User, "Hello nuo");
         let id1 = ir.append_message("node-1", 1_000_000, msg1);
 
         assert_eq!(ir.state.active_leaf, Some(id1.clone()));

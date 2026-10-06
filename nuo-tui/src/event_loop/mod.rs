@@ -92,6 +92,26 @@ fn event_rearms_composer_follow(event: &Event) -> bool {
     }
 }
 
+/// Whether `event` may pass through the frozen (terminal-too-small) state.
+///
+/// While frozen, only two event classes are honoured: a `Resize`, because it
+/// is the one thing that can restore the geometry, and `Ctrl-C`, the escape
+/// hatch that still lets the user quit. Every other event is dropped so it can
+/// never mutate state the user cannot see (invisible typing, modal opens,
+/// scroll moves). The dropped-Key SGR-leak tracker is still fed by the caller
+/// so a stranded mouse sequence cannot leak once the UI resumes.
+fn frozen_event_passthrough(event: &Event) -> bool {
+    match event {
+        Event::Resize(..) => true,
+        Event::Key(key) => {
+            key.code == KeyCode::Char('c')
+                && key.modifiers.contains(KeyModifiers::CONTROL)
+                && matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn tool_verb_for(name: &str) -> crate::phase::ToolVerb {
     match name {
         "find_files" | "list_dir" | "read_image" | "read_text" | "use_skill" | "read_url" => {
@@ -133,11 +153,96 @@ pub async fn run_app_loop(
     let mut last_carousel_index = 0usize;
     let mut mutation_rx = mutation_rx;
     let mut terminal_resized = false;
+    // Tracks whether the frozen notice is currently on screen, so the freeze
+    // branch repaints it exactly on entry and on each geometry change rather
+    // than every tick.
+    let mut frozen_notice_painted = false;
 
     loop {
         if app.should_quit.load(Ordering::SeqCst) {
             tracing::info!(reason = "should_quit_flag", "app exiting");
             return Ok(());
+        }
+
+        // Freeze guard. Below the usable minimum the whole UI is replaced by a
+        // centered notice. While frozen we keep applying daemon mutations (so
+        // a streaming round is never lost) but block every user-originated
+        // event except a resize and Ctrl-C, and paint nothing but the notice —
+        // no spinner, carousel, or scroll motion can move state the user
+        // cannot see. The live geometry is re-read every iteration, so a
+        // resize out of the minimum lifts the freeze on the next pass.
+        let (frozen_w, frozen_h) = terminal.size();
+        if crate::design::below_minimum(frozen_w, frozen_h) {
+            // Daemon-owned state stays current even while frozen.
+            while let Ok(mutation) = mutation_rx.try_recv() {
+                apply::apply(app, &runtime, mutation);
+            }
+            // Clipboard results are user-originated; drop them rather than
+            // apply a paste the user cannot see. The unbounded channels are
+            // drained each pass so they cannot accumulate.
+            while copy_rx.try_recv().is_ok() {}
+            while paste_rx.try_recv().is_ok() {}
+
+            // Repaint the notice on entry and whenever the geometry changed
+            // (the retained grid was invalidated by the resize).
+            if !frozen_notice_painted || terminal_resized {
+                terminal.draw(|f| crate::render::draw_too_small(f, &app.theme))?;
+                frozen_notice_painted = true;
+                terminal_resized = false;
+            }
+
+            let mut frozen_batch: Vec<Event> = Vec::with_capacity(8);
+            tokio::select! {
+                biased;
+                Some(first_event) = input_rx.recv() => {
+                    frozen_batch.push(first_event);
+                    while let Ok(ev) = input_rx.try_recv() {
+                        frozen_batch.push(ev);
+                    }
+                }
+                _ = runtime.dirty_notify.notified() => {}
+                _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {}
+            }
+            for event in frozen_batch {
+                if matches!(event, Event::Resize(..)) {
+                    terminal_resized = true;
+                }
+                if !frozen_event_passthrough(&event) {
+                    if let Event::Key(_) = &event {
+                        // Keep the SGR-leak tracker fed for dropped input too,
+                        // so a stranded mouse sequence cannot leak on resume.
+                        let _ = sgr_guard.feed(&event);
+                    }
+                    continue;
+                }
+                // Only a resize or Ctrl-C reaches here; resolve the live
+                // session id exactly as the unfrozen path does.
+                let viewed_session_id = session.session_id().await;
+                let flow = process_one_event(
+                    &event,
+                    app,
+                    terminal,
+                    &runtime,
+                    &session,
+                    &viewed_session_id,
+                    &copy_tx,
+                    &copy_pending,
+                    &paste_tx,
+                    &mut sgr_guard,
+                    &mut input_redraw_pending,
+                )
+                .await?;
+                if matches!(flow, actions::ActionFlow::Exit) {
+                    return Ok(());
+                }
+            }
+            continue;
+        }
+        // Leaving the frozen state: drop the latch and force a clean full
+        // repaint once the normal chrome resumes.
+        if frozen_notice_painted {
+            frozen_notice_painted = false;
+            input_redraw_pending = true;
         }
 
         let mut frame_dirty = input_redraw_pending;
@@ -365,9 +470,22 @@ pub async fn run_app_loop(
                 while let Ok(ev) = input_rx.try_recv() {
                     batch.push(ev);
                 }
+                // A resize inside this batch may have shrunk the terminal
+                // below the minimum. Re-evaluate and block the remaining
+                // events so a single tick cannot mutate state behind a notice
+                // that has not been painted yet.
+                let mut frozen_now = false;
                 for event in batch {
                     if matches!(event, Event::Resize(..)) {
                         terminal_resized = true;
+                        let (w, h) = terminal.size();
+                        frozen_now = crate::design::below_minimum(w, h);
+                    }
+                    if frozen_now && !frozen_event_passthrough(&event) {
+                        if let Event::Key(_) = &event {
+                            let _ = sgr_guard.feed(&event);
+                        }
+                        continue;
                     }
                     let flow = process_one_event(
                         &event,
@@ -671,6 +789,67 @@ mod input_scroll_follow_tests {
             kind: MouseEventKind::Drag(MouseButton::Left),
             column: 0,
             row: 0,
+            modifiers: KeyModifiers::NONE,
+        })));
+    }
+}
+
+#[cfg(test)]
+mod freeze_guard_tests {
+    use super::*;
+    use crossterm::event::{KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
+
+    #[test]
+    fn below_minimum_is_the_geometric_authority() {
+        assert!(crate::design::below_minimum(
+            crate::design::MIN_TERMINAL_COLS - 1,
+            crate::design::MIN_TERMINAL_ROWS
+        ));
+        assert!(crate::design::below_minimum(
+            crate::design::MIN_TERMINAL_COLS,
+            crate::design::MIN_TERMINAL_ROWS - 1
+        ));
+        assert!(!crate::design::below_minimum(
+            crate::design::MIN_TERMINAL_COLS,
+            crate::design::MIN_TERMINAL_ROWS
+        ));
+        assert!(!crate::design::below_minimum(120, 40));
+    }
+
+    #[test]
+    fn frozen_passthrough_allows_only_resize_and_ctrl_c() {
+        // Ctrl-C is the documented escape hatch.
+        assert!(frozen_event_passthrough(&Event::Key(KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
+        ))));
+        assert!(frozen_event_passthrough(&Event::Resize(44, 12)));
+
+        // Ctrl-C key-up must not slip through as a second press.
+        let release = KeyEvent {
+            kind: KeyEventKind::Release,
+            ..KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)
+        };
+        assert!(!frozen_event_passthrough(&Event::Key(release)));
+
+        // No other event may mutate state while the notice is up.
+        assert!(!frozen_event_passthrough(&Event::Key(KeyEvent::new(
+            KeyCode::Char('a'),
+            KeyModifiers::NONE,
+        ))));
+        assert!(!frozen_event_passthrough(&Event::Key(KeyEvent::new(
+            KeyCode::Char('v'),
+            KeyModifiers::CONTROL,
+        ))));
+        assert!(!frozen_event_passthrough(&Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ))));
+        assert!(!frozen_event_passthrough(&Event::Paste("x".into())));
+        assert!(!frozen_event_passthrough(&Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: 3,
+            row: 3,
             modifiers: KeyModifiers::NONE,
         })));
     }

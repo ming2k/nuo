@@ -44,7 +44,8 @@ impl App {
     /// Is this session's outbox hard-blocked? While blocked, no queued message
     /// auto-drains — not even after natural completion + idle. The Queue panel
     /// blocks on open and resumes on close; `Ctrl+P` toggles the block from
-    /// inside that panel (at the top level `Ctrl+P` is the command palette).
+    /// inside that panel (at the top level `Ctrl+P` is the chat surface's
+    /// step-focus verb, not a queue control).
     /// A no-op (and leaves the block off) for a session with no staged items.
     pub fn is_queue_blocked(&self, session_id: &str) -> bool {
         self.queue_blocked_sessions.contains(session_id)

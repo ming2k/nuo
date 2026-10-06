@@ -280,8 +280,8 @@ mod tests {
     fn command_summary_includes_executable_and_args() {
         assert_eq!(command_summary("cargo build"), Some("cargo build".into()));
         assert_eq!(
-            command_summary("/opt/local/bin/muta-server --listen 8080"),
-            Some("muta-server --listen 8080".into())
+            command_summary("/opt/local/bin/nuo-server --listen 8080"),
+            Some("nuo-server --listen 8080".into())
         );
         assert_eq!(
             command_summary("'/opt/Long Path/worker' --serve"),
@@ -317,8 +317,8 @@ mod tests {
             Some("git".into())
         );
         assert_eq!(
-            extract_comm("env RUST_LOG=info ./target/debug/muta-server"),
-            Some("muta-server".into())
+            extract_comm("env RUST_LOG=info ./target/debug/nuo-server"),
+            Some("nuo-server".into())
         );
         assert_eq!(
             extract_comm(r#""C:\Program Files\Git\bin\git.exe" commit -m "fix""#),

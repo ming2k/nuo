@@ -325,7 +325,7 @@ pub(crate) fn handle_ctrl_c(
     } else if app.startup_overlay == crate::StartupOverlay::SessionsPicker
         && app.active_dialog() == Some(DialogKind::Sessions)
     {
-        // `mutx attach` (no id) opened the picker at startup:
+        // `nuo attach` (no id) opened the picker at startup:
         // there is no conversation behind it, so Ctrl+C — like
         // Esc and an outside click — quits the program rather
         // than dropping into an empty session. Without this,
@@ -375,7 +375,7 @@ pub(crate) fn handle_ctrl_c(
             if app.startup_overlay == crate::StartupOverlay::Dashboard
                 || matches!(app.startup_overlay, crate::StartupOverlay::Settings { .. })
             {
-                // Standalone entry (`mutx dashboard` or `mutx settings`) opened this
+                // Standalone entry (`nuo dashboard` or `nuo settings`) opened this
                 // screen without an attached conversation: quit cleanly.
                 app.should_quit.store(true, Ordering::SeqCst);
             } else {

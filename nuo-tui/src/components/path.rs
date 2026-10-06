@@ -718,17 +718,17 @@ mod tests {
     #[test]
     fn test_fish_shorten_path() {
         assert_eq!(
-            fish_shorten_path("apps/terminal/crates/mutx/src/components/path.rs"),
-            "a/t/c/m/s/c/path.rs"
+            fish_shorten_path("apps/terminal/crates/nuo/src/components/path.rs"),
+            "a/t/c/n/s/c/path.rs"
         );
         assert_eq!(
-            fish_shorten_path("~/projects/muta/src/lib.rs"),
-            "~/p/m/s/lib.rs"
+            fish_shorten_path("~/projects/nuo/src/lib.rs"),
+            "~/p/n/s/lib.rs"
         );
-        assert_eq!(fish_shorten_path("/usr/local/bin/mutx"), "/u/l/b/mutx");
+        assert_eq!(fish_shorten_path("/usr/local/bin/nuo"), "/u/l/b/nuo");
         assert_eq!(
-            fish_shorten_path(".config/muta/config.toml"),
-            ".c/m/config.toml"
+            fish_shorten_path(".config/nuo/config.toml"),
+            ".c/n/config.toml"
         );
         assert_eq!(fish_shorten_path("main.rs"), "main.rs");
     }
@@ -736,7 +736,7 @@ mod tests {
     #[test]
     fn test_basename_with_parent() {
         assert_eq!(
-            basename_with_parent("apps/terminal/crates/mutx/src/components/path.rs"),
+            basename_with_parent("apps/terminal/crates/nuo/src/components/path.rs"),
             ".../components/path.rs"
         );
         assert_eq!(basename_with_parent("src/path.rs"), "src/path.rs");
@@ -745,7 +745,7 @@ mod tests {
 
     #[test]
     fn test_adaptive_shortening_hierarchy() {
-        let long_path = "crates/mutx/src/components/path_view.rs";
+        let long_path = "crates/nuo/src/components/path_view.rs";
 
         // Budget fits full path
         assert_eq!(adaptive_shorten(long_path, 50), long_path);
@@ -759,8 +759,8 @@ mod tests {
         );
 
         // Tighter budget: ellipsis no longer fits -> fish fallback
-        // (`c/mutx/src/c/path_view.rs`, 25 cells), expanded right-to-left.
-        assert_eq!(adaptive_shorten(long_path, 25), "c/mutx/src/c/path_view.rs");
+        // (`c/nuo/src/c/path_view.rs`, 25 cells), expanded right-to-left.
+        assert_eq!(adaptive_shorten(long_path, 25), "c/nuo/src/c/path_view.rs");
 
         // Tight budget -> basename
         let tight = adaptive_shorten(long_path, 15);
@@ -797,7 +797,7 @@ mod tests {
     #[test]
     fn test_path_with_line_col() {
         let formatted = format_path_str(
-            "crates/mutx/src/main.rs:120:5",
+            "crates/nuo/src/main.rs:120:5",
             None,
             Some(20),
             PathFormatStrategy::Adaptive,
@@ -810,18 +810,18 @@ mod tests {
     #[test]
     fn test_path_view_relative_base_dir() {
         let base = Path::new("/workspace/project");
-        let target = Path::new("/workspace/project/crates/mutx/src/lib.rs");
+        let target = Path::new("/workspace/project/crates/nuo/src/lib.rs");
 
         let view = PathView::new(target).base_dir(base);
-        assert_eq!(view.format_text(), "crates/mutx/src/lib.rs");
+        assert_eq!(view.format_text(), "crates/nuo/src/lib.rs");
     }
 
     #[test]
     fn test_tilde_expand() {
         let home = Path::new("/home/ming");
         assert_eq!(
-            tilde_expand_with(Path::new("~/projects/muta"), Some(home)),
-            PathBuf::from("/home/ming/projects/muta")
+            tilde_expand_with(Path::new("~/projects/nuo"), Some(home)),
+            PathBuf::from("/home/ming/projects/nuo")
         );
         assert_eq!(
             tilde_expand_with(Path::new("~"), Some(home)),
@@ -844,10 +844,10 @@ mod tests {
         // under `$HOME`) must be made workspace-relative, not left as `~/...`.
         if let Some(home) = dirs::home_dir().or_else(|| std::env::var_os("HOME").map(PathBuf::from))
         {
-            let base = home.join("projects/muta");
-            let view = PathView::from_str("~/projects/muta/crates/muta-llm-client/src/lib.rs")
+            let base = home.join("projects/nuo");
+            let view = PathView::from_str("~/projects/nuo/crates/nuo-llm-client/src/lib.rs")
                 .base_dir(&base);
-            assert_eq!(view.format_text(), "crates/muta-llm-client/src/lib.rs");
+            assert_eq!(view.format_text(), "crates/nuo-llm-client/src/lib.rs");
         }
     }
 

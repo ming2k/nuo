@@ -20,7 +20,7 @@ use nuo_persistence::workspace_security::WorkspaceSecurityStore;
 use nuo_harness::skills::{SkillHost, SkillRoots, SkillTrust};
 
 /// The product's skill roots, resolved from the path topology (ADR-0013) so
-/// `--cache-dir` / `$XDG_DATA_HOME` / `MUTA_DATA_DIR` overrides all land in one
+/// `--cache-dir` / `$XDG_DATA_HOME` / `NUO_DATA_DIR` overrides all land in one
 /// place.
 pub fn roots(role: Option<&str>) -> SkillRoots {
     let dirs = paths::get();

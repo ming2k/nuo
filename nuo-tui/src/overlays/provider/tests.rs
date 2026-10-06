@@ -72,7 +72,7 @@ fn reasoning_tag(thinking: Option<bool>, effort: Option<&str>) -> String {
 #[test]
 fn effort_slider_renders_at_every_supported_width() {
     // The selector is the slider at EVERY width, so it must lay out from
-    // the minimum terminal (40 cols, per MIN_TERMINAL_COLS) upward, for
+    // the minimum terminal (44 cols, per MIN_TERMINAL_COLS) upward, for
     // every ladder shape and every selection, without panicking — the
     // label thinning guarantees no overlap, not just no crash.
     let ladders: Vec<Vec<&str>> = vec![
@@ -874,7 +874,7 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
     );
     assert!(
         !text.contains("locked for the current plan"),
-        "muta must not invent a plan diagnosis the provider never stated"
+        "nuo must not invent a plan diagnosis the provider never stated"
     );
     assert!(
         text.contains("overridden by you"),
@@ -1458,7 +1458,7 @@ fn connections_modal_detail_view_renders_info_and_usage() {
         api_key_masked: Some("sk-12...abcd".to_string()),
         api_key_source: "credentials.toml".to_string(),
         client_identity: nuo_wire::ClientIdentity::Native,
-        user_agent: "muta/0.37.21".to_string(),
+        user_agent: "nuo/0.37.21".to_string(),
         models: vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
         model_info: Vec::new(),
         active_model: Some("deepseek-chat".to_string()),
@@ -1584,7 +1584,7 @@ fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
         api_key_masked: None,
         api_key_source: "OAuth".to_string(),
         client_identity: nuo_wire::ClientIdentity::Native,
-        user_agent: "muta/0.37.25".to_string(),
+        user_agent: "nuo/0.37.25".to_string(),
         models: vec!["gemini-3.7-flash".to_string(), "gemini-3.1-pro".to_string()],
         model_info: Vec::new(),
         active_model: Some("gemini-3.7-flash".to_string()),
@@ -1682,7 +1682,7 @@ fn connections_modal_detail_view_renders_inline_fetching_spinner() {
         api_key_masked: Some("sk-12...abcd".to_string()),
         api_key_source: "credentials.toml".to_string(),
         client_identity: nuo_wire::ClientIdentity::Native,
-        user_agent: "muta/0.37.21".to_string(),
+        user_agent: "nuo/0.37.21".to_string(),
         models: vec!["deepseek-chat".to_string()],
         model_info: Vec::new(),
         active_model: Some("deepseek-chat".to_string()),
@@ -1775,7 +1775,7 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
         api_key_masked: None,
         api_key_source: "OAuth".to_string(),
         client_identity: nuo_wire::ClientIdentity::Native,
-        user_agent: "muta/0.37.25".to_string(),
+        user_agent: "nuo/0.37.25".to_string(),
         models: vec![
             "gemini-3.7-flash".to_string(),
             "gemini-3.1-pro".to_string(),
@@ -2006,7 +2006,7 @@ fn connections_modal_standalone_detail_renders_single_level_header() {
         api_key_masked: Some("sk-ant-...1234".to_string()),
         api_key_source: "credentials.toml".to_string(),
         client_identity: nuo_wire::ClientIdentity::Native,
-        user_agent: "muta/0.37.21".to_string(),
+        user_agent: "nuo/0.37.21".to_string(),
         models: vec!["claude-3-7-sonnet".to_string()],
         model_info: Vec::new(),
         active_model: Some("claude-3-7-sonnet".to_string()),

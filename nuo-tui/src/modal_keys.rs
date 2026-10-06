@@ -487,7 +487,7 @@ pub(crate) fn resolve_history_search_key(key: crate::keymap::Key) -> Option<Inpu
     }
 }
 
-/// The command palette (Ctrl+P / Ctrl+L) owns its filter family: every
+/// The command palette (`C-x p`, ADR-0301) owns its filter family: every
 /// printable key types into the palette's own query (never the composer),
 /// `Backspace` trims the query, `Delete` drops the selected entry, and `Enter`
 /// executes the highlighted command. List walking (↑/↓) and Esc-close stay in

@@ -350,25 +350,25 @@ pub fn route_event(
             }
 
             // Stage 5: Global Hard-Bound Shortcuts
-            // Ctrl+L (Palette), Ctrl+C (Interrupt/Quit), CopySelection
+            // Ctrl+O (stats), Ctrl+Q (queue), Ctrl+C (Interrupt/Quit),
+            // CopySelection, and the user-remappable globals. The Command
+            // Palette is deliberately absent from the canonical table: its
+            // canonical entry is the `C-x` scene namespace's switcher verb
+            // (`C-x p`, ADR-0298 §1 / ADR-0301), resolved above — before any
+            // scene or modal arm — so `C-x p` opens it from every context and
+            // the old `Ctrl-L`-behind-a-modal prohibition is gone.
             if let Some(cmd_id) =
                 crate::keymap::resolve_global_key_with(physical_key, &dispatch.key_overrides)
             {
                 match cmd_id {
                     crate::keymap::CommandId::CommandPalette => {
-                        // Ctrl+L toggles the palette: open it at the
-                        // top level, and close it while it is already open.
-                        if dispatch.overlay
-                            == Some(crate::surfaces::OverlaySurface::Dialog(
-                                crate::surfaces::DialogKind::Switcher,
-                            ))
-                            || dispatch.overlay.is_none()
-                        {
-                            return InputAction::ViewSwitcherToggle;
-                        }
-                        if physical_key == crate::keymap::Key::CTRL_L {
-                            return InputAction::None;
-                        }
+                        // Only reachable through a user remap of the palette
+                        // command (the canonical chord was retired, ADR-0301).
+                        // Mirror the namespace exactly: open at the top level,
+                        // close while already open, and — with no modal
+                        // prohibition any more — switch to it from behind
+                        // another modal too.
+                        return InputAction::ViewSwitcherToggle;
                     }
                     crate::keymap::CommandId::OpenTelemetry if dispatch.overlay.is_none() => {
                         // Ctrl+O (model-bar telemetry keycap). Top level only:
@@ -522,9 +522,10 @@ pub fn route_event(
                 }
                 // Ctrl+P toggles the queue block inside the Queue modal so the
                 // user can resume without closing the list. At the top level
-                // Ctrl+P is claimed by the Command Palette (Stage 5 global
-                // resolution), so this arm only ever fires while the Queue
-                // modal is active. Inside any other modal it is a no-op.
+                // Ctrl+P is the chat surface's `focus_prev` step-walk verb
+                // (resolved by the Conversation scene before this match), so
+                // this arm only ever fires while the Queue modal is active.
+                // Inside any other modal it is a no-op.
                 KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     if dispatch.overlay
                         == Some(crate::surfaces::OverlaySurface::Dialog(
@@ -559,6 +560,17 @@ pub fn route_event(
                 // Explicitly swallow it here so the printable-char arm below
                 // never inserts a literal `h`.
                 KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    InputAction::None
+                }
+                // Ctrl+L is inert: the palette's canonical chord is the `C-x`
+                // scene namespace's switcher verb (`C-x p`, ADR-0298 §1 /
+                // ADR-0301), so `Ctrl-L` no longer maps to any command. Swallow
+                // it explicitly (like the inert Ctrl-H above) so the generic
+                // printable arm never inserts a literal `l`. A user who prefers
+                // `Ctrl-L` can still remap `palette` to it in `[keybindings]`,
+                // in which case it resolves through the Stage-5 globals above
+                // and never reaches this arm.
+                KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     InputAction::None
                 }
                 // Ctrl+M is a declared global binding (registry →

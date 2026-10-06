@@ -526,7 +526,7 @@ fn stale_expected_revision_fails_closed() {
 fn delta_save_offloads_only_newly_inserted_rows() {
     use nuo_wire::{Message, Role, TranscriptEntry};
     let blob_store =
-        BlobStore::new(std::env::temp_dir().join(format!("muta-offload-{}", uuid::Uuid::new_v4())));
+        BlobStore::new(std::env::temp_dir().join(format!("nuo-offload-{}", uuid::Uuid::new_v4())));
     let mut data = crate::session::SessionData::default();
     let big = "x".repeat(CAS_THRESHOLD_BYTES * 4);
     data.transcript.push(TranscriptEntry::from_message(
@@ -651,7 +651,7 @@ fn unknown_payloads_round_trip_verbatim() {
 fn blob_gc_reclaims_only_blobs_absent_from_the_reference_ledger() {
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let blob_store =
-        BlobStore::new(std::env::temp_dir().join(format!("muta-gc-{}", uuid::Uuid::new_v4())));
+        BlobStore::new(std::env::temp_dir().join(format!("nuo-gc-{}", uuid::Uuid::new_v4())));
     let referenced = blob_store.put(b"referenced body").unwrap();
     let orphan = blob_store.put(b"orphan body").unwrap();
     engine

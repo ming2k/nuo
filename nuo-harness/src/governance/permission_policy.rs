@@ -521,9 +521,9 @@ mod tests {
         let base = std::env::temp_dir()
             .canonicalize()
             .unwrap_or_else(|_| std::env::temp_dir());
-        let granted = base.join("muta-policy-granted");
+        let granted = base.join("nuo-policy-granted");
         let inside = granted.join("notes.md");
-        let outside = base.join("muta-policy-outside").join("secret.txt");
+        let outside = base.join("nuo-policy-outside").join("secret.txt");
         (granted, inside, outside)
     }
 

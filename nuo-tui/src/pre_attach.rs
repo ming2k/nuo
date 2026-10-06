@@ -50,7 +50,7 @@ const INDENT: &str = "  ";
 ///
 /// Owns the trust-gate question's input state machine plus a flag
 /// distinguishing a real first-contact gate from a
-/// `NUOX_FORCE_PRE_ATTACH=1` acceptance fixture (which renders an
+/// `NUO_FORCE_PRE_ATTACH=1` acceptance fixture (which renders an
 /// extra banner so operators know they are in acceptance mode and
 /// which domains they are verifying).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,7 +61,7 @@ pub struct PreAttachState {
     /// path can still recognize its answers if it ever sees them.
     model: QuestionModel,
     /// `true` when this PreAttach was force-mounted by the
-    /// `NUOX_FORCE_PRE_ATTACH=1` acceptance env var (no real
+    /// `NUO_FORCE_PRE_ATTACH=1` acceptance env var (no real
     /// quarantined workspace). The surface renders an extra banner
     /// naming the env var so operators know why they are seeing it.
     acceptance: bool,
@@ -129,7 +129,7 @@ impl PreAttachState {
     #[allow(clippy::expect_used)] // Synthesis is deterministic: all-five-Quarantined MUST produce a gate request.
     pub fn acceptance_fixture() -> Self {
         let snapshot = WorkspaceSecuritySnapshot {
-            root: "/tmp/mutx-acceptance".to_string(),
+            root: "/tmp/nuo-acceptance".to_string(),
             mcp: WorkspaceTrustState::Quarantined,
             skills: WorkspaceTrustState::Quarantined,
             hooks: WorkspaceTrustState::Quarantined,
@@ -152,7 +152,7 @@ impl PreAttachState {
     }
 
     /// `true` when this surface was force-mounted by
-    /// `NUOX_FORCE_PRE_ATTACH=1`. The renderer paints an extra
+    /// `NUO_FORCE_PRE_ATTACH=1`. The renderer paints an extra
     /// banner so operators can tell acceptance mode from a real
     /// first-contact gate at a glance.
     pub fn acceptance(&self) -> bool {
@@ -241,7 +241,7 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
             &mut lines,
             INDENT,
             INDENT,
-            "Acceptance mode (NUOX_FORCE_PRE_ATTACH=1) — selecting Trust persists against the real workspace.",
+            "Acceptance mode (NUO_FORCE_PRE_ATTACH=1) — selecting Trust persists against the real workspace.",
             Style::default()
                 .fg(theme.warn())
                 .add_modifier(Modifier::BOLD),

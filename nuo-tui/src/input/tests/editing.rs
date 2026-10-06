@@ -1243,7 +1243,10 @@ fn keybinding_modals_are_not_text_commands() {
 }
 
 #[test]
-fn ctrl_l_opens_command_palette() {
+fn ctrl_l_is_inert_not_a_palette_chord() {
+    // ADR-0301: the palette's canonical chord is the `C-x` scene namespace's
+    // switcher verb (`C-x p`). `Ctrl-L` is no longer bound, so it must be inert
+    // — never open the palette *and* never insert a literal `l`.
     let mut input = "draft".to_string();
     let mut cursor = 5;
     let mut drag = SelectionDrag::default();
@@ -1262,8 +1265,42 @@ fn ctrl_l_opens_command_palette() {
         &SceneKeys::default(),
         &mut drag,
     );
+    assert_eq!(action, InputAction::None);
+    assert_eq!(input, "draft", "Ctrl-L must not insert a literal `l`");
+}
+
+/// ADR-0301: a user can still remap `palette` to `Ctrl-L`; the remapped chord
+/// then opens the switcher through the Stage-5 globals, exactly like the
+/// namespace's `C-x p`.
+#[test]
+fn remapped_palette_chord_opens_the_switcher() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+    let overrides = crate::keymap::GlobalOverrides::from_config(
+        &[("palette".to_string(), "ctrl+l".to_string())]
+            .into_iter()
+            .collect::<std::collections::HashMap<String, String>>(),
+    );
+    let action = route_event(
+        Event::Key(KeyEvent {
+            code: KeyCode::Char('l'),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        }),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            key_overrides: overrides,
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
     assert_eq!(action, InputAction::ViewSwitcherToggle);
-    assert_eq!(input, "draft");
 }
 
 #[test]

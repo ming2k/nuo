@@ -1,5 +1,5 @@
 //! Transcript-area renderer: draws the transcript (and footer chrome) into the
-//! mutx-engine grid while recording semantic-to-screen layout
+//! nuotc grid while recording semantic-to-screen layout
 //! information. This is the entry point the app drives each frame
 //! ([`draw_transcript`] / [`TranscriptProps`]); it also re-exports the drawing
 //! surface (chrome, composer, overlays, theme, …) the shell consumes.
@@ -52,8 +52,8 @@ pub use crate::theme::{COLOR_SCHEMES, Theme};
 use crate::view_header;
 #[allow(unused_imports)]
 pub(crate) use crate::view_header::{
-    AsidesChip, BtwHead, DashboardHead, SessionHead, ViewHeader, ViewHints, ViewKind,
-    draw_view_header, draw_view_header_hints,
+    SessionHead, ViewHints, ViewKind, draw_view_header, draw_view_header_hints,
+    parent_status_context, parent_status_needs_attention,
 };
 #[allow(unused_imports)]
 pub use crate::views::settings::*;
@@ -109,9 +109,13 @@ fn draw_too_small_notice(frame: &mut Frame, area: Rect, theme: &Theme) {
     let title = Span::styled("Terminal too small", Style::default().fg(theme.warn()));
     let detail = Span::styled(
         format!(
-            "Please resize to at least {} × {}.",
+            "Resize to at least {} × {} to continue.",
             MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS
         ),
+        Style::default().fg(theme.muted()),
+    );
+    let paused = Span::styled(
+        "Input and animation are paused while frozen.",
         Style::default().fg(theme.muted()),
     );
 
@@ -131,6 +135,8 @@ fn draw_too_small_notice(frame: &mut Frame, area: Rect, theme: &Theme) {
         Line::from(vec![truncate(title)]),
         Line::raw(""),
         Line::from(vec![truncate(detail)]),
+        Line::raw(""),
+        Line::from(vec![truncate(paused)]),
     ];
 
     // Vertically center the block in whatever height is available.
@@ -140,6 +146,21 @@ fn draw_too_small_notice(frame: &mut Frame, area: Rect, theme: &Theme) {
         para,
         Rect::new(area.x, area.y + slack, area.width, area.height - slack),
     );
+}
+
+/// Paint the frozen "terminal too small" screen: the app background plus the
+/// centered notice, and nothing else. The event loop calls this directly while
+/// the terminal is below [`MIN_TERMINAL_COLS`] × [`MIN_TERMINAL_ROWS`] instead
+/// of running the full chrome renderer, so a frozen frame cannot paint any
+/// stale application surface over the notice. `draw_transcript` applies the
+/// same guard internally for callers that bypass the loop (tests/showcase).
+pub(crate) fn draw_too_small(frame: &mut Frame, theme: &Theme) {
+    let full = frame.area();
+    frame.render_widget(
+        RtBlock::default().style(Style::default().bg(theme.surface())),
+        full,
+    );
+    draw_too_small_notice(frame, full, theme);
 }
 
 pub struct TranscriptProps<'a> {
@@ -186,21 +207,22 @@ pub struct TranscriptProps<'a> {
     /// banner between the transcript gap and the queue bar; `Healthy` /
     /// `None` place nothing.
     pub persistence_health: Option<&'a nuo_wire::monitor::PersistenceHealth>,
-    /// When set, the view is zoomed into a subagent task: a contextual page
-    /// header is rendered and `messages` is the focused task's child stream.
+    /// When set, the view is zoomed into a subagent task: `messages` is the
+    /// focused task's child stream. The head band's scene row names the scene
+    /// `subagent` and carries the task's `[ROLE] label (i/n)` context (ADR-0302).
     pub subagent_bar: Option<SubagentBarInfo>,
-    /// When set, the view is inside a `/btw` aside (ADR-0017/0103): the
-    /// contextual view header carries the coarse primary-session status on
-    /// row 1 and the aside's affordance legend on row 2.
-    pub side_banner: Option<view_header::BtwHead>,
-    /// Live-asides chip + interruptibility for the header band's row-2
-    /// legend (ADR-0103 §3). `None` suppresses the legend entirely (non-app
-    /// contexts).
+    /// When set, the view is inside a `/btw` aside (ADR-0017/0103): the head
+    /// band's scene row names the scene `aside` and carries the coarse
+    /// primary-session status as its context (`main running`, …).
+    pub side_banner: Option<nuo_wire::ParentStatus>,
+    /// The head band's **scene row** (ADR-0302): the scene the user stands in,
+    /// its context, and the session's run-mode flags + the `C-x menu` namespace
+    /// pair. `None` suppresses the row entirely (non-app contexts).
     pub page_hints: Option<view_header::ViewHints<'a>>,
-    /// Session identity for the Conversation scene's head row: the persistent-id tail
-    /// plus the tilde-shortened workspace on the left, and the session mode
-    /// (`DELEGATED`) on the right. `None` only in non-session contexts
-    /// (tests/showcase) where no ambient session exists.
+    /// The head band's **session-identity row** (ADR-0302), uniform across
+    /// scenes: `SESSION` plus the persistent-id tail, `[ROLE]` badge, and
+    /// tilde-shortened workspace on the left. `None` only in non-session
+    /// contexts (tests/showcase) where no ambient session exists.
     pub session_head: Option<SessionHead<'a>>,
     /// Wall-clock instant the current round started, or `None` between rounds.
     /// Drives the muted `<elapsed>` segment in the activity bar.
@@ -675,62 +697,47 @@ pub fn draw_transcript(
         };
     }
 
-    // Resolve every transcript page to one page-header model. The Main
-    // session view always carries a head (its ambient session state — id
-    // tail, workspace, mode — replaces the old bottom status bar). Subagent
-    // and `/btw` keep their contextual headers. Subagent and `/btw` are
-    // mutually exclusive in the app; preferring Subagent here is a defensive
-    // fallback that keeps rendering deterministic if a malformed caller
-    // supplies both.
-    let view_header = subagent_bar
-        .as_ref()
-        .map(ViewHeader::Subagent)
-        .or_else(|| side_banner.map(ViewHeader::Btw))
-        .or_else(|| session_head.as_ref().map(ViewHeader::Session));
-    // The row-2 affordance legend (ADR-0103 §3, demand-gated by ADR-0104).
-    // The destructured `page_hints` is pre-resolved by the caller (it needs
-    // app-level state — the aside chip and interruptibility — that the view
-    // struct carries precisely so this stays allocation-free here). Row 2 is
-    // reserved only while the view has page-specific affordances that no
-    // other surface already carries; otherwise the band collapses to the
-    // single identity row and the transcript reclaims the line.
+    // The head band is a fixed two-row stack (ADR-0302): row 1 is the ambient
+    // **session identity** (`SESSION`, id tail, `[ROLE]` badge, workspace),
+    // uniform on every scene; row 2 is the **scene row** — the scene the user
+    // stands in named plainly, the scene's own context, and the session's
+    // run-mode flags plus the standing `C-x menu` namespace pair (ADR-0301
+    // `[INV-HINT-01]`). `page_hints` is pre-resolved by the caller (it needs
+    // app-level state — the scene kind and its context).
     let page_hints_view = page_hints.filter(|hints: &ViewHints<'_>| hints.has_content());
 
-    // When a head band is present it occupies the top rows of the terminal
-    // directly — the head is a sibling of the transcript, not content inside
-    // it, so it replaces the viewport's top margin rather than nesting under
-    // it. The band is identity/status on row 1 plus — only while the view
-    // has page-specific affordances to announce (ADR-0104; see
-    // `ViewHints::has_content`) — the view-affordance legend on row 2, both
-    // carved off with one layout split. Without a head, the standard
-    // viewport margins apply. TaskInspection reserves no second row and no
-    // bottom band: the scene's whole keyboard surface is one `Esc` and a pair
-    // of remappable sibling walks, which the head cannot render faithfully
-    // under a remap (ADR-0205), so the transcript keeps those rows.
-    let (head_rect, hints_rect, viewport) = if view_header.is_some() {
+    // The band occupies the top rows of the terminal directly — it is a sibling
+    // of the transcript, not content inside it, so it replaces the viewport's
+    // top margin rather than nesting under it. Each present row is carved off
+    // with one layout split; the transcript keeps the row for any absent row
+    // (non-session test/showcase contexts). Without any head the standard
+    // viewport margins apply.
+    let head_rows = u16::from(session_head.is_some());
+    let hints_rows = u16::from(page_hints_view.is_some());
+    let (head_rect, hints_rect, viewport) = if head_rows + hints_rows > 0 {
+        debug_assert!(
+            head_rows + hints_rows <= PAGE_HEADER_ROWS,
+            "the head band is at most {PAGE_HEADER_ROWS} rows"
+        );
         let full = frame.area();
-        // The head band's height is demand-driven (ADR-0104): row 2 is
-        // reserved only while the view has page-specific affordances.
-        // `PAGE_HEADER_ROWS` stays the recorded ceiling.
-        let band_rows = (1 + u16::from(page_hints_view.is_some())).min(PAGE_HEADER_ROWS);
         let sub = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),
-                Constraint::Length(band_rows.saturating_sub(1)),
+                Constraint::Length(head_rows),
+                Constraint::Length(hints_rows),
                 Constraint::Min(0),
             ])
             .split(full);
         (
             // The head band spans the terminal's full width — it is top-level
-            // chrome pinned to the top edge, not a transcript-area
-            // component. Its *text* keeps the shared horizontal inset (applied
-            // inside `draw_view_header` as pad spans) so it stays aligned with
-            // the transcript band below.
-            Some(sub[0]),
-            (band_rows > 1).then_some(sub[1]),
+            // chrome pinned to the top edge, not a transcript-area component.
+            // Its *text* keeps the shared horizontal inset (applied inside the
+            // draw functions as pad spans) so it stays aligned with the
+            // transcript band below.
+            (head_rows > 0).then_some(sub[0]),
+            (hints_rows > 0).then_some(sub[1]),
             // The remaining area keeps the bottom viewport margin (0) but
-            // drops the top one (the head owns that row now).
+            // drops the top one (the head owns those rows now).
             Rect::new(
                 sub[2].x,
                 sub[2].y,
@@ -876,9 +883,9 @@ pub fn draw_transcript(
     // 1. Head band — drawn at the very top of the terminal, before the
     // transcript. The band is a sibling of the transcript, not content inside
     // it, so it was already split from `full` above; just paint it here.
-    // Row 1 carries identity/status; row 2 the view-affordance legend.
-    if let (Some(header), Some(rect)) = (view_header.as_ref(), head_rect) {
-        draw_view_header(frame, rect, header, theme);
+    // Row 1 carries the session identity; row 2 the scene + context + status.
+    if let (Some(head), Some(rect)) = (session_head.as_ref(), head_rect) {
+        draw_view_header(frame, rect, head, theme);
     }
     if let (Some(hints), Some(rect)) = (page_hints_view.as_ref(), hints_rect) {
         draw_view_header_hints(frame, rect, hints, theme);
@@ -918,7 +925,12 @@ pub fn draw_transcript(
     let show_empty_state = messages.is_empty() && subagent_bar.is_none() && side_banner.is_none();
 
     if show_empty_state {
-        empty_state::draw_empty_state(
+        // Account for the hero so the app loop does not treat the session as a
+        // zero-height stream (which would mis-pin the scroll position). The
+        // renderer returns the rows it actually painted — the logo may have
+        // been dropped for lack of room — so the accounting cannot drift from
+        // the painted hero.
+        content_lines = empty_state::draw_empty_state(
             frame,
             transcript_area,
             logo,
@@ -926,9 +938,6 @@ pub fn draw_transcript(
             carousel_index,
             theme,
         );
-        // Account for the hero so the app loop does not treat the session as a
-        // zero-height stream (which would mis-pin the scroll position).
-        content_lines = empty_state::empty_state_content_lines(logo, guidance);
     } else {
         // Stage 2: heights are wrap-width-dependent, so drop the cache on a
         // resize. Within a stable width + unchanged transcript every entry

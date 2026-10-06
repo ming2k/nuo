@@ -7,7 +7,7 @@
 //! Two isolation notes:
 //!
 //! - The loop's filesystem footprint (discovery record, instance lock) is
-//!   sandboxed by pointing `MUTA_HOME` at a temp root **before the first
+//!   sandboxed by pointing `NUO_HOME` at a temp root **before the first
 //!   `paths::get()` resolution in this process** (ADR-0121). One variable
 //!   redirects every category and the daemon's runtime files; the env is
 //!   set once in a `static` initializer, and every test gets its own
@@ -34,14 +34,14 @@ use tokio::sync::{Mutex, broadcast, mpsc};
 /// Sandbox the process-wide dirs once, before any `paths::get()` call can
 /// cache a real-user resolution (see module docs).
 ///
-/// ADR-0121: `MUTA_HOME` alone redirects every category *and* the daemon
+/// ADR-0121: `NUO_HOME` alone redirects every category *and* the daemon
 /// instance dir, so the five hand-assembled env vars this used to set
 /// collapse to one. The root is a dedicated tempdir (not the shared
 /// `sandbox` subdirs) kept alive for the process.
 use super::sandbox_once;
 
 /// The ADR-0121 isolation contract, pinned at the level users experience
-/// it: with `MUTA_HOME` set, every category and the daemon's runtime
+/// it: with `NUO_HOME` set, every category and the daemon's runtime
 /// files resolve under the sandbox root, and the host's XDG runtime dir
 /// (which the test env deliberately does not clear) cannot leak any
 /// daemon-facing path back out of it.
