@@ -315,7 +315,11 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         id: "read",
         label: "File Content Previews",
         description: "Expand file content views and source inspections by default",
-        members: &[("read_text", &read_text::ReadPresenter)],
+        members: &[
+            ("read_text", &read_text::ReadPresenter),
+            ("read_file", &read_text::ReadPresenter),
+            ("read", &read_text::ReadPresenter),
+        ],
         expanded_by_default: false,
     },
     ToolComponent {

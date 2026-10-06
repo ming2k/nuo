@@ -1020,3 +1020,5 @@ mod tests {
         );
     }
 }
+
+pub mod oauth;

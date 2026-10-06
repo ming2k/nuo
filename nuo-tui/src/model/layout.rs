@@ -30,6 +30,27 @@ pub const INPUT_MSG_IDX: usize = usize::MAX - 8;
 /// Sentinel message index for text regions inside modal overlays.
 pub const MODAL_DOC_MSG_IDX: usize = usize::MAX - 5;
 
+/// Semantic identity of the content resting at the top of the transcript
+/// viewport, independent of terminal width.
+///
+/// Scroll is stored as a raw *content-line* offset, and a content line's
+/// meaning depends entirely on the wrap width: the same offset points at
+/// completely different text at 80 columns versus 160. Capturing this anchor
+/// before a width change lets the next layout re-derive the offset that puts
+/// the *same* text back under the viewport top, so a resize no longer drifts
+/// the reading position (scroll anchoring).
+///
+/// `message_id` is a [`TranscriptMessage::id`](crate::model::document::TranscriptMessage::id)
+/// — process-unique and stable across clones — so it survives the per-frame
+/// transcript rebuild. `row_offset` is how many rows of that message were
+/// already scrolled past the viewport top; it is clamped to the message's
+/// re-measured height when the anchor is resolved at the new width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScrollAnchor {
+    pub message_id: u64,
+    pub row_offset: u16,
+}
+
 /// Identifies a specific position inside the document model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SemanticCursor {

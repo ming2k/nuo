@@ -8,10 +8,8 @@
 pub mod capability;
 pub mod catalog;
 pub mod credentials;
-pub mod descriptor;
 pub mod effort_ladders;
 pub mod factory;
-pub mod registry;
 pub mod spec;
 
 pub mod oauth {
@@ -30,13 +28,11 @@ pub use credentials::{
     CredentialHost, CredentialSession, CredentialStore, CredentialStoreError, DeviceIdentity,
     FileCredentialStore, FileDeviceIdentity, InMemoryCredentialStore, PerProcessIdentity, TokenSet,
 };
-pub use descriptor::ProviderDescriptor;
 pub use factory::{
     ProviderFactory, build_credential_source, build_provider_for_channel, register_provider_factory,
 };
-pub use registry::ProviderRegistry;
 pub use spec::{
-    ModelProviderSpec, PromptCachePolicy, endpoint_for, model_provider_spec,
+    ModelProviderSpec, PromptCachePolicy, QuotaPort, endpoint_for, model_provider_spec,
     register_provider_spec, register_provider_specs, route_for_model, sync_user_declared_providers,
     unsupported_prompt_cache,
 };

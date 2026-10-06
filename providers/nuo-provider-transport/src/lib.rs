@@ -8,7 +8,6 @@ pub mod endpoint;
 pub mod http;
 pub mod json;
 pub mod network;
-pub mod oauth;
 pub mod pipeline;
 pub mod prompt_cache;
 pub mod request;

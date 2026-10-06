@@ -8,6 +8,61 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+### Changed
+
+- **Listing blocks (`find_files` / `list_dir`) are now layered, matching the
+  search block.** An expanded listing previously dumped every result line — the
+  tool's header included — through the path formatter onto one flat surface:
+  `Found N matching files:` rendered as a bogus path row, `list_dir`'s `[DIR]` /
+  `[FILE]` rows were unknown to the renderer (so *directories*, which carry no
+  trailing `/`, were colored as files), and the byte sizes / omission trailer
+  were shown raw. A listing now reuses the three-tier contract the search block
+  already had (extracted into shared `draw_band_row` / `draw_title_band`
+  primitives, so the two blocks stay identical by construction): a brand-tinted
+  **count band** parsed from the tool's own header (`Found N files` for a glob
+  search, `path · N items` for a directory listing), a per-directory **title
+  band** so `find_files` siblings no longer repeat their shared prefix on every
+  row, typed `[DIR]` / `[FILE]` rows as a **glyph + name + aligned dim size
+  column**, and a dim **omission band** for `... (N additional entries
+  omitted)`. Every selectable row's byte range stays anchored in the raw tool
+  output.
+
+- **Reasoning milestone summaries no longer inject a leading `the`.** The
+  thinking-trace header (`Thinking through …` / `Thought through …`) used to
+  prepend an article to every milestone topic unless it already started with a
+  determiner, which produced ungrammatical lines for code-like headings
+  (`Thinking through the derive(Clone, copy, debug, PartialEq, eq)`). The
+  article is now dropped entirely (`Thinking through derive(Clone, copy, debug,
+  PartialEq, eq)`); the summary verb supplies the grammatical frame.
+
+### Fixed
+
+- **The transcript reading position is preserved across a terminal resize
+  (scroll anchoring).** Scroll was stored as a raw content-line offset, and a
+  content line's meaning depends entirely on the wrap width — so after a column
+  change the same offset addressed unrelated text and a manually-scrolled
+  viewport jumped, drifting further the larger the width delta. The viewport now
+  captures the semantic identity of the content at its top (anchored message id
+  + row offset) and, on the pass that follows a width change, resolves it back to
+  a content-line offset against the new layout before the frame is committed, so
+  the same text stays under the viewport top. A steady width never re-anchors
+  (so ordinary scrolling is untouched), `follow_bottom` still re-pins to the
+  bottom, and the resolve walks the full transcript so an anchor displaced far by
+  a large reflow is still found. See
+  [ADR-0028](docs/adr/0028-scroll-anchoring-across-terminal-reflow.md).
+
+- **Single-file `search_text` results no longer lose their filename.** Searching
+  a *file* (e.g. `path: "nuo-tui/src/event_loop/actions.rs"`) rooted the walker at
+  that file, so stripping the search root from each hit produced an empty path
+  and the tool emitted a pathless `:2452: pub(super) fn enter_scene(` line —
+  wrong for the model's own tool result and, in the TUI, silently degrading the
+  expanded step: the count band tallied `0 files` and the per-file title row
+  vanished. `search_text`/`find_files` now fall back to the workspace-relative
+  path (then the bare filename) when the search root *is* the file, so the real
+  path is preserved. The redundant `· N files` segment is also dropped from the
+  match count band when a result spans a single file — `Found N matches` alone
+  reads cleaner and no longer risks a bogus `0 files`.
+
 ## [0.0.6] - 2026-10-06
 
 ### Changed

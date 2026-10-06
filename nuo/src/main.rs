@@ -18,7 +18,7 @@ use std::path::PathBuf;
 const WORKER_STACK_BYTES: usize = 8 * 1024 * 1024;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    nuo_provider_adapters::init();
+    nuo_server::provider_registry::init();
     nuo_tui::runner::ensure_dev_environment();
     let _tracing_guard = nuo_client::init_tracing();
     let runtime = tokio::runtime::Builder::new_multi_thread()

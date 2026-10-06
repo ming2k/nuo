@@ -114,7 +114,7 @@ fn frozen_event_passthrough(event: &Event) -> bool {
 
 pub(crate) fn tool_verb_for(name: &str) -> crate::phase::ToolVerb {
     match name {
-        "find_files" | "list_dir" | "read_image" | "read_text" | "use_skill" | "read_url" => {
+        "find_files" | "list_dir" | "read_image" | "read_text" | "read_file" | "read" | "use_skill" | "read_url" => {
             crate::phase::ToolVerb::Exploring
         }
         "search_text" => crate::phase::ToolVerb::Searching,
@@ -364,6 +364,25 @@ pub async fn run_app_loop(
             } else {
                 terminal.draw(|f| render::render_frame(app, f, &viewed_session_id))?;
                 app.ui.commit();
+            }
+        }
+
+        // Scroll anchoring (resize stability): on the settle pass that follows
+        // a width change, the renderer resolved the pre-resize top-of-viewport
+        // anchor against the new layout. Apply that offset here, before the
+        // clamp below, so a manual reading position survives the reflow instead
+        // of drifting to a raw offset that now points at different content. A
+        // `None` (no resize armed a resolve, or the anchored message vanished)
+        // leaves the existing offset untouched. Non-settle passes discard any
+        // resolution outright — the follow-bottom path never needed it, and a
+        // lingering value must not leak into a later, unrelated settle.
+        if needs_draw {
+            if stage_settle {
+                if let Some(resolved) = app.layout_height_cache.take_resolved() {
+                    app.scroll = resolved.min(u16::MAX as usize) as u16;
+                }
+            } else {
+                app.layout_height_cache.take_resolved();
             }
         }
 

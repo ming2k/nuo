@@ -154,7 +154,7 @@ pub fn ensure_app_roots() {
 /// frame.
 #[allow(clippy::too_many_lines)]
 pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std::error::Error>> {
-    nuo_provider_adapters::init();
+    crate::provider_registry::init();
     nuo_persistence::db::get_persistence_handle().ensure_ready()?;
     let BootstrapParams {
         identity,

@@ -90,5 +90,6 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
+    quota: Some(nuo_provider::QuotaPort::CommandCodeCredits),
     models: COMMANDCODE_BUILTIN_MODELS,
 };

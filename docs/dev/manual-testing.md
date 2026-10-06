@@ -316,6 +316,26 @@ rm -rf "$NUO_HOME"
   - Selecting the block and copying yields the questions and answers in reading
     order (the option-count tag is decoration and is not copied).
 
+#### Scenario 4.8: Listing Steps (`find_files` / `list_dir`) Render Layered
+- **Action**:
+  - Prompt the agent to find files (e.g. "list every ADR") so it calls
+    `find_files`, then expand the resulting step (`Enter` / click its summary).
+  - Prompt it to list a directory so it calls `list_dir`, and expand that step.
+- **Expected Outcome**:
+  - Both steps open with a **count band** parsed from the tool's own header —
+    `Found 27 files` for `find_files`, `` docs/adr · 27 items `` for `list_dir` —
+    rather than dumping the raw `Found N matching files:` / ``Directory: `…```
+    header line as a path row.
+  - `find_files` groups siblings under a per-directory **title band**
+    (`docs/adr/`), so the shared prefix appears once instead of on every row.
+  - `list_dir` rows render as a type glyph + name with the byte size in an
+    aligned dim column; the raw `[DIR]` / `[FILE]` tags never appear.
+  - A truncated `list_dir` shows a dim `⋯ N more entries not shown` band, not
+    the raw `... (N additional entries omitted)` line.
+  - Selecting a listing and copying still yields the underlying paths in reading
+    order (the bands are decoration; the byte ranges stay anchored in the raw
+    output).
+
 ---
 
 ### Suite 5: Headless Execution & CLI Automation (`nuo run` / `nuo -p`)

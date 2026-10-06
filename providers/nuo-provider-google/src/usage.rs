@@ -8,9 +8,9 @@ use nuo_wire::{
 };
 use serde::{Deserialize, Serialize};
 
-use nuo_provider_transport::oauth::token::{
-    ANTIGRAVITY_API_CLIENT_HEADER, ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL, ANTIGRAVITY_USER_AGENT,
-};
+use nuo_model_codec::client_identity::{ANTIGRAVITY_API_CLIENT_HEADER, ANTIGRAVITY_USER_AGENT};
+
+use crate::oauth::ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL;
 
 /// Individual Antigravity model/feature quota bucket (QuotaSummaryBucket in internal proto).
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -98,6 +98,44 @@ impl AntigravityUsageFetcher {
             .map_err(|e| format!("Failed to parse Antigravity quota response: {e}"))?;
 
         parse_antigravity_quota(body)
+    }
+}
+
+/// Retrieve user quota summary from the Google Antigravity CodeAssist backend.
+///
+/// Relocated verbatim (ADR-0027 §4) from `nuo-provider-adapters`' OAuth token
+/// module, where it was an orphan with no counterpart in the `providers/` tree.
+pub async fn retrieve_antigravity_quota_summary(
+    client: &nuo_provider_transport::http::Http,
+    access_token: &str,
+    project: Option<&str>,
+) -> Result<AntigravityQuotaSummaryResponse, nuo_oauth::oauth::AuthError> {
+    let req_body = serde_json::json!({
+        "project": project.unwrap_or("")
+    });
+
+    let request =
+        nuo_provider_transport::http::Request::new(netune::Method::POST, ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL)
+            .header("authorization", format!("Bearer {access_token}"))
+            .header("user-agent", ANTIGRAVITY_USER_AGENT)
+            .header("x-goog-api-client", ANTIGRAVITY_API_CLIENT_HEADER)
+            .json(&req_body);
+    let resp = client
+        .send(request)
+        .await
+        .map_err(|e| nuo_oauth::oauth::AuthError::Transport(format!("retrieveUserQuotaSummary failed: {e}")))?;
+
+    if resp.is_success() {
+        serde_json::from_str::<AntigravityQuotaSummaryResponse>(&resp.body).map_err(|e| {
+            nuo_oauth::oauth::AuthError::Decode(format!(
+                "retrieveUserQuotaSummary parse failed: {e}"
+            ))
+        })
+    } else {
+        Err(nuo_oauth::oauth::AuthError::TokenEndpoint {
+            status: resp.status.as_u16(),
+            body: resp.body,
+        })
     }
 }
 

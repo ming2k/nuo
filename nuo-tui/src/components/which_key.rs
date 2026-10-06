@@ -63,7 +63,7 @@ pub(crate) fn draw_which_key_overlay(
     close_label: &'static str,
     viewport: Rect,
 ) {
-    if !armed || viewport.width < 38 || viewport.height < 8 {
+    if !armed || viewport.width < 38 || viewport.height < 10 {
         return;
     }
 
@@ -191,6 +191,8 @@ mod tests {
             .collect();
         assert!(content.contains("C-x menu"));
         assert!(content.contains("leave scene"));
+        assert!(content.contains("sessions"));
+        assert!(content.contains("dashboard"));
         assert!(content.contains("cancel"));
     }
 

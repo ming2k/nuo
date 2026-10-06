@@ -43,7 +43,11 @@ sha2 = { workspace = true }
 toml = { workspace = true }
 
 [dev-dependencies]
-nuo-provider-adapters = { workspace = true }
+# The harness receives its concrete provider driver through the composition
+# root. Tests exercise the real registered spec table, so they dev-depend on the
+# composition root (`nuo-server`) rather than any `providers/` crate
+# (`[INV-PROV-04]` stays satisfied for the shipped build; this edge is test-only).
+nuo-server = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 mockito = { workspace = true }
 tempfile = { workspace = true }

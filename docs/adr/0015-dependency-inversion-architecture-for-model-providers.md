@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group
 - Consulted: Runtime, Capability, Interface Teams, and Model Infrastructure Engineers
 - Informed: System Architects
+- Amended by: [ADR-0027](0027-provider-definition-single-source-and-adapters-retirement.md) (accepted) — executes this ADR's unfinished `providers/` relocation and retires `nuo-provider-adapters`. This ADR's §1 topology and `[INV-PROV-01..05]` remain the binding direction; §2's renaming table and the §"Monolithic Provider Adapter" rejection are unchanged.
 - Complements: [ADR-0001](0001-flat-workspace-and-microkernel-capability-topology.md), [ADR-0008](0008-single-tool-contract.md), [ADR-0010](0010-harness-decomposition-and-agent-unification.md), [ADR-0013](0013-decoupled-tool-namespace-and-infrastructure-purity.md), [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md)
 
 ---
@@ -43,7 +44,7 @@ We require an uncompromising, future-facing DIP architecture: establishing `nuo-
 - **Service Surface / Channel as First-Class Unit**: Classify integrations by concrete access channel/plan (`chatgpt-plan`, `commandcode-plan`, `opencode-plan`, `kimi-code`, `google-antigravity`) rather than vague corporate brand names.
 - **Dependency Inversion Principle (DIP)**: Orchestration (`nuo-harness`, `nuo-agent`) and presentation (`nuo-tui`) depend strictly on `nuo-provider` abstractions; they must never link concrete implementation or transport crates.
 - **Cryptographic & Protocol Sandboxing**: Heavy cryptographic dependencies (Qoder's RSA/AES stack) must be physically isolated in dedicated channel crates (`providers/nuo-provider-qoder`), ensuring general-purpose providers compile with zero crypto bloat.
-- **Separation of RFC Primitives from Vendor Workflows**: Standard RFC 7636 (PKCE), RFC 8628 (Device Code), and loopback HTTP redirect listeners reside in `providers/nuo-provider-transport`, while vendor-specific parameters and token exchange workflows reside in channel crates.
+- **Separation of RFC Primitives from Vendor Workflows**: Standard RFC 7636 (PKCE), RFC 8628 (Device Code), and loopback HTTP redirect listeners reside in the workspace-root `nuo-oauth` (which also owns the stateful engine); vendor-specific parameters and token exchange workflows reside in channel crates and register through the typed `OAuthProvider` port.
 
 ---
 
@@ -58,7 +59,7 @@ nuo-provider (Layer 0: Pure Contract Substrate at root)
   ▲
   │ implements
 providers/ (Layer 2: Dedicated Channel & Adapter Namespace)
-  ├── nuo-provider-transport           # Shared HTTP egress, SSE demuxing, RFC OAuth primitives
+  ├── nuo-provider-transport           # Shared HTTP egress, SSE demuxing, request pipeline
   ├── nuo-provider-qoder               # Qoder dialect & sandboxed RSA/AES/MD5 crypto
   ├── nuo-provider-openai              # OpenAI Developer Platform API
   ├── nuo-provider-chatgpt-plan        # ChatGPT Plan Codex subscription (OAuth PKCE)

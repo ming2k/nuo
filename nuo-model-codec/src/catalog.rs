@@ -9,7 +9,7 @@
 //! This module owns the *types* and the provider *construction* path. It is
 //! deliberately decoupled from any specific config struct: a [`Channel`] already
 //! carries resolved credentials and the wire model id, so constructing a
-//! provider from it (see `build_provider_for_channel` in `nuo-provider-adapters`)
+//! provider from it (see `build_provider_for_channel` in the composition root (`nuo-server::provider_registry`))
 //! is a pure operation. Resolution (environment variable then config field)
 //! lives in the loader, not here, so the same types serve both built-in
 //! presets and future user-defined entries.
@@ -241,7 +241,7 @@ impl OpenAiChatDialect {
 pub type GoogleGeminiDialect = GoogleGenerateContentDialect;
 
 /// How a [`Channel`] speaks to its model. Determines which `Provider`
-/// implementation is constructed for it (in `nuo-provider-adapters`).
+/// implementation is constructed for it (in the composition root).
 ///
 /// Variants carry only the endpoint shape intrinsic to the transport.
 /// Per-call credentials and the wire model id live on the [`Channel`] itself,
@@ -487,56 +487,6 @@ impl ProviderEntry {
     }
 }
 
-/// Display metadata for a built-in provider preset. Returns `(name,
-/// description)`. Model-level metadata (context window, capabilities) lives in
-/// the [`crate::model`] registry and is resolved separately. Returns `None` for
-/// ids with no built-in metadata; the loader falls back to the raw id as the
-/// name in that case.
-pub fn builtin_provider_metadata(id: &str) -> Option<(&'static str, &'static str)> {
-    let (name, description) = match id {
-        "kimi-code" => ("Kimi Code", "Moonshot AI coding model"),
-        "openai" => ("OpenAI", "OpenAI API"),
-        "openrouter" => ("OpenRouter", "OpenRouter multi-model gateway"),
-        // Google hosts the Gemini family as one multi-model provider.
-        "google" => ("Google", "Google"),
-        // DeepSeek hosts V4 Flash + Pro as one multi-model provider.
-        "deepseek" => ("DeepSeek", "DeepSeek V4 (Flash + Pro)"),
-        "zai-code" => (
-            "ZAI Code (CN)",
-            "Zhipu BigModel / Z.AI coding plan (CN, GLM-5.3)",
-        ),
-        // OpenCode — opencode.ai's Console subscription surface. One provider
-        // id hosts many models; the account catalog (`/console/api/config`)
-        // routes each one: Claude/Qwen over the Anthropic /messages surface,
-        // Gemini over the Google surface, GPT/Codex over the OpenAI Responses
-        // surface, and the remaining openai-compatible set (GLM/Kimi/DeepSeek/
-        // MiniMax/…) over chat completions. All surfaces share one console
-        // bearer credential, scoped to a workspace by `x-opencode-org-id`.
-        "opencode" => ("OpenCode", "OpenCode Console account (multi-model)"),
-        // OpenCode Zen — the key-authenticated public relay surface
-        // (`/zen/v1`), distinct from the account-scoped Console surface above.
-        "opencode-zen" => ("OpenCode Zen", "OpenCode Zen relay (API key)"),
-        "opencode-plan" | "opencode-go" => ("OpenCode Plan", "OpenCode Plan relay (API key)"),
-        "chatgpt-plan" | "chatgpt" => ("ChatGPT Plan", "ChatGPT Subscription Plan (Codex)"),
-        "commandcode-plan" | "commandcode" => ("CommandCode Plan", "Command Code Provider API"),
-        // Anthropic — Claude family over the `/messages` API (configurable base
-        // URL; defaults to the official endpoint).
-        "anthropic" => ("Anthropic", "Claude models"),
-        // xAI Grok — OpenAI-compatible chat completions; SuperGrok OAuth or API key.
-        "xai" => ("xAI", "Grok models (SuperGrok / API key)"),
-        // QianwenAI Token Plan — Alibaba's QianwenAI Platform subscription
-        // surface (Credits-billed, interactive-use only). One key hosts the
-        // Qwen/DeepSeek/GLM/Kimi models the plan whitelists; the live /models
-        // endpoint is authoritative for what this account may run.
-        "qianwen" => (
-            "QianwenAI Token Plan",
-            "QianwenAI Platform Token Plan (Qwen / DeepSeek / GLM / Kimi)",
-        ),
-        _ => return None,
-    };
-    Some((name, description))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -698,25 +648,6 @@ mod tests {
         assert!(entry.offers_model("glm-5.2"));
     }
 
-    #[test]
-    fn builtin_provider_metadata_covers_every_preset() {
-        for id in [
-            "commandcode",
-            "kimi-code",
-            "openai",
-            "openrouter",
-            "google",
-            "deepseek",
-            "zai-code",
-            "opencode-go",
-            "anthropic",
-        ] {
-            let (name, _) = builtin_provider_metadata(id)
-                .unwrap_or_else(|| panic!("missing metadata for {id}"));
-            assert!(!name.is_empty());
-        }
-        assert!(builtin_provider_metadata("unknown").is_none());
-    }
 
     #[test]
     fn context_window_resolves_from_model_registry() {

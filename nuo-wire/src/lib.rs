@@ -249,10 +249,7 @@ pub use model::{
     baseline_models, model_by_id, register_fitted_models, resolve as resolve_model,
     sanitize_model_id, simple_glob_matches,
 };
-pub use nuo_provider::{
-    CatalogDiscovery, DiscoveredModel, ModelListError, ProviderDescriptor,
-    ProviderRegistry, QuotaTracker,
-};
+pub use nuo_provider::{CatalogDiscovery, DiscoveredModel, ModelListError, QuotaTracker};
 pub use pressure::{
     CLEARED_TOOL_PREFIX, CRUISE_HIGH_WATERMARK, CRUISE_LOW_WATERMARK, CompactionPolicy,
     ContextBudget, LayeredRequestWeights, MessageContentFingerprint, MessageTokenWeights,

@@ -667,6 +667,8 @@ fn scene_namespace_second_strokes_resolve_through_the_verb_table() {
         let expected = match verb {
             SceneVerb::Leave => InputAction::CloseScene,
             SceneVerb::Switcher => InputAction::ViewSwitcherToggle,
+            SceneVerb::Sessions => InputAction::OpenSessions,
+            SceneVerb::Dashboard => InputAction::NavigateDashboard,
             SceneVerb::Quit => InputAction::CtrlC,
         };
         if let KeyCode::Char(c) = stroke.code {
@@ -734,6 +736,48 @@ fn scene_namespace_bare_c_does_not_quit() {
         &mut drag,
     );
     assert_eq!(action, InputAction::CancelSceneNamespace);
+}
+
+#[test]
+fn scene_namespace_s_opens_sessions() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+    let action = route_event(
+        Event::Key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            scene_namespace_armed: true,
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::OpenSessions);
+}
+
+#[test]
+fn scene_namespace_d_navigates_to_dashboard() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+    let action = route_event(
+        Event::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE)),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            scene_namespace_armed: true,
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::NavigateDashboard);
 }
 
 /// ADR-0298: the scenes have **no** `q` exit. `q` is an ordinary printable on

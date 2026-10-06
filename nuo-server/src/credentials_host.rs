@@ -1,7 +1,7 @@
 //! The application plane's credential host: where the product keeps OAuth
 //! credentials and this installation's device identity.
 //!
-//! `nuo-provider-adapters` implements the flows; it does not know where their durable
+//! `nuo-oauth` implements the flows; it does not know where their durable
 //! material lives. This module is the shipped
 //! product's answer, resolved from the path topology ([ADR-0013](0013-decoupled-tool-namespace-and-infrastructure-purity.md)) once per process
 //! and shared.
@@ -14,7 +14,7 @@
 use std::sync::{Arc, OnceLock};
 
 use nuo_persistence::paths;
-use nuo_provider_adapters::CredentialHost;
+use nuo_provider::CredentialHost;
 
 static HOST: OnceLock<CredentialHost> = OnceLock::new();
 
@@ -28,6 +28,6 @@ pub fn host() -> CredentialHost {
 }
 
 /// The product's credential store, for callers that need only that half.
-pub fn store() -> Arc<dyn nuo_provider_adapters::CredentialStore> {
+pub fn store() -> Arc<dyn nuo_provider::CredentialStore> {
     Arc::clone(host().store())
 }

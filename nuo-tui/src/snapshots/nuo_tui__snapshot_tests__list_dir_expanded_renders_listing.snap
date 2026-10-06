@@ -1,17 +1,19 @@
 ---
-source: apps/terminal/crates/mutx/src/snapshot_tests.rs
+source: nuo-tui/src/snapshot_tests.rs
 expression: "render_grid(&m, 80, 30)"
 ---
 - List .
-  src/
-  tests/
-  Cargo.toml
-  README.md
+  4 items
+  ▸ src         4096 B
+  ▸ tests       4096 B
+  · Cargo.toml  128 B
+  · README.md   2048 B
 
 backgrounds:
-A=#070808  B=#111312  .=reset
+A=#070808  B=#252A26  C=#111312  .=reset
 0: A80
 1: B80
-2: B80
-3: B80
-4: B80
+2: C80
+3: C80
+4: C80
+5: C80

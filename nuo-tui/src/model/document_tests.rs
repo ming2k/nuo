@@ -1040,7 +1040,7 @@ fn reasoning_summary_handles_structured_milestones() {
     let streaming_single = TranscriptMessage::reasoning("**Planning architectural changes**\n\n");
     assert_eq!(
         streaming_single.reasoning_summary().as_deref(),
-        Some("Thinking through the architectural changes")
+        Some("Thinking through architectural changes")
     );
 
     // Live streaming updating to subsequent milestone heading
@@ -1049,7 +1049,7 @@ fn reasoning_summary_handles_structured_milestones() {
     );
     assert_eq!(
         streaming_multi.reasoning_summary().as_deref(),
-        Some("Thinking through the database migration")
+        Some("Thinking through database migration")
     );
 
     // Flagship case: "Deconstructing Security Architecture Components"
@@ -1058,7 +1058,7 @@ fn reasoning_summary_handles_structured_milestones() {
     );
     assert_eq!(
         streaming_flagship.reasoning_summary().as_deref(),
-        Some("Thinking through the security architecture components")
+        Some("Thinking through security architecture components")
     );
 
     // Helper functions verification
@@ -1089,7 +1089,7 @@ fn reasoning_summary_handles_structured_milestones() {
     done_single.set_reasoning_duration(1_200);
     assert_eq!(
         done_single.reasoning_summary().as_deref(),
-        Some("Thought through the architectural changes (1.2s)")
+        Some("Thought through architectural changes (1.2s)")
     );
 
     // Flagship case finished (even with 0ms duration)
@@ -1099,7 +1099,7 @@ fn reasoning_summary_handles_structured_milestones() {
     done_flagship.set_reasoning_duration(0);
     assert_eq!(
         done_flagship.reasoning_summary().as_deref(),
-        Some("Thought through the security architecture components (0ms)")
+        Some("Thought through security architecture components (0ms)")
     );
 }
 
@@ -1109,27 +1109,27 @@ fn normalize_reasoning_topic_edge_cases() {
 
     assert_eq!(
         normalize_thinking_topic("Deconstructing Security Architecture Components"),
-        "the security architecture components"
+        "security architecture components"
     );
     assert_eq!(
         normalize_thinking_topic("Planning architectural changes"),
-        "the architectural changes"
+        "architectural changes"
     );
     assert_eq!(
         normalize_thinking_topic("Executing database migration"),
-        "the database migration"
+        "database migration"
     );
     assert_eq!(
         normalize_thinking_topic("Validating test suite"),
-        "the test suite"
+        "test suite"
     );
     assert_eq!(
         normalize_thinking_topic("Analyzing OAuth 2.0 PKCE flow"),
-        "the OAuth 2.0 PKCE flow"
+        "OAuth 2.0 PKCE flow"
     );
     assert_eq!(
         normalize_thinking_topic("Reviewing SQL query performance"),
-        "the SQL query performance"
+        "SQL query performance"
     );
     assert_eq!(
         normalize_thinking_topic("How to handle concurrency"),
@@ -1143,15 +1143,22 @@ fn normalize_reasoning_topic_edge_cases() {
         normalize_thinking_topic("The authentication pipeline"),
         "the authentication pipeline"
     );
+    // A code-like milestone must not gain an injected article; the heading
+    // itself is the topic after "Thinking through". (Casing is still
+    // normalized by the loop above — acronyms/identifiers excepted.)
+    assert_eq!(
+        normalize_thinking_topic("derive(Clone, Copy, Debug, PartialEq, Eq)"),
+        "derive(Clone, copy, debug, PartialEq, eq)"
+    );
     // Regression: multi-byte characters must not cause a char-boundary panic
     // when a redundant prefix's byte length lands inside a multi-byte char.
     assert_eq!(
         normalize_thinking_topic("Checking — UTF-8 boundary safety"),
-        "the — UTF-8 boundary safety"
+        "— UTF-8 boundary safety"
     );
     assert_eq!(
         normalize_thinking_topic("验证 UTF-8 边界安全"),
-        "the 验证 UTF-8 边界安全"
+        "验证 UTF-8 边界安全"
     );
 }
 

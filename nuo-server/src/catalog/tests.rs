@@ -2,7 +2,6 @@
 //! connections + presets + catalog cache, credential resolution, per-route
 //! reasoning, the fitted-model overlay, and live catalog sync.
 
-extern crate nuo_provider_adapters;
 
 use super::derive::{
     DerivationInputs, derive_channel, derive_entries, resolve_credential, route_models,
@@ -36,7 +35,7 @@ static TEST_INIT: std::sync::Once = std::sync::Once::new();
 
 fn ensure_test_init() {
     TEST_INIT.call_once(|| {
-        nuo_provider_adapters::init();
+        crate::provider_registry::init();
     });
 }
 

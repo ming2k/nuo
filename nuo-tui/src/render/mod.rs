@@ -266,6 +266,11 @@ pub struct TranscriptProps<'a> {
     /// entry is only ever read while its message's content is unchanged.
     /// `None` outside the app loop (tests / showcase), where every lookup is a
     /// miss — correct, just unoptimized.
+    ///
+    /// Owns the scroll-anchoring state too: on a width change [`HeightCache::prepare`]
+    /// promotes the last captured top-of-viewport anchor to the resolve pass,
+    /// and the pass writes its captured/resolved outputs back here for the app
+    /// loop to consume.
     pub height_cache: Option<&'a mut HeightCache>,
 }
 
@@ -291,18 +296,64 @@ pub struct HeightCache {
     /// width), so it survives transcript invalidation and resizes without an
     /// invalidation pass; only capacity eviction retires entries.
     pub wrap: BlockWrapCache,
+    /// Scroll-anchoring state (resize stability). `anchor` is the semantic
+    /// identity of the content at the viewport top, refreshed on every
+    /// unpinned frame; `pending` arms the resolve pass after a width change.
+    /// Kept here (not on `App`) because [`Self::prepare`] already owns the one
+    /// authoritative "the width changed" transition and is called at the exact
+    /// seam where the previous width's layout is still current.
+    anchor: Option<crate::model::layout::ScrollAnchor>,
+    pending: Option<crate::model::layout::ScrollAnchor>,
+    /// The content-line offset that restored `pending` at the new width,
+    /// written by the resolve pass and read (then cleared) by the app loop's
+    /// settle branch. `None` when no resize armed a resolve, or the anchored
+    /// message is gone.
+    resolved: Option<usize>,
 }
 
 impl HeightCache {
     /// Reset the cache if the wrap width changed since the last frame; heights
     /// are width-dependent, so a resize invalidates every entry. Call once at
     /// the start of a transcript pass before any [`Self::get`]/[`Self::set`].
+    ///
+    /// This is also the scroll-anchoring seam: on a width change the anchor
+    /// captured at the previous width is promoted to `pending`, so the
+    /// transcript pass that follows resolves it back to a content-line offset
+    /// at the new width instead of reusing the stale raw offset.
     pub fn prepare(&mut self, width: u16) {
         if self.width != width {
             self.heights.clear();
             self.virtual_index = None;
             self.width = width;
+            // Arm the resolve pass with the pre-resize anchor. `take` so a
+            // second resize with no intervening render cannot double-resolve.
+            self.pending = self.anchor.take();
         }
+    }
+
+    /// Record the top-of-viewport anchor captured by a transcript pass.
+    pub(crate) fn set_anchor(&mut self, anchor: Option<crate::model::layout::ScrollAnchor>) {
+        self.anchor = anchor;
+    }
+
+    /// The anchor the current pass must resolve, if a resize armed one.
+    pub(crate) fn pending_anchor(&self) -> Option<crate::model::layout::ScrollAnchor> {
+        self.pending
+    }
+
+    /// Publish the resolve pass results: the captured top-of-viewport anchor
+    /// (for the next resize) and the content-line offset that restored the
+    /// pending anchor at the new width. Clears the pending request and any
+    /// prior resolved offset, so the loop never reads a stale value.
+    pub(crate) fn set_resolved(&mut self, resolved: Option<usize>) {
+        self.pending = None;
+        self.resolved = resolved;
+    }
+
+    /// Consume the offset produced by the last resolve pass, if any. Cleared on
+    /// read so a single resize settles exactly once.
+    pub(crate) fn take_resolved(&mut self) -> Option<usize> {
+        self.resolved.take()
     }
 
     /// The cached height for message `id` matching revision `rev`, or `None` if it must be measured.
@@ -667,7 +718,7 @@ pub fn draw_transcript(
     // fall back to a throwaway so every lookup simply misses and the renderer
     // behaves exactly as before the cache existed.
     let mut fallback_height_cache = HeightCache::default();
-    let height_cache = height_cache.unwrap_or(&mut fallback_height_cache);
+    let height_cache: &mut HeightCache = height_cache.unwrap_or(&mut fallback_height_cache);
     let full = frame.area();
 
     // Paint the entire frame with the app background so the TUI owns every
@@ -944,9 +995,21 @@ pub fn draw_transcript(
         // reproduces a fresh layout exactly, so off-screen messages can be
         // advanced from their cached height instead of being re-wrapped.
         height_cache.prepare(band.width);
+        // A `prepare` that saw a width change armed a resolve pass: the anchor
+        // captured at the previous width must be mapped back onto this layout
+        // so the reading position survives the resize (scroll anchoring).
+        let anchor_lookup = height_cache.pending_anchor();
 
-        if let Some(window) =
-            height_cache.virtual_window(messages, layout, scroll as usize, band.height)
+        // A resolve pass walks the **full** transcript (virtualization is
+        // skipped): a large reflow can move the anchored content far from the
+        // stale raw offset, well outside the virtual window that offset would
+        // select, and a windowed walk would then never measure it. The cost is
+        // one O(messages) pass per resize — heights still resolve through the
+        // cache, so off-screen messages are advanced without re-wrapping — and
+        // virtualization resumes on the very next frame.
+        if anchor_lookup.is_none()
+            && let Some(window) =
+                height_cache.virtual_window(messages, layout, scroll as usize, band.height)
         {
             message_start = window.message_start;
             message_end = window.message_end;
@@ -976,7 +1039,9 @@ pub fn draw_transcript(
             messages,
             theme,
             layout_map,
-            height_cache,
+            // Reborrow so `height_cache` is still usable after the Stream is
+            // dropped, to publish the anchor outputs below.
+            height_cache: &mut *height_cache,
             selection,
             cell_selection,
             hovered_step,
@@ -985,6 +1050,10 @@ pub fn draw_transcript(
             message_start,
             message_end,
             virtual_total_lines,
+            viewport_top: scroll as usize,
+            anchor_lookup,
+            anchor_capture: None,
+            anchor_resolved_line: None,
             current_y: band.y,
             skip_rows,
             content_lines,
@@ -996,6 +1065,17 @@ pub fn draw_transcript(
         // after the layout returns, so they are not recovered.)
         content_lines = stream.content_lines;
         sticky_steps = stream.sticky_steps;
+        // Publish the anchor outputs: the captured top-of-viewport identity is
+        // stored for the next resize; a resolved lookup is handed to the app
+        // loop, which re-anchors `App::scroll` before the frame commits.
+        // (`stream` is not dropped explicitly — `sticky_steps` above is a
+        // partial move and `Stream` has no `Drop` impl; its borrow ends here.)
+        let anchor_capture = stream.anchor_capture;
+        let anchor_resolved = stream.anchor_resolved_line;
+        // Publish onto the cache the app loop owns; it re-anchors
+        // `App::scroll` from `take_resolved` before committing the frame.
+        height_cache.set_anchor(anchor_capture);
+        height_cache.set_resolved(anchor_resolved);
     } // end else (non-empty transcript branch)
 
     // Record the interactive transcript rect so clicks on any blank

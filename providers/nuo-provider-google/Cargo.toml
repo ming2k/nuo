@@ -8,12 +8,14 @@ description = "Google Gemini API and Google Antigravity (CloudCode) OAuth provid
 
 [dependencies]
 nuo-provider = { workspace = true }
+nuo-oauth = { workspace = true }
 nuo-provider-transport = { workspace = true }
 nuo-model-codec = { workspace = true }
 nuo-wire = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
+netune = "0.1.0"
 serde_json = { workspace = true }
 tracing = { workspace = true }
 inventory = { workspace = true }
@@ -22,7 +24,6 @@ http = "1.4"
 bytes = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-netune = "0.1.0"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -335,6 +335,8 @@ pub fn route_event(
                 return match SceneVerb::from_second_stroke(physical_key) {
                     Some(SceneVerb::Leave) => InputAction::CloseScene,
                     Some(SceneVerb::Switcher) => InputAction::ViewSwitcherToggle,
+                    Some(SceneVerb::Sessions) => InputAction::OpenSessions,
+                    Some(SceneVerb::Dashboard) => InputAction::NavigateDashboard,
                     // `C-x C-c` is the namespace's quit spelling; a bare `c`
                     // carries no meaning here (it is not in the verb's strokes).
                     Some(SceneVerb::Quit) => InputAction::CtrlC,

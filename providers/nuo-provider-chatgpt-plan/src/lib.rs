@@ -5,3 +5,5 @@ pub mod spec;
 
 pub use device::*;
 pub use spec::*;
+
+pub mod oauth;

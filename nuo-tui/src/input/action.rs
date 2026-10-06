@@ -551,6 +551,8 @@ pub enum InputAction {
     SceneBack,
     /// Explicitly close/exit the active scene or dialog (e.g. via `C-x w`).
     CloseScene,
+    /// Navigate directly to the daemon session orchestrator dashboard scene (`C-x d`).
+    NavigateDashboard,
     /// Terminal was resized (SIGWINCH). The event loop forces a redraw and
     /// re-emits `EnableMouseCapture` so the crossterm parser's internal state
     /// machine is resynced: a resize frequently splits an in-flight SGR mouse

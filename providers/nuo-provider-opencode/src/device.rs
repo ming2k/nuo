@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use nuo_host::SecretString;
 use nuo_model_codec::provider_auth::OAuthConfig;
 
-use nuo_provider_transport::oauth::TokenResponse;
+use nuo_oauth::oauth::TokenResponse;
 
 /// The OpenCode Console origin used when a preset does not carry a full URL.
 pub const OPENCODE_DEFAULT_SERVER: &str = "https://opencode.ai/console";
@@ -78,33 +78,33 @@ const OAUTH_POLLING_SAFETY_MARGIN_MS: i64 = 3_000;
 pub async fn request_device_code(
     client: &nuo_provider_transport::http::Http,
     cfg: &OAuthConfig,
-) -> Result<OpencodeDeviceCode, nuo_provider_transport::oauth::AuthError> {
+) -> Result<OpencodeDeviceCode, nuo_oauth::oauth::AuthError> {
     let request =
         nuo_provider_transport::http::Request::new(netune::Method::POST, cfg.device_authorization_url.as_ref())
             .header("content-type", "application/json")
             .header("accept", "application/json")
             .json(&serde_json::json!({ "client_id": cfg.client_id.as_ref() }));
     let response = client.send(request).await.map_err(|e| {
-        nuo_provider_transport::oauth::AuthError::Transport(format!("device code request failed: {e}"))
+        nuo_oauth::oauth::AuthError::Transport(format!("device code request failed: {e}"))
     })?;
     let status = response.status;
     let text = response.body;
     if !status.is_success() {
-        return Err(nuo_provider_transport::oauth::AuthError::TokenEndpoint {
+        return Err(nuo_oauth::oauth::AuthError::TokenEndpoint {
             status: status.as_u16(),
             body: text,
         });
     }
     let json: OpencodeDeviceCode = serde_json::from_str(&text).map_err(|e| {
-        nuo_provider_transport::oauth::AuthError::Decode(format!("device code response parse failed: {e}"))
+        nuo_oauth::oauth::AuthError::Decode(format!("device code response parse failed: {e}"))
     })?;
     if json.device_code.is_empty() || json.user_code.is_empty() {
-        return Err(nuo_provider_transport::oauth::AuthError::Decode(
+        return Err(nuo_oauth::oauth::AuthError::Decode(
             "device code response missing device_code / user_code".to_string(),
         ));
     }
     if json.verification_uri_complete.trim().is_empty() {
-        return Err(nuo_provider_transport::oauth::AuthError::Decode(
+        return Err(nuo_oauth::oauth::AuthError::Decode(
             "device code response missing verification_uri_complete".to_string(),
         ));
     }
@@ -118,7 +118,7 @@ pub async fn poll_device_code(
     client: &nuo_provider_transport::http::Http,
     cfg: &OAuthConfig,
     device: &OpencodeDeviceCode,
-) -> Result<TokenResponse, nuo_provider_transport::oauth::AuthError> {
+) -> Result<TokenResponse, nuo_oauth::oauth::AuthError> {
     poll_device_code_with(client, cfg, device, sleep_ms, now_ms).await
 }
 
@@ -130,7 +130,7 @@ pub async fn poll_device_code_with<S, Fut>(
     device: &OpencodeDeviceCode,
     sleep: S,
     now: impl Fn() -> i64 + Send + Sync,
-) -> Result<TokenResponse, nuo_provider_transport::oauth::AuthError>
+) -> Result<TokenResponse, nuo_oauth::oauth::AuthError>
 where
     S: Fn(u64) -> Fut + Send + Sync,
     Fut: std::future::Future<Output = ()> + Send,
@@ -143,7 +143,7 @@ where
 
     loop {
         if now() >= deadline {
-            return Err(nuo_provider_transport::oauth::AuthError::DeviceCode(
+            return Err(nuo_oauth::oauth::AuthError::DeviceCode(
                 "device authorization timed out".to_string(),
             ));
         }
@@ -163,7 +163,7 @@ where
                     "client_id": cfg.client_id.as_ref(),
                 }));
         let response = client.send(request).await.map_err(|e| {
-            nuo_provider_transport::oauth::AuthError::Transport(format!("device token poll failed: {e}"))
+            nuo_oauth::oauth::AuthError::Transport(format!("device token poll failed: {e}"))
         })?;
 
         let status = response.status;
@@ -178,17 +178,17 @@ where
                 continue;
             }
             TokenPollOutcome::Denied => {
-                return Err(nuo_provider_transport::oauth::AuthError::DeviceCode(
+                return Err(nuo_oauth::oauth::AuthError::DeviceCode(
                     "device authorization was denied".to_string(),
                 ));
             }
             TokenPollOutcome::Expired => {
-                return Err(nuo_provider_transport::oauth::AuthError::DeviceCode(
+                return Err(nuo_oauth::oauth::AuthError::DeviceCode(
                     "device code expired - please re-run login".to_string(),
                 ));
             }
             TokenPollOutcome::Terminal(detail) => {
-                return Err(nuo_provider_transport::oauth::AuthError::TokenEndpoint {
+                return Err(nuo_oauth::oauth::AuthError::TokenEndpoint {
                     status: status.as_u16(),
                     body: detail,
                 });
@@ -291,21 +291,21 @@ pub async fn fetch_user(
     client: &nuo_provider_transport::http::Http,
     server: &str,
     access_token: &str,
-) -> Result<OpencodeUser, nuo_provider_transport::oauth::AuthError> {
+) -> Result<OpencodeUser, nuo_oauth::oauth::AuthError> {
     let request = nuo_provider_transport::http::Request::new(netune::Method::GET, format!("{server}/api/user"))
         .header("authorization", format!("Bearer {access_token}"))
         .header("accept", "application/json");
     let response = client.send(request).await.map_err(|e| {
-        nuo_provider_transport::oauth::AuthError::Transport(format!("opencode user request failed: {e}"))
+        nuo_oauth::oauth::AuthError::Transport(format!("opencode user request failed: {e}"))
     })?;
     if !response.is_success() {
-        return Err(nuo_provider_transport::oauth::AuthError::TokenEndpoint {
+        return Err(nuo_oauth::oauth::AuthError::TokenEndpoint {
             status: response.status.as_u16(),
             body: response.body,
         });
     }
     serde_json::from_str(&response.body)
-        .map_err(|e| nuo_provider_transport::oauth::AuthError::Decode(format!("opencode user parse failed: {e}")))
+        .map_err(|e| nuo_oauth::oauth::AuthError::Decode(format!("opencode user parse failed: {e}")))
 }
 
 /// Fetch the account's organizations.
@@ -313,21 +313,21 @@ pub async fn fetch_orgs(
     client: &nuo_provider_transport::http::Http,
     server: &str,
     access_token: &str,
-) -> Result<Vec<OpencodeOrg>, nuo_provider_transport::oauth::AuthError> {
+) -> Result<Vec<OpencodeOrg>, nuo_oauth::oauth::AuthError> {
     let request = nuo_provider_transport::http::Request::new(netune::Method::GET, format!("{server}/api/orgs"))
         .header("authorization", format!("Bearer {access_token}"))
         .header("accept", "application/json");
     let response = client.send(request).await.map_err(|e| {
-        nuo_provider_transport::oauth::AuthError::Transport(format!("opencode orgs request failed: {e}"))
+        nuo_oauth::oauth::AuthError::Transport(format!("opencode orgs request failed: {e}"))
     })?;
     if !response.is_success() {
-        return Err(nuo_provider_transport::oauth::AuthError::TokenEndpoint {
+        return Err(nuo_oauth::oauth::AuthError::TokenEndpoint {
             status: response.status.as_u16(),
             body: response.body,
         });
     }
     serde_json::from_str(&response.body)
-        .map_err(|e| nuo_provider_transport::oauth::AuthError::Decode(format!("opencode orgs parse failed: {e}")))
+        .map_err(|e| nuo_oauth::oauth::AuthError::Decode(format!("opencode orgs parse failed: {e}")))
 }
 
 #[cfg(test)]
@@ -335,7 +335,7 @@ mod tests {
     use super::*;
 
     fn cfg() -> OAuthConfig {
-        nuo_provider_transport::oauth::presets::opencode_preset()
+        crate::oauth::preset()
     }
 
     #[test]

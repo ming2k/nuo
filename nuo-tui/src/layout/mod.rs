@@ -448,6 +448,21 @@ pub struct Stream<'a, 'f> {
     /// The normal path covers the full slice.
     pub message_start: usize,
     pub message_end: usize,
+    /// Content-line offset of the viewport top for this pass (the resolved
+    /// `scroll`). Consumed by the scroll-anchoring capture below.
+    pub viewport_top: usize,
+    /// The top-of-viewport anchor the app asked this pass to *resolve* — set
+    /// only on the settle pass that follows a width change, when the anchor
+    /// captured at the previous width must be mapped back onto the new layout.
+    /// `None` on ordinary passes.
+    pub anchor_lookup: Option<crate::model::layout::ScrollAnchor>,
+    /// Captured (output): the semantic identity of the content resting at the
+    /// viewport top after this pass, ready to be stored for the next resize.
+    pub anchor_capture: Option<crate::model::layout::ScrollAnchor>,
+    /// Resolved (output): the new content-line offset that restores
+    /// [`Self::anchor_lookup`] under the viewport top in this layout. `None`
+    /// when no anchor was requested or its message is no longer present.
+    pub anchor_resolved_line: Option<usize>,
     /// Exact total stream height from the virtual index. Layout strategies set
     /// this after painting the selected window, avoiding a trailing walk just
     /// to rediscover the scroll extent.
@@ -658,13 +673,67 @@ impl<'a, 'f> Stream<'a, 'f> {
             );
         }
 
+        let body_height = self.content_lines - body_before;
+        // Scroll anchoring (see `Stream::anchor_lookup` / `anchor_capture`).
+        // On an ordinary pass, record the identity of the content at the
+        // viewport top. On the resize settle pass, instead map the pre-resize
+        // anchor onto this layout *and* re-derive the anchor from the resolved
+        // position (so the stored anchor matches the reflowed layout rather
+        // than this pass's not-yet-settled `viewport_top`). Runs per message,
+        // touches no pixels.
+        if self.anchor_lookup.is_some() {
+            self.resolve_anchor(mi, body_before, body_height);
+        } else {
+            self.capture_anchor(mi, body_before, body_height);
+        }
+
         // Cache the freshly-measured height for skippable kinds only.
         if skippable && cached_height.is_none() {
-            self.height_cache.set_with_rev(
-                msg.id,
-                msg.rev,
-                (self.content_lines - body_before) as u16,
-            );
+            self.height_cache
+                .set_with_rev(msg.id, msg.rev, body_height as u16);
+        }
+    }
+
+    /// Capture the semantic identity of the content resting at the viewport top
+    /// (scroll anchoring). The first message whose rows extend past the top
+    /// owns it; a top line that falls in an inter-message gap or a turn header
+    /// anchors to that following message at row offset 0, so the restore is
+    /// stable whether the top row is prose or spacing.
+    fn capture_anchor(&mut self, mi: usize, start: usize, height: usize) {
+        if self.anchor_capture.is_some() {
+            return;
+        }
+        if start + height <= self.viewport_top {
+            return;
+        }
+        let row_offset = self.viewport_top.saturating_sub(start).min(height) as u16;
+        self.anchor_capture = Some(crate::model::layout::ScrollAnchor {
+            message_id: self.messages[mi].id,
+            row_offset,
+        });
+    }
+
+    /// Resolve the app's requested anchor (`anchor_lookup`) against this
+    /// layout: the resolved content-line offset is the anchored message's new
+    /// start plus its row offset clamped to the message's re-measured height.
+    /// That resolved line becomes the captured anchor too, so the stored
+    /// identity matches the reflowed layout. A message that vanished
+    /// (compaction, a folded echo) yields no resolution, leaving the caller's
+    /// offset untouched and the previous anchor intact.
+    fn resolve_anchor(&mut self, mi: usize, start: usize, height: usize) {
+        if self.anchor_resolved_line.is_some() {
+            return;
+        }
+        if let Some(lookup) = self.anchor_lookup
+            && lookup.message_id == self.messages[mi].id
+        {
+            let row_offset = (lookup.row_offset as usize).min(height);
+            let line = start + row_offset;
+            self.anchor_resolved_line = Some(line);
+            self.anchor_capture = Some(crate::model::layout::ScrollAnchor {
+                message_id: self.messages[mi].id,
+                row_offset: row_offset as u16,
+            });
         }
     }
 

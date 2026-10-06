@@ -306,9 +306,169 @@ pub(crate) fn draw_code_content(
     }
 }
 
-/// Render a `list_dir` / `find_files` result: one entry per row on `code_bg`,
-/// directories (entries ending in `/`) in `info`, files in `code_fg`. No
-/// line-number gutter since listing rows have no meaningful line index.
+/// Draw a full-width decorative band row — a result heading (count band) or a
+/// group title — on `band_bg`, indented by `indent` and padded to the full
+/// width. Decoration only: the caller decides whether to *also* register a
+/// selectable region. Shared by the search ([`draw_matches_content`]) and
+/// listing ([`draw_listing_content`]) blocks so their heading tiers stay
+/// visually identical.
+fn draw_band_row(
+    ctx: &mut RenderCtx<'_, '_>,
+    indent: usize,
+    text: &str,
+    style: Style,
+    band_bg: Color,
+) {
+    let pad = Style::default().bg(band_bg);
+    let used = indent + text.width();
+    let line = Line::from(vec![
+        Span::styled(" ".repeat(indent), pad),
+        Span::styled(text.to_string(), style),
+        Span::styled(padded_tail(ctx.full_width, used), pad),
+    ]);
+    let _ = ctx.paint(line);
+}
+
+/// Draw a wrapped, selectable title band for a path heading, registering one
+/// region per wrapped line anchored at `abs_start` in the raw tool output. A
+/// title owns its own tier (the full inner width), not the gutter column the
+/// content rows beneath it align to.
+#[allow(clippy::too_many_arguments)]
+fn draw_title_band(
+    ctx: &mut RenderCtx<'_, '_>,
+    mi: usize,
+    block_idx: usize,
+    indent: usize,
+    text: &str,
+    abs_start: usize,
+    style: Style,
+    band_bg: Color,
+    sel_range: Option<(usize, Option<usize>)>,
+) {
+    let pad = Style::default().bg(band_bg);
+    let wrap_w = ctx.full_width.saturating_sub(indent).max(1);
+    for wl in nonempty_wrapped(wrap_text(text, wrap_w)) {
+        let block_wl = WrappedLine {
+            text: wl.text.clone(),
+            start_byte: abs_start + wl.start_byte,
+            end_byte: abs_start + text.len(),
+        };
+        let mut line = line_spans(
+            &" ".repeat(indent),
+            pad,
+            &wl.text,
+            line_selection(sel_range, &block_wl),
+            style,
+            ctx.theme.selected(),
+        );
+        let used = indent + wl.text.width();
+        line.spans
+            .push(Span::styled(padded_tail(ctx.full_width, used), pad));
+        ctx.paint_text_row(line, mi, block_idx, &block_wl, indent as u16, &[]);
+    }
+}
+
+/// A `list_dir` entry row parsed from the tool's `[DIR]` / `[FILE]` shape.
+struct DirEntry<'a> {
+    is_dir: bool,
+    name: &'a str,
+    /// The byte size exactly as the tool printed it (e.g. `"4096 B"`), if any.
+    size: Option<&'a str>,
+}
+
+/// Parse a `list_dir` entry — `[DIR]  name                    (4096 B)` /
+/// `[FILE] name                    (128 B)`. Returns `None` for any line that
+/// does not carry the tool's `[DIR]` / `[FILE]` tag, so a listing without the
+/// tags (a restored session, or the `find_files` path shape) degrades to plain
+/// path rows instead of inventing a type.
+fn parse_dir_entry(line: &str) -> Option<DirEntry<'_>> {
+    let (is_dir, rest) = if let Some(rest) = line.strip_prefix("[DIR]") {
+        (true, rest)
+    } else if let Some(rest) = line.strip_prefix("[FILE]") {
+        (false, rest)
+    } else {
+        return None;
+    };
+    let rest = rest.trim();
+    // The name is left-justified in a fixed-width field, then ` (SIZE B)` is
+    // appended, so splitting on the *last* ` (… )` group recovers the size even
+    // when the name itself contains ` (`.
+    let (name, size) = match rest.rfind(" (") {
+        Some(open) if rest.ends_with(')') => {
+            (rest[..open].trim_end(), Some(&rest[open + 2..rest.len() - 1]))
+        }
+        _ => (rest, None),
+    };
+    (!name.is_empty()).then_some(DirEntry { is_dir, name, size })
+}
+
+/// Parse a listing block's leading header line into the label for its count
+/// band. Recognizes the two shapes the filesystem tools emit:
+///
+/// - `find_files`: `Found N matching files:`
+/// - `list_dir`:   ``Directory: `path` (N items):``
+///
+/// Returns `None` when the first line is neither (a restored session may start
+/// at the first entry), in which case no band is invented — mirroring how
+/// [`parse_matches_header`] guards the search block's count band.
+fn parse_listing_header(first: &str) -> Option<String> {
+    let first = first.trim_end();
+    if let Some(rest) = first.strip_prefix("Found ") {
+        let n: usize = rest.strip_suffix("matching files:")?.trim().parse().ok()?;
+        return Some(format!("Found {} {}", n, plural(n, "file", "files")));
+    }
+    // `Directory: `path` (N items):` — the tool always prints `items` (never a
+    // pluralized `item`), and the count group is the final `(…)` before the `:`,
+    // so split on the last `(` to stay robust to a path containing parentheses.
+    let rest = first.strip_prefix("Directory: ")?.strip_suffix(':')?;
+    let open = rest.rfind('(')?;
+    let inner = rest[open + 1..].trim_end_matches(')');
+    let n: usize = inner.split_whitespace().next()?.parse().ok()?;
+    let path = rest[..open].trim().trim_matches('`');
+    Some(if path.is_empty() || path == "." {
+        format!("{} {}", n, plural(n, "item", "items"))
+    } else {
+        format!("{path} · {} {}", n, plural(n, "item", "items"))
+    })
+}
+
+/// Parse the `list_dir` omission trailer `... (N additional entries omitted)`.
+fn parse_listing_trailer(line: &str) -> Option<usize> {
+    line.trim()
+        .strip_prefix("... (")?
+        .strip_suffix(" additional entries omitted)")?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// Split a listing path into its `(directory, leaf)` halves, where `directory`
+/// keeps its trailing slash so it reads as a heading (`docs/adr/`). A path with
+/// no separator (a root-level entry, or a trailing-slash directory such as
+/// `src/`) yields no directory heading.
+fn split_dir_leaf(raw: &str) -> (Option<&str>, &str) {
+    match raw.rfind('/') {
+        Some(idx) if idx + 1 < raw.len() => (Some(&raw[..=idx]), &raw[idx + 1..]),
+        _ => (None, raw),
+    }
+}
+
+/// Render a `find_files` / `list_dir` result as a *layered* block, sharing the
+/// three-tier contract of a search block (see [`draw_matches_content`]):
+///
+/// - a top **count band** parsed from the tool's own header (`Found N files`,
+///   `` `path` · N items ``) on [`Theme::match_count_surface`];
+/// - for `find_files`, a **title band** per directory on
+///   [`Theme::match_title_surface`] so a run of siblings no longer repeats the
+///   shared prefix on every row;
+/// - for `list_dir`, each `[DIR]` / `[FILE]` row as a **type glyph + name** with
+///   the byte size in a dim right-aligned column;
+/// - a dim **omission band** for the tool's `... (N additional entries
+///   omitted)` trailer.
+///
+/// Rows carry no line-number gutter (a listing has no meaningful line index),
+/// directories render in `info` and files in `code_fg`, and every selectable
+/// row's byte range stays anchored in the raw tool output.
 pub(crate) fn draw_listing_content(
     ctx: &mut RenderCtx<'_, '_>,
     mi: usize,
@@ -319,32 +479,152 @@ pub(crate) fn draw_listing_content(
     inner_w: usize,
 ) {
     let code_bg = ctx.theme.code_surface();
+    let count_bg = ctx.theme.match_count_surface();
+    let title_bg = ctx.theme.match_title_surface();
     let pad = Style::default().bg(code_bg);
     let dir_fg = ctx.theme.info();
     let file_fg = ctx.theme.code_text();
+    let dim = ctx.theme.dim();
     let sel_range = block_selection_range(selection, mi, block_idx);
     let wrap_w = inner_w.max(1);
 
-    let mut logical_lines: Vec<(usize, &str)> = Vec::new();
+    let count_style = Style::default()
+        .bg(count_bg)
+        .fg(ctx.theme.brand())
+        .add_modifier(Modifier::BOLD);
+    let title_style = Style::default()
+        .bg(title_bg)
+        .fg(ctx.theme.heading())
+        .add_modifier(Modifier::BOLD);
+    let omitted_style = Style::default().bg(code_bg).fg(dim);
+    let size_style = Style::default().bg(code_bg).fg(dim);
+
+    let mut logical: Vec<(usize, &str)> = Vec::new();
     let mut offset = 0usize;
     for line in content.split('\n') {
-        logical_lines.push((offset, line));
+        logical.push((offset, line));
         offset += line.len() + 1;
     }
 
-    for (line_start_byte, logical_line) in logical_lines.iter() {
-        let is_dir = logical_line.ends_with('/');
+    // Leading tool header → count band (decoration, never a selectable row).
+    let body_idx = match logical.first().and_then(|(_, line)| parse_listing_header(line)) {
+        Some(label) => {
+            draw_band_row(ctx, indent, &label, count_style, count_bg);
+            1
+        }
+        None => 0,
+    };
+
+    // Widen the name column to the widest entry so a `list_dir` size column
+    // lines up across every row (the tool pads to a fixed 25 columns, which
+    // wastes most of the terminal on short names).
+    let mut name_width = 0usize;
+    for (_, line) in &logical[body_idx..] {
+        if let Some(entry) = parse_dir_entry(line) {
+            name_width = name_width.max(entry.name.width());
+        }
+    }
+
+    let mut current_dir: Option<&str> = None;
+    for (line_start_byte, raw) in &logical[body_idx..] {
+        // `list_dir` omission trailer → dim summary band.
+        if let Some(n) = parse_listing_trailer(raw) {
+            let text = format!("⋯ {n} more {} not shown", plural(n, "entry", "entries"));
+            draw_band_row(ctx, indent, &text, omitted_style, code_bg);
+            continue;
+        }
+
+        // `list_dir` entry → type glyph + name (+ aligned byte size).
+        if let Some(entry) = parse_dir_entry(raw) {
+            let (glyph, fg) = if entry.is_dir {
+                ("▸ ", dir_fg)
+            } else {
+                ("· ", file_fg)
+            };
+            let base = Style::default().bg(code_bg).fg(fg);
+            let size_w = entry.size.map(|s| s.width()).unwrap_or(0);
+            let name = crate::components::path::PathView::from_str(entry.name)
+                .maybe_base_dir(ctx.workspace_root)
+                .format_text();
+            // Reserve the glyph, a gap, and the size column, then clamp the name
+            // so a long filename can never push the size off the right edge.
+            let name_budget = ctx
+                .full_width
+                .saturating_sub(indent + glyph.width() + size_w + 3)
+                .max(1);
+            let name = truncate_to_width(&name, name_budget);
+            let block_wl = WrappedLine {
+                text: name.clone(),
+                start_byte: *line_start_byte,
+                end_byte: *line_start_byte + raw.len(),
+            };
+            let mut line = line_spans(
+                &format!("{}{}", " ".repeat(indent), glyph),
+                Style::default().bg(code_bg).fg(fg),
+                &name,
+                line_selection(sel_range, &block_wl),
+                base,
+                ctx.theme.selected(),
+            );
+            let mut used = indent + glyph.width() + name.width();
+            if let Some(size) = entry.size {
+                // Align the size column to the widest entry, but never past the
+                // budget: a filename wider than the reserved name budget is
+                // already truncated, so clamping the column keeps `padded_tail`
+                // non-zero and the size on-screen.
+                let column = name_width.min(name_budget);
+                let pad_cols = column.saturating_sub(name.width()) + 2;
+                line.spans.push(Span::styled(" ".repeat(pad_cols), pad));
+                line.spans
+                    .push(Span::styled(size.to_string(), size_style));
+                used += pad_cols + size.width();
+            }
+            line.spans
+                .push(Span::styled(padded_tail(ctx.full_width, used), pad));
+            ctx.paint_text_row(line, mi, block_idx, &block_wl, indent as u16, &[]);
+            continue;
+        }
+
+        // Plain path line (`find_files`, or a trailing-slash directory): group
+        // entries sharing a directory under one title band, then draw the leaf
+        // name beneath it.
+        let is_dir = raw.ends_with('/');
+        let (dir, leaf) = split_dir_leaf(raw);
+        match dir {
+            Some(dir) => {
+                if current_dir != Some(dir) {
+                    current_dir = Some(dir);
+                    let normalized = crate::components::path::PathView::from_str(dir)
+                        .maybe_base_dir(ctx.workspace_root)
+                        .format_text();
+                    draw_title_band(
+                        ctx,
+                        mi,
+                        block_idx,
+                        indent,
+                        &normalized,
+                        *line_start_byte,
+                        title_style,
+                        title_bg,
+                        sel_range,
+                    );
+                }
+            }
+            None => current_dir = None,
+        }
+        let display = match dir {
+            Some(_) => leaf.to_string(),
+            None => crate::components::path::PathView::from_str(raw)
+                .maybe_base_dir(ctx.workspace_root)
+                .format_text(),
+        };
         let fg = if is_dir { dir_fg } else { file_fg };
         let base = Style::default().bg(code_bg).fg(fg);
-        let normalized = crate::components::path::PathView::from_str(logical_line)
-            .maybe_base_dir(ctx.workspace_root)
-            .format_text();
-        let wrapped = nonempty_wrapped(wrap_text(&normalized, wrap_w));
-        for wl in &wrapped {
+        for wl in nonempty_wrapped(wrap_text(&display, wrap_w)) {
             let block_wl = WrappedLine {
                 text: wl.text.clone(),
-                start_byte: line_start_byte + wl.start_byte,
-                end_byte: line_start_byte + wl.end_byte,
+                start_byte: *line_start_byte + wl.start_byte,
+                end_byte: *line_start_byte + wl.end_byte,
             };
             let mut line = line_spans(
                 &" ".repeat(indent),
@@ -1649,12 +1929,13 @@ fn emit_simple_rows(
 }
 
 /// Render a `search_text` result as a *layered* block: a top count band
-/// (`Found N matches · M files`), then per file a distinct title band carrying
-/// the path, then its match rows (`{lineno}  {content}`) with the line number
-/// dimmed and the literal query bolded. Each of the three tiers sits on its own
-/// background (`match_count_surface` > `match_title_surface` > `code_surface`)
-/// and/or its own weight, so the file heading and the matched text read as part
-/// of a real result tree instead of one flat run of text.
+/// (`Found N matches`, or `Found N matches · M files` when the result spans more
+/// than one file), then per file a distinct title band carrying the path, then
+/// its match rows (`{lineno}  {content}`) with the line number dimmed and the
+/// literal query bolded. Each of the three tiers sits on its own background
+/// (`match_count_surface` > `match_title_surface` > `code_surface`) and/or its
+/// own weight, so the file heading and the matched text read as part of a real
+/// result tree instead of one flat run of text.
 ///
 /// The count band only appears when the tool's `Found N match(es):` header is
 /// present (structural parity: a structured `Matches` payload drops it, so no
@@ -1701,27 +1982,27 @@ pub(crate) fn draw_matches_content(
     let header = parse_matches_header(&logical);
     let header_idx = if header.is_some() { 1 } else { 0 };
     if let Some(h) = &header {
-        let text = format!(
-            "Found {} {} · {} {}",
-            h.count,
-            plural(h.count, "match", "matches"),
-            h.files,
-            plural(h.files, "file", "files"),
-        );
+        // The `· N files` segment is redundant (and, for a single-file search,
+        // pure noise) when everything sits under one path, so it only appears
+        // once the result actually spans more than one file.
+        let text = if h.files > 1 {
+            format!(
+                "Found {} {} · {} {}",
+                h.count,
+                plural(h.count, "match", "matches"),
+                h.files,
+                plural(h.files, "file", "files"),
+            )
+        } else {
+            format!("Found {} {}", h.count, plural(h.count, "match", "matches"))
+        };
         let label_style = Style::default()
             .bg(count_bg)
             .fg(ctx.theme.brand())
             .add_modifier(Modifier::BOLD);
-        let band_pad = Style::default().bg(count_bg);
-        let used = indent + text.width();
-        let line = Line::from(vec![
-            Span::styled(" ".repeat(indent), band_pad),
-            Span::styled(text, label_style),
-            Span::styled(padded_tail(ctx.full_width, used), band_pad),
-        ]);
         // Decoration, not content: like the raw `Found N …:` header today it is
         // not registered as a selectable block region.
-        let _ = ctx.paint(line);
+        draw_band_row(ctx, indent, &text, label_style, count_bg);
     }
 
     // Width of the line-number column: the widest lineno across all matches, so
@@ -1749,28 +2030,17 @@ pub(crate) fn draw_matches_content(
                     // File title band: distinct background + bold, wrapped at the
                     // full inner width (a title owns its own tier, not the gutter
                     // column the match rows align to).
-                    let title_pad = Style::default().bg(title_bg);
-                    let wrap_w = ctx.full_width.saturating_sub(indent).max(1);
-                    let wrapped = nonempty_wrapped(wrap_text(&normalized, wrap_w));
-                    for wl in &wrapped {
-                        let block_wl = WrappedLine {
-                            text: wl.text.clone(),
-                            start_byte: *line_start_byte,
-                            end_byte: *line_start_byte + normalized.len(),
-                        };
-                        let mut line = line_spans(
-                            &" ".repeat(indent),
-                            title_pad,
-                            &wl.text,
-                            line_selection(sel_range, &block_wl),
-                            title_style,
-                            ctx.theme.selected(),
-                        );
-                        let used = indent + wl.text.width();
-                        line.spans
-                            .push(Span::styled(padded_tail(ctx.full_width, used), title_pad));
-                        ctx.paint_text_row(line, mi, block_idx, &block_wl, indent as u16, &[]);
-                    }
+                    draw_title_band(
+                        ctx,
+                        mi,
+                        block_idx,
+                        indent,
+                        &normalized,
+                        *line_start_byte,
+                        title_style,
+                        title_bg,
+                        sel_range,
+                    );
                 }
                 // Absolute byte offset of `content` within the tool output.
                 let content_abs = line_start_byte + parsed.content_offset;
@@ -2283,6 +2553,228 @@ fn emit_command_lines_folded(
     byte_offset
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NormalizedCode {
+    pub content: String,
+    pub start_line: usize,
+    pub detected_path: Option<String>,
+}
+
+fn parse_numbered_line<'a>(line: &'a str, delim: char) -> Option<(usize, &'a str)> {
+    let trimmed = line.trim_start();
+    let digits_end = trimmed.find(|c: char| !c.is_ascii_digit())?;
+    if digits_end == 0 {
+        return None;
+    }
+    let num: usize = trimmed[..digits_end].parse().ok()?;
+    let rest = trimmed[digits_end..].trim_start();
+    if delim == '\t' {
+        if !rest.starts_with('\t') {
+            return None;
+        }
+        return Some((num, &rest[1..]));
+    }
+    if !rest.starts_with(delim) {
+        return None;
+    }
+    let after_delim = &rest[delim.len_utf8()..];
+    // Reject operator repetitions like `||` or `::`
+    if after_delim.starts_with(delim) {
+        return None;
+    }
+    let content = if let Some(stripped) = after_delim.strip_prefix(' ') {
+        stripped
+    } else if after_delim.is_empty() {
+        ""
+    } else if delim == ':' {
+        // For ':' delimiter, must be followed by space or empty string
+        return None;
+    } else {
+        after_delim
+    };
+    Some((num, content))
+}
+
+pub(crate) fn normalize_code_content(
+    raw: &str,
+    raw_start_line: usize,
+    arguments: &str,
+) -> NormalizedCode {
+    let (arg_offset, arg_path) = serde_json::from_str::<serde_json::Value>(arguments)
+        .ok()
+        .map(|v| {
+            let offset = v
+                .get("offset")
+                .or_else(|| v.get("start_line"))
+                .and_then(|val| val.as_u64())
+                .map(|o| o as usize);
+            let path = v
+                .get("path")
+                .or_else(|| v.get("file_path"))
+                .or_else(|| v.get("filename"))
+                .or_else(|| v.get("file"))
+                .and_then(|p| p.as_str())
+                .map(|s| s.to_string());
+            (offset, path)
+        })
+        .unwrap_or((None, None));
+
+    if raw.is_empty() {
+        return NormalizedCode {
+            content: String::new(),
+            start_line: raw_start_line.max(arg_offset.unwrap_or(1)).max(1),
+            detected_path: arg_path,
+        };
+    }
+
+    let mut lines: Vec<&str> = raw.lines().collect();
+    let mut header_start_line: Option<usize> = None;
+    let mut detected_path: Option<String> = arg_path;
+
+    // 1. Strip leading tool-result envelope marker (e.g. `[read_text result]:`) if present
+    if let Some(first_idx) = lines.iter().position(|l| !l.trim().is_empty()) {
+        let first = lines[first_idx].trim();
+        if first.starts_with('[') && first.ends_with("result]:") {
+            lines.drain(..=first_idx);
+        }
+    }
+
+    // 2. Strip leading `[Lines <start>-<end> of <total> from <path>]` model-facing framing
+    if let Some(first_idx) = lines.iter().position(|l| !l.trim().is_empty()) {
+        let first = lines[first_idx].trim();
+        if first.starts_with("[Lines ") && first.ends_with(']') {
+            let after_prefix = &first["[Lines ".len()..];
+            let num_end = after_prefix
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(after_prefix.len());
+            if let Ok(num) = after_prefix[..num_end].parse::<usize>() {
+                header_start_line = Some(num);
+            }
+            if let Some(from_pos) = first.find("from ") {
+                let after_from = &first[from_pos + "from ".len()..first.len() - 1];
+                let cleaned_path = after_from
+                    .trim()
+                    .trim_matches(|c| c == '`' || c == '"' || c == '\'');
+                if !cleaned_path.is_empty() && detected_path.is_none() {
+                    detected_path = Some(cleaned_path.to_string());
+                }
+            }
+            lines.drain(..=first_idx);
+        }
+    }
+
+    // 3. Strip trailing continuation hint like `[398 more lines — read with offset=102]`
+    if let Some(last_idx) = lines.iter().rposition(|l| !l.trim().is_empty()) {
+        let last = lines[last_idx].trim();
+        if last.starts_with('[')
+            && last.ends_with(']')
+            && (last.contains("more line") || last.contains("more lines"))
+        {
+            lines.drain(last_idx..);
+        }
+    }
+
+    // 4. Detect and strip embedded line numbers (e.g. `   1 | ---` or `1: ---` or `1\t---`)
+    let mut matched_delim: Option<char> = None;
+    let mut first_matched_num: Option<usize> = None;
+
+    if !lines.is_empty() {
+        for &delim in &['|', '│', ':', '\t'] {
+            let mut non_empty_count = 0;
+            let mut matched_count = 0;
+            let mut prev_num: Option<usize> = None;
+            let mut strictly_increasing = true;
+            let mut first_num = None;
+
+            for line in &lines {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                non_empty_count += 1;
+                if let Some((num, _)) = parse_numbered_line(line, delim) {
+                    matched_count += 1;
+                    if first_num.is_none() {
+                        first_num = Some(num);
+                    }
+                    if let Some(prev) = prev_num {
+                        if num <= prev {
+                            strictly_increasing = false;
+                            break;
+                        }
+                    }
+                    prev_num = Some(num);
+                } else {
+                    break;
+                }
+            }
+
+            if non_empty_count > 0 && matched_count == non_empty_count && strictly_increasing {
+                if delim == ':' && non_empty_count == 1 {
+                    let matches_context = header_start_line.is_some_and(|h| Some(h) == first_num)
+                        || arg_offset.is_some_and(|o| Some(o) == first_num);
+                    if !matches_context {
+                        continue;
+                    }
+                }
+                matched_delim = Some(delim);
+                first_matched_num = first_num;
+                break;
+            }
+        }
+    }
+
+    let stripped_embedded = matched_delim.is_some();
+    let clean_lines: Vec<String> = if let Some(delim) = matched_delim {
+        lines
+            .iter()
+            .map(|line| {
+                if let Some((_, content)) = parse_numbered_line(line, delim) {
+                    content.to_string()
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect()
+    } else {
+        lines.iter().map(|l| l.to_string()).collect()
+    };
+
+    let resolved_start_line = if let Some(first) = first_matched_num.filter(|&n| n > 1) {
+        first
+    } else if raw_start_line > 0 {
+        raw_start_line
+    } else if let Some(header_start) = header_start_line.filter(|&h| h > 1) {
+        header_start
+    } else if let Some(offset) = arg_offset.filter(|&o| o > 1) {
+        offset
+    } else if let Some(header_start) = header_start_line {
+        header_start
+    } else if let Some(offset) = arg_offset {
+        offset
+    } else if let Some(first) = first_matched_num {
+        first
+    } else {
+        1
+    };
+
+    let mut content = clean_lines.join("\n");
+    if !stripped_embedded && raw.ends_with('\n') {
+        content.push('\n');
+    } else if stripped_embedded && clean_lines.last().is_some_and(String::is_empty) {
+        // A framed slice whose final line is blank (e.g. `  10 | `) must keep
+        // that blank line. `join` cannot represent a trailing empty element on
+        // its own because `str::lines` drops a single trailing newline, so the
+        // blank line needs one extra terminator to survive round-tripping.
+        content.push('\n');
+    }
+
+    NormalizedCode {
+        content,
+        start_line: resolved_start_line.max(1),
+        detected_path,
+    }
+}
+
 /// Render an expanded tool step's content — no `Result`/`Diff` label, no
 /// separator; just the tool-specific block dispatched by `result_kind`. Known
 /// tools with structured output get a specialized renderer; everything else
@@ -2342,7 +2834,7 @@ pub(crate) fn draw_tool_result(
             // Legacy/restored steps without a payload fall back to the
             // flattened `output` string with `start_line = 0` (slice-relative
             // 1-based numbering).
-            let (content, start_line, explicit_lang) = match structured {
+            let (raw_content, raw_start_line, explicit_lang) = match structured {
                 Some(nuo_wire::ToolOutput::Code {
                     text,
                     start_line,
@@ -2354,6 +2846,9 @@ pub(crate) fn draw_tool_result(
                 }) => (new.as_str(), *start_line, None),
                 _ => (output, 0, None),
             };
+
+            let normalized = normalize_code_content(raw_content, raw_start_line, arguments);
+
             // The file path is authoritative for file content; `lang` is a
             // narrow extension hint (e.g. `"rs"`) whose whole job is the
             // language-tag line. Preferring the path keeps syntax highlighting
@@ -2362,7 +2857,16 @@ pub(crate) fn draw_tool_result(
                 .ok()
                 .and_then(|v| {
                     v.get("path")
+                        .or_else(|| v.get("file_path"))
+                        .or_else(|| v.get("filename"))
+                        .or_else(|| v.get("file"))
                         .and_then(|p| p.as_str())
+                        .map(crate::syntax::Language::from_path)
+                })
+                .or_else(|| {
+                    normalized
+                        .detected_path
+                        .as_deref()
                         .map(crate::syntax::Language::from_path)
                 });
             let syntax_lang = path_lang
@@ -2373,8 +2877,8 @@ pub(crate) fn draw_tool_result(
                 ctx,
                 mi,
                 block_idx,
-                content,
-                start_line,
+                &normalized.content,
+                normalized.start_line,
                 explicit_lang,
                 syntax_lang,
                 selection,
@@ -2966,6 +3470,77 @@ mod tests {
     }
 
     #[test]
+    fn parse_listing_header_reads_both_tool_shapes() {
+        // `find_files`: no scope path, so the band is just the file count.
+        assert_eq!(
+            parse_listing_header("Found 27 matching files:").as_deref(),
+            Some("Found 27 files")
+        );
+        assert_eq!(
+            parse_listing_header("Found 1 matching files:").as_deref(),
+            Some("Found 1 file")
+        );
+        // `list_dir`: path-led, with the count before the trailing colon.
+        assert_eq!(
+            parse_listing_header("Directory: `docs/adr` (27 items):").as_deref(),
+            Some("docs/adr · 27 items")
+        );
+        // A root listing names no scope (`.` is the default), and a single item
+        // is singular.
+        assert_eq!(
+            parse_listing_header("Directory: `.` (1 items):").as_deref(),
+            Some("1 item")
+        );
+    }
+
+    #[test]
+    fn parse_listing_header_is_none_without_the_tool_header() {
+        // A restored session may start at the first entry — no band is invented.
+        assert!(parse_listing_header("src/main.rs").is_none());
+        assert!(parse_listing_header("src/a.rs\nsrc/b.rs").is_none());
+        assert!(parse_listing_header("").is_none());
+    }
+
+    #[test]
+    fn parse_dir_entry_reads_type_name_and_size() {
+        let dir = parse_dir_entry("[DIR] src                      (4096 B)").unwrap();
+        assert!(dir.is_dir);
+        assert_eq!(dir.name, "src");
+        assert_eq!(dir.size, Some("4096 B"));
+
+        let file = parse_dir_entry("[FILE] Cargo.toml                 (128 B)").unwrap();
+        assert!(!file.is_dir);
+        assert_eq!(file.name, "Cargo.toml");
+        assert_eq!(file.size, Some("128 B"));
+
+        // A name containing ` (` must not confuse the size split (last ` (` wins).
+        let tricky = parse_dir_entry("[FILE] weird (name).rs           (12 B)").unwrap();
+        assert_eq!(tricky.name, "weird (name).rs");
+        assert_eq!(tricky.size, Some("12 B"));
+
+        // Not a `list_dir` row → `None` (the `find_files` path shape).
+        assert!(parse_dir_entry("src/main.rs").is_none());
+        assert!(parse_dir_entry("Found 27 matching files:").is_none());
+    }
+
+    #[test]
+    fn parse_listing_trailer_reads_the_omitted_count() {
+        assert_eq!(
+            parse_listing_trailer("... (12 additional entries omitted)"),
+            Some(12)
+        );
+        assert_eq!(parse_listing_trailer("src/main.rs"), None);
+        assert_eq!(parse_listing_trailer("Directory: `src` (3 items):"), None);
+    }
+
+    #[test]
+    fn split_dir_leaf_keeps_the_trailing_slash_on_the_directory() {
+        assert_eq!(split_dir_leaf("docs/adr/0001-x.md"), (Some("docs/adr/"), "0001-x.md"));
+        assert_eq!(split_dir_leaf("src/"), (None, "src/"));
+        assert_eq!(split_dir_leaf("Cargo.toml"), (None, "Cargo.toml"));
+    }
+
+    #[test]
     fn segment_matches_tiles_text_and_marks_every_occurrence() {
         let segments = segment_matches("let foo = foo;", Some("foo"));
         // Ranges must tile the whole string with no gaps and no overlap.
@@ -2989,5 +3564,73 @@ mod tests {
         assert_eq!(segment_matches("plain text", None), vec![(0, 10, false)]);
         assert_eq!(segment_matches("plain text", Some("")), vec![(0, 10, false)]);
         assert!(segment_matches("", Some("foo")).is_empty());
+    }
+
+    #[test]
+    fn normalize_code_content_strips_lines_framing_and_embedded_numbers() {
+        let raw = "\
+[Lines 1-120 of 205 from `docs/adr/0024-two-row-head-band-session-identity-and-scene-row.md`]
+   1 | ---
+   2 | id: ADR-0024
+   3 | title: \"Two-Row Head Band\"
+   4 | status: accepted
+   5 | date: 2026-10-06
+   6 | scope: tui/nuo-tui
+   7 | superseded_by: null
+   8 | negative_knowledge: true
+   9 | ---
+  10 | ";
+        let norm = normalize_code_content(raw, 0, "{}");
+        assert_eq!(norm.start_line, 1);
+        assert_eq!(
+            norm.detected_path.as_deref(),
+            Some("docs/adr/0024-two-row-head-band-session-identity-and-scene-row.md")
+        );
+        assert!(!norm.content.contains("[Lines"));
+        assert!(!norm.content.contains("1 |"));
+        let lines: Vec<&str> = norm.content.lines().collect();
+        assert_eq!(lines[0], "---");
+        assert_eq!(lines[1], "id: ADR-0024");
+        assert_eq!(lines[8], "---");
+        assert_eq!(lines.len(), 10);
+        assert_eq!(lines[9], "");
+    }
+
+    #[test]
+    fn normalize_code_content_handles_offset_read_with_continuation_hint() {
+        let raw = "\
+[Lines 100-102 of 500 from `src/lib.rs`]
+ 100 | fn a() {}
+ 101 | fn b() {}
+ 102 | fn c() {}
+[398 more lines — read with offset=103]";
+        let norm = normalize_code_content(raw, 0, "{}");
+        assert_eq!(norm.start_line, 100);
+        assert_eq!(norm.content, "fn a() {}\nfn b() {}\nfn c() {}");
+        assert_eq!(norm.detected_path.as_deref(), Some("src/lib.rs"));
+    }
+
+    #[test]
+    fn normalize_code_content_handles_colon_delimited_output() {
+        let raw = "10: fn hello() {}\n11: fn world() {}";
+        let norm = normalize_code_content(raw, 0, "{}");
+        assert_eq!(norm.start_line, 10);
+        assert_eq!(norm.content, "fn hello() {}\nfn world() {}");
+    }
+
+    #[test]
+    fn normalize_code_content_preserves_plain_unformatted_code() {
+        let raw = "fn main() {\n    let x = 1;\n}\n";
+        let norm = normalize_code_content(raw, 1, r#"{"path":"src/main.rs"}"#);
+        assert_eq!(norm.start_line, 1);
+        assert_eq!(norm.content, raw);
+    }
+
+    #[test]
+    fn normalize_code_content_uses_arg_offset_when_slice_relative_numbered() {
+        let raw = "1 | fn a() {}\n2 | fn b() {}";
+        let norm = normalize_code_content(raw, 0, r#"{"path":"src/lib.rs","offset":50}"#);
+        assert_eq!(norm.start_line, 50);
+        assert_eq!(norm.content, "fn a() {}\nfn b() {}");
     }
 }

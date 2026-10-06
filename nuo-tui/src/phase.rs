@@ -180,7 +180,7 @@ pub fn ends_transport_setback(phase: Option<&Phase>) -> bool {
 
 fn tool_verb(name: &str) -> ToolVerb {
     match name {
-        "find_files" | "list_dir" | "read_image" | "read_text" | "use_skill" | "read_url" => {
+        "find_files" | "list_dir" | "read_image" | "read_text" | "read_file" | "read" | "use_skill" | "read_url" => {
             ToolVerb::Exploring
         }
         "search_text" => ToolVerb::Searching,

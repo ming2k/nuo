@@ -654,6 +654,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 viewed_session_id,
             );
         }
+        input::InputAction::NavigateDashboard => {
+            enter_scene(app, crate::surfaces::SceneKind::Dashboard, runtime);
+        }
         input::InputAction::OpenModels => {
             enter_panel(
                 app,

@@ -24,7 +24,7 @@ use sha2::Digest;
 
 use nuo_provider::{CredentialHost, CredentialStore, TokenSet};
 use crate::identity::{QoderRequestIdentity, QoderStoredIdentity};
-use nuo_provider_transport::oauth::{AuthError, TokenResponse};
+use nuo_oauth::oauth::{AuthError, TokenResponse};
 use nuo_model_codec::{ResolvedAuth, SecretString};
 
 pub fn stored_qoder_request_identity(

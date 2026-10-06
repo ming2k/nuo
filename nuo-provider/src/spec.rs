@@ -37,6 +37,26 @@ pub struct ModelProviderSpec {
     pub client_profile_sensitive: bool,
     /// Resolve prompt-cache behavior for one exact preset route and model.
     pub prompt_cache: PromptCachePolicy,
+    /// Typed binding to the quota/balance implementation this surface uses
+    /// (`[INV-PROV-08]`). `None` means the provider exposes no balance query.
+    /// Replaces substring matching on the provider id / base URL.
+    pub quota: Option<QuotaPort>,
+}
+
+/// Typed quota/balance port declared by a provider spec (`[INV-PROV-08]`).
+///
+/// Dispatch resolves this port from the spec; it never sniffs the provider-id
+/// string or the base URL. The concrete implementation lives in the owning
+/// provider crate and is called by the composition root.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum QuotaPort {
+    DeepSeekBalance,
+    KimiBalance,
+    CommandCodeCredits,
+    OpenRouterKey,
+    Antigravity,
+    SiliconFlow,
+    Qoder,
 }
 
 #[derive(Clone)]
@@ -200,6 +220,7 @@ pub fn sync_user_declared_providers(
                 .unwrap_or(nuo_model_codec::ClientPreset::Native),
             client_profile_sensitive: provider.client_profile_sensitive,
             prompt_cache: PromptCachePolicy::Declared(provider.prompt_cache.clone().unwrap_or_default()),
+            quota: None,
         };
         spec.validate()?;
         next.insert(id.clone(), Arc::new(spec));

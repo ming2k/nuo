@@ -234,5 +234,6 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::GoogleCloudCode),
     default_client_profile: nuo_model_codec::ClientPreset::Antigravity,
     client_profile_sensitive: true,
+    quota: Some(nuo_provider::QuotaPort::Antigravity),
     models: ANTIGRAVITY_OAUTH_MODELS,
 };

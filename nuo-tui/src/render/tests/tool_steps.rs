@@ -747,6 +747,60 @@ fn search_text_block_layers_count_title_and_content_backgrounds() {
     assert_eq!(bg_at(match_y, 40), content_bg, "match row surface background");
 }
 
+/// A single-file `search_text` result drops the redundant `· N files` segment
+/// from the count band (one file is implied), while still rendering the file
+/// title row and the match row. Regression for a file-rooted search that used
+/// to emit a pathless `:LINE: content` line — the renderer then tallied `0
+/// files` and dropped the title row entirely.
+#[test]
+fn search_text_single_file_drops_file_count_and_keeps_title() {
+    let mut m = TranscriptMessage::tool_step(
+        "call_test",
+        "search_text",
+        r#"{"query":"enter_scene","path":"nuo-tui/src/event_loop/actions.rs"}"#,
+    );
+    // Post-fix tool output: the path is present (workspace-relative).
+    let output = "Found 1 match(es):\nnuo-tui/src/event_loop/actions.rs:2452: pub(super) fn enter_scene(";
+    if let crate::model::document::MessageKind::ToolStep {
+        output: out,
+        expanded,
+        ..
+    } = &mut m.kind
+    {
+        *out = Some(output.to_string());
+        *expanded = true;
+    }
+
+    let terminal = render_full_view(80, 24, &[m], None);
+    let buffer = terminal.buffer();
+    let width = buffer.area().width as usize;
+    let rows: Vec<String> = (0..buffer.area().height as usize)
+        .map(|y| {
+            (0..width)
+                .map(|x| buffer[(x as u16, y as u16)].symbol())
+                .collect::<String>()
+        })
+        .collect();
+    let joined = rows.join("\n");
+
+    assert!(
+        joined.contains("Found 1 match"),
+        "count band renders the match count; got:\n{joined}"
+    );
+    assert!(
+        !joined.contains("· 1 file"),
+        "the redundant `· 1 file` segment must be gone; got:\n{joined}"
+    );
+    assert!(
+        !joined.contains("0 files"),
+        "the count band must never report `0 files`; got:\n{joined}"
+    );
+    assert!(
+        joined.contains("nuo-tui/src/event_loop/actions.rs"),
+        "the file title row must render with the real path; got:\n{joined}"
+    );
+}
+
 /// A checklist/todo tool step rendered while an active selection spans the block
 /// must not panic from out-of-bounds byte slicing across the glyph prefix.
 #[test]

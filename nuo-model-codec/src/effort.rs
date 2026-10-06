@@ -41,13 +41,13 @@
 //! ```text
 //! live discovery (a preset whose RemoteCatalogSource carries effort tiers)
 //!        ↓  only Kimi & Copilot advertise tiers here
-//! static baseline  ←  model capability ladders in `nuo-provider-adapters::registry::effort_ladders`
+//! static baseline  ←  model capability ladders in `nuo_provider::effort_ladders`
 //!        ↓  the compiled-in fallback when upstream advertises nothing
 //! COMMON_LADDER / &[]  (generic conservative fallback / non-reasoning model)
 //! ```
 //!
 //! Specific model family capability ladders (`CLAUDE_*`, `OPENAI_GPT_*`, `GLM_*`, etc.)
-//! are housed in the provider registry (`nuo-provider-adapters::registry::effort_ladders`).
+//! are housed in the provider registry (`nuo_provider::effort_ladders`).
 //! This module defines only the universal abstract vocabulary and the vendor-neutral
 //! conservative fallback [`COMMON_LADDER`].
 //!
@@ -410,7 +410,7 @@ const fn nonzero(tokens: u64) -> i64 {
 ///
 /// Safe default subset for any model whose deeper tiers (`xhigh`/`max`) are
 /// unknown. Concrete vendor/model family capability ladders are maintained in
-/// `nuo-provider-adapters::registry::effort_ladders`.
+/// `nuo_provider::effort_ladders`.
 pub const COMMON_LADDER: &[Effort] = &[Effort::Low, Effort::Medium, Effort::High];
 
 #[cfg(test)]

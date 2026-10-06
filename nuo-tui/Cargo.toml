@@ -29,9 +29,13 @@ tracing = { workspace = true }
 chrono = { workspace = true }
 
 [dev-dependencies]
-nuo-provider-adapters = { workspace = true }
 insta = { workspace = true }
 tempfile = { workspace = true }
+# The presentation layer links `nuo-provider` contracts only (`[INV-PROV-04]`).
+# Its tests exercise the real baseline/model registry, so they dev-depend on the
+# composition root, which links every `providers/nuo-provider-*` crate and thus
+# registers the inventory baselines for the test binary.
+nuo-server = { workspace = true }
 
 [lints]
 workspace = true

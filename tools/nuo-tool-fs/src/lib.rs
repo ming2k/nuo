@@ -42,6 +42,26 @@ impl SystemToolContext {
     }
 }
 
+/// Render `file_path` for a tool result line, preferring a path relative to the
+/// search root so results stay short and stable. When the search root *is* the
+/// file itself — a single-file search such as `path: "src/lib.rs"` — stripping
+/// it yields an empty string, which would emit a pathless `:LINE: content`
+/// line (unreadable for both the model and the UI), so fall back first to the
+/// workspace-relative path and finally to the bare filename.
+fn display_match_path(file_path: &Path, search_root: &Path, workspace_root: &Path) -> String {
+    for base in [search_root, workspace_root] {
+        if let Ok(rel) = file_path.strip_prefix(base)
+            && !rel.as_os_str().is_empty()
+        {
+            return rel.to_string_lossy().into_owned();
+        }
+    }
+    file_path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| file_path.to_string_lossy().into_owned())
+}
+
 /// Typed parameters for [`ReadTextTool`].
 #[derive(Debug, Clone, Deserialize, ToolSchema)]
 pub struct ReadTextArgs {
@@ -601,10 +621,7 @@ impl Tool for FindFilesTool {
             }
 
             let path = entry.path();
-            let relative = path
-                .strip_prefix(&search_root)
-                .unwrap_or(path)
-                .to_string_lossy();
+            let relative = display_match_path(path, &search_root, &self.ctx.workspace_root);
 
             let matched = compiled_globs.is_empty()
                 || compiled_globs.iter().any(|g| g.matches(&relative));
@@ -713,10 +730,7 @@ impl Tool for SearchTextTool {
             }
 
             let file_path = entry.path();
-            let relative = file_path
-                .strip_prefix(&search_root)
-                .unwrap_or(file_path)
-                .to_string_lossy();
+            let relative = display_match_path(file_path, &search_root, &self.ctx.workspace_root);
 
             let Ok(content) = fs::read_to_string(file_path) else {
                 continue;
@@ -897,6 +911,54 @@ mod tests {
             }
             other => panic!("expected ToolOutput::Code, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn display_match_path_falls_back_when_root_is_the_file() {
+        let ws = Path::new("/ws");
+        let file = Path::new("/ws/src/actions.rs");
+        // Directory root: relative to the search root.
+        assert_eq!(
+            display_match_path(file, Path::new("/ws/src"), ws),
+            "actions.rs"
+        );
+        // File root (single-file search): stripping would be empty, so fall
+        // back to the workspace-relative path rather than the empty string.
+        assert_eq!(display_match_path(file, file, ws), "src/actions.rs");
+        // No usable base at all -> bare filename, never empty.
+        assert_eq!(
+            display_match_path(file, Path::new("/x"), Path::new("/y")),
+            "actions.rs"
+        );
+    }
+
+    #[tokio::test]
+    async fn search_text_single_file_search_emits_a_real_path() {
+        // Regression: searching a *file* (not a directory) used to strip the
+        // file's own path as a prefix, yielding an empty path and emitting a
+        // pathless `:LINE: content` line — unreadable for both the model and
+        // the TUI (which then tallied 0 files and dropped the file title row).
+        let dir = tempdir().unwrap();
+        let ctx = Arc::new(SystemToolContext::new(dir.path()));
+        let t_ctx = ToolContext::default();
+        fs::create_dir_all(dir.path().join("src")).unwrap();
+        let file = dir.path().join("src").join("actions.rs");
+        fs::write(&file, "fn a() {}\npub(super) fn enter_scene(\nfn b() {}\n").unwrap();
+
+        let out = SearchTextTool::new(ctx)
+            .execute(&t_ctx, json!({"path": "src/actions.rs", "query": "enter_scene"}))
+            .await
+            .unwrap();
+
+        let text = out.content();
+        assert!(
+            text.contains("src/actions.rs:2: pub(super) fn enter_scene("),
+            "the match line must carry a real, workspace-relative path; got:\n{text}"
+        );
+        assert!(
+            !text.contains("\n:2:"),
+            "no pathless match line may be emitted; got:\n{text}"
+        );
     }
 
     #[tokio::test]

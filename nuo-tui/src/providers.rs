@@ -54,7 +54,7 @@ pub enum CustomField {
 pub struct ConnectionTemplate {
     /// The **model provider id** this template creates a connection for
     /// (`"openai"`, `"openai-subscription"`, `"custom"`, …). MUST match the
-    /// matching `nuo_provider_adapters::model_provider_spec` id 1:1 and never change
+    /// matching `nuo_provider::model_provider_spec` id 1:1 and never change
     /// once shipped: it is persisted as the connection's `provider` and is the
     /// join key the catalog resolves models with.
     pub id: &'static str,
@@ -888,7 +888,9 @@ pub fn models_body_lines(models: &[RankedModel]) -> (Vec<ModelBodyLine>, Vec<usi
 
 #[cfg(test)]
 mod tests {
-    extern crate nuo_provider_adapters;
+    // Link the composition root so every provider crate's inventory baseline
+    // registration is present in this test binary (`[INV-PROV-09]` linkage).
+    extern crate nuo_server;
     use super::*;
     use nuo_wire::ProviderPickerRow;
 

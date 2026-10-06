@@ -12,3 +12,5 @@ pub use console::MODEL_PROVIDER_SPEC as CONSOLE_SPEC;
 pub use device::*;
 pub use plan::MODEL_PROVIDER_SPEC as PLAN_SPEC;
 pub use zen::MODEL_PROVIDER_SPEC as ZEN_SPEC;
+
+pub mod oauth;

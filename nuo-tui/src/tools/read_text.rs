@@ -18,7 +18,12 @@ impl ToolPresenter for ReadPresenter {
         };
 
         let mut line = SemanticLine::new().push_fixed("Read ");
-        if let Some(path) = view.str("path") {
+        let path = view
+            .str("path")
+            .or_else(|| view.str("file_path"))
+            .or_else(|| view.str("filename"))
+            .or_else(|| view.str("file"));
+        if let Some(path) = path {
             line = line.push_path(PathView::from_str(path).maybe_base_dir(view.workspace_root));
         } else {
             line = line.push_fixed("file");
@@ -100,5 +105,11 @@ mod tests {
     fn summary_falls_back_without_path() {
         let v = view(json!({"offset": 100}));
         assert_eq!(ReadPresenter.summary(&v), "Read file :100,$");
+    }
+
+    #[test]
+    fn summary_accepts_file_path_alias() {
+        let v = view(json!({"file_path": "src/lib.rs"}));
+        assert_eq!(ReadPresenter.summary(&v), "Read src/lib.rs");
     }
 }

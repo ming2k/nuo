@@ -43,7 +43,9 @@ pub fn build_provider_for_channel(
     if let Some(factory) = PROVIDER_FACTORY.get() {
         factory.build_provider_for_channel(channel, entry_id, session_id)
     } else {
-        panic!("no ProviderFactory registered in nuo-provider (call nuo_provider_adapters::init())");
+        panic!(
+            "no ProviderFactory registered in nuo-provider (call the composition root init(), e.g. nuo_server::provider_registry::init())"
+        );
     }
 }
 

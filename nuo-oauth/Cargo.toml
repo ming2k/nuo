@@ -1,0 +1,34 @@
+[package]
+name = "nuo-oauth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "OAuth2 for Nuo: RFC primitives (PKCE, device flow, loopback, token endpoint) plus the vendor-agnostic engine (sessions, credential source, OAuthProvider port)"
+
+[dependencies]
+# Credential ports & durable store (CredentialHost/Store/TokenSet, DeviceIdentity).
+nuo-provider = { workspace = true }
+# RFC 7636/8628 primitives + HTTP egress + TokenResponse (the OAuth standard).
+nuo-provider-transport = { workspace = true }
+# Generic OAuth client types (OAuthConfig, DeviceFlowMode, LoginMethod, ResolvedAuth).
+nuo-model-codec = { workspace = true }
+nuo-host = { workspace = true }
+
+async-trait = { workspace = true }
+netune = "0.1.0"
+base64 = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "net", "sync", "time", "macros", "rt"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+mockito = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "nuo-provider-siliconflow"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "SiliconFlow (硅基流动) balance/quota fetcher for Nuo provider channels"
+
+[dependencies]
+nuo-wire = { workspace = true }
+nuo-provider-transport = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

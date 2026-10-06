@@ -2491,8 +2491,8 @@ impl TranscriptMessage {
     /// For models reporting structured thought milestones/outlines (e.g. GPT-5.6
     /// Sol, ChatGPT Responses `reasoning_summary_text`, Claude thinking headings),
     /// this dynamically extracts the active milestone header while streaming
-    /// (`Thinking through the security architecture components`) and reports the
-    /// completed milestone state once finished (`Thought through the security
+    /// (`Thinking through security architecture components`) and reports the
+    /// completed milestone state once finished (`Thought through security
     /// architecture components (1.2s)`).
     ///
     /// Deliberately **no token count** (ADR-0191): a local cl100k count of the
@@ -2925,9 +2925,12 @@ pub fn extract_active_milestone(text: &str) -> Option<String> {
 /// Canonical normalization for thinking milestone topics.
 ///
 /// Strips redundant action participles (e.g. "Deconstructing", "Analyzing",
-/// "Evaluating"), normalizes casing while preserving acronyms and mixed-case
-/// identifiers (API, SQL, OAuth, macOS), and ensures natural grammatical flow
-/// after "Thinking through" / "Thought through".
+/// "Evaluating") and normalizes casing while preserving acronyms and mixed-case
+/// identifiers (API, SQL, OAuth, macOS). No article is injected: the milestone
+/// heading is already the topic, so forcing `the` in front of it produces odd
+/// output for code-like headings (`the derive(Clone, copy, debug, PartialEq,
+/// eq)`). The summary's verb ("Thinking through" / "Thought through") supplies
+/// the grammatical frame.
 pub fn normalize_thinking_topic(raw: &str) -> String {
     let trimmed = raw.trim().trim_matches(':').trim();
     if trimmed.is_empty() {
@@ -3013,19 +3016,11 @@ pub fn normalize_thinking_topic(raw: &str) -> String {
         }
     }
 
-    let joined = normalized_words.join(" ");
-
-    const NO_THE_STARTERS: &[&str] = &[
-        "the", "a", "an", "this", "that", "these", "those", "how", "why", "what", "where", "when",
-        "which", "whether", "all", "each", "every", "some", "any", "step", "phase",
-    ];
-
-    let first_word_lower = normalized_words[0].to_lowercase();
-    if NO_THE_STARTERS.contains(&first_word_lower.as_str()) {
-        joined
-    } else {
-        format!("the {joined}")
-    }
+    // No article is injected here: the milestone heading is already the topic,
+    // and prefixing `the` reads oddly for code-like identifiers
+    // (`the derive(Clone, Copy, Debug)`). The summary's verb ("Thinking
+    // through" / "Thought through") supplies the grammatical frame.
+    normalized_words.join(" ")
 }
 
 /// Count distinct milestone/heading sections in reasoning content.

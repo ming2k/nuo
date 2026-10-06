@@ -1001,7 +1001,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::NavigateDashboard,
         label: "Session Dashboard",
-        hint: "/dashboard",
+        hint: "C-x d",
         category: CommandCategory::Navigate,
         scope: Scope::Global,
         bindings: &[],
@@ -1009,7 +1009,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Open daemon session orchestrator dashboard",
+        description: "Open daemon session orchestrator dashboard (C-x d)",
     },
     CommandSpec {
         id: CommandId::NavigateSettings,
@@ -1183,7 +1183,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::OpenSessions,
         label: "Sessions",
-        hint: "/sessions",
+        hint: "C-x s",
         category: CommandCategory::Navigate,
         scope: Scope::Global,
         bindings: &[],
@@ -1191,7 +1191,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Switch between saved project sessions",
+        description: "Switch between saved project sessions (C-x s)",
     },
     // Management Actions
     CommandSpec {
@@ -1839,6 +1839,10 @@ pub mod scene_namespace {
         Leave,
         /// Open (or close) the Command Palette / surface switcher.
         Switcher,
+        /// Open the saved sessions picker dialog (`/sessions`).
+        Sessions,
+        /// Navigate directly to the daemon session orchestrator dashboard (`/dashboard`).
+        Dashboard,
         /// Quit nuo — the same armed double-press as the global `Ctrl+C`.
         Quit,
     }
@@ -1846,8 +1850,13 @@ pub mod scene_namespace {
     impl SceneVerb {
         /// Every verb, in advertisement order. The which-key card renders this
         /// slice; the router resolves against it. One list, two consumers.
-        pub const ALL: &'static [SceneVerb] =
-            &[SceneVerb::Leave, SceneVerb::Switcher, SceneVerb::Quit];
+        pub const ALL: &'static [SceneVerb] = &[
+            SceneVerb::Leave,
+            SceneVerb::Switcher,
+            SceneVerb::Sessions,
+            SceneVerb::Dashboard,
+            SceneVerb::Quit,
+        ];
 
         /// The second-stroke chords that fire this verb. More than one spelling
         /// is allowed when a convention is genuinely shared (Emacs' `C-x w`
@@ -1881,6 +1890,16 @@ pub mod scene_namespace {
                         code: KeyCode::Char('b'),
                     },
                 ],
+                // `s` (sessions — opens the saved sessions overview picker).
+                SceneVerb::Sessions => &[Key {
+                    modifiers: KeyModifiers::NONE,
+                    code: KeyCode::Char('s'),
+                }],
+                // `d` (dashboard — opens daemon session orchestrator dashboard).
+                SceneVerb::Dashboard => &[Key {
+                    modifiers: KeyModifiers::NONE,
+                    code: KeyCode::Char('d'),
+                }],
                 // `C-c` mirrors the global quit chord's spelling inside the
                 // namespace (Emacs' `C-x C-c`).
                 SceneVerb::Quit => &[Key {
@@ -1902,6 +1921,8 @@ pub mod scene_namespace {
             match self {
                 SceneVerb::Leave => "leave scene",
                 SceneVerb::Switcher => "command palette",
+                SceneVerb::Sessions => "sessions",
+                SceneVerb::Dashboard => "dashboard",
                 SceneVerb::Quit => "quit nuo",
             }
         }
@@ -1917,6 +1938,8 @@ pub mod scene_namespace {
                     KeyCode::Char('k') => "k",
                     KeyCode::Char('p') => "p",
                     KeyCode::Char('b') => "b",
+                    KeyCode::Char('s') => "s",
+                    KeyCode::Char('d') => "d",
                     _ => "?",
                 },
                 _ => match self.advertised_stroke().code {

@@ -142,6 +142,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::Codex),
     default_client_profile: nuo_model_codec::ClientPreset::Codex,
     client_profile_sensitive: true,
+    quota: None,
 };
 
 #[cfg(test)]

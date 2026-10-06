@@ -5,7 +5,7 @@
 //! five-hour / weekly window limits, and normalizes them into the generic
 //! [`nuo_wire::ProviderUsage`] model.
 //!
-//! This is the `providers/` mirror of `nuo-provider-adapters`'s fetcher. It is
+//! This is the authoritative fetcher (the `nuo-provider-adapters` duplicate was retired by ADR-0027). It is
 //! a pure projection of the control plane's answer (ADR-0014 `[INV-LANE-05]`):
 //! the client renders the reported credits and windows verbatim and never
 //! recomputes either. Response shape: `docs/reference/commandcode-api.yml`

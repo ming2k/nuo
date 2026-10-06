@@ -55,6 +55,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     default_client_profile: nuo_model_codec::ClientPreset::Copilot,
     client_profile_sensitive: true,
+    quota: None,
     // Minimal seed: the id a fresh Copilot instance activates before the
     // first live catalog sync completes. `gpt-4o-mini` is universally
     // available across every Copilot plan, so the seed never 400s.

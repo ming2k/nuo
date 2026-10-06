@@ -8,6 +8,7 @@ description = "Qoder provider dialect, COSY signature pipeline, and RSA/AES cryp
 
 [dependencies]
 nuo-provider = { workspace = true }
+nuo-oauth = { workspace = true }
 nuo-provider-transport = { workspace = true }
 nuo-wire = { workspace = true }
 nuo-model-codec = { workspace = true }
@@ -33,6 +34,9 @@ fastrand = { workspace = true }
 inventory = { workspace = true }
 
 [dev-dependencies]
+# The golden-wire test drives the OpenAI chat-completions executor through the
+# Qoder pipeline ([INV-WIRE-01]); the executor lives in this crate's provider.
+nuo-provider-openai = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]

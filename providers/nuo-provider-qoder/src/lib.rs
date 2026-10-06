@@ -75,6 +75,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     ),
     default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
+    quota: Some(nuo_provider::QuotaPort::Qoder),
     models: QODER_MODELS,
 };
 
@@ -500,7 +501,7 @@ mod tests {
 
     /// The seed ids and the baseline capability table must describe the *same*
     /// models in the *same* order. They live in two crates because the TUI
-    /// cannot depend on `nuo-provider-adapters`, so the agreement is an invariant this
+    /// cannot depend on the composition root, so the agreement is an invariant this
     /// test owns rather than something the compiler can express — it is exactly
     /// the invariant the old duplicated `qoder3*` seed silently broke.
     #[test]
@@ -516,3 +517,5 @@ mod tests {
         assert_eq!(SPEC.baselines.len(), 2);
     }
 }
+
+pub mod oauth_provider;

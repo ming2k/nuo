@@ -1,0 +1,36 @@
+[package]
+name = "nuo-provider-catalog"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Live remote model-catalog discovery (CatalogDiscovery / CatalogParser) for Nuo provider channels"
+
+# Dependency set derived from the imports of `nuo-provider-adapters/src/list_models.rs`
+# (see the `crate::...` sites called out below). `cargo check` is authoritative.
+[dependencies]
+# The CatalogDiscovery port, RemoteCatalog* envelopes, CatalogShape, DiscoveredModel.
+nuo-provider = { workspace = true }
+# Http transport, NUO_USER_AGENT, Request builder, netune Method.
+nuo-provider-transport = { workspace = true }
+nuo-model-codec = { workspace = true }
+
+# list_models.rs:330 — `crate::protocol::anthropic::request::ANTHROPIC_VERSION`.
+# NOT optional: the Anthropic catalog parser stamps this version header.
+nuo-provider-anthropic = { workspace = true }
+# list_models.rs:370 — `crate::registry::opencode::parse_config_catalog`.
+nuo-provider-opencode = { workspace = true }
+# list_models.rs:387 — `crate::registry::qoder::parse_scene_catalog`.
+nuo-provider-qoder = { workspace = true }
+
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+netune = "0.1.0"
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

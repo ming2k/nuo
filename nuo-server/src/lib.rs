@@ -43,7 +43,7 @@
 //! # Dependency posture
 //!
 //! `nuo-server` depends on `nuo-agent` (orchestration and the built-in tools),
-//! `nuo-persistence` (persistence), `nuo-provider-adapters` (providers),
+//! `nuo-persistence` (persistence), the `providers/nuo-provider-*` crates (providers),
 //! `nuo-mcp` (the MCP connector protocol; this crate owns each live
 //! `McpRuntime` because it controls connection lifetime), and `nuo-wire`
 //! (vocabulary — the former `nuo-contracts`, absorbed by ADR-0006).
@@ -87,6 +87,10 @@ pub mod monitor;
 pub mod mcp;
 pub mod offstream;
 pub mod project;
+pub mod provider_baselines;
+#[cfg(test)]
+mod provider_baseline_fidelity_tests;
+pub mod provider_registry;
 pub mod registry;
 pub mod search_lexical;
 pub mod serve;

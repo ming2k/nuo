@@ -8,6 +8,7 @@ description = "GitHub Copilot provider channel for Nuo"
 
 [dependencies]
 nuo-provider = { workspace = true }
+nuo-oauth = { workspace = true }
 nuo-provider-transport = { workspace = true }
 nuo-provider-openai = { workspace = true }
 nuo-model-codec = { workspace = true }

@@ -12,11 +12,30 @@ nuo-client = { workspace = true }
 nuo-wire = { workspace = true }
 nuo-persistence = { workspace = true }
 nuo-host = { workspace = true }
-nuo-provider-adapters = { workspace = true }
+nuo-provider = { workspace = true }
+nuo-model-codec = { workspace = true, features = ["netune"] }
+nuo-provider-transport = { workspace = true }
+nuo-oauth = { workspace = true }
+nuo-provider-catalog = { workspace = true }
+nuo-provider-anthropic = { workspace = true }
+nuo-provider-google = { workspace = true }
+nuo-provider-openai = { workspace = true }
+nuo-provider-chatgpt-plan = { workspace = true }
+nuo-provider-deepseek = { workspace = true }
+nuo-provider-kimi = { workspace = true }
+nuo-provider-copilot = { workspace = true }
+nuo-provider-commandcode-plan = { workspace = true }
+nuo-provider-opencode = { workspace = true }
+nuo-provider-openrouter = { workspace = true }
+nuo-provider-xai = { workspace = true }
+nuo-provider-qianwen = { workspace = true }
+nuo-provider-zai = { workspace = true }
+nuo-provider-siliconflow = { workspace = true }
+nuo-provider-qoder = { workspace = true }
+inventory = { workspace = true }
 nuo-harness = { workspace = true }
 nuo-mcp = { workspace = true }
 nuo-tool = { workspace = true }
-nuo-provider = { workspace = true }
 nuo-tool-fs = { workspace = true }
 nuo-tool-exec = { workspace = true }
 nuo-tool-web = { workspace = true }
@@ -50,6 +69,8 @@ mockito = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 nuo-host = { workspace = true, features = ["test-path-override"] }
+# The `qoder_catalog_dump` example builds a `Request` by HTTP method.
+http = "1.4"
 
 [features]
 collaboration = []

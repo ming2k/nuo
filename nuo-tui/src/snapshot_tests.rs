@@ -281,6 +281,58 @@ fn read_text_structured_code_hides_model_framing_and_numbers_from_offset() {
 }
 
 #[test]
+fn read_text_unstructured_strips_lines_framing_and_embedded_numbers() {
+    let raw = "\
+[Lines 1-120 of 205 from `docs/adr/0024-two-row-head-band-session-identity-and-scene-row.md`]
+   1 | ---
+   2 | id: ADR-0024
+   3 | title: \"Two-Row Head Band\"
+   4 | status: accepted
+   5 | date: 2026-10-06
+   6 | scope: tui/nuo-tui
+   7 | superseded_by: null
+   8 | negative_knowledge: true
+   9 | ---
+  10 | ";
+    let m = tool_step(
+        "read_text",
+        r#"{"path":"docs/adr/0024-two-row-head-band-session-identity-and-scene-row.md","offset":1,"limit":120}"#,
+        Some(raw),
+        true,
+    );
+    let grid = render_grid(&m, 80, 40);
+    assert!(!grid.contains("[Lines"), "lines framing leaked:\n{grid}");
+    assert!(!grid.contains("1 |"), "redundant line number column leaked:\n{grid}");
+    assert!(!grid.contains("2 |"), "redundant line number column leaked:\n{grid}");
+    assert!(grid.contains("1 ---"), "first line not rendered with gutter 1:\n{grid}");
+    assert!(grid.contains("2 id: ADR-0024"), "second line not rendered with gutter 2:\n{grid}");
+    assert!(grid.contains("9 ---"), "ninth line not rendered with gutter 9:\n{grid}");
+}
+
+#[test]
+fn read_text_unstructured_with_offset_and_continuation_hint() {
+    let raw = "\
+[Lines 100-102 of 500 from `src/lib.rs`]
+ 100 | fn a() {}
+ 101 | fn b() {}
+ 102 | fn c() {}
+[398 more lines — read with offset=103]";
+    let m = tool_step(
+        "read_text",
+        r#"{"path":"src/lib.rs","offset":100,"limit":3}"#,
+        Some(raw),
+        true,
+    );
+    let grid = render_grid(&m, 80, 40);
+    assert!(!grid.contains("[Lines"), "lines framing leaked:\n{grid}");
+    assert!(!grid.contains("more lines"), "continuation hint leaked:\n{grid}");
+    assert!(!grid.contains("100 |"), "redundant line column leaked:\n{grid}");
+    assert!(grid.contains("100 fn a() {}"), "line 100 missing:\n{grid}");
+    assert!(grid.contains("101 fn b() {}"), "line 101 missing:\n{grid}");
+    assert!(grid.contains("102 fn c() {}"), "line 102 missing:\n{grid}");
+}
+
+#[test]
 fn execute_command_expanded_renders_markers_and_output() {
     let m = tool_step(
         "execute_command",
@@ -506,15 +558,94 @@ fn edit_text_distant_changes_render_explicit_hunks() {
     insta::assert_snapshot!(render_grid(&m, 80, 40));
 }
 
+/// A `list_dir` step renders its **real** tool shape — the `[DIR]` / `[FILE]`
+/// rows — as a layered block: a count band parsed from the tool's own
+/// ``Directory: `path` (N items):`` header, then one typed row per entry with a
+/// type glyph and the byte size in a dim column. The previous fixture fed a
+/// synthetic `src/\ntests/\nCargo.toml\nREADME.md` shape `ListDirTool` never
+/// emits (`src/` with a slash, no tag, no size), so the snapshot stayed green
+/// while production rendered the `[DIR]` rows as flat, mis-colored paths.
 #[test]
 fn list_dir_expanded_renders_listing() {
+    let output = concat!(
+        "Directory: `.` (4 items):\n",
+        "[DIR]  src                      (4096 B)\n",
+        "[DIR]  tests                    (4096 B)\n",
+        "[FILE] Cargo.toml               (128 B)\n",
+        "[FILE] README.md                (2048 B)",
+    );
+    let m = tool_step("list_dir", r#"{"path":"."}"#, Some(output), true);
+    let grid = render_grid(&m, 80, 30);
+
+    assert!(grid.contains("4 items"), "count band renders: {grid}");
+    assert!(grid.contains("src"), "directory row renders: {grid}");
+    assert!(grid.contains("Cargo.toml"), "file row renders: {grid}");
+    assert!(grid.contains("4096 B"), "directory size renders: {grid}");
+    assert!(grid.contains("128 B"), "file size renders: {grid}");
+    // The raw tags and the tool's header prefix are consumed, never dumped.
+    assert!(!grid.contains("[DIR]"), "raw tag must not leak: {grid}");
+    assert!(!grid.contains("[FILE]"), "raw tag must not leak: {grid}");
+    assert!(
+        !grid.contains("Directory: `"),
+        "header prefix must be consumed: {grid}"
+    );
+    // Visual lock on the layered layout (count band → typed rows + size column).
+    insta::assert_snapshot!(render_grid(&m, 80, 30));
+}
+
+/// The `list_dir` omission trailer folds into a single dim summary band rather
+/// than being dumped as one more entry row.
+#[test]
+fn list_dir_expanded_folds_the_omission_trailer() {
+    let output = concat!(
+        "Directory: `.` (210 items):\n",
+        "[FILE] a.rs                     (10 B)\n",
+        "... (10 additional entries omitted)",
+    );
+    let m = tool_step("list_dir", r#"{"path":"."}"#, Some(output), true);
+    let grid = render_grid(&m, 80, 30);
+
+    assert!(grid.contains("a.rs"), "{grid}");
+    assert!(
+        grid.contains("10 more entries not shown"),
+        "trailer folds into a summary band: {grid}"
+    );
+    assert!(
+        !grid.contains("additional entries omitted"),
+        "raw trailer must not leak: {grid}"
+    );
+}
+
+/// A `find_files` step groups entries sharing a directory under one title band,
+/// so the shared prefix is not repeated on every row (the 27-ADR case).
+#[test]
+fn find_files_expanded_groups_entries_under_directory_titles() {
+    let output = concat!(
+        "Found 3 matching files:\n",
+        "docs/adr/0001-x.md\n",
+        "docs/adr/0002-y.md\n",
+        "src/main.rs",
+    );
     let m = tool_step(
-        "list_dir",
-        r#"{"path":"."}"#,
-        Some("src/\ntests/\nCargo.toml\nREADME.md"),
+        "find_files",
+        r#"{"patterns":["*.md"],"path":"."}"#,
+        Some(output),
         true,
     );
-    insta::assert_snapshot!(render_grid(&m, 80, 30));
+    let grid = render_grid(&m, 80, 30);
+
+    assert!(grid.contains("Found 3 files"), "count band: {grid}");
+    assert!(grid.contains("docs/adr/"), "directory title band: {grid}");
+    assert!(
+        grid.contains("0001-x.md") && grid.contains("0002-y.md"),
+        "leaf names render under the title: {grid}"
+    );
+    assert!(grid.contains("main.rs"), "root-level leaf renders: {grid}");
+    assert_eq!(
+        grid.matches("docs/adr/").count(),
+        1,
+        "the directory prefix appears once as a title, not per row: {grid}"
+    );
 }
 
 #[test]
@@ -722,6 +853,178 @@ fn render_transcript_frame(
 
 fn render_transcript_grid(messages: &[TranscriptMessage], width: u16, height: u16) -> String {
     render_transcript_frame(messages, width, height, 0, None).grid
+}
+
+/// The first painted (non-blank) row of a rendered transcript grid, or `""`.
+fn first_content_row(grid: &str) -> &str {
+    grid.lines()
+        .find(|row| !row.trim().is_empty())
+        .unwrap_or("")
+}
+
+/// Scroll anchoring (resize stability). A manual reading position is stored as
+/// a raw content-line offset, and a content line's meaning depends entirely on
+/// the wrap width — after a reflow the same offset can point at completely
+/// different text. The transcript captures the semantic identity (message id +
+/// row offset) of the line at the viewport top and, on the pass that follows a
+/// width change (`HeightCache::prepare`), maps it back onto the new layout, so
+/// the reading position survives a column resize instead of drifting.
+#[test]
+fn resize_reanchors_the_manual_viewport_top() {
+    use super::HeightCache;
+
+    // A long leading paragraph wraps to many more rows at 60 columns than at
+    // 80, so every message after it shifts downward on the narrow reflow —
+    // the exact condition under which a stale raw offset drifts onto
+    // different content.
+    let mut messages = vec![TranscriptMessage::new(
+        Role::User,
+        "lorem ipsum dolor sit amet ".repeat(30),
+    )];
+    for i in 0..24 {
+        messages.push(TranscriptMessage::new(
+            Role::User,
+            format!("MARK{i:02} unique line"),
+        ));
+    }
+
+    let mut cache = HeightCache::default();
+
+    // Locate the anchor target (MARK03) at 80 columns with scroll 0. The grid
+    // is a *window* onto the stream: the transcript band starts below the
+    // viewport's top margin, so a painted grid row's content-line offset is
+    // `grid_row - VIEWPORT_TOP_MARGIN`. The window must also be tall enough
+    // that MARK03 is actually on screen at scroll 0 — the long leading
+    // paragraph pushes it well past a 30-row terminal.
+    let wide = render_transcript_frame(&messages, 80, 60, 0, Some(&mut cache));
+    let wide_line = (wide
+        .grid
+        .lines()
+        .position(|row| row.contains("MARK03"))
+        .expect("MARK03 is visible at 80 columns")
+        - crate::primitives::VIEWPORT_TOP_MARGIN as usize) as u16;
+
+    // Park the viewport exactly on MARK03 and let the pass capture the anchor.
+    let parked = render_transcript_frame(&messages, 80, 30, wide_line, Some(&mut cache));
+    assert!(
+        first_content_row(&parked.grid).contains("MARK03"),
+        "precondition: MARK03 must top the viewport at 80 columns:\n{}",
+        parked.grid
+    );
+
+    // Reflow to 60 columns while passing the now-stale 80-column offset. The
+    // leading paragraph grew, so the same raw offset no longer lands on
+    // MARK03 — this is the drift the fix removes.
+    let reflowed = render_transcript_frame(&messages, 60, 30, wide_line, Some(&mut cache));
+    assert!(
+        !first_content_row(&reflowed.grid).contains("MARK03"),
+        "documents the drift: the stale 80-column offset must not already \
+         land on MARK03 at 60 columns:\n{}",
+        reflowed.grid
+    );
+
+    // The width change armed a resolve pass; the renderer mapped the captured
+    // anchor onto the new layout.
+    let resolved = cache
+        .take_resolved()
+        .expect("a width change must resolve the captured top-of-viewport anchor");
+    assert_ne!(
+        resolved as u16, wide_line,
+        "the leading paragraph wrapped taller at 60 columns, so the resolved \
+         offset must differ from the stale 80-column offset"
+    );
+
+    // Rendering at the resolved offset restores the same content at the top:
+    // the reading position was preserved across the resize.
+    let anchored = render_transcript_frame(&messages, 60, 30, resolved as u16, Some(&mut cache));
+    assert!(
+        first_content_row(&anchored.grid).contains("MARK03"),
+        "scroll anchoring must keep MARK03 at the viewport top after the \
+         reflow; resolved line {resolved}:\n{}",
+        anchored.grid
+    );
+}
+
+/// No width change ⇒ no anchor resolution: `HeightCache::prepare` only arms a
+/// resolve when the wrap width actually moved, so ordinary frames never
+/// re-anchor (which would fight the user's own scrolling).
+#[test]
+fn steady_width_captures_but_never_resolves() {
+    use super::HeightCache;
+
+    let messages: Vec<TranscriptMessage> = (0..40)
+        .map(|i| TranscriptMessage::new(Role::User, format!("steady line {i}")))
+        .collect();
+    let mut cache = HeightCache::default();
+
+    let _ = render_transcript_frame(&messages, 80, 20, 5, Some(&mut cache));
+    let _ = render_transcript_frame(&messages, 80, 20, 7, Some(&mut cache));
+    assert!(
+        cache.take_resolved().is_none(),
+        "a steady width must never produce a resolved anchor"
+    );
+}
+
+/// The resolve pass must walk the **full** transcript, not just the virtual
+/// window the stale raw offset would select. A wide-narrow reflow grows the
+/// leading paragraph enormously, so the anchored content lands far beyond that
+/// window; a windowed walk would never measure it and the resolve would
+/// silently fail, leaving the raw offset in place (the drift the fix removes).
+#[test]
+fn resize_resolves_an_anchor_far_outside_the_stale_window() {
+    use super::HeightCache;
+
+    // A very long leading paragraph: at 120 columns it wraps to a handful of
+    // rows, but at 40 columns it explodes into dozens — a big downward shift
+    // for everything after it.
+    let mut messages = vec![TranscriptMessage::new(
+        Role::Assistant,
+        "alphabet soup words words words ".repeat(120),
+    )];
+    for i in 0..40 {
+        messages.push(TranscriptMessage::new(Role::User, format!("MARK{i:02} line")));
+    }
+    let mut cache = HeightCache::default();
+
+    // Find MARK20's content line at 120 columns (tall window so it is on
+    // screen at scroll 0), then park on it to capture the anchor. The leading
+    // paragraph wraps to dozens of rows and each MARK spans several content
+    // lines, so the probe window must be far taller than a normal terminal.
+    let wide = render_transcript_frame(&messages, 120, 200, 0, Some(&mut cache));
+    let wide_line = (wide
+        .grid
+        .lines()
+        .position(|row| row.contains("MARK20"))
+        .expect("MARK20 is visible at 120 columns")
+        - crate::primitives::VIEWPORT_TOP_MARGIN as usize) as u16;
+    let parked = render_transcript_frame(&messages, 120, 24, wide_line, Some(&mut cache));
+    assert!(
+        first_content_row(&parked.grid).contains("MARK20"),
+        "precondition: MARK20 must top the viewport at 120 columns:\n{}",
+        parked.grid
+    );
+
+    // Reflow to 48 columns at the stale offset. The width must stay at or
+    // above `design::MIN_TERMINAL_COLS` (44): below it the renderer substitutes
+    // the "terminal too small" notice and returns before `HeightCache::prepare`,
+    // so no anchor resolve is armed. The leading paragraph still dwarfs the
+    // 24-row viewport, so MARK20 sits far below the stale offset's window.
+    let _ = render_transcript_frame(&messages, 48, 24, wide_line, Some(&mut cache));
+    let resolved = cache
+        .take_resolved()
+        .expect("the full-walk resolve pass must find the anchor even when it is off-window");
+    assert!(
+        resolved > wide_line as usize,
+        "MARK20 must have moved downward after the narrow reflow \
+         (stale {wide_line}, resolved {resolved})"
+    );
+
+    let anchored = render_transcript_frame(&messages, 48, 24, resolved as u16, Some(&mut cache));
+    assert!(
+        first_content_row(&anchored.grid).contains("MARK20"),
+        "the resolved offset must restore MARK20 at the viewport top:\n{}",
+        anchored.grid
+    );
 }
 
 /// A catalog-sync warning (model-list refresh failure) renders as a notification

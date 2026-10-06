@@ -733,7 +733,7 @@ mod capability_tests {
 /// **Mechanism lives here; data lives with the providers.** This crate owns
 /// only the lookup machinery ([`resolve`], [`model_by_id`], [`fallback_model`],
 /// the [`FittedModel`] overlay). The per-provider baseline tables live beside
-/// each provider's other registry data (today: `nuo-provider-adapters`' registry
+/// each provider's other registry data (the `providers/nuo-provider-*` spec tables, aggregated by the composition root
 /// modules), and each table is submitted once at link time:
 ///
 /// ```ignore
