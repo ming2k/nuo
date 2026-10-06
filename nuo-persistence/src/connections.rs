@@ -296,7 +296,7 @@ impl RawConnection {
 /// Connections mistakenly configured with OpenCode Console OAuth are restored
 /// to `ApiKey` on load so they authenticate properly.
 fn migrate_connection_auth(provider: &str, auth: ConnectionAuth) -> ConnectionAuth {
-    if provider == "opencode-go"
+    if matches!(provider, "opencode-plan" | "opencode-go")
         && matches!(&auth, ConnectionAuth::Subscription { provider } if provider == "opencode")
     {
         tracing::info!(
@@ -772,7 +772,7 @@ models = ["llama3:latest", "mistral:latest"]
     #[test]
     fn legacy_provider_ids_are_canonicalized() {
         for (legacy, canonical) in [
-            ("chatgpt-oauth", "openai-subscription"),
+            ("chatgpt-oauth", "chatgpt-plan"),
             ("antigravity-oauth", "google-antigravity"),
             ("copilot-oauth", "github-copilot"),
             ("xai-oauth", "xai"),

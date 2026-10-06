@@ -283,9 +283,6 @@ mod tests {
         assert!(tool_default_expanded(&cfg, "edit_text"));
         assert!(tool_default_expanded(&cfg, "write_file"));
         assert!(tool_default_expanded(&cfg, "execute_command"));
-        // The shell family's legacy spellings follow the same declared policy.
-        assert!(tool_default_expanded(&cfg, "run_command"));
-        assert!(tool_default_expanded(&cfg, "bash"));
         assert!(!tool_default_expanded(&cfg, "read_text"));
         assert!(!tool_default_expanded(&cfg, "todo"));
         // Undeclared (dynamic / MCP) tools are never open by default.

@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 
 use crate::subagent::SubAgentProfile;
-use crate::{AgentIdentity, ToolSelection};
+use crate::{AgentIdentity, BuiltinTool, ToolSelection};
 
 /// User-tunable agent runtime behaviour.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -288,7 +288,7 @@ impl SessionRoleManifest {
             identity: profile.identity,
             tools: MainAgentRole::DEVELOPER_TOOLS
                 .iter()
-                .map(|s| s.to_string())
+                .map(|t| t.as_str().to_string())
                 .collect(),
             admit_mcp: vec!["*".to_string()],
             created_at_s: 0,
@@ -306,7 +306,7 @@ impl SessionRoleManifest {
             identity: profile.identity,
             tools: MainAgentRole::PHILOSOPHIST_TOOLS
                 .iter()
-                .map(|s| s.to_string())
+                .map(|t| t.as_str().to_string())
                 .collect(),
             admit_mcp: Vec::new(),
             created_at_s: 0,
@@ -326,11 +326,19 @@ impl SessionRoleManifest {
             identity: profile.identity,
             tools: MainAgentRole::OPS_TOOLS
                 .iter()
-                .map(|s| s.to_string())
+                .map(|t| t.as_str().to_string())
                 .collect(),
             admit_mcp: vec!["*".to_string()],
             created_at_s: 0,
         }
+    }
+
+    /// Return typed built-in tools admitted by this manifest.
+    pub fn builtin_tools(&self) -> Vec<BuiltinTool> {
+        self.tools
+            .iter()
+            .filter_map(|s| BuiltinTool::from_name(s))
+            .collect()
     }
 }
 
@@ -431,42 +439,46 @@ impl MainAgentRole {
     /// AST-level structural queries (`code_query`) are strictly excluded by design:
     /// developer delegates exploration and AST investigation to dedicated
     /// subagents (`explore`/`debug`) to maintain a lean, clean context window.
-    pub const DEVELOPER_TOOLS: &'static [&'static str] = &[
-        "run_command",
-        "read_text",
-        "edit_text",
-        "write_file",
-        "list_dir",
-        "find_files",
-        "search_text",
-        "read_url",
-        "search_web",
-        "read_image",
-        "ask_user",
-        "todo",
-        "spawn_agent",
-        "recall_memory",
+    pub const DEVELOPER_TOOLS: &'static [BuiltinTool] = &[
+        BuiltinTool::ExecuteCommand,
+        BuiltinTool::ReadText,
+        BuiltinTool::EditText,
+        BuiltinTool::WriteFile,
+        BuiltinTool::ListDir,
+        BuiltinTool::FindFiles,
+        BuiltinTool::SearchText,
+        BuiltinTool::ReadUrl,
+        BuiltinTool::SearchWeb,
+        BuiltinTool::ReadImage,
+        BuiltinTool::AskUser,
+        BuiltinTool::Todo,
+        BuiltinTool::SpawnAgent,
+        BuiltinTool::RecallMemory,
     ];
 
     /// Built-in tools admitted for philosophist sessions.
-    pub const PHILOSOPHIST_TOOLS: &'static [&'static str] =
-        &["read_url", "search_web", "ask_user", "recall_memory"];
+    pub const PHILOSOPHIST_TOOLS: &'static [BuiltinTool] = &[
+        BuiltinTool::ReadUrl,
+        BuiltinTool::SearchWeb,
+        BuiltinTool::AskUser,
+        BuiltinTool::RecallMemory,
+    ];
 
     /// Built-in tools admitted for ops sessions.
-    pub const OPS_TOOLS: &'static [&'static str] = &[
-        "run_command",
-        "read_text",
-        "edit_text",
-        "write_file",
-        "list_dir",
-        "find_files",
-        "search_text",
-        "read_url",
-        "search_web",
-        "read_image",
-        "ask_user",
-        "todo",
-        "spawn_agent",
+    pub const OPS_TOOLS: &'static [BuiltinTool] = &[
+        BuiltinTool::ExecuteCommand,
+        BuiltinTool::ReadText,
+        BuiltinTool::EditText,
+        BuiltinTool::WriteFile,
+        BuiltinTool::ListDir,
+        BuiltinTool::FindFiles,
+        BuiltinTool::SearchText,
+        BuiltinTool::ReadUrl,
+        BuiltinTool::SearchWeb,
+        BuiltinTool::ReadImage,
+        BuiltinTool::AskUser,
+        BuiltinTool::Todo,
+        BuiltinTool::SpawnAgent,
     ];
 }
 
@@ -486,12 +498,14 @@ impl AgentRole for MainAgentRole {
     fn tool_selection(&self) -> ToolSelection {
         match self {
             MainAgentRole::Developer => {
-                ToolSelection::only(MainAgentRole::DEVELOPER_TOOLS.iter().copied())
+                ToolSelection::only_builtin(MainAgentRole::DEVELOPER_TOOLS.iter().copied())
             }
             MainAgentRole::Philosophist => {
-                ToolSelection::only(MainAgentRole::PHILOSOPHIST_TOOLS.iter().copied())
+                ToolSelection::only_builtin(MainAgentRole::PHILOSOPHIST_TOOLS.iter().copied())
             }
-            MainAgentRole::Ops => ToolSelection::only(MainAgentRole::OPS_TOOLS.iter().copied()),
+            MainAgentRole::Ops => {
+                ToolSelection::only_builtin(MainAgentRole::OPS_TOOLS.iter().copied())
+            }
         }
     }
 }
@@ -549,13 +563,13 @@ impl AgentRole for SubAgentRole {
     fn tool_selection(&self) -> ToolSelection {
         match self {
             SubAgentRole::Explore => {
-                ToolSelection::only(SubAgentProfile::EXPLORE_TOOLS.iter().copied())
+                ToolSelection::only_builtin(SubAgentProfile::EXPLORE_TOOLS.iter().copied())
             }
             SubAgentRole::Debug => {
-                ToolSelection::only(SubAgentProfile::DEBUG_TOOLS.iter().copied())
+                ToolSelection::only_builtin(SubAgentProfile::DEBUG_TOOLS.iter().copied())
             }
             SubAgentRole::Skill => {
-                ToolSelection::only(SubAgentProfile::SKILL_TOOLS.iter().copied())
+                ToolSelection::only_builtin(SubAgentProfile::SKILL_TOOLS.iter().copied())
             }
         }
     }
@@ -604,7 +618,7 @@ impl AgentRoleDelegation {
     pub const ALL: &'static [AgentRoleDelegation] =
         &[Self::DEVELOPER, Self::PHILOSOPHIST, Self::OPS];
 
-    pub fn declared_tools(&self) -> Option<&'static [&'static str]> {
+    pub fn declared_tools(&self) -> Option<&'static [BuiltinTool]> {
         match self.role_id {
             "developer" => Some(MainAgentRole::DEVELOPER_TOOLS),
             "philosophist" => Some(MainAgentRole::PHILOSOPHIST_TOOLS),
@@ -616,7 +630,7 @@ impl AgentRoleDelegation {
     pub fn selection(&self) -> ToolSelection {
         match self.declared_tools() {
             None => ToolSelection::unrestricted(),
-            Some(names) => ToolSelection::only(names.iter().copied()),
+            Some(tools) => ToolSelection::only_builtin(tools.iter().copied()),
         }
     }
 }
@@ -721,14 +735,15 @@ mod tests {
         let crate::ToolScope::Only(names) = &dev.tools.scope else {
             panic!("developer must be scoped with explicit tools");
         };
-        assert!(names.contains("run_command"));
-        assert!(names.contains("read_text"));
-        assert!(names.contains("edit_text"));
-        assert!(names.contains("write_file"));
-        assert!(names.contains("spawn_agent"));
-        assert!(names.contains("recall_memory"));
+        assert!(names.contains(BuiltinTool::ExecuteCommand.as_str()));
+        assert!(names.contains(BuiltinTool::ReadText.as_str()));
+        assert!(names.contains(BuiltinTool::EditText.as_str()));
+        assert!(names.contains(BuiltinTool::WriteFile.as_str()));
+        assert!(names.contains(BuiltinTool::SpawnAgent.as_str()));
+        assert!(names.contains(BuiltinTool::RecallMemory.as_str()));
+        assert!(dev.tools.scope.admits_builtin(BuiltinTool::ExecuteCommand));
         assert!(
-            !names.contains("code_query"),
+            !dev.tools.scope.admits_builtin(BuiltinTool::CodeQuery),
             "code_query must be delegated to explore/debug subagents"
         );
     }
@@ -742,7 +757,7 @@ mod tests {
         };
         assert!(!names.contains("write_file"));
         assert!(!names.contains("edit_text"));
-        assert!(!names.contains("run_command"));
+        assert!(!names.contains("execute_command"));
         assert!(!names.contains("read_text"));
         assert!(names.contains("read_url"));
         assert!(names.contains("search_web"));
@@ -769,8 +784,8 @@ mod tests {
     fn session_role_manifest_defaults_and_serde() {
         let dev_manifest = SessionRoleManifest::developer();
         assert_eq!(dev_manifest.role_id, "developer");
-        assert_eq!(dev_manifest.tools, MainAgentRole::DEVELOPER_TOOLS);
-        assert!(!dev_manifest.tools.contains(&"code_query".to_string()));
+        assert_eq!(dev_manifest.builtin_tools(), MainAgentRole::DEVELOPER_TOOLS);
+        assert!(!dev_manifest.tools.contains(&BuiltinTool::CodeQuery.as_str().to_string()));
         assert!(
             dev_manifest
                 .identity
@@ -780,10 +795,7 @@ mod tests {
 
         let phil_manifest = SessionRoleManifest::philosophist();
         assert_eq!(phil_manifest.role_id, "philosophist");
-        assert_eq!(
-            phil_manifest.tools,
-            vec!["read_url", "search_web", "ask_user", "recall_memory"]
-        );
+        assert_eq!(phil_manifest.builtin_tools(), MainAgentRole::PHILOSOPHIST_TOOLS);
         assert!(
             phil_manifest
                 .identity
@@ -793,9 +805,9 @@ mod tests {
 
         let ops_manifest = SessionRoleManifest::ops();
         assert_eq!(ops_manifest.role_id, "ops");
-        assert!(ops_manifest.tools.contains(&"run_command".to_string()));
-        assert!(ops_manifest.tools.contains(&"ask_user".to_string()));
-        assert!(!ops_manifest.tools.contains(&"code_query".to_string()));
+        assert!(ops_manifest.builtin_tools().contains(&BuiltinTool::ExecuteCommand));
+        assert!(ops_manifest.builtin_tools().contains(&BuiltinTool::AskUser));
+        assert!(!ops_manifest.builtin_tools().contains(&BuiltinTool::CodeQuery));
         assert!(ops_manifest.identity.preamble().starts_with("Role: ops."));
 
         let serialized = serde_json::to_string(&ops_manifest).expect("serialize ops manifest");
@@ -825,28 +837,25 @@ mod tests {
             panic!("ops must be scoped with explicit tools");
         };
         // System and remote operational capabilities admitted:
-        assert!(names.contains("run_command"));
-        assert!(names.contains("read_text"));
-        assert!(names.contains("edit_text"));
-        assert!(names.contains("write_file"));
-        assert!(names.contains("list_dir"));
-        assert!(names.contains("find_files"));
-        assert!(names.contains("search_text"));
-        assert!(names.contains("read_url"));
-        assert!(names.contains("search_web"));
-        assert!(names.contains("ask_user"));
-        assert!(names.contains("todo"));
-        assert!(names.contains("spawn_agent"));
+        assert!(names.contains(BuiltinTool::ExecuteCommand.as_str()));
+        assert!(names.contains(BuiltinTool::ReadText.as_str()));
+        assert!(names.contains(BuiltinTool::EditText.as_str()));
+        assert!(names.contains(BuiltinTool::WriteFile.as_str()));
+        assert!(names.contains(BuiltinTool::ListDir.as_str()));
+        assert!(names.contains(BuiltinTool::FindFiles.as_str()));
+        assert!(names.contains(BuiltinTool::SearchText.as_str()));
+        assert!(names.contains(BuiltinTool::ReadUrl.as_str()));
+        assert!(names.contains(BuiltinTool::SearchWeb.as_str()));
+        assert!(names.contains(BuiltinTool::AskUser.as_str()));
+        assert!(names.contains(BuiltinTool::Todo.as_str()));
+        assert!(names.contains(BuiltinTool::SpawnAgent.as_str()));
 
         // AST code parsing and philosophical memory dialogue are excluded:
-        assert!(!names.contains("code_query"));
-        assert!(!names.contains("recall_memory"));
+        assert!(!ops.tools.scope.admits_builtin(BuiltinTool::CodeQuery));
+        assert!(!ops.tools.scope.admits_builtin(BuiltinTool::RecallMemory));
 
         let dev = AgentRoleProfile::from_role(MainAgentRole::Developer, &base);
-        let crate::ToolScope::Only(dev_names) = &dev.tools.scope else {
-            panic!("developer must be scoped with explicit tools");
-        };
-        assert!(!dev_names.contains("code_query"));
-        assert!(dev_names.contains("recall_memory"));
+        assert!(!dev.tools.scope.admits_builtin(BuiltinTool::CodeQuery));
+        assert!(dev.tools.scope.admits_builtin(BuiltinTool::RecallMemory));
     }
 }

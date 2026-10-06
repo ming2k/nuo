@@ -642,7 +642,7 @@ fn collect_tool_meta(messages: &[Message]) -> HashMap<usize, ToolMeta> {
                 } else {
                     (None, false)
                 };
-                let is_cmd = matches!(*name, "run_command" | "execute_command" | "bash" | "sh");
+                let is_cmd = *name == "execute_command";
                 let command_str = if is_cmd {
                     let parsed = parsed_args(args);
                     arg_str(&parsed, &["command", "cmd"]).map(|s| s.to_string())
@@ -1595,14 +1595,14 @@ mod tests {
 
     #[test]
     fn prior_build_command_is_superseded_by_later_build_command() {
-        let call1 = call("c1", "run_command", "{\"command\":\"ninja -C build test\"}");
-        let call2 = call("c2", "run_command", "{\"command\":\"ninja -C build test\"}");
+        let call1 = call("c1", "execute_command", "{\"command\":\"ninja -C build test\"}");
+        let call2 = call("c2", "execute_command", "{\"command\":\"ninja -C build test\"}");
         let log1 = "FAILED: test_embed\nAssertionError: failed\n".repeat(15);
         let log2 = "PASSED: all 134 tests passed\n".repeat(15);
         let mut messages = vec![
-            assistant_with_call("c1", "run_command", "{\"command\":\"ninja -C build test\"}"),
+            assistant_with_call("c1", "execute_command", "{\"command\":\"ninja -C build test\"}"),
             Message::tool_result(&call1, log1),
-            assistant_with_call("c2", "run_command", "{\"command\":\"ninja -C build test\"}"),
+            assistant_with_call("c2", "execute_command", "{\"command\":\"ninja -C build test\"}"),
             Message::tool_result(&call2, log2),
         ];
 
@@ -1614,7 +1614,7 @@ mod tests {
 
     #[test]
     fn prior_build_command_is_invalidated_by_code_mutation() {
-        let call1 = call("c1", "run_command", "{\"command\":\"ninja -C build test\"}");
+        let call1 = call("c1", "execute_command", "{\"command\":\"ninja -C build test\"}");
         let call2 = call(
             "c2",
             "edit_text",
@@ -1622,7 +1622,7 @@ mod tests {
         );
         let log1 = "error: undefined reference to foo in embed.c\n".repeat(15);
         let mut messages = vec![
-            assistant_with_call("c1", "run_command", "{\"command\":\"ninja -C build test\"}"),
+            assistant_with_call("c1", "execute_command", "{\"command\":\"ninja -C build test\"}"),
             Message::tool_result(&call1, log1),
             assistant_with_call(
                 "c2",

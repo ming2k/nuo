@@ -38,7 +38,7 @@
 use std::sync::Arc;
 
 use crate::model::Model;
-use crate::{Tool, ToolScope, ToolSelection, ToolSet};
+use crate::{BuiltinTool, Tool, ToolScope, ToolSelection, ToolSet};
 
 /// Ceiling on what a subagent may do. There is no capability ladder — a tool is
 /// admitted purely by name. [`Tool::spawns_subagent`] and
@@ -46,12 +46,12 @@ use crate::{Tool, ToolScope, ToolSelection, ToolSet};
 /// program teardown are absolute, not per-profile toggles). See ADR-0011/0028.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToolPolicy {
-    /// Which tools a subagent under this policy may use, by name. `None` admits
+    /// Which tools a subagent under this policy may use, by typed built-in tool. `None` admits
     /// the full parent toolset (the main agent's shape); `Some(set)` admits only
-    /// tools whose `name()` is in the set. This is the sole admission axis —
+    /// tools whose enum identity matches the set. This is the sole admission axis —
     /// there is no capability ladder, so adding a new side-effecting tool to the
-    /// parent does *not* silently widen a subagent unless its name is listed.
-    pub allowed_tools: Option<&'static [&'static str]>,
+    /// parent does *not* silently widen a subagent unless its enum is listed.
+    pub allowed_tools: Option<&'static [BuiltinTool]>,
     /// Whether tools that block on a human ([`Tool::requires_user`]) may run.
     pub allow_user_interaction: bool,
 }
@@ -61,7 +61,7 @@ impl ToolPolicy {
     /// Combines the **name scope** ([`allowed_tools`](Self::allowed_tools)) with
     /// the **runtime hard rules** ([`admits_runtime`](Self::admits_runtime)).
     pub fn admits(&self, tool: &dyn Tool) -> bool {
-        self.admits_runtime(tool) && self.scope().admits(tool.name())
+        self.admits_runtime(tool) && self.scope().admits_tool(tool)
     }
 
     /// The subagent hard rules that are independent of the name whitelist:
@@ -93,12 +93,12 @@ impl ToolPolicy {
 
     /// This policy's capability **name scope** for the pool resolver: `None`
     /// [`allowed_tools`](Self::allowed_tools) → [`ToolScope::All`]; `Some(set)`
-    /// → [`ToolScope::Only`] the listed names. The runtime hard rules
+    /// → [`ToolScope::Only`] the listed tools. The runtime hard rules
     /// ([`admits_runtime`](Self::admits_runtime)) are layered on separately.
     pub fn scope(&self) -> ToolScope {
         match self.allowed_tools {
             None => ToolScope::All,
-            Some(names) => ToolScope::only(names.iter().copied()),
+            Some(tools) => ToolScope::from_builtin(tools.iter().copied()),
         }
     }
 }
@@ -180,51 +180,54 @@ impl SubAgentProfile {
 }
 
 /// Tools a skill-discovery subagent may use: workspace inspection without AST or web dependencies.
-pub const SKILL_TOOLS: &[&str] = &["read_text", "find_files", "list_dir", "search_text"];
+pub const SKILL_TOOLS: &[BuiltinTool] = &[
+    BuiltinTool::ReadText,
+    BuiltinTool::FindFiles,
+    BuiltinTool::ListDir,
+    BuiltinTool::SearchText,
+];
 
 /// Tools a read-only subagent may use: pure
-/// inspection with no side effects. Listed by name so adding a new
+/// inspection with no side effects. Listed by enum so adding a new
 /// side-effecting tool to the parent never silently widens these profiles.
-pub const READ_ONLY_TOOLS: &[&str] = &[
-    "read_text",
-    "read_image",
-    "find_files",
-    "list_dir",
-    "search_text",
-    "code_query",
-    "read_url",
-    "search_web",
+pub const READ_ONLY_TOOLS: &[BuiltinTool] = &[
+    BuiltinTool::ReadText,
+    BuiltinTool::ReadImage,
+    BuiltinTool::FindFiles,
+    BuiltinTool::ListDir,
+    BuiltinTool::SearchText,
+    BuiltinTool::CodeQuery,
+    BuiltinTool::ReadUrl,
+    BuiltinTool::SearchWeb,
 ];
 
 /// Tools a debugging subagent may use: the generic read-only inspection tools
 /// plus non-interactive command execution and
-/// process inspection tools (`run_command`, `process`) for compiling, reproducing,
-/// testing, and running diagnostics.
+/// process inspection tools for compiling, reproducing, testing, and running diagnostics.
 ///
 /// Crucially, `edit_text` and `write_file` are strictly excluded from this profile
 /// so that a debugging subagent cannot mutate workspace files or attempt code changes;
 /// its job is strictly forensic diagnosis, root-cause analysis (RCA), and reporting
 /// recommended patches back to the parent developer.
-pub const DEBUG_TOOLS: &[&str] = &[
+pub const DEBUG_TOOLS: &[BuiltinTool] = &[
     // Generic read-only inspection.
-    "read_text",
-    "read_image",
-    "find_files",
-    "list_dir",
-    "search_text",
-    "code_query",
-    "read_url",
-    "search_web",
+    BuiltinTool::ReadText,
+    BuiltinTool::ReadImage,
+    BuiltinTool::FindFiles,
+    BuiltinTool::ListDir,
+    BuiltinTool::SearchText,
+    BuiltinTool::CodeQuery,
+    BuiltinTool::ReadUrl,
+    BuiltinTool::SearchWeb,
     // Execution observation for builds, tests, gdb, sanitizers.
-    "run_command",
-    "execute_command",
+    BuiltinTool::ExecuteCommand,
 ];
 
 impl SubAgentProfile {
     /// Canonical tool lists admitted for autonomous subagents.
-    pub const EXPLORE_TOOLS: &'static [&'static str] = READ_ONLY_TOOLS;
-    pub const DEBUG_TOOLS: &'static [&'static str] = DEBUG_TOOLS;
-    pub const SKILL_TOOLS: &'static [&'static str] = SKILL_TOOLS;
+    pub const EXPLORE_TOOLS: &'static [BuiltinTool] = READ_ONLY_TOOLS;
+    pub const DEBUG_TOOLS: &'static [BuiltinTool] = DEBUG_TOOLS;
+    pub const SKILL_TOOLS: &'static [BuiltinTool] = SKILL_TOOLS;
     /// The built-in read-only research role.
     pub const EXPLORE: Self = SubAgentProfile {
         name: "explore",
@@ -268,7 +271,7 @@ the title in the same language as the conversation.",
     };
 
     /// The debugging subagent role. Unlike `EXPLORE` (pure static read-only),
-    /// this subagent is granted non-interactive execution authority (`run_command` and
+    /// this subagent is granted non-interactive execution authority (`execute_command` and
     /// `process`) so it can reproduce defects, run test suites, execute batch debuggers
     /// (e.g. `gdb -batch`), and capture sanitizer diagnostics (ASan, UBSan, Valgrind)
     /// in an isolated context window.
@@ -282,7 +285,7 @@ identify the root cause without polluting the parent's context with voluminous \
 terminal or diagnostic logs. \
 The toolset handed to you is the full set you are permitted to use — work \
 within it, do not request others. You have inspection tools and non-interactive \
-command execution (`run_command`, `process`), but NO file-editing permissions. \
+command execution (`execute_command`, `process`), but NO file-editing permissions. \
 Your role is strictly forensic diagnosis, hypothesis testing, and solution design. \
 Key operational guidelines: \
 1. Form explicit hypotheses and test them systematically using non-interactive \
@@ -591,6 +594,11 @@ mod tests {
         assert!(
             SubAgentProfile::DEBUG
                 .tool_policy
+                .admits(&make("execute_command"))
+        );
+        assert!(
+            !SubAgentProfile::DEBUG
+                .tool_policy
                 .admits(&make("run_command"))
         );
 
@@ -620,7 +628,7 @@ mod tests {
         assert!(
             !SubAgentProfile::DEBUG
                 .tool_policy
-                .admits(&with_spawn(make("run_command")))
+                .admits(&with_spawn(make("execute_command")))
         );
         assert!(!SubAgentProfile::DEBUG.tool_policy.admits(&make_control()));
 

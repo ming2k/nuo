@@ -232,6 +232,7 @@ admit_mcp = ["internal_pg"]
     fn builtin_ops_manifest_resolves() {
         let manifest = resolve_role_manifest(None, Some("ops"));
         assert_eq!(manifest.role_id, "ops");
-        assert!(manifest.tools.contains(&"run_command".to_string()));
+        assert!(manifest.builtin_tools().contains(&nuo_wire::BuiltinTool::ExecuteCommand));
+        assert!(manifest.tools.contains(&"execute_command".to_string()));
     }
 }

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use nuo_wire::Tool;
+use nuo_wire::{BuiltinTool, Tool};
 use serde_json::json;
 
 /// Ask the user one or more multiple-choice questions mid-task.
@@ -12,7 +12,7 @@ pub struct AskUserTool;
 #[async_trait]
 impl Tool for AskUserTool {
     fn name(&self) -> &str {
-        "ask_user"
+        BuiltinTool::AskUser.as_str()
     }
 
     fn description(&self) -> &str {

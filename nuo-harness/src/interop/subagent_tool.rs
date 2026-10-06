@@ -21,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 use crate::agent::{Agent, SubagentHandle};
 
 /// Canonical tool name for spawning a delegated child agent (ADR-0183).
-pub const SPAWN_AGENT_TOOL_NAME: &str = "spawn_agent";
+pub const SPAWN_AGENT_TOOL_NAME: &str = nuo_wire::BuiltinTool::SpawnAgent.as_str();
 
 /// The roles a **model-facing** dispatch tool may request, in the order the
 /// schema advertises them.
@@ -684,7 +684,7 @@ impl SubagentTool {
                 "Background sub-agent dispatch is not available: this sub-agent runs to \
                  completion inside the calling turn. Re-issue the call without `background` \
                  to run it synchronously and receive its result, or run long independent \
-                 work through the run_command tool's `background`/`service` modes."
+                 work through the execute_command tool's `background`/`service` modes."
                     .to_string(),
             );
         }
@@ -1803,14 +1803,14 @@ mod tests {
             delegate_debug_arc.clone() as std::sync::Arc<dyn Tool>,
         ]);
 
-        // SubAgentProfile::DEBUG admits bash (run_command) and the read tools; it
+        // SubAgentProfile::DEBUG admits execute_command and the read tools; it
         // strictly excludes write_file, edit_text, ask_user, and the subagent dispatch tool itself (recursion).
         let model = nuo_wire::resolve_model(&CannedProvider.model());
         let model_sel = nuo_wire::ToolSelection::unrestricted();
         let selected = nuo_wire::SubAgentProfile::DEBUG.resolve_tools(&toolset, &model, &model_sel);
         let names: std::collections::HashSet<&str> = selected.iter().map(|t| t.name()).collect();
         assert!(names.contains("read_text"));
-        assert!(names.contains("run_command") || names.contains("execute_command"));
+        assert!(names.contains("execute_command"));
         assert!(!names.contains("write_file"));
         assert!(!names.contains("edit_text"));
         assert!(!names.contains("ask_user"));

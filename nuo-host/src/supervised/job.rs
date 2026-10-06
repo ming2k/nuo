@@ -64,7 +64,7 @@ pub trait BackgroundJobService: Send + Sync {
     /// only `kill_job` stops the loop, and the last fire's state is not
     /// terminal while the next one is armed.
     ///
-    /// No tool currently arms a timer: `run_command`'s former
+    /// No tool currently arms a timer: `execute_command`'s former
     /// `schedule_in_secs`/`repeat` parameters were removed in ADR-0234 because
     /// they promised "the command runs at fire time" and, with the wake turn
     /// disabled (ADR-0212), no consumer existed for the digest. Re-expose a

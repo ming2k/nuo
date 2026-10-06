@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use async_trait::async_trait;
 use nuo_tool::{
-    RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope, ToolSchema,
+    BuiltinTool, RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope, ToolSchema,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -46,7 +46,7 @@ impl RecallMemoryTool {
 #[async_trait]
 impl Tool for RecallMemoryTool {
     fn name(&self) -> &str {
-        "recall_memory"
+        BuiltinTool::RecallMemory.as_str()
     }
 
     fn description(&self) -> &str {

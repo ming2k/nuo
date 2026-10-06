@@ -73,7 +73,7 @@ pub use nuo_tool::context::ToolInvocation;
 // ScopeTarget, ToolAccesses, HazardLevel, ToolInvocation, InputHandler,
 // SubagentEvent, ToolStream) lives in `nuo-tool`; this re-export keeps every
 // existing `impl nuo_wire::Tool` and `dyn nuo_wire::Tool` site compiling.
-pub use nuo_tool::Tool;
+pub use nuo_tool::{BuiltinTool, Tool};
 
 /// What a tool call acts on, so the operation-scope gate can match it against
 /// the agent's granted scope. Relocated to the tool leaf (`nuo_tool::ScopeTarget`)

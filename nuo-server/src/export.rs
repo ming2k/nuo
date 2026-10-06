@@ -187,7 +187,7 @@ fn format_tool_activity(
     let json_args: Option<serde_json::Value> = serde_json::from_str(&call.arguments).ok();
 
     let (header, status, mut body) = match call.name.as_str() {
-        "run_command" | "execute_command" | "bash" | "sh" => {
+        "execute_command" => {
             let cmd = json_args
                 .as_ref()
                 .and_then(|v| v.get("command").and_then(|c| c.as_str()))
@@ -587,13 +587,13 @@ mod tests {
     fn renders_shell_error_exit_status() {
         let call = ToolCall {
             id: "bash_err".to_string(),
-            name: "run_command".to_string(),
+            name: "execute_command".to_string(),
             arguments: r#"{"command":"cargo test"}"#.to_string(),
         };
         let messages = vec![
             assistant_with_call("", call),
             tool_result(
-                "run_command",
+                "execute_command",
                 "Exit 101\nSTDOUT:\ntest failed\nSTDERR:\nassertion failed",
             ),
         ];
@@ -727,8 +727,8 @@ mod tests {
         let mut res = tool_result("spawn_agent", "found no bottleneck");
         res.children = Some(vec![
             user("sub task"),
-            assistant_with_call("", ToolCall::new("1", "run_command", "{}")),
-            tool_result("run_command", "ok"),
+            assistant_with_call("", ToolCall::new("1", "execute_command", "{}")),
+            tool_result("execute_command", "ok"),
         ]);
         res.subagent_meta = Some(SubagentMeta {
             description: Some("analyze performance".to_string()),

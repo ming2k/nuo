@@ -19,7 +19,7 @@
 //! self-contained.
 
 use crate::model::Model;
-use crate::{Tool, VariantSelection, empty_variant_selection};
+use crate::{BuiltinTool, Tool, VariantSelection, empty_variant_selection};
 use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
@@ -340,6 +340,16 @@ impl Capability {
             .unwrap_or_else(|| &self.variants[&self.default_variant])
     }
 
+    /// Whether `scope` admits this capability either by its primary name or by any variant's alias.
+    pub fn admits(&self, scope: &ToolScope) -> bool {
+        if scope.admits(self.name()) {
+            return true;
+        }
+        self.variants
+            .values()
+            .any(|tool| tool.aliases().iter().any(|alias| scope.admits(alias)))
+    }
+
     /// Pick the variant this capability resolves to for `model`, honouring the
     /// `preferred` variant id (the composed override) but **never** selecting a
     /// variant the model cannot execute. Returns `None` when no variant is
@@ -510,7 +520,7 @@ impl ToolSet {
         let preferred = overlay_variants(&agent.variants, &model_sel.variants);
         self.capabilities
             .values()
-            .filter(|cap| agent.scope.admits(cap.name()) && model_sel.scope.admits(cap.name()))
+            .filter(|cap| cap.admits(&agent.scope) && cap.admits(&model_sel.scope))
             .filter_map(|cap| {
                 cap.usable_variant_for(model, preferred.get(cap.name()).map(String::as_str))
                     .cloned()
@@ -617,6 +627,24 @@ impl ToolScope {
         }
     }
 
+    /// Build a scope from a strongly-typed set of built-in tools.
+    pub fn from_builtin<I>(tools: I) -> Self
+    where
+        I: IntoIterator<Item = BuiltinTool>,
+    {
+        ToolScope::Only(tools.into_iter().map(|t| t.as_str().to_string()).collect())
+    }
+
+    /// Whether this scope admits a typed `BuiltinTool` (checking both canonical name and aliases).
+    pub fn admits_builtin(&self, tool: BuiltinTool) -> bool {
+        self.admits(tool.as_str()) || tool.aliases().iter().any(|alias| self.admits(alias))
+    }
+
+    /// Whether this scope admits `tool` by its primary name or any of its compatibility aliases.
+    pub fn admits_tool(&self, tool: &dyn Tool) -> bool {
+        self.admits(tool.name()) || tool.aliases().iter().any(|alias| self.admits(alias))
+    }
+
     /// The *meet* of two scopes — the set of capabilities **both** admit.
     /// `All` is the identity (`All ∩ x == x`); two `Only` sets intersect.
     /// Commutative and associative, so composition order is irrelevant.
@@ -674,6 +702,17 @@ impl ToolSelection {
     {
         Self {
             scope: ToolScope::only(names),
+            variants: VariantSelection::new(),
+        }
+    }
+
+    /// A selection that admits only the strongly-typed built-in tools (default variants).
+    pub fn only_builtin<I>(tools: I) -> Self
+    where
+        I: IntoIterator<Item = BuiltinTool>,
+    {
+        Self {
+            scope: ToolScope::from_builtin(tools),
             variants: VariantSelection::new(),
         }
     }
@@ -792,7 +831,7 @@ impl ToolPool {
     pub fn snapshot(&self, agent: &ToolSelection, model: &Model) -> ToolPoolSnapshot {
         let mut audits = Vec::new();
         for (name, cap) in &self.toolset.capabilities {
-            let requested = agent.scope.admits(name);
+            let requested = cap.admits(&agent.scope);
             let preferred_variant = agent.variants.get(name).map(String::as_str);
             let usable_tool = cap.usable_variant_for(model, preferred_variant);
             let admitted = requested && usable_tool.is_some();
@@ -1435,5 +1474,91 @@ mod tests {
             .unwrap();
         assert!(!write_audit.requested);
         assert!(!write_audit.admitted);
+    }
+
+    struct AliasTool {
+        name: &'static str,
+        aliases: &'static [&'static str],
+    }
+
+    #[async_trait]
+    impl Tool for AliasTool {
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn aliases(&self) -> &'static [&'static str] {
+            self.aliases
+        }
+        fn variant(&self) -> &str {
+            "default"
+        }
+        fn description(&self) -> &str {
+            "test tool with aliases"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn call(&self, _arguments: &str) -> Result<String, String> {
+            Ok(String::new())
+        }
+    }
+
+    #[test]
+    fn capability_and_pool_admit_aliases() {
+        let pool = ToolPool::from_tools(vec![
+            Arc::new(AliasTool {
+                name: "custom_tool",
+                aliases: &["custom_alias"],
+            }) as Arc<dyn Tool>,
+        ]);
+
+        // 1. Scope naming only the alias ("custom_alias") must admit the canonical tool.
+        let alias_agent = ToolSelection::only(["custom_alias"]);
+        let resolved = pool.resolve_for(&model(true), &alias_agent, &ToolSelection::unrestricted());
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].name(), "custom_tool");
+
+        let snapshot = pool.snapshot(&alias_agent, &model(true));
+        assert_eq!(snapshot.capabilities.len(), 1);
+        assert!(snapshot.capabilities[0].requested);
+        assert!(snapshot.capabilities[0].admitted);
+
+        // 2. Scope naming the canonical name ("custom_tool") also admits it.
+        let canonical_agent = ToolSelection::only(["custom_tool"]);
+        let resolved2 = pool.resolve_for(&model(true), &canonical_agent, &ToolSelection::unrestricted());
+        assert_eq!(resolved2.len(), 1);
+        assert_eq!(resolved2[0].name(), "custom_tool");
+
+        // 3. Unrelated tool scope rejects it.
+        let other_agent = ToolSelection::only(["read_text"]);
+        let resolved3 = pool.resolve_for(&model(true), &other_agent, &ToolSelection::unrestricted());
+        assert_eq!(resolved3.len(), 0);
+    }
+
+    #[test]
+    fn builtin_tool_scope_and_typed_selection() {
+        let pool = ToolPool::from_tools(vec![
+            Arc::new(AliasTool {
+                name: BuiltinTool::ExecuteCommand.as_str(),
+                aliases: BuiltinTool::ExecuteCommand.aliases(),
+            }) as Arc<dyn Tool>,
+            Arc::new(CapTool {
+                name: BuiltinTool::ReadText.as_str(),
+                variant: "default",
+                requires_vision: false,
+            }) as Arc<dyn Tool>,
+        ]);
+
+        // Typed BuiltinTool selection
+        let agent = ToolSelection::only_builtin([BuiltinTool::ExecuteCommand]);
+        let resolved = pool.resolve_for(&model(true), &agent, &ToolSelection::unrestricted());
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].name(), BuiltinTool::ExecuteCommand.as_str());
+
+        // BuiltinTool scope admits canonical name and rejects unknown/unrelated
+        assert!(agent.scope.admits_builtin(BuiltinTool::ExecuteCommand));
+        assert!(agent.scope.admits("execute_command"));
+        assert!(!agent.scope.admits("unknown_tool"));
+        assert!(!agent.scope.admits_builtin(BuiltinTool::ReadText));
     }
 }

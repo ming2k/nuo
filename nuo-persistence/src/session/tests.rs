@@ -974,7 +974,7 @@ async fn test_session_store_ir_and_compile_request() {
     // 2. Compile request using SessionStore::compile_request (4-pass pipeline)
     let options = nuo_wire::CompilerOptions {
         tool_specs: vec![nuo_wire::ToolSpec {
-            name: "run_command".into(),
+            name: "execute_command".into(),
             description: "Run shell command".into(),
             parameters: serde_json::json!({"type": "object"}),
         }],
@@ -991,7 +991,7 @@ async fn test_session_store_ir_and_compile_request() {
         "Implement compiler pass"
     );
     assert_eq!(compiled.request.tool_specs.len(), 1);
-    assert_eq!(compiled.request.tool_specs[0].name, "run_command");
+    assert_eq!(compiled.request.tool_specs[0].name, "execute_command");
     assert!(!compiled.cache_boundary.prefix_fingerprint.is_empty());
 }
 

@@ -243,7 +243,7 @@ fn command_result_message_expands_and_round_trips_display() {
         "permissions",
         "",
         Some(nuo_wire::CommandResult::PermissionList {
-            allowed: vec!["run_command".to_string()],
+            allowed: vec!["execute_command".to_string()],
         }),
     );
     assert_eq!(message.command_result_expanded(), Some(false));
@@ -253,7 +253,7 @@ fn command_result_message_expands_and_round_trips_display() {
     );
     assert_eq!(
         message.command_result_text().as_deref(),
-        Some("Always-allowed tools:\n- run_command")
+        Some("Always-allowed tools:\n- execute_command")
     );
     // The result body is the message's parsed blocks (non-empty here).
     assert!(!message.blocks.is_empty());
@@ -300,7 +300,7 @@ fn command_row_layout_classifies_by_result_shape() {
         "permissions",
         "",
         Some(nuo_wire::CommandResult::PermissionList {
-            allowed: vec!["run_command".to_string(), "edit_text".to_string()],
+            allowed: vec!["execute_command".to_string(), "edit_text".to_string()],
         }),
     );
     assert_eq!(

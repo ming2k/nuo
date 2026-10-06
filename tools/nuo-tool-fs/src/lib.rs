@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use nuo_tool::{
-    RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope, ToolSchema,
+    BuiltinTool, RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope, ToolSchema,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -67,7 +67,7 @@ impl ReadTextTool {
 #[async_trait]
 impl Tool for ReadTextTool {
     fn name(&self) -> &str {
-        "read_text"
+        BuiltinTool::ReadText.as_str()
     }
 
     fn description(&self) -> &str {
@@ -177,7 +177,7 @@ impl WriteFileTool {
 #[async_trait]
 impl Tool for WriteFileTool {
     fn name(&self) -> &str {
-        "write_file"
+        BuiltinTool::WriteFile.as_str()
     }
 
     fn description(&self) -> &str {
@@ -250,7 +250,7 @@ impl EditTextTool {
 #[async_trait]
 impl Tool for EditTextTool {
     fn name(&self) -> &str {
-        "edit_text"
+        BuiltinTool::EditText.as_str()
     }
 
     fn description(&self) -> &str {
@@ -450,7 +450,7 @@ impl ListDirTool {
 #[async_trait]
 impl Tool for ListDirTool {
     fn name(&self) -> &str {
-        "list_dir"
+        BuiltinTool::ListDir.as_str()
     }
 
     fn description(&self) -> &str {
@@ -547,7 +547,7 @@ impl FindFilesTool {
 #[async_trait]
 impl Tool for FindFilesTool {
     fn name(&self) -> &str {
-        "find_files"
+        BuiltinTool::FindFiles.as_str()
     }
 
     fn description(&self) -> &str {
@@ -658,7 +658,7 @@ impl SearchTextTool {
 #[async_trait]
 impl Tool for SearchTextTool {
     fn name(&self) -> &str {
-        "search_text"
+        BuiltinTool::SearchText.as_str()
     }
 
     fn description(&self) -> &str {

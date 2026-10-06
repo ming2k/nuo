@@ -183,8 +183,7 @@ pub fn draw_tool_step(
                 // output; others their block. A streaming or freshly-spawned command
                 // step renders its `$ cmd` and live streaming output.
                 let has_output = output.as_deref().is_some_and(|s| !s.is_empty());
-                let is_command =
-                    matches!(name.as_str(), "run_command" | "execute_command" | "bash");
+                let is_command = name.as_str() == "execute_command";
                 let has_structured = structured.is_some();
                 if has_output || is_command || has_structured {
                     draw_tool_result(

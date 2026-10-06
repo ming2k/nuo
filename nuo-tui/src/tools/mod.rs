@@ -298,8 +298,6 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         description: "Expand shell execution output logs and terminal commands by default",
         members: &[
             ("execute_command", &execute_command::ExecuteCommandPresenter),
-            ("run_command", &execute_command::ExecuteCommandPresenter),
-            ("bash", &execute_command::ExecuteCommandPresenter),
         ],
         expanded_by_default: true,
     },

@@ -367,6 +367,7 @@ fn is_coalescible_stream_update(response: &AgentResponse) -> bool {
             event: RoundEvent::StreamDelta(_)
                 | RoundEvent::StreamReasoningDelta(_)
                 | RoundEvent::ToolStream { .. }
+                | RoundEvent::ToolInputProgress { .. }
                 | RoundEvent::SubagentStep {
                     event: nuo_wire::SubagentEvent::StreamDelta(_)
                         | nuo_wire::SubagentEvent::StreamReasoningDelta(_),
@@ -2512,4 +2513,59 @@ mod streaming_appends_tests {
         assert_eq!(id, messages[1].id);
         let MessageKind::Reasoning { content, .. } = &messages[1].kind else {
             panic!()
-  
+        };
+        assert_eq!(content, "second attempt…");
+        let MessageKind::Reasoning { content, .. } = &messages[0].kind else {
+            panic!()
+        };
+        assert_eq!(content, "first attempt");
+    }
+
+    #[test]
+    fn reasoning_delta_rejects_foreign_positions() {
+        // A delta for another turn must not graft onto an older turn's entry.
+        let mut messages = vec![reasoning_entry(8, 1, "old")];
+        assert_eq!(
+            append_reasoning_delta(&mut messages, Some(8), Some(2), "new"),
+            None
+        );
+        assert_eq!(
+            append_reasoning_delta(&mut messages, Some(9), Some(1), "new"),
+            None
+        );
+    }
+
+    #[test]
+    fn text_delta_appends_across_an_intervening_command_entry() {
+        use nuo_wire::Role;
+        let mut text = TranscriptMessage::new(Role::Assistant, "hello ");
+        text.round = Some(3);
+        text.turn = Some(1);
+        let mut messages = vec![text];
+        messages.push(TranscriptMessage::pending_command("delegate", "on").with_sent_at_ms(1_000));
+
+        let id = append_stream_text_delta(&mut messages, Some(3), Some(1), "world")
+            .expect("must resolve the original text entry");
+        assert_eq!(id, messages[0].id);
+        assert!(messages[0].raw.contains("world"));
+        assert_eq!(
+            messages.iter().filter(|m| m.raw.contains("world")).count(),
+            1,
+            "the delta must not fork a second text entry"
+        );
+    }
+}
+
+/// Load the user-supplied ASCII logo from `$XDG_CONFIG_HOME/nuo/logo.txt`,
+/// clamped to the empty-state bounding box. Best-effort: a missing or unreadable
+/// file returns `None`, leaving the built-in wordmark in place.
+fn load_user_logo() -> Option<Vec<String>> {
+    let path = nuo_host::paths::get().logo_file();
+    let content = std::fs::read_to_string(&path).ok()?;
+    // Re-use the renderer's parser so the clamp stays defined in one place.
+    // The parser already strips CRLF/trailing blanks and truncates to the box.
+    render::parse_logo(&content)
+}
+
+#[cfg(test)]
+pub(crate) mod tests;

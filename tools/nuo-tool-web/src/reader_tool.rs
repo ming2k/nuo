@@ -2,7 +2,7 @@ use std::sync::RwLock;
 
 use async_trait::async_trait;
 use nuo_wire::{SharedWebConfig, Tool, WebReaderProvider, WebRuntimeConfig};
-use nuo_tool::ToolSchema;
+use nuo_tool::{BuiltinTool, ToolSchema};
 use serde::Deserialize;
 
 use crate::snapshot::{WebSnapshotResult, take_snapshot};
@@ -113,7 +113,10 @@ fn extract_page_title(content: &str) -> Option<String> {
 #[async_trait]
 impl Tool for WebReaderTool {
     fn name(&self) -> &str {
-        "read_url"
+        BuiltinTool::ReadUrl.as_str()
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        BuiltinTool::ReadUrl.aliases()
     }
     fn is_available(&self) -> bool {
         let snapshot = self.config.get();

@@ -6,6 +6,7 @@
 
 pub mod access;
 pub mod approval;
+pub mod builtin;
 pub mod command;
 pub mod completion;
 pub mod context;
@@ -32,6 +33,7 @@ pub mod validation;
 
 pub use access::{ToolAccess, ToolAccesses, ToolFileAccessOperation};
 pub use approval::{AlwaysApprove, ApprovalDecision, ApprovalHandler, ToolCallRequest};
+pub use builtin::BuiltinTool;
 pub use guard::TrajectoryGuardConfig;
 pub use command::{CommandTool, ShellKind};
 pub use completion::{
@@ -143,6 +145,11 @@ pub trait Tool: Send + Sync {
     /// Whether this tool matches the requested dispatch name.
     fn matches_name(&self, requested: &str) -> bool {
         self.name() == requested || self.aliases().contains(&requested)
+    }
+
+    /// If this tool is an official built-in tool, return its typed enum variant.
+    fn builtin(&self) -> Option<BuiltinTool> {
+        BuiltinTool::from_name(self.name())
     }
 
     /// The variant id distinguishing this implementation from other variants of
@@ -299,7 +306,7 @@ pub trait Tool: Send + Sync {
     /// Structured, event-emitting execution — the method the harness invokes so
     /// typed output reaches the transcript. Default delegates to
     /// [`Tool::call_structured`] and emits no events. Tools that stream (e.g.
-    /// `run_command`) or spawn subagents (e.g. `task`) override this.
+    /// `execute_command`) or spawn subagents (e.g. `spawn_agent`) override this.
     async fn call_structured_with_events<'a>(
         &self,
         invocation: ToolInvocation<'a>,

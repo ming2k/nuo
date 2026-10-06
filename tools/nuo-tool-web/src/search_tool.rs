@@ -2,7 +2,7 @@ use std::sync::{OnceLock, RwLock};
 
 use async_trait::async_trait;
 use nuo_wire::{SharedWebConfig, Tool, WebRuntimeConfig, WebSearchProvider};
-use nuo_tool::ToolSchema;
+use nuo_tool::{BuiltinTool, ToolSchema};
 use serde::Deserialize;
 
 use crate::search::SearchProvider;
@@ -96,7 +96,10 @@ impl Default for WebSearchTool {
 #[async_trait]
 impl Tool for WebSearchTool {
     fn name(&self) -> &str {
-        "search_web"
+        BuiltinTool::SearchWeb.as_str()
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        BuiltinTool::SearchWeb.aliases()
     }
     fn is_available(&self) -> bool {
         let snapshot = self.config.get();

@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use nuo_wire::{MAX_TODOS, TodoList, TodoStatus, Tool};
+use nuo_wire::{BuiltinTool, MAX_TODOS, TodoList, TodoStatus, Tool};
 
 const TODO_DESCRIPTION: &str = "Update the task list. Two modes, mutually exclusive: \
 (1) full replace — provide `items`, the full array ({content, status: \
@@ -236,7 +236,7 @@ impl TodoTool {
 #[async_trait]
 impl Tool for TodoTool {
     fn name(&self) -> &str {
-        "todo"
+        BuiltinTool::Todo.as_str()
     }
 
     fn description(&self) -> &str {

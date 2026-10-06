@@ -1875,7 +1875,7 @@ mod tests {
                 "Updated Cargo.toml dependencies".to_string(),
             ],
         });
-        r.current_tool = Some("run_command".to_string());
+        r.current_tool = Some("execute_command".to_string());
 
         let lines = session_detail_lines(&r, 80, &theme);
         let rendered: String = lines
@@ -1908,7 +1908,7 @@ mod tests {
         );
         assert!(rendered.contains("Telemetry:"), "{rendered}");
         assert!(rendered.contains("tool"), "{rendered}");
-        assert!(rendered.contains("run_command"), "{rendered}");
+        assert!(rendered.contains("execute_command"), "{rendered}");
     }
 
     #[test]

@@ -1120,7 +1120,7 @@ mod tests {
         };
         let unsigned_call = nuo_model_codec::ToolCall {
             id: "call_unsigned".to_string(),
-            name: "default_api:run_command".to_string(),
+            name: "default_api:execute_command".to_string(),
             arguments: r#"{"command":"cargo test"}"#.to_string(),
         };
         let mut provider_meta = serde_json::Map::new();
@@ -1152,7 +1152,7 @@ mod tests {
         // Unsigned call is degraded to text fact
         assert_eq!(
             model_parts[2]["text"],
-            r#"[Executed tool "default_api:run_command" with arguments: {"command":"cargo test"}]"#
+            r#"[Executed tool "default_api:execute_command" with arguments: {"command":"cargo test"}]"#
         );
 
         let user_parts = body["contents"][2]["parts"].as_array().unwrap();
@@ -1162,7 +1162,7 @@ mod tests {
         // Unsigned result is degraded to text fact
         assert_eq!(
             user_parts[1]["text"],
-            "[Tool result for \"default_api:run_command\"]:\ntests passed"
+            "[Tool result for \"default_api:execute_command\"]:\ntests passed"
         );
     }
 

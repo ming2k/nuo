@@ -594,7 +594,7 @@ impl Agent {
             return self.execute_ask_user(call, call_id, event_tx).await;
         }
 
-        // Input contract decision (before spawn), for run_command only:
+        // Input contract decision (before spawn), for command tools:
         //   1. opt-in model input (α): `allow_model_stdin` on AND the model
         //      supplied a `stdin` arg → Prefilled{model}.
         //   2. pre-spawn refusal / runtime supervision: the interactive
@@ -602,7 +602,7 @@ impl Agent {
         //      terminal) or Supervised (a controlled terminal + examiner).
         //   3. sealed (default hard floor): everything else.
         // For other tools, Sealed is always correct (they ignore input).
-        let input = if call.name == "run_command" {
+        let input = if call.name == "execute_command" {
             self.decide_command_input(&call.arguments)
         } else {
             nuo_wire::InputContract::default()
@@ -773,7 +773,7 @@ impl Agent {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
-            .find(|t| t.name() == call.name)
+            .find(|t| t.matches_name(&call.name))
             .cloned()
             .or_else(|| self.dynamic_tools.find(&call.name));
         match tool {

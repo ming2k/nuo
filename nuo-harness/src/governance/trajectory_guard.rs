@@ -15,35 +15,28 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use nuo_wire::TrajectoryGuardConfig;
+use nuo_wire::{BuiltinTool, TrajectoryGuardConfig};
 use serde_json::Value;
 
 use crate::guard::GuardAction;
 
-/// The tools this guard watches. Anything outside this set is passed through
-/// untouched — MCP tools, `ask_user`, `use_skill`, `todo_*`, subagent, etc. are
-/// either inherently unique or user-interactive, where a repeat is plausibly
-/// legitimate and blocking would be hostile.
-///
-/// Kept as a sorted set so the [`covers`] lookup is O(log n).
-const WATCHED_TOOLS: &[&str] = &[
-    "edit_text",
-    "execute_command",
-    "find_files",
-    "list_dir",
-    "read",
-    "read_image",
-    "read_text",
-    "read_url",
-    "run_command",
-    "search_text",
-    "search_web",
-    "write_file",
-];
-
-/// Whether a tool name is in the watched set. Case-sensitive.
+/// Whether a tool name is in the watched set.
 pub(crate) fn covers(name: &str) -> bool {
-    WATCHED_TOOLS.binary_search(&name).is_ok()
+    BuiltinTool::from_name(name).is_some_and(|tool| {
+        matches!(
+            tool,
+            BuiltinTool::EditText
+                | BuiltinTool::ExecuteCommand
+                | BuiltinTool::FindFiles
+                | BuiltinTool::ListDir
+                | BuiltinTool::ReadImage
+                | BuiltinTool::ReadText
+                | BuiltinTool::ReadUrl
+                | BuiltinTool::SearchText
+                | BuiltinTool::SearchWeb
+                | BuiltinTool::WriteFile
+        )
+    })
 }
 
 /// Canonical signature of a single watched tool call, normalized so that
@@ -424,7 +417,9 @@ mod tests {
     #[test]
     fn covers_the_watched_set() {
         assert!(covers("execute_command"));
+        assert!(!covers("run_command"));
         assert!(covers("read_text"));
+        assert!(!covers("read"));
         assert!(covers("write_file"));
         assert!(!covers("use_skill"));
         assert!(!covers("ask_user"));

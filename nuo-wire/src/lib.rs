@@ -207,7 +207,7 @@ pub use shared_roots::{SharedAdditionalRoots, SharedConfinement};
 pub mod tool_registry;
 pub mod web_config;
 pub use capability::{
-    InputHandler, ModelRequest, Provider, ProviderEventStream, ProviderPromptHints,
+    BuiltinTool, InputHandler, ModelRequest, Provider, ProviderEventStream, ProviderPromptHints,
     ProviderStreamEvent, ProviderTextStream, ProviderTurnContext, ScopeTarget, Tool,
     ToolInvocation, ToolSpec, VariantSelection, empty_variant_selection,
 };

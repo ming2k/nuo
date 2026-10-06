@@ -125,21 +125,32 @@ fn registry_collects_all_self_registered_tools() {
     }
     let names: std::collections::HashSet<&str> = collected.capability_names().collect();
     for expected in [
-        "execute_command",
-        "read_text",
-        "write_file",
-        "edit_text",
-        "search_text",
-        "find_files",
-        "ask_user",
-        "read_url",
-        "search_web",
+        nuo_wire::BuiltinTool::ExecuteCommand,
+        nuo_wire::BuiltinTool::ReadText,
+        nuo_wire::BuiltinTool::WriteFile,
+        nuo_wire::BuiltinTool::EditText,
+        nuo_wire::BuiltinTool::SearchText,
+        nuo_wire::BuiltinTool::FindFiles,
+        nuo_wire::BuiltinTool::AskUser,
+        nuo_wire::BuiltinTool::ReadUrl,
+        nuo_wire::BuiltinTool::SearchWeb,
     ] {
         assert!(
-            names.contains(expected),
-            "tool '{expected}' missing from collected set"
+            names.contains(expected.as_str()),
+            "tool '{}' missing from collected set",
+            expected.as_str()
         );
     }
+
+    // Role-to-ToolSet integration invariant: developer role must resolve execute_command
+    let dev = nuo_wire::AgentRoleProfile::developer();
+    let model = nuo_wire::resolve_model("test");
+    let resolved = collected.resolve_for(&model, &dev.tools, &nuo_wire::ToolSelection::unrestricted());
+    let resolved_names: std::collections::HashSet<&str> = resolved.iter().map(|t| t.name()).collect();
+    assert!(
+        resolved_names.contains(nuo_wire::BuiltinTool::ExecuteCommand.as_str()),
+        "developer role failed to resolve execute_command from collected toolset"
+    );
 }
 
 #[async_trait]

@@ -1291,8 +1291,8 @@ mod tests {
     fn permission_sheet_wrapped_header_keeps_every_character() {
         let request = PermissionRequest {
             id: "p".into(),
-            tool: "run_command".into(),
-            label: "bash".into(),
+            tool: "execute_command".into(),
+            label: "tool".into(),
             description: "Run a command".into(),
             arguments: r#"{"command":"ls | head"}"#.into(),
             scope: "ls | head".into(),
@@ -1322,7 +1322,7 @@ mod tests {
             );
         });
 
-        // Row 0 is the header (`bash  ls | head` — 16 cols, fits at width 30
+        // Row 0 is the header (`tool  ls | head` — 15 cols, fits at width 30
         // in one visual row); so instead force a wrap by narrowing the sheet.
         let text = sheet_text(&terminal);
         assert!(
@@ -1337,8 +1337,8 @@ mod tests {
     fn permission_sheet_wrapped_header_survives_wrap() {
         let request = PermissionRequest {
             id: "p".into(),
-            tool: "run_command".into(),
-            label: "bash".into(),
+            tool: "execute_command".into(),
+            label: "tool".into(),
             description: "Run a command".into(),
             arguments: r#"{"command":"ls | head"}"#.into(),
             scope: "ls | head".into(),
@@ -1368,7 +1368,7 @@ mod tests {
             );
         });
 
-        // Body width = 14 - 1 - 2*1 = 11; header `bash  ls | head` is 15
+        // Body width = 14 - 1 - 2*1 = 11; header `tool  ls | head` is 15
         // cols, so it wraps. No non-whitespace character may be dropped by
         // the wrap — the concatenated header rows must reassemble to the
         // full header (whitespace at a wrap point may trail and go unrendered).
@@ -1376,11 +1376,11 @@ mod tests {
         let header: String = text
             .lines()
             .map(|l| l.trim_start_matches('┃').trim())
-            .filter(|l| l.starts_with("bash") || l.starts_with('|') || l.starts_with("head"))
+            .filter(|l| l.starts_with("tool") || l.starts_with('|') || l.starts_with("head"))
             .flat_map(|l| l.chars().filter(|c| !c.is_whitespace()))
             .collect();
         assert_eq!(
-            header, "bashls|head",
+            header, "toolls|head",
             "wrapped header lost characters: {text:?}"
         );
     }

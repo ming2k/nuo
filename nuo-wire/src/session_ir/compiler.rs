@@ -561,7 +561,7 @@ mod tests {
         ir.append_message("u1", 1_000_000, Message::new(Role::User, "run command"));
 
         // Assistant turn from foreign provider (no thought signatures)
-        let call = ToolCall::new("call_run_1", "default_api:run_command", r#"{"command":"ls"}"#);
+        let call = ToolCall::new("call_run_1", "default_api:execute_command", r#"{"command":"ls"}"#);
         let mut foreign_assistant = Message::new(Role::Assistant, "Running command");
         foreign_assistant.tool_calls = Some(vec![call.clone()]);
         ir.append_message("a1", 1_001_000, foreign_assistant);
@@ -597,12 +597,12 @@ mod tests {
         assert_eq!(messages[1].role, Role::Assistant);
         assert!(messages[1].tool_calls.is_none());
         assert!(messages[1].content.contains("Running command"));
-        assert!(messages[1].content.contains(r#"[Executed tool "default_api:run_command" with arguments: {"command":"ls"}]"#));
+        assert!(messages[1].content.contains(r#"[Executed tool "default_api:execute_command" with arguments: {"command":"ls"}]"#));
 
         // Foreign tool message: lowered to User role dialogue fact
         assert_eq!(messages[2].role, Role::User);
         assert!(messages[2].tool_call_id.is_none());
-        assert!(messages[2].content.contains(r#"[Tool result for "default_api:run_command"]:"#));
+        assert!(messages[2].content.contains(r#"[Tool result for "default_api:execute_command"]:"#));
 
         // Gemini assistant message: retains native tool_calls because it has valid thought signature
         assert_eq!(messages[3].role, Role::Assistant);

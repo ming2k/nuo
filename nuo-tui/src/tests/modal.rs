@@ -1645,12 +1645,6 @@ async fn config_view_components_toggle_and_persistence() {
     )
     .await;
     assert!(!crate::config::tool_default_expanded(&app.tui_config, "execute_command"));
-    for alias in ["run_command", "bash"] {
-        assert!(
-            !crate::config::tool_default_expanded(&app.tui_config, alias),
-            "{alias} must follow the command row"
-        );
-    }
 
     // The Diffs row covers edit_text and write_file together.
     app.config_detail_index = diff_row;

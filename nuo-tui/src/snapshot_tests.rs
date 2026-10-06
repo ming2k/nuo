@@ -387,7 +387,9 @@ fn search_text_expanded_renders_grouped_matches() {
     let m = tool_step(
         "search_text",
         r#"{"query":"foo","path":"src"}"#,
-        Some("src/a.rs:10:let foo = 1;\nsrc/a.rs:22:foo();\nsrc/b.rs:5:foo,"),
+        Some(
+            "Found 3 match(es):\nsrc/a.rs:10:let foo = 1;\nsrc/a.rs:22:foo();\nsrc/b.rs:5:foo,",
+        ),
         true,
     );
     insta::assert_snapshot!(render_grid(&m, 80, 40));
@@ -961,7 +963,7 @@ fn command_entries_render_header_and_direct_body_without_folding() {
             "permissions",
             "",
             Some(nuo_wire::CommandResult::PermissionList {
-                allowed: vec!["run_command".to_string()],
+                allowed: vec!["execute_command".to_string()],
             }),
         ),
     ];
@@ -1016,7 +1018,7 @@ fn command_entries_render_header_and_direct_body_without_folding() {
         "the command result body renders directly unfolded:\n{grid}"
     );
     assert!(
-        grid.contains("• run_command"),
+        grid.contains("• execute_command"),
         "the body's list renders through the block renderer:\n{grid}"
     );
 }

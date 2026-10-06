@@ -6,7 +6,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use nuo_tool_fs::SystemToolContext;
 use nuo_tool::{
-    RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope, ToolSchema,
+    BuiltinTool, RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope, ToolSchema,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -40,11 +40,11 @@ impl ExecuteCommandTool {
 #[async_trait]
 impl Tool for ExecuteCommandTool {
     fn name(&self) -> &str {
-        "execute_command"
+        BuiltinTool::ExecuteCommand.as_str()
     }
 
     fn aliases(&self) -> &'static [&'static str] {
-        &["run_command"]
+        BuiltinTool::ExecuteCommand.aliases()
     }
 
     fn description(&self) -> &str {
@@ -148,7 +148,7 @@ mod tests {
 
         let res = tool.execute(&t_ctx, json!({"command": "echo test"})).await.unwrap();
         assert!(res.content().contains("test"));
-        assert!(tool.matches_name("run_command"));
         assert!(tool.matches_name("execute_command"));
+        assert!(!tool.matches_name("run_command"));
     }
 }

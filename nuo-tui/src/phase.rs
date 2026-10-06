@@ -186,7 +186,7 @@ fn tool_verb(name: &str) -> ToolVerb {
         "search_text" => ToolVerb::Searching,
         "search_web" => ToolVerb::WebSearching,
         "write_file" | "edit_text" => ToolVerb::Editing,
-        "run_command" | "execute_command" | "bash" => ToolVerb::Running,
+        "execute_command" => ToolVerb::Running,
         "write_todos" | "update_todo" | "todo" | "todo_update" => ToolVerb::UpdatingTasks,
         "spawn_agent" | "delegate_code" => ToolVerb::Delegating,
         n if n.starts_with("mcp__") => ToolVerb::Mcp,

@@ -324,7 +324,7 @@ mod tests {
     #[test]
     fn declared_defaults_open_only_the_action_components() {
         let config = crate::config::TuiConfig::default();
-        for name in ["edit_text", "write_file", "execute_command", "run_command", "bash"] {
+        for name in ["edit_text", "write_file", "execute_command"] {
             assert!(
                 crate::config::tool_default_expanded(&config, name),
                 "{name} must open by default"

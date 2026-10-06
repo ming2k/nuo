@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nuo_wire::{ExecutionEnvironment, Tool, ToolAccesses, ToolOutput};
-use nuo_tool::ToolSchema;
+use nuo_tool::{BuiltinTool, ToolSchema};
 use serde::Deserialize;
 
 use nuo_code::syntax;
@@ -287,7 +287,7 @@ fn slice_source(source: &str, range: (usize, usize), budget: usize) -> (String, 
 #[async_trait]
 impl Tool for CodeQueryTool {
     fn name(&self) -> &str {
-        "code_query"
+        BuiltinTool::CodeQuery.as_str()
     }
 
     fn description(&self) -> &str {

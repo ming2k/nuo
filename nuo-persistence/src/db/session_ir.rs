@@ -402,7 +402,7 @@ mod tests {
         // 1. Create SessionIR and append events
         let mut policy = SessionPolicy::default();
         policy.rules.system_persona = Some("Rust Core Engineer".into());
-        policy.capabilities.enabled_tools = vec!["run_command".into(), "read_text".into()];
+        policy.capabilities.enabled_tools = vec!["execute_command".into(), "read_text".into()];
 
         let mut ir = SessionIR::new("session-roundtrip-test", policy.clone(), 1000);
 

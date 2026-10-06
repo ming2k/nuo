@@ -2,7 +2,7 @@
 
 use super::{SkillRegistry, SkillScope};
 use async_trait::async_trait;
-use nuo_wire::Tool;
+use nuo_wire::{BuiltinTool, Tool};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -14,7 +14,7 @@ pub struct UseSkillTool {
 #[async_trait]
 impl Tool for UseSkillTool {
     fn name(&self) -> &str {
-        "use_skill"
+        BuiltinTool::UseSkill.as_str()
     }
 
     fn description(&self) -> &str {
@@ -98,7 +98,7 @@ pub struct ListSkillsTool {
 #[async_trait]
 impl Tool for ListSkillsTool {
     fn name(&self) -> &str {
-        "list_skills"
+        BuiltinTool::ListSkills.as_str()
     }
 
     fn description(&self) -> &str {
