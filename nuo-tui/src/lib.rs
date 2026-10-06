@@ -2113,7 +2113,6 @@ pub async fn run_tui(
         view_transitioned: false,
         transcript_changed_pending: false,
         side_transcript_changed_pending: false,
-        tool_density: tui_config.tool_density,
         reasoning_default_expanded: crate::config::reasoning_default_expanded(&tui_config),
         backend_completion_signal: None,
         tui_config: (*tui_config).clone(),

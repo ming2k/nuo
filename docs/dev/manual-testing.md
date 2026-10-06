@@ -322,19 +322,22 @@ rm -rf "$NUO_HOME"
     `find_files`, then expand the resulting step (`Enter` / click its summary).
   - Prompt it to list a directory so it calls `list_dir`, and expand that step.
 - **Expected Outcome**:
-  - Both steps open with a **count band** parsed from the tool's own header —
-    `Found 27 files` for `find_files`, `` docs/adr · 27 items `` for `list_dir` —
-    rather than dumping the raw `Found N matching files:` / ``Directory: `…```
-    header line as a path row.
-  - `find_files` groups siblings under a per-directory **title band**
-    (`docs/adr/`), so the shared prefix appears once instead of on every row.
-  - `list_dir` rows render as a type glyph + name with the byte size in an
-    aligned dim column; the raw `[DIR]` / `[FILE]` tags never appear.
+  - **`list_dir`** opens with a **column header** (`Name` … `Size`) — a table
+    head, not a count tally — and renders one row per entry with no per-row type
+    glyph. Each directory name carries a trailing `/` and is colored the `ls`
+    blue, an executable the `ls` green, a symlink the cyan, and a plain file the
+    scheme's normal content tone; the byte size sits in a dim right-aligned
+    column. The raw `[DIR]` / `[EXEC]` / `[LINK]` / `[FILE]` tags never appear.
+  - **`find_files`** opens with a **count band** parsed from the tool's own
+    header (`Found 27 files`) and groups siblings under a per-directory **title
+    band** (`docs/adr/`), so the shared prefix appears once instead of on every
+    row — rather than dumping the raw `Found N matching files:` header line as
+    a path row.
   - A truncated `list_dir` shows a dim `⋯ N more entries not shown` band, not
     the raw `... (N additional entries omitted)` line.
   - Selecting a listing and copying still yields the underlying paths in reading
-    order (the bands are decoration; the byte ranges stay anchored in the raw
-    output).
+    order (the header and bands are decoration; the byte ranges stay anchored in
+    the raw output).
 
 ---
 

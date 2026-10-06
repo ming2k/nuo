@@ -44,7 +44,6 @@ pub struct TuiConfig {
     #[serde(default = "default_true")]
     pub click_outside_dismiss: bool,
     pub expand_auto_scroll: bool,
-    pub tool_density: bool,
     #[serde(default)]
     pub default_expanded: HashMap<String, bool>,
     #[serde(default)]
@@ -81,7 +80,6 @@ impl Default for TuiConfig {
             color_scheme: String::new(),
             click_outside_dismiss: true,
             expand_auto_scroll: false,
-            tool_density: false,
             default_expanded: HashMap::new(),
             custom_color_scheme: ColorSchemeConfig::default(),
             input_history: InputHistoryConfig::default(),

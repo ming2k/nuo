@@ -460,7 +460,7 @@ fn transcript_from_core_inner(
                     // Ok follows per-tool config).
                     if let Some(status) = item.tool_step_status() {
                         let default =
-                            step_interaction::default_tool_expanded(status, name, config, false);
+                            step_interaction::default_tool_expanded(status, name, config);
                         item.set_tool_step_expanded(default);
                     }
                     continue;

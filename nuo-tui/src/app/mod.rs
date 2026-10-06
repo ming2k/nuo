@@ -433,9 +433,6 @@ pub struct App {
     /// consumes it for bottom-follow scroll staging.
     pub transcript_changed_pending: bool,
     pub side_transcript_changed_pending: bool,
-    /// Global tool-step density (`true` = Comfortable: new tool steps spawn
-    /// expanded). Config-derived; read by the applier's disclosure defaults.
-    pub tool_density: bool,
     /// Effective default-expand state for a reasoning trace
     /// (`[tui.default_expanded] thinking`, ADR-0197 M1: applier-owned).
     pub reasoning_default_expanded: bool,

@@ -87,6 +87,7 @@ async fn run_daemon_action(
             no_local_auth,
             idle_exit_minutes,
             shutdown_grace_secs,
+            client_driven,
         } => {
             let flags = DaemonStart {
                 port,
@@ -94,6 +95,7 @@ async fn run_daemon_action(
                 no_local_auth,
                 idle_exit_minutes,
                 shutdown_grace_secs,
+                client_driven,
             };
             if !foreground {
                 return detach_daemon(&flags);

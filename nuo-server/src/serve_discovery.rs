@@ -260,6 +260,16 @@ mod lease_tests {
     }
 }
 
+/// Read the global discovery record.
+pub fn read() -> Option<Discovery> {
+    read_at(&global_discovery_path())
+}
+
+pub fn read_at(path: &Path) -> Option<Discovery> {
+    let bytes = std::fs::read(path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 /// Write the unified daemon's global discovery record (ADR-0096). Atomic.
 pub fn write_global(record: &Discovery) -> Result<PathBuf, String> {
     let path = global_discovery_path();

@@ -33,8 +33,6 @@ pub enum BadgeStyle {
     Expanded,
     /// On / off switch (`[ Enabled ]` / `[ Disabled ]`).
     Enabled,
-    /// Density mode (`[ Comfortable ]` / `[ Compact ]`).
-    Density,
 }
 
 /// Identity of one Components-panel row.
@@ -45,8 +43,6 @@ pub enum ComponentRowId {
     /// A declared tool component; every alias shares this one row. Compared by
     /// [`ToolComponent::id`] so the row identity survives an address change.
     Tool(&'static ToolComponent),
-    /// Global step density (`[tui] tool_density`).
-    Density,
     /// Auto-scroll on expand (`[tui] expand_auto_scroll`).
     AutoScroll,
 }
@@ -62,7 +58,7 @@ impl Eq for ToolComponent {}
 /// The behaviour rows trailing the tool component rows. Reasoning leads the
 /// panel because it is the one non-tool interactive entry every transcript
 /// carries.
-const BEHAVIOR_ROWS: [ComponentRowId; 2] = [ComponentRowId::Density, ComponentRowId::AutoScroll];
+const BEHAVIOR_ROWS: [ComponentRowId; 1] = [ComponentRowId::AutoScroll];
 
 /// Count of selectable rows in the Components panel. Derived from the tool
 /// registry — never a literal (ADR-0020).
@@ -101,12 +97,6 @@ fn row_view(
             component.description,
             BadgeStyle::Expanded,
             crate::config::tool_default_expanded(tui_config, component.primary_name()),
-        ),
-        ComponentRowId::Density => (
-            "Global Step Density",
-            "Comfortable mode expands all tool steps; Compact uses per-tool defaults",
-            BadgeStyle::Density,
-            tui_config.tool_density,
         ),
         ComponentRowId::AutoScroll => (
             "Auto-Scroll on Expand",
@@ -179,13 +169,6 @@ pub(super) fn draw_components_detail(
                     "[ Disabled ]"
                 }
             }
-            BadgeStyle::Density => {
-                if is_active {
-                    "[ Comfortable ]"
-                } else {
-                    "[ Compact ]"
-                }
-            }
         };
 
         // Identity line: label + badge. The description moves to its own line
@@ -255,7 +238,7 @@ mod tests {
     /// drift (ADR-0020).
     #[test]
     fn panel_rows_are_derived_from_the_tool_registry() {
-        assert_eq!(item_count(), TOOL_COMPONENTS.len() + 3);
+        assert_eq!(item_count(), TOOL_COMPONENTS.len() + 2);
         assert_eq!(row_for_index(0), Some(ComponentRowId::Reasoning));
         for (offset, component) in TOOL_COMPONENTS.iter().enumerate() {
             assert_eq!(
@@ -268,10 +251,6 @@ mod tests {
         }
         assert_eq!(
             row_for_index(1 + TOOL_COMPONENTS.len()),
-            Some(ComponentRowId::Density)
-        );
-        assert_eq!(
-            row_for_index(2 + TOOL_COMPONENTS.len()),
             Some(ComponentRowId::AutoScroll)
         );
         // Out of range resolves to nothing rather than wrapping.

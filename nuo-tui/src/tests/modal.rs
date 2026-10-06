@@ -1616,7 +1616,6 @@ async fn config_view_components_toggle_and_persistence() {
     });
     let diff_row = index_of(&|row| matches!(row, ComponentRowId::Tool(c) if c.id == "diff"));
     let search_row = index_of(&|row| matches!(row, ComponentRowId::Tool(c) if c.id == "search"));
-    let density_row = index_of(&|row| row == ComponentRowId::Density);
     let auto_scroll_row = index_of(&|row| row == ComponentRowId::AutoScroll);
 
     app.config_detail_index = reasoning_row;
@@ -1673,18 +1672,6 @@ async fn config_view_components_toggle_and_persistence() {
     assert!(crate::config::tool_default_expanded(&app.tui_config, "search_text"));
     assert!(!crate::config::tool_default_expanded(&app.tui_config, "edit_text"));
 
-    app.config_detail_index = density_row;
-    assert!(!app.tool_density);
-    crate::event_loop::actions::dispatch_action_for_test(
-        &mut app,
-        &runtime,
-        crate::input::InputAction::ConfigActivate,
-        "s1",
-    )
-    .await;
-    assert!(app.tool_density);
-    assert!(app.tui_config.tool_density);
-
     app.config_detail_index = auto_scroll_row;
     assert!(!app.expand_auto_scroll);
     crate::event_loop::actions::dispatch_action_for_test(
@@ -1704,7 +1691,6 @@ async fn config_view_components_toggle_and_persistence() {
     assert!(!crate::config::tool_default_expanded(&loaded, "bash"));
     assert!(!crate::config::tool_default_expanded(&loaded, "edit_text"));
     assert!(crate::config::tool_default_expanded(&loaded, "search_text"));
-    assert!(loaded.tool_density);
     assert!(loaded.expand_auto_scroll);
 }
 

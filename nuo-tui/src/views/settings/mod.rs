@@ -585,8 +585,8 @@ mod tests {
         );
         assert_eq!(
             components::item_count(),
-            crate::tools::TOOL_COMPONENTS.len() + 3,
-            "one row per declared component, plus reasoning, density, auto-scroll"
+            crate::tools::TOOL_COMPONENTS.len() + 2,
+            "one row per declared component, plus reasoning, auto-scroll"
         );
         assert_eq!(ConfigCategory::System.detail_item_count(None, None, &direct), 5);
 

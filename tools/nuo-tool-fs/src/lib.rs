@@ -447,6 +447,59 @@ fn diagnose_edit_failure(content: &str, old_str: &str, path: &str) -> String {
     )
 }
 
+/// The `ls`-style class of one directory entry, carried as the leading tag of a
+/// `list_dir` row so a presentation layer can colour a listing the way the
+/// shell's `ls` does (blue directories, green executables, cyan symlinks, plain
+/// files) without re-statting the path itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EntryClass {
+    Dir,
+    Exec,
+    Link,
+    File,
+}
+
+impl EntryClass {
+    /// Classify an entry. A symlink wins over every other class (its own type is
+    /// the fact worth surfacing), a directory next, then the executable bit,
+    /// else a plain file. The executable bit is consulted only where the host
+    /// exposes a POSIX mode; elsewhere every non-dir, non-link entry is a file.
+    fn classify(is_symlink: bool, is_dir: bool, metadata: Option<&fs::Metadata>) -> Self {
+        if is_symlink {
+            Self::Link
+        } else if is_dir {
+            Self::Dir
+        } else if metadata.is_some_and(is_executable) {
+            Self::Exec
+        } else {
+            Self::File
+        }
+    }
+
+    /// The leading tag printed for this class, parsed back by the TUI renderer.
+    fn tag(self) -> &'static str {
+        match self {
+            Self::Dir => "[DIR]",
+            Self::Exec => "[EXEC]",
+            Self::Link => "[LINK]",
+            Self::File => "[FILE]",
+        }
+    }
+}
+
+/// Whether `metadata` carries an executable bit for any principal.
+#[cfg(unix)]
+fn is_executable(metadata: &fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    metadata.permissions().mode() & 0o111 != 0
+}
+
+/// Without a POSIX permission model nothing is reported as executable.
+#[cfg(not(unix))]
+fn is_executable(_metadata: &fs::Metadata) -> bool {
+    false
+}
+
 /// Typed parameters for [`ListDirTool`].
 #[derive(Debug, Clone, Deserialize, ToolSchema)]
 pub struct ListDirArgs {
@@ -520,12 +573,16 @@ impl Tool for ListDirTool {
         let mut items = Vec::new();
         for entry in entries.flatten() {
             let file_name = entry.file_name().to_string_lossy().to_string();
+            // `file_type` reports a symlink's *own* type (never followed), so a
+            // link is classified as a link even when it points at a directory.
             let file_type = entry.file_type().ok();
+            let is_symlink = file_type.map(|t| t.is_symlink()).unwrap_or(false);
             let is_dir = file_type.map(|t| t.is_dir()).unwrap_or(false);
-            let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+            let metadata = entry.metadata().ok();
+            let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
 
-            let type_indicator = if is_dir { "[DIR] " } else { "[FILE]" };
-            items.push(format!("{type_indicator} {:<25} ({size} B)", file_name));
+            let class = EntryClass::classify(is_symlink, is_dir, metadata.as_ref());
+            items.push(format!("{:<6} {:<25} ({size} B)", class.tag(), file_name));
         }
 
         items.sort();
@@ -844,6 +901,48 @@ mod tests {
             .await
             .unwrap();
         assert!(list_res.content().contains("hello.txt"));
+        // The listing tags each entry with its class so the TUI can colour it.
+        assert!(
+            list_res.content().contains("[FILE] hello.txt"),
+            "a plain file is tagged `[FILE]`; got:\n{}",
+            list_res.content()
+        );
+    }
+
+    #[test]
+    fn entry_class_prefers_link_then_dir_then_executable() {
+        // A symlink wins over the type it points at (a link to a dir is a link).
+        assert_eq!(EntryClass::classify(true, true, None), EntryClass::Link);
+        assert_eq!(EntryClass::classify(true, false, None), EntryClass::Link);
+        // A real directory next.
+        assert_eq!(EntryClass::classify(false, true, None), EntryClass::Dir);
+        // No metadata → a plain file (nothing is guessed as executable).
+        assert_eq!(EntryClass::classify(false, false, None), EntryClass::File);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn list_dir_tags_executables_and_directories() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempdir().unwrap();
+        let ctx = Arc::new(SystemToolContext::new(dir.path()));
+        let t_ctx = ToolContext::default();
+        fs::create_dir(dir.path().join("nested")).unwrap();
+        fs::write(dir.path().join("plain.txt"), "hi").unwrap();
+        let script = dir.path().join("run.sh");
+        fs::write(&script, "#!/bin/sh\n").unwrap();
+        let mut perms = fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script, perms).unwrap();
+
+        let out = ListDirTool::new(ctx)
+            .execute(&t_ctx, json!({"path": "."}))
+            .await
+            .unwrap();
+        let text = out.content();
+        assert!(text.contains("[DIR]  nested"), "dir tag: {text}");
+        assert!(text.contains("[EXEC] run.sh"), "exec tag: {text}");
+        assert!(text.contains("[FILE] plain.txt"), "file tag: {text}");
     }
 
     #[tokio::test]

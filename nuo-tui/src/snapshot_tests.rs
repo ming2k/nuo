@@ -558,13 +558,12 @@ fn edit_text_distant_changes_render_explicit_hunks() {
     insta::assert_snapshot!(render_grid(&m, 80, 40));
 }
 
-/// A `list_dir` step renders its **real** tool shape — the `[DIR]` / `[FILE]`
-/// rows — as a layered block: a count band parsed from the tool's own
-/// ``Directory: `path` (N items):`` header, then one typed row per entry with a
-/// type glyph and the byte size in a dim column. The previous fixture fed a
-/// synthetic `src/\ntests/\nCargo.toml\nREADME.md` shape `ListDirTool` never
-/// emits (`src/` with a slash, no tag, no size), so the snapshot stayed green
-/// while production rendered the `[DIR]` rows as flat, mis-colored paths.
+/// A `list_dir` step renders its **real** tool shape — the class-tagged
+/// entries — as a table: a `Name` / `Size` column header replacing the old
+/// count-summary band, then one row per entry with the name coloured by its
+/// `ls` class (blue directory, green executable, cyan symlink, plain file) and
+/// a directory carrying a trailing `/`, the byte size in a dim right-aligned
+/// column. The former per-row type glyph is gone.
 #[test]
 fn list_dir_expanded_renders_listing() {
     let output = concat!(
@@ -577,8 +576,20 @@ fn list_dir_expanded_renders_listing() {
     let m = tool_step("list_dir", r#"{"path":"."}"#, Some(output), true);
     let grid = render_grid(&m, 80, 30);
 
-    assert!(grid.contains("4 items"), "count band renders: {grid}");
-    assert!(grid.contains("src"), "directory row renders: {grid}");
+    // First line is a table header, not a count summary.
+    assert!(grid.contains("Name"), "column header renders: {grid}");
+    assert!(grid.contains("Size"), "column header renders: {grid}");
+    assert!(
+        !grid.contains("4 items"),
+        "the old count summary band is replaced by the header: {grid}"
+    );
+    // Directories carry a trailing `/`; no per-row type glyph remains.
+    assert!(grid.contains("src/"), "directory row keeps a `/`: {grid}");
+    assert!(grid.contains("tests/"), "directory row keeps a `/`: {grid}");
+    assert!(
+        !grid.contains("▸") && !grid.contains("· "),
+        "no per-row type glyph remains: {grid}"
+    );
     assert!(grid.contains("Cargo.toml"), "file row renders: {grid}");
     assert!(grid.contains("4096 B"), "directory size renders: {grid}");
     assert!(grid.contains("128 B"), "file size renders: {grid}");
@@ -589,7 +600,7 @@ fn list_dir_expanded_renders_listing() {
         !grid.contains("Directory: `"),
         "header prefix must be consumed: {grid}"
     );
-    // Visual lock on the layered layout (count band → typed rows + size column).
+    // Visual lock on the table layout (header → class-coloured rows + size column).
     insta::assert_snapshot!(render_grid(&m, 80, 30));
 }
 

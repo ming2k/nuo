@@ -68,6 +68,8 @@ pub struct LifecycleOptions {
     /// Auto-exit after this much continuous zero-sessions-zero-clients time
     /// (ADR-0100 rule 3). `None` = never (always-on deployments).
     pub idle_exit: Option<Duration>,
+    /// Auto-exit when all interactive TUI clients close (ADR-0029).
+    pub client_driven: bool,
     /// Test seam (never set in production): park the drain after it is
     /// announced so a test can land an escalation at a deterministic point.
     #[doc(hidden)]
@@ -83,6 +85,7 @@ impl LifecycleOptions {
                 0 => None,
                 minutes => Some(Duration::from_secs(minutes * 60)),
             },
+            client_driven: false,
             drain_probe: None,
         }
     }
@@ -93,6 +96,7 @@ impl Default for LifecycleOptions {
         Self {
             shutdown_grace: Duration::from_secs(10),
             idle_exit: Some(Duration::from_secs(5 * 60)),
+            client_driven: false,
             drain_probe: None,
         }
     }
@@ -230,29 +234,37 @@ async fn run_inner(
     if let Some(parent) = lock_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
+
+    let local_uds_path = match &opts.local_endpoint {
+        Some(nuo_host::ipc::LocalEndpoint::UnixSocket(path)) => Some(path.as_path()),
+        _ => None,
+    };
+    takeover_conflicting_daemon(&lock_path, local_uds_path, opts.port).await;
+
     let _instance_lock = match ProcessLock::acquire(&lock_path) {
         Ok(lock) => Some(lock),
         Err(busy) => {
-            // Another daemon is either alive (fine — the client-side
-            // discovery probe should have found it) or draining. Wait for
-            // the lock with a budget derived from *this* daemon's grace
-            // plus a floor: a draining predecessor holds the lock for at
-            // most its own grace, and the floor covers the general case
-            // (a sibling draining at a longer configured grace, slow
-            // session hooks, machine load). The predecessor's budget is
-            // not knowable from here — the lock file carries only its
-            // pid — so the floor is what makes this bound honest rather
-            // than a magic number (ADR-0101/0116).
-            let budget =
-                lifecycle.shutdown_grace.max(Duration::from_secs(10)) + Duration::from_secs(5);
-            tracing::warn!(%busy, budget_secs = budget.as_secs(), "nuo daemon: another daemon holds the instance lock; waiting for it to exit");
+            let budget = Duration::from_millis(1500);
+            tracing::warn!(%busy, "nuo daemon: another daemon holds the instance lock; attempting takeover");
             match wait_for_lock(&lock_path, budget).await {
                 Ok(lock) => Some(lock),
                 Err(_) => {
-                    return RunOutcome::StartupFailed(format!(
-                        "another nuo daemon is running (lock held at {})",
-                        lock_path.display()
-                    ));
+                    if let Some(pid) = ProcessLock::probe_holder(&lock_path) {
+                        if pid != std::process::id() {
+                            if let Ok(identity) = nuo_host::process::process_identity(pid) {
+                                let _ = nuo_host::process::force_terminate(identity);
+                            }
+                        }
+                    }
+                    match wait_for_lock(&lock_path, Duration::from_millis(500)).await {
+                        Ok(lock) => Some(lock),
+                        Err(_) => {
+                            return RunOutcome::StartupFailed(format!(
+                                "could not acquire instance lock on {}",
+                                lock_path.display()
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -447,7 +459,14 @@ async fn run_inner(
     // Serving
     // Wait for a trigger, or the idle-exit timer (which itself is just
     // another trigger source, ADR-0100 rule 3).
-    serve_until_trigger(&gate, &registry, &handle, lifecycle.idle_exit).await;
+    serve_until_trigger(
+        &gate,
+        &registry,
+        &handle,
+        lifecycle.idle_exit,
+        lifecycle.client_driven,
+    )
+    .await;
 
     // Draining (ADR-0101): budgeted phases, each checking `forced`
     let reason = gate
@@ -535,6 +554,84 @@ fn handle_gate(serve_gate: Arc<ShutdownGate>, run_gate: &Arc<ShutdownGate>) -> A
     Arc::clone(run_gate)
 }
 
+#[cfg(unix)]
+fn is_uds_live(path: &std::path::Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    std::os::unix::net::UnixStream::connect(path).is_ok()
+}
+
+#[cfg(not(unix))]
+fn is_uds_live(_path: &std::path::Path) -> bool {
+    false
+}
+
+fn is_tcp_port_live(port: u16) -> bool {
+    if port == 0 {
+        return false;
+    }
+    std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
+}
+
+async fn takeover_conflicting_daemon(
+    lock_path: &std::path::Path,
+    uds_path: Option<&std::path::Path>,
+    port: u16,
+) {
+    let current_pid = std::process::id();
+    let mut candidate_pids = std::collections::HashSet::new();
+
+    if let Some(pid) = ProcessLock::probe_holder(lock_path) {
+        if pid != current_pid {
+            candidate_pids.insert(pid);
+        }
+    }
+    if let Some(record) = discovery::read() {
+        if record.pid != current_pid {
+            candidate_pids.insert(record.pid);
+        }
+    }
+
+    let is_uds_in_use = uds_path.map(is_uds_live).unwrap_or(false);
+    let is_port_in_use = is_tcp_port_live(port);
+    let is_locked = ProcessLock::is_locked(lock_path);
+
+    if !candidate_pids.is_empty() || is_uds_in_use || is_port_in_use || is_locked {
+        for pid in candidate_pids {
+            if let Ok(identity) = nuo_host::process::process_identity(pid) {
+                if nuo_host::process::process_is_alive(identity) {
+                    tracing::warn!(pid, "interface conflict detected on UDS/port; terminating existing daemon for takeover");
+                    let _ = nuo_host::process::request_termination(identity);
+                    let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+                    while tokio::time::Instant::now() < deadline
+                        && nuo_host::process::process_is_alive(identity)
+                    {
+                        tokio::time::sleep(Duration::from_millis(25)).await;
+                    }
+                    if nuo_host::process::process_is_alive(identity) {
+                        tracing::warn!(pid, "daemon did not terminate within 500ms; escalating to force terminate");
+                        let _ = nuo_host::process::force_terminate(identity);
+                        let force_deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+                        while tokio::time::Instant::now() < force_deadline
+                            && nuo_host::process::process_is_alive(identity)
+                        {
+                            tokio::time::sleep(Duration::from_millis(25)).await;
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(path) = uds_path {
+            if path.exists() {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// Block until the lock at `path` is acquirable, polling with a total bound.
 async fn wait_for_lock(path: &std::path::Path, budget: Duration) -> Result<ProcessLock, ()> {
     let deadline = tokio::time::Instant::now() + budget;
@@ -552,12 +649,14 @@ async fn wait_for_lock(path: &std::path::Path, budget: Duration) -> Result<Proce
 /// The serving steady-state: wait for the first trigger. When `idle_exit`
 /// is armed, also watch for "zero sessions + zero connections held for the
 /// whole grace period" and request the IdleTimeout trigger (ADR-0100
-/// rule 3).
+/// rule 3). When `client_driven` is armed (ADR-0029), auto-terminate when all
+/// interactive TUI clients close.
 async fn serve_until_trigger(
     gate: &Arc<ShutdownGate>,
     registry: &Arc<SessionRegistry>,
     handle: &crate::serve::ServeHandle,
     idle_exit: Option<Duration>,
+    client_driven: bool,
 ) {
     let triggered = gate.triggered();
     tokio::pin!(triggered);
@@ -566,10 +665,52 @@ async fn serve_until_trigger(
         None => Box::pin(std::future::pending::<()>()),
     };
     tokio::pin!(idle);
+    let client_driven_fut: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+        if client_driven {
+            Box::pin(client_driven_exit_future(handle.conns.clone()))
+        } else {
+            Box::pin(std::future::pending::<()>())
+        };
+    tokio::pin!(client_driven_fut);
     tokio::select! {
         _ = &mut triggered => {}
         _ = &mut idle => {
             gate.request(ShutdownReason::IdleTimeout, false);
+        }
+        _ = &mut client_driven_fut => {
+            gate.request(ShutdownReason::AllClientsClosed, false);
+        }
+    }
+}
+
+async fn client_driven_exit_future(conns: Arc<crate::serve::ConnTable>) {
+    let startup_deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while !conns.has_had_interactive() && conns.interactive_count() == 0 {
+        if tokio::time::Instant::now() >= startup_deadline {
+            tracing::info!("no interactive client connected within startup window; terminating daemon");
+            return;
+        }
+        tokio::select! {
+            _ = conns.notified() => {}
+            _ = tokio::time::sleep(Duration::from_millis(200)) => {}
+        }
+    }
+
+    loop {
+        if conns.interactive_count() == 0 {
+            tokio::select! {
+                _ = conns.notified() => {
+                    continue;
+                }
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                    if conns.interactive_count() == 0 {
+                        tracing::info!("all interactive clients closed and debounce expired; terminating daemon");
+                        return;
+                    }
+                }
+            }
+        } else {
+            conns.notified().await;
         }
     }
 }

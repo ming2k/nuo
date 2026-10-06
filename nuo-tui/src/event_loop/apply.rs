@@ -538,9 +538,8 @@ fn apply_oauth(app: &mut App, signal: crate::app::OauthAddSignal) {
 fn apply_transcript(app: &mut App, buffer: Buffer, edit: TranscriptEdit) -> bool {
     let mut post = PostEdit::None;
     let mut changed = true;
-    // Snapshot the disclosure inputs the two tool arms need before the
-    // document borrow; the values are App-owned config.
-    let (tool_density, tui_config) = (app.tool_density, app.tui_config.clone());
+    // Snapshot the disclosure input the tool arms need before the document borrow.
+    let tui_config = app.tui_config.clone();
     {
         let messages = buffer_messages(app, buffer);
         match edit {
@@ -669,7 +668,6 @@ fn apply_transcript(app: &mut App, buffer: Buffer, edit: TranscriptEdit) -> bool
                         status,
                         &name,
                         &tui_config,
-                        tool_density,
                     );
                     message.set_tool_step_expanded(default);
                 }
@@ -719,7 +717,6 @@ fn apply_transcript(app: &mut App, buffer: Buffer, edit: TranscriptEdit) -> bool
                                 status,
                                 &name,
                                 &tui_config,
-                                tool_density,
                             );
                             existing.set_tool_step_expanded(default);
                         }
@@ -736,7 +733,6 @@ fn apply_transcript(app: &mut App, buffer: Buffer, edit: TranscriptEdit) -> bool
                                     status,
                                     &name,
                                     &tui_config,
-                                    tool_density,
                                 );
                                 message.set_tool_step_expanded(default);
                             }

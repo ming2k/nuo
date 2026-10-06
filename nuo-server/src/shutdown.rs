@@ -41,6 +41,8 @@ pub enum ShutdownReason {
     /// Idle-exit (ADR-0100 rule 3): zero hosted sessions and zero attached
     /// clients held for the configured grace period.
     IdleTimeout,
+    /// All active interactive TUI clients disconnected (ADR-0029).
+    AllClientsClosed,
     /// A startup or runtime failure the daemon cannot survive (bind failure,
     /// a supervised core task panicking). The message surfaces in the exit
     /// log line.
@@ -55,6 +57,7 @@ impl std::fmt::Display for ShutdownReason {
             Self::SignalHangup => f.write_str("hangup (SIGHUP)"),
             Self::ControlVerb => f.write_str("shutdown verb (control plane)"),
             Self::IdleTimeout => f.write_str("idle exit (no sessions, no clients)"),
+            Self::AllClientsClosed => f.write_str("all interactive clients closed"),
             Self::Fatal(what) => write!(f, "fatal: {what}"),
         }
     }

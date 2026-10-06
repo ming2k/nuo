@@ -144,6 +144,8 @@ async fn host_one(registry: &Arc<SessionRegistry>, project: &str) {
         .await;
 }
 
+static LIFECYCLE_TEST_LOCK: Mutex<()> = Mutex::const_new(());
+
 fn options(uds: std::path::PathBuf, port: u16) -> HostOptions {
     HostOptions {
         port,
@@ -163,6 +165,7 @@ fn options(uds: std::path::PathBuf, port: u16) -> HostOptions {
 #[tokio::test]
 async fn control_verb_drain_removes_discovery_and_exits_zero() {
     sandbox_once();
+    let _lock = LIFECYCLE_TEST_LOCK.lock().await;
     let tmp = tempfile::tempdir().unwrap();
     let registry = Arc::new(SessionRegistry::prehost_only());
     host_one(&registry, tmp.path().join("proj-a").to_str().unwrap()).await;
@@ -183,6 +186,7 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
         LifecycleOptions {
             shutdown_grace: Duration::from_secs(3),
             idle_exit: None,
+            client_driven: false,
             drain_probe: None,
         },
         registry,
@@ -220,6 +224,7 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
 #[tokio::test]
 async fn idle_exit_triggers_after_the_grace_period() {
     sandbox_once();
+    let _lock = LIFECYCLE_TEST_LOCK.lock().await;
     let tmp = tempfile::tempdir().unwrap();
     // No sessions, no connections: the idle timer is the only exit path.
     // The probe polls every 5s; a near-zero grace needs one tick, so the
@@ -234,6 +239,7 @@ async fn idle_exit_triggers_after_the_grace_period() {
         LifecycleOptions {
             shutdown_grace: Duration::from_secs(3),
             idle_exit: Some(Duration::from_millis(1)),
+            client_driven: false,
             drain_probe: None,
         },
     )
@@ -248,6 +254,7 @@ async fn idle_exit_triggers_after_the_grace_period() {
 #[tokio::test]
 async fn escalation_skips_the_graceful_phases() {
     sandbox_once();
+    let _lock = LIFECYCLE_TEST_LOCK.lock().await;
     let tmp = tempfile::tempdir().unwrap();
     let sock = tmp.path().join("c.sock");
     let registry = Arc::new(SessionRegistry::prehost_only());
@@ -272,6 +279,7 @@ async fn escalation_skips_the_graceful_phases() {
             LifecycleOptions {
                 shutdown_grace: Duration::from_secs(5),
                 idle_exit: None,
+                client_driven: false,
                 drain_probe: Some(run_probe),
             },
             registry,
@@ -314,6 +322,7 @@ async fn escalation_skips_the_graceful_phases() {
 #[tokio::test]
 async fn port_bind_failure_is_a_readable_startup_failure() {
     sandbox_once();
+    let _lock = LIFECYCLE_TEST_LOCK.lock().await;
     let tmp = tempfile::tempdir().unwrap();
     // Occupy a port so the daemon's bind fails.
     let hog = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -417,4 +426,114 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
         suspended.contains(&plain_id),
         "a schedule-free idle session should still suspend (suspended: {suspended:?})"
     );
+}
+
+#[tokio::test]
+async fn client_driven_lifecycle_stops_when_interactive_client_disconnects() {
+    sandbox_once();
+    let _lock = LIFECYCLE_TEST_LOCK.lock().await;
+    let tmp = tempfile::tempdir().unwrap();
+    let sock = tmp.path().join("client_driven.sock");
+    let registry = Arc::new(SessionRegistry::prehost_only());
+    let proj_dir = tmp.path().join("proj-cd");
+    host_one(&registry, proj_dir.to_str().unwrap()).await;
+
+    let gate = Arc::new(ShutdownGate::new());
+    let sock_clone = sock.clone();
+    let run = tokio::spawn(async move {
+        nuo::host::run_with_registry(
+            test_identity(),
+            options(sock_clone, 0),
+            gate,
+            LifecycleOptions {
+                shutdown_grace: Duration::from_secs(3),
+                idle_exit: None,
+                client_driven: true,
+                drain_probe: None,
+            },
+            registry,
+        )
+        .await
+    });
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while !sock.exists() {
+        if tokio::time::Instant::now() >= deadline {
+            panic!("socket was not created in time");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let stream = tokio::net::UnixStream::connect(&sock).await.unwrap();
+    let (mut sink, mut source) = nuo_client::wire::native_framed_split(stream);
+
+    use futures::{SinkExt, StreamExt};
+    sink.send(nuo_client::wire::Wire::Select {
+        action: nuo_client::wire::AttachAction::Attach(None),
+        project: Some(proj_dir),
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        version: None,
+        protocol: Some(nuo_client::wire::PROTOCOL_VERSION),
+    })
+    .await
+    .unwrap();
+
+    let welcome = source.next().await.unwrap().unwrap();
+    assert!(matches!(welcome, nuo_client::wire::Wire::Welcome { .. }));
+
+    // Disconnect the interactive client
+    drop(sink);
+    drop(source);
+
+    // Daemon terminates cleanly after 1s debounce
+    let outcome = tokio::time::timeout(Duration::from_secs(5), run)
+        .await
+        .expect("daemon timed out waiting for client_driven exit")
+        .expect("join run");
+
+    assert_eq!(outcome.exit_code(), 0);
+    match &outcome {
+        RunOutcome::Stopped { reason } => assert_eq!(*reason, ShutdownReason::AllClientsClosed),
+        other => panic!("expected AllClientsClosed, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn conflicting_stale_socket_is_directly_replaced() {
+    sandbox_once();
+    let _lock = LIFECYCLE_TEST_LOCK.lock().await;
+    let tmp = tempfile::tempdir().unwrap();
+    let sock = tmp.path().join("conflict.sock");
+
+    // Write a stale socket file
+    std::fs::write(&sock, b"stale socket").unwrap();
+    assert!(sock.exists());
+
+    let registry = Arc::new(SessionRegistry::prehost_only());
+    let gate = Arc::new(ShutdownGate::new());
+    let g1 = gate.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        g1.request(ShutdownReason::ControlVerb, false);
+    });
+
+    let outcome = nuo::host::run_with_registry(
+        test_identity(),
+        options(sock.clone(), 0),
+        gate,
+        LifecycleOptions {
+            shutdown_grace: Duration::from_secs(3),
+            idle_exit: None,
+            client_driven: false,
+            drain_probe: None,
+        },
+        registry,
+    )
+    .await;
+
+    assert_eq!(outcome.exit_code(), 0);
+    match &outcome {
+        RunOutcome::Stopped { reason } => assert_eq!(*reason, ShutdownReason::ControlVerb),
+        other => panic!("expected ControlVerb, got {other:?}"),
+    }
 }

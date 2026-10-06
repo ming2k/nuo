@@ -91,6 +91,31 @@ pub struct SemanticPalette {
     pub error: Color,
 }
 
+/// The `ls(1)`-style class of a filesystem entry, used to colour a directory
+/// listing the way the shell's `ls` does. The classification is carried on the
+/// wire by the `list_dir` tool (its per-row `[DIR]` / `[EXEC]` / `[LINK]` /
+/// `[FILE]` tag) rather than guessed from the name, so the renderer colours the
+/// *fact* the tool observed and never invents a type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListingClass {
+    /// A directory — `ls` renders it blue.
+    Dir,
+    /// An executable file — `ls` renders it green.
+    Exec,
+    /// A symbolic link — `ls` renders it cyan.
+    Link,
+    /// Any other file — rendered in the scheme's normal content foreground.
+    File,
+}
+
+/// Canonical `ls(1)` listing hues: the blue / green / cyan a shell listing marks
+/// a directory, an executable, and a symbolic link with. Tuned for a dark
+/// surface; [`Theme::listing_color`] nudges each toward the scheme's own content
+/// tone so it stays legible on light palettes too.
+const LISTING_DIR_HUE: Color = Color::Rgb(86, 132, 214);
+const LISTING_EXEC_HUE: Color = Color::Rgb(86, 176, 106);
+const LISTING_LINK_HUE: Color = Color::Rgb(74, 172, 194);
+
 /// Styles used during rendering.
 #[derive(Clone)]
 pub struct Theme {
@@ -1074,6 +1099,45 @@ impl Theme {
             _ => self.code_bg,
         }
     }
+    /// Foreground for one [`ListingClass`] in a directory listing, matching the
+    /// shell's `ls` convention: **blue** for a directory, **green** for an
+    /// executable, **cyan** for a symbolic link, and the scheme's ordinary
+    /// content foreground ([`Theme::code_text`]) for a plain file.
+    ///
+    /// The three `ls` hues are canonical constants, then nudged toward the
+    /// scheme's own code tone on a light surface so they stay readable (a pure
+    /// blue/green/cyan washes out against a bright background). On a Reset-based
+    /// archetype (ANSI-16 / monochrome) the class uses the terminal's own named
+    /// slots (ANSI-16) or collapses to the plain content tone (monochrome, which
+    /// must emit no hue at all — the type is then carried structurally by the
+    /// directory trailing `/`).
+    pub fn listing_color(&self, class: ListingClass) -> Color {
+        let hue = match class {
+            ListingClass::File => return self.code_text(),
+            ListingClass::Dir => LISTING_DIR_HUE,
+            ListingClass::Exec => LISTING_EXEC_HUE,
+            ListingClass::Link => LISTING_LINK_HUE,
+        };
+        if self.is_monochrome() {
+            return self.code_text();
+        }
+        // A 16-color console has no RGB ladder to blend into; use the named
+        // slots that mirror the scheme's own blue / green / cyan tokens so the
+        // class survives as one of the terminal's own ANSI colors.
+        if self.is_ansi16() {
+            return match class {
+                ListingClass::Dir => Color::LightBlue,
+                ListingClass::Exec => Color::LightGreen,
+                ListingClass::Link => Color::LightCyan,
+                ListingClass::File => self.code_text(),
+            };
+        }
+        if luminance(self.app_bg) > 150.0 {
+            mix(hue, self.code_text(), 0.35)
+        } else {
+            hue
+        }
+    }
     /// Diff block row band — the low-chroma tint a whole added line sits on.
     /// The reference block-level renderer's colors are first-class tokens so
     /// every block-level surface shares one palette contract.
@@ -1399,6 +1463,58 @@ mod tests {
         let fallback = Theme::from_color_scheme("not-a-theme", &custom);
         assert_eq!(fallback.surface(), Theme::default().surface());
         assert_eq!(Theme::normalize_color_scheme(""), "zen");
+    }
+
+    /// A listing row's color follows the shell's `ls` convention — blue dir,
+    /// green exec, cyan link — while a plain file keeps the scheme's content
+    /// tone, and the four are mutually distinct so a type never reads as another.
+    #[test]
+    fn listing_color_matches_ls_convention() {
+        let theme = Theme::default();
+        let dir = theme.listing_color(ListingClass::Dir);
+        let exec = theme.listing_color(ListingClass::Exec);
+        let link = theme.listing_color(ListingClass::Link);
+        let file = theme.listing_color(ListingClass::File);
+        assert_eq!(file, theme.code_text(), "a plain file is the content tone");
+        assert_ne!(dir, exec);
+        assert_ne!(dir, link);
+        assert_ne!(exec, link);
+        // Blue dominates a directory hue: blue channel is the strongest.
+        let (r, g, b) = rgb(dir);
+        assert!(b > r && b > g, "the directory hue reads as blue");
+        // Green dominates the executable hue.
+        let (r, g, b) = rgb(exec);
+        assert!(g > r && g > b, "the executable hue reads as green");
+    }
+
+    /// Monochrome (DEC VT100) must emit no hue at all: every listing class
+    /// collapses to the reset content tone so the type is carried structurally
+    /// (the directory trailing `/`) rather than by color.
+    #[test]
+    fn listing_color_is_hueless_under_monochrome() {
+        let theme = Theme::monochrome();
+        for class in [
+            ListingClass::Dir,
+            ListingClass::Exec,
+            ListingClass::Link,
+            ListingClass::File,
+        ] {
+            assert_eq!(
+                theme.listing_color(class),
+                theme.code_text(),
+                "monochrome listing rows carry no color cue"
+            );
+        }
+    }
+
+    /// ANSI-16 uses the terminal's own named slots (never an RGB the console
+    /// cannot render as one of its 16 colors).
+    #[test]
+    fn listing_color_uses_named_slots_under_ansi16() {
+        let theme = Theme::ansi16();
+        assert_eq!(theme.listing_color(ListingClass::Dir), Color::LightBlue);
+        assert_eq!(theme.listing_color(ListingClass::Exec), Color::LightGreen);
+        assert_eq!(theme.listing_color(ListingClass::Link), Color::LightCyan);
     }
 
     /// The hover band is derived from the palette, never a fixed gray, and is

@@ -227,7 +227,6 @@ impl App {
         cfg.custom_color_scheme = self.custom_color_scheme.clone();
         cfg.click_outside_dismiss = self.click_outside_dismiss;
         cfg.expand_auto_scroll = self.expand_auto_scroll;
-        cfg.tool_density = self.tool_density;
         cfg.default_expanded = self.tui_config.default_expanded.clone();
         let _ = cfg.save();
     }

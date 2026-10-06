@@ -899,6 +899,7 @@ pub enum DaemonActivity {
 /// makes it drift rather than skew), the ordinary monitor handshake reaches
 /// it; any failure collapses to [`DaemonActivity::Unreachable`], which the
 /// reclaimer treats as "busy".
+#[allow(dead_code)]
 async fn probe_daemon_activity(info: &DaemonInfo) -> DaemonActivity {
     let action = MonitorAction {
         watch: false,
@@ -938,6 +939,7 @@ async fn probe_daemon_activity(info: &DaemonInfo) -> DaemonActivity {
 /// work: name the incompatibility *and* the cost of reclaiming it, so the
 /// operator's `nuo stop` is an informed choice (ADR-0021). Mirrors
 /// [`incompatibility_error`]'s binary-mismatch text for the busy case.
+#[allow(dead_code)]
 fn drift_refusal_error(info: &DaemonInfo, activity: &DaemonActivity) -> String {
     let head = format!(
         "client/daemon binary mismatch: running daemon (pid {}, version {}) executable differs from the installed nuo core image (rebuilt binary).",
@@ -1313,33 +1315,16 @@ pub fn startup_log_path() -> PathBuf {
 
 pub async fn ensure_daemon(project_root: &Path) -> Result<DaemonInfo, String> {
     if let Some(info) = discover(project_root) {
-        if versions_compatible(&info) {
+        if versions_compatible(&info) && !is_dev_drift(&info) {
             return Ok(info);
         }
-        if is_dev_drift(&info) {
-            // ADR-0021 dev-drift: same product version, same wire window, but
-            // a different executable image — the daily `cargo`-rebuild-under-a-
-            // live-daemon case. Self-heal by reclaiming the daemon *only* when
-            // doing so cannot interrupt work; otherwise refuse with an enriched
-            // message naming what would be lost.
-            match probe_daemon_activity(&info).await {
-                DaemonActivity::Idle { .. } => {
-                    tracing::info!(
-                        pid = info.pid,
-                        "ensure_daemon: reclaiming idle daemon whose executable was rebuilt"
-                    );
-                    stop(&info).await?;
-                    // Fall through: the instance lock is released and the
-                    // spawn path below starts the freshly built image.
-                }
-                activity => return Err(drift_refusal_error(&info, &activity)),
-            }
-        } else {
-            // A version/protocol-skewed daemon is running. Do not stop or
-            // kill it to avoid interrupting ongoing tasks. Prompt the user
-            // about the incompatibility.
-            return Err(incompatibility_error(&info));
-        }
+        // ADR-0029: on dev-drift (rebuilt binary) or version mismatch, directly
+        // replace the conflicting predecessor instead of refusing.
+        tracing::info!(
+            pid = info.pid,
+            "ensure_daemon: replacing existing daemon on version drift or rebuild"
+        );
+        let _ = stop(&info).await;
     }
 
     // Check if another daemon is holding the instance lock
@@ -1350,30 +1335,15 @@ pub async fn ensure_daemon(project_root: &Path) -> Result<DaemonInfo, String> {
     {
         tracing::info!(
             holder_pid,
-            "ensure_daemon: daemon instance lock held; waiting for startup or draining"
+            "ensure_daemon: replacing conflicting daemon holding instance lock"
         );
-        let init_deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while std::time::Instant::now() < init_deadline {
-            tokio::time::sleep(SERVER_START_POLL).await;
-            if let Some(info) = discover(project_root) {
-                if versions_compatible(&info) {
-                    return Ok(info);
-                } else {
-                    return Err(incompatibility_error(&info));
-                }
+        if let Ok(identity) = nuo_host::process::process_identity(holder_pid) {
+            let _ = nuo_host::process::request_termination(identity);
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            if nuo_host::process::process_is_alive(identity) {
+                let _ = nuo_host::process::force_terminate(identity);
+                tokio::time::sleep(Duration::from_millis(200)).await;
             }
-            if !is_process_alive(holder_pid) {
-                break;
-            }
-        }
-
-        // If still locked and discover() failed, do not kill the existing process.
-        // Report that another daemon is running and holding the lock.
-        if is_process_alive(holder_pid) {
-            return Err(format!(
-                "another nuo daemon (pid {holder_pid}) is running and holding the instance lock. \
-                 If it is unresponsive, stop it with `nuo stop`."
-            ));
         }
     }
 
@@ -1428,7 +1398,7 @@ pub async fn ensure_daemon(project_root: &Path) -> Result<DaemonInfo, String> {
 fn spawn_daemon() -> Result<std::process::Child, String> {
     let program = daemon_program();
     let mut command = std::process::Command::new(&program);
-    command.args(["start", "--fg"]);
+    command.args(["start", "--fg", "--client-driven"]);
     command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null());

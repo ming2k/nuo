@@ -88,10 +88,10 @@ mod native {
                 std::fs::create_dir_all(parent)?;
                 std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
             }
-            if let Ok(metadata) = std::fs::symlink_metadata(path)
-                && metadata.file_type().is_socket()
-            {
-                if std::os::unix::net::UnixStream::connect(path).is_ok() {
+            if let Ok(metadata) = std::fs::symlink_metadata(path) {
+                if metadata.file_type().is_socket()
+                    && std::os::unix::net::UnixStream::connect(path).is_ok()
+                {
                     return Err(io::Error::new(
                         io::ErrorKind::AddrInUse,
                         format!("local IPC endpoint {} is already live", path.display()),

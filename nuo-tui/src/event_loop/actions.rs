@@ -942,12 +942,6 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                                         );
                                         app.save_tui_config();
                                     }
-                                    Some(ComponentRowId::Density) => {
-                                        // Global Step Density (tool_density)
-                                        app.tool_density = !app.tool_density;
-                                        app.tui_config.tool_density = app.tool_density;
-                                        app.save_tui_config();
-                                    }
                                     Some(ComponentRowId::AutoScroll) => {
                                         // Auto-Scroll on Expand
                                         app.expand_auto_scroll = !app.expand_auto_scroll;

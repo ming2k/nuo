@@ -275,20 +275,74 @@ fn version_mismatch_error(client: &str, daemon: &str) -> String {
 /// tracked here with its own cancel token, so a draining daemon can close
 /// each live connection with a proper WebSocket `Close(1001 GoingAway)`
 /// instead of vanishing under it. Connections remove themselves on exit.
-#[derive(Default)]
+#[derive(Clone)]
 pub struct ConnTable {
-    inner: std::sync::Mutex<ConnTableInner>,
+    inner: Arc<std::sync::Mutex<ConnTableInner>>,
+    notify: Arc<tokio::sync::Notify>,
+}
+
+impl Default for ConnTable {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(std::sync::Mutex::new(ConnTableInner::default())),
+            notify: Arc::new(tokio::sync::Notify::new()),
+        }
+    }
 }
 
 #[derive(Default)]
 struct ConnTableInner {
     next_id: u64,
     conns: HashMap<u64, CancellationToken>,
+    interactive_count: usize,
+    has_had_interactive: bool,
+}
+
+pub struct InteractiveConnGuard {
+    table: ConnTable,
+}
+
+impl Drop for InteractiveConnGuard {
+    fn drop(&mut self) {
+        self.table.unregister_interactive();
+    }
 }
 
 impl ConnTable {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn register_interactive(&self) -> InteractiveConnGuard {
+        {
+            let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            inner.interactive_count += 1;
+            inner.has_had_interactive = true;
+        }
+        self.notify.notify_waiters();
+        InteractiveConnGuard {
+            table: self.clone(),
+        }
+    }
+
+    pub fn unregister_interactive(&self) {
+        {
+            let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            inner.interactive_count = inner.interactive_count.saturating_sub(1);
+        }
+        self.notify.notify_waiters();
+    }
+
+    pub fn interactive_count(&self) -> usize {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).interactive_count
+    }
+
+    pub fn has_had_interactive(&self) -> bool {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).has_had_interactive
+    }
+
+    pub async fn notified(&self) {
+        self.notify.notified().await;
     }
 
     fn register(&self) -> (u64, CancellationToken) {
@@ -723,12 +777,12 @@ where
     let conns_for_guard = conns.clone();
     tokio::spawn(async move {
         let _guard = ConnGuard {
-            conns: conns_for_guard,
+            conns: conns_for_guard.clone(),
             id,
         };
         let (wire_sink, wire_source) = native_framed_split(stream);
         let result = tokio::select! {
-            r = handle_wire_stream(wire_sink, wire_source, registry, gate, listeners) => r,
+            r = handle_wire_stream(wire_sink, wire_source, registry, gate, listeners, conns_for_guard) => r,
             _ = conn_cancel.cancelled() => {
                 tracing::debug!(%peer, "nuo daemon: closing local connection for drain");
                 Ok(())
@@ -760,11 +814,11 @@ fn spawn_connection<S>(
     tokio::spawn(async move {
         // RAII deregistration: even a panic in handle_connection unregisters.
         let _guard = ConnGuard {
-            conns: conns_for_guard,
+            conns: conns_for_guard.clone(),
             id,
         };
         let result = tokio::select! {
-            r = handle_connection(stream, registry, token, expose, gate, listeners) => r,
+            r = handle_connection(stream, registry, token, expose, gate, listeners, conns_for_guard) => r,
             // Draining daemon (ADR-0101): cancel the connection's future.
             // The socket drops with it, closing the TCP stream; clients
             // treat the disconnect exactly like a Close frame — reconnect
@@ -928,6 +982,7 @@ async fn handle_wire_stream(
     registry: Arc<crate::registry::SessionRegistry>,
     gate: Arc<ShutdownGate>,
     listeners: CancellationToken,
+    conns: Arc<ConnTable>,
 ) -> Result<(), String> {
     let (action, project, client_posture, client_version, client_protocol) =
         match wire_source.next().await {
@@ -991,6 +1046,7 @@ async fn handle_wire_stream(
         }
         AttachAction::New(_) | AttachAction::Attach(_) | AttachAction::Picker(_) => {}
     }
+    let _interactive_guard = conns.register_interactive();
     // The caller's project scopes creation / lazy resume (ADR-0096). Attach
     // clients declare their working directory in the Select frame's optional
     // `project`; a client predating that field sends none and the daemon
@@ -1299,6 +1355,7 @@ async fn handle_connection<S>(
     expose: ServeExpose,
     gate: Arc<ShutdownGate>,
     listeners: CancellationToken,
+    conns: Arc<ConnTable>,
 ) -> Result<(), String>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -1332,7 +1389,7 @@ where
     .map_err(|e| format!("ws handshake: {e}"))?;
 
     let (wire_sink, wire_source) = websocket_split(ws_stream);
-    handle_wire_stream(wire_sink, wire_source, registry, gate, listeners).await
+    handle_wire_stream(wire_sink, wire_source, registry, gate, listeners, conns).await
 }
 
 /// Serve a host-observability client (ADR-0093): send one snapshot, then —
@@ -1618,6 +1675,27 @@ fn classify_head(head: &[u8]) -> TcpTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn conn_table_tracks_interactive_clients_and_notifies() {
+        let table = ConnTable::new();
+        assert_eq!(table.interactive_count(), 0);
+        assert!(!table.has_had_interactive());
+
+        let guard1 = table.register_interactive();
+        assert_eq!(table.interactive_count(), 1);
+        assert!(table.has_had_interactive());
+
+        let guard2 = table.register_interactive();
+        assert_eq!(table.interactive_count(), 2);
+
+        drop(guard1);
+        assert_eq!(table.interactive_count(), 1);
+
+        drop(guard2);
+        assert_eq!(table.interactive_count(), 0);
+        assert!(table.has_had_interactive());
+    }
     #[test]
     fn end_session_serializes_as_flattened_null_unit_variant() {
         // ADR-0112: `EndSession` is a unit variant flattened into the

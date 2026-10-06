@@ -85,16 +85,15 @@ pub enum SessionAction {
 pub enum DaemonAction {
     /// `nuo start` — start the session daemon.
     Start {
-        /// `--fg`: stay in the foreground (the systemd/tmux shape).
-        /// Detaching is the default because "start" asks for a daemon,
-        /// not a foreground process; `--fg` is for supervisors that
-        /// provide their own daemonization.
+        /// `--detach`: run in background.
+        /// By default, runs in the foreground (ADR-0029).
         foreground: bool,
         port: Option<u16>,
         public: bool,
         no_local_auth: bool,
         idle_exit_minutes: Option<u64>,
         shutdown_grace_secs: Option<u64>,
+        client_driven: bool,
     },
     /// `nuo stop` — graceful, budget-aware drain.
     Stop,
@@ -303,7 +302,7 @@ const COMMANDS: &[Spec] = &[
     Spec {
         name: "start",
         names: &["start"],
-        about: "start the daemon (detached by default; --fg stays in the foreground)",
+        about: "start the daemon (runs in foreground by default; --detach runs in background)",
     },
     Spec {
         name: "stop",
@@ -438,7 +437,6 @@ fn parse_u64(flag: &str, value: &str) -> Result<u64, FlagError> {
 }
 
 /// The `nuo start` flags (one table — the `serve` duplication is gone).
-#[derive(Default)]
 struct DaemonStartFlags {
     foreground: bool,
     port: Option<u16>,
@@ -446,6 +444,21 @@ struct DaemonStartFlags {
     no_local_auth: bool,
     idle_exit_minutes: Option<u64>,
     shutdown_grace_secs: Option<u64>,
+    client_driven: bool,
+}
+
+impl Default for DaemonStartFlags {
+    fn default() -> Self {
+        Self {
+            foreground: true,
+            port: None,
+            public: false,
+            no_local_auth: false,
+            idle_exit_minutes: None,
+            shutdown_grace_secs: None,
+            client_driven: false,
+        }
+    }
 }
 
 fn parse_daemon_start_flags(args: &[String]) -> Result<DaemonStartFlags, FlagError> {
@@ -455,6 +468,8 @@ fn parse_daemon_start_flags(args: &[String]) -> Result<DaemonStartFlags, FlagErr
         let (name, inline) = split_flag(arg);
         match name {
             "--fg" | "--foreground" => flags.foreground = true,
+            "--detach" | "-d" | "--bg" => flags.foreground = false,
+            "--client-driven" => flags.client_driven = true,
             "--port" => {
                 flags.port = Some(parse_u16(
                     "--port",
@@ -615,6 +630,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             no_local_auth: flags.no_local_auth,
             idle_exit_minutes: flags.idle_exit_minutes,
             shutdown_grace_secs: flags.shutdown_grace_secs,
+            client_driven: flags.client_driven,
         }));
     }
 
@@ -627,6 +643,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             no_local_auth: flags.no_local_auth,
             idle_exit_minutes: flags.idle_exit_minutes,
             shutdown_grace_secs: flags.shutdown_grace_secs,
+            client_driven: flags.client_driven,
         }));
     }
 
@@ -662,6 +679,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 no_local_auth: flags.no_local_auth,
                 idle_exit_minutes: flags.idle_exit_minutes,
                 shutdown_grace_secs: flags.shutdown_grace_secs,
+                client_driven: flags.client_driven,
             })
         }
         "run" | "attach" | "dashboard" | "settings" => {
@@ -676,6 +694,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 no_local_auth: flags.no_local_auth,
                 idle_exit_minutes: flags.idle_exit_minutes,
                 shutdown_grace_secs: flags.shutdown_grace_secs,
+                client_driven: flags.client_driven,
             })
         }
         "stop" => {
@@ -1169,6 +1188,43 @@ mod surface_tests {
             parse(&["serve"]).unwrap().mode,
             Mode::Daemon(DaemonAction::Start {
                 foreground: true,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn start_defaults_to_foreground_daemon() {
+        let parsed = parse(&["start"]).unwrap();
+        assert!(matches!(
+            parsed.mode,
+            Mode::Daemon(DaemonAction::Start {
+                foreground: true,
+                client_driven: false,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn start_with_detach_sets_background() {
+        let parsed = parse(&["start", "--detach"]).unwrap();
+        assert!(matches!(
+            parsed.mode,
+            Mode::Daemon(DaemonAction::Start {
+                foreground: false,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn start_with_client_driven_sets_flag() {
+        let parsed = parse(&["start", "--client-driven"]).unwrap();
+        assert!(matches!(
+            parsed.mode,
+            Mode::Daemon(DaemonAction::Start {
+                client_driven: true,
                 ..
             })
         ));

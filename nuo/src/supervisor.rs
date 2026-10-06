@@ -12,21 +12,32 @@ pub struct DaemonStart {
     pub no_local_auth: bool,
     pub idle_exit_minutes: Option<u64>,
     pub shutdown_grace_secs: Option<u64>,
+    pub client_driven: bool,
 }
 
-/// Start detached (the default): spawn the daemon in the background and return.
-/// If a daemon is already running, report it instead of spawning a second one.
+/// Start detached: spawn the daemon in the background and return.
+/// If a conflicting daemon is already running, directly replace it (ADR-0029).
 pub fn detach_daemon(flags: &DaemonStart) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(info) = client::discover(Path::new(".")) {
-        return Err(format!(
-            "a nuo daemon is already running (pid {}, port {}). Stop it with `nuo stop` before starting another.",
-            info.pid, info.port
-        )
-        .into());
+        if info.pid != std::process::id() {
+            eprintln!("nuo: replacing existing daemon (pid {})...", info.pid);
+            if let Ok(identity) = nuo_host::process::process_identity(info.pid) {
+                let _ = nuo_host::process::request_termination(identity);
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                if nuo_host::process::process_is_alive(identity) {
+                    let _ = nuo_host::process::force_terminate(identity);
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+            }
+            client::discovery::remove(&client::discovery::global_discovery_path());
+        }
     }
     let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("nuo"));
     let mut command = std::process::Command::new(&program);
     command.args(["start", "--fg"]);
+    if flags.client_driven {
+        command.arg("--client-driven");
+    }
     if let Some(port) = flags.port {
         command.arg("--port").arg(port.to_string());
     }
@@ -103,6 +114,7 @@ pub async fn stop_daemon() -> Result<(), Box<dyn std::error::Error>> {
 /// Run daemon in foreground (the supervisor shape).
 pub async fn run_daemon_foreground(flags: DaemonStart) -> Result<(), Box<dyn std::error::Error>> {
     let mut lifecycle = nuo::host::LifecycleOptions::from_config();
+    lifecycle.client_driven = flags.client_driven;
     if let Some(minutes) = flags.idle_exit_minutes {
         lifecycle.idle_exit = match minutes {
             0 => None,

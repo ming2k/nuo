@@ -8,6 +8,27 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+### Changed
+
+- **Client-lifecycle-bound daemon, explicit foreground headless host, and aggressive interface takeover (ADR-0029).**
+  Interactive TUI sessions now couple daemon lifecycle directly to connected clients, automatically terminating when the last client disconnects. Foreground execution is enforced by default for headless and service commands (`nuo start`), and endpoint collisions (Unix Domain Socket or TCP port) trigger automatic termination and takeover of conflicting stale instances.
+- **`list_dir` steps render as an `ls`-style table (ADR-0030).** The expanded listing no
+  longer leads with a count tally, no longer prefixes each row with a type glyph
+  (`▸` / `·`), and no longer draws directories in the block's generic `info`
+  tone. It now opens with a **`Name` / `Size` column header** and renders each
+  entry as **name + aligned size**, colouring the name the way the shell's `ls`
+  does — **blue** for a directory, **green** for an executable, **cyan** for a
+  symbolic link, and the scheme's normal content tone for a plain file — with a
+  directory carrying a trailing `/`. To make the executable/symlink classes
+  observable, `list_dir`'s per-row tag became a four-way `[DIR]` / `[EXEC]` /
+  `[LINK]` / `[FILE]` class (it previously emitted only `[DIR]` / `[FILE]` and
+  so could not distinguish an executable or a link); the renderer colours the
+  tool's observed class rather than guessing a type from the name. The `ls`
+  hues collapse to the plain content tone under the monochrome (DEC VT100)
+  archetype — no colour cue there, the trailing `/` still carries the type — and
+  use the terminal's own named slots under ANSI-16. `find_files` keeps its
+  count-band + per-directory title-band layout.
+
 ## [0.0.7] - 2026-10-06
 
 ### Changed

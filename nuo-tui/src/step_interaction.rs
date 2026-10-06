@@ -89,24 +89,23 @@ pub fn summary_at(cursor: &SemanticCursor) -> Option<(usize, StepKind)> {
 /// - **Failed / Denied** → expanded: the error/denial message is the whole
 ///   point and must be visible without an extra click.
 /// - **Cancelled** → collapsed: an aborted call reads as inert.
-/// - **Ok** → the per-tool default (`density` Comfortable mode, else the
-///   tool's `[tui.default_expanded]` entry): `edit_text` and `write_file` show their diff;
-///   `bash`/`read_text` and the rest stay collapsed.
+/// - **Ok** → the per-tool default (from the tool's `[tui.default_expanded]` entry
+///   or built-in component default): `edit_text`, `write_file`, and `execute_command`
+///   show their bodies; `read_text` and the rest stay collapsed.
 pub fn default_tool_expanded(
     status: ToolStepStatus,
     name: &str,
     config: &TuiConfig,
-    density: bool,
 ) -> bool {
     match status {
-        ToolStepStatus::Running => density || tool_default_expanded(config, name),
+        ToolStepStatus::Running => tool_default_expanded(config, name),
         ToolStepStatus::Failed | ToolStepStatus::Denied => true,
         ToolStepStatus::Cancelled => false,
         // An interrupted subagent preserved partial work, but the user stopped
         // it deliberately — leave it collapsed (like Cancelled); the summary
         // line and the drill-in view surface the recovered findings.
         ToolStepStatus::Interrupted => false,
-        ToolStepStatus::Ok => density || tool_default_expanded(config, name),
+        ToolStepStatus::Ok => tool_default_expanded(config, name),
     }
 }
 
@@ -194,76 +193,59 @@ mod tests {
         assert!(default_tool_expanded(
             ToolStepStatus::Running,
             "execute_command",
-            &cfg,
-            false
+            &cfg
         ));
         assert!(!default_tool_expanded(
             ToolStepStatus::Running,
             "read_text",
-            &cfg,
-            false
+            &cfg
         ));
         assert!(default_tool_expanded(
             ToolStepStatus::Failed,
             "search_text",
-            &cfg,
-            false
+            &cfg
         ));
         assert!(default_tool_expanded(
             ToolStepStatus::Denied,
             "execute_command",
-            &cfg,
-            false
+            &cfg
         ));
         assert!(!default_tool_expanded(
             ToolStepStatus::Cancelled,
             "execute_command",
-            &cfg,
-            false
+            &cfg
         ));
     }
 
     #[test]
-    fn tool_ok_follows_declared_default_then_density() {
+    fn tool_ok_follows_declared_default() {
         let cfg = config(&[("read_text", true)]);
         assert!(default_tool_expanded(
             ToolStepStatus::Ok,
             "read_text",
-            &cfg,
-            false
+            &cfg
         ));
         // An explicit config entry overrides the declared default, and the
         // alias family follows the canonical name's choice.
         assert!(default_tool_expanded(
             ToolStepStatus::Ok,
             "edit_text",
-            &cfg,
-            false
+            &cfg
         ));
         assert!(default_tool_expanded(
             ToolStepStatus::Ok,
             "write_file",
-            &cfg,
-            false
+            &cfg
         ));
         assert!(default_tool_expanded(
             ToolStepStatus::Ok,
             "execute_command",
-            &cfg,
-            false
+            &cfg
         ));
         assert!(!default_tool_expanded(
             ToolStepStatus::Ok,
             "search_text",
-            &cfg,
-            false
-        ));
-        // Comfortable density expands every Ok step regardless of per-tool default.
-        assert!(default_tool_expanded(
-            ToolStepStatus::Ok,
-            "read_text",
-            &cfg,
-            true
+            &cfg
         ));
     }
 }

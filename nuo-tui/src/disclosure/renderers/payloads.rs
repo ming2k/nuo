@@ -16,6 +16,7 @@ use crate::render::{
     BASH_FOLD_HEAD_ROWS, BASH_FOLD_TAIL_ROWS, CODE_BAND_GUTTER_GAP, CODE_BAND_GUTTER_MIN_WIDTH,
     Theme,
 };
+use crate::theme::ListingClass;
 use crate::text_layout::{
     CodeGutterParams, WrappedLine, block_selection_range, clamp_selection_range, code_gutter_line,
     line_selection, line_spans, padded_tail, wrap_text,
@@ -329,6 +330,38 @@ fn draw_band_row(
     let _ = ctx.paint(line);
 }
 
+/// Draw the column-header row of a `list_dir` table — `Name` on the left and
+/// `Size` over the measured size column — replacing the former count-summary
+/// band so the top tier reads as a table head rather than a tally. Decoration
+/// only (it registers no selectable region); the name column reuses the exact
+/// `name_col` / `size_w` geometry the entry rows below are laid out with, so the
+/// labels always sit over their columns.
+fn draw_listing_header(
+    ctx: &mut RenderCtx<'_, '_>,
+    indent: usize,
+    name_col: usize,
+    size_w: usize,
+    style: Style,
+    pad: Style,
+) {
+    let name_label = "Name";
+    let size_label = "Size";
+    let name_label_w = name_label.width();
+    let size_label_w = size_label.width();
+    let pad_cols = name_col.saturating_sub(name_label_w) + 2;
+    let lead = size_w.saturating_sub(size_label_w);
+    let used = indent + name_label_w + pad_cols + lead + size_label_w;
+    let line = Line::from(vec![
+        Span::styled(" ".repeat(indent), pad),
+        Span::styled(name_label.to_string(), style),
+        Span::styled(" ".repeat(pad_cols), pad),
+        Span::styled(" ".repeat(lead), pad),
+        Span::styled(size_label.to_string(), style),
+        Span::styled(padded_tail(ctx.full_width, used), pad),
+    ]);
+    let _ = ctx.paint(line);
+}
+
 /// Draw a wrapped, selectable title band for a path heading, registering one
 /// region per wrapped line anchored at `abs_start` in the raw tool output. A
 /// title owns its own tier (the full inner width), not the gutter column the
@@ -368,24 +401,32 @@ fn draw_title_band(
     }
 }
 
-/// A `list_dir` entry row parsed from the tool's `[DIR]` / `[FILE]` shape.
+/// A `list_dir` entry row parsed from the tool's per-entry class tag.
 struct DirEntry<'a> {
-    is_dir: bool,
+    class: ListingClass,
     name: &'a str,
     /// The byte size exactly as the tool printed it (e.g. `"4096 B"`), if any.
     size: Option<&'a str>,
 }
 
-/// Parse a `list_dir` entry — `[DIR]  name                    (4096 B)` /
-/// `[FILE] name                    (128 B)`. Returns `None` for any line that
-/// does not carry the tool's `[DIR]` / `[FILE]` tag, so a listing without the
-/// tags (a restored session, or the `find_files` path shape) degrades to plain
-/// path rows instead of inventing a type.
+/// Parse a `list_dir` entry — `[DIR]  name                    (4096 B)`.
+///
+/// The leading token is the entry's `ls`-style class (`[DIR]` / `[EXEC]` /
+/// `[LINK]` / `[FILE]`), which the tool emits so a listing can be coloured the
+/// way the shell's `ls` colours one. Returns `None` for any line that does not
+/// carry a recognised tag, so a listing without the tags (a restored session, or
+/// the `find_files` path shape) degrades to plain path rows instead of inventing
+/// a type.
 fn parse_dir_entry(line: &str) -> Option<DirEntry<'_>> {
-    let (is_dir, rest) = if let Some(rest) = line.strip_prefix("[DIR]") {
-        (true, rest)
-    } else if let Some(rest) = line.strip_prefix("[FILE]") {
-        (false, rest)
+    let rest = line.trim_start();
+    let (class, rest) = if let Some(rest) = rest.strip_prefix("[DIR]") {
+        (ListingClass::Dir, rest)
+    } else if let Some(rest) = rest.strip_prefix("[EXEC]") {
+        (ListingClass::Exec, rest)
+    } else if let Some(rest) = rest.strip_prefix("[LINK]") {
+        (ListingClass::Link, rest)
+    } else if let Some(rest) = rest.strip_prefix("[FILE]") {
+        (ListingClass::File, rest)
     } else {
         return None;
     };
@@ -399,7 +440,7 @@ fn parse_dir_entry(line: &str) -> Option<DirEntry<'_>> {
         }
         _ => (rest, None),
     };
-    (!name.is_empty()).then_some(DirEntry { is_dir, name, size })
+    (!name.is_empty()).then_some(DirEntry { class, name, size })
 }
 
 /// Parse a listing block's leading header line into the label for its count
@@ -456,19 +497,21 @@ fn split_dir_leaf(raw: &str) -> (Option<&str>, &str) {
 /// Render a `find_files` / `list_dir` result as a *layered* block, sharing the
 /// three-tier contract of a search block (see [`draw_matches_content`]):
 ///
-/// - a top **count band** parsed from the tool's own header (`Found N files`,
-///   `` `path` · N items ``) on [`Theme::match_count_surface`];
-/// - for `find_files`, a **title band** per directory on
-///   [`Theme::match_title_surface`] so a run of siblings no longer repeats the
+/// - a **`list_dir`** (tagged-entry) listing is drawn as a table: a **header
+///   row** labelling the two columns (`Name` / `Size`) replaces the old
+///   count-summary band, and each entry is a row of **name + aligned size** —
+///   no per-row type glyph. The entry's class colours the name the way `ls`
+///   does (blue directory, green executable, cyan symlink) and a directory
+///   carries a trailing `/`; the byte size sits in a dim right-aligned column;
+/// - a **`find_files`** run keeps its per-directory **title band** on
+///   [`Theme::match_title_surface`] under a brand-tinted **count band** on
+///   [`Theme::match_count_surface`], so a run of siblings no longer repeats the
 ///   shared prefix on every row;
-/// - for `list_dir`, each `[DIR]` / `[FILE]` row as a **type glyph + name** with
-///   the byte size in a dim right-aligned column;
 /// - a dim **omission band** for the tool's `... (N additional entries
 ///   omitted)` trailer.
 ///
 /// Rows carry no line-number gutter (a listing has no meaningful line index),
-/// directories render in `info` and files in `code_fg`, and every selectable
-/// row's byte range stays anchored in the raw tool output.
+/// and every selectable row's byte range stays anchored in the raw tool output.
 pub(crate) fn draw_listing_content(
     ctx: &mut RenderCtx<'_, '_>,
     mi: usize,
@@ -482,8 +525,6 @@ pub(crate) fn draw_listing_content(
     let count_bg = ctx.theme.match_count_surface();
     let title_bg = ctx.theme.match_title_surface();
     let pad = Style::default().bg(code_bg);
-    let dir_fg = ctx.theme.info();
-    let file_fg = ctx.theme.code_text();
     let dim = ctx.theme.dim();
     let sel_range = block_selection_range(selection, mi, block_idx);
     let wrap_w = inner_w.max(1);
@@ -498,6 +539,10 @@ pub(crate) fn draw_listing_content(
         .add_modifier(Modifier::BOLD);
     let omitted_style = Style::default().bg(code_bg).fg(dim);
     let size_style = Style::default().bg(code_bg).fg(dim);
+    let header_style = Style::default()
+        .bg(code_bg)
+        .fg(dim)
+        .add_modifier(Modifier::BOLD);
 
     let mut logical: Vec<(usize, &str)> = Vec::new();
     let mut offset = 0usize;
@@ -506,23 +551,41 @@ pub(crate) fn draw_listing_content(
         offset += line.len() + 1;
     }
 
-    // Leading tool header → count band (decoration, never a selectable row).
-    let body_idx = match logical.first().and_then(|(_, line)| parse_listing_header(line)) {
-        Some(label) => {
-            draw_band_row(ctx, indent, &label, count_style, count_bg);
-            1
+    // A tagged-entry body is a `list_dir` table; a bare set of paths is a
+    // `find_files` run. The distinction drives whether the top tier is a column
+    // header (table) or a count band (grouped paths), and it is derived from the
+    // rows themselves so a restored session (header dropped) still resolves.
+    let header_label = logical.first().and_then(|(_, line)| parse_listing_header(line));
+    let body_idx = if header_label.is_some() { 1 } else { 0 };
+    let table = logical[body_idx..]
+        .iter()
+        .any(|(_, line)| parse_dir_entry(line).is_some());
+
+    // Column geometry for a `list_dir` table, measured before any row is drawn
+    // so the header labels and every size land on one pair of columns. The name
+    // column is the widest entry (a directory's trailing `/` counts) clamped so
+    // the size column can always fit; the size column is the widest byte size.
+    let (name_col, max_size_w) = if table {
+        let mut name_w = 0usize;
+        let mut size_w = 0usize;
+        for (_, line) in &logical[body_idx..] {
+            if let Some(entry) = parse_dir_entry(line) {
+                let dir_slash = usize::from(entry.class == ListingClass::Dir);
+                name_w = name_w.max(entry.name.width() + dir_slash);
+                size_w = size_w.max(entry.size.map(|s| s.width()).unwrap_or(0));
+            }
         }
-        None => 0,
+        let name_col = name_w.min(ctx.full_width.saturating_sub(indent + size_w + 3).max(1));
+        (name_col, size_w)
+    } else {
+        (0, 0)
     };
 
-    // Widen the name column to the widest entry so a `list_dir` size column
-    // lines up across every row (the tool pads to a fixed 25 columns, which
-    // wastes most of the terminal on short names).
-    let mut name_width = 0usize;
-    for (_, line) in &logical[body_idx..] {
-        if let Some(entry) = parse_dir_entry(line) {
-            name_width = name_width.max(entry.name.width());
-        }
+    // Top tier: a column header for a table, else the parsed count band.
+    if table {
+        draw_listing_header(ctx, indent, name_col, max_size_w, header_style, pad);
+    } else if let Some(label) = &header_label {
+        draw_band_row(ctx, indent, label, count_style, count_bg);
     }
 
     let mut current_dir: Option<&str> = None;
@@ -534,50 +597,43 @@ pub(crate) fn draw_listing_content(
             continue;
         }
 
-        // `list_dir` entry → type glyph + name (+ aligned byte size).
+        // `list_dir` entry → class-coloured name (+ trailing `/` for a
+        // directory) and a right-aligned byte size, with no per-row glyph.
         if let Some(entry) = parse_dir_entry(raw) {
-            let (glyph, fg) = if entry.is_dir {
-                ("▸ ", dir_fg)
-            } else {
-                ("· ", file_fg)
-            };
+            let fg = ctx.theme.listing_color(entry.class);
             let base = Style::default().bg(code_bg).fg(fg);
-            let size_w = entry.size.map(|s| s.width()).unwrap_or(0);
-            let name = crate::components::path::PathView::from_str(entry.name)
+            let mut display = crate::components::path::PathView::from_str(entry.name)
                 .maybe_base_dir(ctx.workspace_root)
                 .format_text();
-            // Reserve the glyph, a gap, and the size column, then clamp the name
-            // so a long filename can never push the size off the right edge.
-            let name_budget = ctx
-                .full_width
-                .saturating_sub(indent + glyph.width() + size_w + 3)
-                .max(1);
-            let name = truncate_to_width(&name, name_budget);
+            if entry.class == ListingClass::Dir && !display.ends_with('/') {
+                display.push('/');
+            }
+            let display = truncate_to_width(&display, name_col.max(1));
             let block_wl = WrappedLine {
-                text: name.clone(),
+                text: display.clone(),
                 start_byte: *line_start_byte,
                 end_byte: *line_start_byte + raw.len(),
             };
             let mut line = line_spans(
-                &format!("{}{}", " ".repeat(indent), glyph),
-                Style::default().bg(code_bg).fg(fg),
-                &name,
+                &" ".repeat(indent),
+                pad,
+                &display,
                 line_selection(sel_range, &block_wl),
                 base,
                 ctx.theme.selected(),
             );
-            let mut used = indent + glyph.width() + name.width();
+            let mut used = indent + display.width();
             if let Some(size) = entry.size {
-                // Align the size column to the widest entry, but never past the
-                // budget: a filename wider than the reserved name budget is
-                // already truncated, so clamping the column keeps `padded_tail`
-                // non-zero and the size on-screen.
-                let column = name_width.min(name_budget);
-                let pad_cols = column.saturating_sub(name.width()) + 2;
+                // Pad across the rest of the name column plus a two-cell gap,
+                // then right-align the size within the measured size column so
+                // every `B` unit sits on the same column edge.
+                let pad_cols = name_col.saturating_sub(display.width()) + 2;
+                let size_w = size.width();
+                let lead = max_size_w.saturating_sub(size_w);
                 line.spans.push(Span::styled(" ".repeat(pad_cols), pad));
-                line.spans
-                    .push(Span::styled(size.to_string(), size_style));
-                used += pad_cols + size.width();
+                line.spans.push(Span::styled(" ".repeat(lead), pad));
+                line.spans.push(Span::styled(size.to_string(), size_style));
+                used += pad_cols + lead + size_w;
             }
             line.spans
                 .push(Span::styled(padded_tail(ctx.full_width, used), pad));
@@ -618,7 +674,11 @@ pub(crate) fn draw_listing_content(
                 .maybe_base_dir(ctx.workspace_root)
                 .format_text(),
         };
-        let fg = if is_dir { dir_fg } else { file_fg };
+        let fg = if is_dir {
+            ctx.theme.listing_color(ListingClass::Dir)
+        } else {
+            ctx.theme.code_text()
+        };
         let base = Style::default().bg(code_bg).fg(fg);
         for wl in nonempty_wrapped(wrap_text(&display, wrap_w)) {
             let block_wl = WrappedLine {
@@ -3502,16 +3562,22 @@ mod tests {
     }
 
     #[test]
-    fn parse_dir_entry_reads_type_name_and_size() {
-        let dir = parse_dir_entry("[DIR] src                      (4096 B)").unwrap();
-        assert!(dir.is_dir);
+    fn parse_dir_entry_reads_class_name_and_size() {
+        let dir = parse_dir_entry("[DIR]  src                      (4096 B)").unwrap();
+        assert_eq!(dir.class, ListingClass::Dir);
         assert_eq!(dir.name, "src");
         assert_eq!(dir.size, Some("4096 B"));
 
-        let file = parse_dir_entry("[FILE] Cargo.toml                 (128 B)").unwrap();
-        assert!(!file.is_dir);
+        let file = parse_dir_entry("[FILE] Cargo.toml               (128 B)").unwrap();
+        assert_eq!(file.class, ListingClass::File);
         assert_eq!(file.name, "Cargo.toml");
         assert_eq!(file.size, Some("128 B"));
+
+        // The two `ls` classes the tool distinguishes beyond a plain file.
+        let exec = parse_dir_entry("[EXEC] run.sh                   (42 B)").unwrap();
+        assert_eq!(exec.class, ListingClass::Exec);
+        let link = parse_dir_entry("[LINK] current                  (7 B)").unwrap();
+        assert_eq!(link.class, ListingClass::Link);
 
         // A name containing ` (` must not confuse the size split (last ` (` wins).
         let tricky = parse_dir_entry("[FILE] weird (name).rs           (12 B)").unwrap();

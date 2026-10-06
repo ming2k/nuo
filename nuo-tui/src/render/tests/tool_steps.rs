@@ -747,6 +747,79 @@ fn search_text_block_layers_count_title_and_content_backgrounds() {
     assert_eq!(bg_at(match_y, 40), content_bg, "match row surface background");
 }
 
+/// A `list_dir` table colours each row's name the way the shell's `ls` does:
+/// a directory in the `Dir` blue, an executable in the `Exec` green, a symlink
+/// in the `Link` cyan, and a plain file in the scheme's ordinary content tone —
+/// so the class the tool observed survives into the rendered row.
+#[test]
+fn list_dir_table_colors_names_by_ls_class() {
+    let theme = Theme::default();
+    let output = concat!(
+        "Directory: `.` (4 items):\n",
+        "[DIR]  src                      (4096 B)\n",
+        "[EXEC] run.sh                   (42 B)\n",
+        "[LINK] current                  (7 B)\n",
+        "[FILE] notes.md                 (128 B)",
+    );
+    let mut m = TranscriptMessage::tool_step("call_test", "list_dir", r#"{"path":"."}"#);
+    if let crate::model::document::MessageKind::ToolStep {
+        output: out,
+        expanded,
+        ..
+    } = &mut m.kind
+    {
+        *out = Some(output.to_string());
+        *expanded = true;
+    }
+    let terminal = render_full_view(80, 24, &[m], None);
+    let buffer = terminal.buffer();
+
+    // The name starts at the row indent; read the fg of the first cell of the
+    // row whose text opens with the entry name.
+    let name_fg = |needle: &str| -> Option<nuotc::Color> {
+        for y in 0..buffer.area().height {
+            let row = grid_row(&terminal, y);
+            if let Some(col) = row.find(needle) {
+                return Some(buffer[(col as u16, y)].style().fg);
+            }
+        }
+        None
+    };
+
+    assert_eq!(
+        name_fg("src/"),
+        Some(theme.listing_color(crate::theme::ListingClass::Dir)),
+        "directory name is the ls blue"
+    );
+    assert_eq!(
+        name_fg("run.sh"),
+        Some(theme.listing_color(crate::theme::ListingClass::Exec)),
+        "executable name is the ls green"
+    );
+    assert_eq!(
+        name_fg("current"),
+        Some(theme.listing_color(crate::theme::ListingClass::Link)),
+        "symlink name is the ls cyan"
+    );
+    assert_eq!(
+        name_fg("notes.md"),
+        Some(theme.code_text()),
+        "plain file name is the content tone"
+    );
+    // The four hues are genuinely distinct (blue ≠ green ≠ cyan ≠ file).
+    let distinct = [
+        theme.listing_color(crate::theme::ListingClass::Dir),
+        theme.listing_color(crate::theme::ListingClass::Exec),
+        theme.listing_color(crate::theme::ListingClass::Link),
+        theme.code_text(),
+    ];
+    for (i, a) in distinct.iter().enumerate() {
+        for b in &distinct[i + 1..] {
+            assert_ne!(a, b, "listing classes must be visually distinct");
+        }
+    }
+}
+
 /// A single-file `search_text` result drops the redundant `· N files` segment
 /// from the count band (one file is implied), while still rendering the file
 /// title row and the match row. Regression for a file-rooted search that used

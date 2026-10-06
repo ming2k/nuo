@@ -201,7 +201,6 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         view_transitioned: false,
         transcript_changed_pending: false,
         side_transcript_changed_pending: false,
-        tool_density: false,
         reasoning_default_expanded: false,
         backend_completion_signal: None,
         tui_config: crate::config::TuiConfig::default(),
