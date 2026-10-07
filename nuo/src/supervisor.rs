@@ -156,11 +156,8 @@ pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std
 
     // [INV-SERVER-03] Zero TCP on Client-Bound Posture:
     // When running in client_driven mode without an explicit port, do not bind TCP.
-    let port = if flags.client_driven && flags.port.is_none() {
-        0
-    } else {
-        flags.port.unwrap_or(nuo::startup::env_default_port())
-    };
+    let disable_tcp = flags.client_driven && flags.port.is_none();
+    let port = flags.port.unwrap_or(nuo::startup::env_default_port());
     let preset = agent_code();
     let outcome = nuo::host::run_with_gate(
         nuo::host::HostIdentity {
@@ -183,6 +180,7 @@ pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std
                 nuo::serve_discovery::default_local_endpoint()
                     .map_err(std::io::Error::other)?,
             ),
+            disable_tcp,
         },
         Arc::new(nuo::shutdown::ShutdownGate::new()),
         lifecycle,

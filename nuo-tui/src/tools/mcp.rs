@@ -39,12 +39,12 @@ impl ToolPresenter for McpPresenter {
         let mut line = SemanticLine::new();
         line = line.push_fixed("⚡ ");
         if !server.is_empty() {
-            line = line.push_fixed(server).push_dim(" · ").push_fixed(tool);
+            line = line.push_fixed(server).push_fixed(" · ").push_fixed(tool);
         } else {
             line = line.push_fixed(tool);
         }
         if let Some(prominent) = extract_prominent_arg(view.args) {
-            line = line.push_fixed(" ").push_dim(prominent);
+            line = line.push_fixed(" ").push_flexible(prominent);
         }
         line
     }
@@ -54,7 +54,7 @@ impl ToolPresenter for McpPresenter {
     }
 
     fn result_kind(&self) -> ResultKind {
-        ResultKind::Mcp
+        ResultKind::Code
     }
 
     fn arg_layout(&self) -> ArgLayout {

@@ -22,6 +22,7 @@ mod diff;
 mod edit_text;
 mod execute_command;
 mod fallback;
+mod mcp;
 mod meta;
 mod read_image;
 mod read_text;
@@ -390,23 +391,52 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         members: &[("ask_user", &ask_user::AskUserPresenter)],
         expanded_by_default: false,
     },
+    ToolComponent {
+        id: "mcp",
+        label: "External MCP Tools",
+        description: "Expand Model Context Protocol tool calls and responses by default",
+        members: &[("mcp", &mcp::McpPresenter)],
+        expanded_by_default: false,
+    },
 ];
 
 /// Resolve the component owning a tool name, or `None` for unregistered /
-/// dynamic (MCP) tools.
+/// dynamic tools.
 pub fn component_for(name: &str) -> Option<&'static ToolComponent> {
-    TOOL_COMPONENTS
+    if let Some(component) = TOOL_COMPONENTS
         .iter()
         .find(|component| component.members.iter().any(|(member, _)| *member == name))
+    {
+        return Some(component);
+    }
+    if let Some((_, base)) = name.split_once(':') {
+        if let Some(component) = component_for(base) {
+            return Some(component);
+        }
+    }
+    if name.starts_with("mcp__") {
+        return TOOL_COMPONENTS.iter().find(|c| c.id == "mcp");
+    }
+    None
 }
 
 /// Resolve the presenter for a tool name, falling back to a generic presenter
-/// for unknown / MCP tools.
+/// for unknown tools.
 pub fn presenter_for(name: &str) -> &'static dyn ToolPresenter {
-    match component_for(name).and_then(|component| component.presenter_for(name)) {
-        Some(presenter) => presenter,
-        None => &fallback::FallbackPresenter,
+    if let Some(component) = component_for(name) {
+        if let Some(presenter) = component.presenter_for(name) {
+            return presenter;
+        }
+        if let Some((_, base)) = name.split_once(':') {
+            if let Some(presenter) = component.presenter_for(base) {
+                return presenter;
+            }
+        }
+        if component.id == "mcp" {
+            return &mcp::McpPresenter;
+        }
     }
+    &fallback::FallbackPresenter
 }
 
 /// Sanitize a string to guarantee single-line presentation:

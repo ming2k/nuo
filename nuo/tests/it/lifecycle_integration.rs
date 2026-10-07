@@ -159,6 +159,7 @@ fn options(uds: std::path::PathBuf, port: u16) -> HostOptions {
             &format!("lifecycle-{port}"),
         )
         .ok(),
+        disable_tcp: false,
     }
 }
 

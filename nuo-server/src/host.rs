@@ -50,6 +50,9 @@ pub struct HostOptions {
     pub port_fallback: bool,
     /// Serve the control plane over the native per-user local IPC transport.
     pub local_endpoint: Option<nuo_host::ipc::LocalEndpoint>,
+    /// [INV-SERVER-03] Zero TCP on Client-Bound Posture:
+    /// Pure UDS/Local IPC mode — no TCP socket listener spawned.
+    pub disable_tcp: bool,
 }
 
 pub struct HostIdentity {
@@ -278,6 +281,7 @@ async fn run_inner(
             local_auth: opts.local_auth,
             port_fallback: opts.port_fallback,
             local_endpoint: opts.local_endpoint.clone(),
+            disable_tcp: opts.disable_tcp,
         },
         Arc::clone(&registry),
     );

@@ -439,6 +439,9 @@ pub struct ServeOptions {
     /// Native local control endpoint. Local IPC is exempt from the bearer
     /// token because its Unix permissions / Windows DACL are the auth boundary.
     pub local_endpoint: Option<nuo_host::ipc::LocalEndpoint>,
+    /// [INV-SERVER-03] Zero TCP on Client-Bound Posture:
+    /// When true, pure UDS/Local IPC mode — no TCP socket listener spawned.
+    pub disable_tcp: bool,
 }
 impl Default for ServeOptions {
     fn default() -> Self {
@@ -449,6 +452,7 @@ impl Default for ServeOptions {
             local_auth: false,
             port_fallback: false,
             local_endpoint: None,
+            disable_tcp: false,
         }
     }
 }
@@ -549,7 +553,7 @@ pub fn start_server(
     };
     let port_fallback = opts.port_fallback;
     let expose = opts.expose;
-    if opts.port == 0 {
+    if opts.disable_tcp {
         // [INV-SERVER-03] Zero TCP on Client-Bound Posture:
         // Pure UDS/Local IPC mode — no TCP socket listener spawned.
         let _ = actual_port_tx.send(Ok(0));

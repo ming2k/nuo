@@ -628,6 +628,7 @@ mod tests {
     /// preparing its schemas can be exercised without the whole tools crate.
     struct DummyTool {
         name: &'static str,
+        #[allow(dead_code)]
         variant: &'static str,
         desc: &'static str,
     }
