@@ -10,6 +10,7 @@ members = [
     "nuo-model-codec",
     "nuo-provider",
     "nuo-oauth",
+    "nuo-provider-transport",
     "nuo-persistence",
     "nuo-host",
     "nuo-tool",
@@ -21,11 +22,10 @@ members = [
     "tools/nuo-tool-exec",
     "tools/nuo-tool-web",
     "tools/nuo-tool-ast",
-    "providers/nuo-provider-transport",
     "providers/nuo-provider-qoder",
     "providers/nuo-provider-catalog",
     "providers/nuo-provider-anthropic",
-    "providers/nuo-provider-google",
+    "providers/nuo-provider-google-antigravity",
     "providers/nuo-provider-openai",
     "providers/nuo-provider-chatgpt-plan",
     "providers/nuo-provider-deepseek",
@@ -120,11 +120,11 @@ nuo-tool = { version = "0.0.8", path = "nuo-tool" }
 nuo-tool-derive = { version = "0.0.8", path = "nuo-tool-derive" }
 nuo-provider = { version = "0.0.8", path = "nuo-provider" }
 nuo-oauth = { version = "0.0.8", path = "nuo-oauth" }
-nuo-provider-transport = { version = "0.0.8", path = "providers/nuo-provider-transport" }
+nuo-provider-transport = { version = "0.0.8", path = "nuo-provider-transport" }
 nuo-provider-qoder = { version = "0.0.8", path = "providers/nuo-provider-qoder" }
 nuo-provider-catalog = { version = "0.0.8", path = "providers/nuo-provider-catalog" }
 nuo-provider-anthropic = { version = "0.0.8", path = "providers/nuo-provider-anthropic" }
-nuo-provider-google = { version = "0.0.8", path = "providers/nuo-provider-google" }
+nuo-provider-google-antigravity = { version = "0.0.8", path = "providers/nuo-provider-google-antigravity" }
 nuo-provider-openai = { version = "0.0.8", path = "providers/nuo-provider-openai" }
 nuo-provider-chatgpt-plan = { version = "0.0.8", path = "providers/nuo-provider-chatgpt-plan" }
 nuo-provider-deepseek = { version = "0.0.8", path = "providers/nuo-provider-deepseek" }

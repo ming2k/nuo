@@ -108,6 +108,7 @@ pub mod archivist;
 pub mod archivist_service;
 pub mod hypervisor;
 pub mod ui_bridge;
+pub mod usage_cache;
 pub mod wire_channel;
 
 pub use archivist::{archivist_address, build_archivist};

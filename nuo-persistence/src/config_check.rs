@@ -94,6 +94,7 @@ pub fn schema_key_tree() -> BTreeMap<String, BTreeMap<String, String>> {
     root.insert("agent".to_string(), BTreeMap::new());
     root.insert("hooks".to_string(), BTreeMap::new());
     root.insert("tool_variants".to_string(), BTreeMap::new());
+    root.insert("server".to_string(), BTreeMap::new());
     root.insert("daemon".to_string(), BTreeMap::new());
     root
 }
@@ -118,6 +119,7 @@ pub const CONFIG_KEYS: &[&str] = &[
     "agent",
     "hooks",
     "tool_variants",
+    "server",
     "daemon",
 ];
 
@@ -277,7 +279,7 @@ mod tests {
         // Optional fields (skip_serializing_if) may be absent from a default
         // serialization, so they are exempt from the emits-check but still
         // verified to parse.
-        let optional = ["default_model"];
+        let optional = ["default_model", "server"];
         let serialized = toml::to_string(&crate::config::Config::default()).unwrap();
         for key in schema_key_tree().keys() {
             assert!(

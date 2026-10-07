@@ -4,9 +4,9 @@ use std::sync::Arc;
 use crate::identity::{DaemonUiBridge, agent_code};
 use nuo_client as client;
 
-/// The daemon-start flags that reach the runtime (one struct, one place).
+/// The server-start flags that reach the runtime (one struct, one place).
 #[derive(Debug, Clone, Default)]
-pub struct DaemonStart {
+pub struct ServerStart {
     pub port: Option<u16>,
     pub public: bool,
     pub no_local_auth: bool,
@@ -15,20 +15,20 @@ pub struct DaemonStart {
     pub client_driven: bool,
 }
 
-/// Start detached: spawn the daemon in the background and return.
-/// If a conflicting daemon is already running, directly replace it (ADR-0029).
-pub fn detach_daemon(flags: &DaemonStart) -> Result<(), Box<dyn std::error::Error>> {
+/// Backward-compatible alias for [`ServerStart`].
+#[allow(dead_code)]
+pub type DaemonStart = ServerStart;
+
+/// Start detached: spawn the server in the background and return.
+/// If a conflicting server is already running, directly replace it (ADR-0029).
+pub fn detach_server(flags: &ServerStart) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(info) = client::discover(Path::new(".")) {
         if info.pid != std::process::id() {
-            eprintln!("nuo: replacing existing daemon (pid {})...", info.pid);
-            if let Ok(identity) = nuo_host::process::process_identity(info.pid) {
-                let _ = nuo_host::process::request_termination(identity);
-                std::thread::sleep(std::time::Duration::from_millis(300));
-                if nuo_host::process::process_is_alive(identity) {
-                    let _ = nuo_host::process::force_terminate(identity);
-                    std::thread::sleep(std::time::Duration::from_millis(200));
-                }
-            }
+            eprintln!("nuo: replacing existing server (pid {})...", info.pid);
+            let _ = nuo_host::process::takeover_pid_sync(
+                info.pid,
+                nuo_host::process::TakeoverOptions::default(),
+            );
             client::discovery::remove(&client::discovery::global_discovery_path());
         }
     }
@@ -63,13 +63,17 @@ pub fn detach_daemon(flags: &DaemonStart) -> Result<(), Box<dyn std::error::Erro
         .spawn()
         .map_err(|e| format!("could not spawn {}: {e}", program.display()))?;
     eprintln!(
-        "nuo: daemon started in the background (`nuo status` to observe, `nuo stop` to stop it)"
+        "nuo: server started in the background (`nuo status` to observe, `nuo stop` to stop it)"
     );
     Ok(())
 }
 
-/// Stop the running daemon through the budget-aware shutdown pipeline.
-pub async fn stop_daemon() -> Result<(), Box<dyn std::error::Error>> {
+/// Backward-compatible alias for [`detach_server`].
+#[allow(unused_imports)]
+pub use detach_server as detach_daemon;
+
+/// Stop the running server through the budget-aware shutdown pipeline.
+pub async fn stop_server() -> Result<(), Box<dyn std::error::Error>> {
     let info = match client::discover(Path::new(".")) {
         Some(info) => info,
         None => {
@@ -97,22 +101,47 @@ pub async fn stop_daemon() -> Result<(), Box<dyn std::error::Error>> {
                         ..Default::default()
                     }
                 } else {
-                    eprintln!("nuo: no daemon is running.");
+                    eprintln!("nuo: no server is running.");
                     return Ok(());
                 }
             } else {
-                eprintln!("nuo: no daemon is running.");
+                eprintln!("nuo: no server is running.");
                 return Ok(());
             }
         }
     };
     client::stop(&info).await?;
-    eprintln!("nuo: daemon stopped (pid {}).", info.pid);
+    eprintln!("nuo: server stopped (pid {}).", info.pid);
     Ok(())
 }
 
-/// Run daemon in foreground (the supervisor shape).
-pub async fn run_daemon_foreground(flags: DaemonStart) -> Result<(), Box<dyn std::error::Error>> {
+/// Backward-compatible alias for [`stop_server`].
+#[allow(unused_imports)]
+pub use stop_server as stop_daemon;
+
+/// Restart the server: stop the running instance (if any) and detach a replacement.
+pub async fn restart_server(
+    flags: &ServerStart,
+    force: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(info) = client::discover(Path::new(".")) {
+        eprintln!("nuo: stopping existing server (pid {})...", info.pid);
+        if force {
+            let _ = nuo_host::process::takeover_pid(
+                info.pid,
+                nuo_host::process::TakeoverOptions::default(),
+            )
+            .await;
+            client::discovery::remove(&client::discovery::global_discovery_path());
+        } else {
+            let _ = client::stop(&info).await;
+        }
+    }
+    detach_server(flags)
+}
+
+/// Run server in foreground (the supervisor shape).
+pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std::error::Error>> {
     let mut lifecycle = nuo::host::LifecycleOptions::from_config();
     lifecycle.client_driven = flags.client_driven;
     if let Some(minutes) = flags.idle_exit_minutes {
@@ -125,9 +154,13 @@ pub async fn run_daemon_foreground(flags: DaemonStart) -> Result<(), Box<dyn std
         lifecycle.shutdown_grace = std::time::Duration::from_secs(secs.max(1));
     }
 
-    let port = flags
-        .port
-        .unwrap_or(nuo::startup::env_default_port());
+    // [INV-SERVER-03] Zero TCP on Client-Bound Posture:
+    // When running in client_driven mode without an explicit port, do not bind TCP.
+    let port = if flags.client_driven && flags.port.is_none() {
+        0
+    } else {
+        flags.port.unwrap_or(nuo::startup::env_default_port())
+    };
     let preset = agent_code();
     let outcome = nuo::host::run_with_gate(
         nuo::host::HostIdentity {
@@ -157,11 +190,11 @@ pub async fn run_daemon_foreground(flags: DaemonStart) -> Result<(), Box<dyn std
     .await;
     match &outcome {
         nuo::host::RunOutcome::Stopped { reason } => {
-            eprintln!("nuo: daemon stopped ({reason}).");
+            eprintln!("nuo: server stopped ({reason}).");
         }
         nuo::host::RunOutcome::ForcedExit { reason } => {
             eprintln!(
-                "nuo: daemon stopped ({reason}); grace budget expired, stragglers were \
+                "nuo: server stopped ({reason}); grace budget expired, stragglers were \
                  aborted — see the log."
             );
         }
@@ -171,3 +204,7 @@ pub async fn run_daemon_foreground(flags: DaemonStart) -> Result<(), Box<dyn std
     }
     std::process::exit(outcome.exit_code());
 }
+
+/// Backward-compatible alias for [`run_server_foreground`].
+#[allow(unused_imports)]
+pub use run_server_foreground as run_daemon_foreground;

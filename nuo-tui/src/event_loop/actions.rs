@@ -709,7 +709,10 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         false,
                         std::time::Duration::from_millis(1500),
                     );
-                    app.send_intent(AgentRequest::QueryConnectionDetail { id });
+                    app.send_intent(AgentRequest::QueryConnectionDetail {
+                        id,
+                        force_refresh: true,
+                    });
                 }
             } else if matches!(
                 app.active_dialog(),
@@ -726,11 +729,20 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     app.models_refreshing = true;
                     show_local_toast(
                         app,
-                        "Refreshing models…",
+                        if app.active_dialog() == Some(DialogKind::Connections) {
+                            "Refreshing connections and models…"
+                        } else {
+                            "Refreshing models…"
+                        },
                         false,
                         std::time::Duration::from_millis(1500),
                     );
                     app.send_intent(AgentRequest::RefreshProviderModels);
+                    if app.active_dialog() == Some(DialogKind::Connections) {
+                        app.send_intent(AgentRequest::QueryAllConnectionsUsage {
+                            force_refresh: true,
+                        });
+                    }
                 }
             }
         }
@@ -1399,6 +1411,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.connection_models_expanded = false;
                 app.send_intent(AgentRequest::QueryConnectionDetail {
                     id: ranked.id.clone(),
+                    force_refresh: false,
                 });
             }
         }
@@ -2334,7 +2347,10 @@ pub(crate) fn open_active_connection_detail(
     app.connection_info_scroll = 0;
     app.connection_models_expanded = false;
     if !target_id.is_empty() {
-        app.send_intent(AgentRequest::QueryConnectionDetail { id: target_id });
+        app.send_intent(AgentRequest::QueryConnectionDetail {
+            id: target_id,
+            force_refresh: false,
+        });
     }
 }
 

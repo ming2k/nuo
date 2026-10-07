@@ -9,9 +9,11 @@ mod status;
 mod supervisor;
 
 use status::{StatusOptions, run as run_status};
-use supervisor::{DaemonStart, detach_daemon, run_daemon_foreground, stop_daemon};
+use supervisor::{
+    ServerStart, detach_server, restart_server, run_server_foreground, stop_server,
+};
 
-use cli::{CliArgs, DaemonAction, McpAction, Mode};
+use cli::{CliArgs, McpAction, Mode, ServerAction};
 use std::path::PathBuf;
 
 /// Worker-thread stack size for the daemon.
@@ -70,17 +72,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Mode::Mcp(action) => commands::mcp::run(action),
         Mode::Skill(action) => commands::skill::run(action).await,
         Mode::Session(action) => commands::session::run(action, project_override).await,
-        Mode::Daemon(action) => run_daemon_action(action, project_override).await,
+        Mode::Server(action) => run_server_action(action, project_override).await,
     }
 }
 
-/// daemon verb dispatch (ADR-0116: the daemon verbs own start/stop/status/token).
-async fn run_daemon_action(
-    action: DaemonAction,
+/// server verb dispatch (ADR-0116: the server verbs own start/stop/restart/status/token).
+async fn run_server_action(
+    action: ServerAction,
     project_override: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
-        DaemonAction::Start {
+        ServerAction::Start {
             foreground,
             port,
             public,
@@ -89,7 +91,7 @@ async fn run_daemon_action(
             shutdown_grace_secs,
             client_driven,
         } => {
-            let flags = DaemonStart {
+            let flags = ServerStart {
                 port,
                 public,
                 no_local_auth,
@@ -98,22 +100,41 @@ async fn run_daemon_action(
                 client_driven,
             };
             if !foreground {
-                return detach_daemon(&flags);
+                return detach_server(&flags);
             }
-            run_daemon_foreground(flags).await
+            run_server_foreground(flags).await
         }
-        DaemonAction::Stop => stop_daemon().await,
-        DaemonAction::Token => {
+        ServerAction::Stop => stop_server().await,
+        ServerAction::Restart {
+            force,
+            port,
+            public,
+            no_local_auth,
+            idle_exit_minutes,
+            shutdown_grace_secs,
+            client_driven,
+        } => {
+            let flags = ServerStart {
+                port,
+                public,
+                no_local_auth,
+                idle_exit_minutes,
+                shutdown_grace_secs,
+                client_driven,
+            };
+            restart_server(&flags, force).await
+        }
+        ServerAction::Token => {
             let project_root = project_override
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-            let info = client::discover(&project_root).ok_or("no local nuo daemon is running")?;
+            let info = client::discover(&project_root).ok_or("no local nuo server is running")?;
             match info.token {
                 Some(token) => println!("{token}"),
-                None => eprintln!("nuo: daemon authentication is disabled."),
+                None => eprintln!("nuo: server authentication is disabled."),
             }
             Ok(())
         }
-        DaemonAction::Status {
+        ServerAction::Status {
             watch,
             json,
             include_idle,

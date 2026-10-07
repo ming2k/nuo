@@ -874,7 +874,7 @@ async fn open_active_connection_detail_opens_standalone_and_closes_to_none() {
 
     let req = rx.try_recv().expect("should query connection detail");
     match req {
-        nuo_wire::AgentRequest::QueryConnectionDetail { id } => {
+        nuo_wire::AgentRequest::QueryConnectionDetail { id, .. } => {
             assert_eq!(id, "anthropic-prod");
         }
         _ => panic!("Expected QueryConnectionDetail request"),
@@ -990,7 +990,7 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
         .try_recv()
         .expect("should query connection detail for refresh");
     match req {
-        nuo_wire::AgentRequest::QueryConnectionDetail { id } => {
+        nuo_wire::AgentRequest::QueryConnectionDetail { id, .. } => {
             assert_eq!(id, "custom-relay");
         }
         _ => panic!("Expected QueryConnectionDetail request"),

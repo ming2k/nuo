@@ -776,7 +776,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     };
 
     // Mid-turn context projection: when pruning is enabled, install a gate that
-    if config.compaction.prune {
+    if config.context.lightweight_degradation_enabled {
         crate::agent_setup::reseed_prune_threshold(&agent, &config);
     }
 

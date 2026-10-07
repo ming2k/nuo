@@ -235,6 +235,92 @@ pub fn request_termination(identity: ProcessIdentity) -> io::Result<()> {
     native::request_termination(identity.pid)
 }
 
+/// Options controlling the graceful-to-force escalation budget during takeover.
+#[derive(Clone, Copy, Debug)]
+pub struct TakeoverOptions {
+    pub grace_period: std::time::Duration,
+    pub poll_interval: std::time::Duration,
+}
+
+impl Default for TakeoverOptions {
+    fn default() -> Self {
+        Self {
+            grace_period: std::time::Duration::from_millis(500),
+            poll_interval: std::time::Duration::from_millis(25),
+        }
+    }
+}
+
+/// Request graceful termination with automatic escalation to force termination (ADR-0029).
+pub async fn takeover_pid(pid: u32, opts: TakeoverOptions) -> io::Result<()> {
+    if pid == std::process::id() {
+        return Ok(());
+    }
+    let identity = process_identity(pid)?;
+    if !process_is_alive(identity) {
+        return Ok(());
+    }
+
+    let _ = request_termination(identity);
+    let deadline = tokio::time::Instant::now() + opts.grace_period;
+    while tokio::time::Instant::now() < deadline && process_is_alive(identity) {
+        tokio::time::sleep(opts.poll_interval).await;
+    }
+
+    if process_is_alive(identity) {
+        tracing::warn!(pid, "process did not terminate gracefully; escalating to force terminate");
+        let _ = force_terminate(identity);
+        let force_deadline = tokio::time::Instant::now() + opts.grace_period;
+        while tokio::time::Instant::now() < force_deadline && process_is_alive(identity) {
+            tokio::time::sleep(opts.poll_interval).await;
+        }
+    }
+
+    if process_is_alive(identity) {
+        Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!("process {pid} is still alive after force terminate"),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// Synchronous / blocking version of [`takeover_pid`].
+pub fn takeover_pid_sync(pid: u32, opts: TakeoverOptions) -> io::Result<()> {
+    if pid == std::process::id() {
+        return Ok(());
+    }
+    let identity = process_identity(pid)?;
+    if !process_is_alive(identity) {
+        return Ok(());
+    }
+
+    let _ = request_termination(identity);
+    let deadline = std::time::Instant::now() + opts.grace_period;
+    while std::time::Instant::now() < deadline && process_is_alive(identity) {
+        std::thread::sleep(opts.poll_interval);
+    }
+
+    if process_is_alive(identity) {
+        tracing::warn!(pid, "process did not terminate gracefully; escalating to force terminate");
+        let _ = force_terminate(identity);
+        let force_deadline = std::time::Instant::now() + opts.grace_period;
+        while std::time::Instant::now() < force_deadline && process_is_alive(identity) {
+            std::thread::sleep(opts.poll_interval);
+        }
+    }
+
+    if process_is_alive(identity) {
+        Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!("process {pid} is still alive after force terminate"),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 /// Checks whether a running process's executed binary image matches the on-disk file.
 pub fn process_image_matches_path(pid: u32, expected: &std::path::Path) -> bool {
     native::native_process_image_matches_path(pid, expected)

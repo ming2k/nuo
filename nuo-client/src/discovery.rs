@@ -59,6 +59,11 @@ impl Discovery {
     }
 }
 
+/// Canonical alias for session server discovery information.
+pub type ServerInfo = Discovery;
+/// Backward-compatible alias for session server discovery information.
+pub type DaemonInfo = Discovery;
+
 /// The global discovery path for the unified daemon.
 pub fn global_discovery_path() -> PathBuf {
     paths::get().instance_dir().join("daemon.json")
@@ -86,6 +91,11 @@ pub fn default_local_endpoint() -> Result<nuo_host::ipc::LocalEndpoint, String> 
 /// The daemon's single-instance lock path.
 pub fn global_lock_path() -> PathBuf {
     paths::get().instance_dir().join("daemon.lock")
+}
+
+/// The spawn mutex lock path for single-flight server initialization (ADR-0034).
+pub fn global_spawn_lock_path() -> PathBuf {
+    paths::get().instance_dir().join("server-spawning.lock")
 }
 
 /// Read the global discovery record.

@@ -329,6 +329,14 @@ pub enum AgentRequest {
     /// The reply is [`AgentResponse::ConnectionDetail`].
     QueryConnectionDetail {
         id: String,
+        #[serde(default)]
+        force_refresh: bool,
+    },
+    /// Request concurrent usage refresh for all configured connections.
+    /// The reply streams [`AgentResponse::ConnectionDetail`] per connection.
+    QueryAllConnectionsUsage {
+        #[serde(default)]
+        force_refresh: bool,
     },
     /// Request the current sessions-picker rows without changing frontend
     /// navigation. The reply is [`AgentResponse::SessionsOverview`].

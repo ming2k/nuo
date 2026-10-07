@@ -831,7 +831,7 @@ pub(crate) async fn compact(env: SlashEnv<'_>, name: &str, args: &str, _parts: &
         ..
     } = env;
     let mut current = session.model_window().await;
-    let settings = ContextProjectionSettings::from_policy(&config.compaction, active_context_window(agent))
+    let settings = ContextProjectionSettings::from_context_policy(&config.context, active_context_window(agent))
         .for_request(agent.estimate_next_request_tokens(&current));
 
     let _ = resp_tx.send(round_response(

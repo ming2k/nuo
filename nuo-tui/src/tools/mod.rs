@@ -444,7 +444,17 @@ const SUMMARY_BUDGET: usize = 72;
 /// `document.rs` in place of `argument_summary`.
 pub fn summary_for(name: &str, arguments: &str, profile: Option<&str>) -> String {
     let line = semantic_summary_for(name, arguments, profile, None);
-    truncate(&sanitize_single_line(&line.to_plain_text()), SUMMARY_BUDGET)
+    let sanitized = sanitize_single_line(&line.to_plain_text());
+    let trimmed = sanitized.trim();
+    if trimmed.is_empty() {
+        if !name.is_empty() {
+            fallback::prettify_tool_name(name)
+        } else {
+            "Tool".to_string()
+        }
+    } else {
+        truncate(trimmed, SUMMARY_BUDGET)
+    }
 }
 
 /// Build the structured semantic summary for a tool step from its raw JSON arguments (ADR-0206).
@@ -455,7 +465,7 @@ pub fn semantic_summary_for(
     workspace_root: Option<&std::path::Path>,
 ) -> SemanticLine<'static> {
     let parsed: Option<Value> = serde_json::from_str(arguments).ok();
-    match parsed.as_ref().and_then(Value::as_object) {
+    let line = match parsed.as_ref().and_then(Value::as_object) {
         Some(obj) => {
             let view = ToolView {
                 name,
@@ -465,7 +475,32 @@ pub fn semantic_summary_for(
             };
             presenter_for(name).render_summary(&view).into_owned()
         }
-        None => SemanticLine::plain(arguments.to_string()),
+        None => {
+            if arguments.trim().is_empty() {
+                let empty = serde_json::Map::new();
+                let view = ToolView {
+                    name,
+                    args: &empty,
+                    profile,
+                    workspace_root,
+                };
+                presenter_for(name).render_summary(&view).into_owned()
+            } else {
+                SemanticLine::plain(arguments.to_string())
+            }
+        }
+    };
+
+    // Invariant: every tool summary MUST have a non-empty head.
+    if line.to_plain_text().trim().is_empty() {
+        let fallback_head = if !name.is_empty() {
+            fallback::prettify_tool_name(name)
+        } else {
+            "Tool".to_string()
+        };
+        SemanticLine::plain(fallback_head)
+    } else {
+        line
     }
 }
 
@@ -554,15 +589,54 @@ mod tests {
     }
 
     #[test]
+    fn empty_arguments_fallback_to_named_presenter_defaults() {
+        assert_eq!(summary_for("read_text", "", None), "Read file");
+        assert_eq!(summary_for("edit_text", "", None), "Edit text");
+        assert_eq!(summary_for("write_file", "", None), "Write file");
+        assert_eq!(summary_for("execute_command", "", None), "Run command");
+    }
+
+    #[test]
+    fn namespaced_tool_names_resolve_to_canonical_presenters() {
+        assert_eq!(
+            summary("default_api:read_text", serde_json::json!({"path": "src/main.rs"})),
+            "Read src/main.rs"
+        );
+        assert_eq!(
+            summary("default_api:execute_command", serde_json::json!({"command": "cargo test"})),
+            "Run cargo"
+        );
+        assert_eq!(
+            summary("google:edit_text", serde_json::json!({"path": "foo.rs"})),
+            "Edit foo.rs"
+        );
+    }
+
+    #[test]
+    fn whitespace_and_invalid_arguments_never_produce_empty_summary() {
+        assert_eq!(summary_for("read_text", "   ", None), "Read file");
+        assert_eq!(summary_for("execute_command", "   ", None), "Run command");
+        assert_eq!(summary_for("unknown_custom", "   ", None), "unknown_custom");
+        assert_eq!(summary_for("", "   ", None), "Tool");
+    }
+
+    #[test]
     fn unknown_tool_leads_with_cleaned_name_then_key() {
         assert_eq!(
             summary("mcp__foo__bar", serde_json::json!({"query": "hello"})),
-            "foo / bar hello"
+            "⚡ foo · bar \"hello\""
         );
-        // No recognizable argument: just the cleaned name.
         assert_eq!(
             summary("mcp__foo__bar", serde_json::json!({"unknown": 1})),
-            "foo / bar"
+            "⚡ foo · bar unknown: 1"
+        );
+        assert_eq!(
+            summary("custom__foo__bar", serde_json::json!({"query": "hello"})),
+            "custom / foo / bar hello"
+        );
+        assert_eq!(
+            summary("custom__foo__bar", serde_json::json!({"unknown": 1})),
+            "custom / foo / bar"
         );
     }
 
@@ -702,12 +776,12 @@ mod tests {
 
     /// Adding a presenter without declaring it is the drift this table exists
     /// to prevent: an undeclared tool must stay out of the panel *and* off the
-    /// expanded default, so a dynamic (MCP) tool can never surprise the user
+    /// expanded default, so an unrecognized tool can never surprise the user
     /// with a wide-open body it never advertised.
     #[test]
     fn unknown_tools_stay_unconfigured_and_collapsed() {
         let config = crate::config::TuiConfig::default();
-        for name in ["mcp__foo__bar", "totally_new_tool"] {
+        for name in ["totally_new_tool", "custom_unknown_plugin"] {
             assert!(component_for(name).is_none(), "{name} must not be declared");
             assert!(
                 !crate::config::tool_default_expanded(&config, name),
@@ -715,5 +789,18 @@ mod tests {
             );
             assert!(!presenter_for(name).default_expanded());
         }
+    }
+
+    #[test]
+    fn mcp_tools_are_associated_with_mcp_component_and_default_to_collapsed() {
+        let config = crate::config::TuiConfig::default();
+        let name = "mcp__github__create_issue";
+        let component = component_for(name).expect("mcp component must match");
+        assert_eq!(component.id, "mcp");
+        assert!(
+            !crate::config::tool_default_expanded(&config, name),
+            "mcp tools must default to collapsed"
+        );
+        assert!(!presenter_for(name).default_expanded());
     }
 }

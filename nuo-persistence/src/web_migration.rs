@@ -38,12 +38,12 @@ pub(crate) fn migrate_config_source(source: &str) -> String {
     let Some(root) = document.as_table_mut() else {
         return source.to_string();
     };
-    let key = if root.contains_key("web") {
-        "web"
-    } else {
-        "websearch"
-    };
-    let Some(web) = root.get_mut(key).and_then(toml::Value::as_table_mut) else {
+    if !root.contains_key("web") && root.contains_key("websearch") {
+        if let Some(ws) = root.remove("websearch") {
+            root.insert("web".to_string(), ws);
+        }
+    }
+    let Some(web) = root.get_mut("web").and_then(toml::Value::as_table_mut) else {
         return source.to_string();
     };
 

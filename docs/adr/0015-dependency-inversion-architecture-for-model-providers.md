@@ -15,7 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group
 - Consulted: Runtime, Capability, Interface Teams, and Model Infrastructure Engineers
 - Informed: System Architects
-- Amended by: [ADR-0027](0027-provider-definition-single-source-and-adapters-retirement.md) (accepted) — executes this ADR's unfinished `providers/` relocation and retires `nuo-provider-adapters`. This ADR's §1 topology and `[INV-PROV-01..05]` remain the binding direction; §2's renaming table and the §"Monolithic Provider Adapter" rejection are unchanged.
+- Amended by: [ADR-0027](0027-provider-definition-single-source-and-adapters-retirement.md) (accepted) — executes this ADR's unfinished `providers/` relocation and retires `nuo-provider-adapters`. Transport substrate `nuo-provider-transport` was subsequently relocated to the workspace root alongside `nuo-oauth` to preserve namespace purity (`providers/` housing exclusively concrete channel adapters) and prevent downward layer-inversion. This ADR's §1 topology and `[INV-PROV-01..05]` remain the binding direction; §2's renaming table and the §"Monolithic Provider Adapter" rejection are unchanged.
 - Complements: [ADR-0001](0001-flat-workspace-and-microkernel-capability-topology.md), [ADR-0008](0008-single-tool-contract.md), [ADR-0010](0010-harness-decomposition-and-agent-unification.md), [ADR-0013](0013-decoupled-tool-namespace-and-infrastructure-purity.md), [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md)
 
 ---
@@ -56,15 +56,18 @@ We require an uncompromising, future-facing DIP architecture: establishing `nuo-
 nuo-provider (Layer 0: Pure Contract Substrate at root)
   • Provider (Inference), CatalogDiscovery (Models), QuotaTracker (Balance)
   • ProviderFactory, CredentialHost, ProviderDescriptor, ProviderRegistry
+nuo-provider-transport (Layer 1: Shared Transport Substrate at root)
+  • Shared HTTP egress, SSE demuxing, request pipeline, prompt cache
+nuo-oauth (Layer 1: RFC & OAuth Engine Substrate at root)
+  • RFC 7636 PKCE, RFC 8628 Device Code, token refresh
   ▲
-  │ implements
+  │ implements / consumes
 providers/ (Layer 2: Dedicated Channel & Adapter Namespace)
-  ├── nuo-provider-transport           # Shared HTTP egress, SSE demuxing, request pipeline
   ├── nuo-provider-qoder               # Qoder dialect & sandboxed RSA/AES/MD5 crypto
   ├── nuo-provider-openai              # OpenAI Developer Platform API
   ├── nuo-provider-chatgpt-plan        # ChatGPT Plan Codex subscription (OAuth PKCE)
   ├── nuo-provider-anthropic           # Claude Messages API (Thinking, Prompt Caching)
-  ├── nuo-provider-google              # Google AI Studio & Google Antigravity CloudCode
+  ├── nuo-provider-google-antigravity  # Google AI Studio & Google Antigravity CloudCode
   ├── nuo-provider-copilot             # GitHub Copilot Device Code & session minting
   ├── nuo-provider-commandcode-plan    # CommandCode Plan (SSPL proxy & window credits)
   ├── nuo-provider-opencode            # OpenCode Console, Plan, and Zen multi-protocol surfaces

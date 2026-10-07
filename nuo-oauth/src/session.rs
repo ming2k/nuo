@@ -97,10 +97,15 @@ pub async fn build_token_set_from_login(
     tokens: TokenResponse,
     now_ms: i64,
 ) -> TokenSet {
+    let expires_ms = access_token_expiry_ms(
+        tokens.access_token.expose_secret(),
+        tokens.expires_in,
+        now_ms,
+    );
     let fallback = TokenSet {
         access: tokens.access_token.clone(),
         refresh: tokens.refresh_token.clone().unwrap_or_default(),
-        expires_ms: 0,
+        expires_ms,
         id_token: tokens.id_token.clone(),
         token_type: tokens.token_type.clone(),
         scope: tokens.scope.clone(),

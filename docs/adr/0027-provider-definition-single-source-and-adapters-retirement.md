@@ -149,7 +149,7 @@ Therefore provider-private data that nuo does not model travels in a **namespace
 
 **Drifted by re-export import paths only** (`crate::X` ↔ `nuo_provider_transport::X`; equal line counts): `openai/{chat_completions/mod.rs, chat_completions/request.rs, chat_completions/echo.rs, responses/mod.rs, responses/request.rs}`; `anthropic/{mod.rs, request.rs}`; `google/{mod.rs, request.rs}`.
 
-**Structural drift** (`providers/` side has more): `providers/nuo-provider-openai/src/lib.rs` adds `pub mod spec`; `nuo-provider-anthropic/src/lib.rs` adds `pub mod spec`; `nuo-provider-google/src/lib.rs` adds `spec_antigravity`/`spec_google`/`usage`. The additional modules are exactly the spec/usage tables, which the adapters keep in `registry/` instead.
+**Structural drift** (`providers/` side has more): `providers/nuo-provider-openai/src/lib.rs` adds `pub mod spec`; `nuo-provider-anthropic/src/lib.rs` adds `pub mod spec`; `nuo-provider-google-antigravity/src/lib.rs` adds `spec_antigravity`/`spec_google`/`usage`. The additional modules are exactly the spec/usage tables, which the adapters keep in `registry/` instead.
 
 **Identical content, differing only in trait-shape**: all 16 shared provider specs and their 110 baseline models match field-for-field (`context_window`, `thinking`, `tool_call`, `vision`, `effort_levels`, `root_url`, `protocol`, `dialect`, `catalog_source`, `models`). No side has more models or more fields.
 

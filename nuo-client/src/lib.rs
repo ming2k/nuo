@@ -8,7 +8,10 @@
 pub mod discovery;
 pub mod wire;
 
-pub use discovery::{Discovery as DaemonInfo, global_discovery_path, instance_dir};
+pub use discovery::{
+    Discovery as DaemonInfo, Discovery as ServerInfo, global_discovery_path,
+    global_spawn_lock_path, instance_dir,
+};
 pub use wire::{
     AttachAction, BoxWireSink, BoxWireStream, ControlRequest, NativeWireCodec,
     SessionInitOptions, Wire, ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH,
@@ -1313,6 +1316,16 @@ pub fn startup_log_path() -> PathBuf {
     dirs.state_dir.join("log").join("daemon-startup.log")
 }
 
+/// Canonical alias for ensuring a compatible session server is running.
+pub async fn ensure_server(project_root: &Path) -> Result<ServerInfo, String> {
+    ensure_daemon(project_root).await
+}
+
+/// Canonical alias for stopping a running session server.
+pub async fn stop_server(info: &ServerInfo) -> Result<(), String> {
+    stop(info).await
+}
+
 pub async fn ensure_daemon(project_root: &Path) -> Result<DaemonInfo, String> {
     if let Some(info) = discover(project_root) {
         if versions_compatible(&info) && !is_dev_drift(&info) {
@@ -1327,6 +1340,34 @@ pub async fn ensure_daemon(project_root: &Path) -> Result<DaemonInfo, String> {
         let _ = stop(&info).await;
     }
 
+    // ADR-0034 [INV-LIFECYCLE-02]: Single-Flight Spawning Mutex.
+    // Ensure only one client initiates server startup; concurrent clients wait on discovery.
+    let spawn_lock_path = discovery::global_spawn_lock_path();
+    let _spawn_guard = match nuo_host::lock::ProcessLock::acquire(&spawn_lock_path) {
+        Ok(guard) => Some(guard),
+        Err(_) => {
+            // Another client is actively spawning the server. Poll discovery until ready.
+            let wait_deadline = tokio::time::Instant::now() + Duration::from_secs(6);
+            while tokio::time::Instant::now() < wait_deadline {
+                tokio::time::sleep(SERVER_START_POLL).await;
+                if let Some(info) = discover(project_root) {
+                    if versions_compatible(&info) && !is_dev_drift(&info) {
+                        return Ok(info);
+                    }
+                }
+            }
+            nuo_host::lock::ProcessLock::acquire(&spawn_lock_path).ok()
+        }
+    };
+
+    // Double-checked probe after lock acquisition:
+    if let Some(info) = discover(project_root) {
+        if versions_compatible(&info) && !is_dev_drift(&info) {
+            return Ok(info);
+        }
+        let _ = stop(&info).await;
+    }
+
     // Check if another daemon is holding the instance lock
     let lock_path = discovery::global_lock_path();
     if nuo_host::lock::ProcessLock::is_locked(&lock_path)
@@ -1337,14 +1378,11 @@ pub async fn ensure_daemon(project_root: &Path) -> Result<DaemonInfo, String> {
             holder_pid,
             "ensure_daemon: replacing conflicting daemon holding instance lock"
         );
-        if let Ok(identity) = nuo_host::process::process_identity(holder_pid) {
-            let _ = nuo_host::process::request_termination(identity);
-            tokio::time::sleep(Duration::from_millis(300)).await;
-            if nuo_host::process::process_is_alive(identity) {
-                let _ = nuo_host::process::force_terminate(identity);
-                tokio::time::sleep(Duration::from_millis(200)).await;
-            }
-        }
+        let _ = nuo_host::process::takeover_pid(
+            holder_pid,
+            nuo_host::process::TakeoverOptions::default(),
+        )
+        .await;
     }
 
     let mut child = spawn_daemon()?;
@@ -1616,6 +1654,9 @@ pub async fn connect(info: &DaemonInfo, action: AttachAction) -> Result<Handshak
     {
         let (sink, source) = native_framed_split(stream);
         return finish_handshake((sink, source), action).await;
+    }
+    if info.port == 0 {
+        return Err("server runs in client-bound mode (UDS only) and local endpoint is not reachable".into());
     }
     let url = format!("ws://127.0.0.1:{}/", info.port);
     let mut request = url

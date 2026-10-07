@@ -91,6 +91,8 @@ pub struct Http {
     timeout: Duration,
 }
 
+static SHARED_CONTROL_PLANE: std::sync::OnceLock<Http> = std::sync::OnceLock::new();
+
 impl Http {
     /// Build a handle with an overall per-request deadline.
     pub fn new(timeout: Duration) -> Result<Self, String> {
@@ -105,6 +107,17 @@ impl Http {
     /// Build a handle with this crate's control-plane deadline (10 s).
     pub fn control_plane() -> Result<Self, String> {
         Self::new(Duration::from_secs(10))
+    }
+
+    /// Return a shared control-plane client instance (10 s deadline) reusing
+    /// connection pools and TLS sessions across control-plane calls.
+    pub fn shared_control_plane() -> Result<Self, String> {
+        if let Some(client) = SHARED_CONTROL_PLANE.get() {
+            return Ok(client.clone());
+        }
+        let client = Self::control_plane()?;
+        let _ = SHARED_CONTROL_PLANE.set(client.clone());
+        Ok(client)
     }
 
     pub async fn send(&self, request: Request) -> Result<Reply, String> {

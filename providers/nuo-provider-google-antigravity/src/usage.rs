@@ -68,6 +68,16 @@ impl AntigravityUsageFetcher {
         base_url: &str,
         api_key: &str,
     ) -> Result<ProviderUsage, String> {
+        self.fetch_usage_with_project(client, base_url, api_key, None).await
+    }
+
+    pub async fn fetch_usage_with_project(
+        &self,
+        client: &nuo_provider_transport::http::Http,
+        base_url: &str,
+        api_key: &str,
+        project: Option<&str>,
+    ) -> Result<ProviderUsage, String> {
         let endpoint = if base_url.contains("cloudcode-pa.googleapis.com") {
             let base = base_url.trim_end_matches('/');
             let base = base.strip_suffix("/v1internal").unwrap_or(base);
@@ -77,7 +87,7 @@ impl AntigravityUsageFetcher {
         };
 
         let req_body = serde_json::json!({
-            "project": ""
+            "project": project.unwrap_or("")
         });
 
         let request = nuo_provider_transport::http::Request::new(netune::Method::POST, &endpoint)

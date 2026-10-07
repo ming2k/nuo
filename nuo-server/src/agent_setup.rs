@@ -18,11 +18,12 @@ pub fn active_context_window(agent: &Agent) -> usize {
 /// tracks the live model instead of a frozen, model-agnostic budget. A no-op
 /// when pruning is disabled (no gate is installed in that case).
 pub fn reseed_prune_threshold(agent: &Agent, config: &Config) {
-    if !config.compaction.prune {
+    if !config.context.lightweight_degradation_enabled {
         return;
     }
     let window = active_context_window(agent);
-    agent.set_context_prune_threshold(config.compaction.resolve(window).prune_threshold_tokens);
+    let budget = config.context.resolve_budget(window);
+    agent.set_context_prune_threshold(budget.prune_threshold_tokens);
 }
 
 /// Re-seed the per-model tool-variant selection so the resolved toolset (and

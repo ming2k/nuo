@@ -596,7 +596,7 @@ async fn start_resolved_turn(
         // handler read the primary's, which may differ from an aside target.
         input = RoundInput::resume(pending);
     }
-    let projection = ContextProjectionSettings::from_policy(&config.compaction, active_context_window(&agent));
+    let projection = ContextProjectionSettings::from_context_policy(&config.context, active_context_window(&agent));
     let retry_max_attempts = config.connection_retry_max_attempts;
     let retry_base_ms = config.connection_retry_base_ms;
     let retry_max_ms = config.connection_retry_max_ms;

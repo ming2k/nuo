@@ -30,7 +30,8 @@ pub enum Mode {
     /// Interactive TUI session or headless run (`nuox` unified engine per ADR-0005).
     Interactive(Vec<String>),
     Session(SessionAction),
-    Daemon(DaemonAction),
+    /// Session server commands and lifecycle operations.
+    Server(ServerAction),
     Config(ConfigAction),
     Auth(AuthAction),
     /// `nuo mcp ls` — list configured MCP servers.
@@ -80,10 +81,10 @@ pub enum SessionAction {
     Delete(String),
 }
 
-/// `nuo` daemon verbs (top-level: start, stop, status, token)
+/// `nuo` server actions (server, serve, start, stop, restart, status, token)
 #[derive(Debug, Clone, PartialEq)]
-pub enum DaemonAction {
-    /// `nuo start` — start the session daemon.
+pub enum ServerAction {
+    /// `nuo server start` / `nuo start` / `nuo serve` — start the session server.
     Start {
         /// `--detach`: run in background.
         /// By default, runs in the foreground (ADR-0029).
@@ -95,11 +96,21 @@ pub enum DaemonAction {
         shutdown_grace_secs: Option<u64>,
         client_driven: bool,
     },
-    /// `nuo stop` — graceful, budget-aware drain.
+    /// `nuo server stop` / `nuo stop` — graceful, budget-aware drain.
     Stop,
-    /// `nuo token` — print the local daemon's bearer token.
+    /// `nuo server restart` / `nuo restart` — restart or replace the server instance.
+    Restart {
+        force: bool,
+        port: Option<u16>,
+        public: bool,
+        no_local_auth: bool,
+        idle_exit_minutes: Option<u64>,
+        shutdown_grace_secs: Option<u64>,
+        client_driven: bool,
+    },
+    /// `nuo server token` / `nuo token` — print the local server's bearer token.
     Token,
-    /// `nuo status` — the daemon's session table and endpoints.
+    /// `nuo server status` / `nuo status` — the server's session table and endpoints.
     Status {
         watch: bool,
         json: bool,
@@ -107,6 +118,10 @@ pub enum DaemonAction {
         diagnostic: bool,
     },
 }
+
+/// Backward-compatible alias for [`ServerAction`].
+#[allow(dead_code)]
+pub type DaemonAction = ServerAction;
 
 /// `nuo config …`
 #[derive(Debug, Clone, PartialEq)]
@@ -118,9 +133,11 @@ pub enum ConfigAction {
         key: String,
         value: String,
     },
-    /// `nuo config check` — validate `config.toml` against the schema:
-    /// hard errors, typo'd keys, and dead legacy spellings.
+    /// `nuo config check` — validate configuration against domain schemas.
     Check,
+    /// `nuo config migrate` — perform clean-break migration from legacy config.toml
+    /// into domain-separated server.toml, client.toml, terminal.toml, agent.toml (ADR-0031).
+    Migrate,
 }
 
 /// `nuo auth …`
@@ -267,6 +284,34 @@ const MCP_SUBS: &[Spec] = &[
     },
 ];
 
+const SERVER_SUBS: &[Spec] = &[
+    Spec {
+        name: "start",
+        names: &["start"],
+        about: "start the session server (foreground by default; --detach for background)",
+    },
+    Spec {
+        name: "stop",
+        names: &["stop"],
+        about: "stop the session server gracefully",
+    },
+    Spec {
+        name: "restart",
+        names: &["restart"],
+        about: "restart or replace the session server",
+    },
+    Spec {
+        name: "status",
+        names: &["status"],
+        about: "show session server status and active sessions",
+    },
+    Spec {
+        name: "token",
+        names: &["token"],
+        about: "print the session server bearer token",
+    },
+];
+
 const SKILL_SUBS: &[Spec] = &[Spec {
     name: "ls",
     names: &["ls", "list"],
@@ -275,9 +320,14 @@ const SKILL_SUBS: &[Spec] = &[Spec {
 
 const COMMANDS: &[Spec] = &[
     Spec {
+        name: "server",
+        names: &["server"],
+        about: "manage the session server (start, stop, restart, status, token)",
+    },
+    Spec {
         name: "serve",
         names: &["serve"],
-        about: "run the daemon service in the foreground",
+        about: "run the session server in the foreground",
     },
     Spec {
         name: "run",
@@ -302,22 +352,27 @@ const COMMANDS: &[Spec] = &[
     Spec {
         name: "start",
         names: &["start"],
-        about: "start the daemon (runs in foreground by default; --detach runs in background)",
+        about: "start the server (runs in foreground by default; --detach runs in background)",
     },
     Spec {
         name: "stop",
         names: &["stop"],
-        about: "stop the daemon gracefully",
+        about: "stop the server gracefully",
+    },
+    Spec {
+        name: "restart",
+        names: &["restart"],
+        about: "restart the server instance",
     },
     Spec {
         name: "status",
         names: &["status"],
-        about: "show the daemon's sessions and endpoints",
+        about: "show the server's sessions and endpoints",
     },
     Spec {
         name: "token",
         names: &["token"],
-        about: "print the local daemon bearer token",
+        about: "print the local server bearer token",
     },
     Spec {
         name: "session",
@@ -623,7 +678,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
 
     if cmd == "serve" {
         let flags = parse_daemon_start_flags(&rest[1..]).map_err(|e| e.0)?;
-        return ok(Mode::Daemon(DaemonAction::Start {
+        return ok(Mode::Server(ServerAction::Start {
             foreground: true,
             port: flags.port,
             public: flags.public,
@@ -636,7 +691,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
 
     if cmd.starts_with('-') {
         let flags = parse_daemon_start_flags(&rest).map_err(|e| e.0)?;
-        return ok(Mode::Daemon(DaemonAction::Start {
+        return ok(Mode::Server(ServerAction::Start {
             foreground: flags.foreground,
             port: flags.port,
             public: flags.public,
@@ -670,9 +725,74 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         return Err(format!("unrecognized command '{cmd}'"));
     };
     let mode = match spec.name {
+        "server" => {
+            if extra.is_empty() {
+                return Err("nuo server needs a subcommand: `nuo server start|stop|restart|status|token`".into());
+            }
+            let sub = match resolve(&extra[0], SERVER_SUBS) {
+                Some(sub) => sub,
+                None => return unexpected(&extra[0]),
+            };
+            let sub_extra = &extra[1..];
+            match sub.name {
+                "start" => {
+                    let flags = parse_daemon_start_flags(sub_extra).map_err(|e| e.0)?;
+                    Mode::Server(ServerAction::Start {
+                        foreground: flags.foreground,
+                        port: flags.port,
+                        public: flags.public,
+                        no_local_auth: flags.no_local_auth,
+                        idle_exit_minutes: flags.idle_exit_minutes,
+                        shutdown_grace_secs: flags.shutdown_grace_secs,
+                        client_driven: flags.client_driven,
+                    })
+                }
+                "stop" => {
+                    if !sub_extra.is_empty() {
+                        return unexpected(&sub_extra[0]);
+                    }
+                    Mode::Server(ServerAction::Stop)
+                }
+                "restart" => {
+                    let mut force = false;
+                    let mut remaining = Vec::new();
+                    for arg in sub_extra {
+                        if arg == "--force" {
+                            force = true;
+                        } else {
+                            remaining.push(arg.clone());
+                        }
+                    }
+                    let flags = parse_daemon_start_flags(&remaining).map_err(|e| e.0)?;
+                    Mode::Server(ServerAction::Restart {
+                        force,
+                        port: flags.port,
+                        public: flags.public,
+                        no_local_auth: flags.no_local_auth,
+                        idle_exit_minutes: flags.idle_exit_minutes,
+                        shutdown_grace_secs: flags.shutdown_grace_secs,
+                        client_driven: flags.client_driven,
+                    })
+                }
+                "status" => {
+                    let flags = parse_table_flags(sub_extra, false).map_err(|e| e.0)?;
+                    Mode::Server(ServerAction::Status {
+                        watch: flags.watch,
+                        json: flags.json || json,
+                        include_idle: flags.include_idle,
+                        diagnostic: flags.diagnostic,
+                    })
+                }
+                "token" => match sub_extra {
+                    [] => Mode::Server(ServerAction::Token),
+                    [bad, ..] => return unexpected(bad),
+                },
+                _ => unreachable!("server subcommands are closed"),
+            }
+        }
         "serve" => {
             let flags = parse_daemon_start_flags(&extra).map_err(|e| e.0)?;
-            Mode::Daemon(DaemonAction::Start {
+            Mode::Server(ServerAction::Start {
                 foreground: true,
                 port: flags.port,
                 public: flags.public,
@@ -687,7 +807,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         }
         "start" => {
             let flags = parse_daemon_start_flags(&extra).map_err(|e| e.0)?;
-            Mode::Daemon(DaemonAction::Start {
+            Mode::Server(ServerAction::Start {
                 foreground: flags.foreground,
                 port: flags.port,
                 public: flags.public,
@@ -700,13 +820,34 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         "stop" => {
             let args: &[String] = &extra;
             match args {
-                [] => Mode::Daemon(DaemonAction::Stop),
+                [] => Mode::Server(ServerAction::Stop),
                 [bad, ..] => return unexpected(bad),
             }
         }
+        "restart" => {
+            let mut force = false;
+            let mut remaining = Vec::new();
+            for arg in &extra {
+                if arg == "--force" {
+                    force = true;
+                } else {
+                    remaining.push(arg.clone());
+                }
+            }
+            let flags = parse_daemon_start_flags(&remaining).map_err(|e| e.0)?;
+            Mode::Server(ServerAction::Restart {
+                force,
+                port: flags.port,
+                public: flags.public,
+                no_local_auth: flags.no_local_auth,
+                idle_exit_minutes: flags.idle_exit_minutes,
+                shutdown_grace_secs: flags.shutdown_grace_secs,
+                client_driven: flags.client_driven,
+            })
+        }
         "status" => {
             let flags = parse_table_flags(&extra, false).map_err(|e| e.0)?;
-            Mode::Daemon(DaemonAction::Status {
+            Mode::Server(ServerAction::Status {
                 watch: flags.watch,
                 json: flags.json || json,
                 include_idle: flags.include_idle,
@@ -714,7 +855,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             })
         }
         "token" => match extra.as_slice() {
-            [] => Mode::Daemon(DaemonAction::Token),
+            [] => Mode::Server(ServerAction::Token),
             [bad, ..] => return unexpected(bad),
         },
         "session" => {
@@ -748,6 +889,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 [] | ["list"] | ["show"] => Mode::Config(ConfigAction::List),
                 ["path"] => Mode::Config(ConfigAction::Path),
                 ["check"] => Mode::Config(ConfigAction::Check),
+                ["migrate"] => Mode::Config(ConfigAction::Migrate),
                 ["get", key] => Mode::Config(ConfigAction::Get((*key).to_string())),
                 ["set", key, value] => Mode::Config(ConfigAction::Set {
                     key: (*key).to_string(),
@@ -1186,7 +1328,7 @@ mod surface_tests {
     fn serve_starts_foreground_daemon() {
         assert!(matches!(
             parse(&["serve"]).unwrap().mode,
-            Mode::Daemon(DaemonAction::Start {
+            Mode::Server(ServerAction::Start {
                 foreground: true,
                 ..
             })
@@ -1198,7 +1340,7 @@ mod surface_tests {
         let parsed = parse(&["start"]).unwrap();
         assert!(matches!(
             parsed.mode,
-            Mode::Daemon(DaemonAction::Start {
+            Mode::Server(ServerAction::Start {
                 foreground: true,
                 client_driven: false,
                 ..
@@ -1211,7 +1353,7 @@ mod surface_tests {
         let parsed = parse(&["start", "--detach"]).unwrap();
         assert!(matches!(
             parsed.mode,
-            Mode::Daemon(DaemonAction::Start {
+            Mode::Server(ServerAction::Start {
                 foreground: false,
                 ..
             })
@@ -1223,7 +1365,7 @@ mod surface_tests {
         let parsed = parse(&["start", "--client-driven"]).unwrap();
         assert!(matches!(
             parsed.mode,
-            Mode::Daemon(DaemonAction::Start {
+            Mode::Server(ServerAction::Start {
                 client_driven: true,
                 ..
             })
@@ -1234,19 +1376,47 @@ mod surface_tests {
     fn top_level_daemon_verbs_are_canonical() {
         assert!(matches!(
             parse(&["start"]).unwrap().mode,
-            Mode::Daemon(DaemonAction::Start { .. })
+            Mode::Server(ServerAction::Start { .. })
         ));
         assert!(matches!(
             parse(&["stop"]).unwrap().mode,
-            Mode::Daemon(DaemonAction::Stop)
+            Mode::Server(ServerAction::Stop)
+        ));
+        assert!(matches!(
+            parse(&["restart"]).unwrap().mode,
+            Mode::Server(ServerAction::Restart { .. })
         ));
         assert!(matches!(
             parse(&["status"]).unwrap().mode,
-            Mode::Daemon(DaemonAction::Status { .. })
+            Mode::Server(ServerAction::Status { .. })
         ));
         assert!(matches!(
             parse(&["token"]).unwrap().mode,
-            Mode::Daemon(DaemonAction::Token)
+            Mode::Server(ServerAction::Token)
+        ));
+    }
+
+    #[test]
+    fn server_subcommands_parse() {
+        assert!(matches!(
+            parse(&["server", "start"]).unwrap().mode,
+            Mode::Server(ServerAction::Start { .. })
+        ));
+        assert!(matches!(
+            parse(&["server", "stop"]).unwrap().mode,
+            Mode::Server(ServerAction::Stop)
+        ));
+        assert!(matches!(
+            parse(&["server", "restart"]).unwrap().mode,
+            Mode::Server(ServerAction::Restart { .. })
+        ));
+        assert!(matches!(
+            parse(&["server", "status"]).unwrap().mode,
+            Mode::Server(ServerAction::Status { .. })
+        ));
+        assert!(matches!(
+            parse(&["server", "token"]).unwrap().mode,
+            Mode::Server(ServerAction::Token)
         ));
     }
 

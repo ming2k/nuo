@@ -375,12 +375,29 @@ impl Dirs {
         self.config_dir.join("config.toml")
     }
 
+    /// Server daemon hosting configuration (`$XDG_CONFIG_HOME/nuo/server.toml`, ADR-0031).
+    pub fn server_config_file(&self) -> PathBuf {
+        self.config_dir.join("server.toml")
+    }
+
+    /// Client session and CLI orchestration configuration (`$XDG_CONFIG_HOME/nuo/client.toml`, ADR-0031).
+    pub fn client_config_file(&self) -> PathBuf {
+        self.config_dir.join("client.toml")
+    }
+
+    /// Terminal presentation preferences (`$XDG_CONFIG_HOME/nuo/terminal.toml`, ADR-0031).
+    pub fn terminal_config_file(&self) -> PathBuf {
+        self.config_dir.join("terminal.toml")
+    }
+
+    /// Agent cognition and tool capability policy (`$XDG_CONFIG_HOME/nuo/agent.toml`, ADR-0031).
+    pub fn agent_config_file(&self) -> PathBuf {
+        self.config_dir.join("agent.toml")
+    }
+
     /// TUI presentation preferences (`$XDG_CONFIG_HOME/nuo/tui.toml`).
     ///
-    /// The terminal frontend keeps its own file beside — never inside — the
-    /// daemon-managed `config.toml`, so theme/keybinding/disclosure state and
-    /// the daemon's behavioural policy can evolve independently without
-    /// sharing a schema (ADR-0011).
+    /// Preserved for migration inspection (ADR-0011, ADR-0031).
     pub fn tui_config_file(&self) -> PathBuf {
         self.config_dir.join("tui.toml")
     }
@@ -433,16 +450,18 @@ impl Dirs {
         self.config_dir.join("logo.txt")
     }
 
-    /// Provider API keys, split out of `config.toml` into a file that holds
-    /// **only** secrets. Written `rw-------` via [`crate::fsutil`] so keys
-    /// never land on disk group- or world-readable. Keeping credentials here
-    /// (rather than inline in `config.toml`) lets the config file be safely
-    /// shared, screenshotted for support, or version-controlled, while
-    /// `config.toml` keeps the provider *definitions* (id/name/transport/
-    /// base_url/model). Resolution precedence — env var > credentials.toml >
-    /// config inline — lives in the config layer.
-    /// `$XDG_CONFIG_HOME/nuo/credentials.toml`.
+    /// Provider API keys, stored in `$XDG_STATE_HOME/nuo/credentials.toml` (0600)
+    /// beside `auth.toml` (ADR-0032).
+    ///
+    /// Keeping credentials in state rather than `$XDG_CONFIG_HOME` ensures that
+    /// users version-controlling their dotfiles (`~/.config/nuo/`) never accidentally
+    /// commit plaintext secret tokens to git repositories.
     pub fn credentials_file(&self) -> PathBuf {
+        self.state_dir.join("credentials.toml")
+    }
+
+    /// Legacy location for credentials in `$XDG_CONFIG_HOME/nuo/credentials.toml` (ADR-0014, superseded by ADR-0032).
+    pub fn legacy_credentials_file(&self) -> PathBuf {
         self.config_dir.join("credentials.toml")
     }
 

@@ -24,7 +24,7 @@ pub use nuo_provider::spec::{
 
 // Concrete provider selectors (the composition root's reason to exist).
 use nuo_provider_anthropic::{AnthropicMessagesProvider, ThinkingConfig};
-use nuo_provider_google::GoogleProvider;
+use nuo_provider_google_antigravity::GoogleProvider;
 use nuo_provider_openai::{OpenAiChatCompletionsProvider, OpenAiResponsesProvider};
 use nuo_provider_qoder as qoder;
 
@@ -37,7 +37,7 @@ pub const MODEL_PROVIDER_SPECS: &[ModelProviderSpec] = &[
     nuo_provider_openrouter::MODEL_PROVIDER_SPEC,
     nuo_provider_commandcode_plan::MODEL_PROVIDER_SPEC,
     nuo_provider_anthropic::MODEL_PROVIDER_SPEC,
-    nuo_provider_google::GOOGLE_MODEL_PROVIDER_SPEC,
+    nuo_provider_google_antigravity::GOOGLE_MODEL_PROVIDER_SPEC,
     nuo_provider_deepseek::MODEL_PROVIDER_SPEC,
     nuo_provider_xai::MODEL_PROVIDER_SPEC,
     nuo_provider_chatgpt_plan::MODEL_PROVIDER_SPEC,
@@ -49,7 +49,7 @@ pub const MODEL_PROVIDER_SPECS: &[ModelProviderSpec] = &[
     nuo_provider_opencode::CONSOLE_SPEC,
     nuo_provider_opencode::PLAN_SPEC,
     nuo_provider_opencode::ZEN_SPEC,
-    nuo_provider_google::ANTIGRAVITY_MODEL_PROVIDER_SPEC,
+    nuo_provider_google_antigravity::ANTIGRAVITY_MODEL_PROVIDER_SPEC,
 ];
 
 static USER_DECLARED_SPECS: std::sync::RwLock<
@@ -392,7 +392,7 @@ pub fn init() {
 /// them all (ADR-0015).
 fn register_oauth_providers() {
     let surfaces = [
-        nuo_provider_google::oauth::providers(),
+        nuo_provider_google_antigravity::oauth::providers(),
         nuo_provider_xai::oauth::providers(),
         nuo_provider_chatgpt_plan::oauth::providers(),
         nuo_provider_copilot::oauth::providers(),
@@ -413,6 +413,16 @@ pub async fn fetch_provider_usage(
     base_url: &str,
     api_key: &str,
 ) -> nuo_wire::ConnectionUsageState {
+    fetch_provider_usage_ext(provider, base_url, api_key, None).await
+}
+
+/// Query provider usage with optional provider-scoped project metadata.
+pub async fn fetch_provider_usage_ext(
+    provider: &str,
+    base_url: &str,
+    api_key: &str,
+    project: Option<&str>,
+) -> nuo_wire::ConnectionUsageState {
     let Some(spec) = model_provider_spec(provider) else {
         return nuo_wire::ConnectionUsageState::Unsupported;
     };
@@ -423,12 +433,12 @@ pub async fn fetch_provider_usage(
     if key.is_empty() {
         return nuo_wire::ConnectionUsageState::Error("API key is not configured".to_string());
     }
-    let Ok(client) = nuo_provider_transport::http::Http::control_plane() else {
+    let Ok(client) = nuo_provider_transport::http::Http::shared_control_plane() else {
         return nuo_wire::ConnectionUsageState::Error(
             "could not build the HTTP client".to_string(),
         );
     };
-    fetch_provider_usage_with_client(&client, port, base_url, key).await
+    fetch_provider_usage_with_client_ext(&client, port, base_url, key, project).await
 }
 
 /// Query provider usage with an explicit HTTP client.
@@ -437,6 +447,17 @@ pub async fn fetch_provider_usage_with_client(
     port: QuotaPort,
     base_url: &str,
     api_key: &str,
+) -> nuo_wire::ConnectionUsageState {
+    fetch_provider_usage_with_client_ext(client, port, base_url, api_key, None).await
+}
+
+/// Query provider usage with an explicit HTTP client and optional project context.
+pub async fn fetch_provider_usage_with_client_ext(
+    client: &nuo_provider_transport::http::Http,
+    port: QuotaPort,
+    base_url: &str,
+    api_key: &str,
+    project: Option<&str>,
 ) -> nuo_wire::ConnectionUsageState {
     let result = match port {
         QuotaPort::DeepSeekBalance => {
@@ -460,8 +481,8 @@ pub async fn fetch_provider_usage_with_client(
                 .await
         }
         QuotaPort::Antigravity => {
-            nuo_provider_google::AntigravityUsageFetcher
-                .fetch_usage(client, base_url, api_key)
+            nuo_provider_google_antigravity::AntigravityUsageFetcher
+                .fetch_usage_with_project(client, base_url, api_key, project)
                 .await
         }
         QuotaPort::SiliconFlow => {

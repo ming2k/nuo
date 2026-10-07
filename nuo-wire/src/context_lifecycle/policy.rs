@@ -246,6 +246,29 @@ impl ContextPolicy {
         self.capture_chunk_bytes
             .saturating_mul(self.capture_queue_chunks)
     }
+
+    /// Resolve model window into runtime context budget thresholds (ADR-0031).
+    pub fn resolve_budget(&self, window_tokens: usize) -> crate::ContextBudget {
+        let window = if window_tokens == 0 {
+            self.fallback_window_tokens as usize
+        } else {
+            window_tokens
+        }
+        .max(1);
+        let threshold = |fraction: f64| (window as f64 * fraction) as usize;
+        let quantum_floor = 512.max(threshold(0.05));
+        let soft_frac = self.watermarks.soft_bp as f64 / 10_000.0;
+        let hard_frac = self.watermarks.hard_bp as f64 / 10_000.0;
+        let target_frac = self.watermarks.target_bp as f64 / 10_000.0;
+        crate::ContextBudget {
+            window_tokens: window,
+            prune_threshold_tokens: threshold(soft_frac),
+            compaction_threshold_tokens: threshold(hard_frac),
+            target_tokens: threshold(target_frac),
+            quantum_floor_tokens: quantum_floor,
+            cruise_low_tokens: threshold(soft_frac * 0.8),
+        }
+    }
 }
 
 /// A legacy key the runtime refuses (ADR-0280 §1, `INV-POLICY-01`).

@@ -387,8 +387,10 @@ async fn run_inner(
     if let Some(endpoint) = &bound_local {
         eprintln!("nuo: local control plane on {endpoint}");
     }
-    eprintln!("nuo: serving sessions on ws://{bind}:{port}");
-    eprintln!("nuo: health probe on http://{bind}:{port}/healthz");
+    if port > 0 {
+        eprintln!("nuo: serving sessions on ws://{bind}:{port}");
+        eprintln!("nuo: health probe on http://{bind}:{port}/healthz");
+    }
     eprintln!(
         "nuo: observe with `nuo status --watch`, drive with `nuo attach [id]`, stop with `nuo stop`"
     );
@@ -599,28 +601,8 @@ async fn takeover_conflicting_daemon(
 
     if !candidate_pids.is_empty() || is_uds_in_use || is_port_in_use || is_locked {
         for pid in candidate_pids {
-            if let Ok(identity) = nuo_host::process::process_identity(pid) {
-                if nuo_host::process::process_is_alive(identity) {
-                    tracing::warn!(pid, "interface conflict detected on UDS/port; terminating existing daemon for takeover");
-                    let _ = nuo_host::process::request_termination(identity);
-                    let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
-                    while tokio::time::Instant::now() < deadline
-                        && nuo_host::process::process_is_alive(identity)
-                    {
-                        tokio::time::sleep(Duration::from_millis(25)).await;
-                    }
-                    if nuo_host::process::process_is_alive(identity) {
-                        tracing::warn!(pid, "daemon did not terminate within 500ms; escalating to force terminate");
-                        let _ = nuo_host::process::force_terminate(identity);
-                        let force_deadline = tokio::time::Instant::now() + Duration::from_millis(500);
-                        while tokio::time::Instant::now() < force_deadline
-                            && nuo_host::process::process_is_alive(identity)
-                        {
-                            tokio::time::sleep(Duration::from_millis(25)).await;
-                        }
-                    }
-                }
-            }
+            tracing::warn!(pid, "interface conflict detected on UDS/port; terminating existing instance for takeover");
+            let _ = nuo_host::process::takeover_pid(pid, nuo_host::process::TakeoverOptions::default()).await;
         }
 
         if let Some(path) = uds_path {
@@ -702,9 +684,9 @@ async fn client_driven_exit_future(conns: Arc<crate::serve::ConnTable>) {
                 _ = conns.notified() => {
                     continue;
                 }
-                _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                _ = tokio::time::sleep(Duration::from_millis(1500)) => {
                     if conns.interactive_count() == 0 {
-                        tracing::info!("all interactive clients closed and debounce expired; terminating daemon");
+                        tracing::info!("all interactive clients closed and debounce expired; terminating server");
                         return;
                     }
                 }

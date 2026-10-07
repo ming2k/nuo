@@ -1785,6 +1785,7 @@ fn mask_api_key(key: &str) -> Option<String> {
 pub(crate) async fn query_connection_detail(
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     id: String,
+    force_refresh: bool,
 ) {
     let stores = catalog::Stores::load();
     let Some(connection) = stores.connections.get(&id) else {
@@ -1909,6 +1910,14 @@ pub(crate) async fn query_connection_detail(
         usage: nuo_wire::ConnectionUsageState::Fetching,
     };
 
+    if force_refresh {
+        crate::usage_cache::shared_usage_cache().invalidate(&connection.name);
+    } else if let Some(cached) = crate::usage_cache::shared_usage_cache().get(&connection.name) {
+        initial_detail.usage = cached;
+        let _ = resp_tx.send(AgentResponse::ConnectionDetail(initial_detail));
+        return;
+    }
+
     // Phase 1: Send local detail snapshot immediately so UI renders instantly.
     let _ = resp_tx.send(AgentResponse::ConnectionDetail(initial_detail.clone()));
 
@@ -1919,7 +1928,7 @@ pub(crate) async fn query_connection_detail(
     let provider = connection.provider.clone();
     let raw_key_str = raw_key.expose_secret().to_string();
     tokio::spawn(async move {
-        let (api_key, is_oauth) = if conn_auth.is_oauth() {
+        let (api_key, project, is_oauth) = if conn_auth.is_oauth() {
             let source =
                 nuo_oauth::OAuthCredentialSource::new(
                     &crate::credentials_host::host(),
@@ -1927,7 +1936,12 @@ pub(crate) async fn query_connection_detail(
                     conn_auth.clone(),
                 );
             match nuo_wire::CredentialSource::resolve_auth(&source).await {
-                Ok(auth) => (auth.token.expose_secret().to_string(), true),
+                Ok(auth) => {
+                    let project = auth
+                        .extension::<nuo_model_codec::GoogleAuthMetadata>()
+                        .map(|m| m.project_id.clone());
+                    (auth.token.expose_secret().to_string(), project, true)
+                }
                 Err(err) => {
                     initial_detail.usage = nuo_wire::ConnectionUsageState::Error(err);
                     let _ = resp_tx_bg.send(AgentResponse::ConnectionDetail(initial_detail));
@@ -1935,10 +1949,16 @@ pub(crate) async fn query_connection_detail(
                 }
             }
         } else {
-            (raw_key_str, false)
+            (raw_key_str, None, false)
         };
 
-        let mut usage = crate::provider_registry::fetch_provider_usage(&provider, &base_url, &api_key).await;
+        let mut usage = crate::provider_registry::fetch_provider_usage_ext(
+            &provider,
+            &base_url,
+            &api_key,
+            project.as_deref(),
+        )
+        .await;
 
         if is_oauth
             && let nuo_wire::ConnectionUsageState::Error(ref err) = usage
@@ -1955,18 +1975,55 @@ pub(crate) async fn query_connection_detail(
                 nuo_wire::CredentialSource::force_refresh_after_rejection(&source, &rejected)
                     .await
             {
-                usage = crate::provider_registry::fetch_provider_usage(
+                let refreshed_project = refreshed
+                    .extension::<nuo_model_codec::GoogleAuthMetadata>()
+                    .map(|m| m.project_id.as_str())
+                    .or(project.as_deref());
+                usage = crate::provider_registry::fetch_provider_usage_ext(
                     &provider,
                     &base_url,
                     refreshed.token.expose_secret(),
+                    refreshed_project,
                 )
                 .await;
             }
         }
 
+        crate::usage_cache::shared_usage_cache().put(&conn_id, usage.clone());
         initial_detail.usage = usage;
         let _ = resp_tx_bg.send(AgentResponse::ConnectionDetail(initial_detail));
     });
+}
+
+/// Query all connections' live provider usage concurrently and stream updates.
+pub(crate) async fn query_all_connections_usage(
+    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
+    force_refresh: bool,
+) {
+    use futures::StreamExt;
+    let stores = catalog::Stores::load();
+    let connections: Vec<String> = stores
+        .connections
+        .connections
+        .iter()
+        .filter(|c| {
+            crate::provider_registry::model_provider_spec(&c.provider)
+                .and_then(|s| s.quota)
+                .is_some()
+        })
+        .map(|c| c.name.clone())
+        .collect();
+
+    let mut stream = futures::stream::iter(connections)
+        .map(|conn_id| {
+            let tx = resp_tx.clone();
+            async move {
+                query_connection_detail(&tx, conn_id, force_refresh).await;
+            }
+        })
+        .buffer_unordered(4);
+
+    while stream.next().await.is_some() {}
 }
 
 fn is_auth_error(err: &str) -> bool {
@@ -2177,7 +2234,7 @@ mod tests {
         conns.save().unwrap();
 
         let (resp_tx, mut resp_rx) = tokio::sync::mpsc::unbounded_channel();
-        query_connection_detail(&resp_tx, "test-relay".to_string()).await;
+        query_connection_detail(&resp_tx, "test-relay".to_string(), false).await;
 
         // Phase 1: immediate detail with Fetching usage
         let initial = resp_rx.recv().await.expect("initial response");

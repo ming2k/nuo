@@ -1130,10 +1130,16 @@ impl SessionDriver {
                         crate::handlers_session::detail(&session, &resp_tx, id).await;
                     });
                 }
-                AgentRequest::QueryConnectionDetail { id } => {
+                AgentRequest::QueryConnectionDetail { id, force_refresh } => {
                     let resp_tx = resp_tx.clone();
                     tokio::spawn(async move {
-                        crate::handlers_provider::query_connection_detail(&resp_tx, id).await;
+                        crate::handlers_provider::query_connection_detail(&resp_tx, id, force_refresh).await;
+                    });
+                }
+                AgentRequest::QueryAllConnectionsUsage { force_refresh } => {
+                    let resp_tx = resp_tx.clone();
+                    tokio::spawn(async move {
+                        crate::handlers_provider::query_all_connections_usage(&resp_tx, force_refresh).await;
                     });
                 }
                 AgentRequest::QuerySessionsOverview => {

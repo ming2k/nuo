@@ -1,5 +1,5 @@
 [package]
-name = "nuo-provider-google"
+name = "nuo-provider-google-antigravity"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

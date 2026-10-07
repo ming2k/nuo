@@ -33,7 +33,7 @@ here per that brief's §9).
   the root because OAuth is a cross-cutting authentication concern, not a provider
   definition.
 - Each vendor crate owns its OAuth surface and implements `OAuthProvider`:
-  - `nuo-provider-google` → Antigravity + Antigravity-CLI configs, enricher, and the
+  - `nuo-provider-google-antigravity` → Antigravity + Antigravity-CLI configs, enricher, and the
     Cloud-Code onboarding helpers (relocated out of transport).
   - `nuo-provider-xai` / `nuo-provider-copilot` → RFC 8628 configs.
   - `nuo-provider-chatgpt-plan` → ChatGPT config, custom device grant, `account_id`
@@ -50,7 +50,7 @@ here per that brief's §9).
 - `providers/nuo-provider-catalog` — `list_models.rs` verbatim, with `CatalogShape`
   parsers delegating to `nuo-provider-opencode::console` and `nuo-provider-qoder`.
 - `providers/nuo-provider-siliconflow` — the adapters-only SiliconFlow fetcher.
-- `nuo-provider-google` — the relocated `retrieve_antigravity_quota_summary` orphan.
+- `nuo-provider-google-antigravity` — the relocated `retrieve_antigravity_quota_summary` orphan.
 - `nuo-server::provider_registry` — the composition root: `MODEL_PROVIDER_SPECS`
   (aggregated from each provider crate's `MODEL_PROVIDER_SPEC`), `model_provider_spec`,
   `route_for_model`, `sync_user_declared_providers`, `build_provider_for_channel`,
@@ -298,7 +298,7 @@ These are comments/docs, not compile errors, but they become **false statements*
 - `nuo-provider/src/factory.rs:46` (**a panic message that names the retired crate**)
 - `nuo-provider/README.md:14`, `nuo-server/src/lib.rs:46`, `nuo-server/src/credentials_host.rs:4`
 - `nuo-tui/src/providers.rs:57`
-- `providers/nuo-provider-transport/src/oauth/presets.rs:3`,
+- `nuo-provider-transport/src/oauth/presets.rs:3`,
   `providers/nuo-provider-commandcode-plan/src/usage.rs:8`,
   `providers/nuo-provider-qoder/src/lib.rs:503`
 - Remove `nuo-provider-adapters/README.md`; its subsystem prose is already mirrored in

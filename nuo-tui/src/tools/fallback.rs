@@ -32,11 +32,13 @@ impl ToolPresenter for FallbackPresenter {
     }
 }
 
-/// Turn a raw tool id into something readable for the header: strip the `mcp__`
-/// prefix and render the remaining `server__tool` segments as `server / tool`.
-fn prettify_tool_name(name: &str) -> String {
-    name.strip_prefix("mcp__")
-        .unwrap_or(name)
+/// Turn a raw tool id into something readable for the header: strip namespace
+/// prefixes (e.g. `default_api:`, `mcp__`) and render segments cleanly.
+pub fn prettify_tool_name(name: &str) -> String {
+    let clean = name.rsplit_once(':').map(|(_, tail)| tail).unwrap_or(name);
+    clean
+        .strip_prefix("mcp__")
+        .unwrap_or(clean)
         .replace("__", " / ")
 }
 

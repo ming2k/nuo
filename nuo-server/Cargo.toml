@@ -18,7 +18,7 @@ nuo-provider-transport = { workspace = true }
 nuo-oauth = { workspace = true }
 nuo-provider-catalog = { workspace = true }
 nuo-provider-anthropic = { workspace = true }
-nuo-provider-google = { workspace = true }
+nuo-provider-google-antigravity = { workspace = true }
 nuo-provider-openai = { workspace = true }
 nuo-provider-chatgpt-plan = { workspace = true }
 nuo-provider-deepseek = { workspace = true }

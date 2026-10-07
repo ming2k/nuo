@@ -549,7 +549,11 @@ pub fn start_server(
     };
     let port_fallback = opts.port_fallback;
     let expose = opts.expose;
-    {
+    if opts.port == 0 {
+        // [INV-SERVER-03] Zero TCP on Client-Bound Posture:
+        // Pure UDS/Local IPC mode — no TCP socket listener spawned.
+        let _ = actual_port_tx.send(Ok(0));
+    } else {
         let cc = cancel.clone();
         let tf = token.clone();
         let registry = registry.clone();
@@ -560,7 +564,7 @@ pub fn start_server(
             let listener = match bind_tcp(bind_addr, port_fallback).await {
                 Ok((l, actual)) => {
                     let _ = actual_port_tx.send(Ok(actual));
-                    tracing::info!(%bind_addr,actual_port=actual,auth=tf.is_some(),"nuo daemon: listener started");
+                    tracing::info!(%bind_addr,actual_port=actual,auth=tf.is_some(),"nuo server: listener started");
                     l
                 }
                 Err(e) => {
@@ -579,8 +583,8 @@ pub fn start_server(
             // instead of a hot spin; any success resets it.
             let mut backoff = std::time::Duration::from_millis(5);
             loop {
-                tokio::select! {_=cc.cancelled()=>{tracing::info!("nuo daemon: cancelled");break;}
-                ac=listener.accept()=>{let(stream,peer)=match ac{Ok(c)=>c,Err(e)=>{tracing::warn!(error=%e,backoff_ms=backoff.as_millis() as u64,"nuo daemon: accept failed");tokio::time::sleep(backoff).await;backoff=(backoff*2).min(ACCEPT_BACKOFF_CAP);continue;}};
+                tokio::select! {_=cc.cancelled()=>{tracing::info!("nuo server: cancelled");break;}
+                ac=listener.accept()=>{let(stream,peer)=match ac{Ok(c)=>c,Err(e)=>{tracing::warn!(error=%e,backoff_ms=backoff.as_millis() as u64,"nuo server: accept failed");tokio::time::sleep(backoff).await;backoff=(backoff*2).min(ACCEPT_BACKOFF_CAP);continue;}};
                 backoff=std::time::Duration::from_millis(5);
                 spawn_tcp_connection(
                     stream,

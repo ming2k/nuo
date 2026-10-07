@@ -381,15 +381,19 @@ impl OAuthTokenEnricher for AntigravityOAuthEnricher {
         let mut account_id = stored.get_attr("account_id").map(ToString::to_string);
         let mut user_email = stored.user_email.clone();
 
-        if project_id.is_none() || account_id.is_none() {
+        if account_id.is_none() && project_id.is_some() {
+            account_id = project_id.clone();
+        } else if project_id.is_none() && account_id.is_some() {
+            project_id = account_id.clone();
+        }
+
+        if project_id.is_none() {
             if let Ok(project) =
                 resolve_antigravity_project(client, refreshed.access_token.expose_secret()).await
                 && !project.is_empty()
             {
                 project_id = Some(project.clone());
-                if account_id.is_none() {
-                    account_id = Some(project);
-                }
+                account_id = Some(project);
             }
         }
         if user_email.is_none()

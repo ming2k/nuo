@@ -442,12 +442,29 @@ impl Credentials {
         paths::get().credentials_file()
     }
 
-    /// Read `credentials.toml`, returning an empty (not erroring) value when
-    /// the file is missing or unparseable.
+    /// Read `credentials.toml` from `$XDG_STATE_HOME/nuo/credentials.toml` (ADR-0032).
+    /// If absent, automatically promotes any legacy file from `$XDG_CONFIG_HOME/nuo/credentials.toml`.
     pub fn load() -> Self {
         let path = Self::path();
-        let Ok(content) = fs::read_to_string(&path) else {
-            return Self::default();
+        let content = if let Ok(c) = fs::read_to_string(&path) {
+            c
+        } else {
+            // Check and auto-promote legacy credentials in config_dir
+            let legacy_path = paths::get().legacy_credentials_file();
+            if let Ok(c) = fs::read_to_string(&legacy_path) {
+                tracing::info!(
+                    legacy = %legacy_path.display(),
+                    target = %path.display(),
+                    "promoting legacy credentials.toml from config directory into state directory (ADR-0032)"
+                );
+                // Save immediately into modern path
+                let _ = fsutil::atomic_write_bytes(&path, c.as_bytes());
+                // Remove or clean legacy file to prevent dotfiles accidental git leaks
+                let _ = fs::remove_file(&legacy_path);
+                c
+            } else {
+                return Self::default();
+            }
         };
         match toml::from_str::<Self>(&content) {
             Ok(mut credentials) => {
@@ -800,28 +817,21 @@ impl LockedRemoteCatalogCache {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Config {
-    #[serde(alias = "default_provider")]
     pub default_connection: String,
     pub mcp: HashMap<String, McpServerConfig>,
     /// Versioned context lifecycle and admission policy (ADR-0280).
     pub context: nuo_wire::context_lifecycle::ContextPolicy,
-    /// Deprecated context-compaction thresholds, skipped on serialization (ADR-0280).
-    #[serde(skip)]
-    pub compaction: CompactionPolicy,
     /// Maximum number of attempts for a single model request when the connection returns a
     /// transient error (HTTP 408/429/5xx, connection, timeout). The initial try
     /// counts as the first attempt, so this is the *total* attempts, not extra
     /// retries. Clamped to `[1, 60]` at the call site.
-    #[serde(alias = "provider_retry_max_attempts")]
     pub connection_retry_max_attempts: usize,
     /// Base delay (ms) for the bounded stepped backoff between retries:
     /// `1s -> 2s -> 5s -> 10s -> 10s ...` (scaled by `base_ms`), capped by `connection_retry_max_ms`.
-    #[serde(alias = "provider_retry_base_ms")]
     pub connection_retry_base_ms: u64,
     /// Hard cap (ms) on a single backoff delay, including the exponential growth.
     /// A server-supplied `Retry-After`/`retry-after-ms` header still wins but is
     /// itself capped at this value.
-    #[serde(alias = "provider_retry_max_ms")]
     pub connection_retry_max_ms: u64,
     /// The model id to use within the active connection. For single-model
     /// connections this mirrors the connection's pinned model; for multi-model
@@ -877,24 +887,26 @@ pub struct Config {
     /// [`ToolVariantsConfig`].
     #[serde(default)]
     pub tool_variants: ToolVariantsConfig,
-    /// Daemon lifecycle knobs (ADR-0101): the `[daemon]` table of
-    /// `config.toml`. Controls how the session daemon exits — its shutdown
+    /// Server lifecycle knobs: the `[server]` (or legacy `[daemon]`) table of
+    /// `config.toml`. Controls how the session server exits — its shutdown
     /// grace budget and its idle-empty auto-exit.
-    #[serde(default)]
+    #[serde(default, alias = "server")]
     pub daemon: DaemonConfig,
 }
 
-/// Daemon lifecycle configuration, deserialized from the `[daemon]` table of
+/// Canonical alias for server lifecycle configuration.
+pub type ServerConfig = DaemonConfig;
+
+/// Server lifecycle configuration, deserialized from the `[server]` (or legacy `[daemon]`) table of
 /// `config.toml` (ADR-0101).
 ///
 /// ```toml
-/// [daemon]
+/// [server]
 /// shutdown_grace_secs = 10      # graceful-teardown budget before forced exit
 /// idle_exit_minutes = 5         # auto-exit after N minutes of zero sessions
 ///                                # and zero attached clients; 0 = never
 /// local_auth = true             # bearer-token the loopback listener too
 ///                                # (ADR-0105); false = trust local processes
-/// ///                                # at boot (ADR-0125); false = cold start
 /// ```
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 #[serde(default)]
@@ -998,7 +1010,7 @@ pub struct HookSpec {
 
 #[derive(Deserialize)]
 struct RawConfig {
-    #[serde(default, alias = "default_provider")]
+    #[serde(default)]
     default_connection: Option<String>,
     #[serde(default)]
     default_model: Option<String>,
@@ -1016,11 +1028,11 @@ struct RawConfig {
     compaction_prune: Option<bool>,
     #[serde(default)]
     compaction_prune_protect_tokens: Option<usize>,
-    #[serde(default, alias = "provider_retry_max_attempts")]
+    #[serde(default)]
     connection_retry_max_attempts: Option<usize>,
-    #[serde(default, alias = "provider_retry_base_ms")]
+    #[serde(default)]
     connection_retry_base_ms: Option<u64>,
-    #[serde(default, alias = "provider_retry_max_ms")]
+    #[serde(default)]
     connection_retry_max_ms: Option<u64>,
     #[serde(default)]
     favorites: Option<Vec<String>>,
@@ -1037,8 +1049,6 @@ struct RawConfig {
     #[serde(default)]
     web: Option<WebConfig>,
     #[serde(default)]
-    websearch: Option<WebConfig>,
-    #[serde(default)]
     agent: Option<AgentConfig>,
     #[serde(default)]
     hooks: Option<Vec<HookSpec>>,
@@ -1046,6 +1056,8 @@ struct RawConfig {
     tool_variants: Option<ToolVariantsConfig>,
     #[serde(default)]
     daemon: Option<DaemonConfig>,
+    #[serde(default)]
+    server: Option<DaemonConfig>,
 }
 
 impl<'de> Deserialize<'de> for Config {
@@ -1105,7 +1117,7 @@ impl<'de> Deserialize<'de> for Config {
         if let Some(b) = raw.bash_policy {
             cfg.bash_policy = b;
         }
-        if let Some(web) = raw.web.or(raw.websearch) {
+        if let Some(web) = raw.web {
             cfg.web = web;
         }
         if let Some(a) = raw.agent {
@@ -1117,7 +1129,7 @@ impl<'de> Deserialize<'de> for Config {
         if let Some(tv) = raw.tool_variants {
             cfg.tool_variants = tv;
         }
-        if let Some(d) = raw.daemon {
+        if let Some(d) = raw.server.or(raw.daemon) {
             cfg.daemon = d;
         }
         Ok(cfg)
@@ -1130,7 +1142,6 @@ impl Default for Config {
             default_connection: String::new(),
             mcp: HashMap::new(),
             context: nuo_wire::context_lifecycle::ContextPolicy::default(),
-            compaction: CompactionPolicy::default(),
             connection_retry_max_attempts: 30,
             connection_retry_base_ms: 1_000,
             connection_retry_max_ms: 10_000,
@@ -1150,20 +1161,81 @@ impl Default for Config {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+struct DomainServerFile {
+    lifecycle: Option<DomainServerLifecycle>,
+    network: Option<DomainServerNetwork>,
+    daemon: Option<DaemonConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+struct DomainServerLifecycle {
+    shutdown_grace_secs: Option<u64>,
+    idle_exit_minutes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+struct DomainServerNetwork {
+    local_auth: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+struct DomainClientFile {
+    connection: Option<DomainClientConnection>,
+    resilience: Option<DomainClientResilience>,
+    models: Option<DomainClientModels>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+struct DomainClientConnection {
+    default_connection: Option<String>,
+    default_model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+struct DomainClientResilience {
+    retry_max_attempts: Option<usize>,
+    retry_base_delay_ms: Option<u64>,
+    retry_max_delay_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+struct DomainClientModels {
+    favorites: Option<Vec<String>>,
+    hidden: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+struct DomainAgentFile {
+    agent: Option<AgentConfig>,
+    context: Option<nuo_wire::context_lifecycle::ContextPolicy>,
+    permissions: Option<PermissionConfig>,
+    workspace: Option<WorkspaceConfig>,
+    bash_policy: Option<BashPolicyConfig>,
+    web: Option<WebConfig>,
+    skills: Option<SkillsConfig>,
+    mcp: Option<HashMap<String, McpServerConfig>>,
+    hooks: Option<Vec<HookSpec>>,
+    tool_variants: Option<ToolVariantsConfig>,
+}
+
 impl Config {
     pub fn load() -> Self {
         let config_path = Self::config_file_path();
-        match fs::read_to_string(&config_path) {
+        let mut cfg = match fs::read_to_string(&config_path) {
             Ok(content) => {
-                match toml::from_str(&crate::web_migration::migrate_config_source(&content)) {
+                let effective = crate::web_migration::migrate_config_source(&content);
+                match toml::from_str::<Config>(&effective) {
                     Ok(parsed) => parsed,
                     Err(error) => {
-                        // A corrupt config must never block startup, but falling
-                        // back to defaults *silently* would discard the user's
-                        // entire setup with no trace of why. Warn loudly (the
-                        // log carries the file and the error) so a typo'd
-                        // config.toml is diagnosable instead of reading as
-                        // "nuo forgot my settings".
                         tracing::error!(
                             path = %config_path.display(),
                             %error,
@@ -1174,9 +1246,107 @@ impl Config {
                     }
                 }
             }
-            // Absent is the normal first-run condition; nothing to report.
             Err(_) => Config::default(),
+        };
+
+        // ADR-0031 Domain separation overlay
+        Self::apply_domain_overlays(&mut cfg);
+        cfg
+    }
+
+    fn apply_domain_overlays(cfg: &mut Config) {
+        // 1. server.toml
+        let server_path = Self::server_config_file_path();
+        if let Ok(content) = fs::read_to_string(&server_path) {
+            if let Ok(server) = toml::from_str::<DomainServerFile>(&content) {
+                if let Some(lc) = server.lifecycle {
+                    if let Some(s) = lc.shutdown_grace_secs { cfg.daemon.shutdown_grace_secs = s; }
+                    if let Some(i) = lc.idle_exit_minutes { cfg.daemon.idle_exit_minutes = i; }
+                }
+                if let Some(nw) = server.network {
+                    if let Some(la) = nw.local_auth { cfg.daemon.local_auth = la; }
+                }
+                if let Some(d) = server.daemon {
+                    cfg.daemon = d;
+                }
+            }
         }
+
+        // 2. client.toml
+        let client_path = Self::client_config_file_path();
+        if let Ok(content) = fs::read_to_string(&client_path) {
+            if let Ok(client) = toml::from_str::<DomainClientFile>(&content) {
+                if let Some(conn) = client.connection {
+                    if let Some(c) = conn.default_connection { cfg.default_connection = c; }
+                    if let Some(m) = conn.default_model { cfg.default_model = Some(m); }
+                }
+                if let Some(res) = client.resilience {
+                    if let Some(a) = res.retry_max_attempts { cfg.connection_retry_max_attempts = a; }
+                    if let Some(b) = res.retry_base_delay_ms { cfg.connection_retry_base_ms = b; }
+                    if let Some(m) = res.retry_max_delay_ms { cfg.connection_retry_max_ms = m; }
+                }
+                if let Some(models) = client.models {
+                    if let Some(f) = models.favorites { cfg.favorites = f; }
+                    if let Some(h) = models.hidden { cfg.hidden_models = h; }
+                }
+            }
+        }
+
+        // 3. agent.toml
+        let agent_path = Self::agent_config_file_path();
+        if let Ok(content) = fs::read_to_string(&agent_path) {
+            if let Ok(agent_doc) = toml::from_str::<DomainAgentFile>(&content) {
+                if let Some(a) = agent_doc.agent { cfg.agent = a; }
+                if let Some(c) = agent_doc.context { cfg.context = c; }
+                if let Some(p) = agent_doc.permissions { cfg.permissions = p; }
+                if let Some(b) = agent_doc.bash_policy { cfg.bash_policy = b; }
+                if let Some(w) = agent_doc.web { cfg.web = w; }
+                if let Some(s) = agent_doc.skills { cfg.skills = s; }
+                if let Some(m) = agent_doc.mcp { cfg.mcp = m; }
+                if let Some(h) = agent_doc.hooks { cfg.hooks = h; }
+                if let Some(tv) = agent_doc.tool_variants { cfg.tool_variants = tv; }
+                if let Some(ws) = agent_doc.workspace { cfg.workspace = ws; }
+            }
+        }
+    }
+
+    /// Persist current configuration into ADR-0031 domain files (server.toml, client.toml, agent.toml).
+    pub fn save_domain_files(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let server_path = Self::server_config_file_path();
+        let server_content = format!(
+            "[lifecycle]\nshutdown_grace_secs = {}\nidle_exit_minutes = {}\n\n[network]\nlocal_auth = {}\n",
+            self.daemon.shutdown_grace_secs,
+            self.daemon.idle_exit_minutes,
+            self.daemon.local_auth,
+        );
+        fsutil::atomic_write_bytes(&server_path, server_content.as_bytes())?;
+
+        let client_path = Self::client_config_file_path();
+        let client_content = format!(
+            "[connection]\ndefault_connection = {:?}\ndefault_model = {:?}\n\n[resilience]\nretry_max_attempts = {}\nretry_base_delay_ms = {}\nretry_max_delay_ms = {}\n\n[models]\nfavorites = {:?}\nhidden = {:?}\n",
+            self.default_connection,
+            self.default_model,
+            self.connection_retry_max_attempts,
+            self.connection_retry_base_ms,
+            self.connection_retry_max_ms,
+            self.favorites,
+            self.hidden_models,
+        );
+        fsutil::atomic_write_bytes(&client_path, client_content.as_bytes())?;
+
+        let agent_path = Self::agent_config_file_path();
+        let mut agent_doc = toml::value::Table::new();
+        if let Ok(agent_val) = toml::Value::try_from(&self.agent) { agent_doc.insert("agent".to_string(), agent_val); }
+        if let Ok(ctx_val) = toml::Value::try_from(&self.context) { agent_doc.insert("context".to_string(), ctx_val); }
+        if let Ok(perm_val) = toml::Value::try_from(&self.permissions) { agent_doc.insert("permissions".to_string(), perm_val); }
+        if let Ok(bash_val) = toml::Value::try_from(&self.bash_policy) { agent_doc.insert("bash_policy".to_string(), bash_val); }
+        if let Ok(web_val) = toml::Value::try_from(&self.web) { agent_doc.insert("web".to_string(), web_val); }
+        if let Ok(skills_val) = toml::Value::try_from(&self.skills) { agent_doc.insert("skills".to_string(), skills_val); }
+        if let Ok(mcp_val) = toml::Value::try_from(&self.mcp) { agent_doc.insert("mcp".to_string(), mcp_val); }
+        let formatted = toml::to_string_pretty(&agent_doc)?;
+        fsutil::atomic_write_bytes(&agent_path, formatted.as_bytes())?;
+
+        Ok(())
     }
 
     /// Load only the `[mcp.*]` table from a project-local `.nuo/config.toml`
@@ -1641,11 +1811,39 @@ impl Config {
         // Secrets live in `credentials.toml`, connections in `connections.toml`.
         let bytes = toml::to_string_pretty(&out)?.into_bytes();
         fsutil::atomic_write_bytes(&config_path, &bytes)?;
+
+        // If modern domain files exist, persist to them as well (ADR-0031)
+        if Self::server_config_file_path().exists()
+            || Self::client_config_file_path().exists()
+            || Self::agent_config_file_path().exists()
+        {
+            let _ = out.save_domain_files();
+        }
         Ok(())
     }
 
     pub fn config_file_path() -> PathBuf {
         paths::get().config_file()
+    }
+
+    /// Primary server daemon configuration path (`$XDG_CONFIG_HOME/nuo/server.toml`, ADR-0031).
+    pub fn server_config_file_path() -> PathBuf {
+        paths::get().server_config_file()
+    }
+
+    /// Primary client configuration path (`$XDG_CONFIG_HOME/nuo/client.toml`, ADR-0031).
+    pub fn client_config_file_path() -> PathBuf {
+        paths::get().client_config_file()
+    }
+
+    /// Primary terminal configuration path (`$XDG_CONFIG_HOME/nuo/terminal.toml`, ADR-0031).
+    pub fn terminal_config_file_path() -> PathBuf {
+        paths::get().terminal_config_file()
+    }
+
+    /// Primary agent configuration path (`$XDG_CONFIG_HOME/nuo/agent.toml`, ADR-0031).
+    pub fn agent_config_file_path() -> PathBuf {
+        paths::get().agent_config_file()
     }
 }
 
@@ -1816,7 +2014,7 @@ mod tests {
         creds.set_api_key("keyless", Some("   ".into()));
         creds.save().unwrap();
 
-        let on_disk = std::fs::read_to_string(tmp.join("credentials.toml")).unwrap();
+        let on_disk = std::fs::read_to_string(paths::get().credentials_file()).unwrap();
         assert!(on_disk.contains("sk-ds"));
         assert!(on_disk.contains("relay-secret"));
         assert!(!on_disk.contains("keyless"), "empty key must not persist");

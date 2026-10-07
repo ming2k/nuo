@@ -480,7 +480,18 @@ impl ContextProjectionSettings {
     /// Resolve settings for the active model's context window. `window_tokens`
     /// is the live model's context window (tokens); `0` means unknown and the
     /// policy's fallback window is substituted.
-    /// Resolve settings from a compaction policy.
+    /// Resolve settings from a modern versioned context policy (ADR-0280 / ADR-0031).
+    pub fn from_context_policy(policy: &nuo_wire::context_lifecycle::ContextPolicy, window_tokens: usize) -> Self {
+        Self {
+            budget: policy.resolve_budget(window_tokens),
+            preserve_rounds: policy.preferred_recent_rounds as usize,
+            summarize: policy.checkpoint_enabled,
+            prune: policy.lightweight_degradation_enabled,
+            prune_protect_tokens: policy.recent_observation_protect_tokens as usize,
+        }
+    }
+
+    /// Resolve settings from a compaction policy (historical compatibility).
     pub fn from_policy(policy: &nuo_wire::CompactionPolicy, window_tokens: usize) -> Self {
         Self {
             budget: policy.resolve(window_tokens),
@@ -492,13 +503,7 @@ impl ContextProjectionSettings {
     }
 
     pub fn from_config(config: &Config, window_tokens: usize) -> Self {
-        Self {
-            budget: config.compaction.resolve(window_tokens),
-            preserve_rounds: config.compaction.preserve_rounds,
-            summarize: config.compaction.summarize,
-            prune: config.compaction.prune,
-            prune_protect_tokens: config.compaction.prune_protect_tokens,
-        }
+        Self::from_context_policy(&config.context, window_tokens)
     }
 
     /// Adjust the post-compaction history target so the complete projected
