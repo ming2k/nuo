@@ -35,7 +35,7 @@ struct JobEntry {
     info: BackgroundJobInfo,
     ring_buffer: VecDeque<String>,
     cancel_tx: Option<tokio::sync::oneshot::Sender<()>>,
-    /// Owning session (ADR-0190 D5): `None` = daemon-level task.
+    /// Owning session (ADR-0190 D5): `None` = server-level task.
     owner_session: Option<String>,
     /// The job's own most recent settlement (ADR-0234).
     ///
@@ -57,7 +57,7 @@ struct JobEntry {
 pub struct PendingOutcome {
     /// Monotonic delivery identity within this manager instance.
     pub sequence: u64,
-    /// Owning session (`None` = daemon-level job, delivered to no session).
+    /// Owning session (`None` = server-level job, delivered to no session).
     pub owner_session: Option<String>,
     /// The settled result, including the summary and log path.
     pub outcome: BackgroundJobOutcome,
@@ -111,7 +111,7 @@ pub struct ProcessSpawnOptions<'a> {
     pub detached: bool,
     pub timeout: Option<Duration>,
     /// Owning session (ADR-0190 D5): recorded in job snapshots and ledger
-    /// rows so "whose task is this" is answerable. `None` = daemon-level
+    /// rows so "whose task is this" is answerable. `None` = server-level
     /// (rehosted services, fabric-internal tasks).
     pub owner_session: Option<String>,
 }
@@ -2013,7 +2013,7 @@ mod tests {
         settle(&mgr, "job_a", Some("s1"));
         settle(&mgr, "job_b", Some("s1"));
         settle(&mgr, "job_c", Some("s2"));
-        settle(&mgr, "daemon_job", None);
+        settle(&mgr, "server_job", None);
 
         let claimed = mgr.claim_outcomes_for_session("s1");
         assert_eq!(claimed.len(), 2, "both of s1's deliveries are claimed");
@@ -2039,7 +2039,7 @@ mod tests {
                 .filter(|p| !p.claimed)
                 .count(),
             1,
-            "only the daemon-level result remains unclaimed"
+            "only the server-level result remains unclaimed"
         );
     }
 
@@ -2048,12 +2048,12 @@ mod tests {
         let mgr = BackgroundJobManager::new();
         settle(&mgr, "job_a", Some("s1"));
         settle(&mgr, "job_b", Some("s1"));
-        settle(&mgr, "daemon_job", None);
+        settle(&mgr, "server_job", None);
 
         assert_eq!(mgr.discard_pending_for_session("s1"), 2);
         let left = mgr.pending_outcomes();
-        assert_eq!(left.len(), 1, "daemon-level results are not session-owned");
-        assert_eq!(left[0].outcome.job_id.0, "daemon_job");
+        assert_eq!(left.len(), 1, "server-level results are not session-owned");
+        assert_eq!(left[0].outcome.job_id.0, "server_job");
     }
 
     /// ADR-0234: claiming governs *automatic delivery*, not readability — a

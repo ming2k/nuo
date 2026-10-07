@@ -2,7 +2,7 @@
 
 //! ADR-0132 integration: the session-scoped unattended execution posture is persisted
 //! (`SessionEvent::UnattendedSet`) and restored by the bootstrap resume path —
-//! so a daemon that dies mid-unattended-session reopens unattended when the
+//! so a server that dies mid-unattended-session reopens unattended when the
 //! session is re-hosted (attach, lazy-resume, or boot rehost). These tests
 //! exercise the real `bootstrap::assemble` resume path against a store on
 //! disk, standing in for "process died, new process opened the same session
@@ -62,7 +62,7 @@ async fn unattended_posture_survives_process_death_and_reopen() {
     store
         .replace_messages(vec![nuo_wire::Message::new(
             nuo_wire::Role::User,
-            "mid-task when the daemon was killed",
+            "mid-task when the server was killed",
         )])
         .await
         .unwrap();

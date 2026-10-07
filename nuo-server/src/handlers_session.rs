@@ -104,7 +104,7 @@ pub async fn tree(session: &Arc<SessionStore>, resp_tx: &mpsc::UnboundedSender<A
 /// `AgentRequest::QueryTokenUsage` — snapshot the server-side token-source
 /// ledger for one session and reply with
 /// [`AgentResponse::TokenUsageReport`]. Attached frontends hold no local
-/// ledger, so the context-usage modal reads the daemon's accounting through
+/// ledger, so the context-usage modal reads the server's accounting through
 /// this on-demand round-trip. Pure read: the ledger is shared across sessions
 /// and filtered by `session_id`, so an unknown/empty id simply yields an
 /// empty report.

@@ -2013,10 +2013,10 @@ fn catalog_advertised_root_replaces_the_compiled_spec_route() {
 /// ADR-0273 end-to-end: a model the provider declared unavailable for this
 /// account stays *visible* in the picker (so the account can see what an
 /// upgrade would unlock, with the provider's own reason when it gave one) while
-/// the daemon refuses to build a route for it. A user injection overrides the
+/// the server refuses to build a route for it. A user injection overrides the
 /// verdict but the upstream declaration is never rewritten.
 #[test]
-fn declared_unavailable_model_is_listed_but_refused_by_the_daemon() {
+fn declared_unavailable_model_is_listed_but_refused_by_the_server() {
     let _sandbox = sandboxed_paths();
     let qoder = Connection {
         name: "qoder".to_string(),
@@ -2082,7 +2082,7 @@ fn declared_unavailable_model_is_listed_but_refused_by_the_daemon() {
         "membership is untouched by availability"
     );
 
-    // The daemon refuses the explicitly requested locked model...
+    // The server refuses the explicitly requested locked model...
     assert!(
         super::build_provider_for_model(&config, "qoder", Some("gmodel"), None).is_none(),
         "a provider-declared-unavailable model must not be routable"

@@ -1,7 +1,7 @@
 //! `nuo session …` (ADR-0116): the session noun. Removing lives here;
 //! *joining* a session is `nuo attach` (a top-level verb — it is the
 //! primary interactive act, not a sub-management task), and *listing* is
-//! `nuo status` — the session table is the daemon's view of what
+//! `nuo status` — the session table is the server's view of what
 //! it hosts, so a `session ls` would duplicate it verbatim.
 
 use crate::cli::SessionAction;
@@ -20,7 +20,7 @@ pub async fn run(
     match action {
         SessionAction::Delete(id) => {
             let info = client::discover(&project_root).ok_or_else(|| {
-                "no daemon is running. Start or discover one before managing sessions.".to_string()
+                "no server is running. Start or discover one before managing sessions.".to_string()
             })?;
             if !client::versions_compatible(&info) {
                 return Err(client::incompatibility_error(&info).into());

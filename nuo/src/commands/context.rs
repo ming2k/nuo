@@ -2,7 +2,7 @@
 //! (ADR-0280 §4).
 //!
 //! This command is the only entry point to the migration tool. It runs outside
-//! the daemon: it never starts the runtime, never opens the live single-writer
+//! the server: it never starts the runtime, never opens the live single-writer
 //! door, and never writes the legacy database (it is opened read-only). After
 //! it reports, the operator switches the primary database pointer and the new
 //! runtime rejects the legacy schema.

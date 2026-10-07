@@ -71,8 +71,8 @@ fn verb_receipt(verb: ConsoleVerb) -> &'static str {
     }
 }
 
-/// Send one control verb and push its receipt when the daemon answers.
-/// `target` is the `#N` the receipt names (the daemon gets the id).
+/// Send one control verb and push its receipt when the server answers.
+/// `target` is the `#N` the receipt names (the server gets the id).
 fn spawn_control_verb(runtime: &UiRuntime, verb: ConsoleVerb, target: Option<usize>, id: String) {
     let request = verb_request(verb, id);
     let mutations = runtime.mutations.clone();
@@ -98,15 +98,15 @@ fn spawn_control_verb(runtime: &UiRuntime, verb: ConsoleVerb, target: Option<usi
     });
 }
 
-/// Discover the daemon and issue one control verb. `Err` carries either the
-/// discovery failure or the daemon's rejection, both receipt-ready.
+/// Discover the server and issue one control verb. `Err` carries either the
+/// discovery failure or the server's rejection, both receipt-ready.
 async fn discover_and_control(request: nuo_client::ControlRequest) -> Result<(), String> {
     let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     match nuo_client::discover(&project_root) {
         Some(info) => nuo_client::control(&info, request).await,
         None => {
-            tracing::warn!("dashboard control: no daemon discovered");
-            Err("no daemon is running".to_string())
+            tracing::warn!("dashboard control: no server discovered");
+            Err("no server is running".to_string())
         }
     }
 }
@@ -153,7 +153,7 @@ pub(super) fn cancel_kill_confirm(app: &mut App) {
     }
 }
 
-/// `s` on the dock: suspend the selection. The daemon refuses a session
+/// `s` on the dock: suspend the selection. The server refuses a session
 /// with an attached client or an active round; the receipt explains.
 pub(super) fn suspend_selected(app: &mut App, runtime: &UiRuntime) {
     let Some((seq, id)) = selection_seq(app) else {
@@ -183,7 +183,7 @@ async fn dispatch_archivist(app: &mut App, runtime: &UiRuntime, raw: &str, text:
                 )
                 .await
             }
-            None => Err("no daemon is running".to_string()),
+            None => Err("no server is running".to_string()),
         };
         let line = match outcome {
             Ok(answer) => ConsoleLine::Receipt {
@@ -295,7 +295,7 @@ pub(super) async fn dispatch_console_command(
             let (seq, id) = match target {
                 Some(n) => match seq_to_id(app, n) {
                     Some(id) => (n, id),
-                    None => return notice(app, format!("no session #{n} on the daemon")),
+                    None => return notice(app, format!("no session #{n} on the server")),
                 },
                 None => match selection_seq(app) {
                     Some((seq, id)) => (seq, id),
@@ -334,7 +334,7 @@ pub(super) async fn dispatch_console_command(
                 for n in &targets {
                     match seq_to_id(app, *n) {
                         Some(id) => out.push((*n, id)),
-                        None => return notice(app, format!("no session #{n} on the daemon")),
+                        None => return notice(app, format!("no session #{n} on the server")),
                     }
                 }
                 out
@@ -369,7 +369,7 @@ pub(super) async fn dispatch_console_command(
                 let project_root =
                     std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
                 let Some(info) = nuo_client::discover(&project_root) else {
-                    tracing::warn!("dashboard control: no daemon discovered");
+                    tracing::warn!("dashboard control: no server discovered");
                     return;
                 };
                 for (n, request) in sends {

@@ -23,8 +23,8 @@ use crate::surfaces::{DialogKind, OverlaySurface, SceneKind, SheetKind};
 /// [`App::active_model_supports_vision`]: that one answers the permissive
 /// *request* policy ("would images travel?"), while a paste may only be
 /// refused when a layer actually said the route rejects them. The authority is
-/// still the daemon-built picker snapshot (ADR-0182) — the full ADR-0149
-/// resolution for the route the daemon will serve — merely read as a
+/// still the server-built picker snapshot (ADR-0182) — the full ADR-0149
+/// resolution for the route the server will serve — merely read as a
 /// declaration rather than as a policy.
 pub(crate) fn active_route_vision_declaration(app: &App) -> Option<bool> {
     app.active_route_capabilities().vision

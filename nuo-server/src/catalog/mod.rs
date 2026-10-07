@@ -84,7 +84,7 @@ impl Stores {
 ///
 /// The catalog is application-plane policy (it resolves product state by design)
 /// and so is the only place here that names a path. `nuo-server` builds the
-/// same host for the daemon's own flows; the duplication collapses when the
+/// same host for the server's own flows; the duplication collapses when the
 /// catalog moves to the application plane (ADR-0300 §5).
 pub(crate) fn credential_host() -> CredentialHost {
     let paths = nuo_persistence::paths::get();
@@ -136,9 +136,9 @@ pub fn build_provider_for_model(
         .find(|e| e.id == connection_id)?;
     let wanted = model_id.or(config.default_model.as_deref());
     let connection = stores.connections.get(connection_id);
-    // The single daemon-side availability gate (ADR-0273
+    // The single server-side availability gate (ADR-0273
     // `[INV-AVAIL-06]`). A route for a model the account may not run is never
-    // built, so no client is the only refusal site: TUI, web, daemon protocol,
+    // built, so no client is the only refusal site: TUI, web, server protocol,
     // and session restore all inherit it. `effective_availability` applies the
     // user's sovereign override, so an injected model still resolves.
     let usable = |channel: &&nuo_wire::catalog::Channel| {

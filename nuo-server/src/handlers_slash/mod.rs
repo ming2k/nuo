@@ -28,7 +28,7 @@ use nuo_harness::skills::SkillRegistry;
 pub use dispatch::dispatch;
 pub use session_ops::teardown_sides_for_session_switch;
 
-/// Bundled slash-dispatch environment: the daemon plumbing a slash command
+/// Bundled slash-dispatch environment: the server plumbing a slash command
 /// needs beyond the command text itself.
 pub struct SlashEnv<'a> {
     pub config: &'a Config,

@@ -3,7 +3,7 @@
 //! Each built-in lives in its own async fn so the dispatcher stays a thin
 //! router. One giant async fn accumulated a ~1.6 MiB debug-build stack frame
 //! (rustc does not reuse stack slots across a 1700-line state machine), which
-//! overflowed the daemon's 2 MiB Tokio worker stack on every slash command.
+//! overflowed the server's 2 MiB Tokio worker stack on every slash command.
 
 use std::sync::Arc;
 
@@ -158,7 +158,7 @@ pub(crate) async fn confinement(env: SlashEnv<'_>, name: &str, args: &str, parts
             "Workspace Confinement OFF (Unconfined File Access)",
             vec![
                 "Tools may access and edit any file on the host system".to_string(),
-                "Constrained only by daemon OS user permissions".to_string(),
+                "Constrained only by server OS user permissions".to_string(),
             ],
         )
     };

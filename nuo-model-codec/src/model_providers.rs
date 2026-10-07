@@ -1,6 +1,6 @@
 //! Builtin seed/baseline model lists for the shipped model providers.
 //!
-//! Pure static data shared by the daemon (catalog reconciliation) and the
+//! Pure static data shared by the server (catalog reconciliation) and the
 //! frontend (add-connection chooser). Single source of truth.
 
 pub const ANTHROPIC_BUILTIN_MODELS: &[&str] = &[

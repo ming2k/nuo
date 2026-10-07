@@ -169,7 +169,7 @@ mod tests {
     #[tokio::test]
     async fn unix_bind_replaces_only_stale_socket_state() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("daemon.sock");
+        let path = directory.path().join("server.sock");
         let endpoint = LocalEndpoint::UnixSocket(path.clone());
 
         let stale = std::os::unix::net::UnixListener::bind(&path).unwrap();

@@ -71,7 +71,7 @@ impl ProcessLock {
                 Err(_) => {
                     return Err(format!(
                         "could not acquire advisory lock on {} within {:.0}s \
-                         (another nuo daemon appears to be running)",
+                         (another nuo server appears to be running)",
                         path.display(),
                         timeout.as_secs_f32()
                     ));

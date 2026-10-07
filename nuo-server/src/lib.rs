@@ -20,23 +20,23 @@
 //! The assembly factory has landed as [`bootstrap::assemble`]: it builds one
 //! frontend-neutral session harness ([`session_driver::SessionDriver`] plus
 //! its channels) per call, and the application binary (`nuo`) goes through it.
-//! The multi-session host and the unified session daemon have landed on top of
+//! The multi-session host and the unified session server have landed on top of
 //! it — the "one session per process" posture is gone:
 //!
 //! - [`registry::SessionRegistry`] owns every live session across every
 //!   project, one [`registry::HostedSession`] per assembled harness, and
 //!   lazily resumes persisted sessions on attach.
-//! - [`host`] is the daemon runtime; the `nuo` binary runs it via
+//! - [`host`] is the server runtime; the `nuo` binary runs it via
 //!   `nuo start --fg`, or a frontend starts it on demand.
-//! - Clients — the `nuo-tui` TUI and the web client — talk to the daemon over
+//! - Clients — the `nuo-tui` TUI and the web client — talk to the server over
 //!   the [`serve`] WebSocket control plane: owner-only native IPC by default
 //!   (a Unix domain socket or Windows Named Pipe), plus TCP with a bearer
 //!   token when started `--public`. The client side of that control plane
 //!   lives in the dedicated SDK crate `nuo-client`, which publishes the same
 //!   `nuo_client::wire` protocol the server drives ([`serve`] re-exports the
 //!   envelope types), so the two cannot drift.
-//! - [`serve_discovery`] publishes the global `daemon.json` record clients
-//!   use to find the daemon; on graceful shutdown the daemon tears every
+//! - [`serve_discovery`] publishes the global `server.json` record clients
+//!   use to find the server; on graceful shutdown the server tears every
 //!   hosted session down through the registry, firing each one's
 //!   SessionEnd hooks.
 //!
@@ -128,7 +128,7 @@ pub type SharedConfig = std::sync::Arc<tokio::sync::RwLock<nuo_persistence::conf
 pub type SharedConnectionUsage =
     std::sync::Arc<tokio::sync::RwLock<nuo_persistence::connection_usage::ConnectionUsage>>;
 
-// NOTE: identity (`agent_code`/`DaemonUiBridge`) lives in the application
+// NOTE: identity (`agent_code`/`ServerUiBridge`) lives in the application
 // layer (the `nuo` binary's own `identity` module), not here, so this crate
 // stays application-neutral. The `/btw` side session reuses the primary
 // agent's identity via `Agent::identity()`.

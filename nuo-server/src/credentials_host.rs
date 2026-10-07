@@ -7,7 +7,7 @@
 //! and shared.
 //!
 //! One process, one host: the device identity is cached inside its
-//! implementation, and every flow the daemon starts must see the same one — a
+//! implementation, and every flow the server starts must see the same one — a
 //! provider that pins risk signals to a device must not observe two devices in
 //! one run.
 

@@ -25,7 +25,7 @@ async fn main() {
 
 async fn run(project_root: &std::path::Path) -> Result<(), String> {
     let _ = project_root;
-    // ADR-0096: discovery is global (`daemon.json` under the instance dir),
+    // ADR-0096: discovery is global (`server.json` under the instance dir),
     // not per-project — the pre-0096 `serve/<bucket>.json` layout is dead.
     let path = serve_discovery::global_discovery_path();
     let bytes = std::fs::read(&path)
@@ -53,7 +53,7 @@ async fn run(project_root: &std::path::Path) -> Result<(), String> {
     let select = serde_json::to_string(&Wire::Select {
         version: None,
         action: AttachAction::Attach(None),
-        // No declared project: the smoke run exercises the daemon's
+        // No declared project: the smoke run exercises the server's
         // cwd-fallback scope.
         project: None,
         posture: nuo_wire::human_request::HumanChannelPosture::Interactive,

@@ -94,7 +94,7 @@ pub fn build_picker_state(config: &Config, usage: &ConnectionUsage) -> ProviderP
                     let recency = usage.model_recency(&entry.id, &info.model);
                     info.last_used_ms = (recency > 0).then_some(recency);
                     // Availability is resolved against the connection's own
-                    // scope here — the SAME helper the daemon gate uses — so
+                    // scope here — the SAME helper the server gate uses — so
                     // the row can never claim a model is runnable when the
                     // route would be refused, and a sovereign override is
                     // disclosed rather than silently erasing the upstream

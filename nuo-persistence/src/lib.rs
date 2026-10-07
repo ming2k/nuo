@@ -30,7 +30,7 @@ pub mod connection_usage;
 pub mod connections;
 pub mod db;
 // Application filesystem infrastructure now lives in `nuo-host`; these
-// re-exports keep the daemon-side crates' stable import paths.
+// re-exports keep the server-side crates' stable import paths.
 pub use nuo_host::fsutil;
 pub use nuo_host::lock;
 pub use nuo_host::paths;

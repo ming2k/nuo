@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// In the homogeneous agent model (ADR-0183), an agent entity runs either in a
 /// top-level root posture or a delegated child posture:
-/// - [`AgentKind::Root`]: Full cognitive loop, tool execution, session/daemon orchestrator.
+/// - [`AgentKind::Root`]: Full cognitive loop, tool execution, session/server orchestrator.
 /// - [`AgentKind::Subagent`]: Isolated, sandboxed, short-lived task execution worker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

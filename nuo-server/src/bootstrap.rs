@@ -73,12 +73,12 @@ pub struct BootstrapParams {
     pub human_channel: Option<Arc<nuo_wire::human_request::HumanChannelAccountant>>,
     /// Session-lifetime cancellation token (ADR-0125): passed through to the
     /// background `/schedule` scheduler so it stops when the harness is torn
-    /// down (suspension, kill, daemon drain) instead of ticking forever.
+    /// down (suspension, kill, server drain) instead of ticking forever.
     /// `None` = process-lifetime scheduling (single-session frontends).
     pub teardown_token: Option<tokio_util::sync::CancellationToken>,
-    /// ADR-0209: Daemon-wide authoritative configuration shared across all hosted sessions.
+    /// ADR-0209: Server-wide authoritative configuration shared across all hosted sessions.
     pub shared_config: Option<crate::SharedConfig>,
-    /// ADR-0209: Daemon-wide authoritative connection usage shared across all hosted sessions.
+    /// ADR-0209: Server-wide authoritative connection usage shared across all hosted sessions.
     pub shared_provider_usage: Option<crate::SharedConnectionUsage>,
 }
 
@@ -108,7 +108,7 @@ pub struct Bootstrap {
     pub initial_model_name: String,
     /// The session's restored transcript (empty for a fresh session).
     pub restored_messages: Vec<Message>,
-    /// Complete daemon-owned command/completion vocabulary for this session.
+    /// Complete server-owned command/completion vocabulary for this session.
     pub command_catalog: nuo_wire::CommandCatalog,
     /// The primary agent (same `Arc` as `agent_for_session_end`), exposed so
     /// the registry can publish session-scoped tools onto it.
@@ -241,7 +241,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // `docs/adr/0002-model-channel-abstraction.md`.
 
     // ADR-0116: the pre-0018 per-project exclusive lock is gone — the
-    // unified daemon owns every session and the CLI flag was dead (parsed,
+    // unified server owns every session and the CLI flag was dead (parsed,
     // discarded). Sessions still pin their own `sessions/<id>.{json,jsonl}`
     // (ADR-0018), so concurrency is safe without a project-wide lock.
 
@@ -318,8 +318,8 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     //
     // Pin the session's project root into the skills config so the
     // project-local sources (`.nuo/skills`, `skills`) resolve from this
-    // session's project — not the daemon process's cwd, which under the
-    // unified daemon (ADR-0096) belongs to whichever client first spawned it.
+    // session's project — not the server process's cwd, which under the
+    // unified server (ADR-0096) belongs to whichever client first spawned it.
     let mut skills_config = config.skills.clone();
     skills_config.project_root = workspace_root.clone();
     let skills_registry = Arc::new(
@@ -465,8 +465,8 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         builder.provide(execution_env.clone());
         // The session's workspace root: every workspace-relative tool
         // operation (bash cwd, relative path resolution, search bases)
-        // anchors here instead of the daemon process's cwd. Under the
-        // unified daemon (ADR-0096) one process hosts sessions for many
+        // anchors here instead of the server process's cwd. Under the
+        // unified server (ADR-0096) one process hosts sessions for many
         // projects, so the process cwd is whichever directory the first
         // client spawned it from — correct only by coincidence. This is the
         // fix for "launched in project A, session edits project B".
@@ -523,7 +523,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         &SubAgentProfile::EXPLORE,
     ));
     // Subagents resolve relative write-grants against the session's project
-    // root, not the daemon process's cwd (ADR-0096).
+    // root, not the server process's cwd (ADR-0096).
     subagent_tool.set_workspace_root(workspace_root.clone());
     // Subagents inherit the session's connection retry configuration.
     subagent_tool.bind_retry_policy(
@@ -846,7 +846,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         agent.restore_round_count(session.round_counter().await);
 
         // Restore the session-scoped unattended posture (ADR-0132). This is
-        // the daemon-restart recovery path: a session that died unattended
+        // the server-restart recovery path: a session that died unattended
         // reopens unattended — attach, lazy-resume, and boot rehost all flow
         // through here. `--unattended` ran earlier and may already have set
         // the flag live; the store read is idempotent either way (same

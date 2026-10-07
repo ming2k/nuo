@@ -33,13 +33,13 @@ pub fn agent_code() -> AgentRoleProfile {
     AgentRoleProfile::developer()
 }
 
-/// The daemon has no terminal or browser clipboard of its own. Clipboard
+/// The server has no terminal or browser clipboard of its own. Clipboard
 /// effects belong to a connected app; until the wire protocol carries that
 /// request back to the initiating client, report the boundary explicitly.
-pub struct DaemonUiBridge;
+pub struct ServerUiBridge;
 
 #[async_trait::async_trait]
-impl nuo::UiBridge for DaemonUiBridge {
+impl nuo::UiBridge for ServerUiBridge {
     async fn copy_to_clipboard(&self, _text: &str) -> Result<nuo::CopyOutcome, String> {
         Err(
             "clipboard export is a client capability; use the client's local copy action"

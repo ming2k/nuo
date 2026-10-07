@@ -297,7 +297,7 @@ fn scan_at<'a>(text: &'a str, at: usize, out: &mut Vec<Reference<'a>>) -> usize 
 /// legal mention (no `@` back to the start of the whitespace-delimited token,
 /// an escaped `@`, or a `@` preceded by a word character).
 ///
-/// Single owner of the token-range computation shared by the daemon completion
+/// Single owner of the token-range computation shared by the server completion
 /// engine and the terminal composer (previously duplicated verbatim).
 pub fn mention_range_at(input: &str, cursor_byte: usize) -> Option<(usize, usize)> {
     if cursor_byte > input.len() || !input.is_char_boundary(cursor_byte) {

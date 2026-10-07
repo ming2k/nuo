@@ -69,9 +69,9 @@ pub struct HostedSession {
     /// (monotonic). Drives idle *suspension*: a persisted session with no
     /// clients attached and no activity for `IDLE_HOSTED_SESSION_TTL` is
     /// torn down in memory — its transcript is already durable, so the next
-    /// attach lazy-resumes it. Before this, every real session a daemon ever
+    /// attach lazy-resumes it. Before this, every real session a server ever
     /// hosted stayed resident forever (full transcript + agent + MCP
-    /// runtime + two tasks each), so a multi-project daemon's memory grew
+    /// runtime + two tasks each), so a multi-project server's memory grew
     /// monotonically with its session history.
     ///
     /// A `Mutex<Instant>` (not an atomic): this is written only by the
@@ -88,7 +88,7 @@ pub struct HostedSession {
     /// Handle on the session's primary agent (the same `Arc` the bootstrap
     /// hands out as `agent_for_session_end`) so the registry can fire
     /// SessionEnd hooks when the session ends — killed over the
-    /// control plane, reaped, or torn down on daemon shutdown. The driver
+    /// control plane, reaped, or torn down on server shutdown. The driver
     /// task owns the agent otherwise. `None` only for hand-built test
     /// entries, which carry no agent and fire nothing.
     pub agent_for_session_end: Option<Arc<Agent>>,
@@ -109,11 +109,11 @@ pub struct BoundSession {
     /// [`HostedSession::sync_buffer`]). Non-destructively snapshotted by the WS
     /// layer into every attaching client right after it subscribes.
     pub sync_buffer: Arc<Mutex<AttachSyncBuffer>>,
-    /// Daemon-level latest picker snapshot shared across sessions (see the
+    /// Server-level latest picker snapshot shared across sessions (see the
     /// registry's `latest_picker` cache). Spliced over the per-session
     /// buffer's picker at attach time so a new client hydrates the current
     /// *global* model ordering, not this session's last local one.
-    pub daemon_picker: Arc<Mutex<Option<AgentResponse>>>,
+    pub server_picker: Arc<Mutex<Option<AgentResponse>>>,
     pub command_catalog: nuo_wire::CommandCatalog,
     /// Durable workspace trust store for this session's project. The
     /// WS attach path reads it to detect unreviewed workspace contributions
@@ -170,7 +170,7 @@ pub enum ResolveOutcome {
 /// so events published before it subscribed are not lost.
 pub type MonitorBus = broadcast::Sender<MonitorEvent>;
 
-/// Daemon provenance for monitor snapshots: who the host is and when it
+/// Server provenance for monitor snapshots: who the host is and when it
 /// started. A `/serve` prehost (no host record) reports `started_at: 0`.
 #[derive(Clone, Default)]
 pub struct MonitorMeta {
@@ -184,21 +184,21 @@ pub struct SessionRegistry {
     sessions: Arc<Mutex<HashMap<String, Arc<HostedSession>>>>,
     monitor: MonitorBus,
     meta: Arc<Mutex<MonitorMeta>>,
-    /// Daemon-level task fabric (ADR-0190 D6): rehosted services and other
+    /// Server-level task fabric (ADR-0190 D6): rehosted services and other
     /// owner-less tasks live here, published onto the monitor bus as
     /// `TaskUpdated`/`TaskRemoved` diffs and folded into monitor snapshots.
-    daemon_tasks: Arc<crate::background_jobs::BackgroundJobManager>,
-    /// The live daemon-task rows folded for snapshots (id → row).
-    daemon_task_rows: Arc<std::sync::Mutex<HashMap<String, nuo_wire::MonitoredTask>>>,
+    server_tasks: Arc<crate::background_jobs::BackgroundJobManager>,
+    /// The live server-task rows folded for snapshots (id → row).
+    server_task_rows: Arc<std::sync::Mutex<HashMap<String, nuo_wire::MonitoredTask>>>,
     /// Latest durability-health state (ADR-0196 D4): folded from the
     /// persistence supervisor's transitions for monitor snapshots and
     /// published as `PersistenceHealth` diffs. `None` = never degraded.
     persistence_health: Arc<std::sync::Mutex<Option<nuo_wire::monitor::PersistenceHealth>>>,
-    /// Daemon-level latest picker snapshot (cross-session model ordering).
+    /// Server-level latest picker snapshot (cross-session model ordering).
     /// The picker's recency data lives in the shared SQLite `ConnectionUsage`,
     /// so a snapshot built by any one session's driver is global truth — but
     /// the driver only pushes it onto its *own* bus. This cache (shared by
-    /// every `BoundSession.daemon_picker`) lets a freshly attached client of
+    /// every `BoundSession.server_picker`) lets a freshly attached client of
     /// any session hydrate the current global ordering instead of the stale
     /// one captured at that session's last local switch.
     latest_picker: Arc<Mutex<Option<AgentResponse>>>,
@@ -206,11 +206,11 @@ pub struct SessionRegistry {
     shared_config: crate::SharedConfig,
     /// Authoritative model recency telemetry shared across all hosted sessions (ADR-0209).
     shared_provider_usage: crate::SharedConnectionUsage,
-    /// The daemon's Archivist conversational service (ADR-0208): lazily
+    /// The server's Archivist conversational service (ADR-0208): lazily
     /// consulted by the `AskArchivist` control verb; one agent, borrowed
     /// provider per round.
     archivist: Arc<crate::archivist_service::ArchivistService>,
-    /// The daemon's agent communication fabric (ACP). The Hypervisor
+    /// The server's agent communication fabric (ACP). The Hypervisor
     /// and every hosted session register their agent endpoints here.
     fabric: acp::Fabric,
     /// The session mailboxes' parked handles so teardown can drop them
@@ -234,18 +234,18 @@ const STORAGE_MAINTENANCE_INTERVAL: std::time::Duration =
     std::time::Duration::from_secs(24 * 60 * 60);
 
 /// How often the idle-empty reaper sweeps. One minute keeps abandoned empty
-/// sessions bounded without meaningfully waking the daemon.
+/// sessions bounded without meaningfully waking the server.
 const IDLE_REAPER_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Per-session budget for `SessionEnd` hooks during teardown (ADR-0101).
-/// A user hook runs an external process; a hung one must not pin the daemon
-/// (this bound applies to single-session kills; daemon shutdown sizes the
+/// A user hook runs an external process; a hung one must not pin the server
+/// (this bound applies to single-session kills; server shutdown sizes the
 /// same budget against its remaining grace).
 const DEFAULT_SESSION_END_HOOK_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 /// How long an idle *persisted* hosted session with no attached clients may
 /// stay resident before it is suspended (torn down in memory; the transcript
 /// is durable, so the next attach lazy-resumes it). This is what bounds the
-/// daemon's memory: without it, every real session a daemon ever hosted
+/// server's memory: without it, every real session a server ever hosted
 /// stayed resident forever (full transcript + agent + MCP runtime + tasks).
 const IDLE_HOSTED_SESSION_TTL: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
@@ -270,8 +270,8 @@ impl SessionRegistry {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             monitor,
             meta: Arc::new(Mutex::new(MonitorMeta::default())),
-            daemon_tasks: Arc::new(crate::background_jobs::BackgroundJobManager::new()),
-            daemon_task_rows: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            server_tasks: Arc::new(crate::background_jobs::BackgroundJobManager::new()),
+            server_task_rows: Arc::new(std::sync::Mutex::new(HashMap::new())),
             persistence_health: Arc::new(std::sync::Mutex::new(None)),
             latest_picker: Arc::new(Mutex::new(None)),
             shared_config: Arc::new(tokio::sync::RwLock::new(
@@ -287,21 +287,21 @@ impl SessionRegistry {
         }
     }
 
-    /// The daemon-level task fabric (ADR-0190 D6). Rehosted services and
+    /// The server-level task fabric (ADR-0190 D6). Rehosted services and
     /// other owner-less tasks spawn here; every lifecycle event is folded
     /// into the snapshot cache and published as a monitor diff.
-    pub fn daemon_tasks(&self) -> Arc<crate::background_jobs::BackgroundJobManager> {
-        self.daemon_tasks.clone()
+    pub fn server_tasks(&self) -> Arc<crate::background_jobs::BackgroundJobManager> {
+        self.server_tasks.clone()
     }
 
-    /// Spawn a task on the daemon fabric: monitor-visible, owner-less.
-    pub async fn spawn_daemon_task(
+    /// Spawn a task on the server fabric: monitor-visible, owner-less.
+    pub async fn spawn_server_task(
         &self,
         command: String,
         label: Option<String>,
         kind: nuo_wire::JobKind,
     ) -> Result<nuo_wire::BackgroundJobInfo, String> {
-        let mgr = self.daemon_tasks.clone();
+        let mgr = self.server_tasks.clone();
         let roots: Vec<std::path::PathBuf> = Vec::new();
         let workspace = std::env::temp_dir();
         mgr.spawn_process_ex(
@@ -322,10 +322,10 @@ impl SessionRegistry {
         .await
     }
 
-    /// Stop a daemon-level task (the human-side control the TUI panel will
+    /// Stop a server-level task (the human-side control the TUI panel will
     /// drive).
-    pub fn stop_daemon_task(&self, task_id: &str) -> Result<(), String> {
-        self.daemon_tasks
+    pub fn stop_server_task(&self, task_id: &str) -> Result<(), String> {
+        self.server_tasks
             .kill_job(&nuo_wire::JobId::from(task_id))
     }
 
@@ -351,7 +351,7 @@ impl SessionRegistry {
         });
     }
 
-    /// Cross-session picker fan-out: refresh the daemon-level latest-picker
+    /// Cross-session picker fan-out: refresh the server-level latest-picker
     /// cache and rebroadcast the snapshot to every *other* hosted session's
     /// bus, so a model switch made in one session is visible (and hydratable
     /// at attach time) everywhere. Called by the per-session broadcast tap
@@ -369,7 +369,7 @@ impl SessionRegistry {
         }
     }
 
-    /// The daemon-level latest picker snapshot, for attach-time hydration
+    /// The server-level latest picker snapshot, for attach-time hydration
     /// (`None` before any session has pushed a picker this process lifetime —
     /// per-session attach-sync buffers still cover that case).
     pub async fn latest_picker(&self) -> Option<AgentResponse> {
@@ -392,14 +392,14 @@ impl SessionRegistry {
         self.archivist.ask(borrowed, &text).await
     }
 
-    /// The daemon's ACP communication fabric.
+    /// The server's ACP communication fabric.
     pub fn fabric(&self) -> &acp::Fabric {
         &self.fabric
     }
 
     /// The Hypervisor station, once materialized (lazily constructed on the
     /// first hosted-session assemble). `None` before any session has hosted —
-    /// a daemon with no fleet has nothing to orchestrate.
+    /// a server with no fleet has nothing to orchestrate.
     pub async fn hypervisor(&self) -> Option<Arc<crate::hypervisor::Hypervisor>> {
         self.hypervisor.lock().await.clone()
     }
@@ -446,9 +446,9 @@ impl SessionRegistry {
     /// Fold one fabric event into the snapshot cache and publish the diff.
     /// Runs on a dedicated subscriber task per registry instance.
     #[allow(clippy::unwrap_used)] // A poisoned task-row mutex is an unrecoverable registry invariant.
-    pub fn start_daemon_task_monitor(self: &Arc<Self>) {
-        let mgr = self.daemon_tasks.clone();
-        let rows = self.daemon_task_rows.clone();
+    pub fn start_server_task_monitor(self: &Arc<Self>) {
+        let mgr = self.server_tasks.clone();
+        let rows = self.server_task_rows.clone();
         let registry = Arc::downgrade(self);
         tokio::spawn(async move {
             let mut rx = mgr.subscribe();
@@ -593,8 +593,8 @@ impl SessionRegistry {
     /// A *declared* project (modern client's `Select.project`) forbids
     /// silently auto-binding a session from another project — that is the
     /// "launched in project A, working in project B" trap. An undeclared
-    /// project (legacy client; the daemon guessing its own cwd) keeps the
-    /// historical lone-session auto-bind because the daemon cannot tell a
+    /// project (legacy client; the server guessing its own cwd) keeps the
+    /// historical lone-session auto-bind because the server cannot tell a
     /// cross-project attach from a same-project one.
     pub async fn resolve_with_declaration(
         &self,
@@ -676,7 +676,7 @@ impl SessionRegistry {
     }
 
     /// Control plane (ADR-0096): create a session for `project` and return
-    /// its id. The session is daemon-held; no client is attached yet.
+    /// its id. The session is server-held; no client is attached yet.
     pub async fn create_session(&self, project: PathBuf) -> Result<String, String> {
         self.create_session_with_options(project, nuo_client::wire::SessionInitOptions::default())
             .await
@@ -787,7 +787,7 @@ impl SessionRegistry {
     ///
     /// `hook_budget` bounds each `fire_session_end` call. A user-configured
     /// SessionEnd hook runs an external process; a hung one must never pin
-    /// the daemon's shutdown (or this verb) open. On timeout the remaining
+    /// the server's shutdown (or this verb) open. On timeout the remaining
     /// hook work is abandoned — the hook's side effects are best-effort by
     /// design — and the teardown continues.
     pub async fn kill_session(&self, session_id: &str) -> Result<(), String> {
@@ -929,7 +929,7 @@ impl SessionRegistry {
     /// monitor status is not active (not running / awaiting approval /
     /// awaiting input), and (c) it has had no tap activity for the TTL.
     /// Empty unpersisted sessions are left to the tighter empty-reaper
-    /// above; this path exists for *real* sessions whose memory the daemon
+    /// above; this path exists for *real* sessions whose memory the server
     /// would otherwise hold forever.
     pub async fn suspend_idle_sessions(&self) -> Vec<String> {
         self.suspend_idle_sessions_with(IDLE_HOSTED_SESSION_TTL)
@@ -993,7 +993,7 @@ impl SessionRegistry {
         suspended
     }
 
-    /// [`Self::kill_session`] with an explicit hook budget, so daemon
+    /// [`Self::kill_session`] with an explicit hook budget, so server
     /// shutdown can size it against its own remaining grace (ADR-0101).
     pub async fn kill_session_with_hook_budget(
         &self,
@@ -1004,8 +1004,8 @@ impl SessionRegistry {
         self.drop_session_mailbox(session_id).await;
         // ADR-0234: a closed session's retained results are dropped with it —
         // no cross-session delivery, and a closed session is not revived to
-        // receive one. Daemon-level jobs (`owner_session: None`) are untouched.
-        let dropped = self.daemon_tasks.discard_pending_for_session(session_id);
+        // receive one. Server-level jobs (`owner_session: None`) are untouched.
+        let dropped = self.server_tasks.discard_pending_for_session(session_id);
         if dropped > 0 {
             tracing::debug!(
                 session = %session_id,
@@ -1045,7 +1045,7 @@ impl SessionRegistry {
         let _ = e.events.send(AgentResponse::Exit);
         // SessionEnd observers fire best-effort after the driver is cancelled;
         // the hook context (session id + cwd) does not depend on it. Bounded:
-        // an external-process hook that hangs cannot pin the daemon open.
+        // an external-process hook that hangs cannot pin the server open.
         if let Some(agent) = &e.agent_for_session_end
             && tokio::time::timeout(hook_budget, agent.fire_session_end())
                 .await
@@ -1072,7 +1072,7 @@ impl SessionRegistry {
         }
     }
 
-    /// Graceful daemon shutdown (ADR-0096): tear down every hosted session
+    /// Graceful server shutdown (ADR-0096): tear down every hosted session
     /// via [`Self::kill_session_with_hook_budget`], so each one's SessionEnd
     /// hooks fire before the process exits. `host::run` calls
     /// this after the listeners stop accepting and the connections drain
@@ -1083,7 +1083,7 @@ impl SessionRegistry {
     /// so one slow hook cannot starve the others of their own budget.
     /// Best-effort per session: one failure does not skip the rest.
     /// ADR-0034 Level 1 (soft reload): re-read the configuration matrix into
-    /// the daemon-wide snapshot and ask every hosted session to re-sync its
+    /// the server-wide snapshot and ask every hosted session to re-sync its
     /// MCP servers and skills — without dropping a single connection.
     pub async fn reload_runtime(&self) -> Result<(), String> {
         let config = nuo_persistence::config::Config::load();
@@ -1133,7 +1133,7 @@ impl SessionRegistry {
     /// alone even while still empty. This is the in-memory counterpart of the
     /// persistence layer's lazy-materialisation guard (ADR-0018): that guard
     /// keeps empty sessions off disk, this one keeps them from piling up in
-    /// the daemon's memory when clients create-then-abandon them.
+    /// the server's memory when clients create-then-abandon them.
     pub async fn reap_idle_empty_sessions(&self) -> Vec<String> {
         self.reap_idle_empty_sessions_with(IDLE_EMPTY_SESSION_TTL)
             .await
@@ -1180,7 +1180,7 @@ impl SessionRegistry {
     }
 
     /// Spawn the background idle-empty reaper, sweeping every
-    /// `IDLE_REAPER_INTERVAL` until `cancel` fires. The daemon calls this
+    /// `IDLE_REAPER_INTERVAL` until `cancel` fires. The server calls this
     /// once at startup; the task stops cleanly on shutdown.
     ///
     /// The same tick runs the low-frequency storage-maintenance pass
@@ -1192,7 +1192,7 @@ impl SessionRegistry {
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(IDLE_REAPER_INTERVAL);
             // `interval` fires immediately on creation; skip the first tick so
-            // a just-started daemon does not reap sessions still being set up.
+            // a just-started server does not reap sessions still being set up.
             tick.tick().await;
             let mut last_maintenance = std::time::Instant::now();
             loop {
@@ -1264,7 +1264,7 @@ impl SessionRegistry {
             req_tx: entry.req_tx.clone(),
             events: entry.events.clone(),
             sync_buffer: entry.sync_buffer.clone(),
-            daemon_picker: self.latest_picker.clone(),
+            server_picker: self.latest_picker.clone(),
             command_catalog: entry.command_catalog.clone(),
             security: entry.security.clone(),
         };
@@ -1314,7 +1314,7 @@ impl SessionRegistry {
                 // cross-project session is one explicit choice; a fresh
                 // session in the caller's project is created by `New`).
                 // A legacy client that declared no project keeps the
-                // historical auto-bind: the daemon cannot distinguish a
+                // historical auto-bind: the server cannot distinguish a
                 // cross-project attach from a same-project one.
                 if declared {
                     return ResolveOutcome::Pick {
@@ -1377,7 +1377,7 @@ impl SessionRegistry {
             preset,
             ui,
         } = self.params.as_ref().ok_or(AssembleErr::NoHost)?.clone();
-        // ADR-0220/0226: a persona overrides the daemon's fixed identity and
+        // ADR-0220/0226: a persona overrides the server's fixed identity and
         // preset. An explicit selection (`init_options.persona`) also applies
         // the persona's workspace policy; a resume uses the stored workspace
         // binding unchanged. `workspace = None` is the unbound set.
@@ -1494,7 +1494,7 @@ impl SessionRegistry {
         .await
         .map_err(AssembleErr::AssembleFailed)?;
         let session = boot.session.clone();
-        // ADR-0167 mesh registration: the session's master joins the daemon
+        // ADR-0167 mesh registration: the session's master joins the server
         // mesh at `session/<id>`, parented to the Hypervisor. Failure is not
         // session-fatal (mesh delivery is fail-open observability), so a
         // duplicate registration simply replaces the mailbox.
@@ -1504,7 +1504,7 @@ impl SessionRegistry {
         // live agent through its dynamic-tool sink (the same seam MCP uses).
         // Feature-gated (ADR-0005 §5) so lean single-agent builds omit the
         // whole multi-agent surface. Published after the mailbox exists so the
-        // tools can address peers and channels on the daemon fabric.
+        // tools can address peers and channels on the server fabric.
         #[cfg(feature = "collaboration")]
         {
             let addr = acp::AgentAddress::parse(&format!("agent://local/session/{session_id}"))
@@ -1546,7 +1546,7 @@ impl SessionRegistry {
         // Cross-session picker fan-out (see `broadcast_picker_to_other_sessions`):
         // whenever this session's driver rebuilds the model-picker snapshot
         // (switch, favorite toggle, connection add/delete, startup), every
-        // other hosted session's bus hears it too, and the daemon-level
+        // other hosted session's bus hears it too, and the server-level
         // latest snapshot is refreshed for future attachers.
         let cross_for_tap = self.clone();
         let origin_for_tap = session.id().await;
@@ -1602,7 +1602,7 @@ impl SessionRegistry {
         // driver panic left a zombie entry: nobody drained `req_tx` (an
         // unbounded channel, so clients kept queueing into memory), the
         // control plane's `let _ = req_tx.send(...)` silently succeeded, and
-        // the only recovery was restarting the daemon.
+        // the only recovery was restarting the server.
         //
         // The registry clone is cheap (every field is an Arc), and moving the
         // spawn after the map insert is required so eviction can find the
@@ -1658,7 +1658,7 @@ impl SessionRegistry {
             req_tx: req_tx.clone(),
             events: events_tx.clone(),
             sync_buffer: sync_buffer.clone(),
-            daemon_picker: self.latest_picker.clone(),
+            server_picker: self.latest_picker.clone(),
             command_catalog: command_catalog.clone(),
             security: boot.security.clone(),
         };
@@ -1700,7 +1700,7 @@ impl SessionRegistry {
             req_tx: e.req_tx.clone(),
             events: e.events.clone(),
             sync_buffer: e.sync_buffer.clone(),
-            daemon_picker: self.latest_picker.clone(),
+            server_picker: self.latest_picker.clone(),
             command_catalog: e.command_catalog.clone(),
             security: e.security.clone(),
         }
@@ -1733,7 +1733,7 @@ impl SessionRegistry {
         }
         sessions.sort_by_key(|row| std::cmp::Reverse(row.updated_at));
         let tasks = self
-            .daemon_task_rows
+            .server_task_rows
             .lock()
             .unwrap()
             .values()
@@ -1742,7 +1742,7 @@ impl SessionRegistry {
         let meta = self.meta.lock().await.clone();
         MonitorSnapshot {
             project_root: meta.project_root.unwrap_or_default(),
-            daemon_started_at: meta.started_at,
+            server_started_at: meta.started_at,
             sessions,
             tasks,
             persistence_health: self.persistence_health.lock().unwrap().clone(),
@@ -1756,9 +1756,9 @@ impl SessionRegistry {
         let _ = self.monitor.send(event);
     }
 
-    /// Publish a host-level (daemon-scope) event on the monitor bus
-    /// (ADR-0101): the run loop announces `DaemonDraining` when the graceful
-    /// drain begins so every watch client learns the daemon is going away
+    /// Publish a host-level (server-scope) event on the monitor bus
+    /// (ADR-0101): the run loop announces `ServerDraining` when the graceful
+    /// drain begins so every watch client learns the server is going away
     /// before its connection closes. Public and synchronous because the bus
     /// is a broadcast sender — sending never blocks on subscribers.
     pub fn publish_host_event(&self, event: MonitorEvent) {

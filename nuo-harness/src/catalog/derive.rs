@@ -374,7 +374,7 @@ pub fn resolve_credential(connection: &Connection, creds: &Credentials) -> Secre
 /// precedence, and ADR-0273 `[INV-AVAIL-05]` requires the override to be
 /// *disclosed* rather than silently erasing the upstream declaration.
 ///
-/// This is the single source of truth for "may this be run"; the daemon gate
+/// This is the single source of truth for "may this be run"; the server gate
 /// and the picker projection both derive from it, so a client can never be the
 /// only place availability is enforced.
 pub fn effective_availability(

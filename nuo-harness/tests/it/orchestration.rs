@@ -3,7 +3,7 @@
 //! the self-registration of built-in tools via `inventory`. These live with
 //! the code under test (they were historically parked in the `nuo`
 //! binary, which exercised this layer end-to-end before ADR-0096 moved
-//! session hosting into the daemon).
+//! session hosting into the server).
 
 // Tests panic on assertion failure by design; the workspace's unwrap/expect
 // warnings are meant for production code.

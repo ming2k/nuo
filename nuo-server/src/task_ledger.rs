@@ -4,7 +4,7 @@
 //! store (ADR-0168 typed JSON KV): spec, terminal state, summary, log path.
 //! The row is the fabric's durable record — restart-inspectable, and the
 //! input to the boot rehost: services whose spec carries a `restart` policy
-//! are re-spawned by the daemon at boot (the successor of ADR-0125's
+//! are re-spawned by the server at boot (the successor of ADR-0125's
 //! bespoke armed-schedule rehost machinery), while one-shot tasks merely
 //! keep their last outcome inspectable.
 //!
@@ -107,7 +107,7 @@ pub fn prune(writer: &PersistenceHandle, keep: &[String]) {
 }
 
 /// Services whose spec carries a restart policy are rehost candidates at
-/// daemon boot.
+/// server boot.
 pub fn rehost_candidates(rows: &[TaskLedgerRow]) -> Vec<TaskLedgerRow> {
     rows.iter()
         .filter(|row| {
@@ -124,7 +124,7 @@ pub fn rehost_candidates(rows: &[TaskLedgerRow]) -> Vec<TaskLedgerRow> {
 }
 
 /// Rehost every restartable service found in the ledger (best-effort; runs
-/// at daemon boot). `spawn` is the caller's spawn closure so this module
+/// at server boot). `spawn` is the caller's spawn closure so this module
 /// stays decoupled from any one execution environment.
 pub fn rehost_all<F>(writer: &PersistenceHandle, spawn: F)
 where

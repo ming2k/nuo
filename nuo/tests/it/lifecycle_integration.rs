@@ -1,4 +1,4 @@
-//! End-to-end lifecycle tests for the daemon run loop (ADR-0101): the
+//! End-to-end lifecycle tests for the server run loop (ADR-0101): the
 //! shutdown trigger is injected (no signals needed — that is the point of
 //! the gate abstraction), and the assertions check the *phases*: discovery
 //! advertisement pulled, sessions torn down, tasks joined within the
@@ -9,7 +9,7 @@
 //! - The loop's filesystem footprint (discovery record, instance lock) is
 //!   sandboxed by pointing `NUO_HOME` at a temp root **before the first
 //!   `paths::get()` resolution in this process** (ADR-0121). One variable
-//!   redirects every category and the daemon's runtime files; the env is
+//!   redirects every category and the server's runtime files; the env is
 //!   set once in a `static` initializer, and every test gets its own
 //!   subdirectories via a per-test UDS path — the shared record paths live
 //!   under the same sandbox root, so cross-test interference is limited to
@@ -34,19 +34,19 @@ use tokio::sync::{Mutex, broadcast, mpsc};
 /// Sandbox the process-wide dirs once, before any `paths::get()` call can
 /// cache a real-user resolution (see module docs).
 ///
-/// ADR-0121: `NUO_HOME` alone redirects every category *and* the daemon
+/// ADR-0121: `NUO_HOME` alone redirects every category *and* the server
 /// instance dir, so the five hand-assembled env vars this used to set
 /// collapse to one. The root is a dedicated tempdir (not the shared
 /// `sandbox` subdirs) kept alive for the process.
 use super::sandbox_once;
 
 /// The ADR-0121 isolation contract, pinned at the level users experience
-/// it: with `NUO_HOME` set, every category and the daemon's runtime
+/// it: with `NUO_HOME` set, every category and the server's runtime
 /// files resolve under the sandbox root, and the host's XDG runtime dir
 /// (which the test env deliberately does not clear) cannot leak any
-/// daemon-facing path back out of it.
+/// server-facing path back out of it.
 #[test]
-fn nuo_home_redirects_the_daemon_footprint() {
+fn nuo_home_redirects_the_server_footprint() {
     sandbox_once();
     let dirs = nuo_persistence::paths::get();
     let root = std::env::var("NUO_HOME").unwrap();
@@ -70,7 +70,7 @@ fn nuo_home_redirects_the_daemon_footprint() {
             .join("nuo")
             .join("instance")
     );
-    // And the daemon-facing paths derive from the instance dir.
+    // And the server-facing paths derive from the instance dir.
     for path in [
         nuo::serve_discovery::global_discovery_path(),
         nuo::serve_discovery::global_lock_path(),
@@ -210,14 +210,14 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
     let mut saw_removed = false;
     while let Ok(event) = monitor_rx.try_recv() {
         match event {
-            MonitorEvent::DaemonDraining => saw_draining = true,
+            MonitorEvent::ServerDraining => saw_draining = true,
             MonitorEvent::SessionRemoved { .. } => saw_removed = true,
             _ => {}
         }
     }
     assert!(
         saw_draining,
-        "watch clients must be told the daemon is draining"
+        "watch clients must be told the server is draining"
     );
     assert!(saw_removed, "hosted sessions must be torn down on drain");
 }
@@ -308,7 +308,7 @@ async fn escalation_skips_the_graceful_phases() {
     let mut saw_removed = false;
     while let Ok(event) = monitor_rx.try_recv() {
         match event {
-            MonitorEvent::DaemonDraining => saw_draining = true,
+            MonitorEvent::ServerDraining => saw_draining = true,
             MonitorEvent::SessionRemoved { .. } => saw_removed = true,
             _ => {}
         }
@@ -325,7 +325,7 @@ async fn port_bind_failure_is_a_readable_startup_failure() {
     sandbox_once();
     let _lock = LIFECYCLE_TEST_LOCK.lock().await;
     let tmp = tempfile::tempdir().unwrap();
-    // Occupy a port so the daemon's bind fails.
+    // Occupy a port so the server's bind fails.
     let hog = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let taken = hog.local_addr().unwrap().port();
 
@@ -486,10 +486,10 @@ async fn client_driven_lifecycle_stops_when_interactive_client_disconnects() {
     drop(sink);
     drop(source);
 
-    // Daemon terminates cleanly after 1s debounce
+    // Server terminates cleanly after 1s debounce
     let outcome = tokio::time::timeout(Duration::from_secs(5), run)
         .await
-        .expect("daemon timed out waiting for client_driven exit")
+        .expect("server timed out waiting for client_driven exit")
         .expect("join run");
 
     assert_eq!(outcome.exit_code(), 0);

@@ -162,7 +162,7 @@ pub enum InputAction {
     /// totals, per-model breakdown, and the recent request event log, from
     /// the durable cross-session store. Intercepted locally; the handler
     /// issues `AgentRequest::QueryUsageStats` on every open, so the overlay
-    /// always reflects the daemon-side store (the report is fetched on demand,
+    /// always reflects the server-side store (the report is fetched on demand,
     /// never pushed — see ADR-0209's 2026-09-11 addendum). While the reply is
     /// in flight the previously rendered numbers stay on screen.
     OpenUsage,
@@ -218,7 +218,7 @@ pub enum InputAction {
     OpenSelectedSession,
     /// Toggle expand/fold of child timeline branches (asides/forks) in the sessions picker (ADR-0251).
     ToggleSessionTimelineExpand,
-    /// `/host` panel Enter: switch the TUI to drive the selected daemon
+    /// `/host` panel Enter: switch the TUI to drive the selected server
     /// session (ADR-0096). Handled by exiting to re-attach.
     HostSwitchSelected,
     /// Dashboard Enter on a dock selection: open the read-only preview modal
@@ -551,7 +551,7 @@ pub enum InputAction {
     SceneBack,
     /// Explicitly close/exit the active scene or dialog (e.g. via `C-x w`).
     CloseScene,
-    /// Navigate directly to the daemon session orchestrator dashboard scene (`C-x d`).
+    /// Navigate directly to the server session orchestrator dashboard scene (`C-x d`).
     NavigateDashboard,
     /// Terminal was resized (SIGWINCH). The event loop forces a redraw and
     /// re-emits `EnableMouseCapture` so the crossterm parser's internal state

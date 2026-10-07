@@ -133,7 +133,7 @@ use crate::transcript::{
 };
 
 /// Where the session this TUI drives lives. All sessions in the unified
-/// daemon model are remote (daemon-hosted).
+/// server model are remote (server-hosted).
 #[derive(Debug, Clone)]
 pub enum SessionSource {
     Remote {
@@ -503,7 +503,7 @@ pub async fn run_tui(
     let initial_provider_for_translator = initial_provider.clone();
     let initial_model_for_translator = initial_model.clone();
 
-    // Spawn the daemon monitor client (ADR-0096): a *translator* over the
+    // Spawn the server monitor client (ADR-0096): a *translator* over the
     // monitor stream. It owns the session-row snapshot (its own domain) and
     // publishes whole snapshots to `App` via mutations — no cells, no
     // rev counters.
@@ -542,7 +542,7 @@ pub async fn run_tui(
                     nuo_wire::MonitorEvent::SessionRemoved { session_id } => {
                         rows.retain(|r| r.id != session_id);
                     }
-                    // Daemon-level task diffs (ADR-0190): the dashboard's
+                    // Server-level task diffs (ADR-0190): the dashboard's
                     // task section is folded in a later phase.
                     nuo_wire::MonitorEvent::TaskUpdated(_) => {}
                     nuo_wire::MonitorEvent::TaskRemoved { .. } => {}
@@ -555,10 +555,10 @@ pub async fn run_tui(
                             ))
                             .await;
                     }
-                    // The daemon began its graceful shutdown (ADR-0101): the
-                    // stream closes right after; the next daemon interaction
+                    // The server began its graceful shutdown (ADR-0101): the
+                    // stream closes right after; the next server interaction
                     // re-discovers or re-spawns.
-                    nuo_wire::MonitorEvent::DaemonDraining => {}
+                    nuo_wire::MonitorEvent::ServerDraining => {}
                 }
                 mutations
                     .send(event_loop::AppMutation::HostSessions(rows.clone()))
@@ -768,7 +768,7 @@ pub async fn run_tui(
                             RoundEvent::SteerCancelled { .. } => {}
                             RoundEvent::SteerCancelFailed { .. } => {}
                             RoundEvent::FollowUpQueued { input_id } => {
-                                // The daemon admitted the follow-up into its
+                                // The server admitted the follow-up into its
                                 // queue: the optimistic entry settles back to
                                 // Waiting (the queue bar keeps showing it).
                                 mutations
@@ -2303,7 +2303,7 @@ pub async fn run_tui(
     if matches!(startup_overlay, StartupOverlay::Settings { .. }) {
         app.send_intent(AgentRequest::QueryWebSearchConfig);
     }
-    // Hydrate the prompt history from the daemon (the SSOT for the shared
+    // Hydrate the prompt history from the server (the SSOT for the shared
     // SQLite store — the TUI never opens the database itself, ADR-0197).
     app.send_intent(AgentRequest::QueryInputHistory);
 
@@ -2340,7 +2340,7 @@ pub async fn run_tui(
 }
 
 /// What a TUI run produced (ADR-0096): the input history to persist, and —
-/// when the user picked a session in the `/host` panel — the daemon session
+/// when the user picked a session in the `/host` panel — the server session
 /// to switch to (the caller re-attaches).
 pub struct TuiOutcome {
     pub history: Vec<nuo_wire::HistoryEntry>,

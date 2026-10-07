@@ -603,8 +603,8 @@ async fn unknown_id_is_an_error() {
 
 /// Project scoping (ADR-0096): the Select frame's optional `project` declares
 /// the caller's working directory, and auto-attach must resolve inside THAT
-/// project — not the daemon process's cwd, which is whatever the first client
-/// that spawned the daemon happened to use. `New` creation and lazy resume
+/// project — not the server process's cwd, which is whatever the first client
+/// that spawned the server happened to use. `New` creation and lazy resume
 /// are scoped by the same value (`registry::SessionRegistry::resolve`).
 #[tokio::test]
 async fn select_project_scopes_auto_attach() {
@@ -618,7 +618,7 @@ async fn select_project_scopes_auto_attach() {
     let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
     let _ = handle;
 
-    // Two hosted sessions, neither rooted at the daemon's cwd: under the old
+    // Two hosted sessions, neither rooted at the server's cwd: under the old
     // cwd-only behavior this attach could only yield a Pick frame. Declaring
     // project A must bind A's session directly.
     let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
@@ -646,10 +646,10 @@ async fn select_project_scopes_auto_attach() {
 }
 
 /// Wire compatibility: a Select frame without `project` — what every client
-/// sent before the field existed — still deserializes, and the daemon falls
+/// sent before the field existed — still deserializes, and the server falls
 /// back to its own process cwd as the caller's project scope.
 #[tokio::test]
-async fn select_without_project_falls_back_to_daemon_cwd() {
+async fn select_without_project_falls_back_to_server_cwd() {
     let cwd = std::env::current_dir().unwrap();
     let sessions_dir = cwd.join("sessions");
     let elsewhere = std::env::temp_dir().join(format!("nuo-scope-c-{}", uuid::Uuid::new_v4()));
@@ -698,7 +698,7 @@ async fn select_without_project_falls_back_to_daemon_cwd() {
 }
 
 /// Regression (the "wrong workspace" bug): a client that *declared* its
-/// project must never be silently auto-bound to the daemon's one hosted
+/// project must never be silently auto-bound to the server's one hosted
 /// session when that session belongs to a different project. Launching
 /// `nuo attach` from project A with only project B's session live used to
 /// attach straight into B's session — the model then read and edited B while
@@ -883,7 +883,7 @@ async fn rename_live_session_republishes_monitor_row() {
     assert_eq!(row.overview, "panel rename");
 }
 
-/// Without `watch` the daemon closes the connection after the snapshot.
+/// Without `watch` the server closes the connection after the snapshot.
 #[tokio::test]
 async fn monitor_one_shot_closes_after_snapshot() {
     let tmp = tempfile::tempdir().unwrap();
@@ -936,7 +936,7 @@ async fn monitor_one_shot_closes_after_snapshot() {
 /// ADR-0096: the control plane manages sessions without attaching — create,
 /// observe in the monitor snapshot, kill.
 /// ADR-0112: a client declares the session ended over its attach
-/// connection; the daemon tears the session down (registry entry gone,
+/// connection; the server tears the session down (registry entry gone,
 /// `SessionRemoved` published, terminal `Exit` flushed to the attach
 /// client) and the connection closes. The request must never reach the
 /// driver queue — the teardown races what it would cancel.
@@ -1141,7 +1141,7 @@ async fn control_create_observe_kill_roundtrip() {
 #[tokio::test]
 async fn native_local_ipc_serves_same_protocol_without_token() {
     let tmp = tempfile::tempdir().unwrap();
-    let socket_path = tmp.path().join("daemon.sock");
+    let socket_path = tmp.path().join("server.sock");
     let endpoint = nuo_host::ipc::endpoint_for_instance(
         socket_path.clone(),
         &format!("serve-integration-{}", std::process::id()),
@@ -1387,7 +1387,7 @@ async fn reaper_keeps_session_once_it_has_content() {
 // Idle-hosted suspension (memory bounding for real sessions)
 
 /// A persisted idle session with no clients is suspended after the TTL: the
-/// daemon's memory must be bounded by *active* work, not by session history.
+/// server's memory must be bounded by *active* work, not by session history.
 #[tokio::test]
 async fn suspension_removes_idle_persisted_session() {
     let (dir, store) = fresh_empty_store("suspend");
@@ -1475,7 +1475,7 @@ async fn suspension_skips_empty_unpersisted_sessions() {
     assert!(hosted_ids(&registry).await.contains(&id));
 }
 
-// Daemon lifecycle (ADR-0100/0101)
+// Server lifecycle (ADR-0100/0101)
 
 /// `ControlRequest::Shutdown` funnels into the serve gate: the reply is sent
 /// *before* the drain cancels this very connection (ADR-0100), and the
@@ -1569,8 +1569,8 @@ async fn version_skew_is_refused_with_both_versions() {
                 "names the client build: {message}"
             );
             assert!(
-                message.contains(serve::daemon_version()),
-                "names the daemon build: {message}"
+                message.contains(serve::server_version()),
+                "names the server build: {message}"
             );
             assert!(
                 message.contains("update your nuo client"),
@@ -1579,7 +1579,7 @@ async fn version_skew_is_refused_with_both_versions() {
         }
         other => panic!("expected Error for a skewed version, got {other:?}"),
     }
-    // Skewed newer client: refused with a message recommending daemon stop/restart.
+    // Skewed newer client: refused with a message recommending server stop/restart.
     match first_frame(port, Some("99.0.0")).await {
         Wire::Error { message, .. } => {
             assert!(
@@ -1587,12 +1587,12 @@ async fn version_skew_is_refused_with_both_versions() {
                 "names the client build: {message}"
             );
             assert!(
-                message.contains(serve::daemon_version()),
-                "names the daemon build: {message}"
+                message.contains(serve::server_version()),
+                "names the server build: {message}"
             );
             assert!(
                 message.contains("nuo stop"),
-                "names the daemon restart fix: {message}"
+                "names the server restart fix: {message}"
             );
         }
         other => panic!("expected Error for a skewed version, got {other:?}"),
@@ -1610,10 +1610,10 @@ async fn version_skew_is_refused_with_both_versions() {
     }
 }
 
-/// The daemon's discovery record carries its build version (ADR-0100 rule
+/// The server's discovery record carries its build version (ADR-0100 rule
 /// 4), so a client reading a stale record can refuse before speaking.
 #[test]
-fn global_record_carries_the_daemon_version() {
+fn global_record_carries_the_server_version() {
     let record = nuo::serve_discovery::Discovery {
         pid: 1,
         process_birth_token: None,
@@ -1623,19 +1623,19 @@ fn global_record_carries_the_daemon_version() {
         started_at: 3,
         uds_path: None,
         local_endpoint: None,
-        version: Some(serve::daemon_version().to_string()),
+        version: Some(serve::server_version().to_string()),
         grace_secs: None,
         protocol: None,
         ..Default::default()
     };
     let json = serde_json::to_string(&record).unwrap();
-    assert!(json.contains(serve::daemon_version()));
+    assert!(json.contains(serve::server_version()));
     let back: nuo::serve_discovery::Discovery = serde_json::from_str(&json).unwrap();
-    assert_eq!(back.version.as_deref(), Some(serve::daemon_version()));
+    assert_eq!(back.version.as_deref(), Some(serve::server_version()));
 }
 
 /// Protocol negotiation (ADR-0134). The protocol number is the authority
-/// when a client declares one: the daemon serves any number in
+/// when a client declares one: the server serves any number in
 /// [MIN_PROTOCOL_VERSION, PROTOCOL_VERSION] — *whatever the product version
 /// says* — and refuses anything outside the window with
 /// `code: protocol_mismatch` before any session work. A client that
@@ -1673,7 +1673,7 @@ async fn protocol_window_governs_when_declared() {
 
     // Same protocol, wildly skewed product version: SERVED. This is the
     // whole point of the ADR — a pinned client keeps talking to a newer
-    // daemon across additive wire changes.
+    // server across additive wire changes.
     match first_frame(port, Some("0.0.1-skew"), Some(PROTOCOL_VERSION)).await {
         Wire::Error { message, .. } => {
             assert!(
@@ -2050,7 +2050,7 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
         if saw_quarantined_snapshot {
             // The banner must never arrive in this scenario; one extra read
             // past the snapshot is enough to prove the frame ordering (the
-            // daemon sends attach-sync before any notice), so stop here —
+            // server sends attach-sync before any notice), so stop here —
             // waiting for a "no banner" event would just hit the timeout.
             break;
         }

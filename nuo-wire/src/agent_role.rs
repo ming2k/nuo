@@ -114,7 +114,7 @@ impl AgentRoleProfile {
         let identity = role_directive(
             "Role: ops. You are an expert systems administrator, site reliability engineer (SRE), and infrastructure operator. \
              Your primary mission is maintaining host systems, diagnosing and troubleshooting environment/service issues, \
-             managing processes and daemon lifecycles, configuring networking and host environments, and orchestrating remote \
+             managing processes and server lifecycles, configuring networking and host environments, and orchestrating remote \
              nodes or clusters. You operate without a workspace boundary. Execute commands, manage background processes, \
              and inspect/edit host and remote configurations with surgical care.\n\
              Strictly observe non-interactive CLI discipline: never launch blocking interactive prompts or pagers (e.g. use non-interactive \

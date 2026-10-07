@@ -375,7 +375,7 @@ pub fn build_credential_source(
 }
 
 /// Initialize and register concrete provider factories into the canonical
-/// `nuo-provider` substrate. Both composition roots (`nuo` CLI and the daemon
+/// `nuo-provider` substrate. Both composition roots (`nuo` CLI and the server
 /// bootstrap) call this exactly once.
 pub fn init() {
     nuo_provider::register_provider_factory(Box::new(NuoProviderFactory));

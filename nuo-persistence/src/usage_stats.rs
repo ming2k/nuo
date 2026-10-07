@@ -272,7 +272,7 @@ mod tests {
     /// End-to-end: a `TokenSourceLedger` with this store installed as its
     /// `UsageStatSink` mirrors terminal settles into the day files, and the
     /// aggregate matches what the ledger itself would report — the same
-    /// wiring the daemon bootstrap performs.
+    /// wiring the server bootstrap performs.
     #[test]
     fn ledger_sink_end_to_end_persists_and_aggregates() {
         use nuo_wire::TokenUsage;

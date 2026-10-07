@@ -3,7 +3,7 @@
 //! When the client attaches to a session whose project root carries
 //! project-authored contributions (skills, MCP, hooks, rules) that were
 //! **never** trusted — `WorkspaceTrustState::Quarantined` from the durable
-//! `WorkspaceSecurityStore` — the daemon's attach-sync `HarnessState`
+//! `WorkspaceSecurityStore` — the server's attach-sync `HarnessState`
 //! already carries the security snapshot. This module turns that snapshot
 //! into the *first* thing the user sees: a blocking question dialog opened
 //! before the composer takes input, so the trust decision happens up front
@@ -21,7 +21,7 @@
 //!   the answer to the canonical `/trust …` slash command — never a bespoke
 //!   wire message — so persistence *and* the atomic live reload stay owned
 //!   by the one code path that already handles them. A synthetic request is
-//!   never forwarded as `UserQuestionReply` (the daemon has no parked round
+//!   never forwarded as `UserQuestionReply` (the server has no parked round
 //!   waiting for it).
 //! - **Lifecycle.** The gate is fed by `HarnessState` snapshots. It opens
 //!   once per quarantined attach and closes as soon as a snapshot reports
@@ -38,7 +38,7 @@ use nuo_wire::{
 };
 
 /// Request id marking the synthesized trust-gate question. Recognized by the
-/// reply path (`super::event_loop`) and never sent to the daemon as a
+/// reply path (`super::event_loop`) and never sent to the server as a
 /// `UserQuestionReply`.
 pub const TRUST_GATE_REQUEST_ID: &str = "__workspace_trust_gate__";
 

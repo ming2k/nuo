@@ -171,9 +171,9 @@ pub fn run(action: ConfigAction) -> Result<(), Box<dyn std::error::Error>> {
                 "agent.trajectory_guard.cognitive_review" => {
                     println!("{}", config.agent.trajectory_guard.cognitive_review)
                 }
-                "daemon.shutdown_grace_secs" => println!("{}", config.daemon.shutdown_grace_secs),
-                "daemon.idle_exit_minutes" => println!("{}", config.daemon.idle_exit_minutes),
-                "daemon.local_auth" => println!("{}", config.daemon.local_auth),
+                "server.shutdown_grace_secs" => println!("{}", config.server.shutdown_grace_secs),
+                "server.idle_exit_minutes" => println!("{}", config.server.idle_exit_minutes),
+                "server.local_auth" => println!("{}", config.server.local_auth),
                 "terminal.color_scheme"
                 | "terminal.transcript_layout"
                 | "terminal.click_outside_dismiss"
@@ -276,20 +276,20 @@ pub fn run(action: ConfigAction) -> Result<(), Box<dyn std::error::Error>> {
                         |_| "invalid boolean for agent.trajectory_guard.cognitive_review",
                     )?;
                 }
-                "daemon.shutdown_grace_secs" => {
-                    config.daemon.shutdown_grace_secs = value
+                "server.shutdown_grace_secs" => {
+                    config.server.shutdown_grace_secs = value
                         .parse()
-                        .map_err(|_| "invalid integer for daemon.shutdown_grace_secs")?;
+                        .map_err(|_| "invalid integer for server.shutdown_grace_secs")?;
                 }
-                "daemon.idle_exit_minutes" => {
-                    config.daemon.idle_exit_minutes = value
+                "server.idle_exit_minutes" => {
+                    config.server.idle_exit_minutes = value
                         .parse()
-                        .map_err(|_| "invalid integer for daemon.idle_exit_minutes")?;
+                        .map_err(|_| "invalid integer for server.idle_exit_minutes")?;
                 }
-                "daemon.local_auth" => {
-                    config.daemon.local_auth = value
+                "server.local_auth" => {
+                    config.server.local_auth = value
                         .parse()
-                        .map_err(|_| "invalid boolean for daemon.local_auth")?;
+                        .map_err(|_| "invalid boolean for server.local_auth")?;
                 }
                 "terminal.color_scheme"
                 | "terminal.transcript_layout"

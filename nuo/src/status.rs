@@ -1,10 +1,10 @@
-//! `nuo status` (ADR-0093): the first control-plane client of the daemon
+//! `nuo status` (ADR-0093): the first control-plane client of the server
 //! monitor protocol. One-shot by default (`nuo status`), a live table with
 //! `--watch`, machine-readable frames with `--json`.
 //!
-//! Unlike `nuo attach`, status never spawns a daemon: observing is only
+//! Unlike `nuo attach`, status never spawns a server: observing is only
 //! meaningful when a host is already running, so a missing/stale discovery
-//! record is a clean "no daemon" report, not an excuse to start one.
+//! record is a clean "no server" report, not an excuse to start one.
 //!
 //! This module is presentation only: the monitor-protocol client
 //! ([`nuo_client::monitor_stream`]) and the stream-folding helper
@@ -17,7 +17,7 @@ use std::path::Path;
 use nuo_wire::{
     MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredSession, SessionHosting, SessionStatus,
 };
-use nuo_client::{self as client, DaemonDiagnostics, upsert_session_row, upsert_task_row};
+use nuo_client::{self as client, ServerDiagnostics, upsert_session_row, upsert_task_row};
 
 /// How `nuo status` renders its stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,7 +33,7 @@ pub async fn run(
     opts: StatusOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if opts.diagnostic {
-        let diag = client::diagnose_daemon();
+        let diag = client::diagnose_server();
         render_diagnostics(&diag, opts.json);
         if opts.watch {
             return Err("cannot watch static diagnostic output".into());
@@ -45,7 +45,7 @@ pub async fn run(
     }
 
     let Some(info) = client::discover(project_root) else {
-        let diag = client::diagnose_daemon();
+        let diag = client::diagnose_server();
         render_diagnostics(&diag, opts.json);
         return Ok(());
     };
@@ -63,7 +63,7 @@ pub async fn run(
     let mut state = match rx.recv().await {
         Some(MonitorEvent::Snapshot(snapshot)) => snapshot,
         Some(_) => return Err("monitor stream opened without a snapshot".into()),
-        None => return Err("daemon closed the monitor stream".into()),
+        None => return Err("server closed the monitor stream".into()),
     };
     render(&state, opts);
     if !opts.watch {
@@ -87,12 +87,12 @@ pub async fn run(
             MonitorEvent::PersistenceHealth(health) => {
                 state.persistence_health = Some(health);
             }
-            // The daemon is draining (ADR-0101): the stream ends right
+            // The server is draining (ADR-0101): the stream ends right
             // after this frame. Print a note and stop watching — the next
             // `nuo status` re-discovers (or reports none running).
-            MonitorEvent::DaemonDraining => {
+            MonitorEvent::ServerDraining => {
                 if !opts.json {
-                    eprintln!("nuo: daemon is shutting down; watch ended.");
+                    eprintln!("nuo: server is shutting down; watch ended.");
                 }
                 return Ok(());
             }
@@ -102,7 +102,7 @@ pub async fn run(
     Ok(())
 }
 
-pub fn render_diagnostics(diag: &DaemonDiagnostics, json: bool) {
+pub fn render_diagnostics(diag: &ServerDiagnostics, json: bool) {
     if json {
         println!(
             "{}",
@@ -118,8 +118,8 @@ fn short_hash(sha: &str) -> String {
     sha.chars().take(12).collect()
 }
 
-/// The human-readable daemon diagnostics output.
-pub(crate) fn format_diagnostics(diag: &DaemonDiagnostics) -> String {
+/// The human-readable server diagnostics output.
+pub(crate) fn format_diagnostics(diag: &ServerDiagnostics) -> String {
     let mut out = String::new();
     out.push_str("nuo status — system status & diagnostics:\n");
 
@@ -153,9 +153,9 @@ pub(crate) fn format_diagnostics(diag: &DaemonDiagnostics) -> String {
         }
     }
 
-    // Executable image identity (ADR-0021): the daemon's published hash
+    // Executable image identity (ADR-0021): the server's published hash
     // versus the installed image this client would spawn. This is the
-    // comparison a "rebuilt binary under a live daemon" verdict rests on, so
+    // comparison a "rebuilt binary under a live server" verdict rests on, so
     // it is rendered as first-class evidence rather than left to inference.
     out.push_str("  Core Image:       ");
     match &diag.installed_image {
@@ -170,18 +170,18 @@ pub(crate) fn format_diagnostics(diag: &DaemonDiagnostics) -> String {
         }
         None => out.push_str("installed image not found\n"),
     }
-    match &diag.daemon_image_digest {
+    match &diag.server_image_digest {
         Some(sha) => out.push_str(&format!(
-            "    • Daemon sha256:    {} ({})\n",
+            "    • Server sha256:    {} ({})\n",
             short_hash(sha),
-            if diag.daemon_image_current {
+            if diag.server_image_current {
                 "matches installed — current"
             } else {
                 "differs from installed — REBUILT/STALE"
             }
         )),
         None => out.push_str(
-            "    • Daemon sha256:    unpublished (pre-ADR-0021 record; inode probe in use)\n",
+            "    • Server sha256:    unpublished (pre-ADR-0021 record; inode probe in use)\n",
         ),
     }
 
@@ -238,29 +238,29 @@ pub(crate) fn format_diagnostics(diag: &DaemonDiagnostics) -> String {
 
     // High level diagnosis
     out.push_str("  Diagnosis:        ");
-    if diag.discovery_record.is_some() && !diag.daemon_image_current {
-        // ADR-0021: the executable drifted under a live daemon. This takes
-        // precedence over the generic "healthy" line: the daemon answers, but
+    if diag.discovery_record.is_some() && !diag.server_image_current {
+        // ADR-0021: the executable drifted under a live server. This takes
+        // precedence over the generic "healthy" line: the server answers, but
         // it is not the binary the operator thinks they are running.
         out.push_str(
-            "Rebuilt-binary drift: the running daemon's executable differs from the installed image.\n",
+            "Rebuilt-binary drift: the running server's executable differs from the installed image.\n",
         );
         out.push_str("                    `nuo` reclaims it automatically when idle; stop it now with `nuo stop`.\n");
     } else if diag.discovery_valid && diag.tcp_listening {
-        out.push_str("Daemon is running and healthy. (Observe with `nuo status --watch`)\n");
+        out.push_str("Server is running and healthy. (Observe with `nuo status --watch`)\n");
     } else if diag.lock_held && diag.discovery_record.is_none() {
         out.push_str(
-            "Ghost daemon detected: Instance lock is held but discovery record is missing.\n",
+            "Ghost server detected: Instance lock is held but discovery record is missing.\n",
         );
         out.push_str("                    Run `nuo stop` or kill the locking PID, then start with `nuo start`.\n");
     } else if !diag.lock_held && diag.discovery_record.is_some() {
         out.push_str("Stale discovery record: Process is gone but discovery record remains.\n");
-        out.push_str("                    Start a new daemon with `nuo start`.\n");
+        out.push_str("                    Start a new server with `nuo start`.\n");
     } else if !diag.lock_held {
-        out.push_str("No session daemon is running.\n");
+        out.push_str("No session server is running.\n");
         out.push_str("                    Start one with `nuo start`.\n");
     } else {
-        out.push_str("Daemon state is transitioning or unresponsive.\n");
+        out.push_str("Server state is transitioning or unresponsive.\n");
     }
 
     out
@@ -284,7 +284,7 @@ fn render(snapshot: &MonitorSnapshot, opts: StatusOptions) {
 }
 
 /// The human-readable table. Extracted (and `pub(crate)`) so tests can pin
-/// the layout without a daemon.
+/// the layout without a server.
 pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
     let mut out = String::new();
     let root = if snapshot.project_root.is_empty() {
@@ -313,7 +313,7 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
         ));
     }
     if !snapshot.tasks.is_empty() {
-        out.push_str(&format!("  {} daemon task(s):\n", snapshot.tasks.len()));
+        out.push_str(&format!("  {} server task(s):\n", snapshot.tasks.len()));
         out.push_str(&format!(
             "    {:<16} {:<12} {:<28} {}\n",
             "TASK", "STATE", "LABEL", "LATEST"
@@ -367,8 +367,8 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
 }
 
 /// How the row's session is driven. Since ADR-0096 every session is
-/// daemon-held, so this is always `hosted`; the column stays so older
-/// daemons' rows (which may omit `hosting`) still render.
+/// server-held, so this is always `hosted`; the column stays so older
+/// servers' rows (which may omit `hosting`) still render.
 fn hosting_cell(row: &MonitoredSession) -> String {
     match row.hosting {
         SessionHosting::Hosted => "hosted".to_string(),
@@ -481,7 +481,7 @@ mod tests {
     fn snapshot(rows: Vec<MonitoredSession>) -> MonitorSnapshot {
         MonitorSnapshot {
             project_root: "/home/u/proj".into(),
-            daemon_started_at: 50,
+            server_started_at: 50,
             sessions: rows,
             tasks: Vec::new(),
             persistence_health: None,
@@ -489,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    fn table_renders_daemon_tasks_section() {
+    fn table_renders_server_tasks_section() {
         let mut snap = snapshot(Vec::new());
         snap.tasks = vec![nuo_wire::MonitoredTask {
             id: "task_abc12345".into(),
@@ -506,7 +506,7 @@ mod tests {
             log_path: None,
         }];
         let text = table(&snap);
-        assert!(text.contains("1 daemon task(s)"), "{text}");
+        assert!(text.contains("1 server task(s)"), "{text}");
         assert!(text.contains("ready"), "{text}");
         assert!(text.contains("rehost:svc_old"), "{text}");
         assert!(text.contains("listening on :3000"), "{text}");
@@ -564,19 +564,19 @@ mod tests {
         assert_eq!(fmt_elapsed(3_900_000), "1h05m");
     }
 
-    fn base_diag() -> DaemonDiagnostics {
-        DaemonDiagnostics {
+    fn base_diag() -> ServerDiagnostics {
+        ServerDiagnostics {
             instance_dir: std::path::PathBuf::from("/run/user/1000/nuo"),
             default_port: 9800,
-            discovery_path: std::path::PathBuf::from("/run/user/1000/nuo/daemon.json"),
+            discovery_path: std::path::PathBuf::from("/run/user/1000/nuo/server.json"),
             discovery_record: None,
             discovery_valid: true,
-            lock_path: std::path::PathBuf::from("/run/user/1000/nuo/daemon.lock"),
+            lock_path: std::path::PathBuf::from("/run/user/1000/nuo/server.lock"),
             lock_held: false,
             lock_holder_pid: None,
             lock_holder_alive: false,
             local_endpoint: Some(nuo_host::ipc::LocalEndpoint::UnixSocket(
-                std::path::PathBuf::from("/run/user/1000/nuo/daemon.sock"),
+                std::path::PathBuf::from("/run/user/1000/nuo/server.sock"),
             )),
             local_endpoint_exists: false,
             local_endpoint_connectable: false,
@@ -586,8 +586,8 @@ mod tests {
             last_startup_log: None,
             installed_image: None,
             installed_image_digest: None,
-            daemon_image_digest: None,
-            daemon_image_current: true,
+            server_image_digest: None,
+            server_image_current: true,
         }
     }
 
@@ -596,8 +596,8 @@ mod tests {
         // ADR-0021: a live record whose published hash differs from the
         // installed image must be surfaced as rebuilt-binary drift, taking
         // precedence over the generic "healthy" line.
-        let diag = DaemonDiagnostics {
-            discovery_record: Some(nuo_client::DaemonInfo {
+        let diag = ServerDiagnostics {
+            discovery_record: Some(nuo_client::ServerInfo {
                 pid: 12345,
                 version: Some("0.25.1".to_string()),
                 protocol: Some(1),
@@ -611,8 +611,8 @@ mod tests {
             lock_holder_alive: true,
             installed_image: Some(std::path::PathBuf::from("/usr/bin/nuo")),
             installed_image_digest: Some("bb".repeat(32)),
-            daemon_image_digest: Some("aa".repeat(32)),
-            daemon_image_current: false,
+            server_image_digest: Some("aa".repeat(32)),
+            server_image_current: false,
             ..base_diag()
         };
         let text = format_diagnostics(&diag);
@@ -624,15 +624,15 @@ mod tests {
 
     #[test]
     fn diagnostics_formatter_renders_healthy_state() {
-        let diag = DaemonDiagnostics {
-            discovery_record: Some(nuo_client::DaemonInfo {
+        let diag = ServerDiagnostics {
+            discovery_record: Some(nuo_client::ServerInfo {
                 pid: 12345,
                 process_birth_token: None,
                 port: 9800,
                 token: None,
                 project_root: String::new(),
                 started_at: 1000,
-                uds_path: Some(std::path::PathBuf::from("/run/user/1000/nuo/daemon.sock")),
+                uds_path: Some(std::path::PathBuf::from("/run/user/1000/nuo/server.sock")),
                 local_endpoint: None,
                 version: Some("0.25.1".to_string()),
                 grace_secs: Some(10),
@@ -651,15 +651,15 @@ mod tests {
         let text = format_diagnostics(&diag);
         assert!(text.contains("PID 12345"), "{text}");
         assert!(text.contains("HELD by PID 12345"), "{text}");
-        assert!(text.contains("Daemon is running and healthy"), "{text}");
+        assert!(text.contains("Server is running and healthy"), "{text}");
         // The instance scope line leads the report (ADR-0121).
         assert!(text.contains("Instance:"), "{text}");
         assert!(text.contains("default port 9800"), "{text}");
     }
 
     #[test]
-    fn diagnostics_formatter_detects_ghost_daemon() {
-        let diag = DaemonDiagnostics {
+    fn diagnostics_formatter_detects_ghost_server() {
+        let diag = ServerDiagnostics {
             discovery_valid: false,
             lock_held: true,
             lock_holder_pid: Some(9999),
@@ -671,7 +671,7 @@ mod tests {
             ..base_diag()
         };
         let text = format_diagnostics(&diag);
-        assert!(text.contains("Ghost daemon detected"), "{text}");
+        assert!(text.contains("Ghost server detected"), "{text}");
         assert!(text.contains("HELD by PID 9999"), "{text}");
         assert!(text.contains("panic: something went wrong"), "{text}");
     }
@@ -680,7 +680,7 @@ mod tests {
     fn diagnostics_formatter_names_the_sandbox_instance() {
         // A sandboxed client (ADR-0121) must be identifiable at a glance:
         // the report's first data line names the instance dir and the
-        // client-resolved default port, so "two daemons, one discovered"
+        // client-resolved default port, so "two servers, one discovered"
         // becomes a one-command diagnosis.
         let mut diag = base_diag();
         diag.instance_dir = std::path::PathBuf::from("/tmp/nuo-dev/nuo/instance");
@@ -702,7 +702,7 @@ mod persistence_health_tests {
     fn table_warns_when_the_persistence_writer_is_down() {
         let mut snap = MonitorSnapshot {
             project_root: "/home/u/proj".into(),
-            daemon_started_at: 50,
+            server_started_at: 50,
             sessions: Vec::new(),
             tasks: Vec::new(),
             persistence_health: Some(PersistenceHealth::Down {

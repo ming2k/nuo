@@ -55,8 +55,8 @@ impl ToolContext {
 /// The directory every workspace-relative tool operation resolves against,
 /// and the directory shell commands run in.
 ///
-/// Under the unified session daemon (ADR-0096) one process hosts sessions for
-/// *many* projects, so the daemon's own process cwd is whichever directory the
+/// Under the unified session server (ADR-0096) one process hosts sessions for
+/// *many* projects, so the server's own process cwd is whichever directory the
 /// first client happened to spawn it from — correct only by coincidence. A
 /// session-scoped tool must therefore never consult the process cwd: it
 /// resolves relative paths and spawns subprocesses against the session's

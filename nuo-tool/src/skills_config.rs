@@ -23,10 +23,10 @@ pub struct SkillsConfig {
     /// by the session bootstrap — never deserialized from `config.toml`
     /// (a config file must not name a workspace) — and `None` in contexts
     /// without a designated project (tests, `nuo config`), where
-    /// discovery falls back to the process cwd. Under the unified daemon
+    /// discovery falls back to the process cwd. Under the unified server
     /// (ADR-0096) one process hosts sessions for many projects, so this
     /// field is what keeps each session's skill catalog scoped to its own
-    /// project instead of whichever directory first spawned the daemon.
+    /// project instead of whichever directory first spawned the server.
     #[serde(skip)]
     pub project_root: Option<PathBuf>,
     /// Active agent role name (e.g. "philosophist", "developer").

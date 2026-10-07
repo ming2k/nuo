@@ -472,7 +472,7 @@ fn input_edge_autoscroll_ignores_transcript_anchored_drags() {
 }
 
 #[test]
-fn failed_intent_send_latches_the_daemon_link_down_state() {
+fn failed_intent_send_latches_the_server_link_down_state() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
 
     assert!(!app.link_down);

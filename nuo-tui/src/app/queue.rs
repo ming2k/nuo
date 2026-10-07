@@ -71,7 +71,7 @@ impl App {
     /// the queue modal's `D` delete. Returns the removed dispatch (mostly for
     /// tests).
     /// The id of the queue-modal-highlighted item (ADR-0197 M4: queue verbs
-    /// address the daemon queue by id).
+    /// address the server queue by id).
     pub fn queued_at(&self, session_id: &str, idx: usize) -> Option<&QueuedDispatch> {
         self.pending_dispatch
             .iter()
@@ -79,7 +79,7 @@ impl App {
             .nth(idx)
     }
 
-    /// Set (not toggle) the local pause projection; the daemon verb is
+    /// Set (not toggle) the local pause projection; the server verb is
     /// authoritative (ADR-0197 M4).
     pub fn set_queue_blocked(&mut self, session_id: &str, blocked: bool) {
         if blocked {

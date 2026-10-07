@@ -1761,7 +1761,7 @@ struct CrashResidue {
 /// The crash signal is a request-usage record still `InFlight` **in the
 /// session store**: every live settlement path (`RequestAccountingGuard`'s
 /// Drop on completion/interrupt/failure) rewrites a terminal status through
-/// `set_request_usage_records` before the round ends, and a graceful daemon
+/// `set_request_usage_records` before the round ends, and a graceful server
 /// kill records a `Terminated` interrupt instead. A store-side `InFlight`
 /// record therefore means the process vanished with the request on the wire.
 ///
@@ -2144,7 +2144,7 @@ mod tests {
 
     #[tokio::test]
     async fn crash_residue_arms_even_over_an_existing_terminated_interrupt() {
-        // Two scenarios land here. (a) A graceful daemon kill: the registry
+        // Two scenarios land here. (a) A graceful server kill: the registry
         // records `Terminated` but the round is exactly as resumable as a
         // crash's — suppressing the point would resurrect the bug for every
         // `nuo stop`. (b) A crash *during* a `/retry` resume: the resumed

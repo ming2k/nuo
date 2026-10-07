@@ -1,5 +1,5 @@
-//! Daemon-observability wire contracts (ADR-0093): the [`MonitorAction`]
-//! handshake selector and the [`MonitorEvent`] stream a daemon
+//! Server-observability wire contracts (ADR-0093): the [`MonitorAction`]
+//! handshake selector and the [`MonitorEvent`] stream a server
 //! publishes about every session it hosts.
 //!
 //! These types are the read-only control-plane counterpart of the
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::events::SessionForkKind;
 
-/// Handshake action selecting a daemon-observability stream instead of a
+/// Handshake action selecting a server-observability stream instead of a
 /// session attach (ADR-0093 §2). Sent as the first frame:
 /// `{"type":"Select","action":{"monitor":{"watch":…,"include_idle":…}}}`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,13 +29,13 @@ pub struct MonitorAction {
     pub watch: bool,
     /// Include live sessions that are simply idle (no round running and
     /// nothing blocked). Defaults to `false` so a busy dashboard stays a
-    /// zero-statement surface: an all-idle daemon reports an empty list.
+    /// zero-statement surface: an all-idle server reports an empty list.
     #[serde(default)]
     pub include_idle: bool,
 }
 
 /// How the session behind a [`MonitoredSession`] row is hosted. Under
-/// ADR-0096's unified ownership every session is daemon-held, so this is
+/// ADR-0096's unified ownership every session is server-held, so this is
 /// always [`Hosted`](Self::Hosted); the field is kept on the wire (with its
 /// serde default) so rows produced before the distinction was removed still
 /// deserialize.
@@ -63,7 +63,7 @@ impl std::fmt::Display for SessionHosting {
     }
 }
 
-/// A stream frame about the daemon as a whole.
+/// A stream frame about the server as a whole.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MonitorEvent {
@@ -76,32 +76,32 @@ pub enum MonitorEvent {
     /// One hosted session's row changed in place.
     SessionUpdated(MonitoredSession),
     /// A hosted session shut down. Consumers drop the row. (Session teardown
-    /// is not yet emitted by the host — hosted sessions live for the daemon's
+    /// is not yet emitted by the host — hosted sessions live for the server's
     /// lifetime — but the variant is part of the contract so panels written
     /// against it handle teardown when it lands.)
     SessionRemoved { session_id: String },
-    /// The daemon as a whole began its graceful shutdown (ADR-0101): no new
+    /// The server as a whole began its graceful shutdown (ADR-0101): no new
     /// attaches will be served, live connections are being closed with a
     /// WebSocket `GoingAway`, and every hosted session's teardown (including
     /// `SessionEnd` hooks) is in flight. Watch clients should treat the
     /// stream as terminal — the process exits after a bounded grace budget —
-    /// and surface a "daemon stopping" notice rather than attempting
+    /// and surface a "server stopping" notice rather than attempting
     /// reconnects against it. Emitted exactly once, before the individual
     /// `SessionRemoved` diffs of the same shutdown.
-    DaemonDraining,
-    /// A daemon-level task (ADR-0190) changed in place — spawned, progressed
+    ServerDraining,
+    /// A server-level task (ADR-0190) changed in place — spawned, progressed
     /// to `Ready`, or settled. Carries the complete row; consumers upsert
     /// by id. Session-scoped tasks do not stream here.
     TaskUpdated(MonitoredTask),
-    /// A daemon-level task left the snapshot entirely (pruned / aborted).
+    /// A server-level task left the snapshot entirely (pruned / aborted).
     TaskRemoved { task_id: String },
-    /// The daemon's durable-storage writer changed state (ADR-0196): healthy
+    /// The server's durable-storage writer changed state (ADR-0196): healthy
     /// again after a degradation, degraded further, or recovering. A
     /// `Healthy` transition clears any retained degradation banner.
     PersistenceHealth(PersistenceHealth),
 }
 
-/// User-visible durability health of the daemon's single-writer persistence
+/// User-visible durability health of the server's single-writer persistence
 /// actor (ADR-0196 D4). While not `Healthy`, durability is degraded: every
 /// frontend should retain a visible banner until the next `Healthy` event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,19 +142,19 @@ impl PersistenceHealth {
     }
 }
 
-/// The daemon-level snapshot: who is serving and what is happening right now.
+/// The server-level snapshot: who is serving and what is happening right now.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MonitorSnapshot {
     pub project_root: String,
-    /// Unix seconds when the daemon process started (from the discovery
-    /// record; `0` when the registry was not created by a daemon, e.g. an
+    /// Unix seconds when the server process started (from the discovery
+    /// record; `0` when the registry was not created by a server, e.g. an
     /// in-TUI `/serve` prehost).
-    pub daemon_started_at: u64,
+    pub server_started_at: u64,
     pub sessions: Vec<MonitoredSession>,
-    /// Daemon-level task fabric rows (ADR-0190): rehosted services and any
+    /// Server-level task fabric rows (ADR-0190): rehosted services and any
     /// other task with no owning session. Session-scoped tasks stay in
     /// their session's own fabric; this is the human-side view of what the
-    /// daemon itself is running on the operator's behalf. Empty for
+    /// server itself is running on the operator's behalf. Empty for
     /// producers that predate the field.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tasks: Vec<MonitoredTask>,
@@ -165,7 +165,7 @@ pub struct MonitorSnapshot {
     pub persistence_health: Option<PersistenceHealth>,
 }
 
-/// One row of the daemon-level task tree (ADR-0190 D6): identity, spec
+/// One row of the server-level task tree (ADR-0190 D6): identity, spec
 /// label, lifecycle state, and ownership. Content-free — the transcript
 /// stays in the session, the full log stays on disk (path included).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -176,7 +176,7 @@ pub struct MonitoredTask {
     /// Spec summary line (command preview / timer descriptor).
     pub spec: String,
     pub state: crate::job::JobState,
-    /// Owning session id; `None` = daemon-level (rehosted services).
+    /// Owning session id; `None` = server-level (rehosted services).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_session: Option<String>,
     /// Unix-epoch ms the task was created.
@@ -385,11 +385,11 @@ mod tests {
     }
 
     #[test]
-    fn daemon_draining_serializes_as_unit_tag() {
-        let json = serde_json::to_string(&MonitorEvent::DaemonDraining).unwrap();
-        assert_eq!(json, r#"{"kind":"daemon_draining"}"#);
+    fn server_draining_serializes_as_unit_tag() {
+        let json = serde_json::to_string(&MonitorEvent::ServerDraining).unwrap();
+        assert_eq!(json, r#"{"kind":"server_draining"}"#);
         let back: MonitorEvent = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, MonitorEvent::DaemonDraining);
+        assert_eq!(back, MonitorEvent::ServerDraining);
     }
 
     #[test]
@@ -403,7 +403,7 @@ mod tests {
     fn snapshot_roundtrips_with_a_full_row() {
         let snapshot = MonitorSnapshot {
             project_root: "/tmp/proj".into(),
-            daemon_started_at: 1_700_000_000,
+            server_started_at: 1_700_000_000,
             tasks: Vec::new(),
             persistence_health: None,
             sessions: vec![MonitoredSession {

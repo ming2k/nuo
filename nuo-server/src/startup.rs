@@ -14,15 +14,15 @@ use nuo_persistence::paths;
 
 /// The CLI default control-plane port (ADR-0105): fixed so browser clients
 /// (which cannot read the discovery record) have a well-known endpoint; the
-/// daemon falls back to an ephemeral port when it is taken.
+/// server falls back to an ephemeral port when it is taken.
 pub const DEFAULT_SERVE_PORT: u16 = 9800;
 
-/// The port a daemon binds when no `--port` was given, honouring
+/// The port a server binds when no `--port` was given, honouring
 /// `NUO_PORT` (ADR-0121): an isolated instance — `NUO_HOME` sandbox,
-/// second user session, container — must not fight the host daemon over the
+/// second user session, container — must not fight the host server over the
 /// well-known port. Explicit `--port` still wins over the env var. An
 /// unparsable value falls back to the well-known default (an env var is
-/// ambient configuration; failing the daemon over a typo would be worse
+/// ambient configuration; failing the server over a typo would be worse
 /// than the collision it prevents).
 pub fn env_default_port() -> u16 {
     std::env::var("NUO_PORT")
@@ -33,7 +33,7 @@ pub fn env_default_port() -> u16 {
 
 /// How a hosted session begins (ADR-0116: the session-runtime half of what
 /// used to be the CLI's `StartupMode`). Only the shapes the harness can
-/// assemble exist here; one-shot CLI modes (`run`, `daemon`, `config`, …)
+/// assemble exist here; one-shot CLI modes (`run`, `server`, `config`, …)
 /// are frontend concerns and never reach a session assembly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionStart {
@@ -340,10 +340,10 @@ define_builtin_commands! {
         category: Session,
     },
     Dashboard = "/dashboard" : {
-        summary: "Session daemon control dashboard",
+        summary: "Session server control dashboard",
         usage: ["/dashboard"],
         examples: [("/dashboard", "Open full-screen session dashboard")],
-        intent_keywords: ["dashboard", "host", "daemon", "monitor", "status", "overview", "dock", "fleet"],
+        intent_keywords: ["dashboard", "host", "server", "monitor", "status", "overview", "dock", "fleet"],
         category: System,
     },
     Usage = "/usage" : {
@@ -479,7 +479,7 @@ impl BuiltinCmd {
     /// [`BuiltinCmd::ALL`] so `/help` keeps listing canonical names only.
     fn from_alias(input: &str) -> Option<Self> {
         match input {
-            // `/host` was the pre-dashboard name (it leaked the daemon "host"
+            // `/host` was the pre-dashboard name (it leaked the server "host"
             // concept, ADR-0096); the surface is now the session dashboard.
             "/host" => Some(BuiltinCmd::Dashboard),
             // `/resume` was a second spelling of `/session resume` — an
@@ -580,7 +580,7 @@ pub fn suggest_for_trigger(word: &str) -> Option<(&'static str, &'static str)> {
         .map(|(_, target, reason)| (*target, *reason))
 }
 
-/// Build the frontend-neutral command catalog published by the daemon during
+/// Build the frontend-neutral command catalog published by the server during
 /// attach. Built-ins, compatibility aliases, trigger steering, and trusted
 /// project commands all originate here so TUI and Web never maintain their
 /// own command vocabulary.

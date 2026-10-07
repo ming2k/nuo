@@ -1,4 +1,4 @@
-//! Discovery file: how clients find a live session daemon's endpoint.
+//! Discovery file: how clients find a live session server's endpoint.
 
 use std::path::{Path, PathBuf};
 use nuo_host::paths;
@@ -26,24 +26,24 @@ pub struct Discovery {
     /// Native local control endpoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_endpoint: Option<nuo_host::ipc::LocalEndpoint>,
-    /// The daemon build's version string.
+    /// The server build's version string.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
-    /// The daemon's configured graceful-drain budget, seconds.
+    /// The server's configured graceful-drain budget, seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grace_secs: Option<u64>,
-    /// The wire protocol number this daemon speaks.
+    /// The wire protocol number this server speaks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol: Option<u32>,
-    /// Bounded content digest (lowercase hex) of the daemon's own executable
+    /// Bounded content digest (lowercase hex) of the server's own executable
     /// image: its exact length folded with a sampled SHA-256, captured once at
-    /// boot (ADR-0021). Lets a client detect a stale *same-version* daemon by
+    /// boot (ADR-0021). Lets a client detect a stale *same-version* server by
     /// executable **content** — portably across Linux, macOS, and Windows —
     /// instead of the Linux-only inode probe. `None` on records predating the
     /// field; clients then fall back to inode equality.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_digest: Option<String>,
-    /// Byte length of the daemon's executable image: a cheap pre-hash gate
+    /// Byte length of the server's executable image: a cheap pre-hash gate
     /// paired with `image_digest` (ADR-0021).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_len: Option<u64>,
@@ -61,36 +61,34 @@ impl Discovery {
 
 /// Canonical alias for session server discovery information.
 pub type ServerInfo = Discovery;
-/// Backward-compatible alias for session server discovery information.
-pub type DaemonInfo = Discovery;
 
-/// The global discovery path for the unified daemon.
+/// The global discovery path for the unified server.
 pub fn global_discovery_path() -> PathBuf {
-    paths::get().instance_dir().join("daemon.json")
+    paths::get().instance_dir().join("server.json")
 }
 
-/// The resolved daemon instance directory.
+/// The resolved server instance directory.
 pub fn instance_dir() -> PathBuf {
     paths::get().instance_dir()
 }
 
-/// The default UDS path the daemon binds, inside the instance dir.
+/// The default UDS path the server binds, inside the instance dir.
 #[cfg(unix)]
 pub fn default_uds_path() -> PathBuf {
-    paths::get().instance_dir().join("daemon.sock")
+    paths::get().instance_dir().join("server.sock")
 }
 
-/// Native local endpoint for the unified per-user daemon.
+/// Native local endpoint for the unified per-user server.
 pub fn default_local_endpoint() -> Result<nuo_host::ipc::LocalEndpoint, String> {
     let instance_dir = paths::get().instance_dir();
-    let instance_key = format!("daemon-{}", paths::project_bucket_name(&instance_dir));
-    nuo_host::ipc::endpoint_for_instance(instance_dir.join("daemon.sock"), &instance_key)
-        .map_err(|error| format!("could not resolve local daemon endpoint: {error}"))
+    let instance_key = format!("server-{}", paths::project_bucket_name(&instance_dir));
+    nuo_host::ipc::endpoint_for_instance(instance_dir.join("server.sock"), &instance_key)
+        .map_err(|error| format!("could not resolve local server endpoint: {error}"))
 }
 
-/// The daemon's single-instance lock path.
+/// The server's single-instance lock path.
 pub fn global_lock_path() -> PathBuf {
-    paths::get().instance_dir().join("daemon.lock")
+    paths::get().instance_dir().join("server.lock")
 }
 
 /// The spawn mutex lock path for single-flight server initialization (ADR-0034).

@@ -395,7 +395,7 @@ impl App {
                 // never shows the same prompt twice.
                 self.prune_backfill_after_record(&refreshed.text);
                 if self.input_history_persist {
-                    // Daemon-side SSOT merge (ADR-0197): the TUI never opens
+                    // Server-side SSOT merge (ADR-0197): the TUI never opens
                     // the shared SQLite store itself.
                     self.send_intent(nuo_wire::AgentRequest::RecordInputHistory {
                         entries: vec![refreshed],
@@ -607,7 +607,7 @@ impl App {
         let identity = (removed.text.clone(), removed.session_id.clone());
         self.history_attachments.remove(&identity);
         self.history_attachments_order.retain(|k| k != &identity);
-        // Cascade 3: invalidate the daemon's on-disk record.
+        // Cascade 3: invalidate the server's on-disk record.
         if self.input_history_persist {
             self.send_intent(nuo_wire::AgentRequest::DeleteInputHistoryEntry {
                 text: removed.text.clone(),

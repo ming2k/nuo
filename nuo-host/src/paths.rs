@@ -269,7 +269,7 @@ mod tests {
 //     category can still be carved out of a sandbox).
 //  2. `NUO_HOME` — the instance selector: one variable
 //     moves the entire footprint (`<home>/nuo/{config,data,state,
-//     cache}` plus the daemon's runtime files under `instance/`), so a
+//     cache}` plus the server's runtime files under `instance/`), so a
 //     dev or test build can never touch the host installation's state.
 //  3. `XDG_CONFIG_HOME` / `XDG_DATA_HOME` / `XDG_STATE_HOME` /
 //     `XDG_CACHE_HOME` / `XDG_RUNTIME_DIR` environment variables
@@ -279,9 +279,9 @@ mod tests {
 //  5. `$HOME/.config`, `$HOME/.local/share`, ... fallbacks when even the
 //     `directories` crate cannot resolve a native location.
 // 
-//  On Linux `$XDG_RUNTIME_DIR` is honoured for the daemon's runtime files;
+//  On Linux `$XDG_RUNTIME_DIR` is honoured for the server's runtime files;
 //  if it is unset macOS/Linux use the data directory and Windows uses a
-//  machine-local state subdirectory. The daemon-facing derivation of that
+//  machine-local state subdirectory. The server-facing derivation of that
 //  rule lives in [`Dirs::instance_dir`].
 
 use std::sync::OnceLock;
@@ -314,7 +314,7 @@ pub struct Dirs {
     pub cache_dir: PathBuf,
     /// `$XDG_RUNTIME_DIR/nuo` when set, otherwise `None` (callers fall
     /// back to `state_dir` for portability and to avoid surprising tmpfs
-    /// use). For the daemon's runtime files prefer [`Self::instance_dir`],
+    /// use). For the server's runtime files prefer [`Self::instance_dir`],
     /// which folds this field together with the `NUO_HOME`
     /// override.
     pub runtime_dir: Option<PathBuf>,
@@ -370,12 +370,12 @@ impl Dirs {
 
     // well-known files
 
-    /// Daemon configuration. `$XDG_CONFIG_HOME/nuo/config.toml`.
+    /// Server configuration. `$XDG_CONFIG_HOME/nuo/config.toml`.
     pub fn config_file(&self) -> PathBuf {
         self.config_dir.join("config.toml")
     }
 
-    /// Server daemon hosting configuration (`$XDG_CONFIG_HOME/nuo/server.toml`, ADR-0031).
+    /// Server server hosting configuration (`$XDG_CONFIG_HOME/nuo/server.toml`, ADR-0031).
     pub fn server_config_file(&self) -> PathBuf {
         self.config_dir.join("server.toml")
     }
@@ -631,9 +631,9 @@ impl Dirs {
 
     // helpers
 
-    /// The **daemon instance directory**: the one directory holding the
-    /// per-daemon runtime files — `daemon.json` (discovery), `daemon.sock`
-    /// (control plane), `daemon.lock` (single-instance flock), `serve/`
+    /// The **server instance directory**: the one directory holding the
+    /// per-server runtime files — `server.json` (discovery), `server.sock`
+    /// (control plane), `server.lock` (single-instance flock), `serve/`
     /// (legacy records) — and nothing else (ADR-0121).
     ///
     /// It is exactly [`Self::runtime_dir`] when a runtime location resolves
@@ -642,8 +642,8 @@ impl Dirs {
     /// fallback. Windows instead uses `state_dir/instance`, keeping process
     /// coordination out of the roaming profile. The rule is named once here.
     ///
-    /// Code that touches daemon runtime files must use this method — never
-    /// `runtime_dir` directly — so every daemon-facing path observes the
+    /// Code that touches server runtime files must use this method — never
+    /// `runtime_dir` directly — so every server-facing path observes the
     /// same override stack. `runtime_dir` stays public as the raw resolved
     /// location for diagnostics and tests that anchor other ephemeral files.
     pub fn instance_dir(&self) -> PathBuf {
@@ -864,7 +864,7 @@ fn nuo_home() -> Option<PathBuf> {
     Some(path)
 }
 
-/// Resolve the daemon's runtime location (ADR-0121): the instance root's
+/// Resolve the server's runtime location (ADR-0121): the instance root's
 /// `instance/` subdirectory when one is active, else `$XDG_RUNTIME_DIR/
 /// nuo` (pre-0121 behaviour, unchanged). A relative or empty env value
 /// is ignored with a warning: an instance root only isolates when both
@@ -1233,7 +1233,7 @@ mod dir_tests {
             assert_eq!(
                 dirs.instance_dir(),
                 home.join("nuo").join("instance"),
-                "the daemon runtime files follow the root"
+                "the server runtime files follow the root"
             );
             assert_eq!(
                 dirs.config_dir,
@@ -1339,9 +1339,9 @@ mod dir_tests {
     }
 
     /// The unified `nuo` config directory holds one file per concern: the
-    /// daemon's `config.toml` and the TUI's sibling `tui.toml`.
+    /// server's `config.toml` and the TUI's sibling `tui.toml`.
     #[test]
-    fn tui_config_is_a_sibling_of_daemon_config() {
+    fn tui_config_is_a_sibling_of_server_config() {
         let dirs = Dirs::resolve(&PathsOverride {
             config_dir: Some(PathBuf::from("/tmp/nc")),
             ..Default::default()

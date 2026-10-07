@@ -1,7 +1,7 @@
 //! The Archivist (ADR-0208): a conversational nuo-level agent co-stationed
 //! on the Hypervisor.
 //!
-//! The Hypervisor station (ADR-0167) is the daemon's single workspace-free
+//! The Hypervisor station (ADR-0167) is the server's single workspace-free
 //! slot. The operator-facing `Hypervisor` coordinates the fleet; the
 //! **Archivist** is a second conversational identity on the same station — a
 //! Root-posture agent whose job is *institutional memory*: it knows every
@@ -35,9 +35,9 @@ fn read_store() -> Result<DbReader, String> {
         .map_err(|e| format!("could not open session store: {e}"))
 }
 
-/// Build the Archivist agent for this daemon instance: a Root-posture agent
+/// Build the Archivist agent for this server instance: a Root-posture agent
 /// addressed as `agent://local/hypervisor/archivist` with the retrieval toolset plus the
-/// delegation channel. `fabric` is the daemon's shared ACP fabric.
+/// delegation channel. `fabric` is the server's shared ACP fabric.
 pub fn build_archivist(
     provider: Arc<dyn nuo_wire::Provider>,
     fabric: Option<Fabric>,
@@ -58,7 +58,7 @@ pub fn build_archivist(
 
     let identity = AgentIdentity::new(
         "archivist",
-        "the Nuo instance's Archivist — it knows every session the daemon has \
+        "the Nuo instance's Archivist — it knows every session the server has \
          ever hosted, where sessions are stored, and how to find a past \
          conversation back from even a rough description; it can also hand a \
          found task to a workspace session for execution",

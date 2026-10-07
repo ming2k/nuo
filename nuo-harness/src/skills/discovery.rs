@@ -379,9 +379,9 @@ mod tests {
     }
 
     /// Regression (the "wrong workspace" bug): a config whose `project_root`
-    /// is pinned (the session bootstrap does this under the unified daemon,
+    /// is pinned (the session bootstrap does this under the unified server,
     /// ADR-0096) discovers project-local skills from that root, not from the
-    /// process cwd — which under the daemon belongs to a different project
+    /// process cwd — which under the server belongs to a different project
     /// than the session invoking discovery.
     ///
     /// Uses the explicit-state seam because `discover_all` consults persisted

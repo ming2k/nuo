@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::identity::{DaemonUiBridge, agent_code};
+use crate::identity::{ServerUiBridge, agent_code};
 use nuo_client as client;
 
 /// The server-start flags that reach the runtime (one struct, one place).
@@ -14,10 +14,6 @@ pub struct ServerStart {
     pub shutdown_grace_secs: Option<u64>,
     pub client_driven: bool,
 }
-
-/// Backward-compatible alias for [`ServerStart`].
-#[allow(dead_code)]
-pub type DaemonStart = ServerStart;
 
 /// Start detached: spawn the server in the background and return.
 /// If a conflicting server is already running, directly replace it (ADR-0029).
@@ -58,7 +54,7 @@ pub fn detach_server(flags: &ServerStart) -> Result<(), Box<dyn std::error::Erro
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
 
-    client::configure_daemon_detachment(&mut command);
+    client::configure_server_detachment(&mut command);
     command
         .spawn()
         .map_err(|e| format!("could not spawn {}: {e}", program.display()))?;
@@ -68,10 +64,6 @@ pub fn detach_server(flags: &ServerStart) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-/// Backward-compatible alias for [`detach_server`].
-#[allow(unused_imports)]
-pub use detach_server as detach_daemon;
-
 /// Stop the running server through the budget-aware shutdown pipeline.
 pub async fn stop_server() -> Result<(), Box<dyn std::error::Error>> {
     let info = match client::discover(Path::new(".")) {
@@ -80,7 +72,7 @@ pub async fn stop_server() -> Result<(), Box<dyn std::error::Error>> {
             let lock_path = nuo::serve_discovery::global_lock_path();
             if let Some(pid) = nuo_host::lock::ProcessLock::probe_holder(&lock_path) {
                 if client::is_process_alive(pid) {
-                    client::DaemonInfo {
+                    client::ServerInfo {
                         pid,
                         process_birth_token: nuo_host::process::process_identity(pid)
                             .ok()
@@ -114,10 +106,6 @@ pub async fn stop_server() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("nuo: server stopped (pid {}).", info.pid);
     Ok(())
 }
-
-/// Backward-compatible alias for [`stop_server`].
-#[allow(unused_imports)]
-pub use stop_server as stop_daemon;
 
 /// Restart the server: stop the running instance (if any) and detach a replacement.
 /// `nuo server reload` — ADR-0034 Level 1 soft reload: ask the live server to
@@ -174,7 +162,7 @@ pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std
         nuo::host::HostIdentity {
             identity: preset.identity.clone(),
             preset,
-            ui: Arc::new(DaemonUiBridge),
+            ui: Arc::new(ServerUiBridge),
         },
         nuo::host::HostOptions {
             port,
@@ -185,7 +173,7 @@ pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std
             },
             token: None,
             local_auth: !flags.no_local_auth
-                && nuo_persistence::config::Config::load().daemon.local_auth,
+                && nuo_persistence::config::Config::load().server.local_auth,
             port_fallback: flags.port.is_none(),
             local_endpoint: Some(
                 nuo::serve_discovery::default_local_endpoint()
@@ -214,6 +202,3 @@ pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std
     std::process::exit(outcome.exit_code());
 }
 
-/// Backward-compatible alias for [`run_server_foreground`].
-#[allow(unused_imports)]
-pub use run_server_foreground as run_daemon_foreground;

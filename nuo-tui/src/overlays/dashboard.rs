@@ -1,10 +1,10 @@
 //! Session dashboard (`/dashboard`, formerly `/host`; ADR-0096, layout per
 //! ADR-0097 §3): a first-class, full-screen orchestration console over every
-//! session the unified daemon hosts. The surface is split into two zones:
+//! session the unified server hosts. The surface is split into two zones:
 //!
 //! - **Console** (upper, flexible): the command surface. Its transcript
 //!   keeps a receipt of every dispatched directive (what was sent, to which
-//!   `#N`, and how the daemon answered), so the cockpit log answers "what
+//!   `#N`, and how the server answered), so the cockpit log answers "what
 //!   did I ask the fleet to do" at a glance. The composer accepts the
 //!   ADR-0097 address grammar — `@3 refactor the retry loop` dispatches to
 //!   session `#3`, `@2 @3 …` fans out to several — plus slash verbs
@@ -19,7 +19,7 @@
 //!   while statuses flip around them.
 //!
 //! Data is the live monitor snapshot the TUI maintains client-side (folded
-//! from the daemon's `MonitorEvent` stream), so the dashboard refreshes
+//! from the server's `MonitorEvent` stream), so the dashboard refreshes
 //! itself without any extra round-trip. The keyboard defaults to the
 //! console/input region (`Tab` drops to the dock). Enter on a dock
 //! selection opens the read-only session preview modal; `a` attaches to
@@ -153,7 +153,7 @@ fn workspace_basename(project_root: &str) -> String {
 /// `focus` selects whether ↑/↓/PgUp/PgDn move the dock selection or scroll
 /// the console. `prompting` shows the inline new-session prompt line in
 /// place of the footer command strip. `log` is the console's receipt
-/// transcript (every dispatched directive and the daemon's answer).
+/// transcript (every dispatched directive and the server's answer).
 /// Properties for rendering the full-screen session dashboard.
 pub struct DashboardProps<'a> {
     pub rows: &'a [MonitoredSession],
@@ -433,7 +433,7 @@ fn draw_dock(
             body,
             vec![Line::from(vec![
                 Span::styled(
-                    "No sessions on the daemon yet.".to_string(),
+                    "No sessions on the server yet.".to_string(),
                     Style::default().fg(theme.muted()),
                 ),
                 Span::styled(
@@ -663,7 +663,7 @@ fn format_padded(text: &str, width: usize) -> String {
 
 /// The console: the dashboard's upper, flexible command region. The
 /// transcript is the cockpit log — every dispatched directive and the
-/// daemon's receipt — with the selected session's live monitor read-out
+/// server's receipt — with the selected session's live monitor read-out
 /// beneath. Scrolling this pane is what `Detail` focus drives.
 fn draw_console(
     frame: &mut Frame,
@@ -1078,7 +1078,7 @@ pub fn draw_session_preview(
     let lines = match row {
         Some(r) => session_detail_lines(r, body.width as usize, theme),
         None => vec![Line::from(Span::styled(
-            "Session is no longer on the daemon.".to_string(),
+            "Session is no longer on the server.".to_string(),
             Style::default().fg(theme.muted()),
         ))],
     };
@@ -1123,7 +1123,7 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
 // the console's command grammar
 
 /// One line of the console transcript: what was dispatched and how the
-/// daemon answered. Kept as typed data (not preformatted strings) so the
+/// server answered. Kept as typed data (not preformatted strings) so the
 /// renderer owns all styling and the tests can assert on structure.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConsoleLine {
@@ -1134,8 +1134,8 @@ pub enum ConsoleLine {
         targets: Vec<usize>,
         action: &'static str,
     },
-    /// The daemon's answer to a dispatch: `ok` receipts in `theme.ok()`,
-    /// failures in `theme.err()` with the daemon's error text.
+    /// The server's answer to a dispatch: `ok` receipts in `theme.ok()`,
+    /// failures in `theme.err()` with the server's error text.
     Receipt {
         ok: bool,
         target: Option<usize>,

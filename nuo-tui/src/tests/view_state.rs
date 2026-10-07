@@ -171,8 +171,8 @@ fn composer_image_paste_accepted_when_model_has_vision() {
 #[test]
 fn composer_image_paste_follows_picker_snapshot_vision() {
     // The snapshot's per-route `vision` flag is the authority: it is the
-    // daemon-side ADR-0149 resolution the TUI's own process cannot reproduce
-    // (a fitted relay model like `omen-alpha` exists only in the daemon's
+    // server-side ADR-0149 resolution the TUI's own process cannot reproduce
+    // (a fitted relay model like `omen-alpha` exists only in the server's
     // overlay — the client's static registry would say `vision: false` and
     // wrongly reject the paste).
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);

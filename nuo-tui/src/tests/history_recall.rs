@@ -824,7 +824,7 @@ async fn record_input_history_skips_slash_commands_by_default() {
 }
 
 /// `App`'s test constructor keeps disk persistence off, so exercising the
-/// record path must never dispatch persistence intents to the daemon
+/// record path must never dispatch persistence intents to the server
 /// (regression: `record_input_history` used to merge synthetic `prompt N`
 /// rows straight into the user's database file). The frontend has no
 /// database access at all now (ADR-0197) — the guarantee is that no
@@ -846,7 +846,7 @@ async fn test_app_does_not_touch_disk_history() {
     }
 
     // Give any (buggy) dispatch a moment, then assert no persistence intent
-    // was sent to the daemon.
+    // was sent to the server.
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     let persistence_intents: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok())
         .filter(|req| {

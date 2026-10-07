@@ -86,7 +86,7 @@ pub enum AgentRequest {
     /// credentials, and re-sync MCP servers and skills, without dropping any
     /// active connection.
     ReloadRuntime,
-    /// Ask the daemon to complete the composer input at `cursor`. Cursor and
+    /// Ask the server to complete the composer input at `cursor`. Cursor and
     /// response edit offsets are Unicode-scalar indices so native and browser
     /// clients share one indexing contract. `request_id` lets clients discard
     /// a response that raced newer typing.
@@ -163,7 +163,7 @@ pub enum AgentRequest {
     },
     /// Create a connection: bind a model provider to a credential and a client
     /// identity, persist it, then activate it. `name` is the connection's
-    /// identity (ADR-0201) and must be unique; the daemon rejects a duplicate
+    /// identity (ADR-0201) and must be unique; the server rejects a duplicate
     /// with a suggested alternative instead of silently disambiguating.
     /// `provider` must name a registered model provider. `protocol`, `base_url`,
     /// and `user_agent` are optional overrides of the provider's defaults;
@@ -229,7 +229,7 @@ pub enum AgentRequest {
         #[serde(default)]
         client_identity: Option<crate::ClientIdentity>,
     },
-    /// Rename a connection. The daemon rewrites every hard join key
+    /// Rename a connection. The server rewrites every hard join key
     /// (`credentials.toml`, `auth.toml`, `default_connection`) in one
     /// transaction; historical records keep the old name (ADR-0201).
     RenameConnection {
@@ -455,12 +455,12 @@ pub enum AgentRequest {
     /// is a raw config string (e.g. "turn_band"); interpretation into a [`crate`] layout
     /// `Strategy` happens in the renderer, keeping the core free of render types.
     UpdateTuiLayout(String),
-    /// Request the persisted prompt input history. The daemon is the source
+    /// Request the persisted prompt input history. The server is the source
     /// of truth for the shared SQLite store; the frontend never opens the
     /// database directly (ADR-0197). Replies with
     /// [`AgentResponse::InputHistory`].
     QueryInputHistory,
-    /// Record (lock + merge) prompt input history entries on the daemon —
+    /// Record (lock + merge) prompt input history entries on the server —
     /// one entry per recorded prompt, or the frontend's whole buffer on the
     /// exit flush. Fire-and-forget: the frontend's local list already
     /// reflects the entries.
@@ -494,7 +494,7 @@ pub enum AgentRequest {
     QueryWebSearchConfig,
     /// Cross-project session history search (ADR-0208): BM25 FTS over all
     /// persisted transcript entries in the shared `nuo.db`, optionally
-    /// narrowed to one workspace root. The daemon is the source of truth; the
+    /// narrowed to one workspace root. The server is the source of truth; the
     /// frontend never opens the database directly (ADR-0197). Replies with
     /// [`AgentResponse::HistorySearch`].
     SearchHistory {
@@ -677,7 +677,7 @@ pub enum AgentResponse {
     /// provider picker. Supersedes `ProviderKeys` for the picker's needs;
     /// `ProviderKeys` is retained for the header key-readiness summary.
     ProviderPicker(ProviderPickerSnapshot),
-    /// Copy text to the client's system clipboard (used by `/export` in daemon mode).
+    /// Copy text to the client's system clipboard (used by `/export` in server mode).
     CopyToClipboard {
         text: String,
     },
@@ -740,7 +740,7 @@ pub enum AgentResponse {
     /// Reply to [`AgentRequest::QueryConnectionDetail`]: full detail and usage
     /// for one connection (identity, endpoint, auth, models, usage/balance).
     ConnectionDetail(crate::ConnectionDetail),
-    /// Reply to [`AgentRequest::QueryTokenUsage`]: the daemon-side token-source
+    /// Reply to [`AgentRequest::QueryTokenUsage`]: the server-side token-source
     /// report for one session (per-round request usage, reported vs.
     /// estimated). Attached frontends hold no local ledger, so the
     /// context-usage modal renders this snapshot; the session id lets the
@@ -906,7 +906,7 @@ pub enum RoundInterruptReason {
     /// this record existed left no trace at all.
     Superseded,
     /// The host process terminated with the round still in flight — a
-    /// daemon stop (signal, control verb, or kill), a TUI signal exit, or a
+    /// server stop (signal, control verb, or kill), a TUI signal exit, or a
     /// crash. Inferred on load when a recorded interrupt's round never
     /// completed and no terminal interrupt was recorded for it.
     Terminated,
@@ -1623,12 +1623,12 @@ pub struct ProviderModelInfo {
     pub last_used_ms: Option<u64>,
     /// Effective image-input support for this route — the **full** ADR-0149
     /// capability resolution (user overrides over the remote advertisement
-    /// over the static baseline), resolved daemon-side in
+    /// over the static baseline), resolved server-side in
     /// `Channel::capabilities()`. Frontends gate image affordances (composer
     /// paste, vision-only tools) on this field instead of re-resolving the
     /// model in their own process: the client's static registry cannot see
-    /// the daemon's fitted-model overlay or per-route overrides, so a
-    /// client-side resolution would disagree with what the daemon actually
+    /// the server's fitted-model overlay or per-route overrides, so a
+    /// client-side resolution would disagree with what the server actually
     /// routes.
     ///
     /// **Three-valued** (ADR-0230): `Some(false)` means a layer declared that
@@ -1648,7 +1648,7 @@ pub struct ProviderModelInfo {
     pub max_output_tokens: Option<u32>,
     /// The **effective** availability verdict for this route (ADR-0273):
     /// the provider's declaration, after any sovereign user override has been
-    /// applied daemon-side. `None` means undeclared — a frontend must treat it
+    /// applied server-side. `None` means undeclared — a frontend must treat it
     /// as usable, never as disabled. `Some(usable:false)` is the one value a
     /// picker may dim and refuse.
     #[serde(default, skip_serializing_if = "Option::is_none")]

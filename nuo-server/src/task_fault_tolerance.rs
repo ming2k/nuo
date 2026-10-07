@@ -1,6 +1,6 @@
-//! Task supervision primitives (the fix for the "fire-and-forget daemon" gap).
+//! Task supervision primitives (the fix for the "fire-and-forget server" gap).
 //!
-//! Before this module, every long-lived task in the daemon — session drivers,
+//! Before this module, every long-lived task in the server — session drivers,
 //! the monitor tap, round tasks, background refresh loops — was spawned with
 //! its `JoinHandle` dropped. A panic in any of them killed the task silently:
 //! the process survived, but a session could freeze as a zombie entry whose
@@ -39,7 +39,7 @@ pub(crate) fn panic_detail(payload: Box<dyn std::any::Any + Send>) -> String {
 /// Currently only exercised by tests in this module: the production restart
 /// call sites live where the supervised loops are defined (e.g. the schedule
 /// scheduler in `nuo-agent`), which size their own tables. Kept here as
-/// the shared reference schedule the daemon's supervision policy documents.
+/// the shared reference schedule the server's supervision policy documents.
 #[cfg(test)]
 const SUPERVISED_RESTART_BACKOFF_MS: [u64; 4] = [250, 1_000, 4_000, 15_000];
 
@@ -109,8 +109,8 @@ where
     }
 }
 
-/// Install the daemon-wide panic hook: every panic is logged with its origin
-/// before the default hook writes to stderr. Detached daemons have no
+/// Install the server-wide panic hook: every panic is logged with its origin
+/// before the default hook writes to stderr. Detached servers have no
 /// controlling terminal, so without this a task panic was invisible.
 pub(crate) fn install_panic_hook() {
     let default_hook = std::panic::take_hook();

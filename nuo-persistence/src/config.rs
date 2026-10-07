@@ -883,18 +883,14 @@ pub struct Config {
     /// [`ToolVariantsConfig`].
     #[serde(default)]
     pub tool_variants: ToolVariantsConfig,
-    /// Server lifecycle knobs: the `[server]` (or legacy `[daemon]`) table of
+    /// Server lifecycle knobs: the `[server]` (or legacy `[server]`) table of
     /// `config.toml`. Controls how the session server exits — its shutdown
     /// grace budget and its idle-empty auto-exit.
-    #[serde(default, alias = "server")]
-    pub daemon: DaemonConfig,
+    pub server: ServerConfig,
 }
 
-/// Canonical alias for server lifecycle configuration.
-pub type ServerConfig = DaemonConfig;
-
-/// Server lifecycle configuration, deserialized from the `[server]` (or legacy `[daemon]`) table of
-/// `config.toml` (ADR-0101).
+/// Server lifecycle configuration, deserialized from the `[server]` table of
+/// `server.toml` (ADR-0031).
 ///
 /// ```toml
 /// [server]
@@ -906,21 +902,21 @@ pub type ServerConfig = DaemonConfig;
 /// ```
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 #[serde(default)]
-pub struct DaemonConfig {
+pub struct ServerConfig {
     /// Total budget for graceful shutdown (listeners close → connections
     /// drain → sessions tear down with `SessionEnd` hooks). When the budget
     /// expires — or a second signal arrives — remaining tasks are aborted and
     /// the process exits anyway, so a hung external hook can never pin the
-    /// daemon open. A always-on/service deployment should set this at or
+    /// server open. A always-on/service deployment should set this at or
     /// above the supervisor's stop timeout (e.g. systemd's `TimeoutStopSec`).
     pub shutdown_grace_secs: u64,
     /// Auto-exit after this many continuous minutes hosting **zero sessions
-    /// with zero attached clients** (ADR-0100 rule 3): the daemon becomes
+    /// with zero attached clients** (ADR-0100 rule 3): the server becomes
     /// born-on-demand, gone-when-useless. `0` disables idle exit for
     /// always-on deployments.
     pub idle_exit_minutes: u64,
     /// Require a bearer token even on the loopback TCP listener (ADR-0105).
-    /// The token is generated per daemon start and published in the
+    /// The token is generated per server start and published in the
     /// owner-only (0600) discovery record, so co-located CLI/TUI clients
     /// authenticate transparently while other local processes, other users
     /// on a shared machine, and drive-by browser pages cannot drive the
@@ -930,7 +926,7 @@ pub struct DaemonConfig {
     pub local_auth: bool,
 }
 
-impl Default for DaemonConfig {
+impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             shutdown_grace_secs: 10,
@@ -1051,9 +1047,7 @@ struct RawConfig {
     #[serde(default)]
     tool_variants: Option<ToolVariantsConfig>,
     #[serde(default)]
-    daemon: Option<DaemonConfig>,
-    #[serde(default)]
-    server: Option<DaemonConfig>,
+    server: Option<ServerConfig>,
 }
 
 impl<'de> Deserialize<'de> for Config {
@@ -1125,8 +1119,8 @@ impl<'de> Deserialize<'de> for Config {
         if let Some(tv) = raw.tool_variants {
             cfg.tool_variants = tv;
         }
-        if let Some(d) = raw.server.or(raw.daemon) {
-            cfg.daemon = d;
+        if let Some(d) = raw.server {
+            cfg.server = d;
         }
         Ok(cfg)
     }
@@ -1152,7 +1146,7 @@ impl Default for Config {
             agent: AgentConfig::default(),
             hooks: Vec::new(),
             tool_variants: ToolVariantsConfig::default(),
-            daemon: DaemonConfig::default(),
+            server: ServerConfig::default(),
         }
     }
 }
@@ -1165,7 +1159,7 @@ struct DomainServerFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     network: Option<DomainServerNetwork>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    daemon: Option<DaemonConfig>,
+    server: Option<ServerConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1331,14 +1325,14 @@ impl Config {
         // 1. server.toml
         if let Some(server) = Self::load_domain::<DomainServerFile>(&Self::server_config_file_path()) {
             if let Some(lc) = server.lifecycle {
-                if let Some(s) = lc.shutdown_grace_secs { cfg.daemon.shutdown_grace_secs = s; }
-                if let Some(i) = lc.idle_exit_minutes { cfg.daemon.idle_exit_minutes = i; }
+                if let Some(s) = lc.shutdown_grace_secs { cfg.server.shutdown_grace_secs = s; }
+                if let Some(i) = lc.idle_exit_minutes { cfg.server.idle_exit_minutes = i; }
             }
             if let Some(nw) = server.network {
-                if let Some(la) = nw.local_auth { cfg.daemon.local_auth = la; }
+                if let Some(la) = nw.local_auth { cfg.server.local_auth = la; }
             }
-            if let Some(d) = server.daemon {
-                cfg.daemon = d;
+            if let Some(d) = server.server {
+                cfg.server = d;
             }
         }
 
@@ -1386,13 +1380,13 @@ impl Config {
     pub fn save_domain_files(&self) -> Result<(), Box<dyn std::error::Error>> {
         let server = DomainServerFile {
             lifecycle: Some(DomainServerLifecycle {
-                shutdown_grace_secs: Some(self.daemon.shutdown_grace_secs),
-                idle_exit_minutes: Some(self.daemon.idle_exit_minutes),
+                shutdown_grace_secs: Some(self.server.shutdown_grace_secs),
+                idle_exit_minutes: Some(self.server.idle_exit_minutes),
             }),
             network: Some(DomainServerNetwork {
-                local_auth: Some(self.daemon.local_auth),
+                local_auth: Some(self.server.local_auth),
             }),
-            daemon: None,
+            server: None,
         };
         fsutil::atomic_write_bytes(
             &Self::server_config_file_path(),
@@ -1816,7 +1810,7 @@ impl Config {
     /// concurrent user hand-edit.
     ///
     /// The in-memory `Config` is loaded once at process start (ADR-0209) and
-    /// lives on for the daemon's whole lifetime, while the file can change
+    /// lives on for the server's whole lifetime, while the file can change
     /// under it at any moment. A naive whole-file rewrite therefore resurrects
     /// anything the user deleted — the reported bug: removing
     /// `[workspace].additional_roots` from `~/.config/nuo/config.toml` while a
@@ -1888,7 +1882,7 @@ impl Config {
         paths::get().config_file()
     }
 
-    /// Primary server daemon configuration path (`$XDG_CONFIG_HOME/nuo/server.toml`, ADR-0031).
+    /// Primary server server configuration path (`$XDG_CONFIG_HOME/nuo/server.toml`, ADR-0031).
     pub fn server_config_file_path() -> PathBuf {
         paths::get().server_config_file()
     }

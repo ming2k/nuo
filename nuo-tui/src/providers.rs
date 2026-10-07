@@ -758,13 +758,13 @@ pub fn models_flat_filtered_from(
                 provider_label: prow.name.clone(),
                 effort: info.effort,
                 thinking: info.thinking,
-                // The daemon already resolved this route's ladder (ADR-0149:
+                // The server already resolved this route's ladder (ADR-0149:
                 // baseline ⊕ remote ⊕ user overrides) and shipped it on the
                 // snapshot. It must ride through to the editor: the client
                 // cannot re-resolve it, because `nuo-providers` (which owns
                 // the baseline tables) is not linked into this binary — the
                 // registries live in `nuo-wire`, whose baselines are
-                // populated by the daemon's provider crates.
+                // populated by the server's provider crates.
                 effort_levels: info.effort_levels,
                 favorite: info.favorite,
                 last_used_ms: info.last_used_ms,
@@ -1664,7 +1664,7 @@ mod tests {
     #[test]
     fn each_template_models_reference_the_shared_constants() {
         // The template `id` IS the model provider id, persisted on the created
-        // connection as `provider`. The daemon's provider specs and this UI
+        // connection as `provider`. The server's provider specs and this UI
         // table must share the *same* model-list constant (single source of
         // truth in `nuo_wire::model_providers`) — otherwise the catalog's
         // reconciliation could not re-seed a connection from its provider. This
@@ -1854,7 +1854,7 @@ mod tests {
     /// The flat picker row must carry the route's effort ladder straight from
     /// the snapshot. `RankedModel.effort_levels` was hardcoded empty, so the
     /// editor opened from a Models row always fell back to the value-only
-    /// control — the node slider never appeared. The daemon is the only
+    /// control — the node slider never appeared. The server is the only
     /// authority for the ladder (it owns the provider baseline tables, which
     /// this client does not link), so the field must be a pass-through.
     #[test]

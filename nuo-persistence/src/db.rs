@@ -390,7 +390,7 @@ impl From<rusqlite::Error> for PersistenceError {
 
 /// Liveness of the single-writer actor, observable by any handle clone
 /// (ADR-0196 D1/D4). Transitions are published on a `watch` channel; the
-/// daemon folds them into the monitor stream, frontends render degradation.
+/// server folds them into the monitor stream, frontends render degradation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriterHealth {
     /// Serving normally.

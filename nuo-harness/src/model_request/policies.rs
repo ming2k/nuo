@@ -36,7 +36,7 @@ use crate::{SystemPromptContext, SystemPromptRegistry, SystemPromptSection};
 
 /// Opening identity line, composed by the embedding. The shipped coding CLI
 /// supplies none, so this section is normally inactive; it carries text when
-/// the embedding sets an identity (a subagent's full task prompt, the daemon's
+/// the embedding sets an identity (a subagent's full task prompt, the server's
 /// named coordinator) or when a `/role` switch installs an imperative role
 /// directive. Empty preamble → inactive.
 struct IdentityPreamble;

@@ -1035,7 +1035,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Open daemon session orchestrator dashboard (C-x d)",
+        description: "Open server session orchestrator dashboard (C-x d)",
     },
     CommandSpec {
         id: CommandId::NavigateSettings,
@@ -1867,7 +1867,7 @@ pub mod scene_namespace {
         Switcher,
         /// Open the saved sessions picker dialog (`/sessions`).
         Sessions,
-        /// Navigate directly to the daemon session orchestrator dashboard (`/dashboard`).
+        /// Navigate directly to the server session orchestrator dashboard (`/dashboard`).
         Dashboard,
         /// Quit nuo — the same armed double-press as the global `Ctrl+C`.
         Quit,
@@ -1921,7 +1921,7 @@ pub mod scene_namespace {
                     modifiers: KeyModifiers::NONE,
                     code: KeyCode::Char('s'),
                 }],
-                // `d` (dashboard — opens daemon session orchestrator dashboard).
+                // `d` (dashboard — opens server session orchestrator dashboard).
                 SceneVerb::Dashboard => &[Key {
                     modifiers: KeyModifiers::NONE,
                     code: KeyCode::Char('d'),

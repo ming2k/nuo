@@ -115,7 +115,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                 // connection is created against that service surface. Only the
                 // `custom` provider takes a protocol/endpoint override; a
                 // curated provider owns its wire. The name is sent raw and
-                // trimmed — the daemon rejects a duplicate with a suggested
+                // trimmed — the server rejects a duplicate with a suggested
                 // alternative (surfaced as `AgentResponse::Error`) instead of
                 // the client silently suffixing it.
                 let provider = app.custom_provider_id.take().unwrap_or_default();
@@ -181,7 +181,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
             app.editor_key.clear();
             // Load the stored capability overrides (ADR-0149 layer 1) so
             // the editor shows what is already forced, if anything. The read
-            // is a daemon round-trip now (ADR-0197): open with the defaults
+            // is a server round-trip now (ADR-0197): open with the defaults
             // cleared and prefill when the `RouteSettings` answer lands.
             app.editor_vision_override = None;
             app.editor_tool_override = None;
@@ -195,7 +195,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
             // K3's low/high/max) must still open with a rung
             // the segmented selector can highlight.
             //
-            // The ladder itself comes from the snapshot row (the daemon's
+            // The ladder itself comes from the snapshot row (the server's
             // ADR-0149 resolution), never from `resolve_model`: this client
             // does not link `nuo-providers`, so the static baseline tables are
             // absent here and a client-side resolve would yield an empty
@@ -784,8 +784,8 @@ pub(crate) mod question_effects {
                     // is defensive: should a trust_gate request ever
                     // reach the Question sheet (legacy path, test
                     // fixture, or malformed wire), intercept it here
-                    // instead of forwarding to the daemon — the
-                    // daemon has no parked round waiting for a
+                    // instead of forwarding to the server — the
+                    // server has no parked round waiting for a
                     // TRUST_GATE_REQUEST_ID reply.
                     if request_id == crate::trust_gate::TRUST_GATE_REQUEST_ID {
                         runtime.trust_gate_dismissed.store(true, Ordering::SeqCst);

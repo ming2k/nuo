@@ -116,7 +116,7 @@ pub async fn cancel_steer(
 /// frontend's current view. If its side session vanished, hand ownership back
 /// to the outbox through `SteerUnavailable`.
 /// `AgentRequest::FollowUp` — the driver-owned follow-up queue authority
-/// (ADR-0197 M4). The daemon decides: an idle, un-paused target starts
+/// (ADR-0197 M4). The server decides: an idle, un-paused target starts
 /// immediately ([`RoundEvent::FollowUpStarted`]); a running (or paused)
 /// target enqueues the message ([`RoundEvent::FollowUpQueued`]) and the
 /// driver ships it at the round boundary. The frontend never decides when a

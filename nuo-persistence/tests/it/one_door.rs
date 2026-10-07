@@ -193,7 +193,7 @@ fn the_door_exposes_exactly_two_ways_in() {
 
 /// A synchronous verb must complete on **every** runtime flavor, because
 /// routing writes through the actor put a blocking bridge on paths that run
-/// under all of them (a `#[tokio::test]`, a daemon worker, a plain thread, a
+/// under all of them (a `#[tokio::test]`, a server worker, a plain thread, a
 /// `spawn_blocking` task).
 ///
 /// This is a regression test, not a formality: the first version of the bridge

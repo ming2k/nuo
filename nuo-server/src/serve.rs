@@ -21,7 +21,7 @@ use crate::wire_channel::{BoxWireSink, BoxWireStream, native_framed_split, webso
 // path (tests, examples, the TUI, the CLI) keeps working unchanged.
 pub use nuo_client::wire::{AttachAction, ControlRequest, Wire};
 
-/// How long a draining daemon waits, per connection, for the client to
+/// How long a draining server waits, per connection, for the client to
 /// complete the closing handshake after it is sent `Close(1001 GoingAway)`
 /// (ADR-0101). Clients see a clean disconnect instead of a TCP reset when
 /// the process exits.
@@ -217,7 +217,7 @@ pub(crate) fn is_attach_sync_event(response: &AgentResponse) -> bool {
 /// Refuse a wire-protocol-skewed attach (ADR-0134) with an actionable
 /// message naming both the protocol window and the product builds. Sent
 /// before any session work. Directional: a too-old client hears "update",
-/// a too-new client hears "restart the daemon".
+/// a too-new client hears "restart the server".
 fn protocol_mismatch_error(client: u32, client_version: Option<&str>) -> String {
     let window = format!(
         "{}..={}",
@@ -225,21 +225,21 @@ fn protocol_mismatch_error(client: u32, client_version: Option<&str>) -> String 
         PROTOCOL_VERSION
     );
     let builds = match client_version {
-        Some(v) => format!(" (client build {v}, daemon build {})", daemon_version()),
-        None => format!(" (daemon build {})", daemon_version()),
+        Some(v) => format!(" (client build {v}, server build {})", server_version()),
+        None => format!(" (server build {})", server_version()),
     };
     if client < MIN_PROTOCOL_VERSION {
         format!(
-            "client/daemon wire protocol mismatch: client protocol {client} is older \
-             than the oldest this daemon serves ({window}). \
-             Please update your nuo client to build {daemon} or newer{builds}.",
-            daemon = daemon_version()
+            "client/server wire protocol mismatch: client protocol {client} is older \
+             than the oldest this server serves ({window}). \
+             Please update your nuo client to build {server} or newer{builds}.",
+            server = server_version()
         )
     } else {
         format!(
-            "client/daemon wire protocol mismatch: client protocol {client} is newer \
-             than this daemon's protocol {current}. \
-             Stop the daemon and let it restart on demand: `nuo stop`, then rerun \
+            "client/server wire protocol mismatch: client protocol {client} is newer \
+             than this server's protocol {current}. \
+             Stop the server and let it restart on demand: `nuo stop`, then rerun \
              this command (or `nuo start` to bring it up explicitly){builds}.",
             current = PROTOCOL_VERSION
         )
@@ -251,28 +251,28 @@ fn protocol_mismatch_error(client: u32, client_version: Option<&str>) -> String 
 /// session work happens. Applies only to clients that predate the protocol
 /// field (ADR-0134) — a client that declares a protocol number is judged on
 /// the window alone, its product version never enters the decision.
-fn version_mismatch_error(client: &str, daemon: &str) -> String {
+fn version_mismatch_error(client: &str, server: &str) -> String {
     use nuo_client::{VersionRelation, compare_versions};
-    match compare_versions(client, daemon) {
+    match compare_versions(client, server) {
         VersionRelation::ClientOlder => format!(
-            "client/daemon version mismatch: client ({client}) is older than daemon ({daemon}). \
-             Please update your nuo client to version {daemon} or newer."
+            "client/server version mismatch: client ({client}) is older than server ({server}). \
+             Please update your nuo client to version {server} or newer."
         ),
         VersionRelation::ClientNewer => format!(
-            "client/daemon version mismatch: daemon ({daemon}) is older than client ({client}). \
-             Stop the daemon and let it restart on demand: `nuo stop`, then rerun \
+            "client/server version mismatch: server ({server}) is older than client ({client}). \
+             Stop the server and let it restart on demand: `nuo stop`, then rerun \
              this command (or `nuo start` to bring it up explicitly)."
         ),
         VersionRelation::Equal | VersionRelation::Unknown => format!(
-            "client/daemon version mismatch: client {client} vs daemon {daemon}. \
-             Stop the daemon and let it restart on demand: `nuo stop`, then rerun \
+            "client/server version mismatch: client {client} vs server {server}. \
+             Stop the server and let it restart on demand: `nuo stop`, then rerun \
              this command (or `nuo start` to bring it up explicitly)."
         ),
     }
 }
 
 /// Per-connection registry (ADR-0101): every accepted socket's task is
-/// tracked here with its own cancel token, so a draining daemon can close
+/// tracked here with its own cancel token, so a draining server can close
 /// each live connection with a proper WebSocket `Close(1001 GoingAway)`
 /// instead of vanishing under it. Connections remove themselves on exit.
 #[derive(Clone)]
@@ -427,13 +427,13 @@ pub struct ServeOptions {
     /// explicit `token` is set, the listener generates one and publishes it
     /// via the discovery record (owner-only, 0600). Defends the control plane
     /// against drive-by connections from other local processes and other
-    /// users on a shared machine. The production daemon defaults this on via
-    /// `[daemon] local_auth`; the field defaults off so existing
+    /// users on a shared machine. The production server defaults this on via
+    /// `[server] local_auth`; the field defaults off so existing
     /// `ServeOptions::default()` tests keep their unauthenticated loopback.
     pub local_auth: bool,
     /// When the requested `port` is taken, fall back to an OS-assigned
     /// ephemeral port (the discovery record then carries the real one) instead
-    /// of failing startup. Used by the production daemon, whose CLI default
+    /// of failing startup. Used by the production server, whose CLI default
     /// port is fixed (9800); tests keep the strict default.
     pub port_fallback: bool,
     /// Native local control endpoint. Local IPC is exempt from the bearer
@@ -457,7 +457,7 @@ impl Default for ServeOptions {
     }
 }
 
-/// What the daemon's startup resolved: the bound endpoints on success, or
+/// What the server's startup resolved: the bound endpoints on success, or
 /// the failure that must stop the process. Distinct from the pre-0101
 /// `oneshot<u16>` (whose drop surfaced as a useless `RecvError` at the top
 /// level): the actual `io::Error` travels with the value.
@@ -511,18 +511,18 @@ pub struct ServeHandle {
     /// deterministically, instead of racing the process end).
     pub tasks: Arc<crate::shutdown::TaskBook>,
     pub token: Option<String>,
-    /// The daemon's shutdown gate: `ControlRequest::Shutdown` (the
+    /// The server's shutdown gate: `ControlRequest::Shutdown` (the
     /// `nuo stop` verb) funnels into it like any other trigger.
     pub gate: Arc<ShutdownGate>,
-    /// This daemon build's version, echoed to clients during handshake
+    /// This server build's version, echoed to clients during handshake
     /// version negotiation (ADR-0100 rule 4).
     pub version: &'static str,
 }
 
-/// The daemon's own `CARGO_PKG_VERSION`, shared by the discovery record and
-/// the handshake refusal message. Every daemon launch path embeds the same
+/// The server's own `CARGO_PKG_VERSION`, shared by the discovery record and
+/// the handshake refusal message. Every server launch path embeds the same
 /// workspace version.
-pub fn daemon_version() -> &'static str {
+pub fn server_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
@@ -535,10 +535,10 @@ pub fn start_server(
     let cancel = CancellationToken::new();
     let conns = Arc::new(ConnTable::new());
     let tasks = Arc::new(crate::shutdown::TaskBook::new());
-    // The serve gate carries the daemon's version from the start so the
+    // The serve gate carries the server's version from the start so the
     // handshake refusal names it even when the serve layer runs standalone
     // (host::run attaches its own run-loop gate on top of this one).
-    let gate = Arc::new(ShutdownGate::new().with_version(daemon_version()));
+    let gate = Arc::new(ShutdownGate::new().with_version(server_version()));
     let token = opts.token.clone().or_else(|| match opts.expose {
         ServeExpose::Public => Some(generate_token()),
         // Loopback auth (ADR-0105): generated per start, published owner-only
@@ -619,17 +619,17 @@ pub fn start_server(
                         l
                     }
                     Err(e) => {
-                        tracing::error!(endpoint=?endpoint,error=%e,"nuo daemon: local IPC bind failed");
+                        tracing::error!(endpoint=?endpoint,error=%e,"nuo server: local IPC bind failed");
                         let _ = local_tx.send(Err(e));
                         return;
                     }
                 };
-                tracing::info!(endpoint=?endpoint,"nuo daemon: local IPC listener started");
+                tracing::info!(endpoint=?endpoint,"nuo server: local IPC listener started");
                 let mut backoff = std::time::Duration::from_millis(5);
                 loop {
                     tokio::select! {
                         _ = cc.cancelled() => {
-                            tracing::info!("nuo daemon: local IPC cancelled");
+                            tracing::info!("nuo server: local IPC cancelled");
                             break;
                         }
                         ac = listener.accept() => {
@@ -639,7 +639,7 @@ pub fn start_server(
                                     tracing::warn!(
                                         error = %e,
                                         backoff_ms = backoff.as_millis() as u64,
-                                        "nuo daemon: local IPC accept failed"
+                                        "nuo server: local IPC accept failed"
                                     );
                                     tokio::time::sleep(backoff).await;
                                     backoff = (backoff * 2).min(ACCEPT_BACKOFF_CAP);
@@ -678,7 +678,7 @@ pub fn start_server(
         tasks,
         token,
         gate,
-        version: daemon_version(),
+        version: server_version(),
     }
 }
 
@@ -694,7 +694,7 @@ async fn bind_tcp(addr: SocketAddr, port_fallback: bool) -> std::io::Result<(Tcp
         Err(e)
             if port_fallback && addr.port() != 0 && e.kind() == std::io::ErrorKind::AddrInUse =>
         {
-            tracing::warn!(%addr, "nuo daemon: requested port in use; falling back to an ephemeral port");
+            tracing::warn!(%addr, "nuo server: requested port in use; falling back to an ephemeral port");
             let fallback: SocketAddr = (addr.ip(), 0).into();
             let l = TcpListener::bind(fallback).await?;
             let actual = l.local_addr().map(|a| a.port()).unwrap_or(0);
@@ -729,10 +729,10 @@ fn spawn_tcp_connection(
                 // Health responses are momentary and stateless; they stay out
                 // of the drain-tracked connection table by design.
                 if let Err(e) =
-                    crate::health_http::serve(stream, gate.version_of_daemon(), expected_token)
+                    crate::health_http::serve(stream, gate.version_of_server(), expected_token)
                         .await
                 {
-                    tracing::debug!(%peer, error=%e, "nuo daemon: http error");
+                    tracing::debug!(%peer, error=%e, "nuo server: http error");
                 }
             }
             Ok(TcpTransport::WebSocket) => {
@@ -750,7 +750,7 @@ fn spawn_tcp_connection(
                 );
             }
             Err(e) => {
-                tracing::debug!(%peer, error=%e, "nuo daemon: transport classify failed");
+                tracing::debug!(%peer, error=%e, "nuo server: transport classify failed");
             }
         }
     });
@@ -759,7 +759,7 @@ fn spawn_tcp_connection(
 /// Spawn one connection task, registered in the connection table for the
 /// drain phase. Every accepted socket funnels through here so the table can
 /// never miss one; the guard unregisters on every exit path.
-/// Shared daemon accept context: the session registry, connection table,
+/// Shared server accept context: the session registry, connection table,
 /// shutdown gate, and cancellation token every accepted socket needs. One
 /// instance is cloned per accept loop; `spawn_connection` takes it plus the
 /// per-socket specifics (stream, token, exposure, peer).
@@ -792,12 +792,12 @@ where
         let result = tokio::select! {
             r = handle_wire_stream(wire_sink, wire_source, registry, gate, listeners, conns_for_guard) => r,
             _ = conn_cancel.cancelled() => {
-                tracing::debug!(%peer, "nuo daemon: closing local connection for drain");
+                tracing::debug!(%peer, "nuo server: closing local connection for drain");
                 Ok(())
             }
         };
         if let Err(e) = result {
-            tracing::warn!(%peer, error=%e, "nuo daemon: local connection ended");
+            tracing::warn!(%peer, error=%e, "nuo server: local connection ended");
         }
     });
 }
@@ -827,18 +827,18 @@ fn spawn_connection<S>(
         };
         let result = tokio::select! {
             r = handle_connection(stream, registry, token, expose, gate, listeners, conns_for_guard) => r,
-            // Draining daemon (ADR-0101): cancel the connection's future.
+            // Draining server (ADR-0101): cancel the connection's future.
             // The socket drops with it, closing the TCP stream; clients
             // treat the disconnect exactly like a Close frame — reconnect
             // with backoff. (Sending a graceful Close frame from *here* is
             // not possible: the WS sink is owned by the inner future.)
             _ = conn_cancel.cancelled() => {
-                tracing::debug!(%peer, "nuo daemon: closing connection for drain");
+                tracing::debug!(%peer, "nuo server: closing connection for drain");
                 Ok(())
             }
         };
         if let Err(e) = result {
-            tracing::warn!(%peer, error=%e, "nuo daemon: connection ended");
+            tracing::warn!(%peer, error=%e, "nuo server: connection ended");
         }
     });
 }
@@ -868,7 +868,7 @@ async fn run_control(
 ) -> Result<(), String> {
     let (ok, session_id, error) = match request {
         ControlRequest::Reload => {
-            // ADR-0034 Level 1 (soft reload): refresh the daemon's config
+            // ADR-0034 Level 1 (soft reload): refresh the server's config
             // snapshot and re-sync MCP + skills across every hosted session.
             // No connection is dropped and no round is disturbed.
             let reply = match registry.reload_runtime().await {
@@ -904,7 +904,7 @@ async fn run_control(
                 .map_err(|e| format!("send control reply: {e}"))?;
             let _ = wire_sink.close().await;
             // The verb is the same trigger as a signal: latch the gate (so
-            // monitors stream DaemonDraining and the run loop drains), and
+            // monitors stream ServerDraining and the run loop drains), and
             // stop the accept loops immediately — even when the serve layer
             // is driven standalone (no host::run), the listeners must stop.
             gate.request(crate::shutdown::ShutdownReason::ControlVerb, false);
@@ -927,7 +927,7 @@ async fn run_control(
                     if let Some(text) = prompt
                         && let Err(e) = registry.send_prompt(&id, text).await
                     {
-                        tracing::warn!(session=%id,error=%e,"nuo daemon: create-session prompt failed");
+                        tracing::warn!(session=%id,error=%e,"nuo server: create-session prompt failed");
                     }
                     (true, Some(id), None)
                 }
@@ -1034,13 +1034,13 @@ async fn handle_wire_stream(
             None => return Ok(()),
         };
     // Protocol negotiation (ADR-0134), enforced before any session work.
-    // The protocol number is the authority when present: the daemon serves
+    // The protocol number is the authority when present: the server serves
     // any number in [MIN_PROTOCOL_VERSION, PROTOCOL_VERSION] regardless of
     // the product build — this is what lets a pinned client keep talking to
-    // a newer daemon across additive wire changes. A client that sends no
+    // a newer server across additive wire changes. A client that sends no
     // protocol number predates the field, so it is judged by ADR-0100
     // rule 4's exact product-version equality instead (unknown fields are
-    // ignored by serde, so this daemon's newer frames never break it).
+    // ignored by serde, so this server's newer frames never break it).
     if let Some(client) = client_protocol
         && !protocol_accepts(client)
     {
@@ -1057,11 +1057,11 @@ async fn handle_wire_stream(
     // the window; its product version is advisory identity, not a gate.
     if client_protocol.is_none()
         && let Some(client) = client_version
-        && client != gate.version_of_daemon()
+        && client != gate.version_of_server()
     {
         send_error_with_code(
             &mut wire_sink,
-            &version_mismatch_error(&client, gate.version_of_daemon()),
+            &version_mismatch_error(&client, gate.version_of_server()),
             Some(ERR_VERSION_MISMATCH),
         )
         .await?;
@@ -1079,16 +1079,16 @@ async fn handle_wire_stream(
     let _interactive_guard = conns.register_interactive();
     // The caller's project scopes creation / lazy resume (ADR-0096). Attach
     // clients declare their working directory in the Select frame's optional
-    // `project`; a client predating that field sends none and the daemon
+    // `project`; a client predating that field sends none and the server
     // falls back to its own process cwd — which is whatever the first client
-    // that spawned the daemon happened to use, so it is only correct by
+    // that spawned the server happened to use, so it is only correct by
     // coincidence.
     let raw_project = project.clone().unwrap_or_else(|| {
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
     });
     let caller_project = nuo_persistence::paths::find_project_root(&raw_project);
     // A modern client *declared* its project; a legacy client did not and the
-    // daemon is guessing from its own cwd. Auto-binding a lone cross-project
+    // server is guessing from its own cwd. Auto-binding a lone cross-project
     // session is the "launched in project A, working in project B" trap, but
     // only the declared case can know it is cross-project — so the guard
     // applies there, and the legacy path keeps its historical behaviour.
@@ -1166,7 +1166,7 @@ async fn handle_wire_stream(
         .await
         .map_err(|e| format!("send todos restore: {e}"))?;
     // Attach-time `/retry` affordance (ADR-0128): a session re-hosted after
-    // its round stopped (daemon restart, lazy resume) carries the durable
+    // its round stopped (server restart, lazy resume) carries the durable
     // resume point in its store, but the attaching client never saw the
     // idle `HarnessState` that would have published it. Push one now so the
     // hint bar offers `/retry` from the very first frame — exactly as if the
@@ -1234,7 +1234,7 @@ async fn handle_wire_stream(
     tracing::info!(
         session_id = %attached_session_id,
         effective = ?after_attach,
-        "nuo daemon: human channel accounted"
+        "nuo server: human channel accounted"
     );
     // Replay the buffered attach-sync events (ADR-0096) so a client that
     // attached after the session began hydrates its picker/key/context
@@ -1289,7 +1289,7 @@ async fn handle_wire_stream(
                     // Re-anchor instead: replay the attach-sync buffer —
                     // the same idempotent startup state a fresh attach gets
                     // — so the client resynchronizes instead of drifting.
-                    tracing::warn!(skipped = n, "nuo daemon: client lagged; resyncing from attach-sync buffer");
+                    tracing::warn!(skipped = n, "nuo server: client lagged; resyncing from attach-sync buffer");
                     for event in snapshot_attach_sync(&bound.sync_buffer).await {
                         if let Err(e) = wire_sink.send(Wire::Response { response: event }).await {
                             return Err(format!("wire send: {e}"));
@@ -1315,7 +1315,7 @@ async fn handle_wire_stream(
                     match registry.kill_session(&session_id).await {
                         Ok(()) => tracing::info!(
                             session = %session_id,
-                            "nuo daemon: client declared session end"
+                            "nuo server: client declared session end"
                         ),
                         // Already gone — which is exactly what the
                         // client asked for (e.g. another client ended it
@@ -1323,7 +1323,7 @@ async fn handle_wire_stream(
                         Err(e) => tracing::debug!(
                             session = %session_id,
                             error = %e,
-                            "nuo daemon: session already gone on client end"
+                            "nuo server: session already gone on client end"
                         ),
                     }
                     // `kill_session` broadcast the terminal
@@ -1345,21 +1345,21 @@ async fn handle_wire_stream(
                     match req_tx.try_send(request) {
                         Ok(()) => {}
                         Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                            tracing::warn!("nuo daemon: session request queue full, shedding load");
+                            tracing::warn!("nuo server: session request queue full, shedding load");
                             let err = Wire::Error {
-                                message: "daemon session request queue is full (server busy)".to_string(),
+                                message: "server session request queue is full (server busy)".to_string(),
                                 code: Some("server_busy".to_string()),
                             };
                             let _ = wire_sink.send(err).await;
                         }
                         Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                            tracing::warn!("nuo daemon: session driver channel closed");
+                            tracing::warn!("nuo server: session driver channel closed");
                             break;
                         }
                     }
                 }
                 Some(Ok(_)) => {}
-                Some(Err(e)) => tracing::warn!(error = %e, "nuo daemon: bad wire request"),
+                Some(Err(e)) => tracing::warn!(error = %e, "nuo server: bad wire request"),
                 None => break,
             },
         }
@@ -1372,7 +1372,7 @@ async fn handle_wire_stream(
     tracing::info!(
         session_id = %detached_session_id,
         effective = ?after_detach,
-        "nuo daemon: human channel released"
+        "nuo server: human channel released"
     );
     Ok(())
 }
@@ -1446,11 +1446,11 @@ async fn run_monitor(
     tokio::pin!(drain);
     loop {
         tokio::select! {
-            // Daemon draining (ADR-0101): say so on the stream, then close.
+            // Server draining (ADR-0101): say so on the stream, then close.
             // Watch clients get an explicit terminal signal instead of an
             // abrupt disconnect they might misread as a network fault.
             _ = &mut drain => {
-                send_monitor(&mut wire_sink, MonitorEvent::DaemonDraining).await?;
+                send_monitor(&mut wire_sink, MonitorEvent::ServerDraining).await?;
                 let _ = wire_sink.close().await;
                 return Ok(());
             }
@@ -1462,7 +1462,7 @@ async fn run_monitor(
                         // the safest resync is a fresh snapshot.
                         tracing::warn!(
                             skipped = n,
-                            "nuo daemon: monitor client lagged, resyncing"
+                            "nuo server: monitor client lagged, resyncing"
                         );
                         let snapshot = registry.monitor_snapshot(action).await;
                         send_monitor(&mut wire_sink, MonitorEvent::Snapshot(snapshot)).await?;
@@ -1483,7 +1483,7 @@ async fn run_monitor(
                     | MonitorEvent::TaskRemoved { .. }
                     | MonitorEvent::PersistenceHealth(_)
                     | MonitorEvent::SessionRemoved { .. }
-                    | MonitorEvent::DaemonDraining => Some(event.clone()),
+                    | MonitorEvent::ServerDraining => Some(event.clone()),
                 };
                 if let Some(event) = filtered {
                     send_monitor(&mut wire_sink, event).await?;
@@ -1586,10 +1586,10 @@ fn is_loopback_host(host: &str) -> bool {
 
 /// Browser drive-by defense (ADR-0105). WebSocket handshakes are not subject
 /// to the same-origin policy: any page the user visits can open
-/// `ws://127.0.0.1:<port>` and drive the daemon — *unless* the server checks.
+/// `ws://127.0.0.1:<port>` and drive the server — *unless* the server checks.
 /// Browsers always send `Origin` on a WebSocket upgrade, so on a loopback
 /// listener we refuse handshakes whose origin is an http(s) page not itself
-/// served from loopback (the panel served by this daemon, or a local dev
+/// served from loopback (the panel served by this server, or a local dev
 /// server, qualifies). Non-browser clients (TUI, CLI) send no `Origin` and
 /// are governed by the bearer token instead. On a `--public` listener the
 /// token is mandatory and the origin check is moot — remote origins are
@@ -1611,7 +1611,7 @@ fn validate_origin(req: &Request, expose: ServeExpose) -> Result<(), ErrorRespon
     if allowed {
         Ok(())
     } else {
-        tracing::warn!(%origin, "nuo daemon: refused WebSocket handshake from foreign browser origin");
+        tracing::warn!(%origin, "nuo server: refused WebSocket handshake from foreign browser origin");
         Err(reject_forbidden(
             "browser origin not allowed: the nuo control plane only serves pages hosted on loopback",
         ))
@@ -1812,7 +1812,7 @@ mod tests {
         let back: AttachAction = serde_json::from_str(r#"{"attach":"abc"}"#).unwrap();
         assert_eq!(back, AttachAction::Attach(Some("abc".into())));
         // The picker action (ADR-0116) serializes as a bare unit variant;
-        // an older daemon that does not know it fails the Select frame with
+        // an older server that does not know it fails the Select frame with
         // a clear deserialize error instead of a mid-handshake protocol
         // fault.
         assert_eq!(
@@ -1849,7 +1849,7 @@ mod tests {
         // A page served from an external site: rejected.
         let foreign = handshake_req(&[("Origin", "https://evil.example")]);
         assert!(validate_origin(&foreign, ServeExpose::Local).is_err());
-        // The panel served by this daemon (or a local dev server): allowed.
+        // The panel served by this server (or a local dev server): allowed.
         let local = handshake_req(&[("Origin", "http://127.0.0.1:9800")]);
         assert!(validate_origin(&local, ServeExpose::Local).is_ok());
         let localhost = handshake_req(&[("Origin", "http://localhost:5173")]);
@@ -1923,7 +1923,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(without, r#"{"type":"Error","message":"m"}"#);
-        // And a frame from an older daemon (no code) still parses.
+        // And a frame from an older server (no code) still parses.
         let back: Wire = serde_json::from_str(r#"{"type":"Error","message":"m"}"#).unwrap();
         assert!(matches!(back, Wire::Error { code: None, .. }));
     }

@@ -382,7 +382,7 @@ pub struct App {
     /// Shared token-source ledger (reported vs. estimated token accounting),
     /// read by the Telemetry modal. `Some` in the standalone path (the
     /// in-process harness shares this ledger); `None` in attach mode, where
-    /// the accounting lives daemon-side and the modal renders the on-demand
+    /// the accounting lives server-side and the modal renders the on-demand
     /// [`Self::token_report`] snapshot instead.
     pub token_ledger: Option<Arc<nuo_wire::TokenSourceLedger>>,
     /// Token-source report fetched on demand from the harness for the viewed
@@ -491,9 +491,9 @@ pub struct App {
     /// live completions are once again useful). `@path` accepts via Tab do
     /// **not** latch — Tab is meant to keep cycling path candidates.
     pub completion_dismissed: bool,
-    /// Backend-owned slash-command vocabulary published by the daemon.
+    /// Backend-owned slash-command vocabulary published by the server.
     pub command_catalog: nuo_wire::CommandCatalog,
-    /// Latest race-checked completion rows returned by the daemon.
+    /// Latest race-checked completion rows returned by the server.
     pub backend_completions: Vec<nuo_wire::InputCompletion>,
     pub completion_response_input: Option<String>,
     pub completion_response_cursor: usize,
@@ -614,7 +614,7 @@ pub struct App {
     /// own chrome entry. Write it only through [`App::set_phase`], which owns
     /// the clause's lifetime (ADR-0235).
     pub provider_retry: Option<ProviderRetryState>,
-    /// Durability-health banner state (ADR-0196 D4): the daemon's
+    /// Durability-health banner state (ADR-0196 D4): the server's
     /// persistence-writer degradation, folded from the monitor stream.
     /// `None` / `Healthy` renders no banner.
     pub persistence_health: Option<nuo_wire::monitor::PersistenceHealth>,
@@ -671,7 +671,7 @@ pub struct App {
     pub sessions_overview: Vec<SessionOverview>,
     /// When switching sessions, holds the short id of the target session being loaded.
     pub switching_session: Option<String>,
-    /// Live monitor snapshot for the `/host` daemon control panel
+    /// Live monitor snapshot for the `/host` server control panel
     /// (ADR-0096), mirrored from `UiRuntime::host_sessions` each frame.
     pub host_sessions: Vec<nuo_wire::MonitoredSession>,
     /// Scroll slot + selection-follow for the `/host` panel body.
@@ -696,7 +696,7 @@ pub struct App {
     /// session (from `n`), `false` = prompt the selected session (from `p`).
     pub host_prompt_new: bool,
     /// The dashboard console's receipt transcript (ADR-0097 §3): one entry
-    /// per dispatched directive plus the daemon's answer. Lives for the
+    /// per dispatched directive plus the server's answer. Lives for the
     /// dashboard's open lifetime (cleared on open) — it is a cockpit log,
     /// not history.
     pub host_console_log: Vec<crate::overlays::ConsoleLine>,
@@ -992,7 +992,7 @@ pub struct App {
     pub editor_effort: String,
     /// The effort ladder the edited route actually supports, as wire strings in
     /// ascending depth. Captured from the picker snapshot when the editor opens
-    /// (the daemon's ADR-0149 resolution), **not** re-derived client-side: this
+    /// (the server's ADR-0149 resolution), **not** re-derived client-side: this
     /// binary does not link `nuo-providers`, so `resolve_model` sees no
     /// baseline table and would render an empty ladder (the node slider would
     /// collapse to a bare value row). Empty means the route exposes no effort

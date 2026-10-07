@@ -1,17 +1,17 @@
-//! Discovery file: how co-process clients find a live session daemon's
+//! Discovery file: how co-process clients find a live session server's
 //! endpoint.
 //!
-//! The record that matters is **global**: the unified daemon (`nuo`) writes
-//! one `daemon.json` per user ([`global_discovery_path`], in the resolved
+//! The record that matters is **global**: the unified server (`nuo`) writes
+//! one `server.json` per user ([`global_discovery_path`], in the resolved
 //! instance dir) once its port is bound, and removes it on clean shutdown.
 //! Clients (an attaching `nuo` TUI, the web app, the dashboard) read that
-//! record to reach the already-running daemon instead of spawning a second
+//! record to reach the already-running server instead of spawning a second
 //! one. The module lives in this crate while the read-side contract is shared
 //! with `nuo-client`, so writer and reader agree on the record and the
 //! path-resolution rule.
 //!
-//! The pre-`daemon.json` per-project layout (`serve/<bucket>.json`) is dead:
-//! current clients discover through `daemon.json` only, so nothing here
+//! The pre-`server.json` per-project layout (`serve/<bucket>.json`) is dead:
+//! current clients discover through `server.json` only, so nothing here
 //! resolves a per-project path any more.
 
 use std::path::{Path, PathBuf};
@@ -30,10 +30,10 @@ pub struct Discovery {
     /// The bound TCP port the WebSocket listener serves.
     pub port: u16,
     /// The bearer token clients must present, when auth is active
-    /// (`--public`, or loopback with `[daemon] local_auth` — ADR-0105);
+    /// (`--public`, or loopback with `[server] local_auth` — ADR-0105);
     /// `null` for an unauthenticated loopback listener.
     pub token: Option<String>,
-    /// The project root the host serves. Empty for the unified daemon
+    /// The project root the host serves. Empty for the unified server
     /// (ADR-0096), which is project-agnostic; retained for the legacy
     /// per-project records.
     pub project_root: String,
@@ -47,38 +47,38 @@ pub struct Discovery {
     /// reading discovery records written before v0.30.2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_endpoint: Option<nuo_host::ipc::LocalEndpoint>,
-    /// The daemon build's `CARGO_PKG_VERSION` (ADR-0100 rule 4): a client
+    /// The server build's `CARGO_PKG_VERSION` (ADR-0100 rule 4): a client
     /// that reads a record whose version differs from its own refuses with
     /// an actionable both-versions message instead of speaking a wire
     /// protocol it may not share. `None` on records predating the field —
     /// treated as "unknown", which also mismatches, prompting a restart.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
-    /// The daemon's configured graceful-drain budget, **seconds**
+    /// The server's configured graceful-drain budget, **seconds**
     /// (ADR-0116). `nuo stop` reads this so its escalation
-    /// tiers wait *the daemon's own budget* before SIGTERM/SIGKILL: a
-    /// signal arriving mid-drain escalates the daemon to a forced exit,
+    /// tiers wait *the server's own budget* before SIGTERM/SIGKILL: a
+    /// signal arriving mid-drain escalates the server to a forced exit,
     /// so a client that escalates early destroys the graceful drain it
     /// just requested. `None` on records predating the field — clients
     /// fall back to a conservative default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grace_secs: Option<u64>,
-    /// The wire protocol number this daemon speaks (ADR-0134). Lets a
-    /// local client refuse a daemon outside its window *before* the
+    /// The wire protocol number this server speaks (ADR-0134). Lets a
+    /// local client refuse a server outside its window *before* the
     /// handshake, the same way `version` above always has. `None` on
     /// records predating the field — the client then falls back to the
     /// product-version judgment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol: Option<u32>,
-    /// Bounded content digest (lowercase hex) of the daemon's own executable
+    /// Bounded content digest (lowercase hex) of the server's own executable
     /// image: its exact length folded with a sampled SHA-256, captured once at
-    /// boot (ADR-0021). Lets a client detect a stale *same-version* daemon by
+    /// boot (ADR-0021). Lets a client detect a stale *same-version* server by
     /// executable **content** — portably across Linux, macOS, and Windows —
     /// instead of the Linux-only inode probe. `None` on records predating the
     /// field; clients then fall back to inode equality.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_digest: Option<String>,
-    /// Byte length of the daemon's executable image: a cheap pre-hash gate
+    /// Byte length of the server's executable image: a cheap pre-hash gate
     /// paired with `image_digest`, so a client can reject a size-changed
     /// image without hashing (ADR-0021).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -95,49 +95,49 @@ impl Discovery {
     }
 }
 
-/// The global discovery path for the unified daemon (ADR-0096): one record
+/// The global discovery path for the unified server (ADR-0096): one record
 /// per user, in the instance dir (ADR-0121: `NUO_HOME`, else
 /// `$XDG_RUNTIME_DIR`, else the native data/state fallback).
 pub fn global_discovery_path() -> PathBuf {
-    paths::get().instance_dir().join("daemon.json")
+    paths::get().instance_dir().join("server.json")
 }
 
-/// The resolved daemon instance directory (ADR-0121). Exposed for
+/// The resolved server instance directory (ADR-0121). Exposed for
 /// diagnostics so a report can name *which* instance — host or sandbox —
 /// it probed before listing paths inside it.
 pub fn instance_dir() -> PathBuf {
     paths::get().instance_dir()
 }
 
-/// The default UDS path the daemon binds (ADR-0096), inside the instance dir.
+/// The default UDS path the server binds (ADR-0096), inside the instance dir.
 #[cfg(unix)]
 pub fn default_uds_path() -> PathBuf {
-    paths::get().instance_dir().join("daemon.sock")
+    paths::get().instance_dir().join("server.sock")
 }
 
-/// Native local endpoint for the unified per-user daemon.
+/// Native local endpoint for the unified per-user server.
 pub fn default_local_endpoint() -> Result<nuo_host::ipc::LocalEndpoint, String> {
     let instance_dir = paths::get().instance_dir();
-    let instance_key = format!("daemon-{}", paths::project_bucket_name(&instance_dir));
-    nuo_host::ipc::endpoint_for_instance(instance_dir.join("daemon.sock"), &instance_key)
-        .map_err(|error| format!("could not resolve local daemon endpoint: {error}"))
+    let instance_key = format!("server-{}", paths::project_bucket_name(&instance_dir));
+    nuo_host::ipc::endpoint_for_instance(instance_dir.join("server.sock"), &instance_key)
+        .map_err(|error| format!("could not resolve local server endpoint: {error}"))
 }
 
-/// The daemon's single-instance lock path (ADR-0101): a companion
-/// `daemon.lock` next to the global discovery record. The daemon holds a
-/// `flock` on it for its whole lifetime; a second daemon (spawned while the
+/// The server's single-instance lock path (ADR-0101): a companion
+/// `server.lock` next to the global discovery record. The server holds a
+/// `flock` on it for its whole lifetime; a second server (spawned while the
 /// first drains) blocks on it for a bounded wait instead of unlinking a live
-/// daemon's UDS socket, which is exactly the clobbering race the pre-0101
+/// server's UDS socket, which is exactly the clobbering race the pre-0101
 /// `bind_uds` "remove stale socket file" step could not distinguish.
 pub fn global_lock_path() -> PathBuf {
-    paths::get().instance_dir().join("daemon.lock")
+    paths::get().instance_dir().join("server.lock")
 }
 
 /// RAII guard over the global discovery record: `Drop` removes the file, so
 /// *every* exit path — graceful drain, forced escalation, a panic unwinding
 /// through `host::run` — leaves the record deleted. The graceful path
 /// removes it explicitly (and earlier: pulling the advertisement is the
-/// *first* drain step so no new client discovers a draining daemon), at
+/// *first* drain step so no new client discovers a draining server), at
 /// which point the guard's own removal is a no-op.
 #[must_use = "dropping the lease removes the discovery record"]
 pub struct DiscoveryLease {
@@ -178,7 +178,7 @@ mod lease_tests {
     #[test]
     fn drop_removes_the_record_and_double_release_is_a_noop() {
         let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("daemon.json");
+        let path = tmp.path().join("server.json");
         nuo_host::fsutil::atomic_write_json(
             &path,
             &Discovery {
@@ -207,7 +207,7 @@ mod lease_tests {
     #[test]
     fn drop_alone_removes_the_record() {
         let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("daemon.json");
+        let path = tmp.path().join("server.json");
         nuo_host::fsutil::atomic_write_json(
             &path,
             &Discovery {
@@ -232,9 +232,9 @@ mod lease_tests {
     }
 
     #[test]
-    fn drop_does_not_remove_newer_daemon_record() {
+    fn drop_does_not_remove_newer_server_record() {
         let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("daemon.json");
+        let path = tmp.path().join("server.json");
         nuo_host::fsutil::atomic_write_json(
             &path,
             &Discovery {
@@ -254,9 +254,9 @@ mod lease_tests {
             },
         )
         .unwrap();
-        // Lease from older daemon PID 42 dropped while path contains PID 99
+        // Lease from older server PID 42 dropped while path contains PID 99
         drop(DiscoveryLease::new(Some(path.clone()), 42, None));
-        assert!(path.exists(), "Drop must NOT remove newer daemon's record");
+        assert!(path.exists(), "Drop must NOT remove newer server's record");
     }
 }
 
@@ -270,7 +270,7 @@ pub fn read_at(path: &Path) -> Option<Discovery> {
     serde_json::from_slice(&bytes).ok()
 }
 
-/// Write the unified daemon's global discovery record (ADR-0096). Atomic.
+/// Write the unified server's global discovery record (ADR-0096). Atomic.
 pub fn write_global(record: &Discovery) -> Result<PathBuf, String> {
     let path = global_discovery_path();
     write_to(&path, record)?;

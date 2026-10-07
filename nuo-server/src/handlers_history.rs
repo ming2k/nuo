@@ -1,5 +1,5 @@
 //! Input-history and route-settings services for the frontend (ADR-0197):
-//! the daemon is the source of truth for the shared SQLite store, and the
+//! the server is the source of truth for the shared SQLite store, and the
 //! frontend reaches it only through these wire requests — it never opens the
 //! database directly.
 //!

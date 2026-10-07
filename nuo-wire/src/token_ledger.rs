@@ -1123,7 +1123,7 @@ fn now_epoch_ms() -> u64 {
 
 /// One row of the report: a single provider+model and its source split.
 ///
-/// Serialisable so an attached frontend can receive the daemon-side report
+/// Serialisable so an attached frontend can receive the server-side report
 /// over the wire ([`crate::AgentResponse::TokenUsageReport`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenSourceRow {
@@ -1138,7 +1138,7 @@ pub struct TokenSourceRow {
 
 /// A full snapshot of the ledger: per-row breakdown + a grand total.
 ///
-/// Serialisable so an attached frontend can receive the daemon-side report
+/// Serialisable so an attached frontend can receive the server-side report
 /// over the wire ([`crate::AgentResponse::TokenUsageReport`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenSourceReport {

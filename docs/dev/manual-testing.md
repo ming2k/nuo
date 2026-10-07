@@ -1,6 +1,6 @@
 # Manual Testing & Full-Stack Verification Guide
 
-This document defines the comprehensive manual testing procedures, exploratory testing playbooks, and release walk-through runbooks for **Nuo** — the unified AI session daemon, control plane, and semantic terminal client.
+This document defines the comprehensive manual testing procedures, exploratory testing playbooks, and release walk-through runbooks for **Nuo** — the unified AI session server, control plane, and semantic terminal client.
 
 It ensures that developers, QA engineers, and release gatekeepers can verify end-to-end functionality, user experience ergonomics, interactive approval workflows, and fault recovery from a clean cold start without synthetic test harnesses or internal backdoor bypasses.
 
@@ -13,13 +13,13 @@ Manual verification complements automated testing (`cargo test --workspace`, sna
 1. **`[INV-VAL-01]` Real User Journey Parity**:
    All manual verifications must be performed through the public unified CLI interface (`nuo`) and standard HTTP/IPC endpoints from a cold start. Using private test harness fixtures or mock overrides is strictly prohibited during manual sign-off.
 2. **`[INV-CLI-01]` / `[INV-CLI-02]` Unified Binary Singleton**:
-   The workspace produces a single public executable: `nuo`. Interactive terminal sessions, headless scripts, and server daemons are all accessed through this single binary entrypoint.
+   The workspace produces a single public executable: `nuo`. Interactive terminal sessions, headless scripts, and server servers are all accessed through this single binary entrypoint.
 3. **Ergonomics & Visual Polish**:
    Validate terminal layout responsiveness, border integrity, CJK wide-character alignment, ANSI color fidelity, breathing animations, and cursor state restoration powered by `nuo-tui` and `nuotc`.
 4. **Interactive Safety & Approval Barriers**:
    Verify that high-hazard operations (destructive bash commands, file modifications) pause cleanly for explicit human confirmation and never execute prematurely.
 5. **Host Isolation Invariant**:
-   Manual test runs must never pollute the operator's host configuration (`~/.config/nuo`) or collide with running production daemons on default ports. Every test session must explicitly run inside an isolated sandbox directory using `NUO_HOME` and `NUO_PORT`.
+   Manual test runs must never pollute the operator's host configuration (`~/.config/nuo`) or collide with running production servers on default ports. Every test session must explicitly run inside an isolated sandbox directory using `NUO_HOME` and `NUO_PORT`.
 
 ---
 
@@ -88,11 +88,11 @@ rm -rf "$NUO_HOME"
 
 ---
 
-### Suite 2: Daemon Lifecycle & Server Control Plane
+### Suite 2: Server Lifecycle & Server Control Plane
 
 #### Scenario 2.1: Foreground Server Container Execution (`nuo serve` / `nuo start --fg`)
 - **Action**:
-  1. In Terminal A, start the daemon service in foreground mode:
+  1. In Terminal A, start the server service in foreground mode:
      ```bash
      nuo serve --port "$NUO_PORT"
      ```
@@ -103,13 +103,13 @@ rm -rf "$NUO_HOME"
   3. Send `Ctrl+C` (SIGINT) to Terminal A.
 - **Expected Outcome**:
   - Terminal A logs startup details, active TCP port `$NUO_PORT`, and domain socket path.
-  - Terminal B outputs the active daemon endpoint and zero active sessions.
-  - Upon `Ctrl+C`, the daemon performs a graceful drain, shuts down worker threads, removes Unix domain sockets, and exits cleanly.
+  - Terminal B outputs the active server endpoint and zero active sessions.
+  - Upon `Ctrl+C`, the server performs a graceful drain, shuts down worker threads, removes Unix domain sockets, and exits cleanly.
 
-#### Scenario 2.2: Detached Daemon Lifecycle (`start` / `status` / `token` / `stop`)
+#### Scenario 2.2: Detached Server Lifecycle (`start` / `status` / `token` / `stop`)
 - **Action**:
   ```bash
-  # 1. Start daemon detached
+  # 1. Start server detached
   nuo start --port "$NUO_PORT"
 
   # 2. Inspect status
@@ -117,16 +117,16 @@ rm -rf "$NUO_HOME"
 
   # 3. Retrieve bearer token
   TOKEN=$(nuo token)
-  echo "Daemon token: $TOKEN"
+  echo "Server token: $TOKEN"
 
   # 4. Graceful stop
   nuo stop
   ```
 - **Expected Outcome**:
-  - `start` prints daemon PID and port, then returns control to the shell immediately.
+  - `start` prints server PID and port, then returns control to the shell immediately.
   - `status --diagnostic` reports process PID, socket path, runtime state, and active sessions.
   - `token` outputs a 64-character hexadecimal bearer token.
-  - `stop` signals the daemon to drain active connections, removes the lockfile, and exits 0.
+  - `stop` signals the server to drain active connections, removes the lockfile, and exits 0.
 
 #### Scenario 2.3: HTTP Health & Probe Endpoint
 - **Action**:
@@ -149,7 +149,7 @@ rm -rf "$NUO_HOME"
   - `OPTIONS` returns `HTTP/1.1 204 No Content` with `Access-Control-Allow-Origin: *`.
   - `/invalid-route` returns `HTTP/1.1 404 Not Found`.
 
-#### Scenario 2.4: Daemon Double-Start Mutual Exclusion
+#### Scenario 2.4: Server Double-Start Mutual Exclusion
 - **Action**:
   ```bash
   nuo start --port "$NUO_PORT"
@@ -158,8 +158,8 @@ rm -rf "$NUO_HOME"
   nuo stop
   ```
 - **Expected Outcome**:
-  - The second invocation fails immediately with an informative error (e.g. `daemon lock already held` or already running) and exit code `1`.
-  - The first daemon process remains undisturbed.
+  - The second invocation fails immediately with an informative error (e.g. `server lock already held` or already running) and exit code `1`.
+  - The first server process remains undisturbed.
 
 ---
 
@@ -179,11 +179,11 @@ rm -rf "$NUO_HOME"
 #### Scenario 3.2: Configuration Mutation (`set` & `get`)
 - **Action**:
   ```bash
-  nuo config set daemon.shutdown_grace_secs 15
-  nuo config get daemon.shutdown_grace_secs
+  nuo config set server.shutdown_grace_secs 15
+  nuo config get server.shutdown_grace_secs
   ```
 - **Expected Outcome**:
-  - Key `daemon.shutdown_grace_secs` updates to `15`.
+  - Key `server.shutdown_grace_secs` updates to `15`.
   - `config get` outputs `15`.
 
 #### Scenario 3.3: Provider Credentials Setup
@@ -207,7 +207,7 @@ rm -rf "$NUO_HOME"
   nuo
   ```
 - **Expected Outcome**:
-  - If `nuo` daemon is not yet running, `nuo` automatically bootstraps the local daemon in the background.
+  - If `nuo` server is not yet running, `nuo` automatically bootstraps the local server in the background.
   - Terminal enters alternate screen buffer and raw mode.
   - Header displays active model/role, conversation status, and session indicator.
   - Input composer sits at bottom ready for prompt entry.
@@ -351,7 +351,7 @@ rm -rf "$NUO_HOME"
   *(or equivalently: `nuo -p "Explain the difference between TCP and UDP in 2 sentences"`)*
 - **Expected Outcome**:
   - Runs without launching the interactive TUI screen.
-  - Connects to the daemon (auto-starting if necessary).
+  - Connects to the server (auto-starting if necessary).
   - Streams markdown response directly to stdout.
   - Exits with status `0` upon completion.
 
@@ -390,20 +390,20 @@ rm -rf "$NUO_HOME"
 #### Scenario 6.1: Detached Session & Fleet Monitoring
 - **Action**:
   ```bash
-  # 1. Start daemon
+  # 1. Start server
   nuo start --port "$NUO_PORT"
 
   # 2. Spawn a long-running prompt in headless or background
   nuo run "List all crates in the workspace and explain their dependencies" &
 
-  # 3. Monitor daemon sessions
+  # 3. Monitor server sessions
   nuo status --watch
   ```
 - **Expected Outcome**:
   - `nuo status --watch` streams real-time session state transitions (`running`, `active`, `idle`).
   - Press `Ctrl+C` to exit monitor stream.
 
-#### Scenario 6.2: Remote Daemon Connection over TCP + Token
+#### Scenario 6.2: Remote Server Connection over TCP + Token
 - **Action**:
   ```bash
   TOKEN=$(nuo token)
@@ -411,7 +411,7 @@ rm -rf "$NUO_HOME"
   ```
 - **Expected Outcome**:
   - `nuo` connects over TCP using the bearer token rather than local Unix domain sockets.
-  - Output streams successfully; daemon processes the request on the remote port.
+  - Output streams successfully; server processes the request on the remote port.
 
 #### Scenario 6.3: Session Attach & Picker (`nuo attach`)
 - **Action**:
@@ -501,13 +501,13 @@ rm -rf "$NUO_HOME"
   nc -l 9821 &
   NC_PID=$!
 
-  # Attempt to start daemon on occupied port
+  # Attempt to start server on occupied port
   nuo start --port 9821 || true
 
   kill $NC_PID 2>/dev/null || true
   ```
 - **Expected Outcome**:
-  - The daemon detects port collision gracefully and reports an error, without crashing the shell or corrupting database files.
+  - The server detects port collision gracefully and reports an error, without crashing the shell or corrupting database files.
 
 #### Scenario 8.2: Abrupt Client Disconnect / Reconnect
 - **Action**:
@@ -515,27 +515,27 @@ rm -rf "$NUO_HOME"
   2. While the model is streaming, forcefully kill the `nuo` process (`kill -9`).
   3. Re-launch `nuo --resume`.
 - **Expected Outcome**:
-  - Daemon survives client disconnect without panicking.
+  - Server survives client disconnect without panicking.
   - `--resume` reconnects to the existing session, recovers the transcript up to the last persisted turn, and allows continuing the conversation.
 
-#### Scenario 8.3: Rebuilt-Binary Daemon Self-Heal (ADR-0021)
+#### Scenario 8.3: Rebuilt-Binary Server Self-Heal (ADR-0021)
 - **Action**:
   ```bash
-  # 1. Start a daemon and leave it idle
+  # 1. Start a server and leave it idle
   nuo start
   nuo status --diagnostic   # note "Core Image" digests; they should match
 
-  # 2. Rebuild the binary under the live daemon (same version, no protocol change)
+  # 2. Rebuild the binary under the live server (same version, no protocol change)
   cargo build -p nuo
 
   # 3. Discover it, then start again
-  nuo status --diagnostic   # "Daemon sha256" now differs -> "REBUILT/STALE" + drift diagnosis
-  nuo                        # must reclaim the idle daemon automatically, no manual `nuo stop`
+  nuo status --diagnostic   # "Server sha256" now differs -> "REBUILT/STALE" + drift diagnosis
+  nuo                        # must reclaim the idle server automatically, no manual `nuo stop`
   ```
 - **Expected Outcome**:
-  - `nuo status --diagnostic` shows a `Core Image` block naming the installed path and both short digests; after the rebuild the daemon digest is flagged `differs from installed — REBUILT/STALE` and the top-level diagnosis reads `Rebuilt-binary drift`.
-  - With **no active sessions and no daemon tasks**, the next `nuo` invocation reclaims the stale daemon and respawns the freshly built image transparently — no `client/daemon binary mismatch` error.
-  - With a **live session** running, the same invocation instead refuses with `client/daemon binary mismatch … still hosting N active session(s)` and does **not** interrupt the work.
+  - `nuo status --diagnostic` shows a `Core Image` block naming the installed path and both short digests; after the rebuild the server digest is flagged `differs from installed — REBUILT/STALE` and the top-level diagnosis reads `Rebuilt-binary drift`.
+  - With **no active sessions and no server tasks**, the next `nuo` invocation reclaims the stale server and respawns the freshly built image transparently — no `client/server binary mismatch` error.
+  - With a **live session** running, the same invocation instead refuses with `client/server binary mismatch … still hosting N active session(s)` and does **not** interrupt the work.
 
 #### Scenario 8.4: Terminal Resize Stress Testing
 - **Action**:
@@ -555,8 +555,8 @@ Prior to tagging and publishing a new release, verify each item:
 | **Clean Build** | `cargo build --release -p nuo` | Zero compilation warnings or errors | [ ] |
 | **Doc Governance** | `docgov check` | All protocol invariants pass | [ ] |
 | **Unit & E2E Tests** | `cargo test --workspace` | All automated tests pass | [ ] |
-| **Cold-Start Service** | `nuo serve --port "$NUO_PORT"` | Foreground daemon starts, binds port, drains gracefully on SIGINT | [ ] |
-| **Detached Daemon** | `nuo start` -> `status` -> `token` -> `stop` | Background PID managed cleanly, token generated, clean stop | [ ] |
+| **Cold-Start Service** | `nuo serve --port "$NUO_PORT"` | Foreground server starts, binds port, drains gracefully on SIGINT | [ ] |
+| **Detached Server** | `nuo start` -> `status` -> `token` -> `stop` | Background PID managed cleanly, token generated, clean stop | [ ] |
 | **TUI Ergonomics** | Interactive `nuo` prompt and tool approval | Crisp rendering, no CJK glitches, clean exit | [ ] |
 | **Headless CLI** | `nuo run "prompt"` and stdin pipe | Non-interactive execution, correct exit code 0 | [ ] |
 | **Attach & Fleet** | `nuo attach` and `nuo dashboard` | Interactive picker & full-screen dashboard function smoothly | [ ] |
@@ -570,7 +570,7 @@ Prior to tagging and publishing a new release, verify each item:
 When testing is complete, tear down the test environment:
 
 ```bash
-# Terminate any running test daemons
+# Terminate any running test servers
 nuo stop >/dev/null 2>&1 || true
 
 # Remove temporary instance directory

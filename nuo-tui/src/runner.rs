@@ -259,7 +259,7 @@ pub async fn run_dashboard(
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let project_root = nuo_host::paths::find_project_root(&raw_root);
-    let info = client::ensure_daemon(&project_root).await?;
+    let info = client::ensure_server(&project_root).await?;
     if !client::versions_compatible(&info) {
         return Err(client::incompatibility_error(&info).into());
     }
@@ -271,11 +271,11 @@ pub async fn run_dashboard(
         },
     )
     .await
-    .map_err(|e| format!("could not read the daemon's session list: {e}"))?;
+    .map_err(|e| format!("could not read the server's session list: {e}"))?;
     let snapshot = match rx.recv().await {
         Some(nuo_wire::MonitorEvent::Snapshot(snap)) => snap,
-        Some(_) => return Err("daemon monitor stream opened without a snapshot".into()),
-        None => return Err("daemon closed the monitor stream".into()),
+        Some(_) => return Err("server monitor stream opened without a snapshot".into()),
+        None => return Err("server closed the monitor stream".into()),
     };
     drop(rx);
     let carrier = snapshot
@@ -284,7 +284,7 @@ pub async fn run_dashboard(
         .max_by_key(|s| s.updated_at)
         .map(|s| s.id.clone())
         .ok_or_else(|| {
-            "the daemon hosts no sessions yet. Start one with bare `nuo`, \
+            "the server hosts no sessions yet. Start one with bare `nuo`, \
              then re-run `nuo dashboard`."
                 .to_string()
         })?;
@@ -318,7 +318,7 @@ pub async fn run_attached(
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let project_root = nuo_host::paths::find_project_root(&raw_root);
-    let info = client::ensure_daemon(&project_root).await?;
+    let info = client::ensure_server(&project_root).await?;
     if !client::versions_compatible(&info) {
         return Err(client::incompatibility_error(&info).into());
     }
@@ -410,7 +410,7 @@ pub async fn run_attached(
                         command_catalog,
                     ),
                     client::Handshake::Pick(_) => {
-                        return Err("the daemon offered no session to pick from".into());
+                        return Err("the server offered no session to pick from".into());
                     }
                 }
             }
@@ -421,7 +421,7 @@ pub async fn run_attached(
                 images: Vec::new(),
                 sent_at_ms: None,
             })
-            .map_err(|error| format!("daemon link lost before initial prompt: {error}"))?;
+            .map_err(|error| format!("server link lost before initial prompt: {error}"))?;
         }
         let base_config = crate::config::TuiConfig::load();
         let input_history = Vec::new();
@@ -457,7 +457,7 @@ pub async fn run_attached(
             entries: outcome.history,
             dedup: base_config.input_history.dedup,
         }) {
-            tracing::error!(%error, "daemon link lost before exit history flush");
+            tracing::error!(%error, "server link lost before exit history flush");
         }
         match outcome.switch_to {
             Some(id) => {

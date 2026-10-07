@@ -245,7 +245,7 @@ pub struct SubagentTool {
     parent_execution_policy: std::sync::Mutex<Option<nuo_wire::ExecutionPolicy>>,
     /// The session's workspace root, captured at bootstrap so the child's
     /// tools resolve relative paths against the session's project — not the
-    /// daemon process's cwd (ADR-0096). `None` falls back to the process cwd
+    /// server process's cwd (ADR-0096). `None` falls back to the process cwd
     /// (tests, single-project processes).
     workspace_root: std::sync::Mutex<Option<std::path::PathBuf>>,
     retry_config: std::sync::Mutex<SubagentRetryConfig>,
@@ -374,7 +374,7 @@ impl SubagentTool {
     }
 
     /// Pin the session's workspace root so spawned subagents resolve relative
-    /// paths against the session's project rather than the daemon process's
+    /// paths against the session's project rather than the server process's
     /// cwd (ADR-0096). Called by the bootstrap right after construction;
     /// `None` (the default) keeps the process-cwd fallback.
     pub fn set_workspace_root(&self, root: Option<std::path::PathBuf>) {

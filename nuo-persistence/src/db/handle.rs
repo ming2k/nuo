@@ -133,7 +133,7 @@ impl PersistenceHandle {
         }
     }
 
-    /// Startup must succeed before a daemon admits work.
+    /// Startup must succeed before a server admits work.
     pub fn ensure_ready(&self) -> std::result::Result<(), String> {
         match &self.startup_error {
             Some(error) => Err(error.to_string()),
@@ -146,7 +146,7 @@ impl PersistenceHandle {
         self.health.borrow().clone()
     }
 
-    /// Subscribe to writer health transitions (ADR-0196 D4): the daemon
+    /// Subscribe to writer health transitions (ADR-0196 D4): the server
     /// folds these into the monitor stream; frontends render degradation.
     pub fn subscribe_health(&self) -> watch::Receiver<WriterHealth> {
         self.health.clone()
@@ -505,7 +505,7 @@ impl PersistenceHandle {
     /// behind a slow write.
     pub fn reader(&self) -> Result<DbReader> {
         if let Some(error) = &self.startup_error {
-            // When another process already holds the single-writer advisory lock (e.g. background daemon),
+            // When another process already holds the single-writer advisory lock (e.g. background server),
             // this process cannot become the supervisor, but SQLite WAL mode safely allows concurrent read-only queries.
             let is_lock_contention = error.contains("could not acquire advisory lock");
             if !is_lock_contention {

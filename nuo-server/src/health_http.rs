@@ -1,6 +1,6 @@
-//! The lightweight HTTP API and health-probe side of the daemon's TCP port.
+//! The lightweight HTTP API and health-probe side of the server's TCP port.
 //!
-//! The daemon's TCP listener speaks two protocols, split by peeking at the
+//! The server's TCP listener speaks two protocols, split by peeking at the
 //! request head (`classify` in `serve.rs`): WebSocket upgrades go to the
 //! control plane; plain HTTP lands here.
 //!
@@ -16,7 +16,7 @@ const HEAD_CAP: usize = 16 * 1024;
 /// Serve one plain-HTTP connection, then close it.
 pub async fn serve<S>(
     stream: S,
-    daemon_version: &str,
+    server_version: &str,
     expected_token: Option<&str>,
 ) -> std::io::Result<()>
 where
@@ -65,7 +65,7 @@ where
             ],
         ),
         ("GET" | "HEAD", "/healthz") => {
-            let body = format!("{{\"version\":\"{daemon_version}\",\"auth\":{auth_required}}}");
+            let body = format!("{{\"version\":\"{server_version}\",\"auth\":{auth_required}}}");
             build_response(
                 "200 OK",
                 "application/json",

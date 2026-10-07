@@ -1,7 +1,7 @@
 //! Native operating-system capabilities used by nuo's business layers.
 //!
 //! The public API is expressed in semantic operations (local IPC, an owned
-//! process tree, daemon detachment, and an advisory process lock). OS-specific
+//! process tree, server detachment, and an advisory process lock). OS-specific
 //! mechanisms stay behind those boundaries so callers never emulate a missing
 //! capability with a successful no-op.
 

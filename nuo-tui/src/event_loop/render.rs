@@ -138,11 +138,11 @@ fn compose_frame(
     let status = if let Some(ref target) = app.switching_session {
         format!("loading session {target}…")
     } else if app.link_down {
-        // Dead-link chrome state (ADR-0197 D6): the daemon link is gone, so
+        // Dead-link chrome state (ADR-0197 D6): the server link is gone, so
         // user intents cannot be delivered. The live-status bar is the
         // visible anchor; it stays until the process exits, because nothing
         // can acknowledge recovery.
-        "daemon link lost".to_string()
+        "server link lost".to_string()
     } else {
         let base_status = display_status(
             app.loop_status,
@@ -314,7 +314,7 @@ fn compose_frame(
     // `provider_picker` rows (a row exists ⇒ the provider is configured;
     // `key_status` refines key readiness), mirroring what `/connections`
     // manages, so the nudge clears the moment the user fixes the real thing.
-    // An empty snapshot means "not synced yet" — the daemon's startup
+    // An empty snapshot means "not synced yet" — the server's startup
     // snapshot arrives within the first loop iterations — so the tour
     // renders in that window rather than flashing a false no-provider
     // warning at an already-configured user. A genuinely provider-less
@@ -387,8 +387,8 @@ fn compose_frame(
                 chrome_hidden,
                 queue_bar: render::QueueBarProps {
                     items: &queue_items,
-                    // "Paused" = items waiting on the daemon's round boundary
-                    // (ADR-0197 M4: the daemon decides when they ship).
+                    // "Paused" = items waiting on the server's round boundary
+                    // (ADR-0197 M4: the server decides when they ship).
                     paused: app.pending_dispatch.iter().any(|item| {
                         item.session_id == viewed_session_id
                             && item.state == crate::app::QueuedDispatchState::Waiting

@@ -16,7 +16,7 @@ use supervisor::{
 use cli::{CliArgs, McpAction, Mode, ServerAction};
 use std::path::PathBuf;
 
-/// Worker-thread stack size for the daemon.
+/// Worker-thread stack size for the server.
 const WORKER_STACK_BYTES: usize = 8 * 1024 * 1024;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

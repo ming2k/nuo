@@ -42,7 +42,7 @@ pub struct InteractionController {
     skip_interactive_input: Arc<AtomicBool>,
     /// Fallback strategy when autonomous.
     fallback_policy: Mutex<AutonomousFallbackPolicy>,
-    /// Live channel source when connected to a multi-client daemon session.
+    /// Live channel source when connected to a multi-client server session.
     human_channel: Mutex<Option<Arc<HumanChannelAccountant>>>,
 }
 

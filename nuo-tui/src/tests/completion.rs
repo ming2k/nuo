@@ -594,7 +594,7 @@ fn two_stage_skill_completion_descends_and_terminates() {
 #[test]
 fn bare_at_query_does_not_pass_through_to_stage2_content() {
     // ADR-0290: typing `@wright` (no namespace committed) must NOT surface any
-    // Stage-2 skill/file content. The daemon engine returns nothing for a bare
+    // Stage-2 skill/file content. The server engine returns nothing for a bare
     // query that is not a namespace prefix; the composer mirrors that.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.input = "@wright".to_string();

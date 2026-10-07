@@ -34,7 +34,7 @@ use nuo_provider_catalog::models_endpoint_for;
 
 /// The catalog URL, built from the connection's elected inference host (falling
 /// back to the pinned spec root) exactly as the catalog sync layer does, so the
-/// dump exercises the same transport the daemon uses.
+/// dump exercises the same transport the server uses.
 fn catalog_url(base: &str) -> Result<String, String> {
     let endpoint = models_endpoint_for(CatalogShape::SceneMap, base).map_err(|e| e.to_string())?;
     let mut url = endpoint;

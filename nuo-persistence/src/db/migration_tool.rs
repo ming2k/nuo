@@ -17,7 +17,7 @@
 //!   reported as known-missing, never marked `Complete`.
 //!
 //! It uses raw `rusqlite` connections on purpose — it is a separate process
-//! from the daemon, so the ADR-0231 one-door rule (which governs the live
+//! from the server, so the ADR-0231 one-door rule (which governs the live
 //! runtime) does not apply to it. The module lives under `db::` so the
 //! one-door source guard, which only scans the live crates, is not tripped.
 

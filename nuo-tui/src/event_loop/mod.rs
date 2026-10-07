@@ -165,7 +165,7 @@ pub async fn run_app_loop(
         }
 
         // Freeze guard. Below the usable minimum the whole UI is replaced by a
-        // centered notice. While frozen we keep applying daemon mutations (so
+        // centered notice. While frozen we keep applying server mutations (so
         // a streaming round is never lost) but block every user-originated
         // event except a resize and Ctrl-C, and paint nothing but the notice —
         // no spinner, carousel, or scroll motion can move state the user
@@ -173,7 +173,7 @@ pub async fn run_app_loop(
         // resize out of the minimum lifts the freeze on the next pass.
         let (frozen_w, frozen_h) = terminal.size();
         if crate::design::below_minimum(frozen_w, frozen_h) {
-            // Daemon-owned state stays current even while frozen.
+            // Server-owned state stays current even while frozen.
             while let Ok(mutation) = mutation_rx.try_recv() {
                 apply::apply(app, &runtime, mutation);
             }
@@ -261,7 +261,7 @@ pub async fn run_app_loop(
         }
 
         // ADR-0197 M1: drain every pending translator mutation into `App`.
-        // The applier is the sole `App` writer for daemon-originated state;
+        // The applier is the sole `App` writer for server-originated state;
         // this pass runs before any reconciliation or render.
         while let Ok(mutation) = mutation_rx.try_recv() {
             if apply::apply(app, &runtime, mutation) {

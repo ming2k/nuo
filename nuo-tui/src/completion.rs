@@ -1,4 +1,4 @@
-//! Client-side presentation adapter for daemon-owned composer completion.
+//! Client-side presentation adapter for server-owned composer completion.
 //!
 //! Matching, intent steering, project scanning, and path resolution happen in
 //! Nuo. The TUI only requests results, translates wire offsets into Rust byte

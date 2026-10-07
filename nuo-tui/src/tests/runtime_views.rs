@@ -1,4 +1,4 @@
-//! Runtime-surface tests: overview, console/relay monitors, daemon status, activity state, tab surfaces.
+//! Runtime-surface tests: overview, console/relay monitors, server status, activity state, tab surfaces.
 
 use super::*;
 
@@ -328,7 +328,7 @@ fn websearch_provider_dropdown_builds_and_selects() {
             .find(|item| item.id == "tavily")
             .and_then(|item| item.indicator),
         None,
-        "the daemon reports readiness only for the active provider"
+        "the server reports readiness only for the active provider"
     );
 }
 

@@ -1930,7 +1930,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::QueueToggleBlock => {
             // `Ctrl+P` inside the queue modal: toggle the hard block on the
             // viewed session's outbox. ADR-0197 M4: the pause is the
-            // *daemon's* queue flag — the local toggle is the optimistic
+            // *server's* queue flag — the local toggle is the optimistic
             // projection and the verb is authoritative.
             let paused = !app.is_queue_blocked(viewed_session_id);
             app.set_queue_blocked(viewed_session_id, paused);
@@ -2076,7 +2076,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         // Quit decisions flip `should_quit` so the loop terminates on
         // the next iteration; trust decisions dispatch the canonical
         // `/trust` slash command and let the per-frame sync clear
-        // `pre_attach` once the daemon republishes a Trusted snapshot.
+        // `pre_attach` once the server republishes a Trusted snapshot.
         input::InputAction::PreAttachUp => {
             if let Some(pa) = app.pre_attach.as_mut() {
                 let _ = pa.apply(crate::question_model::QuestionAction::Up);
@@ -2363,7 +2363,7 @@ pub(super) fn enter_panel(
     }
     if id == DialogKind::Queue {
         // ADR-0197 M4: the editing-safety auto-pause is mirrored to the
-        // daemon queue authority (resume on close, via `queue_exit_session`).
+        // server queue authority (resume on close, via `queue_exit_session`).
         app.set_queue_blocked(viewed_session_id, true);
         app.send_intent(AgentRequest::QueuePaused {
             session_id: viewed_session_id.to_string(),
@@ -3068,7 +3068,7 @@ async fn execute_command_by_id(
 /// ADR-0175: apply a PreAttach surface decision.
 ///
 /// `TrustCommand` routes through the canonical `/trust` slash command
-/// — the same path the daemon's `/trust` handler uses, so persistence
+/// — the same path the server's `/trust` handler uses, so persistence
 /// AND the live reload stay owned by the one code path. The per-frame
 /// sync observes the subsequent `Trusted` snapshot and clears
 /// `App::pre_attach` on the next frame.

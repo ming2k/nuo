@@ -1,9 +1,9 @@
-//! The session daemon runtime (ADR-0096): one process that owns every
+//! The session server runtime (ADR-0096): one process that owns every
 //! session across every project for the user and serves them over the
 //! control plane (owner-only native local IPC by default, TCP + bearer token
 //! with `--public`) so TUI/CLI/web clients can drive, observe, and manage them.
 //!
-//! Vocabulary: the *role* is the **daemon**; `nuo start --fg` runs
+//! Vocabulary: the *role* is the **server**; `nuo start --fg` runs
 //! it in the foreground and `nuo start` detaches it.
 //!
 //! # Lifecycle (ADR-0101)
@@ -14,7 +14,7 @@
 //!    idle-exit timer, a fatal startup error) funnels into one
 //!    [`ShutdownGate`]; the first reason latches.
 //! 2. The drain runs in phases under a total grace budget
-//!    (`[daemon] shutdown_grace_secs`): pull the discovery advertisement,
+//!    (`[server] shutdown_grace_secs`): pull the discovery advertisement,
 //!    stop accepting, close live connections, tear every session down
 //!    concurrently with per-hook deadlines.
 //! 3. Every phase checks `gate.forced()` (a second signal skips the rest)
@@ -42,7 +42,7 @@ pub struct HostOptions {
     pub expose: ServeExpose,
     pub token: Option<String>,
     /// Require a bearer token on the loopback TCP listener (ADR-0105);
-    /// resolved by the CLI from `[daemon] local_auth` + `--no-local-auth`.
+    /// resolved by the CLI from `[server] local_auth` + `--no-local-auth`.
     pub local_auth: bool,
     /// Fall back to an OS-assigned port when the requested one is taken
     /// (ADR-0105): on for the CLI default port, off for an explicit `--port`
@@ -61,8 +61,8 @@ pub struct HostIdentity {
     pub ui: Arc<dyn UiBridge>,
 }
 
-/// The daemon lifecycle configuration, resolved once at startup (ADR-0101).
-/// Mirrors `[daemon]` in `config.toml` (see `DaemonConfig`) with the
+/// The server lifecycle configuration, resolved once at startup (ADR-0101).
+/// Mirrors `[server]` in `config.toml` (see `ServerConfig`) with the
 /// always-on escape hatch surfaced as `idle_exit: None`.
 #[derive(Debug, Clone)]
 pub struct LifecycleOptions {
@@ -81,7 +81,7 @@ pub struct LifecycleOptions {
 
 impl LifecycleOptions {
     pub fn from_config() -> Self {
-        let cfg = Config::load().daemon;
+        let cfg = Config::load().server;
         Self {
             shutdown_grace: Duration::from_secs(cfg.shutdown_grace_secs.max(1)),
             idle_exit: match cfg.idle_exit_minutes {
@@ -105,14 +105,14 @@ impl Default for LifecycleOptions {
     }
 }
 
-/// What ended the daemon: surfaced to the binary for its exit line/code.
+/// What ended the server: surfaced to the binary for its exit line/code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunOutcome {
     /// The graceful drain completed within its budget.
     Stopped { reason: ShutdownReason },
     /// The grace budget expired (or a second trigger escalated); stragglers
     /// were aborted. Exit code is still 0 for a signal-initiated stop — the
-    /// daemon *did* stop, the hooks that did not finish are named in the log.
+    /// server *did* stop, the hooks that did not finish are named in the log.
     ForcedExit { reason: ShutdownReason },
     /// Startup could not complete (bind failure, single-instance lock
     /// contended past its wait). Exit code 1.
@@ -135,7 +135,7 @@ impl RunOutcome {
     }
 }
 
-/// Run the daemon until a shutdown trigger, then drain within the configured
+/// Run the server until a shutdown trigger, then drain within the configured
 /// grace budget. Installs the OS signal listeners itself. See the module
 /// docs for the phase-by-phase breakdown.
 pub async fn run(
@@ -200,14 +200,14 @@ async fn run_inner(
         ui,
     } = identity;
     let _signals = SignalGuard::install(gate.clone());
-    // Daemon-wide panic visibility (task supervision): a detached daemon has
+    // Server-wide panic visibility (task supervision): a detached server has
     // no controlling terminal, so a panicking task's default-hook output
     // went nowhere. Log every panic (with origin) through tracing first;
     // supervised call sites then turn it into a state transition instead of
     // a silent zombie. Installed before any task is spawned.
     crate::task_fault_tolerance::install_panic_hook();
     let gate: Arc<ShutdownGate> =
-        Arc::new((*gate).clone().with_version(crate::serve::daemon_version()));
+        Arc::new((*gate).clone().with_version(crate::serve::server_version()));
     bootstrap::ensure_app_roots();
     let registry = registry.unwrap_or_else(|| {
         Arc::new(SessionRegistry::new(HostParams {
@@ -221,17 +221,17 @@ async fn run_inner(
         .map(|d| d.as_secs())
         .unwrap_or(0);
     registry.set_monitor_meta(String::new(), started_at).await;
-    // ADR-0190 D6: the daemon-task monitor tap folds daemon-fabric events
+    // ADR-0190 D6: the server-task monitor tap folds server-fabric events
     // into monitor snapshots/diffs so rehosted services are operator-visible.
-    registry.start_daemon_task_monitor();
+    registry.start_server_task_monitor();
     // ADR-0196 D4: the durability-health tap publishes persistence-writer
     // transitions so degradation is user-visible, not log-only.
     registry.start_persistence_health_monitor();
 
     // Single instance (ADR-0101)
-    // Hold the global lock for the process lifetime. A second daemon spawned
+    // Hold the global lock for the process lifetime. A second server spawned
     // while this one drains blocks (bounded) on the same lock instead of
-    // unlinking a live daemon's UDS socket — the clobbering race the
+    // unlinking a live server's UDS socket — the clobbering race the
     // pre-0101 "remove stale socket file" step could not tell apart.
     let lock_path = discovery::global_lock_path();
     if let Some(parent) = lock_path.parent() {
@@ -242,13 +242,13 @@ async fn run_inner(
         Some(nuo_host::ipc::LocalEndpoint::UnixSocket(path)) => Some(path.as_path()),
         _ => None,
     };
-    takeover_conflicting_daemon(&lock_path, local_uds_path, opts.port).await;
+    takeover_conflicting_server(&lock_path, local_uds_path, opts.port).await;
 
     let _instance_lock = match ProcessLock::acquire(&lock_path) {
         Ok(lock) => Some(lock),
         Err(busy) => {
             let budget = Duration::from_millis(1500);
-            tracing::warn!(%busy, "nuo daemon: another daemon holds the instance lock; attempting takeover");
+            tracing::warn!(%busy, "nuo server: another server holds the instance lock; attempting takeover");
             match wait_for_lock(&lock_path, budget).await {
                 Ok(lock) => Some(lock),
                 Err(_) => {
@@ -285,7 +285,7 @@ async fn run_inner(
         },
         Arc::clone(&registry),
     );
-    // The daemon's gate is the serve gate (the Shutdown control verb funnels
+    // The server's gate is the serve gate (the Shutdown control verb funnels
     // into the same trigger as signals).
     let gate: Arc<ShutdownGate> = handle_gate(handle.gate.clone(), &gate);
     registry.spawn_idle_reaper(handle.cancel.clone());
@@ -327,18 +327,18 @@ async fn run_inner(
         Err(error) => {
             handle.cancel.cancel();
             return RunOutcome::StartupFailed(format!(
-                "could not establish daemon process identity: {error}"
+                "could not establish server process identity: {error}"
             ));
         }
     };
 
     // Discovery record (ADR-0096/0100): written only after both configured
-    // transports are confirmed bound, carrying the daemon's version for skew
+    // transports are confirmed bound, carrying the server's version for skew
     // detection.
     // The lease removes it on *every* exit path (Drop), including panics.
     //
-    // ADR-0021: capture the daemon's own executable image identity once, here
-    // at boot, before the image can be replaced under us. It is the daemon's
+    // ADR-0021: capture the server's own executable image identity once, here
+    // at boot, before the image can be replaced under us. It is the server's
     // half of the content-based dev-drift check a client performs; a `None`
     // (unreadable image) simply leaves the client on the legacy inode probe.
     let image_identity = nuo_host::process::current_exe_digest_len();
@@ -347,22 +347,22 @@ async fn run_inner(
         process_birth_token: Some(process_identity.birth_token),
         port,
         token: handle.token.clone(),
-        project_root: String::new(), // daemon is project-agnostic now
+        project_root: String::new(), // server is project-agnostic now
         started_at,
         uds_path: match &bound_local {
             Some(nuo_host::ipc::LocalEndpoint::UnixSocket(path)) => Some(path.clone()),
             _ => None,
         },
         local_endpoint: bound_local.clone(),
-        version: Some(crate::serve::daemon_version().to_string()),
+        version: Some(crate::serve::server_version().to_string()),
         protocol: Some(nuo_client::wire::PROTOCOL_VERSION),
-        // ADR-0021: the daemon's own image identity, so a client can tell a
+        // ADR-0021: the server's own image identity, so a client can tell a
         // rebuilt binary apart from a live one by content, not just by path.
         image_digest: image_identity.as_ref().map(|(_, digest)| digest.clone()),
         image_len: image_identity.as_ref().map(|(len, _)| *len),
         // Publish the drain budget so `nuo stop` waits *this*
-        // daemon's grace before escalating (ADR-0116): an early SIGTERM
-        // would force-exit the daemon and skip the very session teardown
+        // server's grace before escalating (ADR-0116): an early SIGTERM
+        // would force-exit the server and skip the very session teardown
         // the stop requested.
         grace_secs: Some(lifecycle.shutdown_grace.as_secs()),
     };
@@ -371,7 +371,7 @@ async fn run_inner(
         Err(error) => {
             handle.cancel.cancel();
             return RunOutcome::StartupFailed(format!(
-                "could not publish daemon discovery record: {error}"
+                "could not publish server discovery record: {error}"
             ));
         }
     };
@@ -381,7 +381,7 @@ async fn run_inner(
         record.process_birth_token,
     );
 
-    // Foreground banner: where the daemon listens and how to reach it, on
+    // Foreground banner: where the server listens and how to reach it, on
     // stderr so piping stays clean.
     let bind = if opts.expose == crate::serve::ServeExpose::Public {
         "0.0.0.0"
@@ -417,12 +417,12 @@ async fn run_inner(
             ),
         }
     }
-    tracing::info!(%bind, port, "nuo daemon: listening");
+    tracing::info!(%bind, port, "nuo server: listening");
 
     // Boot rehost (ADR-0190 D4, the general successor of ADR-0125's
     // armed-schedule rehost): every service task in the durable task ledger
     // that carries a restart policy is re-spawned on the **registry's
-    // daemon-task fabric** — so its lifecycle events are monitor-visible
+    // server-task fabric** — so its lifecycle events are monitor-visible
     // (the D6 hub), not lost to an unobserved manager. Failures are logged
     // and non-fatal.
     {
@@ -443,7 +443,7 @@ async fn run_inner(
                 let command = command.clone();
                 tokio::spawn(async move {
                     match registry
-                        .spawn_daemon_task(
+                        .spawn_server_task(
                             command,
                             Some(format!("rehost:{}", row.job_id)),
                             nuo_wire::JobKind::Service,
@@ -478,7 +478,7 @@ async fn run_inner(
     let reason = gate
         .reason()
         .unwrap_or(ShutdownReason::Fatal("unknown".into()));
-    tracing::info!(%reason, remaining_budget =? lifecycle.shutdown_grace, "nuo daemon: draining");
+    tracing::info!(%reason, remaining_budget =? lifecycle.shutdown_grace, "nuo server: draining");
     let deadline = tokio::time::Instant::now() + lifecycle.shutdown_grace;
 
     // Test seam: park here so a test can land an escalation (or observe the
@@ -488,12 +488,12 @@ async fn run_inner(
     }
 
     // Phase 1 — pull the advertisement *first*: a client reading the record
-    // right now must not discover a daemon that is going away.
+    // right now must not discover a server that is going away.
     discovery_lease.release();
 
     // Phase 2 — stop accepting, close live connections, confirm the loops.
     handle.cancel.cancel();
-    registry.publish_host_event(nuo_wire::MonitorEvent::DaemonDraining);
+    registry.publish_host_event(nuo_wire::MonitorEvent::ServerDraining);
     registry
         .broadcast_all_sessions(nuo_wire::AgentResponse::Exit)
         .await;
@@ -505,7 +505,7 @@ async fn run_inner(
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         let hung = tasks.join_all_with_budget(remaining).await;
         for (name, why) in &hung {
-            tracing::warn!(task = %name, %why, "nuo daemon: task did not stop within the grace budget");
+            tracing::warn!(task = %name, %why, "nuo server: task did not stop within the grace budget");
         }
     }
 
@@ -534,7 +534,7 @@ async fn run_inner(
     if forced {
         tracing::warn!(
             %reason,
-            "nuo daemon: forced exit — some teardown work was abandoned (see the task warnings above)"
+            "nuo server: forced exit — some teardown work was abandoned (see the task warnings above)"
         );
         RunOutcome::ForcedExit { reason }
     } else {
@@ -580,7 +580,7 @@ fn is_tcp_port_live(port: u16) -> bool {
     std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
 }
 
-async fn takeover_conflicting_daemon(
+async fn takeover_conflicting_server(
     lock_path: &std::path::Path,
     uds_path: Option<&std::path::Path>,
     port: u16,
@@ -673,7 +673,7 @@ async fn client_driven_exit_future(conns: Arc<crate::serve::ConnTable>) {
     let startup_deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     while !conns.has_had_interactive() && conns.interactive_count() == 0 {
         if tokio::time::Instant::now() >= startup_deadline {
-            tracing::info!("no interactive client connected within startup window; terminating daemon");
+            tracing::info!("no interactive client connected within startup window; terminating server");
             return;
         }
         tokio::select! {

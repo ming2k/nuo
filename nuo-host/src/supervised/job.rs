@@ -160,7 +160,7 @@ pub enum JobKind {
     #[serde(rename = "interactive")]
     #[default]
     Interactive,
-    /// Long-lived work (dev server, watcher, daemon). Readiness (ADR-0190
+    /// Long-lived work (dev server, watcher, server). Readiness (ADR-0190
     /// `Ready`) is reported once met; the task never settles while running,
     /// and an unsolicited exit settles `Failed` so the session is woken with
     /// the crash.

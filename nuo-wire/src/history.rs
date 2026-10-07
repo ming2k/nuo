@@ -174,7 +174,7 @@ pub fn merge_history(
 
 /// One full-text search hit across persisted session transcripts (ADR-0208).
 ///
-/// Produced by the daemon's FTS5 query over `fts_entries` — the wire-facing
+/// Produced by the server's FTS5 query over `fts_entries` — the wire-facing
 /// mirror of the persistence layer's raw result, enriched with the session
 /// title so a hit is presentable without a second round-trip. The snippet
 /// carries FTS `<b>`/`</b>` highlight markers; renderers that cannot show

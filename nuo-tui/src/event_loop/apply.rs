@@ -274,7 +274,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             paused,
         } => {
             // Authoritative replace, preserving in-flight optimistic entries
-            // (state `Dispatching`, id not yet in the snapshot — the daemon
+            // (state `Dispatching`, id not yet in the snapshot — the server
             // ack for those is still in flight).
             let optimistic: Vec<crate::app::QueuedDispatch> = app
                 .pending_dispatch
@@ -335,7 +335,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
                 rows
             } else {
                 // `[input_history] record_commands = false`: scrub any legacy
-                // `/slash` invocations from the daemon snapshot so they stop
+                // `/slash` invocations from the server snapshot so they stop
                 // showing in the picker.
                 rows.into_iter()
                     .filter(|e| !e.text.starts_with('/'))

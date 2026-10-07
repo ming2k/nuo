@@ -1,7 +1,7 @@
 //! Backend-owned command vocabulary shared by every frontend.
 //!
 //! Commands are *harness commands*: control-plane operations owned by the
-//! session harness (invoked from a composer as `/name`). The daemon owns the
+//! session harness (invoked from a composer as `/name`). The server owns the
 //! vocabulary; frontends only render it.
 
 use serde::{Deserialize, Serialize};
@@ -118,7 +118,7 @@ pub enum ComposerCompletionKind {
 
 pub type InputCompletionKind = ComposerCompletionKind;
 
-/// One completion edit produced by the daemon for the composer.
+/// One completion edit produced by the server for the composer.
 ///
 /// Replacement offsets are Unicode-scalar indices, not UTF-8 byte offsets or
 /// JavaScript UTF-16 code units. That gives every frontend one stable wire

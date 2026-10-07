@@ -1,19 +1,19 @@
-//! Process-lifecycle primitives. A daemon and an owned subprocess tree have
+//! Process-lifecycle primitives. A server and an owned subprocess tree have
 //! intentionally different lifetime policies.
 
 use std::io;
 use tokio::process::{Child, Command};
 
-/// Configure a long-lived daemon to detach from the invoking terminal.
+/// Configure a long-lived server to detach from the invoking terminal.
 ///
-/// This never attaches the daemon to a kill-on-close Windows Job Object.
-pub fn configure_daemon(command: &mut Command) {
-    native::configure_daemon(command);
+/// This never attaches the server to a kill-on-close Windows Job Object.
+pub fn configure_server(command: &mut Command) {
+    native::configure_server(command);
 }
 
 /// Synchronous-command counterpart used before a runtime exists.
-pub fn configure_daemon_std(command: &mut std::process::Command) {
-    native::configure_daemon_std(command);
+pub fn configure_server_std(command: &mut std::process::Command) {
+    native::configure_server_std(command);
 }
 
 /// Spawn a subprocess whose complete descendant tree is owned by the returned
@@ -223,7 +223,7 @@ pub fn force_terminate(identity: ProcessIdentity) -> io::Result<()> {
 }
 
 /// Request the platform's graceful process termination, when one exists.
-/// Windows daemons use the control protocol and therefore report
+/// Windows servers use the control protocol and therefore report
 /// `Unsupported` here; callers may then proceed to their force tier.
 pub fn request_termination(identity: ProcessIdentity) -> io::Result<()> {
     if !process_is_alive(identity) {
@@ -343,7 +343,7 @@ const IMAGE_DIGEST_WINDOWS: u64 = 8;
 /// never as drift.
 ///
 /// This is used by a **client** to fingerprint the image it *would spawn*:
-/// deliberately by path, because the client's question is "is the daemon
+/// deliberately by path, because the client's question is "is the server
 /// running the file that now sits at this path?".
 pub fn image_digest_len(path: &std::path::Path) -> Option<(u64, String)> {
     let mut file = std::fs::File::open(path).ok()?;
@@ -355,7 +355,7 @@ pub fn image_digest_len(path: &std::path::Path) -> Option<(u64, String)> {
 /// memory** — *not* whatever may now sit at its path.
 ///
 /// This asymmetry matters: a **client** fingerprints by path (the file it
-/// would exec), but a **daemon** must fingerprint the very image the kernel
+/// would exec), but a **server** must fingerprint the very image the kernel
 /// loaded into it. On Linux `/proc/self/exe` is a magic link that resolves to
 /// the *held inode* (and to `… (deleted)` once the on-disk file has been
 /// replaced), which is exactly that image. Re-opening [`current_exe`]'s *path*
@@ -365,7 +365,7 @@ pub fn image_digest_len(path: &std::path::Path) -> Option<(u64, String)> {
 /// the *dereferenced path string*, so opening it hits the new file.)
 ///
 /// On platforms with no equivalent handle (macOS, Windows) the held image
-/// cannot be read reliably, so this returns `None`: the daemon then publishes
+/// cannot be read reliably, so this returns `None`: the server then publishes
 /// no digest and clients keep the pre-ADR-0021 inode probe, rather than
 /// trusting a digest that might describe the wrong file. Absence of evidence
 /// is not drift.
@@ -432,8 +432,8 @@ mod native {
                 .join(pid.to_string())
                 .join("exe");
             match (std::fs::metadata(&exe_link), std::fs::metadata(expected)) {
-                (Ok(daemon), Ok(expected_meta)) => {
-                    daemon.dev() == expected_meta.dev() && daemon.ino() == expected_meta.ino()
+                (Ok(server), Ok(expected_meta)) => {
+                    server.dev() == expected_meta.dev() && server.ino() == expected_meta.ino()
                 }
                 _ => true,
             }
@@ -445,7 +445,7 @@ mod native {
         }
     }
 
-    pub(super) fn configure_daemon(command: &mut Command) {
+    pub(super) fn configure_server(command: &mut Command) {
         // SAFETY: `setsid` is async-signal-safe and performs no allocation.
         unsafe {
             command.pre_exec(|| {
@@ -457,7 +457,7 @@ mod native {
         }
     }
 
-    pub(super) fn configure_daemon_std(command: &mut std::process::Command) {
+    pub(super) fn configure_server_std(command: &mut std::process::Command) {
         use std::os::unix::process::CommandExt;
 
         // SAFETY: `setsid` is async-signal-safe and performs no allocation.
@@ -722,9 +722,9 @@ mod tests {
         assert!(image_digest_len(&dir.path().join("missing")).is_none());
     }
 
-    /// On Linux the daemon's self-fingerprint must describe the image the
+    /// On Linux the server's self-fingerprint must describe the image the
     /// kernel **loaded into this process** (`/proc/self/exe`), not whatever
-    /// sits at `current_exe()`'s path — the asymmetry that keeps the daemon's
+    /// sits at `current_exe()`'s path — the asymmetry that keeps the server's
     /// attestation honest when the on-disk file is later replaced.
     #[cfg(target_os = "linux")]
     #[test]
@@ -761,11 +761,11 @@ mod native {
         THREAD_SUSPEND_RESUME, TerminateProcess,
     };
 
-    pub(super) fn configure_daemon(command: &mut Command) {
+    pub(super) fn configure_server(command: &mut Command) {
         command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
     }
 
-    pub(super) fn configure_daemon_std(command: &mut std::process::Command) {
+    pub(super) fn configure_server_std(command: &mut std::process::Command) {
         use std::os::windows::process::CommandExt;
         command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
     }
@@ -964,7 +964,7 @@ mod native {
     pub(super) fn request_termination(_pid: u32) -> io::Result<()> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
-            "Windows daemon shutdown is protocol-driven",
+            "Windows server shutdown is protocol-driven",
         ))
     }
 

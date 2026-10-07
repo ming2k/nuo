@@ -234,7 +234,7 @@ pub trait ExecutionEnvironment: Send + Sync {
     /// Whether path confinement is enforced for this environment.
     /// By default `true` (file tools are strictly confined to workspace roots).
     /// When disabled (`false`), file tools resolve any absolute path on the host,
-    /// bounded only by host OS / daemon user permissions.
+    /// bounded only by host OS / server user permissions.
     fn is_confined(&self) -> bool {
         true
     }

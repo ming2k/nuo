@@ -1,4 +1,4 @@
-//! The daemon's shutdown machinery (ADR-0101): one gate every trigger source
+//! The server's shutdown machinery (ADR-0101): one gate every trigger source
 //! funnels into, a supervised task book, and the signal listeners that turn
 //! OS signals into [`ShutdownReason`]s.
 //!
@@ -22,8 +22,8 @@ use std::collections::HashMap;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-/// Why the daemon is shutting down. The first reason wins; it is surfaced to
-/// the operator in the exit log line so "why did my daemon stop" is always
+/// Why the server is shutting down. The first reason wins; it is surfaced to
+/// the operator in the exit log line so "why did my server stop" is always
 /// answerable from the logs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShutdownReason {
@@ -33,7 +33,7 @@ pub enum ShutdownReason {
     /// supervisor. Historically this bypassed graceful shutdown entirely
     /// (pre-ADR-0101); it now runs the same teardown as Ctrl-C.
     SignalTerminate,
-    /// SIGHUP — terminal closed. A daemon spawned from an interactive shell
+    /// SIGHUP — terminal closed. A server spawned from an interactive shell
     /// gets this when the terminal goes away; draining beats dying.
     SignalHangup,
     /// The `Shutdown` control-plane verb (ADR-0100): a remote, scripted stop.
@@ -43,7 +43,7 @@ pub enum ShutdownReason {
     IdleTimeout,
     /// All active interactive TUI clients disconnected (ADR-0029).
     AllClientsClosed,
-    /// A startup or runtime failure the daemon cannot survive (bind failure,
+    /// A startup or runtime failure the server cannot survive (bind failure,
     /// a supervised core task panicking). The message surfaces in the exit
     /// log line.
     Fatal(String),
@@ -65,7 +65,7 @@ impl std::fmt::Display for ShutdownReason {
 
 /// Single shutdown trigger point: a cancellation gate plus the reason it
 /// fired (first wins). Clone the gate into every subsystem that needs to
-/// observe "the daemon is going down"; ask it why afterwards.
+/// observe "the server is going down"; ask it why afterwards.
 #[derive(Clone)]
 pub struct ShutdownGate {
     cancel: CancellationToken,
@@ -76,7 +76,7 @@ pub struct ShutdownGate {
     /// *original* trigger for the exit line while `forced()` drives the
     /// run loop's phase decisions.
     forced: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    /// The daemon build's version for handshake negotiation (ADR-0100).
+    /// The server build's version for handshake negotiation (ADR-0100).
     version: Option<String>,
 }
 
@@ -92,7 +92,7 @@ impl ShutdownGate {
         }
     }
 
-    /// Attach this daemon build's version, reported to skewed clients in the
+    /// Attach this server build's version, reported to skewed clients in the
     /// handshake refusal (ADR-0100 rule 4). Set once by `host::run` before
     /// the listeners start accepting.
     pub fn with_version(self, version: impl Into<String>) -> Self {
@@ -102,8 +102,8 @@ impl ShutdownGate {
         }
     }
 
-    /// The daemon version this gate reports during handshake negotiation.
-    pub fn version_of_daemon(&self) -> &str {
+    /// The server version this gate reports during handshake negotiation.
+    pub fn version_of_server(&self) -> &str {
         self.version.as_deref().unwrap_or("unknown")
     }
 
@@ -332,7 +332,7 @@ impl std::fmt::Display for TaskExit {
 }
 
 /// Install the OS signal listeners: SIGINT/SIGTERM/SIGHUP on Unix (SIGHUP is
-/// terminal death for a shell-spawned daemon), Ctrl-C alone on Windows.
+/// terminal death for a shell-spawned server), Ctrl-C alone on Windows.
 /// Every signal funnels into `gate`; the second signal escalates. Returns a
 /// handle the run loop drops to unregister the listeners (tests keep their
 /// own trigger source instead).

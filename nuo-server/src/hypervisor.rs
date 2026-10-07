@@ -9,7 +9,7 @@ use nuo_harness::{Agent, AgentIdentity};
 
 use crate::registry::SessionRegistry;
 
-/// The single Hypervisor station per daemon (staffed by an agent in Root posture).
+/// The single Hypervisor station per server (staffed by an agent in Root posture).
 ///
 /// Responsible for orchestrating sessions, tracking progress across projects,
 /// joint debugging / cross-session coordination, and dispatching top-down
@@ -25,7 +25,7 @@ pub struct Hypervisor {
 }
 
 impl Hypervisor {
-    /// Create the singleton hypervisor station for the daemon.
+    /// Create the singleton hypervisor station for the server.
     pub async fn new(
         provider: Arc<dyn nuo_wire::Provider>,
         registry: SessionRegistry,
@@ -36,7 +36,7 @@ impl Hypervisor {
         let manifest = AgentManifest::new(
             address.clone(),
             "hypervisor",
-            "the single daemon-level hypervisor for Nuo — orchestrating sessions and multi-session workflows",
+            "the single server-level hypervisor for Nuo — orchestrating sessions and multi-session workflows",
         );
         let mailbox = fabric.join(manifest, 64).await;
 
@@ -61,7 +61,7 @@ impl Hypervisor {
 
         let identity = AgentIdentity::new(
             "hypervisor",
-            "the single daemon-level hypervisor for Nuo — orchestrating sessions, tracking progress across projects, and coordinating joint debugging and multi-session workflows",
+            "the single server-level hypervisor for Nuo — orchestrating sessions, tracking progress across projects, and coordinating joint debugging and multi-session workflows",
         );
 
         let agent = Arc::new(Agent::new(provider, tools, identity));
@@ -85,7 +85,7 @@ impl Hypervisor {
     }
 }
 
-/// Tool for Hypervisor to list and monitor all hosted sessions across the daemon.
+/// Tool for Hypervisor to list and monitor all hosted sessions across the server.
 pub struct HypervisorListSessionsTool {
     registry: SessionRegistry,
 }
@@ -103,7 +103,7 @@ impl Tool for HypervisorListSessionsTool {
     }
 
     fn description(&self) -> &str {
-        "List all active and hosted sessions in the daemon with their statuses and message counts."
+        "List all active and hosted sessions in the server with their statuses and message counts."
     }
 
     fn parameters(&self) -> serde_json::Value {

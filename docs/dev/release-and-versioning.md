@@ -38,8 +38,8 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 
 ┌────────────────────────────────────────────────────────┐
 │  Cluster C: Application & Subsystem Host Suite         │
-│  • nuo (daemon & unified CLI coordinator)              │
-│  • nuo-server (headless daemon container runtime)      │
+│  • nuo (server & unified CLI coordinator)              │
+│  • nuo-server (headless server container runtime)      │
 │  • nuo-tui (terminal presentation view library)        │
 │  • nuo-client (SDK), nuo-host (host environment)       │
 │  • nuo-agent (cognitive loop), nuo-wire (domain & wire) │
@@ -59,8 +59,8 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 | :--- | :--- | :--- | :--- | :--- |
 | **`acp`** | **Cluster B** | Universal inter-agent communication & channels | Explicit `version = "0.0.1"` | Independent crates.io package |
 | **`nuotc`** | **Cluster A** | Domain-free 2D terminal canvas & diffing | Explicit `version = "0.0.1"` | Independent crates.io package |
-| **`nuo`** | **Cluster C** | Unified public executable (daemon, CLI, TUI runner) | `version.workspace = true` | Binary distribution |
-| **`nuo-server`** | **Cluster C** | Headless daemon container runtime & session host | `version.workspace = true` | crates.io package |
+| **`nuo`** | **Cluster C** | Unified public executable (server, CLI, TUI runner) | `version.workspace = true` | Binary distribution |
+| **`nuo-server`** | **Cluster C** | Headless server container runtime & session host | `version.workspace = true` | crates.io package |
 | **`nuo-tui`** | **Cluster C** | Semantic terminal interactive presentation view library | `version.workspace = true` | crates.io package |
 | **`nuo-agent`** | **Cluster C** | Cognitive loop, session turns & token compaction | `version.workspace = true` | crates.io package |
 | **`nuo-client`** | **Cluster C** | Standalone Rust Client SDK & Wire DTOs | `version.workspace = true` | crates.io package |
@@ -173,7 +173,7 @@ When a standalone crate reaches a new protocol or engine milestone:
 
 ### Playbook 2: Releasing the Unified Host Suite (`nuo`, `nuox`, `nuo-*`)
 
-When releasing a new version of the Nuo product and daemon/terminal suite:
+When releasing a new version of the Nuo product and server/terminal suite:
 
 1. **Run Full Verification**:
    ```bash

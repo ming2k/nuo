@@ -4,11 +4,11 @@
 //! (`parse_args`), which put a frontend concern inside the session-runtime
 //! library and let two flag tables drift independently. ADR-0116 fixes both:
 //!
-//! - **One noun per resource, one verb per action.** The daemon is managed
+//! - **One noun per resource, one verb per action.** The server is managed
 //!   by the top-level `nuo start|stop|status|token` verbs; sessions by
 //!   `nuo session rm` (listing is `status`). Interactive
 //!   run/attach/dashboard commands are top-level `nuo` verbs. The former
-//!   spellings (`serve`, the `daemon` noun, `resume`, `exec`) are removed
+//!   spellings (`serve`, the `server` noun, `resume`, `exec`) are removed
 //!   outright: no alias, no teaching error — an unknown word is an
 //!   unrecognized command.
 //! - **The parser is a table, not a hand-rolled ladder.** One spec drives
@@ -77,7 +77,7 @@ pub enum SkillAction {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionAction {
     /// `nuo session rm <id>` — terminate a hosted session. Listing is
-    /// `nuo status`: the session table is the daemon's view.
+    /// `nuo status`: the session table is the server's view.
     Delete(String),
 }
 
@@ -122,10 +122,6 @@ pub enum ServerAction {
         diagnostic: bool,
     },
 }
-
-/// Backward-compatible alias for [`ServerAction`].
-#[allow(dead_code)]
-pub type DaemonAction = ServerAction;
 
 /// `nuo config …`
 #[derive(Debug, Clone, PartialEq)]
@@ -214,7 +210,7 @@ struct Spec {
 
 const SESSION_SUBS: &[Spec] = &[
     // The listing is `nuo status`, not a session subcommand: the
-    // session table is the daemon's view of what it hosts (ADR-0116's
+    // session table is the server's view of what it hosts (ADR-0116's
     // one-noun-per-resource — `session ls` duplicated `nuo status`
     // verbatim).
     Spec {
@@ -506,7 +502,7 @@ fn parse_u64(flag: &str, value: &str) -> Result<u64, FlagError> {
 }
 
 /// The `nuo start` flags (one table — the `serve` duplication is gone).
-struct DaemonStartFlags {
+struct ServerStartFlags {
     foreground: bool,
     port: Option<u16>,
     public: bool,
@@ -516,7 +512,7 @@ struct DaemonStartFlags {
     client_driven: bool,
 }
 
-impl Default for DaemonStartFlags {
+impl Default for ServerStartFlags {
     fn default() -> Self {
         Self {
             foreground: true,
@@ -530,8 +526,8 @@ impl Default for DaemonStartFlags {
     }
 }
 
-fn parse_daemon_start_flags(args: &[String]) -> Result<DaemonStartFlags, FlagError> {
-    let mut flags = DaemonStartFlags::default();
+fn parse_server_start_flags(args: &[String]) -> Result<ServerStartFlags, FlagError> {
+    let mut flags = ServerStartFlags::default();
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         let (name, inline) = split_flag(arg);
@@ -627,7 +623,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             "--version" | "-V" => version = true,
             "--single-instance" => {
                 return Err(
-                    "--single-instance was removed: the unified daemon owns every \
+                    "--single-instance was removed: the unified server owns every \
                      session, so a per-project instance lock no longer applies"
                         .into(),
                 );
@@ -671,13 +667,6 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         return ok(Mode::Interactive(args.to_vec()));
     };
 
-    if cmd == "daemon" {
-        return Err(
-            "the 'daemon' noun was removed: use 'nuo start|stop|status|token' or 'nuo serve'"
-                .to_string(),
-        );
-    }
-
     if cmd == "-i"
         || cmd == "--interactive"
         || cmd == "-p"
@@ -691,7 +680,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     }
 
     if cmd == "serve" {
-        let flags = parse_daemon_start_flags(&rest[1..]).map_err(|e| e.0)?;
+        let flags = parse_server_start_flags(&rest[1..]).map_err(|e| e.0)?;
         return ok(Mode::Server(ServerAction::Start {
             foreground: true,
             port: flags.port,
@@ -704,7 +693,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     }
 
     if cmd.starts_with('-') {
-        let flags = parse_daemon_start_flags(&rest).map_err(|e| e.0)?;
+        let flags = parse_server_start_flags(&rest).map_err(|e| e.0)?;
         return ok(Mode::Server(ServerAction::Start {
             foreground: flags.foreground,
             port: flags.port,
@@ -750,7 +739,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             let sub_extra = &extra[1..];
             match sub.name {
                 "start" => {
-                    let flags = parse_daemon_start_flags(sub_extra).map_err(|e| e.0)?;
+                    let flags = parse_server_start_flags(sub_extra).map_err(|e| e.0)?;
                     Mode::Server(ServerAction::Start {
                         foreground: flags.foreground,
                         port: flags.port,
@@ -783,7 +772,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                             remaining.push(arg.clone());
                         }
                     }
-                    let flags = parse_daemon_start_flags(&remaining).map_err(|e| e.0)?;
+                    let flags = parse_server_start_flags(&remaining).map_err(|e| e.0)?;
                     Mode::Server(ServerAction::Restart {
                         force,
                         port: flags.port,
@@ -811,7 +800,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             }
         }
         "serve" => {
-            let flags = parse_daemon_start_flags(&extra).map_err(|e| e.0)?;
+            let flags = parse_server_start_flags(&extra).map_err(|e| e.0)?;
             Mode::Server(ServerAction::Start {
                 foreground: true,
                 port: flags.port,
@@ -826,7 +815,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             Mode::Interactive(args.to_vec())
         }
         "start" => {
-            let flags = parse_daemon_start_flags(&extra).map_err(|e| e.0)?;
+            let flags = parse_server_start_flags(&extra).map_err(|e| e.0)?;
             Mode::Server(ServerAction::Start {
                 foreground: flags.foreground,
                 port: flags.port,
@@ -861,7 +850,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                     remaining.push(arg.clone());
                 }
             }
-            let flags = parse_daemon_start_flags(&remaining).map_err(|e| e.0)?;
+            let flags = parse_server_start_flags(&remaining).map_err(|e| e.0)?;
             Mode::Server(ServerAction::Restart {
                 force,
                 port: flags.port,
@@ -1113,7 +1102,7 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
     let mut out = String::new();
     match topic {
         None => {
-            out.push_str("nuo — session daemon and control plane\n\n");
+            out.push_str("nuo — session server and control plane\n\n");
             out.push_str("Usage: nuo [OPTIONS]\n       nuo [OPTIONS] <COMMAND>\n\nCommands:\n");
             let width = COMMANDS.iter().map(|s| s.name.len()).max().unwrap_or(0);
             for spec in COMMANDS {
@@ -1129,7 +1118,7 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
                 "  NUO_HOME              instance root for isolated execution (<dir>/nuo)\n",
             );
             out.push_str(
-                "  NUO_PORT              override default daemon TCP port (default: 9800)\n",
+                "  NUO_PORT              override default server TCP port (default: 9800)\n",
             );
         }
         Some(topic) => {
@@ -1155,15 +1144,15 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
             }
             if spec.name == "start" {
                 out.push_str(
-                    "\nThe daemon hosts every session across every project. `start` runs it\n",
+                    "\nThe server hosts every session across every project. `start` runs it\n",
                 );
                 out.push_str("detached by default (--fg for systemd/tmux-style supervision);\n");
                 out.push_str(
-                    "`stop` drains within the daemon's --grace budget before escalating;\n",
+                    "`stop` drains within the server's --grace budget before escalating;\n",
                 );
                 out.push_str("`status` observes without ever spawning one.\n");
                 out.push_str(
-                    "\nNUO_HOME points the whole instance (config, data, daemon files,\n",
+                    "\nNUO_HOME points the whole instance (config, data, server files,\n",
                 );
                 out.push_str("port default via NUO_PORT) at an isolated root — the dev/test\n");
                 out.push_str("sandbox shape. See `nuo --help` for the config paths.\n");
@@ -1352,7 +1341,7 @@ mod surface_tests {
     }
 
     #[test]
-    fn serve_starts_foreground_daemon() {
+    fn serve_starts_foreground_server() {
         assert!(matches!(
             parse(&["serve"]).unwrap().mode,
             Mode::Server(ServerAction::Start {
@@ -1363,7 +1352,7 @@ mod surface_tests {
     }
 
     #[test]
-    fn start_defaults_to_foreground_daemon() {
+    fn start_defaults_to_foreground_server() {
         let parsed = parse(&["start"]).unwrap();
         assert!(matches!(
             parsed.mode,
@@ -1400,7 +1389,7 @@ mod surface_tests {
     }
 
     #[test]
-    fn top_level_daemon_verbs_are_canonical() {
+    fn top_level_server_verbs_are_canonical() {
         assert!(matches!(
             parse(&["start"]).unwrap().mode,
             Mode::Server(ServerAction::Start { .. })
@@ -1445,16 +1434,6 @@ mod surface_tests {
             parse(&["server", "token"]).unwrap().mode,
             Mode::Server(ServerAction::Token)
         ));
-    }
-
-    #[test]
-    fn daemon_noun_is_not_accepted() {
-        let command = "daemon";
-        assert!(parse(&[command]).is_err(), "{command}");
-        assert!(parse(&[command, "start"]).is_err(), "{command} start");
-        assert!(parse(&[command, "stop"]).is_err(), "{command} stop");
-        assert!(parse(&[command, "status"]).is_err(), "{command} status");
-        assert!(parse(&[command, "token"]).is_err(), "{command} token");
     }
 
     #[test]

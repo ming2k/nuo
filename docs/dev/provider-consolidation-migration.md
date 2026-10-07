@@ -210,7 +210,7 @@ test asserting a `kimi-code` connection resolves its port.
 `init()` has **two** live call sites; both are the composition root and both must be handled:
 
 - `nuo/src/main.rs:21` — the CLI entry (primary composition root).
-- `nuo-server/src/bootstrap.rs:157` — the daemon's `assemble()`.
+- `nuo-server/src/bootstrap.rs:157` — the server's `assemble()`.
 
 Relocate into a single `init()` owned by the composition root:
 

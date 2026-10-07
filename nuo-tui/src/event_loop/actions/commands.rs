@@ -48,7 +48,7 @@ pub(super) async fn handle_send_chat(
     app.reset_to_conversation();
     app.suggestion_index = None;
     app.input_scroll = 0;
-    // The latency timeline starts here: the daemon records dispatch, this
+    // The latency timeline starts here: the server records dispatch, this
     // records the moment the user pressed Enter.
     app.last_submit_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -104,7 +104,7 @@ pub(super) async fn handle_send_chat(
                     });
                 }
                 crate::app::ComposerSendMode::FollowUp => {
-                    // ADR-0197 M4: one verb, daemon decides. The frontend
+                    // ADR-0197 M4: one verb, server decides. The frontend
                     // sends `FollowUp` unconditionally — an idle target
                     // starts immediately, a running one enqueues in the
                     // driver's queue. The optimistic queue-bar entry rides

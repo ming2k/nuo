@@ -1,8 +1,8 @@
 //! Command-line contract for the `nuox` terminal application.
 //!
-//! `nuox` is a client of the Nuo daemon. It owns interactive and headless
-//! terminal workflows; daemon lifecycle, configuration, credentials, MCP,
-//! skills, and daemon administration belong to the `nuo` core command.
+//! `nuox` is a client of the Nuo server. It owns interactive and headless
+//! terminal workflows; server lifecycle, configuration, credentials, MCP,
+//! skills, and server administration belong to the `nuo` core command.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -69,7 +69,7 @@ pub struct CliArgs {
     pub prompt_from_flag: bool,
     /// `-j`/`--json`: structured output where supported.
     pub json: bool,
-    /// `--remote <addr>` / `--token <token>`: daemon endpoint override.
+    /// `--remote <addr>` / `--token <token>`: server endpoint override.
     pub remote: Option<String>,
     pub token: Option<String>,
 }
@@ -107,7 +107,7 @@ const COMMANDS: &[Spec] = &[
 ];
 
 const CORE_COMMANDS: &[&str] = &[
-    "daemon", "session", "config", "auth", "mcp", "skill", "doctor",
+    "server", "session", "config", "auth", "mcp", "skill", "doctor",
 ];
 
 fn command_index() -> BTreeMap<&'static str, &'static str> {
@@ -211,7 +211,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             }
             "--single-instance" => {
                 return Err(
-                    "--single-instance was removed: the unified daemon owns every session".into(),
+                    "--single-instance was removed: the unified server owns every session".into(),
                 );
             }
             _ => rest.push(arg.clone()),
@@ -415,13 +415,13 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
             );
             out.push_str("      --no-confinement   disable workspace filesystem confinement (unconfined file access)\n");
             out.push_str("      --project <path>   operate on the project at <path>\n");
-            out.push_str("      --remote <addr>    connect to a remote Nuo daemon\n");
-            out.push_str("      --token <token>    bearer token for daemon connection\n");
+            out.push_str("      --remote <addr>    connect to a remote Nuo server\n");
+            out.push_str("      --token <token>    bearer token for server connection\n");
             out.push_str("  -h, --help             print help ('nuox help <command>' for more)\n");
             out.push_str("  -V, --version          print the version and exit\n");
             out.push_str("\nWith no command, nuox opens a fresh interactive session.\n");
-            out.push_str("It checks the Nuo daemon first and starts `nuo` when needed.\n");
-            out.push_str("Daemon and service administration remains under the `nuo` command.\n");
+            out.push_str("It checks the Nuo server first and starts `nuo` when needed.\n");
+            out.push_str("Server and service administration remains under the `nuo` command.\n");
         }
         Some(topic) => {
             let spec = resolve(topic)?;
@@ -432,13 +432,13 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
                     out.push_str(
                         "\nThe prompt streams to stdout (tool activity to stderr), exiting 0\n",
                     );
-                    out.push_str("on completion. The Nuo daemon starts on demand.\n");
+                    out.push_str("on completion. The Nuo server starts on demand.\n");
                 }
                 "attach" => {
                     out.push_str(
                         "\nWith no id the TUI session picker opens (a lone hosted session is\n",
                     );
-                    out.push_str("auto-selected). The Nuo daemon starts on demand.\n");
+                    out.push_str("auto-selected). The Nuo server starts on demand.\n");
                 }
                 "settings" => {
                     out.push_str(

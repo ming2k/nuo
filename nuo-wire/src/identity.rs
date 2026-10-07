@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// The three fields compose the opening line:
 /// - [`AgentIdentity::name`] — what the agent is called (e.g. `"hypervisor"`
-///   for the daemon's coordinator). Empty means "unnamed".
+///   for the server's coordinator). Empty means "unnamed".
 /// - [`AgentIdentity::mission`] — what the agent is for (e.g. a research
 ///   frontend's mission; empty means no mission framing).
 /// - [`AgentIdentity::directive`] — optional full-text override of the opening.
@@ -124,8 +124,8 @@ mod tests {
     #[test]
     fn named_identity_composes_name_and_mission() {
         assert_eq!(
-            AgentIdentity::new("hypervisor", "the daemon-level coordinator").preamble(),
-            "You are hypervisor, the daemon-level coordinator."
+            AgentIdentity::new("hypervisor", "the server-level coordinator").preamble(),
+            "You are hypervisor, the server-level coordinator."
         );
     }
 

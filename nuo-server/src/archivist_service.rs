@@ -1,9 +1,9 @@
-//! The Archivist conversational service (ADR-0208): how the daemon answers a
+//! The Archivist conversational service (ADR-0208): how the server answers a
 //! dashboard `?` prompt.
 //!
 //! The Archivist **agent** (`crate::archivist::build_archivist`) defines the
 //! identity and toolset; this module owns the *conversation* mechanics: one
-//! bounded, daemon-owned round per question, run synchronously over the
+//! bounded, server-owned round per question, run synchronously over the
 //! agent's streaming loop against a scratch message list (no workspace
 //! session store, no transcript persistence — the Archivist has no workspace
 //! and its answers are ephemeral cockpit dialogue, exactly like the
@@ -44,7 +44,7 @@ pub enum ArchivistTurnStatus {
     Failed(String),
 }
 
-/// The daemon's Archivist conversation service: stateless across turns
+/// The server's Archivist conversation service: stateless across turns
 /// beyond a rolling scratch context (kept small and bounded — the cockpit
 /// dialogue is a working memory, not an archive).
 pub struct ArchivistService {
@@ -91,7 +91,7 @@ impl ArchivistService {
         }
     }
 
-    /// Daemon construction: the same service over the instance's shared
+    /// Server construction: the same service over the instance's shared
     /// ACP fabric. The Archivist registers at `agent://local/hypervisor/archivist`.
     pub fn with_fabric(fabric: acp::Fabric) -> Self {
         let holder: Arc<std::sync::RwLock<Arc<dyn nuo_wire::Provider>>> =
@@ -223,7 +223,7 @@ mod tests {
         assert!(answer.text.contains("No provider"), "{}", answer.text);
     }
 
-    /// Daemon construction: the Archivist joins the shared tracker at
+    /// Server construction: the Archivist joins the shared tracker at
     /// `hypervisor/archivist`, parented to the station — the endpoint peers
     /// (and the delegation lawfulness) resolve against.
     #[tokio::test]

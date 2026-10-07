@@ -202,7 +202,7 @@ pub struct TranscriptProps<'a> {
     pub queue_bar: QueueBarProps<'a>,
     /// The background tasks status bar (ADR-0212).
     pub tasks_bar: TasksBarProps<'a>,
-    /// The daemon's persistence-writer degradation (ADR-0196 D4). While set
+    /// The server's persistence-writer degradation (ADR-0196 D4). While set
     /// (and not `Healthy`), the footer stack reserves a retained one-row
     /// banner between the transcript gap and the queue bar; `Healthy` /
     /// `None` place nothing.

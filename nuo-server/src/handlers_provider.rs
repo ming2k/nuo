@@ -1237,7 +1237,7 @@ pub(crate) async fn delete(
 /// live holder, telemetry, and TUI snapshots — never `config.toml`.
 ///
 /// The pin-less fallback re-reads `config.toml` from disk: multiple frontends
-/// and sessions share this one daemon and therefore this one `Config` copy in
+/// and sessions share this one server and therefore this one `Config` copy in
 /// memory, but a model switch made from *another* session only persisted its
 /// new global default through that session's `&mut Config` clone. Without the
 /// re-read, `/new` (and any session swap into an unpinned session) would

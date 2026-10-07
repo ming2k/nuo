@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 /// The directory workspace-relative tool operations resolve against.
 ///
-/// Tools are session-scoped under the unified daemon (ADR-0096): one process
-/// hosts sessions for many projects, so the daemon's process cwd is whatever
+/// Tools are session-scoped under the unified server (ADR-0096): one process
+/// hosts sessions for many projects, so the server's process cwd is whatever
 /// directory the first client spawned it from. The assembling bootstrap
 /// therefore registers the session's project root as a
 /// [`WorkspaceRoot`](nuo_wire::WorkspaceRoot) service on the
@@ -139,7 +139,7 @@ pub(crate) fn env_from_root(
 ///
 /// Leading `~` is expanded to the user's home directory. Absolute paths pass
 /// through unchanged (`Path::join` semantics); a relative path is anchored to
-/// the session's project root, never to the daemon's coincidental process cwd.
+/// the session's project root, never to the server's coincidental process cwd.
 /// Model-facing argument text is untouched — only filesystem access goes
 /// through the resolved value, so prompt/UI rendering keeps showing what the
 /// model actually sent.

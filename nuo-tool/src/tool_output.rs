@@ -766,7 +766,7 @@ pub fn termination_model_note(termination: ShellTermination) -> Option<&'static 
             "[killed by harness: stream budget reached — the command produced continuous \
              streaming output without self-terminating. Commands must be \
              finite. If you need an instantaneous snapshot, bound the command (e.g. `timeout 2s <cmd>`, \
-             `<cmd> | head -n 30`, or one-shot flags like `top -b -n 1`). Long-running daemons \
+             `<cmd> | head -n 30`, or one-shot flags like `top -b -n 1`). Long-running servers \
              must be executed by the operator outside the agent loop.]",
         ),
         ShellTermination::Detached => {

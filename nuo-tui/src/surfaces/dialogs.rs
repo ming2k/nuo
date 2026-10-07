@@ -7,7 +7,7 @@
 //!
 //! The [`DialogView`] contract binds each entity to a [`DialogKind`] and its
 //! [`DialogScope`] domain; the [`Dialogs`] registry is owned by the surface
-//! router and is the single source of truth for dialog state. Daemon-fed model
+//! router and is the single source of truth for dialog state. Server-fed model
 //! data (provider snapshots, session context, reports) stays on `App` as
 //! read-only model, never as dialog scratchpad.
 
@@ -73,7 +73,7 @@ pub enum DialogOutcome {
     SwitchTo(Box<dyn DialogView>),
 }
 
-/// The immutable environment injected into [`DialogView::render`]: daemon-fed
+/// The immutable environment injected into [`DialogView::render`]: server-fed
 /// model data (read-only) plus the per-frame layout/selection context. Dialogs
 /// draw from their own state plus these injected views — never from the
 /// composer.
@@ -223,7 +223,7 @@ pub fn dismiss_cleanup(view: &mut dyn DialogView) {
 
 /// Render one dialog entity from its own state plus the injected immutable
 /// context (`DialogView::render`). The entity's fields are the only mutable
-/// dialog state; `ctx` carries read-only daemon model data and layout context.
+/// dialog state; `ctx` carries read-only server model data and layout context.
 #[allow(clippy::expect_used)]
 fn render_dialog(
     view: &mut dyn DialogView,

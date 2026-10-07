@@ -224,7 +224,7 @@ pub enum Wire {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         protocol: Option<u32>,
     },
-    /// Daemon response welcoming an attached connection.
+    /// Server response welcoming an attached connection.
     Welcome {
         session_id: String,
         round_counter: u64,
@@ -240,7 +240,7 @@ pub enum Wire {
         #[serde(default)]
         command_catalog: nuo_wire::CommandCatalog,
     },
-    /// Daemon response to ambiguous attach / picker.
+    /// Server response to ambiguous attach / picker.
     Pick {
         sessions: Vec<nuo_wire::SessionOverview>,
     },
@@ -258,12 +258,12 @@ pub enum Wire {
         #[serde(flatten)]
         request: nuo_wire::AgentRequest,
     },
-    /// Full-duplex daemon agent response envelope.
+    /// Full-duplex server agent response envelope.
     Response {
         #[serde(flatten)]
         response: nuo_wire::AgentResponse,
     },
-    /// Daemon observability event envelope.
+    /// Server observability event envelope.
     Monitor {
         #[serde(flatten)]
         event: nuo_wire::MonitorEvent,

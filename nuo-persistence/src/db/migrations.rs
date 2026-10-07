@@ -48,7 +48,7 @@ pub(crate) fn initialize_in_memory_db() -> Result<Connection> {
 /// Apply the full schema to an already-open connection.
 ///
 /// Used by the offline migration tool to prepare a target database without
-/// going through the daemon's single-writer door (the tool is a separate
+/// going through the server's single-writer door (the tool is a separate
 /// process; ADR-0280 §4).
 pub(crate) fn initialize_connection_schema(conn: &mut Connection) -> Result<()> {
     configure_connection(conn)?;

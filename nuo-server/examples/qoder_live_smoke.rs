@@ -1,5 +1,5 @@
 //! One-shot live smoke: full Rust wire path (provider → pipeline → live
-//! Qoder endpoint) with the local daemon's stored credentials. Run manually:
+//! Qoder endpoint) with the local server's stored credentials. Run manually:
 //! `cargo run -p nuo-server --example qoder_live_smoke` — hits the real
 //! API, so it is deliberately an example, not a test.
 

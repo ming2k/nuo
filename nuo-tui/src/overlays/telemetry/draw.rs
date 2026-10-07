@@ -58,7 +58,7 @@ pub fn draw_telemetry_modal(
             theme,
         );
         let body = vec![placeholder(
-            "Loading session stats from daemon…",
+            "Loading session stats from server…",
             true,
             theme.muted(),
         )];

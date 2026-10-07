@@ -11,7 +11,7 @@ fn send_intent(
     request: AgentRequest,
 ) -> Result<(), Box<dyn std::error::Error>> {
     tx.send(request)
-        .map_err(|error| format!("daemon link lost before intent delivery: {error}").into())
+        .map_err(|error| format!("server link lost before intent delivery: {error}").into())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -28,28 +28,28 @@ pub async fn run_headless(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Two mutually exclusive transports, resolved once:
     //
-    // - `--remote <addr>` names an explicit daemon endpoint (ADR-0105's
+    // - `--remote <addr>` names an explicit server endpoint (ADR-0105's
     //   LAN shape): connect to it directly — no discovery read, no local
     //   spawn. A remote run that silently fell back to the local instance
     //   would be the worst kind of lie: it would *appear* to work while
-    //   driving the wrong daemon.
+    //   driving the wrong server.
     // - Otherwise the local instance: discover, or spawn on demand.
     //
     // The version pre-check applies only to the local shape — it compares
     // local discovery state (pid, /proc image), which does not exist for
-    // a remote daemon; there, the handshake carries the version
+    // a remote server; there, the handshake carries the version
     // negotiation.
     enum Transport {
-        Remote(client::RemoteDaemon),
-        Local(client::DaemonInfo),
+        Remote(client::RemoteServer),
+        Local(client::ServerInfo),
     }
     let transport = match remote {
-        Some(addr) => Transport::Remote(client::RemoteDaemon::parse(&addr, token)?),
+        Some(addr) => Transport::Remote(client::RemoteServer::parse(&addr, token)?),
         None => {
             let project_root = project_override
                 .clone()
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-            let info = client::ensure_daemon(&project_root).await?;
+            let info = client::ensure_server(&project_root).await?;
             if !client::versions_compatible(&info) {
                 return Err(client::incompatibility_error(&info).into());
             }
@@ -80,7 +80,7 @@ pub async fn run_headless(
         Some(init_options)
     });
     let handshake = match &transport {
-        Transport::Remote(daemon) => daemon.connect(action.clone()).await?,
+        Transport::Remote(server) => server.connect(action.clone()).await?,
         Transport::Local(info) => client::connect(info, action).await?,
     };
     let (tx, mut rx, session_id, _round_counter, _history, provider, model) = match handshake {
@@ -351,19 +351,19 @@ pub async fn run_headless(
     Ok(())
 }
 
-/// Tell the daemon the headless run's session is over (ADR-0112) and wait
+/// Tell the server the headless run's session is over (ADR-0112) and wait
 /// for it to acknowledge with the terminal `AgentResponse::Exit`. Headless
 /// runs are ephemeral by design — the operator asked one question and is
 /// gone — so leaving the session hosted (the detach semantics a TUI get)
 /// would only litter the dashboard with dead rows waiting for an idle
 /// reaper that never applies (a session with real content is never reaped).
-/// Bounded: a daemon that never answers does not hang the CLI.
+/// Bounded: a server that never answers does not hang the CLI.
 async fn declare_session_end(
     tx: &tokio::sync::mpsc::UnboundedSender<AgentRequest>,
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<AgentResponse>,
 ) {
     if tx.send(AgentRequest::EndSession).is_err() {
-        return; // Connection already gone; the daemon sees the socket close.
+        return; // Connection already gone; the server sees the socket close.
     }
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
     while tokio::time::Instant::now() < deadline {
@@ -451,7 +451,7 @@ async fn handle_user_question_request(
     // recommended-labeled per `[agent] ask_user_fallback`) *inside* the
     // harness — this handler is only reached when an interactive human is
     // on the other end of stdin/stderr. If one still slips through (e.g. a
-    // legacy daemon), fail closed rather than inventing an answer.
+    // legacy server), fail closed rather than inventing an answer.
     if !is_tty {
         eprintln!(
             "nuo: agent asked a question but stdin is not a TTY and no \

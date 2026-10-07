@@ -1,8 +1,8 @@
 //! TUI presentation configuration and state.
 //!
 //! Stored in the unified `nuo` namespace at `$XDG_CONFIG_HOME/nuo/tui.toml`
-//! — a sibling of the daemon's `config.toml`, not a field inside it — so the
-//! frontend's presentation state and the daemon's behavioural policy stay
+//! — a sibling of the server's `config.toml`, not a field inside it — so the
+//! frontend's presentation state and the server's behavioural policy stay
 //! cleanly decoupled while both live under one application directory
 //! (ADR-0011).
 

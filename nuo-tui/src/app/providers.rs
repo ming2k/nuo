@@ -343,7 +343,7 @@ impl App {
     }
 
     /// Return the authoritative model info for the currently active route
-    /// (current_provider, current_model) as projected by the daemon (ADR-0182).
+    /// (current_provider, current_model) as projected by the server (ADR-0182).
     pub fn active_model_info(&self) -> Option<&nuo_wire::ProviderModelInfo> {
         self.provider_picker
             .rows
@@ -361,9 +361,9 @@ impl App {
         self.active_model_info()
             .map(|info| info.route_capabilities())
             .unwrap_or_else(|| {
-                // No daemon row yet (startup, or a route the snapshot has not
+                // No server row yet (startup, or a route the snapshot has not
                 // refreshed): the baseline layer alone, resolved through the
-                // same three-valued merge the daemon uses, so an id no layer
+                // same three-valued merge the server uses, so an id no layer
                 // knows stays *undeclared* rather than being reported as a
                 // text-only claim (ADR-0230).
                 nuo_wire::ModelCapabilities::for_channel(&self.current_model, None)
@@ -372,7 +372,7 @@ impl App {
     }
 
     /// Return the authoritative context window (in tokens) for the active route.
-    /// Evaluated daemon-side via ADR-0149 (ADR-0182). Falls back to static
+    /// Evaluated server-side via ADR-0149 (ADR-0182). Falls back to static
     /// baseline only when the snapshot has not mounted.
     pub fn active_model_context_window(&self) -> usize {
         let cw = self.active_route_capabilities().context_window;
@@ -389,7 +389,7 @@ impl App {
     /// that the route rejects images. This answers the *request* policy, not
     /// "was vision advertised" — a gate that must be certain should read
     /// [`Self::active_route_capabilities`]`.vision` and treat `None` as
-    /// unknown. Uses daemon-projected capabilities from `ProviderModelInfo`,
+    /// unknown. Uses server-projected capabilities from `ProviderModelInfo`,
     /// falling back to the baseline layers when the snapshot has not mounted.
     pub fn active_model_supports_vision(&self) -> bool {
         self.active_route_capabilities().accepts_images()

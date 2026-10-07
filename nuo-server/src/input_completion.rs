@@ -171,7 +171,7 @@ impl InputCompletionEngine {
 /// Complete slash commands and subcommands synchronously against a `CommandCatalog`.
 ///
 /// This is a pure-domain, zero-I/O computation that guarantees instant (< 1µs) execution
-/// for both the daemon and frontend applications without transient latency (ADR-0162).
+/// for both the server and frontend applications without transient latency (ADR-0162).
 pub fn complete_slash_items(
     catalog: &CommandCatalog,
     input: &str,
@@ -342,7 +342,7 @@ fn complete_subcommand_items(
         .collect()
 }
 
-/// Synchronous adapter used by frontend unit tests to exercise the daemon's
+/// Synchronous adapter used by frontend unit tests to exercise the server's
 /// completion implementation without standing up a session driver. Product
 /// clients never call this; they use `CompleteInput` over the control plane.
 #[doc(hidden)]
@@ -413,7 +413,7 @@ fn is_file_query(query: &str) -> bool {
 
 /// Build skill completion items for a `@skill:` / `@skills:` (or bare, during
 /// Stage 2) query. Pure: the filter/prefix derivation and the enabled/quarantine
-/// and substring checks live here, so the daemon engine and the frontend-test
+/// and substring checks live here, so the server engine and the frontend-test
 /// adapter share one implementation (ADR-0290 `[INV-COMPLETE-03]`).
 fn skill_completion_items(
     input: &str,
@@ -453,7 +453,7 @@ fn skill_completion_items(
 }
 
 /// Build file/dir completion items for a `@file:` / `@files:` query. Pure: the
-/// filter derivation and the path matching live here so the daemon engine and
+/// filter derivation and the path matching live here so the server engine and
 /// the frontend-test adapter share one implementation (ADR-0290
 /// `[INV-COMPLETE-03]`).
 fn file_completion_items(
@@ -1101,7 +1101,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn project_paths_are_resolved_by_the_daemon() {
+    async fn project_paths_are_resolved_by_the_server() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir(temp.path().join("src")).unwrap();
         std::fs::write(temp.path().join("src/main.rs"), "fn main() {}").unwrap();

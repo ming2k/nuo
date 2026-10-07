@@ -1,7 +1,7 @@
 //! The translator seam (ADR-0197 M1): typed mutations from the response
 //! translator to the event loop.
 //!
-//! The daemon-response listener (and the monitor client) own **no**
+//! The server-response listener (and the monitor client) own **no**
 //! application state. They consume `AgentResponse` / `MonitorEvent` frames
 //! and produce [`AppMutation`] values onto a bounded channel; the event loop
 //! — the sole writer of `App` — drains the channel between input batches and
@@ -16,7 +16,7 @@
 //!   effort, round/turn stamping, reasoning disclosure defaults) so the
 //!   applier stays a mechanical executor of document edits.
 //! - The channel is bounded. Overflow cannot happen silently: a full channel
-//!   applies backpressure to the translator (which is driven by the daemon
+//!   applies backpressure to the translator (which is driven by the server
 //!   stream), and the loop drains eagerly each iteration.
 
 use std::collections::HashMap;
@@ -154,7 +154,7 @@ pub(crate) enum TranscriptEdit {
         parent_call_id: String,
         event: SubagentEvent,
     },
-    /// A staged (optimistic) user message was admitted by the daemon:
+    /// A staged (optimistic) user message was admitted by the server:
     /// settle the newest entry with this correlation id, or append the
     /// fallback message.
     SettleInserted {
@@ -322,7 +322,7 @@ pub(crate) enum AppMutation {
         session_id: String,
         input_id: String,
     },
-    /// The daemon admitted an optimistic follow-up into its queue: the local
+    /// The server admitted an optimistic follow-up into its queue: the local
     /// item settles from `Dispatching` back to `Waiting`.
     DispatchQueued {
         session_id: String,
@@ -330,7 +330,7 @@ pub(crate) enum AppMutation {
     },
     /// The authoritative follow-up queue snapshot (ADR-0197 M4): replace the
     /// session's projection, keeping in-flight optimistic entries the
-    /// snapshot cannot know about yet, and mirror the daemon's paused flag.
+    /// snapshot cannot know about yet, and mirror the server's paused flag.
     QueueSnapshot {
         session_id: String,
         items: Vec<nuo_wire::QueuedMessage>,
@@ -340,7 +340,7 @@ pub(crate) enum AppMutation {
     ParentStatus(nuo_wire::ParentStatus),
     SideView(SideViewSignal),
     BtwList(Vec<nuo_wire::BtwAsideSummary>),
-    /// The daemon's persisted prompt input history (the daemon is the SSOT;
+    /// The server's persisted prompt input history (the server is the SSOT;
     /// the TUI never opens the database itself).
     InputHistory(Vec<nuo_wire::HistoryEntry>),
     /// Stored capability overrides for one provider/model route — the model

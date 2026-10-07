@@ -198,7 +198,7 @@ pub struct RemoteModelMetadata {
     /// common case, since most providers declare no such verdict — means
     /// undeclared and therefore usable. `Some(usable: false)` is a declaration
     /// the account may not run the model; pickers surface it dimmed and the
-    /// daemon refuses to route it, but membership and capabilities are
+    /// server refuses to route it, but membership and capabilities are
     /// untouched.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub availability: Option<Availability>,
@@ -263,7 +263,7 @@ impl RemoteModelMetadata {
     }
 }
 
-/// Materialized, route-scoped capabilities evaluated daemon-side via ADR-0149.
+/// Materialized, route-scoped capabilities evaluated server-side via ADR-0149.
 /// Projected to frontends as the infallible single source of truth (ADR-0182).
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize,

@@ -22,7 +22,7 @@
 //!   from a reconnect (URL shown in the transcript) and avoid duplicating
 //!   the URL into the transcript.
 //! - [`UiRuntime::trust_gate_dismissed`] — per-run latch (ADR-0175): the
-//!   daemon republishes `HarnessState` periodically; without the latch a
+//!   server republishes `HarnessState` periodically; without the latch a
 //!   dismissed trust gate would re-open on the next snapshot. The applier
 //!   sets it when the gate is answered; the translator reads it to decide
 //!   whether to republish a quarantined snapshot.

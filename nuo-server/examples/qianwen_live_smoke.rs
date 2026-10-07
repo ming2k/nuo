@@ -42,7 +42,7 @@ async fn main() {
     });
     let secret = SecretString::new(key);
 
-    // Resolve the model the same way the daemon does — through the model
+    // Resolve the model the same way the server does — through the model
     // registry (the capability source) — then build the standard
     // Chat Completions provider at the provider spec's root URL.
     let model = std::env::args()

@@ -1,4 +1,4 @@
-mod daemon_spawn;
+mod server_spawn;
 mod lifecycle_integration;
 mod retry_restore_integration;
 mod serve_integration;

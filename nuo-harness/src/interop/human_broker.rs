@@ -20,7 +20,7 @@
 //!   cancel from a teardown cancel;
 //! - **metrics** — per-kind counts of parked / user-replied / cancelled /
 //!   policy-settled, and cumulative parked→reply latency, read by
-//!   `/metrics` and the daemon monitor.
+//!   `/metrics` and the server monitor.
 //!
 //! # Provenance
 //!
