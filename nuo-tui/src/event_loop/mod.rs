@@ -335,8 +335,8 @@ pub async fn run_app_loop(
             || app.has_live_transport_setback()
             || !app.pending_images.is_empty()
             || app.input_drag_scroll.is_some()
-            || ((app.surfaces.dialogs.models.refreshing
-                || app.surfaces.dialogs.connections.refreshing)
+            || ((app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().refreshing
+                || app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().refreshing)
                 && matches!(
                     app.active_dialog(),
                     Some(
@@ -615,7 +615,7 @@ async fn process_one_event(
     let permission_confirm_always = app.permission_confirm_always;
     let permission_show_details = app.permission_show_details;
     let in_history_recall = app.history_index.is_some();
-    let history_searching = app.surfaces.dialogs.history_search.search;
+    let history_searching = app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search;
     let model_searching = app.picker_search();
     let custom_provider_field = if app
         .surfaces
@@ -639,8 +639,8 @@ async fn process_one_event(
         .as_ref()
         .is_some_and(|q| q.is_other_highlighted());
     let host_prompting = app.host_prompting;
-    let session_info_detail = app.surfaces.dialogs.sessions.info_detail;
-    let connection_info_detail = app.surfaces.dialogs.connections.info_detail;
+    let session_info_detail = app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail;
+    let connection_info_detail = app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail;
 
     let modal_cmd_history: Option<String> = if matches!(event, Event::Key(k) if k.code == crossterm::event::KeyCode::Enter)
         && app.surfaces.active_overlay().is_none()
@@ -668,15 +668,15 @@ async fn process_one_event(
         History,
     }
     let edit_buffer = if app.active_dialog() == Some(crate::surfaces::DialogKind::Models)
-        && app.surfaces.dialogs.models.search
+        && app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().search
     {
         EditBuffer::Models
     } else if app.active_dialog() == Some(crate::surfaces::DialogKind::Connections)
-        && app.surfaces.dialogs.connections.search
+        && app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().search
     {
         EditBuffer::Connections
     } else if app.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch)
-        && app.surfaces.dialogs.history_search.search
+        && app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search
     {
         EditBuffer::History
     } else {
@@ -685,16 +685,16 @@ async fn process_one_event(
     let composer_edit_state_before = match edit_buffer {
         EditBuffer::Composer => (app.input.len(), app.cursor_position),
         EditBuffer::Models => (
-            app.surfaces.dialogs.models.query.text.len(),
-            app.surfaces.dialogs.models.query.cursor,
+            app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.text.len(),
+            app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.cursor,
         ),
         EditBuffer::Connections => (
-            app.surfaces.dialogs.connections.query.text.len(),
-            app.surfaces.dialogs.connections.query.cursor,
+            app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().query.text.len(),
+            app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().query.cursor,
         ),
         EditBuffer::History => (
-            app.surfaces.dialogs.history_search.query.text.len(),
-            app.surfaces.dialogs.history_search.query.cursor,
+            app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text.len(),
+            app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.cursor,
         ),
     };
     let composer_owned_before = app.caret_owner() == crate::CaretOwner::Composer;
@@ -762,7 +762,7 @@ async fn process_one_event(
                 &mut app.drag,
             ),
             EditBuffer::Models => {
-                let d = &mut app.surfaces.dialogs.models;
+                let d = &mut app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
                 input::route_event(
                     event.clone(),
                     &mut d.query.text,
@@ -775,7 +775,7 @@ async fn process_one_event(
                 )
             }
             EditBuffer::Connections => {
-                let d = &mut app.surfaces.dialogs.connections;
+                let d = &mut app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>();
                 input::route_event(
                     event.clone(),
                     &mut d.query.text,
@@ -788,7 +788,7 @@ async fn process_one_event(
                 )
             }
             EditBuffer::History => {
-                let d = &mut app.surfaces.dialogs.history_search;
+                let d = &mut app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>();
                 input::route_event(
                     event.clone(),
                     &mut d.query.text,
@@ -845,16 +845,16 @@ async fn process_one_event(
     let edit_state_after = match edit_buffer {
         EditBuffer::Composer => (app.input.len(), app.cursor_position),
         EditBuffer::Models => (
-            app.surfaces.dialogs.models.query.text.len(),
-            app.surfaces.dialogs.models.query.cursor,
+            app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.text.len(),
+            app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.cursor,
         ),
         EditBuffer::Connections => (
-            app.surfaces.dialogs.connections.query.text.len(),
-            app.surfaces.dialogs.connections.query.cursor,
+            app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().query.text.len(),
+            app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().query.cursor,
         ),
         EditBuffer::History => (
-            app.surfaces.dialogs.history_search.query.text.len(),
-            app.surfaces.dialogs.history_search.query.cursor,
+            app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text.len(),
+            app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.cursor,
         ),
     };
     if edit_state_after != composer_edit_state_before

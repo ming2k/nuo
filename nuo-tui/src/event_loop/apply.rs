@@ -366,8 +366,8 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
         AppMutation::ProviderPicker(snapshot) => {
             app.provider_picker = snapshot;
-            app.surfaces.dialogs.models.refreshing = false;
-            app.surfaces.dialogs.connections.refreshing = false;
+            app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().refreshing = false;
+            app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().refreshing = false;
             true
         }
         AppMutation::SessionsOverview(mut sessions) => {
@@ -376,7 +376,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             sessions.retain(|s| !s.active);
             app.modal_index = app.modal_index.min(sessions.len().saturating_sub(1));
             app.sessions_overview = sessions;
-            app.surfaces.dialogs.sessions.loading = false;
+            app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().loading = false;
             true
         }
         AppMutation::OpenSessionsPanel => {
@@ -395,7 +395,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             let same_id = app.session_detail.as_ref().map(|s| &s.id) == Some(&detail.id);
             app.session_detail = Some(detail);
             if !same_id {
-                app.surfaces.dialogs.sessions.info_scroll = 0;
+                app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_scroll = 0;
             }
             true
         }
@@ -403,7 +403,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             let same_id = app.connection_detail.as_ref().map(|c| &c.name) == Some(&detail.name);
             app.connection_detail = Some(detail);
             if !same_id {
-                app.surfaces.dialogs.connections.info_scroll = 0;
+                app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll = 0;
             }
             true
         }

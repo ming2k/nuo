@@ -368,7 +368,7 @@ fn history_rows_lists_newest_first_then_ranks_search() {
     ];
 
     // Empty query → newest-first by timestamp, score 0, no highlights.
-    app.surfaces.dialogs.history_search.query.clear();
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.clear();
     let rows = app.history_rows();
     let indices: Vec<usize> = rows.iter().map(|(i, _)| *i).collect();
     assert_eq!(indices, vec![3, 2, 1, 0], "newest first by timestamp");
@@ -381,7 +381,7 @@ fn history_rows_lists_newest_first_then_ranks_search() {
     // "cargo build" (no 't' after the 'ca'). Boundary matches outrank
     // scatter; among the tied boundary matches the newest-first order wins
     // (idx 3 "the cat sat" ts=40 before idx 1 "catalog" ts=20).
-    app.surfaces.dialogs.history_search.query.text = "cat".to_string();
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "cat".to_string();
     let rows = app.history_rows();
     let indices: Vec<usize> = rows.iter().map(|(i, _)| *i).collect();
     assert_eq!(
@@ -396,7 +396,7 @@ fn history_rows_lists_newest_first_then_ranks_search() {
 
     // Query with no subsequence match → empty list (the renderer turns this
     // into the "no matches" placeholder).
-    app.surfaces.dialogs.history_search.query.text = "xyz".to_string();
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "xyz".to_string();
     assert!(app.history_rows().is_empty());
 }
 
@@ -409,17 +409,17 @@ fn history_modal_never_borrows_the_draft_and_resets_its_own_query() {
     app.input = "my draft".to_string();
     app.cursor_position = "my draft".chars().count();
     app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
-    app.surfaces.dialogs.history_search.search = true;
-    app.surfaces.dialogs.history_search.query.text = "git".to_string();
-    app.surfaces.dialogs.history_search.query.cursor = 3;
-    app.surfaces.dialogs.history_search.index = 4;
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search = true;
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "git".to_string();
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.cursor = 3;
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 4;
 
     assert!(app.dismiss_surface());
 
     assert_eq!(app.input, "my draft", "composer draft untouched");
     assert_eq!(app.cursor_position, "my draft".chars().count());
-    assert!(!app.surfaces.dialogs.history_search.search);
-    assert!(app.surfaces.dialogs.history_search.query.is_empty());
+    assert!(!app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search);
+    assert!(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.is_empty());
     assert!(app.surfaces.active_overlay().is_none());
 }
 
@@ -441,8 +441,8 @@ fn history_insert_clears_search_query_buffer_and_places_entry() {
 
     app.input = "draft before search".to_string();
     app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
-    app.surfaces.dialogs.history_search.search = true;
-    app.surfaces.dialogs.history_search.query.text = "row".to_string();
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search = true;
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "row".to_string();
 
     // Simulate HistoryInsert action (Tab / Enter accept)
     let ranked = app.history_rows();
@@ -451,14 +451,14 @@ fn history_insert_clears_search_query_buffer_and_places_entry() {
     let (orig_idx, _) = *pick.unwrap();
     let text = app.input_history[orig_idx].text.clone();
     app.adopt_as_draft(text, vec![], vec![], crate::app::DraftAdoption::Replace);
-    app.surfaces.dialogs.history_search.search = false;
-    app.surfaces.dialogs.history_search.query.clear();
-    app.surfaces.dialogs.history_search.index = 0;
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search = false;
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.clear();
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 0;
     app.surfaces.dismiss_all_overlays();
 
     // Composer now holds the selected history entry, not the search query or old draft
     assert_eq!(app.input, "history row 2");
-    assert!(app.surfaces.dialogs.history_search.query.is_empty());
+    assert!(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.is_empty());
 }
 
 #[test]
@@ -1141,7 +1141,7 @@ fn test_delete_selected_history_entry_and_cascade() {
 
     // History order newest first: "third entry" (idx 2), "target entry" (idx 1), "first entry" (idx 0).
     // Let's select row 1 ("target entry")
-    app.surfaces.dialogs.history_search.index = 1;
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 1;
     let removed = app.delete_selected_history_entry();
     assert!(removed.is_some());
     let removed = removed.unwrap();
@@ -1160,14 +1160,14 @@ fn test_delete_selected_history_entry_and_cascade() {
     assert!(!app.history_attachments_order.iter().any(|k| k == &identity));
 
     // Verify the panel's index is clamped
-    assert_eq!(app.surfaces.dialogs.history_search.index, 1);
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index, 1);
 
     // Delete remaining entries
     app.delete_selected_history_entry();
     assert_eq!(app.input_history.len(), 1);
     app.delete_selected_history_entry();
     assert_eq!(app.input_history.len(), 0);
-    assert_eq!(app.surfaces.dialogs.history_search.index, 0);
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index, 0);
 
     // Deleting from empty history is a safe no-op
     assert!(app.delete_selected_history_entry().is_none());
@@ -1291,9 +1291,9 @@ async fn test_ctrl_c_in_history_search() {
     );
 
     // Case 1: Filter query is non-empty -> Ctrl+C clears the filter and resets cursor
-    app.surfaces.dialogs.history_search.query.text = "my search query".to_string();
-    app.surfaces.dialogs.history_search.query.cursor = 5;
-    app.surfaces.dialogs.history_search.index = 2;
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "my search query".to_string();
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.cursor = 5;
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 2;
 
     let (copy_tx, _copy_rx) = mpsc::unbounded_channel();
     let copy_pending = Arc::new(AtomicUsize::new(0));
@@ -1305,8 +1305,8 @@ async fn test_ctrl_c_in_history_search() {
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::HistorySearch)
     );
-    assert_eq!(app.surfaces.dialogs.history_search.query.text, "");
-    assert_eq!(app.surfaces.dialogs.history_search.index, 0);
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text, "");
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index, 0);
 
     // Case 2: Filter query is empty -> Ctrl+C dismisses history dialog
     crate::event_loop::handle_ctrl_c(&mut app, "test-session", &copy_tx, &copy_pending);
@@ -1357,7 +1357,7 @@ fn test_history_ranking_prefers_exact_word_over_scattered_and_applies_recency() 
         ),
     ];
 
-    app.surfaces.dialogs.history_search.query.text = "adr".to_string();
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "adr".to_string();
     let rows = app.history_rows();
     assert_eq!(rows.len(), 4, "all 4 match the subsequence 'adr'");
 
@@ -1539,7 +1539,7 @@ async fn history_rows_scales_to_100k_entries_without_lag() {
 
     // 1. Empty query returns all 100,000 items newest-first
     let t0 = std::time::Instant::now();
-    app.surfaces.dialogs.history_search.query.clear();
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.clear();
     let rows_empty = app.history_rows();
     let d0 = t0.elapsed();
     assert_eq!(rows_empty.len(), count);
@@ -1551,7 +1551,7 @@ async fn history_rows_scales_to_100k_entries_without_lag() {
 
     // 2. Filtered search with pre-filter pruning
     let t1 = std::time::Instant::now();
-    app.surfaces.dialogs.history_search.query.text = "gcm".to_string();
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "gcm".to_string();
     let rows_filtered = app.history_rows();
     let d1 = t1.elapsed();
     // 100 matches of "git commit -m 'release {i}'"

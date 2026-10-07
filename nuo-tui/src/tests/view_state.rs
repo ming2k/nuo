@@ -452,7 +452,7 @@ fn browse_view_reopen_restores_scroll_and_selection() {
     );
     assert_eq!(app.active_index(), 0);
 
-    app.surfaces.dialogs.usage_stats.scroll = 42;
+    app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll = 42;
     app.set_active_index(3);
     assert!(app.dismiss_surface());
     assert!(app.surfaces.active_overlay().is_none());
@@ -461,7 +461,7 @@ fn browse_view_reopen_restores_scroll_and_selection() {
     assert!(!app.open_dialog(crate::surfaces::DialogKind::UsageStats));
     assert_eq!(app.active_index(), 3, "selection retained across hide");
     assert_eq!(
-        app.surfaces.dialogs.usage_stats.scroll, 42,
+        app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll, 42,
         "scroll retained across hide"
     );
 }
@@ -472,22 +472,22 @@ fn browse_view_state_is_per_view() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Permissions);
     app.set_active_index(2);
-    app.surfaces.dialogs.permissions.scroll = 7;
+    app.surfaces.dlg_mut::<crate::surfaces::PermissionsDialog>().scroll = 7;
     assert!(app.dismiss_surface());
 
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
     app.set_active_index(1);
-    app.surfaces.dialogs.usage_stats.scroll = 9;
+    app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll = 9;
     assert!(app.dismiss_surface());
 
     app.open_dialog(crate::surfaces::DialogKind::Permissions);
     assert_eq!(
-        (app.active_index(), app.surfaces.dialogs.permissions.scroll),
+        (app.active_index(), app.surfaces.dlg_mut::<crate::surfaces::PermissionsDialog>().scroll),
         (2, 7)
     );
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
     assert_eq!(
-        (app.active_index(), app.surfaces.dialogs.usage_stats.scroll),
+        (app.active_index(), app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll),
         (1, 9)
     );
 }
@@ -496,17 +496,17 @@ fn browse_view_state_is_per_view() {
 fn view_follow_mode_is_per_view_entity() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Tools);
-    app.surfaces.dialogs.tools.follow = false;
+    app.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().follow = false;
 
     app.open_dialog(crate::surfaces::DialogKind::Mcp);
     assert!(
-        app.surfaces.dialogs.mcp.follow,
+        app.surfaces.dlg_mut::<crate::surfaces::McpDialog>().follow,
         "Mcp's own follow starts true"
     );
 
     app.open_dialog(crate::surfaces::DialogKind::Tools);
     assert!(
-        !app.surfaces.dialogs.tools.follow,
+        !app.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().follow,
         "Tools' follow is its own entity state, not a shared field"
     );
 }
@@ -517,20 +517,20 @@ fn session_change_isolates_session_scoped_dialogs() {
     // and leaves global dialog state intact.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
-    app.surfaces.dialogs.usage_stats.scroll = 5;
+    app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll = 5;
     app.set_active_index(1);
     app.surfaces
         .present_dialog(crate::surfaces::DialogKind::Telemetry);
-    app.surfaces.dialogs.telemetry.scroll = 8;
+    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll = 8;
 
     app.on_viewed_session_changed();
 
     assert_eq!(
-        app.surfaces.dialogs.usage_stats.scroll, 5,
+        app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll, 5,
         "global usage stats survives the session change"
     );
     assert_eq!(
-        app.surfaces.dialogs.telemetry.scroll, 0,
+        app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll, 0,
         "session telemetry is reset"
     );
     assert!(
@@ -577,8 +577,8 @@ fn pickers_never_borrow_the_composer_line() {
     app.open_dialog(crate::surfaces::DialogKind::Models);
     assert_eq!(app.input, "models draft", "composer untouched");
 
-    app.surfaces.dialogs.models.search = true;
-    app.surfaces.dialogs.models.query.text = "gpt".to_string();
+    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().search = true;
+    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.text = "gpt".to_string();
     assert_eq!(
         app.picker_query(),
         "gpt",
@@ -587,7 +587,7 @@ fn pickers_never_borrow_the_composer_line() {
     assert!(app.dismiss_surface());
     assert_eq!(app.input, "models draft", "draft intact after dismiss");
     assert!(
-        app.surfaces.dialogs.models.query.is_empty(),
+        app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.is_empty(),
         "the entity's query is self-contained"
     );
 }

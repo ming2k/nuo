@@ -694,7 +694,7 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
     // NOT quit.
     app.startup_overlay = crate::StartupOverlay::SessionsPicker;
     app.open_dialog(crate::surfaces::DialogKind::Sessions);
-    app.surfaces.dialogs.sessions.info_detail = true;
+    app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail = true;
     app.session_detail = Some(nuo_wire::SessionDetail {
         id: "x".to_string(),
         ..Default::default()
@@ -703,11 +703,11 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
 
     // Mirror the CloseModal arm's ordering (deepest level wins).
     let quit = if app.active_dialog() == Some(crate::surfaces::DialogKind::Sessions)
-        && app.surfaces.dialogs.sessions.info_detail
+        && app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail
     {
-        app.surfaces.dialogs.sessions.info_detail = false;
+        app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail = false;
         app.session_detail = None;
-        app.surfaces.dialogs.sessions.info_scroll = 0;
+        app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_scroll = 0;
         false
     } else if app.startup_overlay == crate::StartupOverlay::SessionsPicker
         && app.active_dialog() == Some(crate::surfaces::DialogKind::Sessions)
@@ -719,7 +719,7 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
     };
     assert!(!quit, "Esc from Info backs out to the list, never quits");
     assert!(
-        !app.surfaces.dialogs.sessions.info_detail,
+        !app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail,
         "sub-view cleared — back on the list"
     );
     assert!(
@@ -730,7 +730,7 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
     // Now the list is showing (still at startup). A second Esc DOES quit, since
     // there is no deeper sub-view left.
     let quit = if app.active_dialog() == Some(crate::surfaces::DialogKind::Sessions)
-        && app.surfaces.dialogs.sessions.info_detail
+        && app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail
     {
         false
     } else if app.startup_overlay == crate::StartupOverlay::SessionsPicker

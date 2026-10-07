@@ -74,7 +74,7 @@ impl App {
         // tail, so re-sort by created_at_ms (stable) to keep the panel's order
         // correct without mutating the stored Vec.
         let order: Vec<usize> = self.history_order();
-        let query = self.surfaces.dialogs.history_search.query.text.as_str();
+        let query = self.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().query.text.as_str();
         if query.is_empty() {
             // Empty query → show everything newest-first, unhighlighted.
             return order
@@ -622,15 +622,15 @@ impl App {
     pub fn delete_selected_history_entry(&mut self) -> Option<nuo_wire::HistoryEntry> {
         let ranked = self.history_rows();
         let pick = ranked
-            .get(self.surfaces.dialogs.history_search.index)
+            .get(self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index)
             .or_else(|| ranked.first());
         let &(orig_idx, _) = pick?;
         let removed = self.delete_history_entry_at(orig_idx);
         let new_len = self.history_rows().len();
-        if self.surfaces.dialogs.history_search.index >= new_len {
-            self.surfaces.dialogs.history_search.index = new_len.saturating_sub(1);
+        if self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index >= new_len {
+            self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = new_len.saturating_sub(1);
         }
-        self.surfaces.dialogs.history_search.follow = true;
+        self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().follow = true;
         removed
     }
 }

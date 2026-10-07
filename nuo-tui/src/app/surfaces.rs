@@ -56,24 +56,19 @@ impl App {
     /// The topmost dialog in the overlay stack, even when a sheet floats
     /// above it (the picker-under-editor case).
     pub(crate) fn top_dialog(&self) -> Option<DialogKind> {
-        self.surfaces
-            .overlay_stack()
-            .iter()
-            .rev()
-            .find_map(|o| o.dialog())
+        self.surfaces.top_dialog()
     }
 
     /// The active dialog's selection cursor.
     pub(crate) fn active_index(&self) -> usize {
         self.top_dialog()
-            .map(|id| self.surfaces.dialogs.index(id))
-            .unwrap_or(0)
+            .map_or(0, |id| self.surfaces.nav_index(id))
     }
 
     /// Set the active dialog's selection cursor.
     pub(crate) fn set_active_index(&mut self, value: usize) {
         if let Some(id) = self.top_dialog() {
-            self.surfaces.dialogs.set_index(id, value);
+            self.surfaces.set_nav_index(id, value);
         }
     }
 
@@ -97,8 +92,8 @@ impl App {
     /// Whether the topmost model/provider picker is in search mode.
     pub(crate) fn picker_search(&self) -> bool {
         match self.top_dialog() {
-            Some(DialogKind::Models) => self.surfaces.dialogs.models.search,
-            Some(DialogKind::Connections) => self.surfaces.dialogs.connections.search,
+            Some(DialogKind::Models) => self.surfaces.dlg::<crate::surfaces::ModelsDialog>().search,
+            Some(DialogKind::Connections) => self.surfaces.dlg::<crate::surfaces::ConnectionsDialog>().search,
             _ => false,
         }
     }
@@ -106,8 +101,8 @@ impl App {
     /// Toggle the topmost model/provider picker's search mode.
     pub(crate) fn set_picker_search(&mut self, value: bool) {
         match self.top_dialog() {
-            Some(DialogKind::Models) => self.surfaces.dialogs.models.search = value,
-            Some(DialogKind::Connections) => self.surfaces.dialogs.connections.search = value,
+            Some(DialogKind::Models) => self.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().search = value,
+            Some(DialogKind::Connections) => self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().search = value,
             _ => {}
         }
     }
@@ -116,13 +111,13 @@ impl App {
     pub(crate) fn reset_picker_nav(&mut self) {
         match self.top_dialog() {
             Some(DialogKind::Models) => {
-                let m = &mut self.surfaces.dialogs.models;
+                let m = &mut self.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
                 m.index = 0;
                 m.scroll = 0;
                 m.follow = true;
             }
             Some(DialogKind::Connections) => {
-                let c = &mut self.surfaces.dialogs.connections;
+                let c = &mut self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>();
                 c.index = 0;
                 c.scroll = 0;
                 c.follow = true;
@@ -135,16 +130,16 @@ impl App {
     pub(crate) fn set_active_follow(&mut self, follow: bool) {
         if let Some(id) = self.top_dialog() {
             match id {
-                DialogKind::Models => self.surfaces.dialogs.models.follow = follow,
-                DialogKind::Connections => self.surfaces.dialogs.connections.follow = follow,
-                DialogKind::Tools => self.surfaces.dialogs.tools.follow = follow,
-                DialogKind::Mcp => self.surfaces.dialogs.mcp.follow = follow,
-                DialogKind::Skills => self.surfaces.dialogs.skills.follow = follow,
-                DialogKind::Sessions => self.surfaces.dialogs.sessions.follow = follow,
-                DialogKind::HistorySearch => self.surfaces.dialogs.history_search.follow = follow,
-                DialogKind::SessionTree => self.surfaces.dialogs.session_tree.follow = follow,
-                DialogKind::Queue => self.surfaces.dialogs.queue.follow = follow,
-                DialogKind::Asides => self.surfaces.dialogs.asides.follow = follow,
+                DialogKind::Models => self.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().follow = follow,
+                DialogKind::Connections => self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().follow = follow,
+                DialogKind::Tools => self.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().follow = follow,
+                DialogKind::Mcp => self.surfaces.dlg_mut::<crate::surfaces::McpDialog>().follow = follow,
+                DialogKind::Skills => self.surfaces.dlg_mut::<crate::surfaces::SkillsDialog>().follow = follow,
+                DialogKind::Sessions => self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().follow = follow,
+                DialogKind::HistorySearch => self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().follow = follow,
+                DialogKind::SessionTree => self.surfaces.dlg_mut::<crate::surfaces::SessionTreeDialog>().follow = follow,
+                DialogKind::Queue => self.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().follow = follow,
+                DialogKind::Asides => self.surfaces.dlg_mut::<crate::surfaces::AsidesDialog>().follow = follow,
                 DialogKind::Permissions
                 | DialogKind::UsageStats
                 | DialogKind::Telemetry
@@ -156,21 +151,19 @@ impl App {
     /// Whether the in-dialog key-reference sub-layer is open on the active
     /// dialog.
     pub(crate) fn dialog_keys(&self) -> bool {
-        self.active_dialog()
-            .is_some_and(|id| self.surfaces.dialogs.keys_open(id))
+        self.surfaces.active_view().is_some_and(|v| v.keys_open())
     }
 
     /// Toggle the active dialog's key-reference sub-layer.
     pub(crate) fn set_dialog_keys(&mut self, open: bool) {
-        if let Some(id) = self.active_dialog() {
-            self.surfaces.dialogs.set_keys_open(id, open);
+        if let Some(v) = self.surfaces.active_view_mut() {
+            v.set_keys_open(open);
         }
     }
 
     /// The active dialog's key-reference body scroll offset.
     pub(crate) fn dialog_keys_scroll(&mut self) -> Option<&mut usize> {
-        self.active_dialog()
-            .map(|id| self.surfaces.dialogs.keys_scroll_mut(id))
+        self.surfaces.active_view_mut().map(|v| v.keys_scroll_mut())
     }
 
     /// Run the App-side teardown a sheet owns when it leaves the overlay stack
@@ -238,30 +231,14 @@ impl App {
             ));
         }
         if let Some(id) = self.active_dialog() {
-            let d = &mut self.surfaces.dialogs;
+            let v = self.surfaces.view_by_kind_mut(id)?;
+            let (scroll, follow) = v.nav_fields();
             return match id {
-                DialogKind::Tools => Some((&mut d.tools.scroll, Some(&mut d.tools.follow))),
-                DialogKind::Mcp => Some((&mut d.mcp.scroll, Some(&mut d.mcp.follow))),
-                DialogKind::Skills => Some((&mut d.skills.scroll, Some(&mut d.skills.follow))),
-                DialogKind::Permissions => Some((&mut d.permissions.scroll, None)),
-                DialogKind::UsageStats => Some((&mut d.usage_stats.scroll, None)),
-                DialogKind::Telemetry => Some((&mut d.telemetry.scroll, None)),
-                DialogKind::Asides => Some((&mut d.asides.scroll, Some(&mut d.asides.follow))),
-                DialogKind::Models => Some((&mut d.models.scroll, Some(&mut d.models.follow))),
-                DialogKind::Connections => {
-                    Some((&mut d.connections.scroll, Some(&mut d.connections.follow)))
-                }
-                DialogKind::HistorySearch => {
-                    Some((&mut d.history_search.scroll, Some(&mut d.history_search.follow)))
-                }
-                DialogKind::Queue => Some((&mut d.queue.scroll, Some(&mut d.queue.follow))),
-                DialogKind::Sessions => {
-                    Some((&mut d.sessions.scroll, Some(&mut d.sessions.follow)))
-                }
-                DialogKind::SessionTree => {
-                    Some((&mut d.session_tree.scroll, Some(&mut d.session_tree.follow)))
-                }
-                DialogKind::Switcher => Some((&mut d.switcher.scroll, None)),
+                DialogKind::Permissions
+                | DialogKind::UsageStats
+                | DialogKind::Telemetry
+                | DialogKind::Switcher => Some((scroll, None)),
+                _ => Some((scroll, follow)),
             };
         }
         if let Some(overlay) = self.surfaces.active_overlay() {
@@ -348,10 +325,10 @@ impl App {
             && !(scene == SceneKind::Dashboard
                 && (self.host_prompting || self.host_preview.is_some()))
             && !(active_dialog == Some(DialogKind::Sessions)
-                && self.surfaces.dialogs.sessions.info_detail)
+                && self.surfaces.dlg::<crate::surfaces::SessionsDialog>().info_detail)
             && !(active_dialog == Some(DialogKind::Telemetry)
-                && (self.surfaces.dialogs.telemetry.detail
-                    || self.surfaces.dialogs.telemetry.turn.is_some()))
+                && (self.surfaces.dlg::<crate::surfaces::TelemetryDialog>().detail
+                    || self.surfaces.dlg::<crate::surfaces::TelemetryDialog>().turn.is_some()))
             && !(scene == SceneKind::Settings
                 && (self.config_dropdown.is_some()
                     || self.config_focus == crate::overlays::ConfigFocus::Detail))
@@ -373,8 +350,8 @@ impl App {
         self.in_side_view = false;
         self.side_session_id = None;
         self.session_detail = None;
-        self.surfaces.dialogs.sessions.info_detail = false;
-        self.surfaces.dialogs.sessions.info_scroll = 0;
+        self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail = false;
+        self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_scroll = 0;
         self.session_history_backfill_cursor = 0;
     }
 
@@ -434,23 +411,23 @@ impl App {
     pub(crate) fn deactivate_dialog(&mut self, id: DialogKind) {
         self.set_dialog_keys(false);
         if id == DialogKind::Sessions {
-            self.surfaces.dialogs.sessions.loading = false;
-            self.surfaces.dialogs.sessions.info_detail = false;
+            self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().loading = false;
+            self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail = false;
             self.session_detail = None;
-            self.surfaces.dialogs.sessions.info_scroll = 0;
+            self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_scroll = 0;
         }
         if id == DialogKind::Connections {
-            self.surfaces.dialogs.connections.info_detail = false;
-            self.surfaces.dialogs.connections.info_standalone = false;
+            self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail = false;
+            self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_standalone = false;
             self.connection_detail = None;
-            self.surfaces.dialogs.connections.info_scroll = 0;
-            self.surfaces.dialogs.connections.models_expanded = false;
+            self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll = 0;
+            self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().models_expanded = false;
         }
         if id == DialogKind::Telemetry {
-            self.surfaces.dialogs.telemetry.tab = crate::overlays::telemetry::TelemetryTab::Overview;
-            self.surfaces.dialogs.telemetry.detail = false;
-            self.surfaces.dialogs.telemetry.turn = None;
-            self.surfaces.dialogs.telemetry.turn_cursor = 0;
+            self.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().tab = crate::overlays::telemetry::TelemetryTab::Overview;
+            self.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail = false;
+            self.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn = None;
+            self.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn_cursor = 0;
         }
         if id == DialogKind::Queue
             && let Some(sid) = self.queue_exit_session.take()
@@ -605,7 +582,7 @@ impl App {
         if let Some(dialog) = self.active_dialog() {
             match dialog {
                 DialogKind::Telemetry => {
-                    let t = &mut self.surfaces.dialogs.telemetry;
+                    let t = &mut self.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>();
                     if t.turn.is_some() {
                         t.turn = None;
                         t.scroll = 0;
@@ -618,19 +595,19 @@ impl App {
                         return true;
                     }
                 }
-                DialogKind::Sessions if self.surfaces.dialogs.sessions.info_detail => {
-                    self.surfaces.dialogs.sessions.info_detail = false;
+                DialogKind::Sessions if self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail => {
+                    self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail = false;
                     self.session_detail = None;
-                    self.surfaces.dialogs.sessions.info_scroll = 0;
+                    self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_scroll = 0;
                     return true;
                 }
-                DialogKind::Connections if self.surfaces.dialogs.connections.info_detail => {
-                    let standalone = self.surfaces.dialogs.connections.info_standalone;
-                    self.surfaces.dialogs.connections.info_detail = false;
-                    self.surfaces.dialogs.connections.info_standalone = false;
+                DialogKind::Connections if self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail => {
+                    let standalone = self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_standalone;
+                    self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail = false;
+                    self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_standalone = false;
                     self.connection_detail = None;
-                    self.surfaces.dialogs.connections.info_scroll = 0;
-                    self.surfaces.dialogs.connections.models_expanded = false;
+                    self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll = 0;
+                    self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().models_expanded = false;
                     return !standalone;
                 }
                 _ => {}

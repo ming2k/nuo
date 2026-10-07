@@ -908,11 +908,11 @@ fn modal_scroll_field_resolves_every_scrollable_modal() {
 
     // Seed a few follow flags so we can assert the helper hands back the
     // right one (and that mutating through it actually clears it).
-    app.surfaces.dialogs.tools.follow = true;
-    app.surfaces.dialogs.sessions.follow = true;
-    app.surfaces.dialogs.history_search.follow = true;
-    app.surfaces.dialogs.queue.follow = true;
-    app.surfaces.dialogs.models.follow = true;
+    app.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().follow = true;
+    app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().follow = true;
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().follow = true;
+    app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().follow = true;
+    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().follow = true;
     app.question_modal_follow = true;
 
     // List modals return a follow-flag; clearing it must hit the right field.
@@ -924,9 +924,9 @@ fn modal_scroll_field_resolves_every_scrollable_modal() {
             *f = false;
         }
     }
-    assert_eq!(app.surfaces.dialogs.queue.scroll, 5, "queue scroll mutated through helper");
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().scroll, 5, "queue scroll mutated through helper");
     assert!(
-        !app.surfaces.dialogs.queue.follow,
+        !app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().follow,
         "queue follow cleared through helper"
     );
 
@@ -938,7 +938,7 @@ fn modal_scroll_field_resolves_every_scrollable_modal() {
         }
     }
     assert!(
-        !app.surfaces.dialogs.tools.follow,
+        !app.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().follow,
         "tools follow cleared through the helper"
     );
 
@@ -964,8 +964,8 @@ fn modal_scroll_field_resolves_every_scrollable_modal() {
     assert!(f.is_none(), "settings has no selection-follow flag");
     *s = 7;
 
-    assert_eq!(app.surfaces.dialogs.usage_stats.scroll, 7);
-    assert_eq!(app.surfaces.dialogs.permissions.scroll, 7);
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll, 7);
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::PermissionsDialog>().scroll, 7);
 
     // Conversation and ModelEditor do not scroll their own body.
     app.reset_to_conversation();
@@ -1702,8 +1702,8 @@ fn switching_picker_view_preserves_query_and_chat_draft_separately() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.input = "unsent chat".to_string();
     app.open_dialog(crate::surfaces::DialogKind::Models);
-    app.surfaces.dialogs.models.search = true;
-    app.surfaces.dialogs.models.query.text = "claude".to_string();
+    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().search = true;
+    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.text = "claude".to_string();
 
     assert_eq!(app.input, "unsent chat", "composer draft untouched");
 
@@ -1715,11 +1715,11 @@ fn switching_picker_view_preserves_query_and_chat_draft_separately() {
 
     app.open_dialog(crate::surfaces::DialogKind::Models);
     assert_eq!(
-        app.surfaces.dialogs.models.query.text, "claude",
+        app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.text, "claude",
         "picker query is retained independently"
     );
     assert!(
-        app.surfaces.dialogs.models.search,
+        app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().search,
         "the search sub-layer is retained too"
     );
     assert!(app.dismiss_surface());
@@ -1771,12 +1771,12 @@ fn backend_navigation_waits_for_transient_and_drill_in_surfaces() {
 fn explicit_view_close_discards_retained_state_and_payload() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
-    app.surfaces.dialogs.usage_stats.scroll = 17;
+    app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll = 17;
     app.close_dialog(crate::surfaces::DialogKind::UsageStats);
 
     assert!(!app.surface_store.is_open(crate::surfaces::DialogKind::UsageStats));
     assert!(app.surfaces.active_overlay().is_none());
-    assert_eq!(app.surfaces.dialogs.usage_stats.scroll, 0);
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll, 0);
     assert!(app.open_dialog(crate::surfaces::DialogKind::UsageStats));
 }
 
@@ -1817,9 +1817,9 @@ fn pop_sublayer_steps_back_one_level_at_a_time() {
     // outside-click mirror both route through here.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Telemetry);
-    app.surfaces.dialogs.telemetry.detail = true;
+    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail = true;
     assert!(app.pop_sublayer());
-    assert!(!app.surfaces.dialogs.telemetry.detail, "drill-in closed");
+    assert!(!app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail, "drill-in closed");
     assert_eq!(
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::Telemetry),
@@ -1841,10 +1841,10 @@ fn pop_sublayer_steps_back_one_level_at_a_time() {
 
     // Connections: detail view pops back to connections list
     app.open_dialog(crate::surfaces::DialogKind::Connections);
-    app.surfaces.dialogs.connections.info_detail = true;
+    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail = true;
     app.connection_detail = Some(Default::default());
     assert!(app.pop_sublayer());
-    assert!(!app.surfaces.dialogs.connections.info_detail, "connection detail closed");
+    assert!(!app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail, "connection detail closed");
     assert!(app.connection_detail.is_none());
     assert_eq!(
         app.active_dialog(),
@@ -1860,21 +1860,21 @@ fn pop_sublayer_pops_telemetry_turn_page_before_round_detail() {
     // Esc walks back one level at a time, attempt inspector first.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Telemetry);
-    app.surfaces.dialogs.telemetry.detail = true;
-    app.surfaces.dialogs.telemetry.turn = Some((2, 1));
-    app.surfaces.dialogs.telemetry.turn_cursor = 1;
-    app.surfaces.dialogs.telemetry.scroll = 4;
+    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail = true;
+    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn = Some((2, 1));
+    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn_cursor = 1;
+    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll = 4;
     assert!(app.pop_sublayer());
     assert!(
-        app.surfaces.dialogs.telemetry.turn.is_none(),
+        app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn.is_none(),
         "attempt inspector closed first"
     );
-    assert!(app.surfaces.dialogs.telemetry.detail, "round detail stays open");
-    assert_eq!(app.surfaces.dialogs.telemetry.scroll, 0);
-    assert_eq!(app.surfaces.dialogs.telemetry.turn_cursor, 1, "cursor retained");
+    assert!(app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail, "round detail stays open");
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll, 0);
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn_cursor, 1, "cursor retained");
     assert!(app.pop_sublayer());
-    assert!(!app.surfaces.dialogs.telemetry.detail, "round detail closed next");
-    assert_eq!(app.surfaces.dialogs.telemetry.turn_cursor, 0, "cursor reset");
+    assert!(!app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail, "round detail closed next");
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn_cursor, 0, "cursor reset");
     assert_eq!(
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::Telemetry),
@@ -1987,15 +1987,35 @@ fn modal_arrows_route_through_the_dialog_entity() {
     // entity's own state.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Telemetry);
-    app.surfaces.dialogs.telemetry.tab =
+    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().tab =
         crate::overlays::telemetry::TelemetryTab::Overview;
-    app.surfaces.dialogs.telemetry.scroll = 5;
+    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll = 5;
 
     crate::event_loop::actions::handle_modal_up(&mut app, "test-session");
     assert_eq!(
-        app.surfaces.dialogs.telemetry.scroll, 4,
+        app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll, 4,
         "arrow handled by the telemetry entity"
     );
     crate::event_loop::actions::handle_modal_down(&mut app, "test-session");
-    assert_eq!(app.surfaces.dialogs.telemetry.scroll, 5);
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll, 5);
+}
+
+#[test]
+fn dialog_reads_see_the_entity_while_it_is_rendered() {
+    // Regression: rendering takes the entity out of the registry; App methods
+    // that read the dialog's own query (`picker_query`, `history_rows`) must
+    // still see that query, not a blank placeholder.
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.open_dialog(crate::surfaces::DialogKind::Models);
+    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().search = true;
+    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.text = "claude".to_string();
+
+    let taken = app.surfaces.take_active_view().expect("models is open");
+    assert_eq!(
+        app.picker_query(),
+        "claude",
+        "read sees the entity's query during render"
+    );
+    app.surfaces.put_active_view(taken);
+    assert_eq!(app.picker_query(), "claude");
 }

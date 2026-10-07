@@ -95,6 +95,12 @@ pub trait DialogView: std::fmt::Debug + Send + 'static {
     /// This dialog's identity.
     fn kind(&self) -> DialogKind;
 
+    /// This dialog's identity as a compile-time constant, for generic
+    /// accessors that must resolve an entity by its concrete type.
+    fn kind_static() -> DialogKind
+    where
+        Self: Sized;
+
     /// This dialog's ownership domain. Defaults to the static classification
     /// on [`DialogKind::scope`] so the matrix has exactly one definition.
     fn scope(&self) -> DialogScope {
@@ -131,6 +137,20 @@ pub trait DialogView: std::fmt::Debug + Send + 'static {
         None
     }
 
+    /// The dialog's selection cursor.
+    fn nav_index(&self) -> usize;
+    /// Set the dialog's selection cursor.
+    fn set_nav_index(&mut self, value: usize);
+    /// The dialog's scroll offset and (optional) follow flag, for wheel/page
+    /// routing.
+    fn nav_fields(&mut self) -> (&mut usize, Option<&mut bool>);
+    /// Whether the in-dialog key-reference sub-layer is open.
+    fn keys_open(&self) -> bool;
+    /// Open or close the in-dialog key-reference sub-layer.
+    fn set_keys_open(&mut self, open: bool);
+    /// The key-reference sub-layer's scroll offset.
+    fn keys_scroll_mut(&mut self) -> &mut usize;
+
     /// Deterministic dismissal hook, executed by the overlay stack on pop and
     /// on scene/session unwinding (`[INV-SURFACE-04]`).
     fn on_dismiss(&mut self) {}
@@ -142,6 +162,10 @@ pub trait DialogView: std::fmt::Debug + Send + 'static {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
+
+    /// Clone into a boxed trait object. Used to leave a read-consistent
+    /// placeholder in a stack entry while the live entity is rendered/input.
+    fn clone_box(&self) -> Box<dyn DialogView>;
 }
 
 /// The canonical [`ModalSpec`] geometry for a dialog kind.
@@ -160,6 +184,40 @@ pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
         // The history panel is a composer-anchored dropdown and the switcher
         // is a command palette: neither uses a centered modal footprint.
         DialogKind::HistorySearch | DialogKind::Switcher => ContentModalSpec::TOOLS.modal_spec(),
+    }
+}
+
+/// Per-dialog teardown run on dismissal: the entity's own hook plus clearing
+/// its embedded search field, so a dismissed picker never leaves a stale query
+/// behind (`[INV-SURFACE-01]`).
+#[allow(clippy::expect_used)]
+pub fn dismiss_cleanup(view: &mut dyn DialogView) {
+    match view.kind() {
+        DialogKind::Models => {
+            let d = view.as_any_mut().downcast_mut::<ModelsDialog>().expect("kind");
+            d.search = false;
+            d.query.clear();
+        }
+        DialogKind::Connections => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<ConnectionsDialog>()
+                .expect("kind");
+            d.search = false;
+            d.query.clear();
+        }
+        DialogKind::HistorySearch => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<HistorySearchDialog>()
+                .expect("kind");
+            d.search = false;
+            d.query.clear();
+            d.index = 0;
+            d.scroll = 0;
+            d.follow = true;
+        }
+        _ => {}
     }
 }
 
@@ -781,6 +839,9 @@ macro_rules! dialog_entity {
             fn kind(&self) -> DialogKind {
                 DialogKind::$kind
             }
+            fn kind_static() -> DialogKind {
+                DialogKind::$kind
+            }
             fn handle_input(
                 &mut self,
                 action: &InputAction,
@@ -797,6 +858,27 @@ macro_rules! dialog_entity {
             ) -> Option<Rect> {
                 render_dialog(self, frame, area, ctx)
             }
+            fn nav_index(&self) -> usize {
+                self.index
+            }
+            fn set_nav_index(&mut self, value: usize) {
+                self.index = value;
+            }
+            fn nav_fields(&mut self) -> (&mut usize, Option<&mut bool>) {
+                (&mut self.scroll, Some(&mut self.follow))
+            }
+            fn keys_open(&self) -> bool {
+                self.keys_open
+            }
+            fn set_keys_open(&mut self, open: bool) {
+                self.keys_open = open;
+                if !open {
+                    self.keys_scroll = 0;
+                }
+            }
+            fn keys_scroll_mut(&mut self) -> &mut usize {
+                &mut self.keys_scroll
+            }
             fn reset(&mut self) {
                 *self = Self::default();
             }
@@ -808,6 +890,9 @@ macro_rules! dialog_entity {
             }
             fn into_any(self: Box<Self>) -> Box<dyn Any> {
                 self
+            }
+            fn clone_box(&self) -> Box<dyn DialogView> {
+                Box::new(self.clone())
             }
         }
     };
@@ -1048,6 +1133,10 @@ impl Dialogs {
     /// against a disjoint `&App` borrow. Must be paired with [`Self::put`].
     #[allow(clippy::expect_used)]
     pub fn take(&mut self, kind: DialogKind) -> Box<dyn DialogView> {
+        // Move the entity out, leaving a `Default` placeholder; the stack owns
+        // it while open and returns it via `put` on dismissal. The
+        // render-time read-consistency clone lives in the stack entry
+        // (`SurfaceRouter::take_active_view`).
         match kind {
             DialogKind::Tools => Box::new(std::mem::take(&mut self.tools)),
             DialogKind::Mcp => Box::new(std::mem::take(&mut self.mcp)),
@@ -1237,24 +1326,7 @@ impl Dialogs {
     /// picker never leaves a stale query behind (`[INV-SURFACE-01]`).
     pub fn on_dismiss(&mut self, kind: DialogKind) {
         self.view_mut(kind).on_dismiss();
-        match kind {
-            DialogKind::Models => {
-                self.models.search = false;
-                self.models.query.clear();
-            }
-            DialogKind::Connections => {
-                self.connections.search = false;
-                self.connections.query.clear();
-            }
-            DialogKind::HistorySearch => {
-                self.history_search.search = false;
-                self.history_search.query.clear();
-                self.history_search.index = 0;
-                self.history_search.scroll = 0;
-                self.history_search.follow = true;
-            }
-            _ => {}
-        }
+        dismiss_cleanup(self.view_mut(kind));
     }
 
     /// Clear one entity's state back to first-open.

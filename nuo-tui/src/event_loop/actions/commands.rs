@@ -310,8 +310,8 @@ pub(crate) fn handle_ctrl_c(
         // The panel owns its embedded query (ADR-0035); Ctrl+C clears that
         // field (keeping the panel open) or dismisses the panel when it is
         // already empty.
-        if !app.surfaces.dialogs.history_search.query.is_empty() {
-            let d = &mut app.surfaces.dialogs.history_search;
+        if !app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.is_empty() {
+            let d = &mut app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>();
             d.query.clear();
             d.query.cursor = 0;
             d.index = 0;

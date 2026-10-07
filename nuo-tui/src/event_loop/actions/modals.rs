@@ -226,7 +226,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
             app.editor_field = 1;
             app.input = app.editor_effort.clone();
             app.set_cursor_end();
-            app.surfaces.dialogs.models.search = false;
+            app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().search = false;
         }
     } else if app.active_dialog() == Some(DialogKind::Connections) {
         // `e` in the Connections list. A built-in provider opens
@@ -257,7 +257,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                 app.editor_thinking = true;
                 app.input.clear();
                 app.set_cursor(0);
-                app.surfaces.dialogs.connections.search = false;
+                app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().search = false;
             } else {
                 // Pre-fill the edit form from the snapshot row.
                 let row = app
@@ -285,7 +285,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                         true,
                         nuo_wire::ClientIdentity::Native,
                     ));
-                app.surfaces.dialogs.connections.search = false;
+                app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().search = false;
                 app.open_edit_provider_editor(
                     id,
                     name,
@@ -532,10 +532,11 @@ pub(crate) fn quit_standalone_scene_at_startup(app: &mut App) -> bool {
 
 /// Loop stage (input dispatch): the `ModalUp` arm (per-modal ↑ navigation).
 pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
-    if let Some(d) = app.active_dialog() {
-        let mut ent = app.surfaces.dialogs.take(d);
-        let _ = ent.handle_input(&crate::input::InputAction::ModalUp, app, viewed_session_id);
-        app.surfaces.dialogs.put(d, ent);
+    if app.active_dialog().is_some() {
+        if let Some(mut ent) = app.surfaces.take_active_view() {
+            let _ = ent.handle_input(&crate::input::InputAction::ModalUp, app, viewed_session_id);
+            app.surfaces.put_active_view(ent);
+        }
     } else {
         match app.current_scene() {
             SceneKind::Dashboard => {
@@ -586,10 +587,11 @@ pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
 
 /// Loop stage (input dispatch): the `ModalDown` arm (per-modal ↓ navigation).
 pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
-    if let Some(d) = app.active_dialog() {
-        let mut ent = app.surfaces.dialogs.take(d);
-        let _ = ent.handle_input(&crate::input::InputAction::ModalDown, app, viewed_session_id);
-        app.surfaces.dialogs.put(d, ent);
+    if app.active_dialog().is_some() {
+        if let Some(mut ent) = app.surfaces.take_active_view() {
+            let _ = ent.handle_input(&crate::input::InputAction::ModalDown, app, viewed_session_id);
+            app.surfaces.put_active_view(ent);
+        }
     } else {
         match app.current_scene() {
             SceneKind::Dashboard => {

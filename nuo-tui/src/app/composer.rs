@@ -469,7 +469,7 @@ impl App {
                 // composer's normal palette (the panel is an extension of it),
                 // while the search sub-layer owns the visible cursor in its own
                 // embedded field.
-                return if self.surfaces.dialogs.history_search.search {
+                return if self.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().search {
                     CaretOwner::Overlay
                 } else if self.in_subagent_view() {
                     CaretOwner::None
@@ -695,14 +695,14 @@ impl App {
     pub(crate) fn picker_query(&self) -> &str {
         match self.top_dialog() {
             Some(crate::surfaces::DialogKind::Models)
-                if self.surfaces.dialogs.models.search =>
+                if self.surfaces.dlg::<crate::surfaces::ModelsDialog>().search =>
             {
-                self.surfaces.dialogs.models.query.text.trim()
+                self.surfaces.dlg::<crate::surfaces::ModelsDialog>().query.text.trim()
             }
             Some(crate::surfaces::DialogKind::Connections)
-                if self.surfaces.dialogs.connections.search =>
+                if self.surfaces.dlg::<crate::surfaces::ConnectionsDialog>().search =>
             {
-                self.surfaces.dialogs.connections.query.text.trim()
+                self.surfaces.dlg::<crate::surfaces::ConnectionsDialog>().query.text.trim()
             }
             _ => "",
         }

@@ -26,7 +26,12 @@
 
 mod dialogs;
 
-pub use dialogs::{DialogRenderCtx, DialogView, Dialogs};
+#[allow(unused_imports)]
+pub use dialogs::{
+    AsidesDialog, ConnectionsDialog, DialogRenderCtx, DialogView, Dialogs, HistorySearchDialog,
+    McpDialog, ModelsDialog, PermissionsDialog, QueueDialog, SessionTreeDialog, SessionsDialog,
+    SkillsDialog, SwitcherDialog, TelemetryDialog, ToolsDialog, UsageStatsDialog,
+};
 
 /// Root full-screen scene identifier (closed set of destinations).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -314,18 +319,48 @@ pub enum RetentionPolicy {
 
 const SCENE_HISTORY_CAP: usize = 16;
 
-/// Unified router managing the active root scene, the LIFO overlay stack, and
-/// the dialog entity registry.
+/// One overlay entry: the surface identity, its domain scope, and — for
+/// dialogs — the encapsulated view the stack owns (ADR-0035 §4,
+/// `StackEntry { kind, scope, view }`). Sheets are action prompts, not
+/// `DialogView` entities, so their `view` is `None`.
+#[derive(Debug)]
+pub struct StackEntry {
+    pub overlay: OverlaySurface,
+    pub scope: DialogScope,
+    pub view: Option<Box<dyn DialogView>>,
+}
+
+impl StackEntry {
+    fn dialog(id: DialogKind, view: Box<dyn DialogView>) -> Self {
+        Self {
+            overlay: OverlaySurface::Dialog(id),
+            scope: id.scope(),
+            view: Some(view),
+        }
+    }
+
+    fn sheet(sheet: SheetKind) -> Self {
+        Self {
+            overlay: OverlaySurface::Sheet(sheet),
+            scope: DialogScope::Global,
+            view: None,
+        }
+    }
+}
+
+/// Unified router managing the active root scene, the LIFO overlay stack (which
+/// **owns** each open dialog's entity), and the retained registry of dialogs
+/// that are not currently open.
 #[derive(Debug)]
 pub struct SurfaceRouter {
     /// The active full-screen root workspace.
     scene: SceneKind,
-    /// Stack of overlays currently floating over `scene` (bottom to top).
-    /// The top of the stack has primary input focus.
-    overlay_stack: Vec<OverlaySurface>,
+    /// Stack of overlays currently floating over `scene` (bottom to top). The
+    /// top of the stack has primary input focus and owns its dialog's entity.
+    overlay_stack: Vec<StackEntry>,
     /// Bounded historical trace of scenes for explicit back-navigation.
     scene_history: Vec<SceneKind>,
-    /// The single source of truth for every dialog entity's state.
+    /// Retained state for every dialog that is not currently open.
     pub dialogs: Dialogs,
 }
 
@@ -347,11 +382,13 @@ impl SurfaceRouter {
 
     /// Boot directly into a dialog (e.g. startup sessions picker).
     pub fn with_dialog(id: DialogKind) -> Self {
+        let mut dialogs = Dialogs::default();
+        let view = dialogs.take(id);
         Self {
             scene: SceneKind::Conversation,
-            overlay_stack: vec![OverlaySurface::Dialog(id)],
+            overlay_stack: vec![StackEntry::dialog(id, view)],
             scene_history: Vec::new(),
-            dialogs: Dialogs::default(),
+            dialogs,
         }
     }
 
@@ -367,8 +404,8 @@ impl SurfaceRouter {
 
     /// The focused surface: top overlay if any, otherwise the active root scene.
     pub fn active_surface(&self) -> Surface {
-        if let Some(top) = self.overlay_stack.last().copied() {
-            Surface::Overlay(top)
+        if let Some(top) = self.overlay_stack.last() {
+            Surface::Overlay(top.overlay)
         } else {
             Surface::Scene(self.scene)
         }
@@ -380,13 +417,13 @@ impl SurfaceRouter {
     }
 
     /// The overlay stack (bottom to top).
-    pub fn overlay_stack(&self) -> &[OverlaySurface] {
+    pub fn overlay_stack(&self) -> &[StackEntry] {
         &self.overlay_stack
     }
 
     /// The top overlay, if any.
     pub fn active_overlay(&self) -> Option<OverlaySurface> {
-        self.overlay_stack.last().copied()
+        self.overlay_stack.last().map(|e| e.overlay)
     }
 
     /// The active dialog, if the top overlay is a dialog.
@@ -394,12 +431,19 @@ impl SurfaceRouter {
         self.active_overlay().and_then(OverlaySurface::dialog)
     }
 
+    /// The topmost dialog anywhere in the stack (even under a sheet).
+    pub fn top_dialog(&self) -> Option<DialogKind> {
+        self.overlay_stack
+            .iter()
+            .rev()
+            .find_map(|e| e.overlay.dialog())
+    }
+
     /// If an overlay is active, return the overlay immediately underneath the top overlay, if any.
     pub fn underlying_overlay(&self) -> Option<OverlaySurface> {
-        if self.overlay_stack.len() >= 2 {
-            self.overlay_stack
-                .get(self.overlay_stack.len() - 2)
-                .copied()
+        let len = self.overlay_stack.len();
+        if len >= 2 {
+            self.overlay_stack.get(len - 2).map(|e| e.overlay)
         } else {
             None
         }
@@ -417,27 +461,141 @@ impl SurfaceRouter {
 
     /// The entity of the active dialog, if any.
     pub fn active_view(&self) -> Option<&dyn DialogView> {
-        self.active_dialog().map(|d| self.dialogs.view(d))
+        self.overlay_stack.last()?.view.as_deref()
     }
 
     /// The mutable entity of the active dialog, if any.
     pub fn active_view_mut(&mut self) -> Option<&mut dyn DialogView> {
-        match self.active_dialog() {
-            Some(d) => Some(self.dialogs.view_mut(d)),
-            None => None,
+        self.overlay_stack.last_mut()?.view.as_deref_mut()
+    }
+
+    /// A typed reference to the entity for `T`, resolving it wherever it lives
+    /// (an open stack entry, else the retained registry).
+    pub fn view<T: DialogView + 'static>(&self) -> Option<&T> {
+        let kind = T::kind_static();
+        if let Some(entry) = self
+            .overlay_stack
+            .iter()
+            .rev()
+            .find(|e| e.overlay.dialog() == Some(kind))
+        {
+            return entry.view.as_deref()?.as_any().downcast_ref::<T>();
+        }
+        self.dialogs.view(kind).as_any().downcast_ref::<T>()
+    }
+
+    /// A typed mutable reference to the entity for `T`.
+    pub fn view_mut<T: DialogView + 'static>(&mut self) -> Option<&mut T> {
+        let kind = T::kind_static();
+        if let Some(pos) = self
+            .overlay_stack
+            .iter()
+            .rposition(|e| e.overlay.dialog() == Some(kind))
+        {
+            return self.overlay_stack[pos]
+                .view
+                .as_deref_mut()?
+                .as_any_mut()
+                .downcast_mut::<T>();
+        }
+        self.dialogs.view_mut(kind).as_any_mut().downcast_mut::<T>()
+    }
+
+    /// A typed reference to the entity for `T`, panicking if it does not exist
+    /// (every kind always has one).
+    #[allow(clippy::expect_used)]
+    pub fn dlg<T: DialogView + 'static>(&self) -> &T {
+        self.view::<T>().expect("dialog entity exists for every kind")
+    }
+
+    /// A typed mutable reference to the entity for `T`.
+    #[allow(clippy::expect_used)]
+    pub fn dlg_mut<T: DialogView + 'static>(&mut self) -> &mut T {
+        self.view_mut::<T>()
+            .expect("dialog entity exists for every kind")
+    }
+
+    /// A trait-object reference to the entity for `kind`, resolving it wherever
+    /// it lives (an open stack entry, else the retained registry).
+    pub fn view_by_kind(&self, kind: DialogKind) -> Option<&dyn DialogView> {
+        if let Some(entry) = self
+            .overlay_stack
+            .iter()
+            .rev()
+            .find(|e| e.overlay.dialog() == Some(kind))
+        {
+            return entry.view.as_deref();
+        }
+        Some(self.dialogs.view(kind))
+    }
+
+    /// A mutable trait-object reference to the entity for `kind`.
+    pub fn view_by_kind_mut(&mut self, kind: DialogKind) -> Option<&mut dyn DialogView> {
+        if let Some(pos) = self
+            .overlay_stack
+            .iter()
+            .rposition(|e| e.overlay.dialog() == Some(kind))
+        {
+            return self.overlay_stack[pos].view.as_deref_mut();
+        }
+        Some(self.dialogs.view_mut(kind))
+    }
+
+    /// The selection cursor for `kind`.
+    pub fn nav_index(&self, kind: DialogKind) -> usize {
+        self.view_by_kind(kind).map_or(0, |v| v.nav_index())
+    }
+
+    /// Set the selection cursor for `kind`.
+    pub fn set_nav_index(&mut self, kind: DialogKind, value: usize) {
+        if let Some(v) = self.view_by_kind_mut(kind) {
+            v.set_nav_index(value);
+        }
+    }
+
+    /// Take the top dialog's entity out of its stack entry so the caller can
+    /// render/input it against a disjoint borrow. A **clone** placeholder is
+    /// left for dialogs whose own query drives App-side reads during render, so
+    /// those reads observe the same state; the clone is overwritten by
+    /// [`Self::put_active_view`].
+    pub fn take_active_view(&mut self) -> Option<Box<dyn DialogView>> {
+        let entry = self.overlay_stack.last_mut()?;
+        let view = entry.view.take()?;
+        if matches!(
+            view.kind(),
+            DialogKind::Models | DialogKind::Connections | DialogKind::HistorySearch
+        ) {
+            entry.view = Some(view.clone_box());
+        }
+        Some(view)
+    }
+
+    /// Put an entity taken with [`Self::take_active_view`] back into the top
+    /// stack entry.
+    pub fn put_active_view(&mut self, view: Box<dyn DialogView>) {
+        if let Some(entry) = self.overlay_stack.last_mut() {
+            entry.view = Some(view);
+        }
+    }
+
+    /// Retire one entry: run its dialog's dismissal hook + cleanup, then either
+    /// drop it (ephemeral) or return it to the retained registry.
+    fn retire(&mut self, mut entry: StackEntry) {
+        if let Some(mut view) = entry.view.take() {
+            view.on_dismiss();
+            dialogs::dismiss_cleanup(&mut *view);
+            let kind = view.kind();
+            if kind.retention_policy() != RetentionPolicy::Ephemeral {
+                self.dialogs.put(kind, view);
+            }
         }
     }
 
     /// Resolve the whole overlay stack, running every dialog entity's
     /// `on_dismiss` hook in reverse LIFO order (`[INV-SURFACE-04]`).
     fn unwind_all(&mut self) {
-        while let Some(overlay) = self.overlay_stack.pop() {
-            if let OverlaySurface::Dialog(d) = overlay {
-                self.dialogs.on_dismiss(d);
-                if d.retention_policy() == RetentionPolicy::Ephemeral {
-                    self.dialogs.reset(d);
-                }
-            }
+        while let Some(entry) = self.overlay_stack.pop() {
+            self.retire(entry);
         }
     }
 
@@ -447,16 +605,9 @@ impl SurfaceRouter {
         let mut idx = self.overlay_stack.len();
         while idx > 0 {
             idx -= 1;
-            let is_scene_bound = matches!(
-                self.overlay_stack[idx],
-                OverlaySurface::Dialog(d)
-                    if d.scope() == DialogScope::Scene(leaving_scene)
-            );
-            if is_scene_bound {
-                let removed = self.overlay_stack.remove(idx);
-                if let OverlaySurface::Dialog(d) = removed {
-                    self.dialogs.on_dismiss(d);
-                }
+            if self.overlay_stack[idx].scope == DialogScope::Scene(leaving_scene) {
+                let entry = self.overlay_stack.remove(idx);
+                self.retire(entry);
             }
         }
     }
@@ -468,14 +619,12 @@ impl SurfaceRouter {
         while idx > 0 {
             idx -= 1;
             let unavailable = matches!(
-                self.overlay_stack[idx],
+                self.overlay_stack[idx].overlay,
                 OverlaySurface::Dialog(d) if !d.is_available(scene, has_session)
             );
             if unavailable {
-                let removed = self.overlay_stack.remove(idx);
-                if let OverlaySurface::Dialog(d) = removed {
-                    self.dialogs.on_dismiss(d);
-                }
+                let entry = self.overlay_stack.remove(idx);
+                self.retire(entry);
             }
         }
     }
@@ -486,15 +635,9 @@ impl SurfaceRouter {
         let mut idx = self.overlay_stack.len();
         while idx > 0 {
             idx -= 1;
-            let is_session_bound = matches!(
-                self.overlay_stack[idx],
-                OverlaySurface::Dialog(d) if d.scope() == DialogScope::Session
-            );
-            if is_session_bound {
-                let removed = self.overlay_stack.remove(idx);
-                if let OverlaySurface::Dialog(d) = removed {
-                    self.dialogs.on_dismiss(d);
-                }
+            if self.overlay_stack[idx].scope == DialogScope::Session {
+                let entry = self.overlay_stack.remove(idx);
+                self.retire(entry);
             }
         }
     }
@@ -513,7 +656,7 @@ impl SurfaceRouter {
             // Sheet overlays carry no scene binding; a scene switch still
             // resets the transient stack, but dialogs of other domains stay.
             self.overlay_stack
-                .retain(|o| matches!(o, OverlaySurface::Dialog(_)));
+                .retain(|e| matches!(e.overlay, OverlaySurface::Dialog(_)));
         }
         self.scene = scene;
     }
@@ -524,7 +667,7 @@ impl SurfaceRouter {
         let next = self.scene_history.pop().unwrap_or(SceneKind::Conversation);
         self.unwind_scene(leaving);
         self.overlay_stack
-            .retain(|o| matches!(o, OverlaySurface::Dialog(_)));
+            .retain(|e| matches!(e.overlay, OverlaySurface::Dialog(_)));
         self.scene = next;
         next
     }
@@ -542,46 +685,50 @@ impl SurfaceRouter {
     /// would have to evict out of LIFO order (the bottom entry), which
     /// `[INV-SURFACE-04]` forbids. Overlays are only ever removed by the
     /// structured `pop`/`unwind_*` pipelines, which run `on_dismiss` in reverse
-    /// LIFO order. The stack is bounded in practice because opening a dialog
-    /// deactivates the current one and sheets are transient.
+    /// LIFO order.
     pub fn push_overlay(&mut self, overlay: OverlaySurface) {
-        self.overlay_stack.push(overlay);
+        match overlay {
+            OverlaySurface::Dialog(d) => self.present_dialog(d),
+            OverlaySurface::Sheet(s) => self.present_sheet(s),
+        }
     }
 
-    /// Present a dialog on top of the stack.
+    /// Present a dialog on top of the stack, moving its entity out of the
+    /// retained registry into the stack entry. Re-presenting an already-open
+    /// dialog re-focuses it instead of duplicating it.
     pub fn present_dialog(&mut self, id: DialogKind) {
-        self.push_overlay(OverlaySurface::Dialog(id));
+        if let Some(pos) = self
+            .overlay_stack
+            .iter()
+            .position(|e| e.overlay == OverlaySurface::Dialog(id))
+        {
+            let entry = self.overlay_stack.remove(pos);
+            self.overlay_stack.push(entry);
+            return;
+        }
+        let view = self.dialogs.take(id);
+        self.overlay_stack.push(StackEntry::dialog(id, view));
     }
 
     /// Present a sheet on top of the stack.
     pub fn present_sheet(&mut self, sheet: SheetKind) {
-        self.push_overlay(OverlaySurface::Sheet(sheet));
+        self.overlay_stack.push(StackEntry::sheet(sheet));
     }
 
     /// Replace the top overlay (or push if empty).
     pub fn replace_top_overlay(&mut self, overlay: OverlaySurface) {
-        if self.overlay_stack.is_empty() {
-            self.push_overlay(overlay);
-        } else {
-            let last_idx = self.overlay_stack.len() - 1;
-            let removed = self.overlay_stack[last_idx];
-            if let OverlaySurface::Dialog(d) = removed {
-                self.dialogs.on_dismiss(d);
-            }
-            self.overlay_stack[last_idx] = overlay;
+        if let Some(entry) = self.overlay_stack.pop() {
+            self.retire(entry);
         }
+        self.push_overlay(overlay);
     }
 
     /// Pop the top overlay, running its entity dismissal hook.
     pub fn pop_overlay(&mut self) -> Option<OverlaySurface> {
-        let popped = self.overlay_stack.pop()?;
-        if let OverlaySurface::Dialog(d) = popped {
-            self.dialogs.on_dismiss(d);
-            if d.retention_policy() == RetentionPolicy::Ephemeral {
-                self.dialogs.reset(d);
-            }
-        }
-        Some(popped)
+        let entry = self.overlay_stack.pop()?;
+        let overlay = entry.overlay;
+        self.retire(entry);
+        Some(overlay)
     }
 
     /// Dismiss all overlays over the active scene, running every hook.
@@ -598,7 +745,7 @@ impl SurfaceRouter {
         let mut idx = self.overlay_stack.len();
         while idx > 0 {
             idx -= 1;
-            if let OverlaySurface::Sheet(s) = self.overlay_stack[idx] {
+            if let OverlaySurface::Sheet(s) = self.overlay_stack[idx].overlay {
                 sheets.push(s);
                 self.overlay_stack.remove(idx);
             }
@@ -608,12 +755,16 @@ impl SurfaceRouter {
 
     /// Check if a specific dialog is anywhere in the overlay stack.
     pub fn contains_dialog(&self, id: DialogKind) -> bool {
-        self.overlay_stack.contains(&OverlaySurface::Dialog(id))
+        self.overlay_stack
+            .iter()
+            .any(|e| e.overlay == OverlaySurface::Dialog(id))
     }
 
     /// Check if a specific sheet is anywhere in the overlay stack.
     pub fn contains_sheet(&self, sheet: SheetKind) -> bool {
-        self.overlay_stack.contains(&OverlaySurface::Sheet(sheet))
+        self.overlay_stack
+            .iter()
+            .any(|e| e.overlay == OverlaySurface::Sheet(sheet))
     }
 }
 
@@ -791,11 +942,12 @@ mod tests {
     fn ephemeral_switcher_resets_on_pop() {
         let mut router = SurfaceRouter::new();
         router.present_dialog(DialogKind::Switcher);
-        router.dialogs.switcher.selected = 5;
-        router.dialogs.switcher.query.text = "abc".to_string();
+        router.dlg_mut::<SwitcherDialog>().selected = 5;
+        router.dlg_mut::<SwitcherDialog>().query.text = "abc".to_string();
         router.pop_overlay();
-        assert_eq!(router.dialogs.switcher.selected, 0);
-        assert!(router.dialogs.switcher.query.is_empty());
+        // Ephemeral: the entity is dropped on pop; a fresh one is default.
+        assert_eq!(router.dlg::<SwitcherDialog>().selected, 0);
+        assert!(router.dlg::<SwitcherDialog>().query.is_empty());
     }
 
     #[test]
@@ -807,6 +959,26 @@ mod tests {
         router.pop_overlay();
         assert!(!router.dialogs.models.search);
         assert!(router.dialogs.models.query.is_empty());
+    }
+
+    #[test]
+    fn stack_entry_owns_the_open_dialog_entity() {
+        // `[INV-SURFACE-01]` / ADR-0035 §4: the overlay stack owns the live
+        // dialog entity while it is open; the retained registry holds only a
+        // placeholder until the dialog is retired.
+        let mut router = SurfaceRouter::new();
+        router.present_dialog(DialogKind::Models);
+        router.dlg_mut::<ModelsDialog>().scroll = 7;
+        assert_eq!(router.dlg::<ModelsDialog>().scroll, 7);
+        assert_eq!(
+            router.dialogs.models.scroll, 0,
+            "the registry slot is a placeholder while the stack owns the entity"
+        );
+        router.pop_overlay();
+        assert_eq!(
+            router.dialogs.models.scroll, 7,
+            "popping returns the retained entity to the registry"
+        );
     }
 
     #[test]

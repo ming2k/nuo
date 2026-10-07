@@ -78,23 +78,25 @@ fn compose_frame(
         let spinner_phase = (app.spinner_epoch.elapsed().as_millis() / 100) as usize;
         let projected_count = crate::overlays::session::project_session_rows(
             &app.sessions_overview,
-            Some(&app.surfaces.dialogs.sessions.expanded),
+            Some(&app.surfaces.dlg::<crate::surfaces::SessionsDialog>().expanded),
         )
         .len();
+        let startup_picker = app.startup_overlay == crate::StartupOverlay::SessionsPicker;
+        let sessions = app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>();
         let drawn_modal_rect = render::draw_sessions_modal(
             f,
             crate::overlays::session::SessionsModalProps {
                 sessions: &app.sessions_overview,
-                expanded_sessions: Some(&app.surfaces.dialogs.sessions.expanded),
-                selected: app.surfaces.dialogs.sessions.index.min(projected_count.saturating_sub(1)),
-                scroll: &mut app.surfaces.dialogs.sessions.scroll,
-                follow: app.surfaces.dialogs.sessions.follow,
-                startup_picker: app.startup_overlay == crate::StartupOverlay::SessionsPicker,
+                expanded_sessions: Some(&sessions.expanded),
+                selected: sessions.index.min(projected_count.saturating_sub(1)),
+                scroll: &mut sessions.scroll,
+                follow: sessions.follow,
+                startup_picker,
                 spinner_phase,
-                session_info_detail: app.surfaces.dialogs.sessions.info_detail,
+                session_info_detail: sessions.info_detail,
                 session_detail: app.session_detail.as_ref(),
-                session_info_scroll: &mut app.surfaces.dialogs.sessions.info_scroll,
-                sessions_loading: app.surfaces.dialogs.sessions.loading,
+                session_info_scroll: &mut sessions.info_scroll,
+                sessions_loading: sessions.loading,
             },
             &app.theme,
             &app.selection,
@@ -879,35 +881,38 @@ fn compose_frame(
                     &mut layout_map,
                 ))
             }
-            OverlaySurface::Dialog(d) => {
+            OverlaySurface::Dialog(_) => {
                 // Route through the encapsulated entity's `DialogView::render`
-                // (ADR-0035 §1). The entity is taken out of the registry so it
-                // can render against a disjoint `&App` borrow, then put back.
-                let mut ent = app.surfaces.dialogs.take(d);
-                let startup_picker =
-                    app.startup_overlay == crate::StartupOverlay::SessionsPicker;
-                let activity_height = render::footer_rect(
-                    &transcript_render.footer,
-                    render::FooterRowId::Activity,
-                )
-                .map_or(0, |r| r.height);
-                let rect = {
-                    let mut ctx = crate::surfaces::DialogRenderCtx {
-                        app,
-                        layout_map: &mut layout_map,
-                        selection: &app.selection,
-                        theme: &app.theme,
-                        spinner_phase,
-                        viewed_session_id,
-                        startup_picker,
-                        input_rect: Some(input_rect),
-                        activity_height,
-                        overlay_owns_caret,
+                // (ADR-0035 §1). The entity is taken out of its stack entry so
+                // it can render against a disjoint `&App` borrow, then put back.
+                if let Some(mut ent) = app.surfaces.take_active_view() {
+                    let startup_picker =
+                        app.startup_overlay == crate::StartupOverlay::SessionsPicker;
+                    let activity_height = render::footer_rect(
+                        &transcript_render.footer,
+                        render::FooterRowId::Activity,
+                    )
+                    .map_or(0, |r| r.height);
+                    let rect = {
+                        let mut ctx = crate::surfaces::DialogRenderCtx {
+                            app,
+                            layout_map: &mut layout_map,
+                            selection: &app.selection,
+                            theme: &app.theme,
+                            spinner_phase,
+                            viewed_session_id,
+                            startup_picker,
+                            input_rect: Some(input_rect),
+                            activity_height,
+                            overlay_owns_caret,
+                        };
+                        ent.render(f, f.area(), &mut ctx)
                     };
-                    ent.render(f, f.area(), &mut ctx)
-                };
-                app.surfaces.dialogs.put(d, ent);
-                rect
+                    app.surfaces.put_active_view(ent);
+                    rect
+                } else {
+                    None
+                }
             },
             OverlaySurface::Sheet(s) => match s {
                 SheetKind::ModelEditor => {
