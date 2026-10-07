@@ -8,6 +8,33 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.10] - 2026-10-07
+
+### Changed
+
+- **Domain-scoped surface architecture completed (ADR-0035).** Every dialog is
+  now an encapsulated entity owning its own cursor, scroll, embedded
+  `TextInput`, and sub-layer state; the overlay stack owns each open dialog's
+  `Box<dyn DialogView>`; dialogs declare a single `DialogScope`, are gated by
+  `is_available`, and are evicted only through reverse-LIFO unwinding that runs
+  `on_dismiss`. Removed the shared `App` scratchpad fields, the composer-draft
+  hijacking, and the blunt `overlay_stack.clear()`.
+- **Configuration matrix is the sole runtime source (ADR-0031).** `Config::load`
+  reads only `server.toml` / `client.toml` / `agent.toml`; a one-way promotion
+  retires a legacy `config.toml` (as does `nuo config migrate`). The schema is
+  strict — `deny_unknown_fields`, fail-fast on parse errors — and the legacy
+  `[providers]` / `[websearch]` / `daemon` aliases are gone.
+- **"Server" replaces "daemon" in the domain vocabulary (ADR-0033).** Canonical
+  types (`ServerConfig`, `ServerAction`, `ServerInfo`, …), runtime artifacts
+  (`server.json` / `server.sock` / `server.lock`), user-facing strings, and the
+  active docs now say "Server".
+
+### Added
+
+- **`nuo server reload` soft reload (ADR-0034 Level 1).** Re-reads the
+  configuration matrix and re-syncs MCP servers + skills with zero connection
+  drop, completing the three-tier restart architecture.
+
 ## [0.0.9] - 2026-10-07
 
 ### Added
