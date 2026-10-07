@@ -685,16 +685,16 @@ async fn process_one_event(
     let composer_edit_state_before = match edit_buffer {
         EditBuffer::Composer => (app.input.len(), app.cursor_position),
         EditBuffer::Models => (
-            app.surfaces.dialogs.models.query.len(),
-            app.surfaces.dialogs.models.query_cursor,
+            app.surfaces.dialogs.models.query.text.len(),
+            app.surfaces.dialogs.models.query.cursor,
         ),
         EditBuffer::Connections => (
-            app.surfaces.dialogs.connections.query.len(),
-            app.surfaces.dialogs.connections.query_cursor,
+            app.surfaces.dialogs.connections.query.text.len(),
+            app.surfaces.dialogs.connections.query.cursor,
         ),
         EditBuffer::History => (
-            app.surfaces.dialogs.history_search.query.len(),
-            app.surfaces.dialogs.history_search.query_cursor,
+            app.surfaces.dialogs.history_search.query.text.len(),
+            app.surfaces.dialogs.history_search.query.cursor,
         ),
     };
     let composer_owned_before = app.caret_owner() == crate::CaretOwner::Composer;
@@ -765,8 +765,8 @@ async fn process_one_event(
                 let d = &mut app.surfaces.dialogs.models;
                 input::route_event(
                     event.clone(),
-                    &mut d.query,
-                    &mut d.query_cursor,
+                    &mut d.query.text,
+                    &mut d.query.cursor,
                     dispatch,
                     &modal_keys,
                     &sheet_keys,
@@ -778,8 +778,8 @@ async fn process_one_event(
                 let d = &mut app.surfaces.dialogs.connections;
                 input::route_event(
                     event.clone(),
-                    &mut d.query,
-                    &mut d.query_cursor,
+                    &mut d.query.text,
+                    &mut d.query.cursor,
                     dispatch,
                     &modal_keys,
                     &sheet_keys,
@@ -791,8 +791,8 @@ async fn process_one_event(
                 let d = &mut app.surfaces.dialogs.history_search;
                 input::route_event(
                     event.clone(),
-                    &mut d.query,
-                    &mut d.query_cursor,
+                    &mut d.query.text,
+                    &mut d.query.cursor,
                     dispatch,
                     &modal_keys,
                     &sheet_keys,
@@ -845,16 +845,16 @@ async fn process_one_event(
     let edit_state_after = match edit_buffer {
         EditBuffer::Composer => (app.input.len(), app.cursor_position),
         EditBuffer::Models => (
-            app.surfaces.dialogs.models.query.len(),
-            app.surfaces.dialogs.models.query_cursor,
+            app.surfaces.dialogs.models.query.text.len(),
+            app.surfaces.dialogs.models.query.cursor,
         ),
         EditBuffer::Connections => (
-            app.surfaces.dialogs.connections.query.len(),
-            app.surfaces.dialogs.connections.query_cursor,
+            app.surfaces.dialogs.connections.query.text.len(),
+            app.surfaces.dialogs.connections.query.cursor,
         ),
         EditBuffer::History => (
-            app.surfaces.dialogs.history_search.query.len(),
-            app.surfaces.dialogs.history_search.query_cursor,
+            app.surfaces.dialogs.history_search.query.text.len(),
+            app.surfaces.dialogs.history_search.query.cursor,
         ),
     };
     if edit_state_after != composer_edit_state_before

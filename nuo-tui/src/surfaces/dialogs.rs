@@ -16,11 +16,82 @@
 use std::any::Any;
 use std::collections::HashSet;
 
+use nuotc::{Frame, Rect};
+
 use crate::TelemetryTab;
+use crate::input::InputAction;
+use crate::model::layout::LayoutMap;
+use crate::model::selection::SelectionState;
+use crate::primitives::{ContentModalSpec, FixedModalSpec, ModalSpec};
+use crate::render::Theme;
 use crate::surfaces::{DialogKind, DialogScope};
 
+/// An embedded single-line text field owned by a dialog. Replaces the old
+/// practice of borrowing the conversation composer line for a dialog's
+/// filter/query (`[INV-SURFACE-01]`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TextInput {
+    /// The live text.
+    pub text: String,
+    /// Caret position as a byte offset into `text`.
+    pub cursor: usize,
+}
+
+impl TextInput {
+    /// Clear the field and reset the caret.
+    pub fn clear(&mut self) {
+        self.text.clear();
+        self.cursor = 0;
+    }
+
+    /// Whether the field is empty.
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty()
+    }
+
+    /// The trimmed query, for fuzzy matching.
+    pub fn query(&self) -> &str {
+        self.text.trim()
+    }
+
+    /// Move the caret to the end of the text.
+    pub fn set_cursor_end(&mut self) {
+        self.cursor = self.text.len();
+    }
+}
+
+/// The result of offering a key to a dialog entity (`[INV-SURFACE-01]`).
+#[derive(Debug)]
+pub enum DialogOutcome {
+    /// The entity handled the input.
+    Consumed,
+    /// The entity does not own this input; the event loop continues.
+    Unhandled,
+    /// The entity asks to be dismissed.
+    Dismiss,
+    /// The entity hands its surface to a successor view.
+    SwitchTo(Box<dyn DialogView>),
+}
+
+/// The immutable environment injected into [`DialogView::render`]: daemon-fed
+/// model data (read-only) plus the per-frame layout/selection context. Dialogs
+/// draw from their own state plus these injected views — never from the
+/// composer.
+pub struct DialogRenderCtx<'a> {
+    pub app: &'a crate::App,
+    pub layout_map: &'a mut LayoutMap,
+    pub selection: &'a SelectionState,
+    pub theme: &'a Theme,
+    pub spinner_phase: usize,
+    pub viewed_session_id: &'a str,
+    pub startup_picker: bool,
+    pub input_rect: Option<Rect>,
+    pub activity_height: u16,
+    pub overlay_owns_caret: bool,
+}
+
 /// The presentation contract every floating dialog implements.
-pub trait DialogView: std::fmt::Debug {
+pub trait DialogView: std::fmt::Debug + Send + 'static {
     /// This dialog's identity.
     fn kind(&self) -> DialogKind;
 
@@ -28,6 +99,36 @@ pub trait DialogView: std::fmt::Debug {
     /// on [`DialogKind::scope`] so the matrix has exactly one definition.
     fn scope(&self) -> DialogScope {
         self.kind().scope()
+    }
+
+    /// Visual layout constraints for modal positioning.
+    fn layout_spec(&self) -> ModalSpec {
+        modal_spec_for(self.kind())
+    }
+
+    /// Self-contained input handling: consumes a normalized action and
+    /// produces an outcome. Semantic App effects are emitted by the entity;
+    /// the event loop applies the outcome.
+    fn handle_input(
+        &mut self,
+        action: &InputAction,
+        app: &mut crate::App,
+        viewed_session_id: &str,
+    ) -> DialogOutcome {
+        let _ = (action, app, viewed_session_id);
+        DialogOutcome::Unhandled
+    }
+
+    /// Autonomous rendering: draws entirely from internal state plus the
+    /// injected immutable [`DialogRenderCtx`].
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        ctx: &mut DialogRenderCtx<'_>,
+    ) -> Option<Rect> {
+        let _ = (frame, area, ctx);
+        None
     }
 
     /// Deterministic dismissal hook, executed by the overlay stack on pop and
@@ -40,6 +141,605 @@ pub trait DialogView: std::fmt::Debug {
 
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
+    fn into_any(self: Box<Self>) -> Box<dyn Any>;
+}
+
+/// The canonical [`ModalSpec`] geometry for a dialog kind.
+pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
+    match kind {
+        DialogKind::Connections | DialogKind::Models => FixedModalSpec::PROVIDER.modal_spec(),
+        DialogKind::Sessions => FixedModalSpec::SESSIONS.modal_spec(),
+        DialogKind::Tools | DialogKind::SessionTree => ContentModalSpec::TOOLS.modal_spec(),
+        DialogKind::Mcp => ContentModalSpec::MCP.modal_spec(),
+        DialogKind::Queue => ContentModalSpec::QUEUE.modal_spec(),
+        DialogKind::Asides => ContentModalSpec::BTW.modal_spec(),
+        DialogKind::Telemetry => ContentModalSpec::TELEMETRY.modal_spec(),
+        DialogKind::UsageStats => ContentModalSpec::USAGE_STATS.modal_spec(),
+        DialogKind::Permissions => ContentModalSpec::PERMISSIONS.modal_spec(),
+        DialogKind::Skills => ContentModalSpec::SKILLS.modal_spec(),
+        // The history panel is a composer-anchored dropdown and the switcher
+        // is a command palette: neither uses a centered modal footprint.
+        DialogKind::HistorySearch | DialogKind::Switcher => ContentModalSpec::TOOLS.modal_spec(),
+    }
+}
+
+/// Render one dialog entity from its own state plus the injected immutable
+/// context (`DialogView::render`). The entity's fields are the only mutable
+/// dialog state; `ctx` carries read-only daemon model data and layout context.
+#[allow(clippy::expect_used)]
+fn render_dialog(
+    view: &mut dyn DialogView,
+    frame: &mut Frame,
+    area: Rect,
+    ctx: &mut DialogRenderCtx<'_>,
+) -> Option<Rect> {
+    let _ = area;
+    let app = ctx.app;
+    match view.kind() {
+        DialogKind::Tools => {
+            let d = view.as_any_mut().downcast_mut::<ToolsDialog>().expect("kind");
+            Some(crate::overlays::draw_tools_modal(
+                frame,
+                app.session_context.as_ref(),
+                d.index,
+                &mut d.scroll,
+                d.follow,
+                ctx.theme,
+            ))
+        }
+        DialogKind::Mcp => {
+            let d = view.as_any_mut().downcast_mut::<McpDialog>().expect("kind");
+            Some(crate::overlays::draw_mcp_modal(
+                frame,
+                app.session_context.as_ref(),
+                d.index,
+                &mut d.scroll,
+                d.follow,
+                ctx.theme,
+            ))
+        }
+        DialogKind::Skills => {
+            let d = view.as_any_mut().downcast_mut::<SkillsDialog>().expect("kind");
+            Some(crate::overlays::draw_skills_modal(
+                frame,
+                app.session_context.as_ref(),
+                d.index,
+                d.expanded,
+                &mut d.scroll,
+                ctx.theme,
+            ))
+        }
+        DialogKind::Permissions => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<PermissionsDialog>()
+                .expect("kind");
+            Some(crate::overlays::draw_permissions_manager(
+                frame,
+                app.session_context.as_ref(),
+                d.index,
+                &mut d.scroll,
+                ctx.theme,
+            ))
+        }
+        DialogKind::UsageStats => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<UsageStatsDialog>()
+                .expect("kind");
+            let loading = app.usage_stats.is_none();
+            let report = app.usage_stats.clone().unwrap_or_default();
+            Some(crate::overlays::draw_usage_stats_modal(
+                frame,
+                &report,
+                loading,
+                &mut d.scroll,
+                ctx.theme,
+                ctx.selection,
+                ctx.layout_map,
+            ))
+        }
+        DialogKind::Telemetry => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<TelemetryDialog>()
+                .expect("kind");
+            let report = app.token_source_report(ctx.viewed_session_id);
+            let loading = app.token_ledger.is_none() && report.is_none();
+            let report = report.unwrap_or_default();
+            Some(crate::overlays::draw_telemetry_modal(
+                frame,
+                &report,
+                crate::render::ContextUsageProps {
+                    snapshot: app.context_tokens,
+                    window_tokens: Some(app.active_model_context_window()),
+                    draft_content_tokens: nuo_wire::count_tokens(&app.input),
+                    draft_tokens: nuo_wire::estimate_draft_tokens(&app.input),
+                },
+                d.tab,
+                d.index
+                    .min(crate::render::telemetry_round_count(&report).saturating_sub(1)),
+                d.detail,
+                d.turn,
+                d.turn_cursor,
+                app.last_submit_ms,
+                loading,
+                &mut d.scroll,
+                ctx.theme,
+                ctx.selection,
+                ctx.layout_map,
+            ))
+        }
+        DialogKind::Queue => {
+            let d = view.as_any_mut().downcast_mut::<QueueDialog>().expect("kind");
+            let items: Vec<crate::render::QueueItemProps> = app
+                .pending_dispatch
+                .iter()
+                .filter(|item| item.session_id == ctx.viewed_session_id)
+                .map(|item| crate::render::QueueItemProps {
+                    queued_at_ms: item.queued_at_ms,
+                    text: item.text.clone(),
+                })
+                .collect();
+            let blocked = app.pending_count(ctx.viewed_session_id) > 0
+                && app.is_queue_blocked(ctx.viewed_session_id);
+            Some(crate::overlays::draw_queue_modal(
+                frame,
+                crate::render::QueueModalProps {
+                    items: &items,
+                    blocked,
+                },
+                d.index,
+                &mut d.scroll,
+                d.follow,
+                ctx.theme,
+            ))
+        }
+        DialogKind::Asides => {
+            let d = view.as_any_mut().downcast_mut::<AsidesDialog>().expect("kind");
+            let running: Vec<bool> = app
+                .btw_list
+                .iter()
+                .map(|row| app.running_sessions.contains(row.id.as_str()))
+                .collect();
+            Some(crate::overlays::draw_btw_modal(
+                frame,
+                crate::render::BtwModalProps {
+                    asides: &app.btw_list,
+                    running: &running,
+                    active_id: app.side_session_id.as_deref(),
+                },
+                d.index,
+                &mut d.scroll,
+                d.follow,
+                ctx.theme,
+                ctx.selection,
+                ctx.layout_map,
+            ))
+        }
+        DialogKind::Sessions => {
+            let d = view.as_any_mut().downcast_mut::<SessionsDialog>().expect("kind");
+            let projected_count = crate::overlays::session::project_session_rows(
+                &app.sessions_overview,
+                Some(&d.expanded),
+            )
+            .len();
+            Some(crate::overlays::draw_sessions_modal(
+                frame,
+                crate::overlays::session::SessionsModalProps {
+                    sessions: &app.sessions_overview,
+                    expanded_sessions: Some(&d.expanded),
+                    selected: d.index.min(projected_count.saturating_sub(1)),
+                    scroll: &mut d.scroll,
+                    follow: d.follow,
+                    startup_picker: ctx.startup_picker,
+                    spinner_phase: ctx.spinner_phase,
+                    session_info_detail: d.info_detail,
+                    session_detail: app.session_detail.as_ref(),
+                    session_info_scroll: &mut d.info_scroll,
+                    sessions_loading: d.loading,
+                },
+                ctx.theme,
+                ctx.selection,
+                ctx.layout_map,
+            ))
+        }
+        DialogKind::SessionTree => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<SessionTreeDialog>()
+                .expect("kind");
+            Some(crate::overlays::draw_tree_modal(
+                frame,
+                &app.session_tree,
+                d.index,
+                &mut d.scroll,
+                d.follow,
+                ctx.theme,
+            ))
+        }
+        DialogKind::Connections => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<ConnectionsDialog>()
+                .expect("kind");
+            let providers = app.providers_filtered();
+            Some(crate::overlays::draw_connections_modal(
+                frame,
+                ctx.layout_map,
+                crate::overlays::provider::connections::ConnectionsModalProps {
+                    providers: &providers,
+                    current_provider: &app.current_provider,
+                    modal_index: d.index,
+                    query: &d.query.text,
+                    cursor_position: d.query.cursor,
+                    scroll: &mut d.scroll,
+                    follow_selection: d.follow,
+                    search: d.search,
+                    show_caret: ctx.overlay_owns_caret,
+                    connection_info_detail: d.info_detail,
+                    connection_detail: app.connection_detail.as_ref(),
+                    connection_info_scroll: &mut d.info_scroll,
+                    spinner_phase: ctx.spinner_phase,
+                    connection_info_standalone: d.info_standalone,
+                    refreshing: d.refreshing,
+                    connection_models_expanded: d.models_expanded,
+                },
+                ctx.theme,
+                ctx.selection,
+            ))
+        }
+        DialogKind::Models => {
+            let d = view.as_any_mut().downcast_mut::<ModelsDialog>().expect("kind");
+            let models = app.models_flat_filtered();
+            Some(crate::overlays::draw_models_modal(
+                frame,
+                crate::overlays::provider::models::ModelsModalProps {
+                    models: &models,
+                    current_provider: &app.current_provider,
+                    current_model: &app.current_model,
+                    modal_index: d.index,
+                    query: &d.query.text,
+                    cursor_position: d.query.cursor,
+                    scroll: &mut d.scroll,
+                    follow_selection: d.follow,
+                    search: d.search,
+                    show_caret: ctx.overlay_owns_caret,
+                    refreshing: d.refreshing,
+                    spinner_phase: ctx.spinner_phase,
+                },
+                ctx.theme,
+            ))
+        }
+        DialogKind::HistorySearch => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<HistorySearchDialog>()
+                .expect("kind");
+            let input_rect = ctx.input_rect?;
+            let ranked = app.history_rows();
+            crate::overlays::draw_history_panel(
+                frame,
+                crate::overlays::history::HistoryPanelProps {
+                    history: &app.input_history,
+                    ranked: &ranked,
+                    modal_index: d.index,
+                    scroll: &mut d.scroll,
+                    follow_selection: d.follow,
+                    input_rect,
+                    activity_height: ctx.activity_height,
+                },
+                ctx.theme,
+            )
+        }
+        DialogKind::Switcher => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<SwitcherDialog>()
+                .expect("kind");
+            let app_ctx = crate::keymap::AppContext {
+                has_overlay: true,
+                active_dialog: app.surfaces.underlying_dialog().or_else(|| app.active_dialog()),
+                is_responding: app.viewed_chrome().responding,
+                has_selection: !matches!(app.selection, SelectionState::None),
+                has_running_task: app.viewed_chrome().responding,
+                queue_count: app.pending_dispatch.len(),
+                has_session: app.has_session(),
+                scene: app.current_scene(),
+            };
+            let entries = crate::overlays::command_palette::filter_palette_commands(
+                &d.query.text,
+                &app.command_catalog,
+                &app.recent_commands,
+                &app_ctx,
+            );
+            let show_caret = app.caret_visible() && app.caret_owner() == crate::CaretOwner::Overlay;
+            Some(crate::overlays::draw_command_palette(
+                frame,
+                crate::overlays::command_palette::CommandPaletteProps {
+                    query: &d.query.text,
+                    entries: &entries,
+                    selected_index: d.selected,
+                    scroll: &mut d.scroll,
+                    show_caret,
+                },
+                ctx.theme,
+                ctx.selection,
+                ctx.layout_map,
+            ))
+        }
+    }
+}
+
+/// Handle a local navigation/scroll action for one dialog entity
+/// (`DialogView::handle_input`). `ModalUp`/`ModalDown` are the generic ↑/↓
+/// arrows; `SessionSelect` is the list-navigation family. Returns `Unhandled`
+/// for actions the entity does not own, so the event loop keeps dispatching
+/// semantic commands.
+#[allow(clippy::expect_used)]
+fn input_dialog(
+    view: &mut dyn DialogView,
+    action: &InputAction,
+    app: &mut crate::App,
+    viewed_session_id: &str,
+) -> DialogOutcome {
+    use InputAction as A;
+    // `(forward, is_modal_arrow)`.
+    let (forward, arrow) = match action {
+        A::ModalUp => (false, true),
+        A::ModalDown => (true, true),
+        A::SessionSelect { forward } => (*forward, false),
+        _ => return DialogOutcome::Unhandled,
+    };
+
+    match view.kind() {
+        DialogKind::Tools | DialogKind::Mcp | DialogKind::Skills => {
+            if arrow {
+                return DialogOutcome::Unhandled;
+            }
+            let count = match view.kind() {
+                DialogKind::Mcp => app.session_context.as_ref().map_or(0, |s| s.mcp.len()),
+                DialogKind::Skills => app.session_context.as_ref().map_or(0, |s| s.skills.len()),
+                _ => app.session_tools_len(),
+            };
+            if count == 0 {
+                return DialogOutcome::Unhandled;
+            }
+            match view.kind() {
+                DialogKind::Tools => {
+                    let e = view.as_any_mut().downcast_mut::<ToolsDialog>().expect("kind");
+                    e.index = rotate(e.index, count, forward);
+                    e.follow = true;
+                }
+                DialogKind::Mcp => {
+                    let e = view.as_any_mut().downcast_mut::<McpDialog>().expect("kind");
+                    e.index = rotate(e.index, count, forward);
+                    e.follow = true;
+                }
+                _ => {
+                    let e = view.as_any_mut().downcast_mut::<SkillsDialog>().expect("kind");
+                    e.index = rotate(e.index, count, forward);
+                    e.follow = true;
+                }
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Permissions => {
+            let count = app
+                .session_context
+                .as_ref()
+                .map_or(0, |s| s.permissions.len());
+            if count == 0 {
+                return DialogOutcome::Unhandled;
+            }
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<PermissionsDialog>()
+                .expect("kind");
+            e.index = rotate(e.index, count, forward);
+            DialogOutcome::Consumed
+        }
+        DialogKind::Connections => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<ConnectionsDialog>()
+                .expect("kind");
+            if arrow && e.info_detail {
+                if forward {
+                    e.info_scroll = e.info_scroll.saturating_add(1);
+                } else {
+                    e.info_scroll = e.info_scroll.saturating_sub(1);
+                }
+                return DialogOutcome::Consumed;
+            }
+            let count = app.picker_row_count();
+            if count == 0 {
+                return DialogOutcome::Unhandled;
+            }
+            e.index = rotate(e.index, count, forward);
+            e.follow = true;
+            DialogOutcome::Consumed
+        }
+        DialogKind::Models => {
+            let e = view.as_any_mut().downcast_mut::<ModelsDialog>().expect("kind");
+            let count = app.picker_row_count();
+            if count == 0 {
+                return DialogOutcome::Unhandled;
+            }
+            e.index = rotate(e.index, count, forward);
+            e.follow = true;
+            DialogOutcome::Consumed
+        }
+        DialogKind::HistorySearch => {
+            let count = app.history_rows().len();
+            if count == 0 {
+                return DialogOutcome::Unhandled;
+            }
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<HistorySearchDialog>()
+                .expect("kind");
+            e.index = rotate(e.index, count, forward);
+            e.follow = true;
+            DialogOutcome::Consumed
+        }
+        DialogKind::Sessions => {
+            let e = view.as_any_mut().downcast_mut::<SessionsDialog>().expect("kind");
+            let count = crate::overlays::session::project_session_rows(
+                &app.sessions_overview,
+                Some(&e.expanded),
+            )
+            .len();
+            if count == 0 {
+                return DialogOutcome::Unhandled;
+            }
+            e.index = rotate(e.index, count, forward);
+            e.follow = true;
+            DialogOutcome::Consumed
+        }
+        DialogKind::SessionTree => {
+            let count = crate::overlays::tree::flatten_tree(&app.session_tree).len();
+            if count == 0 {
+                return DialogOutcome::Unhandled;
+            }
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<SessionTreeDialog>()
+                .expect("kind");
+            e.index = rotate(e.index, count, forward);
+            e.follow = true;
+            DialogOutcome::Consumed
+        }
+        DialogKind::Telemetry => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<TelemetryDialog>()
+                .expect("kind");
+            if e.tab == crate::overlays::telemetry::TelemetryTab::Overview || e.turn.is_some() {
+                if forward {
+                    e.scroll = e.scroll.saturating_add(1);
+                } else {
+                    e.scroll = e.scroll.saturating_sub(1);
+                }
+            } else if e.detail {
+                let report = app.token_source_report(viewed_session_id);
+                let round_index = e.index.min(
+                    report
+                        .as_ref()
+                        .map(|r| crate::overlays::telemetry_round_count(r).saturating_sub(1))
+                        .unwrap_or(0),
+                );
+                let count = report
+                    .as_ref()
+                    .map(|r| crate::overlays::telemetry_attempt_count(r, round_index))
+                    .unwrap_or(0)
+                    .max(1);
+                e.turn_cursor = rotate(e.turn_cursor, count, forward);
+            } else {
+                let count = app
+                    .token_source_report(viewed_session_id)
+                    .map(|r| crate::overlays::telemetry_round_count(&r))
+                    .unwrap_or(0)
+                    .max(1);
+                e.index = rotate(e.index, count, forward);
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::UsageStats => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<UsageStatsDialog>()
+                .expect("kind");
+            if forward {
+                e.scroll = e.scroll.saturating_add(1);
+            } else {
+                e.scroll = e.scroll.saturating_sub(1);
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Queue => {
+            let e = view.as_any_mut().downcast_mut::<QueueDialog>().expect("kind");
+            if arrow {
+                if forward {
+                    e.scroll = e.scroll.saturating_add(1);
+                } else {
+                    e.scroll = e.scroll.saturating_sub(1);
+                }
+                e.follow = false;
+            } else {
+                let count = app
+                    .pending_dispatch
+                    .iter()
+                    .filter(|item| item.session_id == viewed_session_id)
+                    .count();
+                if count == 0 {
+                    return DialogOutcome::Unhandled;
+                }
+                e.index = rotate(e.index, count, forward);
+                e.follow = true;
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Asides => {
+            let e = view.as_any_mut().downcast_mut::<AsidesDialog>().expect("kind");
+            if arrow {
+                if forward {
+                    e.scroll = e.scroll.saturating_add(1);
+                } else {
+                    e.scroll = e.scroll.saturating_sub(1);
+                }
+                e.follow = false;
+            } else {
+                let count = app.btw_list.len();
+                if count == 0 {
+                    return DialogOutcome::Unhandled;
+                }
+                e.index = rotate(e.index, count, forward);
+                e.follow = true;
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Switcher => {
+            let e = view.as_any_mut().downcast_mut::<SwitcherDialog>().expect("kind");
+            let count = crate::overlays::command_palette::filter_palette_commands(
+                &e.query.text,
+                &app.command_catalog,
+                &app.recent_commands,
+                &switcher_app_ctx(app),
+            )
+            .len();
+            if count == 0 {
+                return DialogOutcome::Unhandled;
+            }
+            e.selected = rotate(e.selected, count, forward);
+            DialogOutcome::Consumed
+        }
+    }
+}
+
+fn rotate(cur: usize, count: usize, forward: bool) -> usize {
+    if count == 0 {
+        0
+    } else if forward {
+        (cur + 1) % count
+    } else if cur == 0 {
+        count - 1
+    } else {
+        cur - 1
+    }
+}
+
+fn switcher_app_ctx(app: &crate::App) -> crate::keymap::AppContext {
+    crate::keymap::AppContext {
+        has_overlay: true,
+        active_dialog: app.surfaces.underlying_dialog().or_else(|| app.active_dialog()),
+        is_responding: app.viewed_chrome().responding,
+        has_selection: !matches!(app.selection, SelectionState::None),
+        has_running_task: app.viewed_chrome().responding,
+        queue_count: app.pending_dispatch.len(),
+        has_session: app.has_session(),
+        scene: app.current_scene(),
+    }
 }
 
 /// Define a dialog entity with the flattened navigation fields shared by every
@@ -81,6 +781,22 @@ macro_rules! dialog_entity {
             fn kind(&self) -> DialogKind {
                 DialogKind::$kind
             }
+            fn handle_input(
+                &mut self,
+                action: &InputAction,
+                app: &mut crate::App,
+                viewed_session_id: &str,
+            ) -> DialogOutcome {
+                input_dialog(self, action, app, viewed_session_id)
+            }
+            fn render(
+                &mut self,
+                frame: &mut Frame,
+                area: Rect,
+                ctx: &mut DialogRenderCtx<'_>,
+            ) -> Option<Rect> {
+                render_dialog(self, frame, area, ctx)
+            }
             fn reset(&mut self) {
                 *self = Self::default();
             }
@@ -88,6 +804,9 @@ macro_rules! dialog_entity {
                 self
             }
             fn as_any_mut(&mut self) -> &mut dyn Any {
+                self
+            }
+            fn into_any(self: Box<Self>) -> Box<dyn Any> {
                 self
             }
         }
@@ -123,9 +842,7 @@ dialog_entity!(ModelsDialog, Models, {
     /// Whether the search sub-layer owns the embedded input.
     search: bool = false,
     /// Embedded filter query (self-contained; never the composer line).
-    query: String = String::new(),
-    /// Caret byte position within `query`.
-    query_cursor: usize = 0,
+    query: TextInput = TextInput::default(),
     /// Whether a catalog refresh is in flight.
     refreshing: bool = false,
 });
@@ -134,9 +851,7 @@ dialog_entity!(ConnectionsDialog, Connections, {
     /// Whether the search sub-layer owns the embedded input.
     search: bool = false,
     /// Embedded filter query (self-contained; never the composer line).
-    query: String = String::new(),
-    /// Caret byte position within `query`.
-    query_cursor: usize = 0,
+    query: TextInput = TextInput::default(),
     /// Whether a catalog refresh is in flight.
     refreshing: bool = false,
     /// `true` while the connection-info sub-view is open.
@@ -153,9 +868,7 @@ dialog_entity!(HistorySearchDialog, HistorySearch, {
     /// Whether the search sub-layer is active.
     search: bool = false,
     /// Embedded fuzzy query (self-contained; never the composer line).
-    query: String = String::new(),
-    /// Caret byte position within `query`.
-    query_cursor: usize = 0,
+    query: TextInput = TextInput::default(),
 });
 
 dialog_entity!(SessionsDialog, Sessions, {
@@ -173,9 +886,7 @@ dialog_entity!(SessionTreeDialog, SessionTree, {});
 
 dialog_entity!(SwitcherDialog, Switcher, {
     /// Live fuzzy query.
-    query: String = String::new(),
-    /// Caret byte position within `query`.
-    query_cursor: usize = 0,
+    query: TextInput = TextInput::default(),
     /// Selected row in the palette.
     selected: usize = 0,
 });
@@ -184,7 +895,6 @@ impl SwitcherDialog {
     /// The switcher is ephemeral: opening it always starts from a clean slate.
     pub fn begin(&mut self) {
         self.query.clear();
-        self.query_cursor = 0;
         self.selected = 0;
         self.scroll = 0;
     }
@@ -333,6 +1043,71 @@ impl Dialogs {
         }
     }
 
+    /// Take the entity for `kind` out of the registry (leaving a fresh
+    /// placeholder), so the caller can invoke its `render`/`handle_input`
+    /// against a disjoint `&App` borrow. Must be paired with [`Self::put`].
+    #[allow(clippy::expect_used)]
+    pub fn take(&mut self, kind: DialogKind) -> Box<dyn DialogView> {
+        match kind {
+            DialogKind::Tools => Box::new(std::mem::take(&mut self.tools)),
+            DialogKind::Mcp => Box::new(std::mem::take(&mut self.mcp)),
+            DialogKind::Skills => Box::new(std::mem::take(&mut self.skills)),
+            DialogKind::Permissions => Box::new(std::mem::take(&mut self.permissions)),
+            DialogKind::UsageStats => Box::new(std::mem::take(&mut self.usage_stats)),
+            DialogKind::Telemetry => Box::new(std::mem::take(&mut self.telemetry)),
+            DialogKind::Asides => Box::new(std::mem::take(&mut self.asides)),
+            DialogKind::Models => Box::new(std::mem::take(&mut self.models)),
+            DialogKind::Connections => Box::new(std::mem::take(&mut self.connections)),
+            DialogKind::HistorySearch => Box::new(std::mem::take(&mut self.history_search)),
+            DialogKind::Queue => Box::new(std::mem::take(&mut self.queue)),
+            DialogKind::Sessions => Box::new(std::mem::take(&mut self.sessions)),
+            DialogKind::SessionTree => Box::new(std::mem::take(&mut self.session_tree)),
+            DialogKind::Switcher => Box::new(std::mem::take(&mut self.switcher)),
+        }
+    }
+
+    /// Put an entity taken with [`Self::take`] back into the registry.
+    #[allow(clippy::expect_used)]
+    pub fn put(&mut self, kind: DialogKind, view: Box<dyn DialogView>) {
+        match kind {
+            DialogKind::Tools => self.tools = *view.into_any().downcast::<ToolsDialog>().expect("kind"),
+            DialogKind::Mcp => self.mcp = *view.into_any().downcast::<McpDialog>().expect("kind"),
+            DialogKind::Skills => {
+                self.skills = *view.into_any().downcast::<SkillsDialog>().expect("kind")
+            }
+            DialogKind::Permissions => {
+                self.permissions = *view.into_any().downcast::<PermissionsDialog>().expect("kind")
+            }
+            DialogKind::UsageStats => {
+                self.usage_stats = *view.into_any().downcast::<UsageStatsDialog>().expect("kind")
+            }
+            DialogKind::Telemetry => {
+                self.telemetry = *view.into_any().downcast::<TelemetryDialog>().expect("kind")
+            }
+            DialogKind::Asides => {
+                self.asides = *view.into_any().downcast::<AsidesDialog>().expect("kind")
+            }
+            DialogKind::Models => self.models = *view.into_any().downcast::<ModelsDialog>().expect("kind"),
+            DialogKind::Connections => {
+                self.connections = *view.into_any().downcast::<ConnectionsDialog>().expect("kind")
+            }
+            DialogKind::HistorySearch => {
+                self.history_search =
+                    *view.into_any().downcast::<HistorySearchDialog>().expect("kind")
+            }
+            DialogKind::Queue => self.queue = *view.into_any().downcast::<QueueDialog>().expect("kind"),
+            DialogKind::Sessions => {
+                self.sessions = *view.into_any().downcast::<SessionsDialog>().expect("kind")
+            }
+            DialogKind::SessionTree => {
+                self.session_tree = *view.into_any().downcast::<SessionTreeDialog>().expect("kind")
+            }
+            DialogKind::Switcher => {
+                self.switcher = *view.into_any().downcast::<SwitcherDialog>().expect("kind")
+            }
+        }
+    }
+
     /// The dialog's selection cursor.
     pub fn index(&self, kind: DialogKind) -> usize {
         match kind {
@@ -466,17 +1241,14 @@ impl Dialogs {
             DialogKind::Models => {
                 self.models.search = false;
                 self.models.query.clear();
-                self.models.query_cursor = 0;
             }
             DialogKind::Connections => {
                 self.connections.search = false;
                 self.connections.query.clear();
-                self.connections.query_cursor = 0;
             }
             DialogKind::HistorySearch => {
                 self.history_search.search = false;
                 self.history_search.query.clear();
-                self.history_search.query_cursor = 0;
                 self.history_search.index = 0;
                 self.history_search.scroll = 0;
                 self.history_search.follow = true;

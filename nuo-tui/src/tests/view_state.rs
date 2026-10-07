@@ -578,7 +578,7 @@ fn pickers_never_borrow_the_composer_line() {
     assert_eq!(app.input, "models draft", "composer untouched");
 
     app.surfaces.dialogs.models.search = true;
-    app.surfaces.dialogs.models.query = "gpt".to_string();
+    app.surfaces.dialogs.models.query.text = "gpt".to_string();
     assert_eq!(
         app.picker_query(),
         "gpt",

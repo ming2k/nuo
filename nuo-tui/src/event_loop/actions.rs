@@ -783,7 +783,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             app.surfaces.dialogs.history_search.search = false;
             app.surfaces.dialogs.history_search.index = 0;
             app.surfaces.dialogs.history_search.query.clear();
-            app.surfaces.dialogs.history_search.query_cursor = 0;
+            app.surfaces.dialogs.history_search.query.cursor = 0;
             app.input_scroll = 0;
             app.suggestion_index = None;
             // A programmatic input replacement — latch the dismissal so
@@ -1139,36 +1139,16 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             app.set_active_index(0);
         }
         input::InputAction::SessionSelect { forward } => {
-            // Move the selection cursor (the body scroll follows it).
-            // The list is the tools list, except in the MCP manager
-            // where it is the configured-server list. When empty (still
-            // loading / none), Up/Down scrolls the body directly so the
-            // other content stays reachable.
-            let list_len = if app.active_dialog() == Some(DialogKind::Mcp) {
-                app.session_context
-                    .as_ref()
-                    .map(|s| s.mcp.len())
-                    .unwrap_or(0)
-            } else if app.active_dialog() == Some(DialogKind::Skills) {
-                app.session_context
-                    .as_ref()
-                    .map(|s| s.skills.len())
-                    .unwrap_or(0)
-            } else if app.active_dialog() == Some(DialogKind::Queue) {
-                app.pending_dispatch
-                    .iter()
-                    .filter(|item| item.session_id == viewed_session_id)
-                    .count()
-            } else if app.active_dialog() == Some(DialogKind::Asides) {
-                app.btw_list.len()
-            } else {
-                app.session_tools_len()
-            };
-            if list_len > 0 {
-                app.rotate_active_index(list_len, forward);
-                // Each dialog entity tracks its own follow flag so it can be
-                // scrolled independently; navigation re-arms follow.
-                app.set_active_follow(true);
+            // List navigation is owned by the active dialog entity
+            // (`DialogView::handle_input`, ADR-0035 §1).
+            if let Some(d) = app.active_dialog() {
+                let mut ent = app.surfaces.dialogs.take(d);
+                let _ = ent.handle_input(
+                    &input::InputAction::SessionSelect { forward },
+                    app,
+                    viewed_session_id,
+                );
+                app.surfaces.dialogs.put(d, ent);
             }
         }
         input::InputAction::SessionActivate => {
@@ -1692,8 +1672,8 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         }
         input::InputAction::ViewSwitcherFilter { ch } => {
             if app.active_dialog() == Some(DialogKind::Switcher) {
-                app.surfaces.dialogs.switcher.query.push(ch);
-                app.surfaces.dialogs.switcher.query_cursor = app.surfaces.dialogs.switcher.query.len();
+                app.surfaces.dialogs.switcher.query.text.push(ch);
+                app.surfaces.dialogs.switcher.query.cursor = app.surfaces.dialogs.switcher.query.text.len();
                 app.surfaces.dialogs.switcher.selected = 0;
                 app.surfaces.dialogs.switcher.scroll = 0;
             }
@@ -1702,12 +1682,12 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             if app.active_dialog() == Some(DialogKind::Switcher) {
                 if !app.surfaces.dialogs.switcher.query.is_empty() {
                     let start = nuotc::text::floor_grapheme_boundary(
-                        &app.surfaces.dialogs.switcher.query,
-                        app.surfaces.dialogs.switcher.query.len() - 1,
+                        &app.surfaces.dialogs.switcher.query.text,
+                        app.surfaces.dialogs.switcher.query.text.len() - 1,
                     );
-                    app.surfaces.dialogs.switcher.query.truncate(start);
+                    app.surfaces.dialogs.switcher.query.text.truncate(start);
                 }
-                app.surfaces.dialogs.switcher.query_cursor = app.surfaces.dialogs.switcher.query.len();
+                app.surfaces.dialogs.switcher.query.cursor = app.surfaces.dialogs.switcher.query.text.len();
                 app.surfaces.dialogs.switcher.selected = 0;
                 app.surfaces.dialogs.switcher.scroll = 0;
             }
@@ -1742,7 +1722,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 scene: app.current_scene(),
             };
             let entries = crate::overlays::command_palette::filter_palette_commands(
-                &app.surfaces.dialogs.switcher.query,
+                &app.surfaces.dialogs.switcher.query.text,
                 &app.command_catalog,
                 &app.recent_commands,
                 &app_ctx,
@@ -2375,8 +2355,8 @@ pub(super) fn enter_panel(
 
     if id == DialogKind::HistorySearch {
         app.surfaces.dialogs.history_search.search = true;
-        app.surfaces.dialogs.history_search.query_cursor =
-            app.surfaces.dialogs.history_search.query.len();
+        app.surfaces.dialogs.history_search.query.cursor =
+            app.surfaces.dialogs.history_search.query.text.len();
     }
     if id == DialogKind::Queue {
         // ADR-0197 M4: the editing-safety auto-pause is mirrored to the

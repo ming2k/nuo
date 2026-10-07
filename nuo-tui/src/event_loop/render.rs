@@ -361,7 +361,6 @@ fn compose_frame(
             text: item.text.clone(),
         })
         .collect();
-    let queue_modal_items: Vec<render::QueueItemProps> = queue_items.clone();
 
     let transcript_render = ui.paint(f, UiKey::Root, |f| {
         render::draw_transcript(
@@ -880,251 +879,35 @@ fn compose_frame(
                     &mut layout_map,
                 ))
             }
-            OverlaySurface::Dialog(d) => match d {
-                DialogKind::Connections => {
-                    let providers = app.providers_filtered();
-                    Some(render::draw_connections_modal(
-                        f,
-                        &mut layout_map,
-                        crate::overlays::provider::connections::ConnectionsModalProps {
-                            providers: &providers,
-                            current_provider: &app.current_provider,
-                            modal_index: app.surfaces.dialogs.connections.index,
-                            query: &app.surfaces.dialogs.connections.query,
-                            cursor_position: app.surfaces.dialogs.connections.query_cursor,
-                            scroll: &mut app.surfaces.dialogs.connections.scroll,
-                            follow_selection: app.surfaces.dialogs.connections.follow,
-                            search: app.surfaces.dialogs.connections.search,
-                            show_caret: overlay_owns_caret,
-                            connection_info_detail: app.surfaces.dialogs.connections.info_detail,
-                            connection_detail: app.connection_detail.as_ref(),
-                            connection_info_scroll: &mut app.surfaces.dialogs.connections.info_scroll,
-                            spinner_phase,
-                            connection_info_standalone: app.surfaces.dialogs.connections.info_standalone,
-                            refreshing: app.surfaces.dialogs.connections.refreshing,
-                            connection_models_expanded: app.surfaces.dialogs.connections.models_expanded,
-                        },
-                        &app.theme,
-                        &app.selection,
-                    ))
-                }
-                DialogKind::Models => {
-                    let models = app.models_flat_filtered();
-                    Some(render::draw_models_modal(
-                        f,
-                        crate::overlays::provider::models::ModelsModalProps {
-                            models: &models,
-                            current_provider: &app.current_provider,
-                            current_model: &app.current_model,
-                            modal_index: app.surfaces.dialogs.models.index,
-                            query: &app.surfaces.dialogs.models.query,
-                            cursor_position: app.surfaces.dialogs.models.query_cursor,
-                            scroll: &mut app.surfaces.dialogs.models.scroll,
-                            follow_selection: app.surfaces.dialogs.models.follow,
-                            search: app.surfaces.dialogs.models.search,
-                            show_caret: overlay_owns_caret,
-                            refreshing: app.surfaces.dialogs.models.refreshing,
-                            spinner_phase,
-                        },
-                        &app.theme,
-                    ))
-                }
-                DialogKind::HistorySearch => {
-                    let ranked = app.history_rows();
-                    let activity_height = render::footer_rect(
-                        &transcript_render.footer,
-                        render::FooterRowId::Activity,
-                    )
-                    .map_or(0, |r| r.height);
-                    render::draw_history_panel(
-                        f,
-                        crate::overlays::history::HistoryPanelProps {
-                            history: &app.input_history,
-                            ranked: &ranked,
-                            modal_index: app.surfaces.dialogs.history_search.index,
-                            scroll: &mut app.surfaces.dialogs.history_search.scroll,
-                            follow_selection: app.surfaces.dialogs.history_search.follow,
-                            input_rect,
-                            activity_height,
-                        },
-                        &app.theme,
-                    )
-                }
-                DialogKind::Sessions => {
-                    let projected_count = crate::overlays::session::project_session_rows(
-                        &app.sessions_overview,
-                        Some(&app.surfaces.dialogs.sessions.expanded),
-                    )
-                    .len();
-                    Some(render::draw_sessions_modal(
-                        f,
-                        crate::overlays::session::SessionsModalProps {
-                            sessions: &app.sessions_overview,
-                            expanded_sessions: Some(&app.surfaces.dialogs.sessions.expanded),
-                            selected: app.surfaces.dialogs.sessions.index.min(projected_count.saturating_sub(1)),
-                            scroll: &mut app.surfaces.dialogs.sessions.scroll,
-                            follow: app.surfaces.dialogs.sessions.follow,
-                            startup_picker: app.startup_overlay
-                                == crate::StartupOverlay::SessionsPicker,
-                            spinner_phase,
-                            session_info_detail: app.surfaces.dialogs.sessions.info_detail,
-                            session_detail: app.session_detail.as_ref(),
-                            session_info_scroll: &mut app.surfaces.dialogs.sessions.info_scroll,
-                            sessions_loading: app.surfaces.dialogs.sessions.loading,
-                        },
-                        &app.theme,
-                        &app.selection,
-                        &mut layout_map,
-                    ))
-                }
-                DialogKind::Telemetry => {
-                    let report = app.token_source_report(viewed_session_id);
-                    let loading = app.token_ledger.is_none() && report.is_none();
-                    let report = report.unwrap_or_default();
-                    Some(render::draw_telemetry_modal(
-                        f,
-                        &report,
-                        render::ContextUsageProps {
-                            snapshot: app.context_tokens,
-                            window_tokens: Some(app.active_model_context_window()),
-                            draft_content_tokens: nuo_wire::count_tokens(&app.input),
-                            draft_tokens: nuo_wire::estimate_draft_tokens(&app.input),
-                        },
-                        app.surfaces.dialogs.telemetry.tab,
-                        app.surfaces.dialogs.telemetry.index
-                            .min(render::telemetry_round_count(&report).saturating_sub(1)),
-                        app.surfaces.dialogs.telemetry.detail,
-                        app.surfaces.dialogs.telemetry.turn,
-                        app.surfaces.dialogs.telemetry.turn_cursor,
-                        app.last_submit_ms,
-                        loading,
-                        &mut app.surfaces.dialogs.telemetry.scroll,
-                        &app.theme,
-                        &app.selection,
-                        &mut layout_map,
-                    ))
-                }
-                DialogKind::UsageStats => {
-                    let loading = app.usage_stats.is_none();
-                    let report = app.usage_stats.clone().unwrap_or_default();
-                    Some(render::draw_usage_stats_modal(
-                        f,
-                        &report,
-                        loading,
-                        &mut app.surfaces.dialogs.usage_stats.scroll,
-                        &app.theme,
-                        &app.selection,
-                        &mut layout_map,
-                    ))
-                }
-                DialogKind::Tools => Some(render::draw_tools_modal(
-                    f,
-                    app.session_context.as_ref(),
-                    app.surfaces.dialogs.tools.index,
-                    &mut app.surfaces.dialogs.tools.scroll,
-                    app.surfaces.dialogs.tools.follow,
-                    &app.theme,
-                )),
-                DialogKind::Mcp => Some(render::draw_mcp_modal(
-                    f,
-                    app.session_context.as_ref(),
-                    app.surfaces.dialogs.mcp.index,
-                    &mut app.surfaces.dialogs.mcp.scroll,
-                    app.surfaces.dialogs.mcp.follow,
-                    &app.theme,
-                )),
-                DialogKind::Skills => Some(render::draw_skills_modal(
-                    f,
-                    app.session_context.as_ref(),
-                    app.surfaces.dialogs.skills.index,
-                    app.surfaces.dialogs.skills.expanded,
-                    &mut app.surfaces.dialogs.skills.scroll,
-                    &app.theme,
-                )),
-                DialogKind::Permissions => Some(render::draw_permissions_manager(
-                    f,
-                    app.session_context.as_ref(),
-                    app.surfaces.dialogs.permissions.index,
-                    &mut app.surfaces.dialogs.permissions.scroll,
-                    &app.theme,
-                )),
-                DialogKind::Queue => Some(render::draw_queue_modal(
-                    f,
-                    render::QueueModalProps {
-                        items: &queue_modal_items,
-                        blocked: app.pending_count(viewed_session_id) > 0
-                            && app.is_queue_blocked(viewed_session_id),
-                    },
-                    app.surfaces.dialogs.queue.index,
-                    &mut app.surfaces.dialogs.queue.scroll,
-                    app.surfaces.dialogs.queue.follow,
-                    &app.theme,
-                )),
-                DialogKind::Asides => Some(render::draw_btw_modal(
-                    f,
-                    render::BtwModalProps {
-                        asides: &app.btw_list,
-                        running: &app
-                            .btw_list
-                            .iter()
-                            .map(|row| app.running_sessions.contains(row.id.as_str()))
-                            .collect::<Vec<bool>>(),
-                        active_id: app.side_session_id.as_deref(),
-                    },
-                    app.surfaces.dialogs.asides.index,
-                    &mut app.surfaces.dialogs.asides.scroll,
-                    app.surfaces.dialogs.asides.follow,
-                    &app.theme,
-                    &app.selection,
-                    &mut layout_map,
-                )),
-                DialogKind::SessionTree => Some(render::draw_tree_modal(
-                    f,
-                    &app.session_tree,
-                    app.surfaces.dialogs.session_tree.index,
-                    &mut app.surfaces.dialogs.session_tree.scroll,
-                    app.surfaces.dialogs.session_tree.follow,
-                    &app.theme,
-                )),
-                DialogKind::Switcher => {
-                    let app_ctx = crate::keymap::AppContext {
-                        has_overlay: app.surfaces.active_overlay().is_some(),
-                        active_dialog: app
-                            .surfaces
-                            .underlying_dialog()
-                            .or_else(|| app.active_dialog()),
-                        is_responding: viewed_running,
-                        has_selection: !matches!(
-                            app.selection,
-                            crate::model::selection::SelectionState::None
-                        ),
-                        has_running_task: viewed_running,
-                        queue_count: app.pending_dispatch.len(),
-                        has_session: app.has_session(),
-                        scene: app.current_scene(),
+            OverlaySurface::Dialog(d) => {
+                // Route through the encapsulated entity's `DialogView::render`
+                // (ADR-0035 §1). The entity is taken out of the registry so it
+                // can render against a disjoint `&App` borrow, then put back.
+                let mut ent = app.surfaces.dialogs.take(d);
+                let startup_picker =
+                    app.startup_overlay == crate::StartupOverlay::SessionsPicker;
+                let activity_height = render::footer_rect(
+                    &transcript_render.footer,
+                    render::FooterRowId::Activity,
+                )
+                .map_or(0, |r| r.height);
+                let rect = {
+                    let mut ctx = crate::surfaces::DialogRenderCtx {
+                        app,
+                        layout_map: &mut layout_map,
+                        selection: &app.selection,
+                        theme: &app.theme,
+                        spinner_phase,
+                        viewed_session_id,
+                        startup_picker,
+                        input_rect: Some(input_rect),
+                        activity_height,
+                        overlay_owns_caret,
                     };
-                    let entries = crate::overlays::command_palette::filter_palette_commands(
-                        &app.surfaces.dialogs.switcher.query,
-                        &app.command_catalog,
-                        &app.recent_commands,
-                        &app_ctx,
-                    );
-                    let show_caret =
-                        app.caret_visible() && app.caret_owner() == crate::CaretOwner::Overlay;
-                    Some(crate::overlays::draw_command_palette(
-                        f,
-                        crate::overlays::command_palette::CommandPaletteProps {
-                            query: &app.surfaces.dialogs.switcher.query,
-                            entries: &entries,
-                            selected_index: app.surfaces.dialogs.switcher.selected,
-                            scroll: &mut app.surfaces.dialogs.switcher.scroll,
-                            show_caret,
-                        },
-                        &app.theme,
-                        &app.selection,
-                        &mut layout_map,
-                    ))
-                }
+                    ent.render(f, f.area(), &mut ctx)
+                };
+                app.surfaces.dialogs.put(d, ent);
+                rect
             },
             OverlaySurface::Sheet(s) => match s {
                 SheetKind::ModelEditor => {

@@ -9,7 +9,6 @@ use std::sync::atomic::Ordering;
 use nuo_wire::AgentRequest;
 
 use crate::App;
-use crate::overlays;
 use crate::surfaces::{DialogKind, SceneKind, SheetKind};
 
 use super::ActionFlow;
@@ -533,88 +532,10 @@ pub(crate) fn quit_standalone_scene_at_startup(app: &mut App) -> bool {
 
 /// Loop stage (input dispatch): the `ModalUp` arm (per-modal ↑ navigation).
 pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
-    if let Some(dialog) = app.active_dialog() {
-        match dialog {
-            DialogKind::Connections if app.surfaces.dialogs.connections.info_detail => {
-                app.surfaces.dialogs.connections.info_scroll = app.surfaces.dialogs.connections.info_scroll.saturating_sub(1);
-            }
-            DialogKind::Connections | DialogKind::Models => {
-                let count = app.picker_row_count();
-                app.rotate_active_index(count, false);
-                app.set_active_follow(true);
-            }
-            DialogKind::HistorySearch => {
-                let count = app.history_rows().len();
-                app.rotate_active_index(count, false);
-                app.set_active_follow(true);
-            }
-            DialogKind::Sessions => {
-                let count = crate::overlays::session::project_session_rows(
-                    &app.sessions_overview,
-                    Some(&app.surfaces.dialogs.sessions.expanded),
-                )
-                .len();
-                app.rotate_active_index(count, false);
-                app.set_active_follow(true);
-            }
-            DialogKind::Permissions => {
-                let count = app
-                    .session_context
-                    .as_ref()
-                    .map(|s| s.permissions.len())
-                    .unwrap_or(0);
-                app.rotate_active_index(count, false);
-            }
-            DialogKind::Telemetry => {
-                if app.surfaces.dialogs.telemetry.tab == crate::overlays::telemetry::TelemetryTab::Overview
-                    || app.surfaces.dialogs.telemetry.turn.is_some()
-                {
-                    app.surfaces.dialogs.telemetry.scroll = app.surfaces.dialogs.telemetry.scroll.saturating_sub(1);
-                } else if app.surfaces.dialogs.telemetry.detail {
-                    let report = app.token_source_report(viewed_session_id);
-                    let round_index = app.active_index().min(
-                        report
-                            .as_ref()
-                            .map(|report| overlays::telemetry_round_count(report).saturating_sub(1))
-                            .unwrap_or(0),
-                    );
-                    let count = report
-                        .as_ref()
-                        .map(|report| overlays::telemetry_attempt_count(report, round_index))
-                        .unwrap_or(0)
-                        .max(1);
-                    app.surfaces.dialogs.telemetry.turn_cursor = (app.surfaces.dialogs.telemetry.turn_cursor + count - 1) % count;
-                } else {
-                    let count = app
-                        .token_source_report(viewed_session_id)
-                        .map(|report| overlays::telemetry_round_count(&report))
-                        .unwrap_or(0)
-                        .max(1);
-                    let idx = (app.active_index() + count - 1) % count;
-                    app.set_active_index(idx);
-                }
-            }
-            DialogKind::UsageStats => {
-                app.surfaces.dialogs.usage_stats.scroll = app.surfaces.dialogs.usage_stats.scroll.saturating_sub(1);
-            }
-            DialogKind::Queue => {
-                app.surfaces.dialogs.queue.scroll = app.surfaces.dialogs.queue.scroll.saturating_sub(1);
-                app.surfaces.dialogs.queue.follow = false;
-            }
-            DialogKind::Asides => {
-                app.surfaces.dialogs.asides.scroll = app.surfaces.dialogs.asides.scroll.saturating_sub(1);
-                app.surfaces.dialogs.asides.follow = false;
-            }
-            DialogKind::SessionTree => {
-                let count = crate::overlays::tree::flatten_tree(&app.session_tree).len();
-                app.rotate_active_index(count, false);
-                app.set_active_follow(true);
-            }
-            DialogKind::Switcher => {
-                app.surfaces.dialogs.switcher.selected = app.surfaces.dialogs.switcher.selected.saturating_sub(1);
-            }
-            DialogKind::Tools | DialogKind::Mcp | DialogKind::Skills => {}
-        }
+    if let Some(d) = app.active_dialog() {
+        let mut ent = app.surfaces.dialogs.take(d);
+        let _ = ent.handle_input(&crate::input::InputAction::ModalUp, app, viewed_session_id);
+        app.surfaces.dialogs.put(d, ent);
     } else {
         match app.current_scene() {
             SceneKind::Dashboard => {
@@ -665,92 +586,10 @@ pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
 
 /// Loop stage (input dispatch): the `ModalDown` arm (per-modal ↓ navigation).
 pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
-    if let Some(dialog) = app.active_dialog() {
-        match dialog {
-            DialogKind::Connections if app.surfaces.dialogs.connections.info_detail => {
-                app.surfaces.dialogs.connections.info_scroll = app.surfaces.dialogs.connections.info_scroll.saturating_add(1);
-            }
-            DialogKind::Connections | DialogKind::Models => {
-                let count = app.picker_row_count().max(1);
-                app.rotate_active_index(count, true);
-                app.set_active_follow(true);
-            }
-            DialogKind::HistorySearch => {
-                let count = app.history_rows().len().max(1);
-                app.rotate_active_index(count, true);
-                app.set_active_follow(true);
-            }
-            DialogKind::Sessions => {
-                let count = crate::overlays::session::project_session_rows(
-                    &app.sessions_overview,
-                    Some(&app.surfaces.dialogs.sessions.expanded),
-                )
-                .len()
-                .max(1);
-                app.rotate_active_index(count, true);
-                app.set_active_follow(true);
-            }
-            DialogKind::Permissions => {
-                let count = app
-                    .session_context
-                    .as_ref()
-                    .map(|s| s.permissions.len())
-                    .unwrap_or(0)
-                    .max(1);
-                app.rotate_active_index(count, true);
-            }
-            DialogKind::Telemetry => {
-                if app.surfaces.dialogs.telemetry.tab == crate::overlays::telemetry::TelemetryTab::Overview
-                    || app.surfaces.dialogs.telemetry.turn.is_some()
-                {
-                    app.surfaces.dialogs.telemetry.scroll = app.surfaces.dialogs.telemetry.scroll.saturating_add(1);
-                } else if app.surfaces.dialogs.telemetry.detail {
-                    let report = app.token_source_report(viewed_session_id);
-                    let round_index = app.active_index().min(
-                        report
-                            .as_ref()
-                            .map(|report| overlays::telemetry_round_count(report).saturating_sub(1))
-                            .unwrap_or(0),
-                    );
-                    let count = report
-                        .as_ref()
-                        .map(|report| overlays::telemetry_attempt_count(report, round_index))
-                        .unwrap_or(0)
-                        .max(1);
-                    app.surfaces.dialogs.telemetry.turn_cursor = (app.surfaces.dialogs.telemetry.turn_cursor + 1) % count;
-                } else {
-                    let count = app
-                        .token_source_report(viewed_session_id)
-                        .map(|report| overlays::telemetry_round_count(&report))
-                        .unwrap_or(0)
-                        .max(1);
-                    let idx = (app.active_index() + 1) % count;
-                    app.set_active_index(idx);
-                }
-            }
-            DialogKind::UsageStats => {
-                app.surfaces.dialogs.usage_stats.scroll = app.surfaces.dialogs.usage_stats.scroll.saturating_add(1);
-            }
-            DialogKind::Queue => {
-                app.surfaces.dialogs.queue.scroll = app.surfaces.dialogs.queue.scroll.saturating_add(1);
-                app.surfaces.dialogs.queue.follow = false;
-            }
-            DialogKind::Asides => {
-                app.surfaces.dialogs.asides.scroll = app.surfaces.dialogs.asides.scroll.saturating_add(1);
-                app.surfaces.dialogs.asides.follow = false;
-            }
-            DialogKind::SessionTree => {
-                let count = crate::overlays::tree::flatten_tree(&app.session_tree)
-                    .len()
-                    .max(1);
-                app.rotate_active_index(count, true);
-                app.set_active_follow(true);
-            }
-            DialogKind::Switcher => {
-                app.surfaces.dialogs.switcher.selected = app.surfaces.dialogs.switcher.selected.saturating_add(1);
-            }
-            DialogKind::Tools | DialogKind::Mcp | DialogKind::Skills => {}
-        }
+    if let Some(d) = app.active_dialog() {
+        let mut ent = app.surfaces.dialogs.take(d);
+        let _ = ent.handle_input(&crate::input::InputAction::ModalDown, app, viewed_session_id);
+        app.surfaces.dialogs.put(d, ent);
     } else {
         match app.current_scene() {
             SceneKind::Dashboard => {

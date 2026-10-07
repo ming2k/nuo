@@ -26,7 +26,7 @@
 
 mod dialogs;
 
-pub use dialogs::{DialogView, Dialogs};
+pub use dialogs::{DialogRenderCtx, DialogView, Dialogs};
 
 /// Root full-screen scene identifier (closed set of destinations).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -312,7 +312,6 @@ pub enum RetentionPolicy {
     SessionScoped,
 }
 
-const OVERLAY_STACK_CAP: usize = 16;
 const SCENE_HISTORY_CAP: usize = 16;
 
 /// Unified router managing the active root scene, the LIFO overlay stack, and
@@ -538,14 +537,15 @@ impl SurfaceRouter {
     }
 
     /// Push an overlay onto the stack.
+    ///
+    /// There is deliberately **no** capacity truncation here: a bounded stack
+    /// would have to evict out of LIFO order (the bottom entry), which
+    /// `[INV-SURFACE-04]` forbids. Overlays are only ever removed by the
+    /// structured `pop`/`unwind_*` pipelines, which run `on_dismiss` in reverse
+    /// LIFO order. The stack is bounded in practice because opening a dialog
+    /// deactivates the current one and sheets are transient.
     pub fn push_overlay(&mut self, overlay: OverlaySurface) {
         self.overlay_stack.push(overlay);
-        if self.overlay_stack.len() > OVERLAY_STACK_CAP {
-            let removed = self.overlay_stack.remove(0);
-            if let OverlaySurface::Dialog(d) = removed {
-                self.dialogs.on_dismiss(d);
-            }
-        }
     }
 
     /// Present a dialog on top of the stack.
@@ -587,6 +587,23 @@ impl SurfaceRouter {
     /// Dismiss all overlays over the active scene, running every hook.
     pub fn dismiss_all_overlays(&mut self) {
         self.unwind_all();
+    }
+
+    /// Remove and return every sheet currently on the stack (top-to-bottom),
+    /// so the caller can run the App-side teardown each sheet owns. Sheets are
+    /// action prompts, not [`DialogView`] entities, so their `on_dismiss`
+    /// equivalent lives on `App`.
+    pub fn take_sheets(&mut self) -> Vec<SheetKind> {
+        let mut sheets = Vec::new();
+        let mut idx = self.overlay_stack.len();
+        while idx > 0 {
+            idx -= 1;
+            if let OverlaySurface::Sheet(s) = self.overlay_stack[idx] {
+                sheets.push(s);
+                self.overlay_stack.remove(idx);
+            }
+        }
+        sheets
     }
 
     /// Check if a specific dialog is anywhere in the overlay stack.
@@ -775,7 +792,7 @@ mod tests {
         let mut router = SurfaceRouter::new();
         router.present_dialog(DialogKind::Switcher);
         router.dialogs.switcher.selected = 5;
-        router.dialogs.switcher.query = "abc".to_string();
+        router.dialogs.switcher.query.text = "abc".to_string();
         router.pop_overlay();
         assert_eq!(router.dialogs.switcher.selected, 0);
         assert!(router.dialogs.switcher.query.is_empty());
@@ -786,10 +803,36 @@ mod tests {
         let mut router = SurfaceRouter::new();
         router.present_dialog(DialogKind::Models);
         router.dialogs.models.search = true;
-        router.dialogs.models.query = "gpt".to_string();
+        router.dialogs.models.query.text = "gpt".to_string();
         router.pop_overlay();
         assert!(!router.dialogs.models.search);
         assert!(router.dialogs.models.query.is_empty());
+    }
+
+    #[test]
+    fn take_sheets_drains_sheet_overlays_preserving_dialogs() {
+        let mut router = SurfaceRouter::new();
+        router.present_dialog(DialogKind::Models);
+        router.present_sheet(SheetKind::CustomProvider);
+        let sheets = router.take_sheets();
+        assert_eq!(sheets, vec![SheetKind::CustomProvider]);
+        assert!(!router.contains_sheet(SheetKind::CustomProvider));
+        assert!(router.contains_dialog(DialogKind::Models));
+    }
+
+    #[test]
+    fn dialog_view_contract_reports_identity_scope_and_geometry() {
+        // The `DialogView` contract (ADR-0035 §1) exposes identity, domain,
+        // and the modal geometry.
+        let mut d = Dialogs::default();
+        let tools = d.view_mut(DialogKind::Tools);
+        assert_eq!(tools.kind(), DialogKind::Tools);
+        assert_eq!(tools.scope(), DialogScope::Session);
+        assert!(tools.layout_spec().width_percent > 0);
+        assert_eq!(
+            d.view_mut(DialogKind::HistorySearch).scope(),
+            DialogScope::Scene(SceneKind::Conversation)
+        );
     }
 
     #[test]

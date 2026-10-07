@@ -1703,7 +1703,7 @@ fn switching_picker_view_preserves_query_and_chat_draft_separately() {
     app.input = "unsent chat".to_string();
     app.open_dialog(crate::surfaces::DialogKind::Models);
     app.surfaces.dialogs.models.search = true;
-    app.surfaces.dialogs.models.query = "claude".to_string();
+    app.surfaces.dialogs.models.query.text = "claude".to_string();
 
     assert_eq!(app.input, "unsent chat", "composer draft untouched");
 
@@ -1715,7 +1715,7 @@ fn switching_picker_view_preserves_query_and_chat_draft_separately() {
 
     app.open_dialog(crate::surfaces::DialogKind::Models);
     assert_eq!(
-        app.surfaces.dialogs.models.query, "claude",
+        app.surfaces.dialogs.models.query.text, "claude",
         "picker query is retained independently"
     );
     assert!(
@@ -1979,3 +1979,23 @@ fn dialog_keys_sublayer_pop_and_deactivate_behavior() {
 }
 
 
+
+#[test]
+fn modal_arrows_route_through_the_dialog_entity() {
+    // `[INV-SURFACE-01]` / ADR-0035 §1: the generic ↑/↓ arrows are handled by
+    // the active dialog entity's `DialogView::handle_input`, mutating only that
+    // entity's own state.
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.open_dialog(crate::surfaces::DialogKind::Telemetry);
+    app.surfaces.dialogs.telemetry.tab =
+        crate::overlays::telemetry::TelemetryTab::Overview;
+    app.surfaces.dialogs.telemetry.scroll = 5;
+
+    crate::event_loop::actions::handle_modal_up(&mut app, "test-session");
+    assert_eq!(
+        app.surfaces.dialogs.telemetry.scroll, 4,
+        "arrow handled by the telemetry entity"
+    );
+    crate::event_loop::actions::handle_modal_down(&mut app, "test-session");
+    assert_eq!(app.surfaces.dialogs.telemetry.scroll, 5);
+}

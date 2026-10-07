@@ -184,6 +184,12 @@ pub(crate) struct FixedModalSpec {
 }
 
 impl FixedModalSpec {
+    /// The underlying width/header/footer geometry (used by the dialog
+    /// entity's `layout_spec`).
+    pub(crate) const fn modal_spec(self) -> ModalSpec {
+        self.spec
+    }
+
     const fn new(width_percent: u16, height_percent: u16) -> Self {
         Self {
             spec: ModalSpec {

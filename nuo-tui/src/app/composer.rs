@@ -697,12 +697,12 @@ impl App {
             Some(crate::surfaces::DialogKind::Models)
                 if self.surfaces.dialogs.models.search =>
             {
-                self.surfaces.dialogs.models.query.trim()
+                self.surfaces.dialogs.models.query.text.trim()
             }
             Some(crate::surfaces::DialogKind::Connections)
                 if self.surfaces.dialogs.connections.search =>
             {
-                self.surfaces.dialogs.connections.query.trim()
+                self.surfaces.dialogs.connections.query.text.trim()
             }
             _ => "",
         }

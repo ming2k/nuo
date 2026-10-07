@@ -173,14 +173,51 @@ impl App {
             .map(|id| self.surfaces.dialogs.keys_scroll_mut(id))
     }
 
-    /// Navigate to a root scene.
+    /// Run the App-side teardown a sheet owns when it leaves the overlay stack
+    /// (the sheet equivalent of [`DialogView::on_dismiss`], `[INV-SURFACE-04]`).
+    pub(crate) fn on_sheet_dismissed(&mut self, kind: SheetKind) {
+        match kind {
+            SheetKind::ModelEditor => {
+                self.editor_target = None;
+                self.editor_model_settings_only = false;
+                self.editor_target_is_builtin = false;
+                self.input.clear();
+                self.set_cursor(0);
+            }
+            SheetKind::CustomProvider => {
+                self.custom_field = 0;
+                self.custom_edit_id = None;
+            }
+            SheetKind::ProviderPreset => {
+                self.preset_choice = 0;
+                self.preset_scroll = 0;
+            }
+            SheetKind::OAuthPending => {
+                self.oauth_scroll = 0;
+            }
+            SheetKind::ProviderDeleteConfirm => {
+                self.cancel_provider_delete();
+            }
+            SheetKind::Permission | SheetKind::Question | SheetKind::InputInjection => {}
+        }
+    }
+
+    /// Navigate to a root scene, running each dropped sheet's teardown.
     pub(crate) fn switch_scene(&mut self, scene: SceneKind) {
+        let sheets = self.surfaces.take_sheets();
         self.surfaces.switch_scene(scene);
+        for s in sheets {
+            self.on_sheet_dismissed(s);
+        }
     }
 
     /// Hard reset to Conversation home scene: unwind all overlays and history.
     pub(crate) fn reset_to_conversation(&mut self) {
+        let sheets = self.surfaces.take_sheets();
         self.surfaces.reset_to_conversation();
+        for s in sheets {
+            self.on_sheet_dismissed(s);
+        }
     }
 
     /// Pop one overlay and restore the underlying surface.
@@ -440,7 +477,11 @@ impl App {
         if leaving == SceneKind::Conversation {
             return false;
         }
+        let sheets = self.surfaces.take_sheets();
         self.surfaces.back_scene();
+        for s in sheets {
+            self.on_sheet_dismissed(s);
+        }
         if leaving == SceneKind::TaskInspection {
             self.focus_stack.clear();
             self.reset_view_state();

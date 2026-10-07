@@ -313,7 +313,7 @@ pub(crate) fn handle_ctrl_c(
         if !app.surfaces.dialogs.history_search.query.is_empty() {
             let d = &mut app.surfaces.dialogs.history_search;
             d.query.clear();
-            d.query_cursor = 0;
+            d.query.cursor = 0;
             d.index = 0;
             d.follow = true;
         } else {

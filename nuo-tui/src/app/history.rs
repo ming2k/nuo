@@ -74,7 +74,7 @@ impl App {
         // tail, so re-sort by created_at_ms (stable) to keep the panel's order
         // correct without mutating the stored Vec.
         let order: Vec<usize> = self.history_order();
-        let query = self.surfaces.dialogs.history_search.query.as_str();
+        let query = self.surfaces.dialogs.history_search.query.text.as_str();
         if query.is_empty() {
             // Empty query → show everything newest-first, unhighlighted.
             return order
