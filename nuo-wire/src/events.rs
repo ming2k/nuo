@@ -82,6 +82,10 @@ pub enum AgentRequest {
         #[serde(default)]
         domains: Vec<TrustDomain>,
     },
+    /// Soft reload (ADR-0034 Level 1): re-read the configuration matrix and
+    /// credentials, and re-sync MCP servers and skills, without dropping any
+    /// active connection.
+    ReloadRuntime,
     /// Ask the daemon to complete the composer input at `cursor`. Cursor and
     /// response edit offsets are Unicode-scalar indices so native and browser
     /// clients share one indexing contract. `request_id` lets clients discard

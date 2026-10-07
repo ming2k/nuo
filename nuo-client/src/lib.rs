@@ -1237,6 +1237,18 @@ const FALLBACK_GRACE: Duration = Duration::from_secs(15);
 ///    the instance lock and identity-conditionally remove the discovery record.
 ///    Native listener state is RAII-owned; a killed Unix daemon's stale socket
 ///    is removed by the next lock-owning bind, never by a racing stopper.
+/// ADR-0034 Level 1 (soft reload): ask a live server to re-read its
+/// configuration and re-sync MCP servers + skills without dropping any
+/// connection. Fails if the running server predates the reload verb.
+pub async fn reload(info: &DaemonInfo) -> Result<(), String> {
+    if !versions_compatible(info) {
+        return Err(
+            "server/client version mismatch; `server reload` needs a compatible server".into(),
+        );
+    }
+    control(info, ControlRequest::Reload).await
+}
+
 pub async fn stop(info: &DaemonInfo) -> Result<(), String> {
     // The daemon's own drain budget, when it advertised one: the single
     // number every tier below is coordinated against.

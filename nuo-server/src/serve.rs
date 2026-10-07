@@ -867,6 +867,28 @@ async fn run_control(
     request: ControlRequest,
 ) -> Result<(), String> {
     let (ok, session_id, error) = match request {
+        ControlRequest::Reload => {
+            // ADR-0034 Level 1 (soft reload): refresh the daemon's config
+            // snapshot and re-sync MCP + skills across every hosted session.
+            // No connection is dropped and no round is disturbed.
+            let reply = match registry.reload_runtime().await {
+                Ok(()) => Wire::ControlReply {
+                    ok: true,
+                    session_id: None,
+                    error: None,
+                },
+                Err(error) => Wire::ControlReply {
+                    ok: false,
+                    session_id: None,
+                    error: Some(error),
+                },
+            };
+            wire_sink
+                .send(reply)
+                .await
+                .map_err(|e| format!("send control reply: {e}"))?;
+            return Ok(());
+        }
         ControlRequest::Shutdown => {
             // The remote stop verb (ADR-0100): acknowledge on the wire first
             // — the gate fires the same drain as any signal, which would

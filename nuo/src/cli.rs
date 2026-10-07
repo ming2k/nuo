@@ -98,6 +98,10 @@ pub enum ServerAction {
     },
     /// `nuo server stop` / `nuo stop` — graceful, budget-aware drain.
     Stop,
+    /// `nuo server reload` / `nuo reload` — soft reload (ADR-0034 Level 1):
+    /// re-read configuration and re-sync MCP + skills without dropping
+    /// connections.
+    Reload,
     /// `nuo server restart` / `nuo restart` — restart or replace the server instance.
     Restart {
         force: bool,
@@ -296,6 +300,11 @@ const SERVER_SUBS: &[Spec] = &[
         about: "stop the session server gracefully",
     },
     Spec {
+        name: "reload",
+        names: &["reload"],
+        about: "soft reload configuration and MCP/skills without dropping connections",
+    },
+    Spec {
         name: "restart",
         names: &["restart"],
         about: "restart or replace the session server",
@@ -358,6 +367,11 @@ const COMMANDS: &[Spec] = &[
         name: "stop",
         names: &["stop"],
         about: "stop the server gracefully",
+    },
+    Spec {
+        name: "reload",
+        names: &["reload"],
+        about: "soft reload configuration and MCP/skills without dropping connections",
     },
     Spec {
         name: "restart",
@@ -753,6 +767,12 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                     }
                     Mode::Server(ServerAction::Stop)
                 }
+                "reload" => {
+                    if !sub_extra.is_empty() {
+                        return unexpected(&sub_extra[0]);
+                    }
+                    Mode::Server(ServerAction::Reload)
+                }
                 "restart" => {
                     let mut force = false;
                     let mut remaining = Vec::new();
@@ -821,6 +841,13 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             let args: &[String] = &extra;
             match args {
                 [] => Mode::Server(ServerAction::Stop),
+                [bad, ..] => return unexpected(bad),
+            }
+        }
+        "reload" => {
+            let args: &[String] = &extra;
+            match args {
+                [] => Mode::Server(ServerAction::Reload),
                 [bad, ..] => return unexpected(bad),
             }
         }

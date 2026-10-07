@@ -10,7 +10,7 @@ mod supervisor;
 
 use status::{StatusOptions, run as run_status};
 use supervisor::{
-    ServerStart, detach_server, restart_server, run_server_foreground, stop_server,
+    ServerStart, detach_server, reload_server, restart_server, run_server_foreground, stop_server,
 };
 
 use cli::{CliArgs, McpAction, Mode, ServerAction};
@@ -105,6 +105,7 @@ async fn run_server_action(
             run_server_foreground(flags).await
         }
         ServerAction::Stop => stop_server().await,
+        ServerAction::Reload => reload_server().await,
         ServerAction::Restart {
             force,
             port,

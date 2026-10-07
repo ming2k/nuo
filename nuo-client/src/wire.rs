@@ -174,6 +174,9 @@ impl<'de> Deserialize<'de> for AttachAction {
 #[serde(tag = "verb", rename_all = "snake_case")]
 pub enum ControlRequest {
     Shutdown,
+    /// ADR-0034 Level 1: re-read configuration and re-sync MCP + skills
+    /// without dropping connections.
+    Reload,
     CreateSession {
         project: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]

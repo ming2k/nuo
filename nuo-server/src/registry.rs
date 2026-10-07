@@ -1082,6 +1082,25 @@ impl SessionRegistry {
     /// `hook_budget` individually: N sessions cost max(hook) — not the sum —
     /// so one slow hook cannot starve the others of their own budget.
     /// Best-effort per session: one failure does not skip the rest.
+    /// ADR-0034 Level 1 (soft reload): re-read the configuration matrix into
+    /// the daemon-wide snapshot and ask every hosted session to re-sync its
+    /// MCP servers and skills — without dropping a single connection.
+    pub async fn reload_runtime(&self) -> Result<(), String> {
+        let config = nuo_persistence::config::Config::load();
+        *self.shared_config.write().await = config;
+        let sessions: Vec<Arc<HostedSession>> = {
+            let guard = self.sessions.lock().await;
+            guard.values().cloned().collect()
+        };
+        for session in sessions {
+            let _ = session
+                .req_tx
+                .send(nuo_wire::AgentRequest::ReloadRuntime)
+                .await;
+        }
+        Ok(())
+    }
+
     pub async fn shutdown_all_sessions(&self) {
         self.shutdown_all_sessions_with_hook_budget(DEFAULT_SESSION_END_HOOK_BUDGET)
             .await;

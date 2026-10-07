@@ -1384,6 +1384,24 @@ impl SessionDriver {
                         skills_clone.reload().await;
                     });
                 }
+                AgentRequest::ReloadRuntime => {
+                    // ADR-0034 Level 1 (soft reload): re-read the domain
+                    // configuration and re-sync MCP servers + skills without
+                    // disturbing the connection or any in-flight round.
+                    let effective = nuo_persistence::config::Config::load();
+                    let mcp_clone = mcp_runtime.clone();
+                    let skills_clone = skills_registry.clone();
+                    tokio::spawn(async move {
+                        let _ = mcp_clone.reconfigure(effective.mcp).await;
+                        skills_clone.reload().await;
+                    });
+                    let _ = resp_tx.send(round_response(
+                        &session.id().await,
+                        nuo_wire::RoundEvent::Notice(nuo_wire::AgentNotice::command_ack(
+                            "Runtime reloaded: configuration, credentials, MCP servers, and skills.",
+                        )),
+                    ));
+                }
                 AgentRequest::CompleteComposer {
                     request_id,
                     text,

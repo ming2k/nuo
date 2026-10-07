@@ -120,6 +120,17 @@ pub async fn stop_server() -> Result<(), Box<dyn std::error::Error>> {
 pub use stop_server as stop_daemon;
 
 /// Restart the server: stop the running instance (if any) and detach a replacement.
+/// `nuo server reload` — ADR-0034 Level 1 soft reload: ask the live server to
+/// re-read its configuration and re-sync MCP servers + skills without dropping
+/// any connection.
+pub async fn reload_server() -> Result<(), Box<dyn std::error::Error>> {
+    let info = client::discover(Path::new("."))
+        .ok_or("no local nuo server is running")?;
+    client::reload(&info).await?;
+    eprintln!("nuo: server reloaded (configuration, MCP servers, skills).");
+    Ok(())
+}
+
 pub async fn restart_server(
     flags: &ServerStart,
     force: bool,
