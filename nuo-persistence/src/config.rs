@@ -356,14 +356,10 @@ impl RouteSettings {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Credentials {
     /// API keys keyed by connection id.
-    #[serde(default, alias = "providers")]
+    #[serde(default)]
     pub connections: BTreeMap<String, SecretString>,
     /// Credentials keyed by compiled web provider id, not connection id.
-    #[serde(
-        default,
-        alias = "websearch",
-        skip_serializing_if = "WebCredentials::is_empty"
-    )]
+    #[serde(default, skip_serializing_if = "WebCredentials::is_empty")]
     pub web: WebCredentials,
     /// One-shot migration markers. These prevent preserved legacy secrets from
     /// being re-imported after a user deliberately clears their new value.
@@ -1162,189 +1158,283 @@ impl Default for Config {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct DomainServerFile {
+    #[serde(skip_serializing_if = "Option::is_none")]
     lifecycle: Option<DomainServerLifecycle>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     network: Option<DomainServerNetwork>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     daemon: Option<DaemonConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct DomainServerLifecycle {
+    #[serde(skip_serializing_if = "Option::is_none")]
     shutdown_grace_secs: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     idle_exit_minutes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct DomainServerNetwork {
+    #[serde(skip_serializing_if = "Option::is_none")]
     local_auth: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct DomainClientFile {
+    #[serde(skip_serializing_if = "Option::is_none")]
     connection: Option<DomainClientConnection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     resilience: Option<DomainClientResilience>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     models: Option<DomainClientModels>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct DomainClientConnection {
+    #[serde(skip_serializing_if = "Option::is_none")]
     default_connection: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     default_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct DomainClientResilience {
+    #[serde(skip_serializing_if = "Option::is_none")]
     retry_max_attempts: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     retry_base_delay_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     retry_max_delay_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct DomainClientModels {
+    #[serde(skip_serializing_if = "Option::is_none")]
     favorites: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     hidden: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct DomainAgentFile {
+    #[serde(skip_serializing_if = "Option::is_none")]
     agent: Option<AgentConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     context: Option<nuo_wire::context_lifecycle::ContextPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     permissions: Option<PermissionConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     workspace: Option<WorkspaceConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     bash_policy: Option<BashPolicyConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     web: Option<WebConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     skills: Option<SkillsConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     mcp: Option<HashMap<String, McpServerConfig>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     hooks: Option<Vec<HookSpec>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tool_variants: Option<ToolVariantsConfig>,
 }
 
 impl Config {
     pub fn load() -> Self {
-        let config_path = Self::config_file_path();
-        let mut cfg = match fs::read_to_string(&config_path) {
-            Ok(content) => {
-                let effective = crate::web_migration::migrate_config_source(&content);
-                match toml::from_str::<Config>(&effective) {
-                    Ok(parsed) => parsed,
-                    Err(error) => {
-                        tracing::error!(
-                            path = %config_path.display(),
-                            %error,
-                            "config.toml is unparseable; continuing with defaults \
-                             (fix the syntax error to restore the saved configuration)"
-                        );
-                        Config::default()
-                    }
-                }
-            }
-            Err(_) => Config::default(),
-        };
-
-        // ADR-0031 Domain separation overlay
+        Self::promote_legacy_config_if_needed();
+        let mut cfg = Config::default();
         Self::apply_domain_overlays(&mut cfg);
         cfg
     }
 
+    /// One-way promotion (ADR-0031 `[INV-CONF-04]`). If the retired monolithic
+    /// `config.toml` is present and no domain file has been written yet, it is
+    /// translated into the domain matrix and then removed. There is no runtime
+    /// fallback: after promotion `config.toml` is gone for good.
+    fn promote_legacy_config_if_needed() {
+        let legacy = Self::config_file_path();
+        if !legacy.exists() {
+            return;
+        }
+        let domains_exist = Self::server_config_file_path().exists()
+            || Self::client_config_file_path().exists()
+            || Self::agent_config_file_path().exists();
+        if domains_exist {
+            // The domain matrix is authoritative; the legacy file is a stale
+            // artifact from a previous install.
+            let _ = fs::remove_file(&legacy);
+            return;
+        }
+        if let Err(error) = Self::migrate_legacy_config() {
+            panic!("nuo: could not migrate legacy config.toml: {error}");
+        }
+        let _ = fs::remove_file(&legacy);
+    }
+
+    /// Translate the legacy `config.toml` into the ADR-0031 domain matrix.
+    /// Deterministic and offline: writes `server.toml`, `client.toml`, and
+    /// `agent.toml`. `terminal.toml` is owned by `nuo-tui` and is not touched.
+    pub fn migrate_legacy_config() -> Result<(), String> {
+        let legacy = Self::config_file_path();
+        let source = fs::read_to_string(&legacy).map_err(|e| e.to_string())?;
+        let source = crate::web_migration::migrate_config_source(&source);
+        let cfg = Self::parse_legacy_config(&source)?;
+        cfg.save_domain_files().map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Parse a legacy monolithic `config.toml` source into the aggregate. Used
+    /// only by the one-way promotion; the active runtime parses the domain
+    /// files with `deny_unknown_fields` via [`Self::apply_domain_overlays`].
+    fn parse_legacy_config(source: &str) -> Result<Config, String> {
+        toml::from_str::<Config>(source).map_err(|e| e.to_string())
+    }
+
+    /// Strictly validate one domain file's source against its schema. Used by
+    /// `nuo config check`; unknown keys and type errors are reported.
+    pub(crate) fn validate_domain_source(label: &str, content: &str) -> Result<(), String> {
+        match label {
+            "server.toml" => toml::from_str::<DomainServerFile>(content)
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+            "client.toml" => toml::from_str::<DomainClientFile>(content)
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+            "agent.toml" => toml::from_str::<DomainAgentFile>(content)
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+            other => Err(format!("unknown domain file `{other}`")),
+        }
+    }
+
+    /// Read one domain file. Absent → `None`; present but malformed → hard
+    /// failure (fail-fast, `[INV-CONF-04]`).
+    fn load_domain<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> Option<T> {
+        let content = fs::read_to_string(path).ok()?;
+        match toml::from_str::<T>(&content) {
+            Ok(value) => Some(value),
+            Err(error) => panic!("nuo: invalid config file {}: {error}", path.display()),
+        }
+    }
+
     fn apply_domain_overlays(cfg: &mut Config) {
         // 1. server.toml
-        let server_path = Self::server_config_file_path();
-        if let Ok(content) = fs::read_to_string(&server_path) {
-            if let Ok(server) = toml::from_str::<DomainServerFile>(&content) {
-                if let Some(lc) = server.lifecycle {
-                    if let Some(s) = lc.shutdown_grace_secs { cfg.daemon.shutdown_grace_secs = s; }
-                    if let Some(i) = lc.idle_exit_minutes { cfg.daemon.idle_exit_minutes = i; }
-                }
-                if let Some(nw) = server.network {
-                    if let Some(la) = nw.local_auth { cfg.daemon.local_auth = la; }
-                }
-                if let Some(d) = server.daemon {
-                    cfg.daemon = d;
-                }
+        if let Some(server) = Self::load_domain::<DomainServerFile>(&Self::server_config_file_path()) {
+            if let Some(lc) = server.lifecycle {
+                if let Some(s) = lc.shutdown_grace_secs { cfg.daemon.shutdown_grace_secs = s; }
+                if let Some(i) = lc.idle_exit_minutes { cfg.daemon.idle_exit_minutes = i; }
+            }
+            if let Some(nw) = server.network {
+                if let Some(la) = nw.local_auth { cfg.daemon.local_auth = la; }
+            }
+            if let Some(d) = server.daemon {
+                cfg.daemon = d;
             }
         }
 
         // 2. client.toml
-        let client_path = Self::client_config_file_path();
-        if let Ok(content) = fs::read_to_string(&client_path) {
-            if let Ok(client) = toml::from_str::<DomainClientFile>(&content) {
-                if let Some(conn) = client.connection {
-                    if let Some(c) = conn.default_connection { cfg.default_connection = c; }
-                    if let Some(m) = conn.default_model { cfg.default_model = Some(m); }
-                }
-                if let Some(res) = client.resilience {
-                    if let Some(a) = res.retry_max_attempts { cfg.connection_retry_max_attempts = a; }
-                    if let Some(b) = res.retry_base_delay_ms { cfg.connection_retry_base_ms = b; }
-                    if let Some(m) = res.retry_max_delay_ms { cfg.connection_retry_max_ms = m; }
-                }
-                if let Some(models) = client.models {
-                    if let Some(f) = models.favorites { cfg.favorites = f; }
-                    if let Some(h) = models.hidden { cfg.hidden_models = h; }
-                }
+        if let Some(client) = Self::load_domain::<DomainClientFile>(&Self::client_config_file_path()) {
+            if let Some(conn) = client.connection {
+                if let Some(c) = conn.default_connection { cfg.default_connection = c; }
+                if let Some(m) = conn.default_model { cfg.default_model = Some(m); }
+            }
+            if let Some(res) = client.resilience {
+                if let Some(a) = res.retry_max_attempts { cfg.connection_retry_max_attempts = a; }
+                if let Some(b) = res.retry_base_delay_ms { cfg.connection_retry_base_ms = b; }
+                if let Some(m) = res.retry_max_delay_ms { cfg.connection_retry_max_ms = m; }
+            }
+            if let Some(models) = client.models {
+                if let Some(f) = models.favorites { cfg.favorites = f; }
+                if let Some(h) = models.hidden { cfg.hidden_models = h; }
             }
         }
 
         // 3. agent.toml
-        let agent_path = Self::agent_config_file_path();
-        if let Ok(content) = fs::read_to_string(&agent_path) {
-            if let Ok(agent_doc) = toml::from_str::<DomainAgentFile>(&content) {
-                if let Some(a) = agent_doc.agent { cfg.agent = a; }
-                if let Some(c) = agent_doc.context { cfg.context = c; }
-                if let Some(p) = agent_doc.permissions { cfg.permissions = p; }
-                if let Some(b) = agent_doc.bash_policy { cfg.bash_policy = b; }
-                if let Some(w) = agent_doc.web { cfg.web = w; }
-                if let Some(s) = agent_doc.skills { cfg.skills = s; }
-                if let Some(m) = agent_doc.mcp { cfg.mcp = m; }
-                if let Some(h) = agent_doc.hooks { cfg.hooks = h; }
-                if let Some(tv) = agent_doc.tool_variants { cfg.tool_variants = tv; }
-                if let Some(ws) = agent_doc.workspace { cfg.workspace = ws; }
+        if let Some(agent_doc) = Self::load_domain::<DomainAgentFile>(&Self::agent_config_file_path()) {
+            if let Some(a) = agent_doc.agent { cfg.agent = a; }
+            if let Some(c) = agent_doc.context {
+                if let Err(error) = c.validate() {
+                    panic!("nuo: invalid agent.toml [context]: {error}");
+                }
+                cfg.context = c;
             }
+            if let Some(p) = agent_doc.permissions { cfg.permissions = p; }
+            if let Some(b) = agent_doc.bash_policy { cfg.bash_policy = b; }
+            if let Some(w) = agent_doc.web { cfg.web = w; }
+            if let Some(s) = agent_doc.skills { cfg.skills = s; }
+            if let Some(m) = agent_doc.mcp { cfg.mcp = m; }
+            if let Some(h) = agent_doc.hooks { cfg.hooks = h; }
+            if let Some(tv) = agent_doc.tool_variants { cfg.tool_variants = tv; }
+            if let Some(ws) = agent_doc.workspace { cfg.workspace = ws; }
         }
     }
 
-    /// Persist current configuration into ADR-0031 domain files (server.toml, client.toml, agent.toml).
+    /// Persist the aggregate into the ADR-0031 domain matrix
+    /// (`server.toml`, `client.toml`, `agent.toml`). Each file is written from
+    /// a serialisable domain document, so the on-disk shape is exactly the
+    /// strict schema the loader parses.
     pub fn save_domain_files(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let server_path = Self::server_config_file_path();
-        let server_content = format!(
-            "[lifecycle]\nshutdown_grace_secs = {}\nidle_exit_minutes = {}\n\n[network]\nlocal_auth = {}\n",
-            self.daemon.shutdown_grace_secs,
-            self.daemon.idle_exit_minutes,
-            self.daemon.local_auth,
-        );
-        fsutil::atomic_write_bytes(&server_path, server_content.as_bytes())?;
+        let server = DomainServerFile {
+            lifecycle: Some(DomainServerLifecycle {
+                shutdown_grace_secs: Some(self.daemon.shutdown_grace_secs),
+                idle_exit_minutes: Some(self.daemon.idle_exit_minutes),
+            }),
+            network: Some(DomainServerNetwork {
+                local_auth: Some(self.daemon.local_auth),
+            }),
+            daemon: None,
+        };
+        fsutil::atomic_write_bytes(
+            &Self::server_config_file_path(),
+            toml::to_string_pretty(&server)?.as_bytes(),
+        )?;
 
-        let client_path = Self::client_config_file_path();
-        let client_content = format!(
-            "[connection]\ndefault_connection = {:?}\ndefault_model = {:?}\n\n[resilience]\nretry_max_attempts = {}\nretry_base_delay_ms = {}\nretry_max_delay_ms = {}\n\n[models]\nfavorites = {:?}\nhidden = {:?}\n",
-            self.default_connection,
-            self.default_model,
-            self.connection_retry_max_attempts,
-            self.connection_retry_base_ms,
-            self.connection_retry_max_ms,
-            self.favorites,
-            self.hidden_models,
-        );
-        fsutil::atomic_write_bytes(&client_path, client_content.as_bytes())?;
+        let client = DomainClientFile {
+            connection: Some(DomainClientConnection {
+                default_connection: Some(self.default_connection.clone()),
+                default_model: self.default_model.clone(),
+            }),
+            resilience: Some(DomainClientResilience {
+                retry_max_attempts: Some(self.connection_retry_max_attempts),
+                retry_base_delay_ms: Some(self.connection_retry_base_ms),
+                retry_max_delay_ms: Some(self.connection_retry_max_ms),
+            }),
+            models: Some(DomainClientModels {
+                favorites: Some(self.favorites.clone()),
+                hidden: Some(self.hidden_models.clone()),
+            }),
+        };
+        fsutil::atomic_write_bytes(
+            &Self::client_config_file_path(),
+            toml::to_string_pretty(&client)?.as_bytes(),
+        )?;
 
-        let agent_path = Self::agent_config_file_path();
-        let mut agent_doc = toml::value::Table::new();
-        if let Ok(agent_val) = toml::Value::try_from(&self.agent) { agent_doc.insert("agent".to_string(), agent_val); }
-        if let Ok(ctx_val) = toml::Value::try_from(&self.context) { agent_doc.insert("context".to_string(), ctx_val); }
-        if let Ok(perm_val) = toml::Value::try_from(&self.permissions) { agent_doc.insert("permissions".to_string(), perm_val); }
-        if let Ok(bash_val) = toml::Value::try_from(&self.bash_policy) { agent_doc.insert("bash_policy".to_string(), bash_val); }
-        if let Ok(web_val) = toml::Value::try_from(&self.web) { agent_doc.insert("web".to_string(), web_val); }
-        if let Ok(skills_val) = toml::Value::try_from(&self.skills) { agent_doc.insert("skills".to_string(), skills_val); }
-        if let Ok(mcp_val) = toml::Value::try_from(&self.mcp) { agent_doc.insert("mcp".to_string(), mcp_val); }
-        let formatted = toml::to_string_pretty(&agent_doc)?;
-        fsutil::atomic_write_bytes(&agent_path, formatted.as_bytes())?;
+        let agent = DomainAgentFile {
+            agent: Some(self.agent.clone()),
+            context: Some(self.context.clone()),
+            permissions: Some(self.permissions.clone()),
+            workspace: Some(self.workspace.clone()),
+            bash_policy: Some(self.bash_policy.clone()),
+            web: Some(self.web.clone()),
+            skills: Some(self.skills.clone()),
+            mcp: Some(self.mcp.clone()),
+            hooks: Some(self.hooks.clone()),
+            tool_variants: Some(self.tool_variants.clone()),
+        };
+        fsutil::atomic_write_bytes(
+            &Self::agent_config_file_path(),
+            toml::to_string_pretty(&agent)?.as_bytes(),
+        )?;
 
         Ok(())
     }
@@ -1768,57 +1858,29 @@ impl Config {
         &self,
         preserve_connection_selection: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Serialise against other `nuo` instances so concurrent config
-        // writes do not lost-update each other (ADR-0018 pattern). The lock is
-        // held on the companion `.lock` file (not the data file, which is
-        // rewritten via temp + rename and swaps inodes) for the whole RMW.
-        let config_path = Self::config_file_path();
-        let _lock = fsutil::FileLock::acquire(&config_path)
+        // Serialise against other `nuo` instances (ADR-0018 pattern). The lock
+        // is anchored on the client file (which owns the selection pair).
+        let lock_anchor = Self::client_config_file_path();
+        let _lock = fsutil::FileLock::acquire(&lock_anchor)
             .map_err(|e| format!("could not lock config file: {e}"))?;
 
-        // The on-disk state as of *right now*, under the lock. An absent or
-        // unparseable file contributes the default document: the ordinary
-        // load path already warns about corruption, and a first run simply
-        // has nothing to preserve.
-        let on_disk: Config = fs::read_to_string(&config_path)
-            .ok()
-            .and_then(|content| toml::from_str(&content).ok())
-            .unwrap_or_default();
-
-        // Runtime-owned: the selection pair. When preserving, the on-disk
-        // value wins so another process's write survives; the snapshot value
-        // is only the fallback for an empty/never-set disk default.
-        let (default_connection, default_model) = if preserve_connection_selection {
-            let connection = if on_disk.default_connection.is_empty() {
-                // On-disk default is gone (or never set): keep this writer's
-                // selection so the file never silently loses it.
-                self.default_connection.clone()
-            } else {
-                on_disk.default_connection.clone()
-            };
-            (connection, on_disk.default_model.clone())
+        // Ownership-based reconciliation (ADR-0031): the user-owned domain
+        // tables come from the on-disk domain files *as they are right now*, so
+        // a stale snapshot can never resurrect a hand-deleted entry. Only the
+        // runtime-owned selection pair is taken from `self`, and only when this
+        // is a deliberate selection change.
+        let mut out = Config::default();
+        Self::apply_domain_overlays(&mut out);
+        if preserve_connection_selection {
+            if out.default_connection.is_empty() {
+                out.default_connection = self.default_connection.clone();
+            }
         } else {
-            (self.default_connection.clone(), self.default_model.clone())
-        };
-
-        // User-owned: start from the disk document (hand edits and all) and
-        // overlay only the runtime-owned pair.
-        let mut out = on_disk;
-        out.default_connection = default_connection;
-        out.default_model = default_model;
-
-        // config.toml = behavior only
-        // Secrets live in `credentials.toml`, connections in `connections.toml`.
-        let bytes = toml::to_string_pretty(&out)?.into_bytes();
-        fsutil::atomic_write_bytes(&config_path, &bytes)?;
-
-        // If modern domain files exist, persist to them as well (ADR-0031)
-        if Self::server_config_file_path().exists()
-            || Self::client_config_file_path().exists()
-            || Self::agent_config_file_path().exists()
-        {
-            let _ = out.save_domain_files();
+            out.default_connection = self.default_connection.clone();
+            out.default_model = self.default_model.clone();
         }
+
+        out.save_domain_files()?;
         Ok(())
     }
 
@@ -1848,7 +1910,7 @@ impl Config {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -1982,7 +2044,7 @@ mod tests {
     /// The crate-wide `paths::TEST_OVERRIDE_GUARD` is what actually serialises
     /// against `session`'s override-touching tests; the per-module `PATHS_GUARD`
     /// is kept for any intra-module shared state.
-    fn sandbox_config_dir() -> (
+    pub(crate) fn sandbox_config_dir() -> (
         std::path::PathBuf,
         std::sync::MutexGuard<'static, ()>,
         std::sync::MutexGuard<'static, ()>,
@@ -2042,10 +2104,11 @@ mod tests {
     }
 
     #[test]
-    fn credentials_ignore_legacy_sections_and_read_providers() {
+    fn credentials_ignore_legacy_sections_and_read_connections() {
         // The pre-refactor credentials layout (`[builtins.<id>]` /
-        // `[user.<id>]`) is superseded by `[providers.<id>]`. Reading an old
-        // file must not fail and must not surface the old sections.
+        // `[user.<id>]`) is superseded by the canonical `[connections.<id>]`.
+        // The retired `[providers]` spelling is no longer an alias
+        // (ADR-0031 `[INV-CONF-01]`).
         let (tmp, _guard, _override_guard) = sandbox_config_dir();
         std::fs::write(
             tmp.join("credentials.toml"),
@@ -2053,7 +2116,7 @@ mod tests {
 openai = "old-builtin"
 [user.my-relay]
 api_key = "old-user"
-[providers]
+[connections]
 deepseek = "new-key"
 "#,
         )
@@ -2128,75 +2191,49 @@ deepseek = "new-key"
     }
 
     #[test]
-    fn config_save_is_behavior_only_and_tolerates_legacy_provider_tables() {
+    fn config_save_writes_domain_files_only() {
         let (tmp, _guard, _override_guard) = sandbox_config_dir();
         std::fs::write(
             tmp.join("config.toml"),
-            r#"default_connection = "deepseek"
-deepseek_api_key = "legacy-key"
-[[providers]]
-id = "deepseek"
-name = "DeepSeek"
-"#,
+            "default_connection = \"deepseek\"\n[[providers]]\nid = \"deepseek\"\n",
         )
         .unwrap();
         let loaded = Config::load();
         assert_eq!(loaded.default_connection, "deepseek");
+        assert!(
+            !tmp.join("config.toml").exists(),
+            "the legacy monolith is retired on promotion"
+        );
         let mut cfg = loaded;
         cfg.default_connection = "zai".to_string();
         cfg.save().unwrap();
-        let on_disk = std::fs::read_to_string(tmp.join("config.toml")).unwrap();
-        assert!(on_disk.contains("default_connection = \"zai\""));
-        assert!(
-            !on_disk.contains("[[providers]]"),
-            "legacy provider tables must not be re-emitted"
-        );
-        assert!(
-            !on_disk.contains("legacy-key"),
-            "legacy key fields must not be re-emitted"
-        );
-        // The old credentials layout is untouched by a behavior-only save.
-        let creds_text =
-            std::fs::read_to_string(tmp.join("credentials.toml")).unwrap_or_else(|_| String::new());
-        assert!(creds_text.is_empty() || !creds_text.contains("legacy-key"));
-
+        let client = std::fs::read_to_string(Config::client_config_file_path()).unwrap();
+        assert!(client.contains("default_connection = \"zai\""));
+        assert!(!client.contains("providers"));
+        assert!(!tmp.join("config.toml").exists());
         paths::set_test_default(None);
         std::fs::remove_dir_all(&tmp).ok();
     }
 
+
     #[test]
     fn save_does_not_resurrect_user_deleted_workspace_roots() {
-        // The reported lost update: a session holds a snapshot with
-        // `additional_roots = ["../x"]`, the user deletes the entry from
-        // `config.toml` while the session runs, then any save must not write
-        // the deleted value back. Disk is the newer truth for user-owned
-        // tables.
+        // Disk is the newer truth for user-owned tables: a long-lived snapshot
+        // must never write a hand-deleted workspace root back.
         let (tmp, _guard, _override_guard) = sandbox_config_dir();
         std::fs::write(
-            tmp.join("config.toml"),
-            "default_connection = \"deepseek\"\n\
-             [workspace]\n\
-             additional_roots = [\"../x\", \"../y\"]\n",
+            Config::agent_config_file_path(),
+            "[workspace]\nadditional_roots = [\"../x\", \"../y\"]\n",
         )
         .unwrap();
-
-        // Simulate the session's long-lived snapshot: loaded at startup.
         let snapshot = Config::load();
         assert_eq!(
             snapshot.workspace.additional_roots,
             vec!["../x", "../y"],
             "precondition: snapshot saw the roots"
         );
-
-        // The user hand-edits the file while the session is live.
-        std::fs::write(
-            tmp.join("config.toml"),
-            "default_connection = \"deepseek\"\n",
-        )
-        .unwrap();
-
-        // Any save (e.g. a `/models` switch) flushes the stale snapshot —
-        // the deletion must survive.
+        // The user deletes them from agent.toml while the session is live.
+        std::fs::write(Config::agent_config_file_path(), "").unwrap();
         snapshot.save().unwrap();
         let after = Config::load();
         assert!(
@@ -2204,64 +2241,55 @@ name = "DeepSeek"
             "user-deleted additional_roots must stay deleted, got {:?}",
             after.workspace.additional_roots
         );
-        // …and the runtime-owned field still flushes.
-        assert_eq!(after.default_connection, "deepseek");
-
         paths::set_test_default(None);
         std::fs::remove_dir_all(&tmp).ok();
     }
+
 
     #[test]
     fn save_preserves_user_edited_unrelated_tables() {
-        // Broader lost-update case: the user changes any user-owned table
-        // (`[agent]` here) while the daemon runs; a snapshot-driven save must
-        // not roll it back to the loaded-at-startup value.
         let (tmp, _guard, _override_guard) = sandbox_config_dir();
-        std::fs::write(tmp.join("config.toml"), "default_model = \"m1\"\n").unwrap();
-        let snapshot = Config::load();
-
         std::fs::write(
-            tmp.join("config.toml"),
-            "default_model = \"m1\"\n[agent]\nhard_stop_turns = 42\n",
+            Config::client_config_file_path(),
+            "[connection]\ndefault_model = \"m1\"\n",
         )
         .unwrap();
-
+        let snapshot = Config::load();
+        std::fs::write(
+            Config::agent_config_file_path(),
+            "[agent]\nhard_stop_turns = 42\n",
+        )
+        .unwrap();
         snapshot.save_preserving_connection_selection().unwrap();
         let after = Config::load();
         assert_eq!(after.agent.hard_stop_turns, 42, "user edit must survive");
-        // Preserved selection still comes from disk.
         assert_eq!(after.default_model.as_deref(), Some("m1"));
-
         paths::set_test_default(None);
         std::fs::remove_dir_all(&tmp).ok();
     }
 
+
     #[test]
     fn save_still_flushes_runtime_changed_selection_and_leaves_roots_to_disk() {
-        // The flip side of disk-wins: fields the runtime deliberately changed
-        // (selection) must reach disk — and the persisted
-        // `[workspace].additional_roots` stays purely user-declared: a
-        // project-trust merge in the snapshot must NOT leak into the global
-        // file.
         let (tmp, _guard, _override_guard) = sandbox_config_dir();
         std::fs::write(
-            tmp.join("config.toml"),
-            "default_connection = \"old\"\n\
-             [workspace]\n\
-             additional_roots = [\"../user-root\"]\n",
+            Config::client_config_file_path(),
+            "[connection]\ndefault_connection = \"old\"\n",
         )
         .unwrap();
-
+        std::fs::write(
+            Config::agent_config_file_path(),
+            "[workspace]\nadditional_roots = [\"../user-root\"]\n",
+        )
+        .unwrap();
         let mut snapshot = Config::load();
         snapshot.default_connection = "new".to_string();
         snapshot.default_model = Some("m2".to_string());
-        // Runtime merges a trusted project root on top of the loaded config.
         snapshot.merge_project_additional_roots(vec!["../project-root".to_string()]);
         assert_eq!(
             snapshot.workspace.additional_roots,
             vec!["../user-root", "../project-root"]
         );
-
         snapshot.save().unwrap();
         let after = Config::load();
         assert_eq!(after.default_connection, "new");
@@ -2271,36 +2299,30 @@ name = "DeepSeek"
             vec!["../user-root"],
             "project-merged roots are runtime view state, never persisted"
         );
-
         paths::set_test_default(None);
         std::fs::remove_dir_all(&tmp).ok();
     }
 
+
     #[test]
     fn save_preserving_connection_selection_keeps_disk_default() {
-        // The existing preserve semantics must keep working under the
-        // merge-save rewrite: a snapshot carrying a resumed session's pin does
-        // not overwrite the on-disk default.
         let (tmp, _guard, _override_guard) = sandbox_config_dir();
         std::fs::write(
-            tmp.join("config.toml"),
-            "default_connection = \"disk-default\"\n\
-             default_model = \"disk-model\"\n",
+            Config::client_config_file_path(),
+            "[connection]\ndefault_connection = \"disk-default\"\ndefault_model = \"disk-model\"\n",
         )
         .unwrap();
-
         let mut snapshot = Config::load();
         snapshot.default_connection = "session-pin".to_string();
         snapshot.default_model = Some("session-model".to_string());
         snapshot.save_preserving_connection_selection().unwrap();
-
         let after = Config::load();
         assert_eq!(after.default_connection, "disk-default");
         assert_eq!(after.default_model.as_deref(), Some("disk-model"));
-
         paths::set_test_default(None);
         std::fs::remove_dir_all(&tmp).ok();
     }
+
 
     #[test]
     fn route_settings_presence_opts_in_and_is_empty_semantics() {
