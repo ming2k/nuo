@@ -8,7 +8,22 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
-## [0.0.8] - 2026-10-06
+## [0.0.9] - 2026-10-07
+
+### Added
+
+- **Domain-separated configuration matrix (ADR-0031).** Split monolithic `config.toml` into domain-isolated server, terminal, client, and agent configuration files; added `nuo config migrate`.
+- **Credential relocation to state store (ADR-0032).** Relocated authentication credentials and provider keys into the state store beside `auth.toml`, protecting public dotfiles from secret leaks.
+- **Canonical Server entity and dual hosting postures (ADR-0033).** Ratified Server as the canonical container entity; separated client-bound posture (pure UDS, zero TCP listeners) from standalone hosted posture (deterministic TCP port 9800 + UDS).
+- **Deterministic lifecycle governance (ADR-0034).** Introduced single-flight startup, phased graceful draining, and a tiered restart hierarchy.
+- **Encapsulated dialog lifecycle and surface architecture (ADR-0035).** Dialogs refactored into encapsulated entities with context-bound stacks and deterministic LIFO unwinding.
+- **MCP presenter and namespaced tool dispatch.** Integrated `McpPresenter` for Model Context Protocol tools (`⚡ server · tool`) and added support for namespaced tool execution resolution.
+
+### Changed
+
+- Renamed crate `providers/nuo-provider-transport` to `nuo-provider-transport`.
+- Renamed crate `providers/nuo-provider-google` to `providers/nuo-provider-google-antigravity`.
+- Introduced `nuo server <start|stop|restart|status|token>` CLI verbs.
 
 ### Changed
 
