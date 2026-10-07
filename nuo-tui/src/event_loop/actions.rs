@@ -292,7 +292,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             let key_ready = |app: &App, id: &str| app.key_status.get(id).copied().unwrap_or(true);
             let target = if app.active_dialog() == Some(DialogKind::Models) {
                 let rows = app.models_flat_filtered();
-                let picked = rows.get(app.modal_index).or_else(|| rows.first());
+                let picked = rows.get(app.active_index()).or_else(|| rows.first());
                 // A model the provider declared unavailable mirrors the official
                 // CLI's greyed-out menu row: refuse activation with a toast
                 // stating the provider's OWN reason when it gave one, instead of
@@ -415,10 +415,8 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.input.clear();
                 app.set_cursor(0);
                 app.pop_transient_surface();
-                app.model_search = false;
-                app.model_scroll = 0;
-                app.model_modal_follow = true;
-                app.modal_index = 0;
+                app.set_picker_search(false);
+                app.reset_picker_nav();
             }
         }
         input::InputAction::DeleteProvider => {
@@ -454,10 +452,8 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.custom_field = 0;
                 app.custom_edit_id = None;
                 app.pop_transient_surface();
-                app.model_search = false;
-                app.model_scroll = 0;
-                app.model_modal_follow = true;
-                app.modal_index = 0;
+                app.set_picker_search(false);
+                app.reset_picker_nav();
             }
         }
         input::InputAction::SubmitCustomProvider => {
@@ -472,10 +468,8 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.active_dialog(),
                 Some(DialogKind::Connections | DialogKind::Models)
             ) {
-                app.model_search = true;
-                app.modal_index = 0;
-                app.model_scroll = 0;
-                app.model_modal_follow = true;
+                app.set_picker_search(true);
+                app.reset_picker_nav();
             }
         }
         input::InputAction::ModelExitSearch => {
@@ -486,14 +480,12 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.active_dialog(),
                 Some(DialogKind::Connections | DialogKind::Models)
             ) {
-                app.model_search = false;
+                app.set_picker_search(false);
                 app.input.clear();
                 app.set_cursor(0);
                 app.input_scroll = 0;
                 app.suggestion_index = None;
-                app.modal_index = 0;
-                app.model_scroll = 0;
-                app.model_modal_follow = true;
+                app.reset_picker_nav();
             }
         }
         input::InputAction::ProviderPickerToggleFavorite => {
@@ -504,7 +496,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // pushes a fresh snapshot that flips the ★ next frame.
             if app.active_dialog() == Some(DialogKind::Models) {
                 let ranked = app.models_flat_filtered();
-                if let Some(row) = ranked.get(app.modal_index).or_else(|| ranked.first()) {
+                if let Some(row) = ranked.get(app.active_index()).or_else(|| ranked.first()) {
                     app.send_intent(AgentRequest::ToggleFavorite {
                         id: row.model.clone(),
                     });
@@ -515,7 +507,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // ADR-0203 §10: 'x' blocks/intercepts the highlighted model from the connection pipe.
             if app.active_dialog() == Some(DialogKind::Models) {
                 let ranked = app.models_flat_filtered();
-                if let Some(row) = ranked.get(app.modal_index).or_else(|| ranked.first()) {
+                if let Some(row) = ranked.get(app.active_index()).or_else(|| ranked.first()) {
                     app.send_intent(AgentRequest::ExcludeModel {
                         scope: nuo_wire::model::ModelTargetScope::Connection(
                             row.provider_id.clone(),
@@ -688,7 +680,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::RefreshProviderModels => {
-            if app.active_dialog() == Some(DialogKind::Connections) && app.connection_info_detail {
+            if app.active_dialog() == Some(DialogKind::Connections) && app.surfaces.dialogs.connections.info_detail {
                 let id = app
                     .connection_detail
                     .as_ref()
@@ -696,7 +688,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     .or_else(|| {
                         let providers = app.providers_filtered();
                         providers
-                            .get(app.modal_index.min(providers.len().saturating_sub(1)))
+                            .get(app.active_index().min(providers.len().saturating_sub(1)))
                             .map(|p| p.id.clone())
                     });
                 if let Some(id) = id {
@@ -718,7 +710,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.active_dialog(),
                 Some(DialogKind::Models | DialogKind::Connections)
             ) {
-                if app.models_refreshing {
+                if app.surfaces.dialogs.models.refreshing
+                    || app.surfaces.dialogs.connections.refreshing
+                {
                     show_local_toast(
                         app,
                         "Model refresh already in progress…",
@@ -726,7 +720,8 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         std::time::Duration::from_millis(1500),
                     );
                 } else {
-                    app.models_refreshing = true;
+                    app.surfaces.dialogs.models.refreshing = true;
+                    app.surfaces.dialogs.connections.refreshing = true;
                     show_local_toast(
                         app,
                         if app.active_dialog() == Some(DialogKind::Connections) {
@@ -759,9 +754,10 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // of `history_rows` (the filtered matches) and drop it into
             // the input box for further editing / sending. The message
             // is not shipped here — the user hits Enter again to send.
-            app.save_dialog_state(crate::surfaces::DialogKind::HistorySearch);
             let ranked = app.history_rows();
-            let pick = ranked.get(app.modal_index).or_else(|| ranked.first());
+            let pick = ranked
+                .get(app.surfaces.dialogs.history_search.index)
+                .or_else(|| ranked.first());
             let Some((orig_idx, _)) = pick else {
                 return ActionFlow::Handled;
             };
@@ -782,24 +778,18 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 crate::app::DraftAdoption::Replace,
             );
             // The selection replaces the in-progress draft, and the search
-            // filter query buffer's task is completed, so query and draft are cleared.
-            if let Some(state) = app
-                .surface_store
-                .state_mut(&crate::surfaces::DialogKind::HistorySearch)
-            {
-                state.draft = None;
-                state.query.clear();
-                state.index = 0;
-            }
+            // filter query's task is completed, so query and cursor reset.
             app.surfaces.dismiss_all_overlays();
-            app.history_search = false;
+            app.surfaces.dialogs.history_search.search = false;
+            app.surfaces.dialogs.history_search.index = 0;
+            app.surfaces.dialogs.history_search.query.clear();
+            app.surfaces.dialogs.history_search.query_cursor = 0;
             app.input_scroll = 0;
             app.suggestion_index = None;
             // A programmatic input replacement — latch the dismissal so
             // a slash-command selection doesn't flash its completion
             // popup until the next real edit.
             app.completion_dismissed = true;
-            app.modal_index = 0;
             app.reset_to_conversation();
         }
         input::InputAction::HistoryDeleteSelected => {
@@ -852,12 +842,13 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::SkillsToggleDetail => {
             // Toggle the detail block of the selected skill row. Re-pressing
             // Enter on an already-expanded row collapses it.
-            app.skills_expanded = if app.skills_expanded == Some(app.modal_index) {
+            let idx = app.active_index();
+            app.surfaces.dialogs.skills.expanded = if app.surfaces.dialogs.skills.expanded == Some(idx) {
                 None
             } else {
-                Some(app.modal_index)
+                Some(idx)
             };
-            app.session_modal_follow = true;
+            app.set_active_follow(true);
         }
         input::InputAction::OpenConfig => {
             enter_scene(app, crate::surfaces::SceneKind::Settings, runtime);
@@ -1108,7 +1099,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             if let Some(server) = app
                 .session_context
                 .as_ref()
-                .and_then(|s| s.mcp.get(app.modal_index))
+                .and_then(|s| s.mcp.get(app.active_index()))
             {
                 app.send_intent(AgentRequest::ToggleMcpServer {
                     name: server.name.clone(),
@@ -1122,7 +1113,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             if let Some(server) = app
                 .session_context
                 .as_ref()
-                .and_then(|s| s.mcp.get(app.modal_index))
+                .and_then(|s| s.mcp.get(app.active_index()))
             {
                 app.send_intent(AgentRequest::ReconnectMcpServer {
                     name: server.name.clone(),
@@ -1133,7 +1124,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // Revoke the selected "always allow" rule. The harness
             // replies with a fresh snapshot so the list re-renders.
             if let Some(snapshot) = app.session_context.as_ref()
-                && let Some(rule) = snapshot.permissions.get(app.modal_index)
+                && let Some(rule) = snapshot.permissions.get(app.active_index())
             {
                 app.send_intent(AgentRequest::RevokePermission {
                     tool: rule.tool.clone(),
@@ -1145,7 +1136,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // Clear every cached rule. The harness replies with a fresh
             // (empty) snapshot.
             app.send_intent(AgentRequest::ClearAllPermissions);
-            app.modal_index = 0;
+            app.set_active_index(0);
         }
         input::InputAction::SessionSelect { forward } => {
             // Move the selection cursor (the body scroll follows it).
@@ -1174,34 +1165,10 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.session_tools_len()
             };
             if list_len > 0 {
-                app.modal_index = if forward {
-                    (app.modal_index + 1) % list_len
-                } else if app.modal_index == 0 {
-                    list_len - 1
-                } else {
-                    app.modal_index - 1
-                };
-                // The queue modal tracks its own follow flag so it can
-                // be scrolled independently of the shared session
-                // scroll the other list modals reuse.
-                if matches!(
-                    app.active_dialog(),
-                    Some(DialogKind::Queue | DialogKind::Asides)
-                ) {
-                    app.queue_modal_follow = true;
-                } else {
-                    app.session_modal_follow = true;
-                }
-            } else if app.active_dialog() == Some(DialogKind::Queue) {
-                // Empty queue: Up/Down is inert.
-            } else if app.active_dialog() == Some(DialogKind::Asides) {
-                // Empty asides list: Up/Down is inert.
-            } else {
-                app.session_scroll = if forward {
-                    app.session_scroll.saturating_add(1)
-                } else {
-                    app.session_scroll.saturating_sub(1)
-                };
+                app.rotate_active_index(list_len, forward);
+                // Each dialog entity tracks its own follow flag so it can be
+                // scrolled independently; navigation re-arms follow.
+                app.set_active_follow(true);
             }
         }
         input::InputAction::SessionActivate => {
@@ -1215,14 +1182,14 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::OpenSelectedSession => {
             let rows = crate::overlays::session::project_session_rows(
                 &app.sessions_overview,
-                Some(&app.sessions_expanded),
+                Some(&app.surfaces.dialogs.sessions.expanded),
             );
-            if let Some(item) = rows.get(app.modal_index.min(rows.len().saturating_sub(1))) {
+            if let Some(item) = rows.get(app.active_index().min(rows.len().saturating_sub(1))) {
                 let session = item.session();
                 let id = session.id.clone();
                 let short_id = crate::session::short_session_id(&id);
                 app.dismiss_active_dialog();
-                app.modal_index = 0;
+                app.set_active_index(0);
                 // A session was chosen from the startup picker, so a
                 // real conversation now backs the view: subsequent
                 // `/sessions` modals should behave as ordinary
@@ -1263,7 +1230,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     app.should_quit.store(true, Ordering::SeqCst);
                 }
                 app.dismiss_active_dialog();
-                app.modal_index = 0;
+                app.set_active_index(0);
                 app.host_prompting = false;
             }
         }
@@ -1335,18 +1302,18 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::DeleteSelectedSession => {
             let rows = crate::overlays::session::project_session_rows(
                 &app.sessions_overview,
-                Some(&app.sessions_expanded),
+                Some(&app.surfaces.dialogs.sessions.expanded),
             );
-            let idx = app.modal_index.min(rows.len().saturating_sub(1));
+            let idx = app.active_index().min(rows.len().saturating_sub(1));
             if let Some(item) = rows.get(idx) {
                 let id = item.session().id.clone();
                 app.sessions_overview.retain(|s| s.id != id);
-                app.sessions_expanded.remove(&id);
+                app.surfaces.dialogs.sessions.expanded.remove(&id);
                 let new_rows = crate::overlays::session::project_session_rows(
                     &app.sessions_overview,
-                    Some(&app.sessions_expanded),
+                    Some(&app.surfaces.dialogs.sessions.expanded),
                 );
-                app.modal_index = app.modal_index.min(new_rows.len().saturating_sub(1));
+                app.set_active_index(app.active_index().min(new_rows.len().saturating_sub(1)));
                 app.send_intent(AgentRequest::DeleteSession { id });
             }
         }
@@ -1363,13 +1330,13 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // body shows a loading state.
             let rows = crate::overlays::session::project_session_rows(
                 &app.sessions_overview,
-                Some(&app.sessions_expanded),
+                Some(&app.surfaces.dialogs.sessions.expanded),
             );
-            if let Some(item) = rows.get(app.modal_index.min(rows.len().saturating_sub(1))) {
+            if let Some(item) = rows.get(app.active_index().min(rows.len().saturating_sub(1))) {
                 let session = item.session();
-                app.session_info_detail = true;
+                app.surfaces.dialogs.sessions.info_detail = true;
                 app.session_detail = None;
-                app.session_info_scroll = 0;
+                app.surfaces.dialogs.sessions.info_scroll = 0;
                 app.send_intent(AgentRequest::QuerySessionDetail {
                     id: session.id.clone(),
                 });
@@ -1378,9 +1345,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::ToggleSessionTimelineExpand => {
             let rows = crate::overlays::session::project_session_rows(
                 &app.sessions_overview,
-                Some(&app.sessions_expanded),
+                Some(&app.surfaces.dialogs.sessions.expanded),
             );
-            let idx = app.modal_index.min(rows.len().saturating_sub(1));
+            let idx = app.active_index().min(rows.len().saturating_sub(1));
             if let Some(item) = rows.get(idx) {
                 match item {
                     crate::overlays::session::SessionPickerItem::Trunk {
@@ -1389,10 +1356,10 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         ..
                     } if *child_count > 0 => {
                         let id = session.id.clone();
-                        if app.sessions_expanded.contains(&id) {
-                            app.sessions_expanded.remove(&id);
+                        if app.surfaces.dialogs.sessions.expanded.contains(&id) {
+                            app.surfaces.dialogs.sessions.expanded.remove(&id);
                         } else {
-                            app.sessions_expanded.insert(id);
+                            app.surfaces.dialogs.sessions.expanded.insert(id);
                         }
                     }
                     _ => {}
@@ -1402,13 +1369,13 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::OpenConnectionDetail => {
             let providers = app.providers_filtered();
             if let Some(ranked) =
-                providers.get(app.modal_index.min(providers.len().saturating_sub(1)))
+                providers.get(app.active_index().min(providers.len().saturating_sub(1)))
             {
-                app.connection_info_detail = true;
-                app.connection_info_standalone = false;
+                app.surfaces.dialogs.connections.info_detail = true;
+                app.surfaces.dialogs.connections.info_standalone = false;
                 app.connection_detail = None;
-                app.connection_info_scroll = 0;
-                app.connection_models_expanded = false;
+                app.surfaces.dialogs.connections.info_scroll = 0;
+                app.surfaces.dialogs.connections.models_expanded = false;
                 app.send_intent(AgentRequest::QueryConnectionDetail {
                     id: ranked.id.clone(),
                     force_refresh: false,
@@ -1419,8 +1386,8 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             open_active_connection_detail(app, runtime, viewed_session_id);
         }
         input::InputAction::ToggleConnectionModelsExpanded => {
-            if app.active_dialog() == Some(DialogKind::Connections) && app.connection_info_detail {
-                app.connection_models_expanded = !app.connection_models_expanded;
+            if app.active_dialog() == Some(DialogKind::Connections) && app.surfaces.dialogs.connections.info_detail {
+                app.surfaces.dialogs.connections.models_expanded = !app.surfaces.dialogs.connections.models_expanded;
             }
         }
         input::InputAction::CloseModal => {
@@ -1451,22 +1418,22 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         }
         input::InputAction::TelemetryActivate => {
             if app.active_dialog() == Some(DialogKind::Telemetry) {
-                if app.telemetry_tab == crate::overlays::telemetry::TelemetryTab::Overview {
-                    app.telemetry_tab = crate::overlays::telemetry::TelemetryTab::Activity;
-                    app.telemetry_scroll = 0;
-                } else if !app.telemetry_detail {
+                if app.surfaces.dialogs.telemetry.tab == crate::overlays::telemetry::TelemetryTab::Overview {
+                    app.surfaces.dialogs.telemetry.tab = crate::overlays::telemetry::TelemetryTab::Activity;
+                    app.surfaces.dialogs.telemetry.scroll = 0;
+                } else if !app.surfaces.dialogs.telemetry.detail {
                     let has_rounds = app
                         .token_source_report(viewed_session_id)
                         .map(|report| render::telemetry_round_count(&report) > 0)
                         .unwrap_or(false);
                     if has_rounds {
-                        app.telemetry_detail = true;
-                        app.telemetry_turn_cursor = 0;
-                        app.telemetry_scroll = 0;
+                        app.surfaces.dialogs.telemetry.detail = true;
+                        app.surfaces.dialogs.telemetry.turn_cursor = 0;
+                        app.surfaces.dialogs.telemetry.scroll = 0;
                     }
-                } else if app.telemetry_turn.is_none() {
+                } else if app.surfaces.dialogs.telemetry.turn.is_none() {
                     let report = app.token_source_report(viewed_session_id);
-                    let round_index = app.modal_index.min(
+                    let round_index = app.active_index().min(
                         report
                             .as_ref()
                             .map(|report| render::telemetry_round_count(report).saturating_sub(1))
@@ -1476,18 +1443,18 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         render::telemetry_attempt_key(
                             report,
                             round_index,
-                            app.telemetry_turn_cursor,
+                            app.surfaces.dialogs.telemetry.turn_cursor,
                         )
                     }) {
-                        app.telemetry_turn = Some(key);
-                        app.telemetry_scroll = 0;
+                        app.surfaces.dialogs.telemetry.turn = Some(key);
+                        app.surfaces.dialogs.telemetry.scroll = 0;
                     }
                 }
             }
         }
         input::InputAction::TelemetryNextTab => {
             if app.active_dialog() == Some(DialogKind::Telemetry) {
-                app.telemetry_tab = match app.telemetry_tab {
+                app.surfaces.dialogs.telemetry.tab = match app.surfaces.dialogs.telemetry.tab {
                     crate::overlays::telemetry::TelemetryTab::Overview => {
                         crate::overlays::telemetry::TelemetryTab::Activity
                     }
@@ -1495,12 +1462,12 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         crate::overlays::telemetry::TelemetryTab::Overview
                     }
                 };
-                app.telemetry_scroll = 0;
+                app.surfaces.dialogs.telemetry.scroll = 0;
             }
         }
         input::InputAction::TelemetryPrevTab => {
             if app.active_dialog() == Some(DialogKind::Telemetry) {
-                app.telemetry_tab = match app.telemetry_tab {
+                app.surfaces.dialogs.telemetry.tab = match app.surfaces.dialogs.telemetry.tab {
                     crate::overlays::telemetry::TelemetryTab::Overview => {
                         crate::overlays::telemetry::TelemetryTab::Activity
                     }
@@ -1508,26 +1475,26 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         crate::overlays::telemetry::TelemetryTab::Overview
                     }
                 };
-                app.telemetry_scroll = 0;
+                app.surfaces.dialogs.telemetry.scroll = 0;
             }
         }
         input::InputAction::TelemetrySetTab(tab) => {
-            if app.active_dialog() == Some(DialogKind::Telemetry) && app.telemetry_tab != tab {
-                app.telemetry_tab = tab;
-                app.telemetry_scroll = 0;
+            if app.active_dialog() == Some(DialogKind::Telemetry) && app.surfaces.dialogs.telemetry.tab != tab {
+                app.surfaces.dialogs.telemetry.tab = tab;
+                app.surfaces.dialogs.telemetry.scroll = 0;
             }
         }
         input::InputAction::ToggleDialogKeys => {
-            app.dialog_keys = !app.dialog_keys;
-            if !app.dialog_keys {
-                app.dialog_keys_scroll = 0;
-            }
+            let open = !app.dialog_keys();
+            app.set_dialog_keys(open);
         }
         input::InputAction::DialogKeysScroll { delta } => {
-            if delta < 0 {
-                app.dialog_keys_scroll = app.dialog_keys_scroll.saturating_sub((-delta) as usize);
-            } else {
-                app.dialog_keys_scroll = app.dialog_keys_scroll.saturating_add(delta as usize);
+            if let Some(scroll) = app.dialog_keys_scroll() {
+                if delta < 0 {
+                    *scroll = scroll.saturating_sub((-delta) as usize);
+                } else {
+                    *scroll = scroll.saturating_add(delta as usize);
+                }
             }
         }
         input::InputAction::ScrollUp => {
@@ -1725,26 +1692,24 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         }
         input::InputAction::ViewSwitcherFilter { ch } => {
             if app.active_dialog() == Some(DialogKind::Switcher) {
-                app.command_palette_query.push(ch);
-                app.command_palette_selected = 0;
-                app.command_palette_scroll = 0;
-                app.session_scroll = 0;
-                app.session_modal_follow = true;
+                app.surfaces.dialogs.switcher.query.push(ch);
+                app.surfaces.dialogs.switcher.query_cursor = app.surfaces.dialogs.switcher.query.len();
+                app.surfaces.dialogs.switcher.selected = 0;
+                app.surfaces.dialogs.switcher.scroll = 0;
             }
         }
         input::InputAction::ViewSwitcherBackspace => {
             if app.active_dialog() == Some(DialogKind::Switcher) {
-                if !app.command_palette_query.is_empty() {
+                if !app.surfaces.dialogs.switcher.query.is_empty() {
                     let start = nuotc::text::floor_grapheme_boundary(
-                        &app.command_palette_query,
-                        app.command_palette_query.len() - 1,
+                        &app.surfaces.dialogs.switcher.query,
+                        app.surfaces.dialogs.switcher.query.len() - 1,
                     );
-                    app.command_palette_query.truncate(start);
+                    app.surfaces.dialogs.switcher.query.truncate(start);
                 }
-                app.command_palette_selected = 0;
-                app.command_palette_scroll = 0;
-                app.session_scroll = 0;
-                app.session_modal_follow = true;
+                app.surfaces.dialogs.switcher.query_cursor = app.surfaces.dialogs.switcher.query.len();
+                app.surfaces.dialogs.switcher.selected = 0;
+                app.surfaces.dialogs.switcher.scroll = 0;
             }
         }
         input::InputAction::ViewSwitcherToggle => {
@@ -1752,11 +1717,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.dismiss_surface();
             } else if app.can_open_switcher() {
                 app.open_dialog(DialogKind::Switcher);
-                app.command_palette_query.clear();
-                app.command_palette_selected = 0;
-                app.command_palette_scroll = 0;
-                app.session_scroll = 0;
-                app.session_modal_follow = true;
+                app.surfaces.dialogs.switcher.begin();
             }
         }
         input::InputAction::ViewSwitchActivate => {
@@ -1777,15 +1738,17 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 ),
                 has_running_task: is_busy,
                 queue_count: app.pending_dispatch.len(),
+                has_session: app.has_session(),
+                scene: app.current_scene(),
             };
             let entries = crate::overlays::command_palette::filter_palette_commands(
-                &app.command_palette_query,
+                &app.surfaces.dialogs.switcher.query,
                 &app.command_catalog,
                 &app.recent_commands,
                 &app_ctx,
             );
             if let Some(entry) = entries
-                .get(app.command_palette_selected)
+                .get(app.surfaces.dialogs.switcher.selected)
                 .or_else(|| entries.first())
                 && matches!(entry.availability, crate::keymap::Availability::Available)
             {
@@ -1830,7 +1793,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // Asides modal Enter (ADR-0103 §5): jump back into the selected
             // aside. The harness replies with `SideViewOpened` carrying the
             // full transcript back-fill; the modal closes on arrival.
-            if let Some(row) = app.btw_list.get(app.modal_index) {
+            if let Some(row) = app.btw_list.get(app.active_index()) {
                 let side_id = row.id.clone();
                 app.dismiss_active_dialog();
                 app.send_intent(AgentRequest::FocusSide { side_id });
@@ -1840,15 +1803,15 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // Asides modal `D` (ADR-0103 §5): close + discard the selected
             // aside (cancel its round, drop it from the list, delete its
             // session files). The modal stays open on the refreshed list.
-            if let Some(row) = app.btw_list.get(app.modal_index) {
+            if let Some(row) = app.btw_list.get(app.active_index()) {
                 let side_id = row.id.clone();
                 app.send_intent(AgentRequest::CloseSide { side_id });
                 // Optimistically drop the row so the selection does not
                 // point at a stale entry before the fresh list lands; clamp
                 // the cursor in case the last row was removed.
-                app.btw_list.remove(app.modal_index);
-                if app.modal_index >= app.btw_list.len() {
-                    app.modal_index = app.btw_list.len().saturating_sub(1);
+                app.btw_list.remove(app.active_index());
+                if app.active_index() >= app.btw_list.len() {
+                    app.set_active_index(app.btw_list.len().saturating_sub(1));
                 }
             }
         }
@@ -1973,7 +1936,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // (the `↑/↓` highlight, not always the newest) into the
             // composer and closes the modal. Closing resumes the
             // auto-block the modal set on open.
-            let idx = app.modal_index;
+            let idx = app.active_index();
             app.dismiss_active_dialog();
             if let Some(crate::app::RecallQueued::Restored(dispatch)) =
                 app.recall_queued_at(viewed_session_id, idx)
@@ -1999,15 +1962,15 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // index can't drift under us. Clamp the selection to the
             // now-shorter list.
             if app.active_dialog() == Some(DialogKind::Queue) {
-                let idx = app.modal_index;
+                let idx = app.active_index();
                 let _removed = app.remove_queued_at(viewed_session_id, idx);
                 let count = app.pending_count(viewed_session_id);
                 if count == 0 {
-                    app.modal_index = 0;
-                } else if app.modal_index >= count {
-                    app.modal_index = count - 1;
+                    app.set_active_index(0);
+                } else if app.active_index() >= count {
+                    app.set_active_index(count - 1);
                 }
-                app.queue_modal_follow = true;
+                app.surfaces.dialogs.queue.follow = true;
             }
         }
         input::InputAction::QueueMoveItem { delta } => {
@@ -2016,7 +1979,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // session slice boundaries so it can't escape into another
             // session's items.
             if app.active_dialog() == Some(DialogKind::Queue) {
-                let idx = app.modal_index;
+                let idx = app.active_index();
                 if let Some(item) = app.queued_at(viewed_session_id, idx) {
                     app.send_intent(AgentRequest::QueueReorder {
                         session_id: viewed_session_id.to_string(),
@@ -2028,8 +1991,8 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 // Follow the moved item if it changed position.
                 let count = app.pending_count(viewed_session_id);
                 if count > 0 {
-                    app.modal_index = (idx as i32 + delta).clamp(0, count as i32 - 1) as usize;
-                    app.queue_modal_follow = true;
+                    app.set_active_index((idx as i32 + delta).clamp(0, count as i32 - 1) as usize);
+                    app.surfaces.dialogs.queue.follow = true;
                 }
             }
         }
@@ -2339,13 +2302,13 @@ pub(crate) fn open_active_connection_detail(
         .iter()
         .position(|p| p.id == target_id)
     {
-        app.modal_index = pos;
+        app.set_active_index(pos);
     }
-    app.connection_info_detail = true;
-    app.connection_info_standalone = true;
+    app.surfaces.dialogs.connections.info_detail = true;
+    app.surfaces.dialogs.connections.info_standalone = true;
     app.connection_detail = None;
-    app.connection_info_scroll = 0;
-    app.connection_models_expanded = false;
+    app.surfaces.dialogs.connections.info_scroll = 0;
+    app.surfaces.dialogs.connections.models_expanded = false;
     if !target_id.is_empty() {
         app.send_intent(AgentRequest::QueryConnectionDetail {
             id: target_id,
@@ -2363,6 +2326,9 @@ pub(super) fn enter_panel(
     use crate::surfaces::DialogKind;
 
     let id = id.into();
+    if !app.dialog_available(id) {
+        return false;
+    }
     let first = app.open_dialog(id);
     app.selection = SelectionState::None;
     app.focused_target = None;
@@ -2371,43 +2337,46 @@ pub(super) fn enter_panel(
     if first {
         match id {
             DialogKind::Models => {
-                app.model_search = false;
-                app.model_modal_follow = true;
                 let rows = app.models_flat_filtered();
-                app.modal_index = rows
+                let index = rows
                     .iter()
                     .position(|row| {
                         row.provider_id == app.current_provider && row.model == app.current_model
                     })
                     .unwrap_or(0);
+                let m = &mut app.surfaces.dialogs.models;
+                m.search = false;
+                m.follow = true;
+                m.index = index;
                 app.suggestion_index = None;
             }
             DialogKind::Connections => {
-                app.model_search = false;
-                app.model_modal_follow = true;
                 let ranked = app.providers_filtered();
-                app.modal_index = ranked
+                let default_id = app.provider_picker.default_id.clone();
+                let index = ranked
                     .iter()
                     .position(|row| row.id == app.current_provider)
-                    .or_else(|| {
-                        ranked
-                            .iter()
-                            .position(|row| row.id == app.provider_picker.default_id)
-                    })
+                    .or_else(|| ranked.iter().position(|row| row.id == default_id))
                     .unwrap_or(0);
+                let c = &mut app.surfaces.dialogs.connections;
+                c.search = false;
+                c.follow = true;
+                c.index = index;
                 app.suggestion_index = None;
             }
             DialogKind::HistorySearch => {
-                app.modal_index = 0;
-                app.history_scroll = 0;
-                app.history_modal_follow = true;
+                app.surfaces.dialogs.history_search.index = 0;
+                app.surfaces.dialogs.history_search.scroll = 0;
+                app.surfaces.dialogs.history_search.follow = true;
             }
             _ => {}
         }
     }
 
     if id == DialogKind::HistorySearch {
-        app.history_search = true;
+        app.surfaces.dialogs.history_search.search = true;
+        app.surfaces.dialogs.history_search.query_cursor =
+            app.surfaces.dialogs.history_search.query.len();
     }
     if id == DialogKind::Queue {
         // ADR-0197 M4: the editing-safety auto-pause is mirrored to the
@@ -2685,12 +2654,12 @@ mod transcript_scroll_tests {
             nuotc::Rect::new(10, 5, 60, 10),
         );
         app.ui.commit();
-        app.usage_stats_scroll = 5;
+        app.surfaces.dialogs.usage_stats.scroll = 5;
 
         // 1. Wheel on backdrop (x=2, y=2) outside modal_rect: absorbed, neither modal nor transcript scrolls
         handle_wheel(&mut app, false, 2, 2);
         assert_eq!(
-            app.usage_stats_scroll, 5,
+            app.surfaces.dialogs.usage_stats.scroll, 5,
             "modal scroll untouched on backdrop"
         );
         assert_eq!(app.scroll, 100, "transcript scroll untouched on backdrop");
@@ -2698,7 +2667,7 @@ mod transcript_scroll_tests {
         // 2. Wheel inside modal (x=20, y=8): scrolls modal body
         handle_wheel(&mut app, false, 20, 8);
         assert_eq!(
-            app.usage_stats_scroll, 6,
+            app.surfaces.dialogs.usage_stats.scroll, 6,
             "modal scrolled inside modal_rect"
         );
         assert_eq!(app.scroll, 100, "transcript scroll untouched");

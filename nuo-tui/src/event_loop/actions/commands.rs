@@ -306,20 +306,17 @@ pub(crate) fn handle_ctrl_c(
         app.drag.cell_info.as_ref(),
     ) {
         clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-    } else if app.active_composer_extension()
-        == Some(crate::composer_extension::ComposerExtensionKind::HistorySearch)
-    {
-        if !app.input.is_empty() {
-            // Clear current search filter, reset caret and selection, and keep
-            // the history search panel open to show the full list.
-            app.input.clear();
-            app.set_cursor(0);
-            app.input_scroll = 0;
-            app.modal_index = 0;
-            app.history_modal_follow = true;
+    } else if app.active_dialog() == Some(DialogKind::HistorySearch) {
+        // The panel owns its embedded query (ADR-0035); Ctrl+C clears that
+        // field (keeping the panel open) or dismisses the panel when it is
+        // already empty.
+        if !app.surfaces.dialogs.history_search.query.is_empty() {
+            let d = &mut app.surfaces.dialogs.history_search;
+            d.query.clear();
+            d.query_cursor = 0;
+            d.index = 0;
+            d.follow = true;
         } else {
-            // Filter query already empty: user intends to dismiss history search
-            // and restore their parked composer draft (ADR-0139).
             app.dismiss_surface();
         }
     } else if app.startup_overlay == crate::StartupOverlay::SessionsPicker

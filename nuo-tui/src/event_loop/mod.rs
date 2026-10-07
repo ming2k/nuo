@@ -335,7 +335,8 @@ pub async fn run_app_loop(
             || app.has_live_transport_setback()
             || !app.pending_images.is_empty()
             || app.input_drag_scroll.is_some()
-            || (app.models_refreshing
+            || ((app.surfaces.dialogs.models.refreshing
+                || app.surfaces.dialogs.connections.refreshing)
                 && matches!(
                     app.active_dialog(),
                     Some(
@@ -614,8 +615,8 @@ async fn process_one_event(
     let permission_confirm_always = app.permission_confirm_always;
     let permission_show_details = app.permission_show_details;
     let in_history_recall = app.history_index.is_some();
-    let history_searching = app.history_search;
-    let model_searching = app.model_search;
+    let history_searching = app.surfaces.dialogs.history_search.search;
+    let model_searching = app.picker_search();
     let custom_provider_field = if app
         .surfaces
         .contains_sheet(crate::surfaces::SheetKind::CustomProvider)
@@ -638,8 +639,8 @@ async fn process_one_event(
         .as_ref()
         .is_some_and(|q| q.is_other_highlighted());
     let host_prompting = app.host_prompting;
-    let session_info_detail = app.session_info_detail;
-    let connection_info_detail = app.connection_info_detail;
+    let session_info_detail = app.surfaces.dialogs.sessions.info_detail;
+    let connection_info_detail = app.surfaces.dialogs.connections.info_detail;
 
     let modal_cmd_history: Option<String> = if matches!(event, Event::Key(k) if k.code == crossterm::event::KeyCode::Enter)
         && app.surfaces.active_overlay().is_none()
@@ -655,10 +656,47 @@ async fn process_one_event(
             .is_some();
 
     // `route_event` performs the hot-path text edits and caret motions
-    // directly through mutable references. Remember the cheap structural
-    // state so those transitions can re-arm caret following without hashing
-    // or cloning a potentially very large draft on every keypress.
-    let composer_edit_state_before = (app.input.len(), app.cursor_position);
+    // directly through mutable references. The edit target is the composer's
+    // own buffer — except while a picker's search sub-layer is active, where
+    // the dialog entity owns its embedded field and the composer line is never
+    // borrowed (ADR-0035, `[INV-SURFACE-01]`).
+    #[derive(Clone, Copy, PartialEq)]
+    enum EditBuffer {
+        Composer,
+        Models,
+        Connections,
+        History,
+    }
+    let edit_buffer = if app.active_dialog() == Some(crate::surfaces::DialogKind::Models)
+        && app.surfaces.dialogs.models.search
+    {
+        EditBuffer::Models
+    } else if app.active_dialog() == Some(crate::surfaces::DialogKind::Connections)
+        && app.surfaces.dialogs.connections.search
+    {
+        EditBuffer::Connections
+    } else if app.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch)
+        && app.surfaces.dialogs.history_search.search
+    {
+        EditBuffer::History
+    } else {
+        EditBuffer::Composer
+    };
+    let composer_edit_state_before = match edit_buffer {
+        EditBuffer::Composer => (app.input.len(), app.cursor_position),
+        EditBuffer::Models => (
+            app.surfaces.dialogs.models.query.len(),
+            app.surfaces.dialogs.models.query_cursor,
+        ),
+        EditBuffer::Connections => (
+            app.surfaces.dialogs.connections.query.len(),
+            app.surfaces.dialogs.connections.query_cursor,
+        ),
+        EditBuffer::History => (
+            app.surfaces.dialogs.history_search.query.len(),
+            app.surfaces.dialogs.history_search.query_cursor,
+        ),
+    };
     let composer_owned_before = app.caret_owner() == crate::CaretOwner::Composer;
     let current_scene = app.current_scene();
 
@@ -666,58 +704,103 @@ async fn process_one_event(
     {
         component_action
     } else {
-        input::route_event(
-            event.clone(),
-            &mut app.input,
-            &mut app.cursor_position,
-            input::Dispatch {
-                overlay: active_overlay,
-                sheet: active_sheet,
-                pre_attach: app.pre_attach.is_some(),
-                scene: current_scene,
-                key_overrides: app.key_overrides.clone(),
-                focused_target: has_focused_target,
-                transcript_focused,
-                scene_blocked: matches!(
-                    keyboard_path.first(),
-                    Some(crate::ui::UiKey::ConfigDropdown | crate::ui::UiKey::ProviderDelete)
-                ),
-                scene_namespace_armed: app.scene_namespace_armed,
-            },
-            &crate::modal_keys::ModalKeys {
-                model_searching,
-                history_searching,
-                custom_provider_field,
-                editor_field,
-                config_focus: app.config_focus,
-                session_info_detail,
-                connection_info_detail,
-                host_prompting,
-                dialog_keys: app.dialog_keys,
-            },
-            &crate::sheet::SheetKeys {
-                question_other_highlighted,
-                permission_confirm_always,
-                permission_show_details,
-                focused_target: has_focused_target,
-            },
-            &crate::session::SceneKeys {
-                is_responding,
-                composer_send_mode: app.composer_send_mode,
-                completion_kind,
-                completion_dismissed,
-                has_trigger_text,
-                suggestion_count,
-                suggestion_index,
-                has_exact_suggestion,
-                in_history_recall,
-                surface_overrides: app.surface_overrides.clone(),
-                focused_target: has_focused_target,
-                transcript_focused,
-                focused_subagent_running,
-            },
-            &mut app.drag,
-        )
+        let dispatch = input::Dispatch {
+            overlay: active_overlay,
+            sheet: active_sheet,
+            pre_attach: app.pre_attach.is_some(),
+            scene: current_scene,
+            key_overrides: app.key_overrides.clone(),
+            focused_target: has_focused_target,
+            transcript_focused,
+            scene_blocked: matches!(
+                keyboard_path.first(),
+                Some(crate::ui::UiKey::ConfigDropdown | crate::ui::UiKey::ProviderDelete)
+            ),
+            scene_namespace_armed: app.scene_namespace_armed,
+        };
+        let modal_keys = crate::modal_keys::ModalKeys {
+            model_searching,
+            history_searching,
+            custom_provider_field,
+            editor_field,
+            config_focus: app.config_focus,
+            session_info_detail,
+            connection_info_detail,
+            host_prompting,
+            dialog_keys: app.dialog_keys(),
+        };
+        let sheet_keys = crate::sheet::SheetKeys {
+            question_other_highlighted,
+            permission_confirm_always,
+            permission_show_details,
+            focused_target: has_focused_target,
+        };
+        let scene_keys = crate::session::SceneKeys {
+            is_responding,
+            composer_send_mode: app.composer_send_mode,
+            completion_kind,
+            completion_dismissed,
+            has_trigger_text,
+            suggestion_count,
+            suggestion_index,
+            has_exact_suggestion,
+            in_history_recall,
+            surface_overrides: app.surface_overrides.clone(),
+            focused_target: has_focused_target,
+            transcript_focused,
+            focused_subagent_running,
+        };
+        match edit_buffer {
+            EditBuffer::Composer => input::route_event(
+                event.clone(),
+                &mut app.input,
+                &mut app.cursor_position,
+                dispatch,
+                &modal_keys,
+                &sheet_keys,
+                &scene_keys,
+                &mut app.drag,
+            ),
+            EditBuffer::Models => {
+                let d = &mut app.surfaces.dialogs.models;
+                input::route_event(
+                    event.clone(),
+                    &mut d.query,
+                    &mut d.query_cursor,
+                    dispatch,
+                    &modal_keys,
+                    &sheet_keys,
+                    &scene_keys,
+                    &mut app.drag,
+                )
+            }
+            EditBuffer::Connections => {
+                let d = &mut app.surfaces.dialogs.connections;
+                input::route_event(
+                    event.clone(),
+                    &mut d.query,
+                    &mut d.query_cursor,
+                    dispatch,
+                    &modal_keys,
+                    &sheet_keys,
+                    &scene_keys,
+                    &mut app.drag,
+                )
+            }
+            EditBuffer::History => {
+                let d = &mut app.surfaces.dialogs.history_search;
+                input::route_event(
+                    event.clone(),
+                    &mut d.query,
+                    &mut d.query_cursor,
+                    dispatch,
+                    &modal_keys,
+                    &sheet_keys,
+                    &scene_keys,
+                    &mut app.drag,
+                )
+            }
+        }
     };
 
     let action = if matches!(action, input::InputAction::SendSlash(_)) && !recognized_command {
@@ -759,7 +842,22 @@ async fn process_one_event(
     )
     .await;
 
-    if (app.input.len(), app.cursor_position) != composer_edit_state_before
+    let edit_state_after = match edit_buffer {
+        EditBuffer::Composer => (app.input.len(), app.cursor_position),
+        EditBuffer::Models => (
+            app.surfaces.dialogs.models.query.len(),
+            app.surfaces.dialogs.models.query_cursor,
+        ),
+        EditBuffer::Connections => (
+            app.surfaces.dialogs.connections.query.len(),
+            app.surfaces.dialogs.connections.query_cursor,
+        ),
+        EditBuffer::History => (
+            app.surfaces.dialogs.history_search.query.len(),
+            app.surfaces.dialogs.history_search.query_cursor,
+        ),
+    };
+    if edit_state_after != composer_edit_state_before
         || (composer_owned_before && event_rearms_composer_follow(event))
     {
         app.input_scroll_follow_cursor = true;

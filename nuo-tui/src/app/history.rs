@@ -74,7 +74,8 @@ impl App {
         // tail, so re-sort by created_at_ms (stable) to keep the panel's order
         // correct without mutating the stored Vec.
         let order: Vec<usize> = self.history_order();
-        if self.input.is_empty() {
+        let query = self.surfaces.dialogs.history_search.query.as_str();
+        if query.is_empty() {
             // Empty query → show everything newest-first, unhighlighted.
             return order
                 .into_iter()
@@ -101,7 +102,7 @@ impl App {
         let items = order
             .iter()
             .filter_map(|&i| self.input_history.get(i).map(|e| (i, e.text.as_str())));
-        let mut ranked = fuzzy::rank_iter(items, &self.input);
+        let mut ranked = fuzzy::rank_iter(items, query);
 
         // Blend in recency decay and current session affinity (Industry Gold Standard)
         for (orig_idx, m) in &mut ranked {
@@ -589,36 +590,6 @@ impl App {
         }
     }
 
-    /// Tear down the history modal's borrowed state: hand the parked composer
-    /// draft back, drop any filter query, and clear the search sub-flag.
-    /// Shared by the Esc (`CloseModal`) and click-outside dismiss
-    /// paths so the two can never drift. Does **not** touch the overlay stack —
-    /// the caller owns that transition.
-    pub fn restore_history_draft(&mut self) {
-        self.input = std::mem::take(&mut self.injection_stashed_input);
-        self.set_cursor_end();
-        self.input_scroll = 0;
-        self.suggestion_index = None;
-        self.modal_index = 0;
-        self.history_search = false;
-    }
-
-    /// Tear down the model picker's borrowed state: hand the parked composer
-    /// draft back, drop any filter query, and clear the search/scroll sub-flags.
-    /// Shared by the Esc (`CloseModal`), click-outside dismiss, and activation
-    /// paths so they can never drift. Mirrors [`Self::restore_history_draft`];
-    /// does **not** touch the overlay stack — the caller owns that transition.
-    pub fn restore_model_draft(&mut self) {
-        self.input = std::mem::take(&mut self.injection_stashed_input);
-        self.set_cursor_end();
-        self.input_scroll = 0;
-        self.suggestion_index = None;
-        self.modal_index = 0;
-        self.model_search = false;
-        self.model_scroll = 0;
-        self.model_modal_follow = true;
-    }
-
     /// Delete an entry from input history at `orig_idx` (an index into [`App::input_history`]),
     /// cascading to SQLite persistence, session backfill, and attachment cache.
     pub fn delete_history_entry_at(
@@ -650,14 +621,16 @@ impl App {
     /// selection and follow states.
     pub fn delete_selected_history_entry(&mut self) -> Option<nuo_wire::HistoryEntry> {
         let ranked = self.history_rows();
-        let pick = ranked.get(self.modal_index).or_else(|| ranked.first());
+        let pick = ranked
+            .get(self.surfaces.dialogs.history_search.index)
+            .or_else(|| ranked.first());
         let &(orig_idx, _) = pick?;
         let removed = self.delete_history_entry_at(orig_idx);
         let new_len = self.history_rows().len();
-        if self.modal_index >= new_len {
-            self.modal_index = new_len.saturating_sub(1);
+        if self.surfaces.dialogs.history_search.index >= new_len {
+            self.surfaces.dialogs.history_search.index = new_len.saturating_sub(1);
         }
-        self.history_modal_follow = true;
+        self.surfaces.dialogs.history_search.follow = true;
         removed
     }
 }

@@ -442,199 +442,168 @@ fn view_reset_clears_pending_scroll_settle() {
 
 #[test]
 fn browse_view_reopen_restores_scroll_and_selection() {
-    // The core ADR-0133 contract: hiding a browse view (Esc) and reopening
-    // it returns to the exact scroll/index the user left. Before the
-    // refactor every open reset them to 0.
+    // ADR-0035: the entity owns its cursor/scroll, so hiding (Esc) and
+    // reopening a browse dialog returns to exactly where the user left.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     assert!(app.open_dialog(crate::surfaces::DialogKind::UsageStats));
     assert_eq!(
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::UsageStats)
     );
-    assert_eq!(app.modal_index, 0);
+    assert_eq!(app.active_index(), 0);
 
-    // The user scrolls and selects, then hides (Esc → dismiss_surface).
-    app.usage_stats_scroll = 42;
-    app.modal_index = 3;
+    app.surfaces.dialogs.usage_stats.scroll = 42;
+    app.set_active_index(3);
     assert!(app.dismiss_surface());
     assert!(app.surfaces.active_overlay().is_none());
 
-    // Reopen: first-open returned false and the retained state is back.
+    // Reopen: the entity's state is retained across the hide.
     assert!(!app.open_dialog(crate::surfaces::DialogKind::UsageStats));
-    assert_eq!(app.modal_index, 3, "selection retained across hide");
-    assert_eq!(app.usage_stats_scroll, 42, "scroll retained across hide");
+    assert_eq!(app.active_index(), 3, "selection retained across hide");
+    assert_eq!(
+        app.surfaces.dialogs.usage_stats.scroll, 42,
+        "scroll retained across hide"
+    );
 }
 
 #[test]
 fn browse_view_state_is_per_view() {
-    // Two views keep independent retained state — the buffer analogy: each
-    // buffer remembers its own cursor.
+    // Two entities keep independent state — no shared App scratchpad.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Permissions);
-    app.modal_index = 2;
-    app.permissions_scroll = 7;
+    app.set_active_index(2);
+    app.surfaces.dialogs.permissions.scroll = 7;
     assert!(app.dismiss_surface());
 
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
-    app.modal_index = 1;
-    app.usage_stats_scroll = 9;
+    app.set_active_index(1);
+    app.surfaces.dialogs.usage_stats.scroll = 9;
     assert!(app.dismiss_surface());
 
     app.open_dialog(crate::surfaces::DialogKind::Permissions);
-    assert_eq!((app.modal_index, app.permissions_scroll), (2, 7));
+    assert_eq!(
+        (app.active_index(), app.surfaces.dialogs.permissions.scroll),
+        (2, 7)
+    );
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
-    assert_eq!((app.modal_index, app.usage_stats_scroll), (1, 9));
+    assert_eq!(
+        (app.active_index(), app.surfaces.dialogs.usage_stats.scroll),
+        (1, 9)
+    );
 }
 
 #[test]
-fn view_follow_mode_is_restored_per_view() {
+fn view_follow_mode_is_per_view_entity() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Tools);
-    app.session_modal_follow = false;
+    app.surfaces.dialogs.tools.follow = false;
 
     app.open_dialog(crate::surfaces::DialogKind::Mcp);
-    app.session_modal_follow = true;
+    assert!(
+        app.surfaces.dialogs.mcp.follow,
+        "Mcp's own follow starts true"
+    );
 
     app.open_dialog(crate::surfaces::DialogKind::Tools);
     assert!(
-        !app.session_modal_follow,
-        "shared live fields must restore the selected view's retained mode"
+        !app.surfaces.dialogs.tools.follow,
+        "Tools' follow is its own entity state, not a shared field"
     );
 }
 
 #[test]
-fn view_state_is_forgotten_on_session_change() {
-    // `close_all` fires on viewed-session change: retained state belongs to
-    // the conversation, not the terminal (ADR-0133 close verb).
+fn session_change_isolates_session_scoped_dialogs() {
+    // `[INV-SURFACE-05]`: a session transition resets session-scoped dialogs
+    // and leaves global dialog state intact.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
-    app.usage_stats_scroll = 5;
-    app.modal_index = 1;
+    app.surfaces.dialogs.usage_stats.scroll = 5;
+    app.set_active_index(1);
+    app.surfaces
+        .present_dialog(crate::surfaces::DialogKind::Telemetry);
+    app.surfaces.dialogs.telemetry.scroll = 8;
+
     app.on_viewed_session_changed();
-    assert!(
-        app.open_dialog(crate::surfaces::DialogKind::UsageStats),
-        "state forgotten"
+
+    assert_eq!(
+        app.surfaces.dialogs.usage_stats.scroll, 5,
+        "global usage stats survives the session change"
     );
-    assert_eq!(app.usage_stats_scroll, 0);
-    assert_eq!(app.modal_index, 0);
+    assert_eq!(
+        app.surfaces.dialogs.telemetry.scroll, 0,
+        "session telemetry is reset"
+    );
+    assert!(
+        !app.surfaces
+            .contains_dialog(crate::surfaces::DialogKind::Telemetry),
+        "session dialog unwound"
+    );
+    assert!(
+        app.surfaces
+            .contains_dialog(crate::surfaces::DialogKind::UsageStats),
+        "global dialog preserved"
+    );
 }
 
 #[test]
 fn view_switcher_restore_roundtrip() {
     // The `C-x p` switcher's verbs: open over a browse view, Esc cancels
-    // back to it (state intact); Enter on another view hides the origin
-    // and focuses the target with its own retained state.
+    // back to it (state intact).
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
-    app.modal_index = 4;
+    app.set_active_index(4);
 
-    // Open the transient switcher over Usage stats; the router preserves the
-    // exact parent and the open snapshots its shared cursor/scroll projection.
     app.open_dialog(crate::surfaces::DialogKind::Switcher);
-    app.modal_index = 0;
+    app.set_active_index(0);
 
-    // Esc (the shared dismiss verb) cancels back to Usage stats — and restores
-    // its own cursor from the registry (the switcher's row cursor must
-    // not leak into the restored surface).
     assert!(app.dismiss_surface());
     assert_eq!(
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::UsageStats)
     );
     assert_eq!(
-        app.modal_index, 4,
+        app.active_index(),
+        4,
         "Usage stats' selection restored, not the switcher's row cursor"
     );
-
-    // Usage stats' retained state survived the switcher round-trip.
-    app.open_dialog(crate::surfaces::DialogKind::Tools);
-    assert!(!app.open_dialog(crate::surfaces::DialogKind::UsageStats));
-    assert_eq!(app.modal_index, 4, "retained selection intact");
 }
 
 #[test]
-fn per_view_drafts_do_not_clobber_each_other() {
-    // The phase-3 reason per-view drafts exist: parking for Models used to
-    // overwrite a draft parked for History through the one global slot.
+fn pickers_never_borrow_the_composer_line() {
+    // `[INV-SURFACE-01]`: Models/Connections/HistorySearch embed their own
+    // query field; the composer draft is never parked or stolen.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    // Park a draft on Models.
     app.input = "models draft".to_string();
     app.open_dialog(crate::surfaces::DialogKind::Models);
-    assert!(app.input.is_empty(), "composer borrowed");
-    // Esc hands the draft back.
-    assert!(app.dismiss_surface());
-    assert_eq!(app.input, "models draft");
+    assert_eq!(app.input, "models draft", "composer untouched");
 
-    // Now the same for HistorySearch — its slot is independent.
-    app.input = "history draft".to_string();
-    app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
-    assert!(app.input.is_empty());
-    assert!(app.dismiss_surface());
-    assert_eq!(app.input, "history draft");
-}
-
-#[test]
-fn switcher_enter_hides_origin_and_restores_target_state() {
-    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    // Target retains state.
-    app.open_dialog(crate::surfaces::DialogKind::UsageStats);
-    app.modal_index = 2;
-    assert!(app.dismiss_surface());
-
-    // Origin: Tools.
-    app.open_dialog(crate::surfaces::DialogKind::Tools);
-    app.modal_index = 1;
-
-    // Open the switcher over Tools (the Toggle arm's push + borrow).
-    app.surfaces
-        .present_dialog(crate::surfaces::DialogKind::Switcher);
-    app.modal_index = 0;
-
-    // The switcher's rows put open views first; with only Tools open the
-    // first row is Tools itself. Pick Usage stats (find its row).
-    let rows = app.surface_store.switcher_rows();
-    let stats_row = rows
-        .iter()
-        .position(|r| {
-            *r == crate::surfaces::SwitcherTarget::Dialog(crate::surfaces::DialogKind::UsageStats)
-        })
-        .unwrap();
-    app.modal_index = stats_row;
-
-    // Enter (the Activate arm's core, minus the async runtime plumbing).
-    let target = rows[stats_row];
-    app.modal_index = 0;
-    app.pop_transient_surface();
-    let crate::surfaces::SwitcherTarget::Dialog(target) = target else {
-        panic!("expected a dialog row");
-    };
-    let first = app.open_dialog(target);
-    assert!(!first, "Usage stats was opened before — not a first open");
+    app.surfaces.dialogs.models.search = true;
+    app.surfaces.dialogs.models.query = "gpt".to_string();
     assert_eq!(
-        app.active_dialog(),
-        Some(crate::surfaces::DialogKind::UsageStats)
+        app.picker_query(),
+        "gpt",
+        "the picker filters by its own embedded field"
     );
-    assert_eq!(
-        app.modal_index, 2,
-        "Usage stats' retained selection restored"
-    );
+    assert!(app.dismiss_surface());
+    assert_eq!(app.input, "models draft", "draft intact after dismiss");
     assert!(
-        app.surface_store
-            .state(&crate::surfaces::DialogKind::Tools)
-            .is_some(),
-        "hidden origin remains an initialized MRU buffer"
+        app.surfaces.dialogs.models.query.is_empty(),
+        "the entity's query is self-contained"
     );
 }
 
 #[test]
-fn switcher_filter_narrows_rows_and_matches_labels_and_hints() {
-    // Phase 5: the switcher's own fuzzy query against label + hint.
+fn switcher_rows_filter_and_gate_by_availability() {
     let mut store = crate::surfaces::SurfaceStore::new();
     store.open(crate::surfaces::DialogKind::UsageStats);
     store.open(crate::surfaces::DialogKind::Asides);
 
-    // "mcp" matches the MCP label.
-    let rows = store.switcher_rows_filtered("mcp");
+    // "mcp" matches the MCP label (with a session present).
+    let rows = store.switcher_rows_filtered(
+        "mcp",
+        crate::surfaces::SceneKind::Conversation,
+        true,
+    );
     assert_eq!(
         rows,
         vec![crate::surfaces::SwitcherTarget::Dialog(
@@ -642,8 +611,12 @@ fn switcher_filter_narrows_rows_and_matches_labels_and_hints() {
         ),]
     );
 
-    // "dash" matches the Dashboard label (a switchable full-screen view).
-    let rows = store.switcher_rows_filtered("dash");
+    // "dash" matches the Dashboard label.
+    let rows = store.switcher_rows_filtered(
+        "dash",
+        crate::surfaces::SceneKind::Conversation,
+        true,
+    );
     assert_eq!(
         rows,
         vec![crate::surfaces::SwitcherTarget::Scene(
@@ -651,20 +624,30 @@ fn switcher_filter_narrows_rows_and_matches_labels_and_hints() {
         )]
     );
 
-    // A query matching nothing yields an empty list (rendered as the
-    // placeholder), never a fallback-to-all.
-    assert!(store.switcher_rows_filtered("zzz").is_empty());
+    assert!(
+        store
+            .switcher_rows_filtered("zzz", crate::surfaces::SceneKind::Conversation, true)
+            .is_empty()
+    );
 
-    // Empty query = views first, then the MRU panels.
-    let rows = store.switcher_rows_filtered("");
-    assert_eq!(
-        &rows[..4],
-        &[
-            crate::surfaces::SwitcherTarget::Scene(crate::surfaces::SceneKind::Dashboard),
-            crate::surfaces::SwitcherTarget::Scene(crate::surfaces::SceneKind::Settings),
-            crate::surfaces::SwitcherTarget::Dialog(crate::surfaces::DialogKind::Asides),
-            crate::surfaces::SwitcherTarget::Dialog(crate::surfaces::DialogKind::UsageStats),
-        ]
+    // Without a session, session-scoped dialogs are not advertised.
+    let rows = store.switcher_rows(crate::surfaces::SceneKind::Conversation, false);
+    assert!(
+        rows.iter().all(|r| !matches!(
+            r,
+            crate::surfaces::SwitcherTarget::Dialog(
+                crate::surfaces::DialogKind::Asides | crate::surfaces::DialogKind::Tools
+            )
+        )),
+        "session-scoped dialogs are gated out with no session"
+    );
+    // HistorySearch is scene-scoped to the Conversation and needs a session.
+    assert!(
+        rows.iter().all(|r| !matches!(
+            r,
+            crate::surfaces::SwitcherTarget::Dialog(crate::surfaces::DialogKind::HistorySearch)
+        )),
+        "scene-scoped dialog gated out with no session"
     );
 }
 

@@ -366,7 +366,8 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
         AppMutation::ProviderPicker(snapshot) => {
             app.provider_picker = snapshot;
-            app.models_refreshing = false;
+            app.surfaces.dialogs.models.refreshing = false;
+            app.surfaces.dialogs.connections.refreshing = false;
             true
         }
         AppMutation::SessionsOverview(mut sessions) => {
@@ -375,7 +376,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             sessions.retain(|s| !s.active);
             app.modal_index = app.modal_index.min(sessions.len().saturating_sub(1));
             app.sessions_overview = sessions;
-            app.sessions_loading = false;
+            app.surfaces.dialogs.sessions.loading = false;
             true
         }
         AppMutation::OpenSessionsPanel => {
@@ -394,7 +395,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             let same_id = app.session_detail.as_ref().map(|s| &s.id) == Some(&detail.id);
             app.session_detail = Some(detail);
             if !same_id {
-                app.session_info_scroll = 0;
+                app.surfaces.dialogs.sessions.info_scroll = 0;
             }
             true
         }
@@ -402,7 +403,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             let same_id = app.connection_detail.as_ref().map(|c| &c.name) == Some(&detail.name);
             app.connection_detail = Some(detail);
             if !same_id {
-                app.connection_info_scroll = 0;
+                app.surfaces.dialogs.connections.info_scroll = 0;
             }
             true
         }

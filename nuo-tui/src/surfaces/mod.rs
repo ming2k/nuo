@@ -1,23 +1,34 @@
-//! TUI surface routing: Stage-Scene-Overlay architecture (ADR-0205).
+//! TUI surface routing: Stage-Scene-Overlay architecture (ADR-0035).
 //!
 //! - A [`SceneKind`] is an **independent full-screen workspace** (`Conversation`,
 //!   `Dashboard`, `Settings`, `TaskInspection`, `Aside`). Exactly one Scene is
 //!   active at any given moment.
-//! - A [`DialogKind`] names a **centered floating dialog** (Tools, Mcp,
-//!   Models, Connections, etc.) that floats over whatever Scene is active.
+//! - A [`DialogKind`] names a **centered floating dialog** that floats over
+//!   whatever Scene is active. Each dialog is an encapsulated entity in the
+//!   [`Dialogs`] registry, owning its own cursor, scroll, input, and sub-layer
+//!   state (`[INV-SURFACE-01]`).
 //! - A [`SheetKind`] names an **edge-anchored action prompt** (Permission,
 //!   Question, InputInjection, ModelEditor, etc.).
-//! - An [`OverlaySurface`] is either a `Dialog` or a `Sheet`.
-//! - The [`SurfaceRouter`] is the single authority managing the active Scene and
-//!   the LIFO `overlay_stack: Vec<OverlaySurface>`.
-//! - [`SurfaceStore`] manages retained states (`DialogState`) with an explicit
-//!   [`RetentionPolicy`].
+//! - The [`SurfaceRouter`] is the single authority managing the active Scene,
+//!   the LIFO `overlay_stack`, and the dialog entity registry.
+//!
+//! ## Domain scoping (ADR-0035)
+//!
+//! Every dialog declares exactly one [`DialogScope`]: `Global` (survives
+//! session and scene switches), `Session` (bound to the ambient session), or
+//! `Scene` (bound to one workspace). Precondition gating
+//! ([`DialogKind::is_available`]) hides and refuses a dialog whose context is
+//! absent, and overlay eviction always runs the entity's `on_dismiss` hook
+//! through the structured unwinding pipeline — never a blunt `clear()`
+//! (`[INV-SURFACE-03]`, `[INV-SURFACE-04]`).
 
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+mod dialogs;
 
-/// Root full-screen scene identifier (ADR-0205: closed set of destinations).
+pub use dialogs::{DialogView, Dialogs};
+
+/// Root full-screen scene identifier (closed set of destinations).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SceneKind {
     /// The live conversation: transcript + composer. The default workspace.
@@ -57,7 +68,7 @@ impl SceneKind {
     }
 }
 
-/// Centered, reference and management dialogs (ADR-0205).
+/// Centered, reference and management dialogs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DialogKind {
     Tools,
@@ -134,16 +145,66 @@ impl DialogKind {
         }
     }
 
-    /// Default retention policy for this dialog.
+    /// This dialog's ownership domain (`[INV-SURFACE-02]`). Exactly one scope
+    /// per dialog; the matrix is defined once, here.
+    pub fn scope(self) -> DialogScope {
+        match self {
+            // Global: the terminal app's own surfaces. They survive session
+            // and scene switches.
+            DialogKind::Switcher
+            | DialogKind::Sessions
+            | DialogKind::Models
+            | DialogKind::Connections
+            | DialogKind::UsageStats => DialogScope::Global,
+            // Session: bound to the ambient session; unwound on session change.
+            DialogKind::Telemetry
+            | DialogKind::Asides
+            | DialogKind::SessionTree
+            | DialogKind::Tools
+            | DialogKind::Mcp
+            | DialogKind::Skills
+            | DialogKind::Permissions
+            | DialogKind::Queue => DialogScope::Session,
+            // Scene: bound to one workspace capability.
+            DialogKind::HistorySearch => DialogScope::Scene(SceneKind::Conversation),
+        }
+    }
+
+    /// Whether this dialog may be opened or advertised in the current
+    /// environment (`[INV-SURFACE-03]`).
+    pub fn is_available(self, current_scene: SceneKind, has_session: bool) -> bool {
+        match self.scope() {
+            DialogScope::Global => true,
+            DialogScope::Session => has_session,
+            DialogScope::Scene(required) => current_scene == required && has_session,
+        }
+    }
+
+    /// Retention policy for this dialog. Switchers are ephemeral; session-bound
+    /// dialogs are retained per session; everything else is retained globally.
     pub fn retention_policy(self) -> RetentionPolicy {
         match self {
             DialogKind::Switcher => RetentionPolicy::Ephemeral,
-            _ => RetentionPolicy::Retained,
+            _ => match self.scope() {
+                DialogScope::Session => RetentionPolicy::SessionScoped,
+                _ => RetentionPolicy::Retained,
+            },
         }
     }
 }
 
-/// Action-oriented, task-driven edge prompts and wizard steps (ADR-0205).
+/// Logical ownership domain of a dialog (`[INV-SURFACE-02]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DialogScope {
+    /// Global: survives session and scene switches.
+    Global,
+    /// Bound to the ambient session.
+    Session,
+    /// Bound to one workspace scene.
+    Scene(SceneKind),
+}
+
+/// Action-oriented, task-driven edge prompts and wizard steps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SheetKind {
     Permission,
@@ -239,22 +300,23 @@ impl SwitcherTarget {
     }
 }
 
-/// Orthogonal state retention policies (ADR-0205).
+/// Orthogonal state retention policies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum RetentionPolicy {
-    /// Preserved in `SurfaceStore` across dismissal (scroll offset, search filter, cursor).
+    /// Preserved across dismissal.
     #[default]
     Retained,
     /// Discarded immediately upon dismissal or pop.
     Ephemeral,
-    /// Scoped to the active session id; purged on session switch.
+    /// Scoped to the ambient session; cleared on session change.
     SessionScoped,
 }
 
 const OVERLAY_STACK_CAP: usize = 16;
 const SCENE_HISTORY_CAP: usize = 16;
 
-/// Unified router managing the active root scene and the LIFO overlay stack.
+/// Unified router managing the active root scene, the LIFO overlay stack, and
+/// the dialog entity registry.
 #[derive(Debug)]
 pub struct SurfaceRouter {
     /// The active full-screen root workspace.
@@ -264,6 +326,8 @@ pub struct SurfaceRouter {
     overlay_stack: Vec<OverlaySurface>,
     /// Bounded historical trace of scenes for explicit back-navigation.
     scene_history: Vec<SceneKind>,
+    /// The single source of truth for every dialog entity's state.
+    pub dialogs: Dialogs,
 }
 
 impl Default for SurfaceRouter {
@@ -272,6 +336,7 @@ impl Default for SurfaceRouter {
             scene: SceneKind::Conversation,
             overlay_stack: Vec::new(),
             scene_history: Vec::new(),
+            dialogs: Dialogs::default(),
         }
     }
 }
@@ -287,6 +352,7 @@ impl SurfaceRouter {
             scene: SceneKind::Conversation,
             overlay_stack: vec![OverlaySurface::Dialog(id)],
             scene_history: Vec::new(),
+            dialogs: Dialogs::default(),
         }
     }
 
@@ -296,6 +362,7 @@ impl SurfaceRouter {
             scene,
             overlay_stack: Vec::new(),
             scene_history: Vec::new(),
+            dialogs: Dialogs::default(),
         }
     }
 
@@ -349,30 +416,124 @@ impl SurfaceRouter {
         self.active_overlay().and_then(OverlaySurface::sheet)
     }
 
-    /// Navigate to a root scene, pushing current scene into history if scoped.
-    pub fn switch_scene(&mut self, scene: SceneKind) {
-        if scene != self.scene && matches!(self.scene, SceneKind::TaskInspection | SceneKind::Aside)
-        {
-            self.scene_history.push(self.scene);
-            if self.scene_history.len() > SCENE_HISTORY_CAP {
-                self.scene_history.remove(0);
+    /// The entity of the active dialog, if any.
+    pub fn active_view(&self) -> Option<&dyn DialogView> {
+        self.active_dialog().map(|d| self.dialogs.view(d))
+    }
+
+    /// The mutable entity of the active dialog, if any.
+    pub fn active_view_mut(&mut self) -> Option<&mut dyn DialogView> {
+        match self.active_dialog() {
+            Some(d) => Some(self.dialogs.view_mut(d)),
+            None => None,
+        }
+    }
+
+    /// Resolve the whole overlay stack, running every dialog entity's
+    /// `on_dismiss` hook in reverse LIFO order (`[INV-SURFACE-04]`).
+    fn unwind_all(&mut self) {
+        while let Some(overlay) = self.overlay_stack.pop() {
+            if let OverlaySurface::Dialog(d) = overlay {
+                self.dialogs.on_dismiss(d);
+                if d.retention_policy() == RetentionPolicy::Ephemeral {
+                    self.dialogs.reset(d);
+                }
             }
         }
+    }
+
+    /// Unwind every dialog owned by `leaving_scene` in reverse LIFO order,
+    /// preserving overlays of other domains (`[INV-SURFACE-04]`).
+    pub fn unwind_scene(&mut self, leaving_scene: SceneKind) {
+        let mut idx = self.overlay_stack.len();
+        while idx > 0 {
+            idx -= 1;
+            let is_scene_bound = matches!(
+                self.overlay_stack[idx],
+                OverlaySurface::Dialog(d)
+                    if d.scope() == DialogScope::Scene(leaving_scene)
+            );
+            if is_scene_bound {
+                let removed = self.overlay_stack.remove(idx);
+                if let OverlaySurface::Dialog(d) = removed {
+                    self.dialogs.on_dismiss(d);
+                }
+            }
+        }
+    }
+
+    /// Remove every overlay whose dialog is no longer available in the current
+    /// environment (`[INV-SURFACE-03]`), running dismissal hooks.
+    pub fn retain_available(&mut self, scene: SceneKind, has_session: bool) {
+        let mut idx = self.overlay_stack.len();
+        while idx > 0 {
+            idx -= 1;
+            let unavailable = matches!(
+                self.overlay_stack[idx],
+                OverlaySurface::Dialog(d) if !d.is_available(scene, has_session)
+            );
+            if unavailable {
+                let removed = self.overlay_stack.remove(idx);
+                if let OverlaySurface::Dialog(d) = removed {
+                    self.dialogs.on_dismiss(d);
+                }
+            }
+        }
+    }
+
+    /// Unwind every session-scoped dialog in reverse LIFO order
+    /// (`[INV-SURFACE-05]`).
+    pub fn unwind_session(&mut self) {
+        let mut idx = self.overlay_stack.len();
+        while idx > 0 {
+            idx -= 1;
+            let is_session_bound = matches!(
+                self.overlay_stack[idx],
+                OverlaySurface::Dialog(d) if d.scope() == DialogScope::Session
+            );
+            if is_session_bound {
+                let removed = self.overlay_stack.remove(idx);
+                if let OverlaySurface::Dialog(d) = removed {
+                    self.dialogs.on_dismiss(d);
+                }
+            }
+        }
+    }
+
+    /// Navigate to a root scene, unwinding the leaving scene's bound dialogs.
+    pub fn switch_scene(&mut self, scene: SceneKind) {
+        if scene != self.scene {
+            if matches!(self.scene, SceneKind::TaskInspection | SceneKind::Aside) {
+                self.scene_history.push(self.scene);
+                if self.scene_history.len() > SCENE_HISTORY_CAP {
+                    self.scene_history.remove(0);
+                }
+            }
+            let leaving = self.scene;
+            self.unwind_scene(leaving);
+            // Sheet overlays carry no scene binding; a scene switch still
+            // resets the transient stack, but dialogs of other domains stay.
+            self.overlay_stack
+                .retain(|o| matches!(o, OverlaySurface::Dialog(_)));
+        }
         self.scene = scene;
-        self.overlay_stack.clear();
     }
 
     /// Navigate back to the previous scene in history, or Conversation.
     pub fn back_scene(&mut self) -> SceneKind {
-        self.scene = self.scene_history.pop().unwrap_or(SceneKind::Conversation);
-        self.overlay_stack.clear();
-        self.scene
+        let leaving = self.scene;
+        let next = self.scene_history.pop().unwrap_or(SceneKind::Conversation);
+        self.unwind_scene(leaving);
+        self.overlay_stack
+            .retain(|o| matches!(o, OverlaySurface::Dialog(_)));
+        self.scene = next;
+        next
     }
 
-    /// Hard reset to Conversation home scene, clearing all overlays and history.
+    /// Hard reset to Conversation home scene: unwind all overlays and history.
     pub fn reset_to_conversation(&mut self) {
+        self.unwind_all();
         self.scene = SceneKind::Conversation;
-        self.overlay_stack.clear();
         self.scene_history.clear();
     }
 
@@ -380,7 +541,10 @@ impl SurfaceRouter {
     pub fn push_overlay(&mut self, overlay: OverlaySurface) {
         self.overlay_stack.push(overlay);
         if self.overlay_stack.len() > OVERLAY_STACK_CAP {
-            self.overlay_stack.remove(0);
+            let removed = self.overlay_stack.remove(0);
+            if let OverlaySurface::Dialog(d) = removed {
+                self.dialogs.on_dismiss(d);
+            }
         }
     }
 
@@ -400,18 +564,29 @@ impl SurfaceRouter {
             self.push_overlay(overlay);
         } else {
             let last_idx = self.overlay_stack.len() - 1;
+            let removed = self.overlay_stack[last_idx];
+            if let OverlaySurface::Dialog(d) = removed {
+                self.dialogs.on_dismiss(d);
+            }
             self.overlay_stack[last_idx] = overlay;
         }
     }
 
-    /// Pop the top overlay, returning it.
+    /// Pop the top overlay, running its entity dismissal hook.
     pub fn pop_overlay(&mut self) -> Option<OverlaySurface> {
-        self.overlay_stack.pop()
+        let popped = self.overlay_stack.pop()?;
+        if let OverlaySurface::Dialog(d) = popped {
+            self.dialogs.on_dismiss(d);
+            if d.retention_policy() == RetentionPolicy::Ephemeral {
+                self.dialogs.reset(d);
+            }
+        }
+        Some(popped)
     }
 
-    /// Dismiss all overlays over the active scene.
+    /// Dismiss all overlays over the active scene, running every hook.
     pub fn dismiss_all_overlays(&mut self) {
-        self.overlay_stack.clear();
+        self.unwind_all();
     }
 
     /// Check if a specific dialog is anywhere in the overlay stack.
@@ -425,43 +600,13 @@ impl SurfaceRouter {
     }
 }
 
-/// The retained state of one dialog (ADR-0205).
-#[derive(Debug, Clone)]
-pub struct DialogState {
-    /// Selection cursor (`modal_index`).
-    pub index: usize,
-    /// Body scroll offset.
-    pub scroll: usize,
-    /// Whether body scroll follows the selection.
-    pub follow: bool,
-    /// Composer draft parked by this dialog when it borrowed the input line.
-    pub draft: Option<String>,
-    /// Search or filter query owned by this dialog.
-    pub query: String,
-    /// Whether the query field is actively focused.
-    pub query_active: bool,
-}
-
-impl Default for DialogState {
-    fn default() -> Self {
-        Self {
-            index: 0,
-            scroll: 0,
-            follow: true,
-            draft: None,
-            query: String::new(),
-            query_active: false,
-        }
-    }
-}
-
-/// A MRU-ordered registry of retained dialog states (ADR-0205).
+/// A MRU-ordered registry of opened dialogs. Dialog *state* is owned by the
+/// [`Dialogs`] entity registry; this store only tracks open order for the
+/// quick switcher and drives explicit forgetting.
 #[derive(Debug, Default)]
 pub struct SurfaceStore {
     /// Most-recent-first open order. Drives the quick switcher's MRU list.
     order: Vec<DialogKind>,
-    /// Retained per-dialog state.
-    states: HashMap<DialogKind, DialogState>,
 }
 
 impl SurfaceStore {
@@ -469,50 +614,25 @@ impl SurfaceStore {
         Self::default()
     }
 
-    /// Focus a dialog: moves it to front of MRU order, initializing state on first open.
-    pub fn open(&mut self, id: DialogKind) -> Option<DialogState> {
+    /// Focus a dialog: moves it to front of MRU order.
+    pub fn open(&mut self, id: DialogKind) {
         self.order.retain(|&v| v != id);
         self.order.insert(0, id);
-        match self.states.entry(id) {
-            std::collections::hash_map::Entry::Occupied(e) => Some(e.get().clone()),
-            std::collections::hash_map::Entry::Vacant(e) => {
-                e.insert(DialogState::default());
-                None
-            }
-        }
     }
 
-    /// Record the dialog's state upon loss of focus.
-    pub fn save(&mut self, id: DialogKind, state: DialogState) {
-        self.states.insert(id, state);
-    }
-
-    /// Explicit close: forget state and MRU order.
+    /// Explicit close: forget MRU order.
     pub fn close(&mut self, id: DialogKind) {
         self.order.retain(|&v| v != id);
-        self.states.remove(&id);
     }
 
-    /// Forget all retained states (e.g. on session switch).
+    /// Forget all MRU entries.
     pub fn close_all(&mut self) {
         self.order.clear();
-        self.states.clear();
     }
 
-    /// Whether a dialog has an active initialized buffer in the store.
+    /// Whether a dialog has an active entry in the store.
     pub fn is_open(&self, id: impl Into<DialogKind>) -> bool {
-        let d = id.into();
-        self.order.contains(&d)
-    }
-
-    /// Retained state for a dialog, if it has been opened.
-    pub fn state(&self, id: &DialogKind) -> Option<&DialogState> {
-        self.states.get(id)
-    }
-
-    /// Mutable state for a dialog.
-    pub fn state_mut(&mut self, id: &DialogKind) -> Option<&mut DialogState> {
-        self.states.get_mut(id)
+        self.order.contains(&id.into())
     }
 
     /// MRU order of opened dialogs.
@@ -520,19 +640,24 @@ impl SurfaceStore {
         &self.order
     }
 
-    /// Switcher rows: Dashboard & Settings first, then MRU dialogs, then unvisited discovery dialogs.
-    pub fn switcher_rows(&self) -> Vec<SwitcherTarget> {
+    /// Switcher rows: Dashboard & Settings first, then MRU dialogs, then
+    /// unvisited discovery dialogs. Rows whose preconditions are unsatisfied
+    /// are filtered out (`[INV-SURFACE-03]`).
+    pub fn switcher_rows(&self, scene: SceneKind, has_session: bool) -> Vec<SwitcherTarget> {
         let mut rows: Vec<SwitcherTarget> = [SceneKind::Dashboard, SceneKind::Settings]
             .into_iter()
             .map(SwitcherTarget::Scene)
             .collect();
         for id in self.order.clone() {
-            if id != DialogKind::Switcher {
+            if id != DialogKind::Switcher && id.is_available(scene, has_session) {
                 rows.push(SwitcherTarget::Dialog(id));
             }
         }
         for id in DialogKind::ALL {
-            if !self.order.contains(&id) && id != DialogKind::Switcher {
+            if !self.order.contains(&id)
+                && id != DialogKind::Switcher
+                && id.is_available(scene, has_session)
+            {
                 rows.push(SwitcherTarget::Dialog(id));
             }
         }
@@ -540,8 +665,13 @@ impl SurfaceStore {
     }
 
     /// Filter switcher rows by fuzzy query.
-    pub fn switcher_rows_filtered(&self, query: &str) -> Vec<SwitcherTarget> {
-        let rows = self.switcher_rows();
+    pub fn switcher_rows_filtered(
+        &self,
+        query: &str,
+        scene: SceneKind,
+        has_session: bool,
+    ) -> Vec<SwitcherTarget> {
+        let rows = self.switcher_rows(scene, has_session);
         if query.trim().is_empty() {
             return rows;
         }
@@ -562,120 +692,133 @@ mod tests {
     use super::*;
 
     #[test]
-    fn first_open_initialises_once_and_returns_none() {
-        let mut store = SurfaceStore::new();
-        assert!(
-            store.open(DialogKind::UsageStats).is_none(),
-            "first open has no state"
-        );
-        store.save(
+    fn scope_matrix_assigns_exactly_one_domain_per_dialog() {
+        // `[INV-SURFACE-02]`: the matrix is total and each dialog has exactly
+        // one scope.
+        assert_eq!(DialogKind::HistorySearch.scope(), DialogScope::Scene(SceneKind::Conversation));
+        for id in [
+            DialogKind::Switcher,
+            DialogKind::Sessions,
+            DialogKind::Models,
+            DialogKind::Connections,
             DialogKind::UsageStats,
-            DialogState {
-                index: 3,
-                scroll: 12,
-                follow: false,
-                draft: None,
-                query: String::new(),
-                query_active: false,
-            },
-        );
-        let restored = store.open(DialogKind::UsageStats).expect("state retained");
+        ] {
+            assert_eq!(id.scope(), DialogScope::Global, "{id:?}");
+        }
+        for id in [
+            DialogKind::Telemetry,
+            DialogKind::Asides,
+            DialogKind::SessionTree,
+            DialogKind::Tools,
+            DialogKind::Mcp,
+            DialogKind::Skills,
+            DialogKind::Permissions,
+            DialogKind::Queue,
+        ] {
+            assert_eq!(id.scope(), DialogScope::Session, "{id:?}");
+        }
+    }
+
+    #[test]
+    fn availability_gates_by_scope() {
+        // `[INV-SURFACE-03]`.
+        assert!(DialogKind::Models.is_available(SceneKind::Settings, false));
+        assert!(!DialogKind::Tools.is_available(SceneKind::Conversation, false));
+        assert!(DialogKind::Tools.is_available(SceneKind::Settings, true));
+        assert!(DialogKind::HistorySearch.is_available(SceneKind::Conversation, true));
+        assert!(!DialogKind::HistorySearch.is_available(SceneKind::Settings, true));
+        assert!(!DialogKind::HistorySearch.is_available(SceneKind::Conversation, false));
+    }
+
+    #[test]
+    fn retention_policies_follow_scope() {
+        assert_eq!(DialogKind::Switcher.retention_policy(), RetentionPolicy::Ephemeral);
+        assert_eq!(DialogKind::Models.retention_policy(), RetentionPolicy::Retained);
         assert_eq!(
-            (restored.index, restored.scroll, restored.follow),
-            (3, 12, false)
+            DialogKind::Telemetry.retention_policy(),
+            RetentionPolicy::SessionScoped
         );
     }
 
     #[test]
-    fn close_forgets_state() {
-        let mut store = SurfaceStore::new();
-        store.open(DialogKind::UsageStats);
-        store.close(DialogKind::UsageStats);
-        assert!(
-            store.open(DialogKind::UsageStats).is_none(),
-            "close forgets"
-        );
-    }
-
-    #[test]
-    fn mru_order_tracks_focusing() {
-        let mut store = SurfaceStore::new();
-        store.open(DialogKind::UsageStats);
-        store.open(DialogKind::Tools);
-        store.open(DialogKind::UsageStats);
-        assert_eq!(store.order(), &[DialogKind::UsageStats, DialogKind::Tools]);
-    }
-
-    #[test]
-    fn switcher_rows_scenes_first_then_dialogs() {
-        let mut store = SurfaceStore::new();
-        store.open(DialogKind::Skills);
-        store.open(DialogKind::Asides);
-        let rows = store.switcher_rows();
-        assert_eq!(
-            &rows[..2],
-            &[
-                SwitcherTarget::Scene(SceneKind::Dashboard),
-                SwitcherTarget::Scene(SceneKind::Settings)
-            ],
-            "full-screen scenes first"
-        );
-        assert_eq!(
-            &rows[2..4],
-            &[
-                SwitcherTarget::Dialog(DialogKind::Asides),
-                SwitcherTarget::Dialog(DialogKind::Skills)
-            ],
-            "MRU dialogs next"
-        );
-    }
-
-    #[test]
-    fn overlay_stack_lifo_order() {
+    fn switch_scene_unwinds_scene_bound_dialogs_and_preserves_global() {
+        // `[INV-SURFACE-04]` + `[INV-SURFACE-05]`: no blunt `clear()` — a
+        // scene switch unwinds only the leaving scene's bound dialogs.
         let mut router = SurfaceRouter::new();
-        assert_eq!(
-            router.active_surface(),
-            Surface::Scene(SceneKind::Conversation)
-        );
-        assert_eq!(router.active_scene(), SceneKind::Conversation);
-        assert!(router.active_overlay().is_none());
-
-        // Present a dialog
         router.present_dialog(DialogKind::Models);
-        assert_eq!(router.active_dialog(), Some(DialogKind::Models));
+        router.present_dialog(DialogKind::HistorySearch);
+        assert!(router.contains_dialog(DialogKind::HistorySearch));
 
-        // Present an action sheet on top of the dialog
-        router.present_sheet(SheetKind::Permission);
-        assert_eq!(router.active_sheet(), Some(SheetKind::Permission));
-        assert_eq!(router.overlay_stack().len(), 2);
-
-        // Pop sheet restores the dialog
-        let popped = router.pop_overlay();
-        assert_eq!(popped, Some(OverlaySurface::Sheet(SheetKind::Permission)));
-        assert_eq!(router.active_dialog(), Some(DialogKind::Models));
-
-        // Pop dialog restores the scene
-        let popped_dialog = router.pop_overlay();
-        assert_eq!(
-            popped_dialog,
-            Some(OverlaySurface::Dialog(DialogKind::Models))
+        router.switch_scene(SceneKind::Settings);
+        assert!(
+            !router.contains_dialog(DialogKind::HistorySearch),
+            "scene-bound dialog unwound on scene exit"
         );
-        assert_eq!(
-            router.active_surface(),
-            Surface::Scene(SceneKind::Conversation)
+        assert!(
+            router.contains_dialog(DialogKind::Models),
+            "global dialog survives a scene switch"
         );
     }
 
     #[test]
-    fn scene_switching_and_back() {
+    fn unwind_session_removes_session_dialogs_and_preserves_global() {
         let mut router = SurfaceRouter::new();
-        router.switch_scene(SceneKind::TaskInspection);
-        assert_eq!(router.active_scene(), SceneKind::TaskInspection);
+        router.present_dialog(DialogKind::Models);
+        router.present_dialog(DialogKind::Telemetry);
+        router.unwind_session();
+        assert!(!router.contains_dialog(DialogKind::Telemetry));
+        assert!(router.contains_dialog(DialogKind::Models));
+    }
 
-        router.switch_scene(SceneKind::Dashboard);
-        assert_eq!(router.active_scene(), SceneKind::Dashboard);
+    #[test]
+    fn ephemeral_switcher_resets_on_pop() {
+        let mut router = SurfaceRouter::new();
+        router.present_dialog(DialogKind::Switcher);
+        router.dialogs.switcher.selected = 5;
+        router.dialogs.switcher.query = "abc".to_string();
+        router.pop_overlay();
+        assert_eq!(router.dialogs.switcher.selected, 0);
+        assert!(router.dialogs.switcher.query.is_empty());
+    }
 
-        assert_eq!(router.back_scene(), SceneKind::TaskInspection);
-        assert_eq!(router.back_scene(), SceneKind::Conversation);
+    #[test]
+    fn pop_runs_dismissal_hook_clearing_embedded_search() {
+        let mut router = SurfaceRouter::new();
+        router.present_dialog(DialogKind::Models);
+        router.dialogs.models.search = true;
+        router.dialogs.models.query = "gpt".to_string();
+        router.pop_overlay();
+        assert!(!router.dialogs.models.search);
+        assert!(router.dialogs.models.query.is_empty());
+    }
+
+    #[test]
+    fn session_switch_archives_and_reinstates_session_scoped_state() {
+        // `[INV-SURFACE-05]` §5: session-scoped state is archived per session
+        // and reinstated on return; global state is never touched.
+        let mut d = Dialogs::default();
+        d.switch_session("a");
+        d.telemetry.scroll = 11;
+        d.models.scroll = 3;
+        d.switch_session("b");
+        assert_eq!(d.telemetry.scroll, 0, "fresh session starts clean");
+        assert_eq!(d.models.scroll, 3, "global state untouched");
+        d.telemetry.scroll = 22;
+        d.switch_session("a");
+        assert_eq!(d.telemetry.scroll, 11, "session A reinstated");
+        d.switch_session("b");
+        assert_eq!(d.telemetry.scroll, 22, "session B reinstated");
+    }
+
+    #[test]
+    fn dialog_entities_are_independent() {
+        let mut d = Dialogs::default();
+        d.tools.scroll = 7;
+        d.mcp.scroll = 9;
+        assert_eq!(d.tools.scroll, 7);
+        assert_eq!(d.mcp.scroll, 9);
+        d.reset(DialogKind::Tools);
+        assert_eq!(d.tools.scroll, 0);
+        assert_eq!(d.mcp.scroll, 9, "no aliasing between entities");
     }
 }

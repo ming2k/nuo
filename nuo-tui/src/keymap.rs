@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::surfaces::DialogKind;
+use crate::surfaces::{DialogKind, SceneKind};
 
 // Canonical key vocabulary and display formatting
 
@@ -783,6 +783,10 @@ pub struct AppContext {
     pub has_selection: bool,
     pub has_running_task: bool,
     pub queue_count: usize,
+    /// Whether an ambient session exists (ADR-0035 precondition gating).
+    pub has_session: bool,
+    /// The active root scene (ADR-0035 precondition gating).
+    pub scene: SceneKind,
 }
 
 /// Authoritative declaration of a single application command.
@@ -805,6 +809,28 @@ pub struct CommandSpec {
 
 fn avail_always(_: &AppContext) -> Availability {
     Availability::Available
+}
+
+/// A session-scoped dialog is available only when an ambient session exists
+/// (`[INV-SURFACE-03]`).
+fn avail_session(ctx: &AppContext) -> Availability {
+    if ctx.has_session {
+        Availability::Available
+    } else {
+        Availability::Unavailable("no active session")
+    }
+}
+
+/// A scene-scoped dialog (the conversation-bound HistorySearch) additionally
+/// requires the conversation scene (`[INV-SURFACE-03]`).
+fn avail_conversation(ctx: &AppContext) -> Availability {
+    if !ctx.has_session {
+        Availability::Unavailable("no active session")
+    } else if ctx.scene != SceneKind::Conversation {
+        Availability::Unavailable("only in the conversation scene")
+    } else {
+        Availability::Available
+    }
 }
 
 fn avail_running(ctx: &AppContext) -> Availability {
@@ -979,7 +1005,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         scope: Scope::Composer,
         bindings: &[Key::CTRL_R],
         slash: Some("/history"),
-        availability: avail_always,
+        availability: avail_conversation,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
         description: "Search and recall past prompt history",
@@ -1032,7 +1058,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         scope: Scope::Global,
         bindings: &[Key::CTRL_Q],
         slash: Some("/queue"),
-        availability: avail_always,
+        availability: avail_session,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
         description: "Inspect and manage pending message outbox",
@@ -1045,7 +1071,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         scope: Scope::Global,
         bindings: &[Key::CTRL_O],
         slash: Some("/stats"),
-        availability: avail_always,
+        availability: avail_session,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
         description: "View context token accounting and session stats",
@@ -1097,7 +1123,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         scope: Scope::Global,
         bindings: &[],
         slash: Some("/tools"),
-        availability: avail_always,
+        availability: avail_session,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
         description: "Inspect and configure session tool capability pool",
@@ -1110,7 +1136,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         scope: Scope::Global,
         bindings: &[],
         slash: Some("/mcp"),
-        availability: avail_always,
+        availability: avail_session,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
         description: "Manage Model Context Protocol server connections",
@@ -1123,7 +1149,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         scope: Scope::Global,
         bindings: &[],
         slash: Some("/skills"),
-        availability: avail_always,
+        availability: avail_session,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
         description: "Inspect discovered workspace skills and guidelines",
@@ -1136,7 +1162,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         scope: Scope::Global,
         bindings: &[],
         slash: Some("/permissions"),
-        availability: avail_always,
+        availability: avail_session,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
         description: "Review and revoke cached tool execution rules",
@@ -1162,7 +1188,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         scope: Scope::Global,
         bindings: &[],
         slash: Some("/tree"),
-        availability: avail_always,
+        availability: avail_session,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
         description: "View DAG tree of session rounds and turns",
@@ -1175,7 +1201,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         scope: Scope::Global,
         bindings: &[],
         slash: Some("/btw"),
-        availability: avail_always,
+        availability: avail_session,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
         description: "List background aside conversations",

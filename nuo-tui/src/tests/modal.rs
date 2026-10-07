@@ -859,13 +859,13 @@ fn picker_caret_owner_exists_only_in_search_mode() {
         crate::surfaces::DialogKind::Connections,
     ] {
         app.open_dialog(dialog);
-        app.model_search = false;
+        app.set_picker_search(false);
         assert_eq!(
             app.caret_owner(),
             CaretOwner::None,
             "{dialog:?} browse mode has no editable field"
         );
-        app.model_search = true;
+        app.set_picker_search(true);
         assert_eq!(
             app.caret_owner(),
             CaretOwner::Overlay,
@@ -908,10 +908,11 @@ fn modal_scroll_field_resolves_every_scrollable_modal() {
 
     // Seed a few follow flags so we can assert the helper hands back the
     // right one (and that mutating through it actually clears it).
-    app.session_modal_follow = true;
-    app.history_modal_follow = true;
-    app.queue_modal_follow = true;
-    app.model_modal_follow = true;
+    app.surfaces.dialogs.tools.follow = true;
+    app.surfaces.dialogs.sessions.follow = true;
+    app.surfaces.dialogs.history_search.follow = true;
+    app.surfaces.dialogs.queue.follow = true;
+    app.surfaces.dialogs.models.follow = true;
     app.question_modal_follow = true;
 
     // List modals return a follow-flag; clearing it must hit the right field.
@@ -923,9 +924,9 @@ fn modal_scroll_field_resolves_every_scrollable_modal() {
             *f = false;
         }
     }
-    assert_eq!(app.queue_scroll, 5, "queue scroll mutated through helper");
+    assert_eq!(app.surfaces.dialogs.queue.scroll, 5, "queue scroll mutated through helper");
     assert!(
-        !app.queue_modal_follow,
+        !app.surfaces.dialogs.queue.follow,
         "queue follow cleared through helper"
     );
 
@@ -937,14 +938,14 @@ fn modal_scroll_field_resolves_every_scrollable_modal() {
         }
     }
     assert!(
-        !app.session_modal_follow,
-        "tools reuses session follow flag"
+        !app.surfaces.dialogs.tools.follow,
+        "tools follow cleared through the helper"
     );
 
     app.open_dialog(crate::surfaces::DialogKind::Sessions);
     {
         let (_, follow) = app.modal_scroll_field().expect("sessions scrolls");
-        assert!(follow.is_some(), "sessions shares the session follow flag");
+        assert!(follow.is_some(), "sessions exposes its own follow flag");
     }
 
     // Pure-content dialogs/scenes return a scroll ref but no follow flag.
@@ -963,8 +964,8 @@ fn modal_scroll_field_resolves_every_scrollable_modal() {
     assert!(f.is_none(), "settings has no selection-follow flag");
     *s = 7;
 
-    assert_eq!(app.usage_stats_scroll, 7);
-    assert_eq!(app.permissions_scroll, 7);
+    assert_eq!(app.surfaces.dialogs.usage_stats.scroll, 7);
+    assert_eq!(app.surfaces.dialogs.permissions.scroll, 7);
 
     // Conversation and ModelEditor do not scroll their own body.
     app.reset_to_conversation();
@@ -1696,24 +1697,31 @@ async fn config_view_components_toggle_and_persistence() {
 
 #[test]
 fn switching_picker_view_preserves_query_and_chat_draft_separately() {
+    // `[INV-SURFACE-01]`: the picker's query is its own entity state, so it
+    // never clobbers (or is clobbered by) the chat composer draft.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.input = "unsent chat".to_string();
     app.open_dialog(crate::surfaces::DialogKind::Models);
-    app.model_search = true;
-    app.input = "claude".to_string();
+    app.surfaces.dialogs.models.search = true;
+    app.surfaces.dialogs.models.query = "claude".to_string();
+
+    assert_eq!(app.input, "unsent chat", "composer draft untouched");
 
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
     assert_eq!(
         app.input, "unsent chat",
-        "switch restores the chat composer"
+        "switch never touches the chat composer"
     );
 
     app.open_dialog(crate::surfaces::DialogKind::Models);
     assert_eq!(
-        app.input, "claude",
+        app.surfaces.dialogs.models.query, "claude",
         "picker query is retained independently"
     );
-    assert!(app.model_search, "the search sub-layer is retained too");
+    assert!(
+        app.surfaces.dialogs.models.search,
+        "the search sub-layer is retained too"
+    );
     assert!(app.dismiss_surface());
     assert_eq!(app.input, "unsent chat");
 }
@@ -1763,16 +1771,12 @@ fn backend_navigation_waits_for_transient_and_drill_in_surfaces() {
 fn explicit_view_close_discards_retained_state_and_payload() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
-    app.usage_stats_scroll = 17;
+    app.surfaces.dialogs.usage_stats.scroll = 17;
     app.close_dialog(crate::surfaces::DialogKind::UsageStats);
 
-    assert!(
-        app.surface_store
-            .state(&crate::surfaces::DialogKind::UsageStats)
-            .is_none()
-    );
+    assert!(!app.surface_store.is_open(crate::surfaces::DialogKind::UsageStats));
     assert!(app.surfaces.active_overlay().is_none());
-    assert_eq!(app.usage_stats_scroll, 0);
+    assert_eq!(app.surfaces.dialogs.usage_stats.scroll, 0);
     assert!(app.open_dialog(crate::surfaces::DialogKind::UsageStats));
 }
 
@@ -1813,9 +1817,9 @@ fn pop_sublayer_steps_back_one_level_at_a_time() {
     // outside-click mirror both route through here.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Telemetry);
-    app.telemetry_detail = true;
+    app.surfaces.dialogs.telemetry.detail = true;
     assert!(app.pop_sublayer());
-    assert!(!app.telemetry_detail, "drill-in closed");
+    assert!(!app.surfaces.dialogs.telemetry.detail, "drill-in closed");
     assert_eq!(
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::Telemetry),
@@ -1837,10 +1841,10 @@ fn pop_sublayer_steps_back_one_level_at_a_time() {
 
     // Connections: detail view pops back to connections list
     app.open_dialog(crate::surfaces::DialogKind::Connections);
-    app.connection_info_detail = true;
+    app.surfaces.dialogs.connections.info_detail = true;
     app.connection_detail = Some(Default::default());
     assert!(app.pop_sublayer());
-    assert!(!app.connection_info_detail, "connection detail closed");
+    assert!(!app.surfaces.dialogs.connections.info_detail, "connection detail closed");
     assert!(app.connection_detail.is_none());
     assert_eq!(
         app.active_dialog(),
@@ -1856,21 +1860,21 @@ fn pop_sublayer_pops_telemetry_turn_page_before_round_detail() {
     // Esc walks back one level at a time, attempt inspector first.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Telemetry);
-    app.telemetry_detail = true;
-    app.telemetry_turn = Some((2, 1));
-    app.telemetry_turn_cursor = 1;
-    app.telemetry_scroll = 4;
+    app.surfaces.dialogs.telemetry.detail = true;
+    app.surfaces.dialogs.telemetry.turn = Some((2, 1));
+    app.surfaces.dialogs.telemetry.turn_cursor = 1;
+    app.surfaces.dialogs.telemetry.scroll = 4;
     assert!(app.pop_sublayer());
     assert!(
-        app.telemetry_turn.is_none(),
+        app.surfaces.dialogs.telemetry.turn.is_none(),
         "attempt inspector closed first"
     );
-    assert!(app.telemetry_detail, "round detail stays open");
-    assert_eq!(app.telemetry_scroll, 0);
-    assert_eq!(app.telemetry_turn_cursor, 1, "cursor retained");
+    assert!(app.surfaces.dialogs.telemetry.detail, "round detail stays open");
+    assert_eq!(app.surfaces.dialogs.telemetry.scroll, 0);
+    assert_eq!(app.surfaces.dialogs.telemetry.turn_cursor, 1, "cursor retained");
     assert!(app.pop_sublayer());
-    assert!(!app.telemetry_detail, "round detail closed next");
-    assert_eq!(app.telemetry_turn_cursor, 0, "cursor reset");
+    assert!(!app.surfaces.dialogs.telemetry.detail, "round detail closed next");
+    assert_eq!(app.surfaces.dialogs.telemetry.turn_cursor, 0, "cursor reset");
     assert_eq!(
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::Telemetry),
@@ -1941,8 +1945,8 @@ fn dialog_keys_sublayer_pop_and_deactivate_behavior() {
     );
 
     // Turn on dialog keys sub-view
-    app.dialog_keys = true;
-    app.dialog_keys_scroll = 5;
+    app.set_dialog_keys(true);
+    *app.dialog_keys_scroll().expect("active dialog") = 5;
 
     // While dialog_keys is active, modal_scroll_field directs to dialog_keys_scroll
     {
@@ -1951,12 +1955,16 @@ fn dialog_keys_sublayer_pop_and_deactivate_behavior() {
         assert!(follow.is_none());
         *scroll += 1;
     }
-    assert_eq!(app.dialog_keys_scroll, 6);
+    assert_eq!(*app.dialog_keys_scroll().expect("active dialog"), 6);
 
     // Popping sublayer dismisses dialog_keys but leaves the dialog active
     assert!(app.pop_sublayer(), "dialog_keys sublayer was popped");
-    assert!(!app.dialog_keys, "dialog_keys is now false");
-    assert_eq!(app.dialog_keys_scroll, 0, "dialog_keys_scroll was reset");
+    assert!(!app.dialog_keys(), "dialog_keys is now false");
+    assert_eq!(
+        *app.dialog_keys_scroll().expect("active dialog"),
+        0,
+        "dialog_keys_scroll was reset"
+    );
     assert_eq!(
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::Sessions),
@@ -1964,11 +1972,10 @@ fn dialog_keys_sublayer_pop_and_deactivate_behavior() {
     );
 
     // Turning on dialog_keys again, then dismissing the dialog resets dialog_keys
-    app.dialog_keys = true;
-    app.dialog_keys_scroll = 3;
+    app.set_dialog_keys(true);
+    *app.dialog_keys_scroll().expect("active dialog") = 3;
     assert!(app.dismiss_active_dialog(), "dismissed active dialog");
-    assert!(!app.dialog_keys, "dialog_keys reset on dialog deactivate");
-    assert_eq!(app.dialog_keys_scroll, 0);
+    assert!(!app.dialog_keys(), "dialog_keys reset on dialog deactivate");
 }
 
 

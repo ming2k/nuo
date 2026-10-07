@@ -431,7 +431,7 @@ impl App {
             return;
         }
         let ranked = self.providers_filtered();
-        if let Some(row) = ranked.get(self.modal_index).or_else(|| ranked.first())
+        if let Some(row) = ranked.get(self.active_index()).or_else(|| ranked.first())
             && !row.builtin
         {
             self.pending_provider_delete = Some(row.id.clone());
@@ -447,7 +447,8 @@ impl App {
     /// removal paths so the cursor lands on a valid row once this row vanishes.
     pub fn confirm_provider_delete(&mut self) -> Option<AgentRequest> {
         let name = self.pending_provider_delete.take()?;
-        self.modal_index = self.modal_index.saturating_sub(1);
+        let idx = self.active_index().saturating_sub(1);
+        self.set_active_index(idx);
         self.provider_delete_focus = ProviderDeleteChoice::default();
         Some(AgentRequest::DeleteConnection { name })
     }

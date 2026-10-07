@@ -19,7 +19,6 @@ use nuo_wire::{
     ProviderPickerSnapshot, SessionOverview, UserQuestionRequest,
 };
 
-use crate::TelemetryTab;
 use crate::chrome::tasks_bar::BackgroundTaskItem;
 use crate::completion::CompletionItemKind;
 use crate::composer_attachments;
@@ -369,10 +368,6 @@ pub struct App {
     /// was (a running primary round keeps its activity bar, elapsed timer,
     /// and counters across the aside detour).
     pub saved_primary_chrome: Option<SessionChrome>,
-    /// Scroll + follow slots for the asides modal (shared pattern with the
-    /// sessions picker: `session_scroll` / `session_modal_follow`).
-    pub btw_scroll: usize,
-    pub btw_modal_follow: bool,
     pub scroll: u16,
     /// Whether the view follows the newest content (auto-scroll to bottom).
     pub follow_bottom: bool,
@@ -441,28 +436,12 @@ pub struct App {
     /// The effective TUI config (the applier's disclosure defaults read it;
     /// the translator no longer carries config clones).
     pub tui_config: crate::config::TuiConfig,
-    /// Active tab in the Session Stats modal (`Overview` or `Activity`).
-    pub telemetry_tab: TelemetryTab,
-    /// Scroll offset of the Session Stats modal body.
-    pub telemetry_scroll: usize,
-    /// `true` when the Telemetry modal is drilled into one round's turns (L2).
-    pub telemetry_detail: bool,
-    /// Selected turn index in the L2 turns table.
-    pub telemetry_turn_cursor: usize,
-    /// `Some((round, attempt))` when drilled into an attempt's detail inspector (L3).
-    pub telemetry_turn: Option<(u32, u32)>,
     /// Cross-session usage-statistics report fetched on demand from the
     /// harness (`QueryUsageStats`, ADR-0122). Session-independent: it
     /// aggregates the durable store under `data/usage/`, which survives
     /// session cleanup. `None` while the round-trip is in flight (the
     /// overlay renders a loading placeholder).
     pub usage_stats: Option<nuo_wire::usage_stats::UsageStatsReport>,
-    /// Scroll offset of the usage-statistics overlay body.
-    pub usage_stats_scroll: usize,
-    /// Whether the active dialog is currently displaying its localized in-dialog key reference sub-view.
-    pub dialog_keys: bool,
-    /// Scroll offset of the in-dialog key reference overlay body.
-    pub dialog_keys_scroll: usize,
     /// The body (scrollable content) height of the currently-open overlay
     /// modal, captured each render from the rect the modal renderer paints
     /// its body into. This is the per-modal equivalent of `view_height` (which
@@ -538,18 +517,16 @@ pub struct App {
     /// truth — there is no parallel `active_modal` / `active_panel` /
     /// `current_view` mirror to read instead.
     pub(crate) surfaces: crate::surfaces::SurfaceRouter,
+    /// Selection cursor for the **sheet/scene** surfaces (permission and
+    /// question sheets, the input-injection prompt, and the Dashboard's host
+    /// list). Floating dialogs no longer share it: each dialog entity owns its
+    /// own cursor (`SurfaceRouter::dialogs`), so this is no longer a
+    /// cross-dialog scratchpad field (ADR-0035, `[INV-SURFACE-01]`).
     pub modal_index: usize,
-    /// Retained dialog states + the MRU order that backs the quick switcher
-    /// (ADR-0205). Browse dialogs open through `open_dialog`, which
-    /// initialises state exactly once per dialog and restores it on every
-    /// later open — hide/close/switch instead of the old reset-on-every-open
-    /// ritual. Root scenes are not registered here: their state already
-    /// persists on `App`.
+    /// MRU open order for the quick switcher. Dialog *state* lives in the
+    /// encapsulated entities (`SurfaceRouter::dialogs`); this store only tracks
+    /// which dialogs have been opened and in what order (ADR-0035).
     pub(crate) surface_store: crate::surfaces::SurfaceStore,
-    /// The command palette's live fuzzy query (`C-x p`).
-    pub(crate) command_palette_query: String,
-    pub(crate) command_palette_selected: usize,
-    pub(crate) command_palette_scroll: usize,
     /// Recently executed commands for MRU display in Command Palette.
     pub(crate) recent_commands: Vec<String>,
     /// The session whose outbox the Queue view auto-blocked on entry
@@ -561,55 +538,17 @@ pub struct App {
     /// the event loop to quiesce background animation redraws while active
     /// composition / typing is in progress.
     pub last_key_press: std::time::Instant,
-    /// Body scroll offset shared by the Tools / Mcp / Skills managers
-    /// (`Modal::Tools` / `Modal::Mcp` / `Modal::Skills`). Reset to 0 on
-    /// open. Clamped (and, when `session_modal_follow` is set, auto-followed to
-    /// the selection cursor) by the renderer each frame.
-    pub session_scroll: usize,
-    /// When true, the Tools/Mcp/Skills body scroll follows the ↑/↓ selection
-    /// cursor (the default after open / navigation). Cleared the moment the
-    /// user scrolls manually (wheel / page keys) so they can browse freely, and
-    /// re-set the moment they navigate again.
-    pub session_modal_follow: bool,
     /// Session DAG tree representation for `/tree` visualization.
     pub session_tree: nuo_wire::SessionTree,
-    /// Scroll offset for the `/tree` modal body.
-    pub tree_scroll: usize,
-    /// Auto-follow selection in `/tree` modal.
-    pub tree_modal_follow: bool,
-    /// `true` while the sessions picker is drilled into the session-info
-    /// sub-view (`i`). The detail body renders from [`Self::session_detail`];
-    /// Esc backs out to the list (mirrors the TokenReport drill-in) — one
-    /// sub-layer of the modal, never the Scene (ADR-0298).
-    pub session_info_detail: bool,
     /// Full detail for the session under the info sub-view cursor. Populated by
     /// an on-demand `QuerySessionDetail` round-trip when the sub-view opens
     /// (`i`) and refreshed whenever the selection moves while in the sub-view.
     /// `None` while the round-trip is in flight.
     pub session_detail: Option<nuo_wire::SessionDetail>,
-    /// Body scroll offset of the session-info sub-view. Reset to 0 on open and
-    /// when the detail changes; reused (not the list's `session_scroll`).
-    pub session_info_scroll: usize,
-    /// `true` while the connections modal is drilled into the connection detail
-    /// sub-view (Enter). The detail body renders from [`Self::connection_detail`];
-    /// Esc backs out to the list.
-    pub connection_info_detail: bool,
-    /// `true` while the connection detail sub-view is opened directly (standalone)
-    /// from the model bar (click or hotkey) rather than drilled in from the Connections list.
-    /// In standalone mode, the modal header has a single level and Esc closes the modal directly.
-    pub connection_info_standalone: bool,
     /// Full detail and usage for the connection under the detail sub-view. Populated by
     /// an on-demand `QueryConnectionDetail` round-trip when the sub-view opens (Enter).
     /// `None` while the round-trip is in flight.
     pub connection_detail: Option<nuo_wire::ConnectionDetail>,
-    /// Body scroll offset of the connection detail sub-view.
-    pub connection_info_scroll: usize,
-    /// Whether the served models list is expanded in the connection detail sub-view.
-    pub connection_models_expanded: bool,
-    /// Body scroll offset of the permissions manager modal. Reset to 0 each
-    /// time the modal opens; clamped and auto-followed to the selection by the
-    /// renderer each frame.
-    pub permissions_scroll: usize,
     /// Body scroll offset of the config category list.
     pub config_scroll: usize,
     /// Which pane of the `/config` Settings View currently owns the keyboard.
@@ -638,25 +577,6 @@ pub struct App {
     /// Authoritative screen rectangle of the active settings detail row,
     /// updated during settings render to anchor popovers precisely.
     pub config_selected_rect: Option<nuotc::Rect>,
-    /// Index of the skills-modal row whose detail block is expanded
-    /// (`Modal::Skills`), or `None` when every row is collapsed. `Enter`
-    /// toggles the selected row; reset to `None` each time the modal opens.
-    /// The skills modal reuses [`Self::modal_index`] for its selection cursor
-    /// and [`Self::session_scroll`] for its body scroll.
-    pub skills_expanded: Option<usize>,
-    /// Body scroll offset of the history modal (Ctrl+R). Reset to 0 each time
-    /// the modal opens (and when toggling browse/search); clamped and
-    /// auto-followed to the selection by the renderer each frame.
-    pub history_scroll: usize,
-    /// When true, the history modal's body scroll follows the ↑/↓ selection
-    /// cursor. Cleared on manual scroll (free browse), re-set on navigation.
-    pub history_modal_follow: bool,
-    /// Whether the history modal's **search sub-layer** is active. The modal
-    /// opens in browse mode (`false`): a plain reverse-chronological list with
-    /// no query field. Pressing `/` enters search (`true`), which borrows the
-    /// composer line as a live fuzzy query; the first Esc returns to browse and
-    /// the second closes the modal. See [`App::history_rows`].
-    pub history_search: bool,
     pub current_provider: String,
     pub current_model: String,
     /// Raw current working directory captured at startup. Used to resolve
@@ -713,17 +633,6 @@ pub struct App {
     /// Wall-clock instant the current round started, or `None` between rounds.
     /// Drives the muted `<elapsed>` segment in the activity bar.
     pub round_started_at: Option<std::time::Instant>,
-    /// Scroll offset inside `Modal::Queue`. Reset to 0 each time the modal
-    /// opens; clamped each frame by the modal's body renderer. When
-    /// `queue_modal_follow` is set, it is nudged so the ↑/↓ selection stays
-    /// on screen.
-    pub queue_scroll: usize,
-    /// When true, the queue modal's body scroll follows the ↑/↓ selection
-    /// cursor (the default after open / navigation). Cleared the moment the
-    /// user scrolls manually (wheel / page keys) so they can browse a long
-    /// queue freely, and re-set the moment they navigate again. Mirrors
-    /// `session_modal_follow` / `question_modal_follow`.
-    pub queue_modal_follow: bool,
     pub pending_permission: Option<PermissionRequest>,
     /// The interaction sheet currently mounted in the composer slot, if any
     /// (ADR-0173 §3). The slot's two sibling components — the draft editor
@@ -760,10 +669,6 @@ pub struct App {
     pub question_modal_follow: bool,
     /// Rows shown in the sessions picker (`/sessions` or `nuo attach`).
     pub sessions_overview: Vec<SessionOverview>,
-    /// Set of expanded trunk session IDs in the sessions picker (ADR-0251).
-    pub sessions_expanded: std::collections::HashSet<String>,
-    /// Whether the sessions modal is currently querying the sessions list.
-    pub sessions_loading: bool,
     /// When switching sessions, holds the short id of the target session being loaded.
     pub switching_session: Option<String>,
     /// Live monitor snapshot for the `/host` daemon control panel
@@ -1172,20 +1077,6 @@ pub struct App {
     /// sets the upper bound automatically (via `render_body`), and `↑/↓` move
     /// the selection so the chosen template stays on-screen.
     pub preset_scroll: usize,
-    /// Whether the model picker's **search sub-layer** is active. Both pickers
-    /// (`Modal::Models` and `Modal::Connections`) open in browse mode
-    /// (`false`): a plain ranked list with no query field. Pressing `/` enters
-    /// search (`true`), which borrows the composer line as a live fuzzy query;
-    /// the first Esc returns to browse and the second closes the modal. Mirrors
-    /// [`Self::history_search`]. See [`Self::models_flat_filtered`].
-    pub model_search: bool,
-    /// Body scroll offset of the model picker. Reset to 0 each time the modal
-    /// opens (and when toggling browse/search); clamped and auto-followed to the
-    /// selection by the renderer each frame. Mirrors [`Self::history_scroll`].
-    pub model_scroll: usize,
-    /// When true, the model picker's body scroll follows the ↑/↓ selection
-    /// cursor. Cleared on manual scroll (free browse), re-set on navigation.
-    pub model_modal_follow: bool,
     /// Pending provider-delete confirmation overlay. `Some(id)` means the
     /// confirm dialog is open over the Connections list: the provider
     /// `id` is staged for deletion and waits on the user's choice. Set when
@@ -1202,8 +1093,6 @@ pub struct App {
     /// / last-used). Drives the `/models` and `/connections` pickers' rendering
     /// and sort order. Refreshed from the response listener each frame.
     pub provider_picker: ProviderPickerSnapshot,
-    /// Whether an asynchronous model list refresh is currently in flight.
-    pub models_refreshing: bool,
     /// Theme.
     pub theme: Theme,
     /// Terminal capability profile (ADR-0180).

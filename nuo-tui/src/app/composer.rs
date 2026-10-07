@@ -455,18 +455,23 @@ impl App {
         use crate::surfaces::{DialogKind, SheetKind};
         if self.surfaces.active_overlay().is_some() || self.active_sheet().is_some() {
             // Dialog key reference overlay suppresses caret
-            if self.dialog_keys {
+            if self.dialog_keys() {
                 return CaretOwner::None;
             }
             // Confirmation sub-layers suppress caret
             if self.pending_provider_delete.is_some() {
                 return CaretOwner::None;
             }
-            // History panel delegates text entry directly to the composer
-            if self.active_composer_extension()
-                == Some(crate::composer_extension::ComposerExtensionKind::HistorySearch)
-            {
-                return if self.in_subagent_view() {
+            // The history panel owns its own embedded query field (ADR-0035):
+            // it never borrows the composer line.
+            if self.active_dialog() == Some(DialogKind::HistorySearch) {
+                // The panel is anchored to the composer: browsing keeps the
+                // composer's normal palette (the panel is an extension of it),
+                // while the search sub-layer owns the visible cursor in its own
+                // embedded field.
+                return if self.surfaces.dialogs.history_search.search {
+                    CaretOwner::Overlay
+                } else if self.in_subagent_view() {
                     CaretOwner::None
                 } else {
                     CaretOwner::Composer
@@ -477,7 +482,7 @@ impl App {
                 self.active_dialog(),
                 Some(DialogKind::Models | DialogKind::Connections)
             ) {
-                return if self.model_search {
+                return if self.picker_search() {
                     CaretOwner::Overlay
                 } else {
                     CaretOwner::None
@@ -610,9 +615,6 @@ impl App {
     pub fn active_composer_extension(
         &self,
     ) -> Option<crate::composer_extension::ComposerExtensionKind> {
-        if self.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch) {
-            return Some(crate::composer_extension::ComposerExtensionKind::HistorySearch);
-        }
         if self.surfaces.active_overlay().is_none() && !self.completion_dismissed {
             match self.completion_kind() {
                 crate::completion::CompletionKind::Slash => {
@@ -646,42 +648,6 @@ impl App {
         } else {
             None
         }
-    }
-
-    /// Whether this view borrows the composer line and therefore owns a
-    /// per-view draft slot (Models / Connections / HistorySearch — the
-    /// surfaces whose filter field *is* the composer).
-    pub(super) fn owns_composer_draft(&self, id: crate::surfaces::DialogKind) -> bool {
-        matches!(
-            id,
-            crate::surfaces::DialogKind::Models
-                | crate::surfaces::DialogKind::Connections
-                | crate::surfaces::DialogKind::HistorySearch
-        )
-    }
-
-    /// Park the live composer draft into a view's own slot,
-    /// clearing the borrowed line for the view's filter/entry use.
-    pub(super) fn park_draft_into(&mut self, id: crate::surfaces::DialogKind) {
-        if let Some(state) = self.surface_store.state_mut(&id) {
-            state.draft = Some(std::mem::take(&mut self.input));
-        }
-        self.set_cursor(0);
-        self.input_scroll = 0;
-        self.suggestion_index = None;
-    }
-
-    /// Hand a view's parked draft back to the composer and clear its slot
-    /// (the view is leaving the borrowed-line state for chat).
-    pub(super) fn restore_draft_from(&mut self, id: crate::surfaces::DialogKind) {
-        if let Some(state) = self.surface_store.state_mut(&id)
-            && let Some(draft) = state.draft.take()
-        {
-            self.input = draft;
-        }
-        self.set_cursor_end();
-        self.input_scroll = 0;
-        self.suggestion_index = None;
     }
 
     /// The editor chain's "end at chat" teardown (ADR-0139):
@@ -723,13 +689,22 @@ impl App {
         self.modal_index = 0;
     }
 
-    /// The active fuzzy query for the picker: the borrowed composer line while
-    /// the search sub-layer is active, else empty (browse mode shows every row).
-    pub(super) fn picker_query(&self) -> &str {
-        if self.model_search {
-            self.input.trim()
-        } else {
-            ""
+    /// The active fuzzy query for the picker: the picker entity's own embedded
+    /// field while its search sub-layer is active, else empty (browse mode
+    /// shows every row). Never the composer line (ADR-0035).
+    pub(crate) fn picker_query(&self) -> &str {
+        match self.top_dialog() {
+            Some(crate::surfaces::DialogKind::Models)
+                if self.surfaces.dialogs.models.search =>
+            {
+                self.surfaces.dialogs.models.query.trim()
+            }
+            Some(crate::surfaces::DialogKind::Connections)
+                if self.surfaces.dialogs.connections.search =>
+            {
+                self.surfaces.dialogs.connections.query.trim()
+            }
+            _ => "",
         }
     }
 }

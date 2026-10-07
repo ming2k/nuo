@@ -1,11 +1,28 @@
-//! Surface, Scene, and Dialog navigation under the Stage-Scene-Overlay architecture (ADR-0205).
+//! Surface, Scene, and Dialog navigation under the Stage-Scene-Overlay
+//! architecture (ADR-0035).
+//!
+//! Dialog state lives in the encapsulated entities owned by
+//! `SurfaceRouter::dialogs`; this module owns the App-side lifecycle glue:
+//! opening (with precondition gating), dismissal, scene/session unwinding, and
+//! the wheel-routing scroll resolution.
 
 use super::*;
-use crate::surfaces::{DialogKind, DialogState, OverlaySurface, SceneKind, SheetKind};
+use crate::surfaces::{DialogKind, OverlaySurface, SceneKind, SheetKind};
 
 #[allow(dead_code)]
 impl App {
-    /// Which interaction sheet currently occupies the composer slot, if any (ADR-0173 §3).
+    /// Whether the ambient session context is present for session-scoped
+    /// dialogs (`[INV-SURFACE-03]`).
+    pub(crate) fn has_session(&self) -> bool {
+        !self.current_session_id.is_empty()
+    }
+
+    /// Whether `id` may be opened in the current environment.
+    pub(crate) fn dialog_available(&self, id: DialogKind) -> bool {
+        id.is_available(self.current_scene(), self.has_session())
+    }
+
+    /// Which interaction sheet currently occupies the composer slot, if any.
     pub(crate) fn active_sheet(&self) -> Option<crate::sheet::SheetKind> {
         self.active_sheet
     }
@@ -26,14 +43,134 @@ impl App {
         self.transcript_focused = false;
     }
 
-    /// Exact identity of the focused dialog, if the top overlay is a dialog (ADR-0205).
+    /// Exact identity of the focused dialog, if the top overlay is a dialog.
     pub(crate) fn active_dialog(&self) -> Option<DialogKind> {
         self.surfaces.active_dialog()
     }
 
-    /// The root scene the user stands in (ADR-0205: Conversation, Dashboard, Settings, etc.).
+    /// The root scene the user stands in.
     pub(crate) fn current_scene(&self) -> SceneKind {
         self.surfaces.active_scene()
+    }
+
+    /// The topmost dialog in the overlay stack, even when a sheet floats
+    /// above it (the picker-under-editor case).
+    pub(crate) fn top_dialog(&self) -> Option<DialogKind> {
+        self.surfaces
+            .overlay_stack()
+            .iter()
+            .rev()
+            .find_map(|o| o.dialog())
+    }
+
+    /// The active dialog's selection cursor.
+    pub(crate) fn active_index(&self) -> usize {
+        self.top_dialog()
+            .map(|id| self.surfaces.dialogs.index(id))
+            .unwrap_or(0)
+    }
+
+    /// Set the active dialog's selection cursor.
+    pub(crate) fn set_active_index(&mut self, value: usize) {
+        if let Some(id) = self.top_dialog() {
+            self.surfaces.dialogs.set_index(id, value);
+        }
+    }
+
+    /// Rotate the active dialog's selection cursor over `count` rows.
+    pub(crate) fn rotate_active_index(&mut self, count: usize, forward: bool) {
+        if count == 0 {
+            self.set_active_index(0);
+            return;
+        }
+        let cur = self.active_index();
+        let next = if forward {
+            (cur + 1) % count
+        } else if cur == 0 {
+            count - 1
+        } else {
+            cur - 1
+        };
+        self.set_active_index(next);
+    }
+
+    /// Whether the topmost model/provider picker is in search mode.
+    pub(crate) fn picker_search(&self) -> bool {
+        match self.top_dialog() {
+            Some(DialogKind::Models) => self.surfaces.dialogs.models.search,
+            Some(DialogKind::Connections) => self.surfaces.dialogs.connections.search,
+            _ => false,
+        }
+    }
+
+    /// Toggle the topmost model/provider picker's search mode.
+    pub(crate) fn set_picker_search(&mut self, value: bool) {
+        match self.top_dialog() {
+            Some(DialogKind::Models) => self.surfaces.dialogs.models.search = value,
+            Some(DialogKind::Connections) => self.surfaces.dialogs.connections.search = value,
+            _ => {}
+        }
+    }
+
+    /// Reset the topmost picker's cursor, scroll, and follow to first-open.
+    pub(crate) fn reset_picker_nav(&mut self) {
+        match self.top_dialog() {
+            Some(DialogKind::Models) => {
+                let m = &mut self.surfaces.dialogs.models;
+                m.index = 0;
+                m.scroll = 0;
+                m.follow = true;
+            }
+            Some(DialogKind::Connections) => {
+                let c = &mut self.surfaces.dialogs.connections;
+                c.index = 0;
+                c.scroll = 0;
+                c.follow = true;
+            }
+            _ => {}
+        }
+    }
+
+    /// Set the active dialog's body-follow flag.
+    pub(crate) fn set_active_follow(&mut self, follow: bool) {
+        if let Some(id) = self.top_dialog() {
+            match id {
+                DialogKind::Models => self.surfaces.dialogs.models.follow = follow,
+                DialogKind::Connections => self.surfaces.dialogs.connections.follow = follow,
+                DialogKind::Tools => self.surfaces.dialogs.tools.follow = follow,
+                DialogKind::Mcp => self.surfaces.dialogs.mcp.follow = follow,
+                DialogKind::Skills => self.surfaces.dialogs.skills.follow = follow,
+                DialogKind::Sessions => self.surfaces.dialogs.sessions.follow = follow,
+                DialogKind::HistorySearch => self.surfaces.dialogs.history_search.follow = follow,
+                DialogKind::SessionTree => self.surfaces.dialogs.session_tree.follow = follow,
+                DialogKind::Queue => self.surfaces.dialogs.queue.follow = follow,
+                DialogKind::Asides => self.surfaces.dialogs.asides.follow = follow,
+                DialogKind::Permissions
+                | DialogKind::UsageStats
+                | DialogKind::Telemetry
+                | DialogKind::Switcher => {}
+            }
+        }
+    }
+
+    /// Whether the in-dialog key-reference sub-layer is open on the active
+    /// dialog.
+    pub(crate) fn dialog_keys(&self) -> bool {
+        self.active_dialog()
+            .is_some_and(|id| self.surfaces.dialogs.keys_open(id))
+    }
+
+    /// Toggle the active dialog's key-reference sub-layer.
+    pub(crate) fn set_dialog_keys(&mut self, open: bool) {
+        if let Some(id) = self.active_dialog() {
+            self.surfaces.dialogs.set_keys_open(id, open);
+        }
+    }
+
+    /// The active dialog's key-reference body scroll offset.
+    pub(crate) fn dialog_keys_scroll(&mut self) -> Option<&mut usize> {
+        self.active_dialog()
+            .map(|id| self.surfaces.dialogs.keys_scroll_mut(id))
     }
 
     /// Navigate to a root scene.
@@ -41,7 +178,7 @@ impl App {
         self.surfaces.switch_scene(scene);
     }
 
-    /// Hard reset to Conversation home scene: clear all overlays and history.
+    /// Hard reset to Conversation home scene: unwind all overlays and history.
     pub(crate) fn reset_to_conversation(&mut self) {
         self.surfaces.reset_to_conversation();
     }
@@ -49,14 +186,11 @@ impl App {
     /// Pop one overlay and restore the underlying surface.
     pub(crate) fn pop_transient_surface(&mut self) {
         self.surfaces.pop_overlay();
-        if let Some(id) = self.active_dialog() {
-            self.restore_dialog_state(id);
-        }
     }
 
     pub(crate) fn modal_scroll_field(&mut self) -> Option<(&mut usize, Option<&mut bool>)> {
-        if self.dialog_keys && self.surfaces.active_overlay().is_some() {
-            return Some((&mut self.dialog_keys_scroll, None));
+        if self.dialog_keys() {
+            return self.dialog_keys_scroll().map(|s| (s, None));
         }
         if self.active_sheet() == Some(crate::sheet::SheetKind::Question)
             && self.surfaces.active_overlay().is_none()
@@ -66,43 +200,42 @@ impl App {
                 Some(&mut self.question_modal_follow),
             ));
         }
+        if let Some(id) = self.active_dialog() {
+            let d = &mut self.surfaces.dialogs;
+            return match id {
+                DialogKind::Tools => Some((&mut d.tools.scroll, Some(&mut d.tools.follow))),
+                DialogKind::Mcp => Some((&mut d.mcp.scroll, Some(&mut d.mcp.follow))),
+                DialogKind::Skills => Some((&mut d.skills.scroll, Some(&mut d.skills.follow))),
+                DialogKind::Permissions => Some((&mut d.permissions.scroll, None)),
+                DialogKind::UsageStats => Some((&mut d.usage_stats.scroll, None)),
+                DialogKind::Telemetry => Some((&mut d.telemetry.scroll, None)),
+                DialogKind::Asides => Some((&mut d.asides.scroll, Some(&mut d.asides.follow))),
+                DialogKind::Models => Some((&mut d.models.scroll, Some(&mut d.models.follow))),
+                DialogKind::Connections => {
+                    Some((&mut d.connections.scroll, Some(&mut d.connections.follow)))
+                }
+                DialogKind::HistorySearch => {
+                    Some((&mut d.history_search.scroll, Some(&mut d.history_search.follow)))
+                }
+                DialogKind::Queue => Some((&mut d.queue.scroll, Some(&mut d.queue.follow))),
+                DialogKind::Sessions => {
+                    Some((&mut d.sessions.scroll, Some(&mut d.sessions.follow)))
+                }
+                DialogKind::SessionTree => {
+                    Some((&mut d.session_tree.scroll, Some(&mut d.session_tree.follow)))
+                }
+                DialogKind::Switcher => Some((&mut d.switcher.scroll, None)),
+            };
+        }
         if let Some(overlay) = self.surfaces.active_overlay() {
             match overlay {
-                OverlaySurface::Dialog(d) => match d {
-                    DialogKind::Permissions => Some((&mut self.permissions_scroll, None)),
-                    DialogKind::Telemetry => Some((&mut self.telemetry_scroll, None)),
-                    DialogKind::UsageStats => Some((&mut self.usage_stats_scroll, None)),
-                    DialogKind::Tools
-                    | DialogKind::Mcp
-                    | DialogKind::Skills
-                    | DialogKind::Sessions => Some((
-                        &mut self.session_scroll,
-                        Some(&mut self.session_modal_follow),
-                    )),
-                    DialogKind::Queue => {
-                        Some((&mut self.queue_scroll, Some(&mut self.queue_modal_follow)))
-                    }
-                    DialogKind::Asides => {
-                        Some((&mut self.btw_scroll, Some(&mut self.btw_modal_follow)))
-                    }
-                    DialogKind::HistorySearch => Some((
-                        &mut self.history_scroll,
-                        Some(&mut self.history_modal_follow),
-                    )),
-                    DialogKind::Connections | DialogKind::Models => {
-                        Some((&mut self.model_scroll, Some(&mut self.model_modal_follow)))
-                    }
-                    DialogKind::SessionTree => {
-                        Some((&mut self.tree_scroll, Some(&mut self.tree_modal_follow)))
-                    }
-                    DialogKind::Switcher => Some((&mut self.command_palette_scroll, None)),
-                },
                 OverlaySurface::Sheet(s) => match s {
                     SheetKind::OAuthPending => Some((&mut self.oauth_scroll, None)),
                     SheetKind::ProviderPreset => Some((&mut self.preset_scroll, None)),
                     SheetKind::CustomProvider => Some((&mut self.custom_scroll, None)),
                     _ => None,
                 },
+                OverlaySurface::Dialog(_) => None,
             }
         } else {
             match self.current_scene() {
@@ -142,15 +275,16 @@ impl App {
         if self.input_history_persist {
             self.send_intent(nuo_wire::AgentRequest::QueryInputHistory);
         }
-        self.reset_to_conversation();
-        self.surface_store.close_all();
-        for id in DialogKind::ALL {
-            self.reset_dialog_payload(id);
-        }
+        // Session transitions isolate their effects to session-scoped dialogs
+        // (`[INV-SURFACE-05]`): archive the outgoing session's modal state,
+        // reinstate the incoming session's, and leave global dialog state (and
+        // the open global dialogs themselves) untouched.
+        self.surfaces.unwind_session();
+        let incoming = self.current_session_id.clone();
+        self.surfaces.dialogs.switch_session(&incoming);
+        self.surfaces
+            .retain_available(self.current_scene(), self.has_session());
         self.session_context = None;
-        self.command_palette_query.clear();
-        self.command_palette_selected = 0;
-        self.command_palette_scroll = 0;
         self.esc_armed_until = None;
         self.input.clear();
         self.pending_images.clear();
@@ -176,9 +310,11 @@ impl App {
         no_transient_sheet
             && !(scene == SceneKind::Dashboard
                 && (self.host_prompting || self.host_preview.is_some()))
-            && !(active_dialog == Some(DialogKind::Sessions) && self.session_info_detail)
+            && !(active_dialog == Some(DialogKind::Sessions)
+                && self.surfaces.dialogs.sessions.info_detail)
             && !(active_dialog == Some(DialogKind::Telemetry)
-                && (self.telemetry_detail || self.telemetry_turn.is_some()))
+                && (self.surfaces.dialogs.telemetry.detail
+                    || self.surfaces.dialogs.telemetry.turn.is_some()))
             && !(scene == SceneKind::Settings
                 && (self.config_dropdown.is_some()
                     || self.config_focus == crate::overlays::ConfigFocus::Detail))
@@ -193,19 +329,24 @@ impl App {
     /// Clear all session-scoped view states on session change.
     pub(crate) fn reset_session_views(&mut self) {
         self.reset_view_state();
-        self.reset_to_conversation();
-        self.surface_store.close_all();
+        self.surfaces.unwind_session();
+        let incoming = self.current_session_id.clone();
+        self.surfaces.dialogs.switch_session(&incoming);
         self.focus_stack.clear();
         self.in_side_view = false;
         self.side_session_id = None;
         self.session_detail = None;
-        self.session_info_detail = false;
-        self.session_info_scroll = 0;
+        self.surfaces.dialogs.sessions.info_detail = false;
+        self.surfaces.dialogs.sessions.info_scroll = 0;
         self.session_history_backfill_cursor = 0;
     }
 
-    /// Focus a browse dialog under the ADR-0205 lifecycle.
+    /// Focus a browse dialog. Returns `true` on first open, and refuses to open
+    /// a dialog whose preconditions are unsatisfied (`[INV-SURFACE-03]`).
     pub(crate) fn open_dialog(&mut self, id: DialogKind) -> bool {
+        if !self.dialog_available(id) {
+            return false;
+        }
         if let Some(current) = self.active_dialog()
             && current != id
         {
@@ -214,9 +355,9 @@ impl App {
         if id == DialogKind::HistorySearch && self.input_history_persist {
             self.send_intent(nuo_wire::AgentRequest::QueryInputHistory);
         }
-        let first = self.surface_store.open(id).is_none();
+        let first = !self.surface_store.is_open(id);
+        self.surface_store.open(id);
         self.surfaces.present_dialog(id);
-        self.restore_dialog_state(id);
         first
     }
 
@@ -229,64 +370,6 @@ impl App {
         cfg.expand_auto_scroll = self.expand_auto_scroll;
         cfg.default_expanded = self.tui_config.default_expanded.clone();
         let _ = cfg.save();
-    }
-
-    /// Snapshot the current field values of a dialog into `SurfaceStore`.
-    pub(crate) fn save_dialog_state(&mut self, id: DialogKind) {
-        let scroll = self.dialog_scroll(id);
-        let follow = self.dialog_follow(id);
-        let draft = self.surface_store.state(&id).and_then(|s| s.draft.clone());
-        let query = if self.owns_composer_draft(id) {
-            self.input.clone()
-        } else {
-            self.surface_store
-                .state(&id)
-                .map(|state| state.query.clone())
-                .unwrap_or_default()
-        };
-        let query_active = match id {
-            DialogKind::Models | DialogKind::Connections => self.model_search,
-            DialogKind::HistorySearch => self.history_search,
-            _ => false,
-        };
-        self.surface_store.save(
-            id,
-            DialogState {
-                index: self.modal_index,
-                scroll,
-                follow,
-                draft,
-                query,
-                query_active,
-            },
-        );
-    }
-
-    /// Restore the live fields projected by a retained dialog.
-    pub(crate) fn restore_dialog_state(&mut self, id: DialogKind) {
-        let state = self.surface_store.state(&id).cloned().unwrap_or_default();
-        self.modal_index = state.index;
-        self.apply_dialog_scroll(id, state.scroll);
-        self.apply_dialog_follow(id, state.follow);
-        if self.owns_composer_draft(id) {
-            if state.draft.is_none() {
-                self.park_draft_into(id);
-            }
-            self.input = state.query;
-            self.set_cursor_end();
-            self.input_scroll = 0;
-            self.input_drag_scroll = None;
-            self.suggestion_index = None;
-            match id {
-                DialogKind::Models | DialogKind::Connections => {
-                    self.model_search = state.query_active;
-                }
-                DialogKind::HistorySearch => {
-                    self.history_search = state.query_active;
-                }
-                _ => {}
-            }
-        }
     }
 
     /// Exit hook for a root scene.
@@ -309,37 +392,28 @@ impl App {
         }
     }
 
-    /// Run the exit hook for one exact dialog.
+    /// Run the App-side exit hook for one exact dialog. The dialog entity's own
+    /// dismissal hook runs in `SurfaceRouter::pop_overlay`.
     pub(crate) fn deactivate_dialog(&mut self, id: DialogKind) {
-        self.dialog_keys = false;
-        self.dialog_keys_scroll = 0;
-        self.save_dialog_state(id);
-        if self.owns_composer_draft(id) {
-            self.restore_draft_from(id);
-            if id == DialogKind::HistorySearch {
-                self.history_search = false;
-            } else {
-                self.model_search = false;
-            }
-        }
+        self.set_dialog_keys(false);
         if id == DialogKind::Sessions {
-            self.sessions_loading = false;
-            self.session_info_detail = false;
+            self.surfaces.dialogs.sessions.loading = false;
+            self.surfaces.dialogs.sessions.info_detail = false;
             self.session_detail = None;
-            self.session_info_scroll = 0;
+            self.surfaces.dialogs.sessions.info_scroll = 0;
         }
         if id == DialogKind::Connections {
-            self.connection_info_detail = false;
-            self.connection_info_standalone = false;
+            self.surfaces.dialogs.connections.info_detail = false;
+            self.surfaces.dialogs.connections.info_standalone = false;
             self.connection_detail = None;
-            self.connection_info_scroll = 0;
-            self.connection_models_expanded = false;
+            self.surfaces.dialogs.connections.info_scroll = 0;
+            self.surfaces.dialogs.connections.models_expanded = false;
         }
         if id == DialogKind::Telemetry {
-            self.telemetry_tab = crate::overlays::telemetry::TelemetryTab::Overview;
-            self.telemetry_detail = false;
-            self.telemetry_turn = None;
-            self.telemetry_turn_cursor = 0;
+            self.surfaces.dialogs.telemetry.tab = crate::overlays::telemetry::TelemetryTab::Overview;
+            self.surfaces.dialogs.telemetry.detail = false;
+            self.surfaces.dialogs.telemetry.turn = None;
+            self.surfaces.dialogs.telemetry.turn_cursor = 0;
         }
         if id == DialogKind::Queue
             && let Some(sid) = self.queue_exit_session.take()
@@ -349,29 +423,18 @@ impl App {
     }
 
     /// Dismiss the active dialog overlay, restoring the dialog underneath (if
-    /// any). Strictly **overlay-scoped**: it never leaves the Scene. A Scene's
-    /// exit is `close_scene`, a deliberate verb — never the universal dismiss
-    /// chord (ADR-0205 `[INV-TUI-CLEAN-02]`, ADR-0298 §2).
+    /// any). Strictly **overlay-scoped**: it never leaves the Scene.
     pub(crate) fn dismiss_active_dialog(&mut self) -> bool {
         if let Some(id) = self.active_dialog() {
             self.deactivate_dialog(id);
             self.surfaces.pop_overlay();
-            if let Some(underlying) = self.active_dialog() {
-                self.restore_dialog_state(underlying);
-            }
             true
         } else {
             false
         }
     }
 
-    /// Leave a root scene back to the scene it came from (ADR-0205 lifecycle:
-    /// the scene history the router keeps for TaskInspection and Aside, and a
-    /// direct return to Conversation for the peer scenes). Returns `false`
-    /// when already on the Conversation scene.
-    ///
-    /// This is the *only* scene-leaving path besides the aside/subagent exits
-    /// in [`App::close_scene`]; nothing on the Esc chord calls it.
+    /// Leave a root scene back to the scene it came from.
     pub(crate) fn leave_scene(&mut self) -> bool {
         let leaving = self.current_scene();
         if leaving == SceneKind::Conversation {
@@ -391,21 +454,12 @@ impl App {
         true
     }
 
-    /// Actively leave the current Scene: the `C-x` scene namespace's exit
-    /// (`C-x w` / `C-x k`, ADR-0298 §1) and each scene's own `q`.
-    ///
-    /// Overlay-agnostic by design — an overlay floating above the scene is the
-    /// visual foreground, so the dispatcher dismisses it *first* and the scene
-    /// is left on the next press. Returns `true` when a scene was actually
-    /// left (i.e. the view was not already the home Conversation).
+    /// Actively leave the current Scene: the `C-x` scene namespace's exit and
+    /// each scene's own `q`.
     pub(crate) fn close_scene(&mut self) -> bool {
         self.scene_namespace_armed = false;
         match self.current_scene() {
             SceneKind::Aside => {
-                // `/btw`: detach from the aside view and return to the primary
-                // transcript (ADR-0103). Detach is non-destructive — the aside
-                // keeps running. The interrupt arm is cleared so the main
-                // view's next Esc starts a fresh confirmation.
                 self.exit_side_view();
                 self.arm_esc(None);
                 self.send_intent(nuo_wire::AgentRequest::ExitSideView);
@@ -423,12 +477,7 @@ impl App {
         }
     }
 
-    /// Step back one level **inside** the active Scene: a dropdown, a drill-in
-    /// pane, the dashboard's preview or inline prompt. Esc produces this on the
-    /// Dashboard and Settings scenes (ADR-0298 §2). It is scene-local by
-    /// construction — there is no arm that leaves the Scene, so Esc can never
-    /// navigate between scenes. The Conversation, TaskInspection and Aside
-    /// scenes own their Esc in their own schemes and never reach this.
+    /// Step back one level **inside** the active Scene.
     pub(crate) fn scene_back(&mut self) {
         if self.current_scene() == SceneKind::Settings {
             if self.config_dropdown.is_some() {
@@ -439,8 +488,6 @@ impl App {
                 if crate::overlays::ConfigCategory::from_index(self.config_category)
                     == crate::overlays::ConfigCategory::Appearance
                 {
-                    // Leaving the theme pane reverts any uncommitted live preview to the
-                    // persisted color scheme respecting active terminal capabilities.
                     let ws_path = if self.current_workspace.is_empty() {
                         None
                     } else {
@@ -481,73 +528,13 @@ impl App {
             self.surfaces.pop_overlay();
         }
         self.surface_store.close(id);
-        self.reset_dialog_payload(id);
-    }
-
-    fn reset_dialog_payload(&mut self, id: DialogKind) {
-        match id {
-            DialogKind::Tools | DialogKind::Mcp => {
-                self.session_scroll = 0;
-                self.session_modal_follow = true;
-            }
-            DialogKind::Skills => {
-                self.session_scroll = 0;
-                self.session_modal_follow = true;
-                self.skills_expanded = None;
-            }
-            DialogKind::Permissions => self.permissions_scroll = 0,
-            DialogKind::UsageStats => {
-                self.usage_stats_scroll = 0;
-            }
-            DialogKind::Telemetry => {
-                self.telemetry_tab = crate::overlays::telemetry::TelemetryTab::Overview;
-                self.telemetry_scroll = 0;
-                self.telemetry_detail = false;
-                self.telemetry_turn = None;
-                self.telemetry_turn_cursor = 0;
-            }
-            DialogKind::Asides => {
-                self.btw_list.clear();
-                self.btw_scroll = 0;
-                self.btw_modal_follow = true;
-            }
-            DialogKind::Models | DialogKind::Connections => {
-                self.model_search = false;
-                self.model_scroll = 0;
-                self.model_modal_follow = true;
-                self.models_refreshing = false;
-            }
-            DialogKind::HistorySearch => {
-                self.history_search = false;
-            }
-            DialogKind::Queue => {
-                self.queue_scroll = 0;
-                self.queue_modal_follow = true;
-            }
-            DialogKind::Sessions => {
-                self.sessions_loading = true;
-                self.session_info_detail = false;
-                self.session_detail = None;
-                self.session_info_scroll = 0;
-            }
-            DialogKind::SessionTree => {
-                self.session_tree = nuo_wire::SessionTree::default();
-                self.tree_scroll = 0;
-                self.tree_modal_follow = true;
-            }
-            DialogKind::Switcher => {
-                self.command_palette_query.clear();
-                self.command_palette_selected = 0;
-                self.command_palette_scroll = 0;
-            }
-        }
+        self.surfaces.dialogs.reset(id);
     }
 
     /// Pop the deepest sub-layer of a view or dialog.
     pub(crate) fn pop_sublayer(&mut self) -> bool {
-        if self.dialog_keys {
-            self.dialog_keys = false;
-            self.dialog_keys_scroll = 0;
+        if self.dialog_keys() {
+            self.set_dialog_keys(false);
             return true;
         }
         if self.current_scene() == SceneKind::Settings {
@@ -577,31 +564,32 @@ impl App {
         if let Some(dialog) = self.active_dialog() {
             match dialog {
                 DialogKind::Telemetry => {
-                    if self.telemetry_turn.is_some() {
-                        self.telemetry_turn = None;
-                        self.telemetry_scroll = 0;
+                    let t = &mut self.surfaces.dialogs.telemetry;
+                    if t.turn.is_some() {
+                        t.turn = None;
+                        t.scroll = 0;
                         return true;
                     }
-                    if self.telemetry_detail {
-                        self.telemetry_detail = false;
-                        self.telemetry_turn_cursor = 0;
-                        self.telemetry_scroll = 0;
+                    if t.detail {
+                        t.detail = false;
+                        t.turn_cursor = 0;
+                        t.scroll = 0;
                         return true;
                     }
                 }
-                DialogKind::Sessions if self.session_info_detail => {
-                    self.session_info_detail = false;
+                DialogKind::Sessions if self.surfaces.dialogs.sessions.info_detail => {
+                    self.surfaces.dialogs.sessions.info_detail = false;
                     self.session_detail = None;
-                    self.session_info_scroll = 0;
+                    self.surfaces.dialogs.sessions.info_scroll = 0;
                     return true;
                 }
-                DialogKind::Connections if self.connection_info_detail => {
-                    let standalone = self.connection_info_standalone;
-                    self.connection_info_detail = false;
-                    self.connection_info_standalone = false;
+                DialogKind::Connections if self.surfaces.dialogs.connections.info_detail => {
+                    let standalone = self.surfaces.dialogs.connections.info_standalone;
+                    self.surfaces.dialogs.connections.info_detail = false;
+                    self.surfaces.dialogs.connections.info_standalone = false;
                     self.connection_detail = None;
-                    self.connection_info_scroll = 0;
-                    self.connection_models_expanded = false;
+                    self.surfaces.dialogs.connections.info_scroll = 0;
+                    self.surfaces.dialogs.connections.models_expanded = false;
                     return !standalone;
                 }
                 _ => {}
@@ -617,71 +605,6 @@ impl App {
             return true;
         }
         self.dismiss_active_dialog()
-    }
-
-    fn dialog_scroll(&self, id: DialogKind) -> usize {
-        match id {
-            DialogKind::Tools | DialogKind::Mcp | DialogKind::Skills => self.session_scroll,
-            DialogKind::Permissions => self.permissions_scroll,
-            DialogKind::UsageStats => self.usage_stats_scroll,
-            DialogKind::Telemetry => self.telemetry_scroll,
-            DialogKind::Asides => self.btw_scroll,
-            DialogKind::HistorySearch => self.history_scroll,
-            DialogKind::Models | DialogKind::Connections => self.model_scroll,
-            DialogKind::Queue => self.queue_scroll,
-            DialogKind::Sessions => self.session_scroll,
-            DialogKind::SessionTree => self.tree_scroll,
-            DialogKind::Switcher => self.command_palette_scroll,
-        }
-    }
-
-    fn apply_dialog_scroll(&mut self, id: DialogKind, scroll: usize) {
-        match id {
-            DialogKind::Tools | DialogKind::Mcp | DialogKind::Skills => {
-                self.session_scroll = scroll;
-            }
-            DialogKind::Permissions => self.permissions_scroll = scroll,
-            DialogKind::UsageStats => self.usage_stats_scroll = scroll,
-            DialogKind::Telemetry => self.telemetry_scroll = scroll,
-            DialogKind::Asides => self.btw_scroll = scroll,
-            DialogKind::HistorySearch => self.history_scroll = scroll,
-            DialogKind::Models | DialogKind::Connections => {
-                self.model_scroll = scroll;
-            }
-            DialogKind::Queue => self.queue_scroll = scroll,
-            DialogKind::Sessions => self.session_scroll = scroll,
-            DialogKind::SessionTree => self.tree_scroll = scroll,
-            DialogKind::Switcher => self.command_palette_scroll = scroll,
-        }
-    }
-
-    fn dialog_follow(&self, id: DialogKind) -> bool {
-        match id {
-            DialogKind::Tools | DialogKind::Mcp | DialogKind::Skills => self.session_modal_follow,
-            DialogKind::Asides => self.btw_modal_follow,
-            DialogKind::HistorySearch => self.history_modal_follow,
-            DialogKind::Models | DialogKind::Connections => self.model_modal_follow,
-            DialogKind::Queue => self.queue_modal_follow,
-            DialogKind::Sessions => self.session_modal_follow,
-            DialogKind::SessionTree => self.tree_modal_follow,
-            _ => true,
-        }
-    }
-
-    fn apply_dialog_follow(&mut self, id: DialogKind, follow: bool) {
-        match id {
-            DialogKind::Tools | DialogKind::Mcp | DialogKind::Skills | DialogKind::Sessions => {
-                self.session_modal_follow = follow
-            }
-            DialogKind::Asides => self.btw_modal_follow = follow,
-            DialogKind::HistorySearch => self.history_modal_follow = follow,
-            DialogKind::Models | DialogKind::Connections => {
-                self.model_modal_follow = follow;
-            }
-            DialogKind::Queue => self.queue_modal_follow = follow,
-            DialogKind::SessionTree => self.tree_modal_follow = follow,
-            _ => {}
-        }
     }
 
     pub(crate) fn reset_view_state(&mut self) {
@@ -714,19 +637,13 @@ impl App {
                 .session_chrome
                 .get(&self.current_session_id)
                 .and_then(|chrome| chrome.last_turn_performance),
-            // The primary's own setback slot. Unlike `phase` this mirror is
-            // never swapped into the App fields by `apply_chrome`/the parked
-            // primary chrome: the primary view reads it directly, the aside
-            // view reads the aside's entry, and a view change therefore has
-            // nothing to restore (ADR-0235).
             transport_setback: self.provider_retry.clone(),
         }
     }
 
     /// Write the primary session's activity phase, retiring its
     /// transport-setback clause by the same rule as
-    /// [`SessionChrome::set_phase`] — this is the primary's half of the single
-    /// clause lifetime (ADR-0235).
+    /// [`SessionChrome::set_phase`].
     pub fn set_phase(&mut self, phase: Option<crate::phase::Phase>) {
         if crate::phase::ends_transport_setback(phase.as_ref()) {
             self.provider_retry = None;
@@ -734,10 +651,7 @@ impl App {
         self.phase = phase;
     }
 
-    /// Whether any session currently carries a live transport setback. The
-    /// event loop's animation predicate and the renderer both read this, so a
-    /// countdown nobody is looking at still ticks, and a retired one stops
-    /// costing frames.
+    /// Whether any session currently carries a live transport setback.
     pub fn has_live_transport_setback(&self) -> bool {
         self.provider_retry.is_some()
             || self
@@ -746,11 +660,7 @@ impl App {
                 .any(|chrome| chrome.transport_setback.is_some())
     }
 
-    /// Copy a viewed session's chrome into the App-level mirrors. Deliberately
-    /// partial: it carries the display slots a view swap must restore
-    /// (`phase`, counters, timer origin) and *not* the setback clause, which is
-    /// parked by construction — the primary keeps its own in
-    /// [`App::provider_retry`] while an aside is on screen (ADR-0235).
+    /// Copy a viewed session's chrome into the App-level mirrors.
     pub(super) fn apply_chrome(&mut self, chrome: &SessionChrome) {
         self.phase = chrome.phase.clone();
         self.round_started_at = chrome.round_started_at;

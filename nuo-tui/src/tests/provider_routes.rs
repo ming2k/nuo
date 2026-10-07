@@ -643,20 +643,23 @@ fn sessions_picker_data_refresh_does_not_reset_cursor_when_already_open() {
         .map(|i| overview_row(&format!("s{i}")))
         .collect::<Vec<_>>();
     app.open_dialog(crate::surfaces::DialogKind::Sessions);
-    app.modal_index = 3;
-    app.session_scroll = 2;
+    app.set_active_index(3);
+    app.surfaces.dialogs.sessions.scroll = 2;
 
     // Simulate the refresh path (open_sessions signal + fresh overview) with
     // the dialog ALREADY open: cursor and scroll must be preserved.
     let opening = app.active_dialog() != Some(crate::surfaces::DialogKind::Sessions); // false
     if opening {
         app.open_dialog(crate::surfaces::DialogKind::Sessions);
-        app.modal_index = 0;
-        app.session_scroll = 0;
-        app.session_modal_follow = true;
+        app.set_active_index(0);
+        app.surfaces.dialogs.sessions.scroll = 0;
+        app.surfaces.dialogs.sessions.follow = true;
     }
-    assert_eq!(app.modal_index, 3, "refresh while open keeps the cursor");
-    assert_eq!(app.session_scroll, 2, "refresh while open keeps the scroll");
+    assert_eq!(app.active_index(), 3, "refresh while open keeps the cursor");
+    assert_eq!(
+        app.surfaces.dialogs.sessions.scroll, 2,
+        "refresh while open keeps the scroll"
+    );
 
     // Now simulate opening from a different scene/dialog (the genuine-open case):
     // cursor and scroll reset to the top.
@@ -664,12 +667,15 @@ fn sessions_picker_data_refresh_does_not_reset_cursor_when_already_open() {
     let opening = app.active_dialog() != Some(crate::surfaces::DialogKind::Sessions); // true
     if opening {
         app.open_dialog(crate::surfaces::DialogKind::Sessions);
-        app.modal_index = 0;
-        app.session_scroll = 0;
-        app.session_modal_follow = true;
+        app.set_active_index(0);
+        app.surfaces.dialogs.sessions.scroll = 0;
+        app.surfaces.dialogs.sessions.follow = true;
     }
-    assert_eq!(app.modal_index, 0, "a genuine open resets the cursor");
-    assert_eq!(app.session_scroll, 0, "a genuine open resets the scroll");
+    assert_eq!(app.active_index(), 0, "a genuine open resets the cursor");
+    assert_eq!(
+        app.surfaces.dialogs.sessions.scroll, 0,
+        "a genuine open resets the scroll"
+    );
 }
 
 // Unified surface router: transient stack, per-view drafts, queue hook,
@@ -869,8 +875,8 @@ async fn open_active_connection_detail_opens_standalone_and_closes_to_none() {
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::Connections)
     );
-    assert!(app.connection_info_detail);
-    assert!(app.connection_info_standalone);
+    assert!(app.surfaces.dialogs.connections.info_detail);
+    assert!(app.surfaces.dialogs.connections.info_standalone);
 
     let req = rx.try_recv().expect("should query connection detail");
     match req {
@@ -883,8 +889,8 @@ async fn open_active_connection_detail_opens_standalone_and_closes_to_none() {
     // Esc in standalone connection detail closes directly to None (no drill-down backout)
     crate::event_loop::handle_close_modal(&mut app, "s1");
     assert!(app.surfaces.active_overlay().is_none());
-    assert!(!app.connection_info_detail);
-    assert!(!app.connection_info_standalone);
+    assert!(!app.surfaces.dialogs.connections.info_detail);
+    assert!(!app.surfaces.dialogs.connections.info_standalone);
 }
 
 #[tokio::test]
@@ -918,14 +924,14 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
         crate::event_loop::AppMutation::ConnectionDetail(detail_phase1.clone()),
     );
 
-    assert_eq!(app.connection_info_scroll, 0);
+    assert_eq!(app.surfaces.dialogs.connections.info_scroll, 0);
     assert_eq!(
         app.connection_detail.as_ref().map(|d| &d.name),
         Some(&"google-antigravity".to_string())
     );
 
     // User scrolls down while reading the connection details
-    app.connection_info_scroll = 5;
+    app.surfaces.dialogs.connections.info_scroll = 5;
 
     // Phase 2 quotas arrive for the same connection
     let mut detail_phase2 = detail_phase1.clone();
@@ -939,7 +945,7 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
 
     // Scroll must be preserved and not jump to 0!
     assert_eq!(
-        app.connection_info_scroll, 5,
+        app.surfaces.dialogs.connections.info_scroll, 5,
         "quota loading must preserve scroll position"
     );
 }
@@ -952,7 +958,7 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
     let runtime = crate::event_loop::UiRuntime::minimal_for_test();
 
     app.open_dialog(crate::surfaces::DialogKind::Connections);
-    app.connection_info_detail = true;
+    app.surfaces.dialogs.connections.info_detail = true;
     app.connection_detail = Some(nuo_wire::ConnectionDetail {
         name: "custom-relay".to_string(),
         provider: "custom".to_string(),
@@ -1005,7 +1011,7 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     let runtime = crate::event_loop::UiRuntime::minimal_for_test();
 
     app.open_dialog(crate::surfaces::DialogKind::Models);
-    assert!(!app.models_refreshing);
+    assert!(!app.surfaces.dialogs.models.refreshing);
 
     // First press: initiates refresh, sets models_refreshing, shows toast, sends request
     let flow = crate::event_loop::actions::dispatch_action_for_test(
@@ -1017,7 +1023,7 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     .await;
 
     assert_eq!(flow, crate::event_loop::actions::ActionFlow::Handled);
-    assert!(app.models_refreshing);
+    assert!(app.surfaces.dialogs.models.refreshing);
     assert_eq!(app.copy_toast_message, "Refreshing models…");
     assert!(app.copy_toast_until.is_some());
 
@@ -1037,7 +1043,7 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     .await;
 
     assert_eq!(flow2, crate::event_loop::actions::ActionFlow::Handled);
-    assert!(app.models_refreshing);
+    assert!(app.surfaces.dialogs.models.refreshing);
     assert_eq!(app.copy_toast_message, "Model refresh already in progress…");
     assert!(rx.try_recv().is_err(), "should not send duplicate request");
 
@@ -1049,7 +1055,7 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
             nuo_wire::ProviderPickerSnapshot::default(),
         ),
     );
-    assert!(!app.models_refreshing);
+    assert!(!app.surfaces.dialogs.models.refreshing);
 
     // When NoticeToast arrives, local copy toast is cleared so server notice is visible
     app.copy_toast_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(10));

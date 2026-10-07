@@ -558,7 +558,11 @@ impl App {
     /// is out of range. The harness applies it and replies with a fresh
     /// snapshot that re-renders the modal.
     pub fn session_activate_request(&self) -> Option<AgentRequest> {
-        let tool = self.session_context.as_ref()?.tools.get(self.modal_index)?;
+        let tool = self
+            .session_context
+            .as_ref()?
+            .tools
+            .get(self.active_index())?;
         Some(AgentRequest::ToggleTool {
             name: tool.name.clone(),
             enabled: !tool.enabled,
