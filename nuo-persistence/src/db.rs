@@ -1060,7 +1060,7 @@ pub struct StorageMetrics {
     pub oldest_reader_ms: Option<u64>,
 }
 
-static GLOBAL_HANDLE: OnceLock<PersistenceHandle> = OnceLock::new();
+static GLOBAL_HANDLE: std::sync::Mutex<Option<PersistenceHandle>> = std::sync::Mutex::new(None);
 
 struct RegisteredOwner {
     supervisor: mpsc::WeakSender<PersistenceCommand>,

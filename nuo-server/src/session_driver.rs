@@ -1142,6 +1142,12 @@ impl SessionDriver {
                         crate::handlers_provider::query_all_connections_usage(&resp_tx, force_refresh).await;
                     });
                 }
+                AgentRequest::QueryProviderQuotas { provider, force_refresh } => {
+                    let resp_tx = resp_tx.clone();
+                    tokio::spawn(async move {
+                        crate::handlers_provider::query_provider_quotas(&resp_tx, provider, force_refresh).await;
+                    });
+                }
                 AgentRequest::QuerySessionsOverview => {
                     let session = session.clone();
                     let resp_tx = resp_tx.clone();

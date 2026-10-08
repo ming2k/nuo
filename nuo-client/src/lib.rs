@@ -1375,15 +1375,26 @@ pub async fn ensure_server(project_root: &Path) -> Result<ServerInfo, String> {
         let _ = stop(&info).await;
     }
 
-    // Check if another server is holding the instance lock
+    // Check if another server is holding the instance lock or database owner lock
     let lock_path = discovery::global_lock_path();
+    let db_lock_path = nuo_host::paths::get().db_file().with_extension("db.owner.lock");
+    let mut candidate_pids = std::collections::HashSet::new();
     if nuo_host::lock::ProcessLock::is_locked(&lock_path)
         && let Some(holder_pid) = nuo_host::lock::ProcessLock::probe_holder(&lock_path)
         && is_process_alive(holder_pid)
     {
+        candidate_pids.insert(holder_pid);
+    }
+    if nuo_host::lock::ProcessLock::is_locked(&db_lock_path)
+        && let Some(holder_pid) = nuo_host::lock::ProcessLock::probe_holder(&db_lock_path)
+        && is_process_alive(holder_pid)
+    {
+        candidate_pids.insert(holder_pid);
+    }
+    for holder_pid in candidate_pids {
         tracing::info!(
             holder_pid,
-            "ensure_server: replacing conflicting server holding instance lock"
+            "ensure_server: replacing conflicting server holding instance or database lock"
         );
         let _ = nuo_host::process::takeover_pid(
             holder_pid,

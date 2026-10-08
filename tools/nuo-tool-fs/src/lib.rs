@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use nuo_tool::{
-    BuiltinTool, RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope, ToolSchema,
+    BuiltinTool, PatchOp, RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope, ToolSchema,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -233,15 +233,29 @@ impl Tool for WriteFileTool {
             })?;
         }
 
+        let is_existing = path.exists();
+        let old = if is_existing {
+            fs::read_to_string(&path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
         fs::write(&path, content).map_err(|err| {
             ToolError::execution(self.name(), format!("failed to write file `{raw_path}`: {err}"))
         })?;
 
-        Ok(ToolOutput::success(format!(
-            "Successfully wrote {} bytes to `{}`.",
-            content.len(),
-            raw_path
-        )))
+        Ok(ToolOutput::Patch {
+            path: raw_path.clone(),
+            op: if is_existing {
+                PatchOp::Edit
+            } else {
+                PatchOp::Create
+            },
+            old,
+            new: content.clone(),
+            start_line: 1,
+            warnings: Vec::new(),
+        })
     }
 }
 
@@ -331,14 +345,20 @@ impl Tool for EditTextTool {
             ));
         }
 
+        let start_line = content[..matches[0].0].matches('\n').count() + 1;
         let modified = content.replacen(old_string, new_string, 1);
         fs::write(&path, modified).map_err(|err| {
             ToolError::execution(self.name(), format!("failed to write edited file `{raw_path}`: {err}"))
         })?;
 
-        Ok(ToolOutput::success(format!(
-            "Successfully edited `{raw_path}`."
-        )))
+        Ok(ToolOutput::Patch {
+            path: raw_path.clone(),
+            op: PatchOp::Edit,
+            old: old_string.clone(),
+            new: new_string.clone(),
+            start_line,
+            warnings: Vec::new(),
+        })
     }
 }
 
@@ -866,6 +886,14 @@ mod tests {
             .await
             .unwrap();
         assert!(!write_res.is_error());
+        assert!(matches!(
+            &write_res,
+            ToolOutput::Patch {
+                op: PatchOp::Create,
+                start_line: 1,
+                ..
+            }
+        ));
 
         // 2. Read file
         let read_res = read_tool
@@ -887,6 +915,14 @@ mod tests {
             .await
             .unwrap();
         assert!(!edit_res.is_error());
+        assert!(matches!(
+            &edit_res,
+            ToolOutput::Patch {
+                op: PatchOp::Edit,
+                start_line: 2,
+                ..
+            }
+        ));
 
         // 4. Search text
         let search_res = search_tool

@@ -16,12 +16,17 @@ impl fmt::Debug for PersistenceHandle {
 pub fn get_persistence_handle() -> PersistenceHandle {
     let dirs = crate::paths::get();
     let db_path = dirs.db_file();
-    if let Some(handle) = GLOBAL_HANDLE.get().filter(|h| h.db_path == db_path) {
-        return handle.clone();
+    let mut guard = GLOBAL_HANDLE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(handle) = guard.as_ref() {
+        if handle.db_path == db_path && handle.startup_error.is_none() {
+            return handle.clone();
+        }
     }
     let blobs = Some(BlobStore::new(dirs.blobs_dir()));
     let handle = PersistenceHandle::spawn(db_path, blobs);
-    let _ = GLOBAL_HANDLE.set(handle.clone());
+    if handle.startup_error.is_none() {
+        *guard = Some(handle.clone());
+    }
     handle
 }
 
@@ -68,8 +73,9 @@ impl PersistenceHandle {
         // progress while a synchronous constructor waits for readiness.
         let opened = std::thread::spawn(move || {
             identity?;
-            let lease = Arc::new(nuo_host::lock::ProcessLock::acquire(
+            let lease = Arc::new(nuo_host::lock::ProcessLock::acquire_with_timeout(
                 &path.with_extension("db.owner.lock"),
+                Duration::from_millis(2000),
             )?);
             let engine = DatabaseEngine::open(&path, blobs).map_err(|e| e.to_string())?;
             Ok::<_, String>((engine, lease))

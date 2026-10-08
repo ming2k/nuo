@@ -53,13 +53,18 @@ fn dialog_keys_area(frame: &Frame, parent: DialogKind, desired_content_rows: u16
             let desired = desired_content_rows + modal_chrome_rows(spec.modal_spec());
             content_modal_area(frame, spec, desired)
         }
-        DialogKind::UsageStats => {
+        DialogKind::UsageStats | DialogKind::Quotas => {
             let spec = ContentModalSpec::USAGE_STATS;
             let desired = desired_content_rows + modal_chrome_rows(spec.modal_spec());
             content_modal_area(frame, spec, desired)
         }
-        DialogKind::Telemetry => {
-            let spec = ContentModalSpec::TELEMETRY;
+        DialogKind::SessionStats => {
+            let spec = ContentModalSpec::SESSION_STATS;
+            let desired = desired_content_rows + modal_chrome_rows(spec.modal_spec());
+            content_modal_area(frame, spec, desired)
+        }
+        DialogKind::SessionTrace => {
+            let spec = ContentModalSpec::SESSION_TRACE;
             let desired = desired_content_rows + modal_chrome_rows(spec.modal_spec());
             content_modal_area(frame, spec, desired)
         }

@@ -952,6 +952,34 @@ impl TranscriptMessage {
         true
     }
 
+    /// ADR-0026: collapse a pre-dispatch step onto its dispatch `call_id` and complete arguments —
+    /// re-key the id, record arguments, and clear the slot/byte pre-dispatch state in one step.
+    pub fn collapse_tool_call(
+        &mut self,
+        call_id: impl Into<String>,
+        arguments: impl Into<String>,
+    ) -> bool {
+        let call_id = call_id.into();
+        let arguments = arguments.into();
+        let MessageKind::ToolStep {
+            id,
+            arguments: step_arguments,
+            input_slot,
+            input_bytes,
+            ..
+        } = &mut self.kind
+        else {
+            return false;
+        };
+        let was_pending = input_slot.is_some();
+        *id = call_id;
+        *step_arguments = arguments;
+        *input_slot = None;
+        *input_bytes = None;
+        self.refresh_tool_step();
+        was_pending
+    }
+
     /// ADR-0026: collapse a pre-dispatch step onto its dispatch `call_id` —
     /// re-key the id and clear the slot/byte pre-dispatch state in one step.
     pub fn rekey_tool_step(&mut self, call_id: impl Into<String>) -> bool {
@@ -969,6 +997,7 @@ impl TranscriptMessage {
         *id = call_id;
         *input_slot = None;
         *input_bytes = None;
+        self.refresh_tool_step();
         was_pending
     }
 
@@ -2600,13 +2629,34 @@ impl TranscriptMessage {
             arguments,
             status,
             duration_ms,
+            structured,
             ..
         } = &self.kind
         else {
             return None;
         };
+        let effective_args_buf;
+        let effective_args = if arguments.trim().is_empty() {
+            if let Some(box_structured) = structured {
+                match &**box_structured {
+                    nuo_wire::ToolOutput::Patch { path, old, new, .. } => {
+                        effective_args_buf = serde_json::json!({
+                            "path": path,
+                            "old_string": old,
+                            "new_string": new,
+                        }).to_string();
+                        &effective_args_buf
+                    }
+                    _ => arguments.as_str(),
+                }
+            } else {
+                arguments.as_str()
+            }
+        } else {
+            arguments.as_str()
+        };
         let semantic_line =
-            crate::tools::semantic_summary_for(name, arguments, profile.as_deref(), workspace_root);
+            crate::tools::semantic_summary_for(name, effective_args, profile.as_deref(), workspace_root);
         let suffix = match status {
             ToolStepStatus::Running => None,
             ToolStepStatus::Ok => Some(format!(" ({})", duration_text(*duration_ms))),
@@ -2697,7 +2747,7 @@ impl TranscriptMessage {
             profile,
             arguments,
             output,
-            structured: _,
+            structured,
             status,
             expanded,
             user_pinned: _,
@@ -2734,7 +2784,27 @@ impl TranscriptMessage {
             self.resume_byte = self.raw.len();
             self.live_blocks = 0;
         } else {
-            let summary = crate::tools::summary_for(name, arguments, profile.as_deref());
+            let effective_args_buf;
+            let effective_args = if arguments.trim().is_empty() {
+                if let Some(box_structured) = structured {
+                    match &**box_structured {
+                        nuo_wire::ToolOutput::Patch { path, old, new, .. } => {
+                            effective_args_buf = serde_json::json!({
+                                "path": path,
+                                "old_string": old,
+                                "new_string": new,
+                            }).to_string();
+                            &effective_args_buf
+                        }
+                        _ => arguments.as_str(),
+                    }
+                } else {
+                    arguments.as_str()
+                }
+            } else {
+                arguments.as_str()
+            };
+            let summary = crate::tools::summary_for(name, effective_args, profile.as_deref());
             let suffix = match status {
                 ToolStepStatus::Running => String::new(),
                 ToolStepStatus::Ok => format!(" ({})", duration_text(*duration_ms)),

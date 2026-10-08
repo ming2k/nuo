@@ -1472,3 +1472,24 @@ fn fast_fts_triggers_align_rowids_and_delete_in_sync() {
         .unwrap();
     assert_eq!(fts_count, 0);
 }
+
+#[test]
+fn persistence_handle_recovers_after_transient_lock_release() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("nuo.db");
+    let lock_path = db_path.with_extension("db.owner.lock");
+
+    // Hold the lock initially to simulate predecessor holding it
+    let external_lock = nuo_host::lock::ProcessLock::acquire(&lock_path).unwrap();
+
+    // Spawn fails while lock is held
+    let handle_fail = PersistenceHandle::spawn(db_path.clone(), None);
+    assert!(handle_fail.ensure_ready().is_err());
+
+    // Release predecessor's lock
+    drop(external_lock);
+
+    // Subsequent spawn succeeds and is usable
+    let handle_ok = PersistenceHandle::spawn(db_path, None);
+    assert!(handle_ok.ensure_ready().is_ok());
+}

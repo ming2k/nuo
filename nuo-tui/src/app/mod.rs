@@ -442,6 +442,10 @@ pub struct App {
     /// session cleanup. `None` while the round-trip is in flight (the
     /// overlay renders a loading placeholder).
     pub usage_stats: Option<nuo_wire::usage_stats::UsageStatsReport>,
+    /// Provider quota pool snapshot (`QueryProviderQuotas`, ADR-0036).
+    pub provider_quotas: Option<nuo_wire::ProviderQuotaSnapshot>,
+    /// Cached connection usage states for ambient indicators.
+    pub connection_usages: std::collections::HashMap<String, nuo_wire::ConnectionUsageState>,
     /// The body (scrollable content) height of the currently-open overlay
     /// modal, captured each render from the rect the modal renderer paints
     /// its body into. This is the per-modal equivalent of `view_height` (which

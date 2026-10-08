@@ -120,7 +120,11 @@ pub(crate) enum TranscriptEdit {
     /// `slot`. A no-op when no announcement is pending (providers that deliver
     /// whole arguments never announce), so the caller falls through to a normal
     /// insert.
-    ToolCallCollapse { slot: usize, call_id: String },
+    ToolCallCollapse {
+        slot: usize,
+        call_id: String,
+        arguments: String,
+    },
     /// ADR-0026: count-only argument-progress tick for a still-streaming call.
     /// Resolves the announced step by `slot` and stores the byte count for the
     /// static summary clause.
@@ -360,6 +364,7 @@ pub(crate) enum AppMutation {
     ConnectionDetail(nuo_wire::ConnectionDetail),
     TokenReport(Option<nuo_wire::TokenSourceReport>),
     UsageStats(nuo_wire::usage_stats::UsageStatsReport),
+    ProviderQuotas(nuo_wire::ProviderQuotaSnapshot),
     SessionTree(nuo_wire::SessionTree),
     SessionContext(nuo_wire::SessionContextSnapshot),
     CompletionSignal(CompletionSignal),

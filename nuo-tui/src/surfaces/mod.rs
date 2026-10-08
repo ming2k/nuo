@@ -29,8 +29,8 @@ mod dialogs;
 #[allow(unused_imports)]
 pub use dialogs::{
     AsidesDialog, ConnectionsDialog, DialogRenderCtx, DialogView, Dialogs, HistorySearchDialog,
-    McpDialog, ModelsDialog, PermissionsDialog, QueueDialog, SessionTreeDialog, SessionsDialog,
-    SkillsDialog, SwitcherDialog, TelemetryDialog, ToolsDialog, UsageStatsDialog,
+    McpDialog, ModelsDialog, PermissionsDialog, QueueDialog, QuotasDialog, SessionTreeDialog, SessionsDialog,
+    SessionStatsDialog, SessionTraceDialog, SkillsDialog, SwitcherDialog, ToolsDialog, UsageStatsDialog,
 };
 
 /// Root full-screen scene identifier (closed set of destinations).
@@ -81,7 +81,9 @@ pub enum DialogKind {
     Skills,
     Permissions,
     UsageStats,
-    Telemetry,
+    Quotas,
+    SessionStats,
+    SessionTrace,
     Asides,
     Models,
     Connections,
@@ -94,13 +96,15 @@ pub enum DialogKind {
 
 impl DialogKind {
     /// Every dialog id that appears in the switcher's reference/discovery list.
-    pub const ALL: [DialogKind; 13] = [
+    pub const ALL: [DialogKind; 15] = [
         DialogKind::Tools,
         DialogKind::Mcp,
         DialogKind::Skills,
         DialogKind::Permissions,
         DialogKind::UsageStats,
-        DialogKind::Telemetry,
+        DialogKind::Quotas,
+        DialogKind::SessionStats,
+        DialogKind::SessionTrace,
         DialogKind::Asides,
         DialogKind::Models,
         DialogKind::Connections,
@@ -118,7 +122,9 @@ impl DialogKind {
             DialogKind::Skills => "Skills",
             DialogKind::Permissions => "Permissions",
             DialogKind::UsageStats => "Usage stats",
-            DialogKind::Telemetry => "Session telemetry",
+            DialogKind::Quotas => "Provider quotas",
+            DialogKind::SessionStats => "Session stats",
+            DialogKind::SessionTrace => "Session trace",
             DialogKind::Asides => "Asides (/btw)",
             DialogKind::Models => "Switch model",
             DialogKind::Connections => "Connections",
@@ -138,7 +144,9 @@ impl DialogKind {
             DialogKind::Skills => "/skills",
             DialogKind::Permissions => "/permissions",
             DialogKind::UsageStats => "/usage",
-            DialogKind::Telemetry => "/telemetry",
+            DialogKind::Quotas => "/quota",
+            DialogKind::SessionStats => "/stats",
+            DialogKind::SessionTrace => "/trace",
             DialogKind::Asides => "/btw",
             DialogKind::Models => "/models",
             DialogKind::Connections => "/connections",
@@ -160,9 +168,11 @@ impl DialogKind {
             | DialogKind::Sessions
             | DialogKind::Models
             | DialogKind::Connections
-            | DialogKind::UsageStats => DialogScope::Global,
+            | DialogKind::UsageStats
+            | DialogKind::Quotas => DialogScope::Global,
             // Session: bound to the ambient session; unwound on session change.
-            DialogKind::Telemetry
+            DialogKind::SessionStats
+            | DialogKind::SessionTrace
             | DialogKind::Asides
             | DialogKind::SessionTree
             | DialogKind::Tools
@@ -870,11 +880,13 @@ mod tests {
             DialogKind::Models,
             DialogKind::Connections,
             DialogKind::UsageStats,
+            DialogKind::Quotas,
         ] {
             assert_eq!(id.scope(), DialogScope::Global, "{id:?}");
         }
         for id in [
-            DialogKind::Telemetry,
+            DialogKind::SessionStats,
+            DialogKind::SessionTrace,
             DialogKind::Asides,
             DialogKind::SessionTree,
             DialogKind::Tools,
@@ -903,7 +915,11 @@ mod tests {
         assert_eq!(DialogKind::Switcher.retention_policy(), RetentionPolicy::Ephemeral);
         assert_eq!(DialogKind::Models.retention_policy(), RetentionPolicy::Retained);
         assert_eq!(
-            DialogKind::Telemetry.retention_policy(),
+            DialogKind::SessionStats.retention_policy(),
+            RetentionPolicy::SessionScoped
+        );
+        assert_eq!(
+            DialogKind::SessionTrace.retention_policy(),
             RetentionPolicy::SessionScoped
         );
     }
@@ -932,9 +948,9 @@ mod tests {
     fn unwind_session_removes_session_dialogs_and_preserves_global() {
         let mut router = SurfaceRouter::new();
         router.present_dialog(DialogKind::Models);
-        router.present_dialog(DialogKind::Telemetry);
+        router.present_dialog(DialogKind::SessionStats);
         router.unwind_session();
-        assert!(!router.contains_dialog(DialogKind::Telemetry));
+        assert!(!router.contains_dialog(DialogKind::SessionStats));
         assert!(router.contains_dialog(DialogKind::Models));
     }
 
@@ -1013,16 +1029,16 @@ mod tests {
         // and reinstated on return; global state is never touched.
         let mut d = Dialogs::default();
         d.switch_session("a");
-        d.telemetry.scroll = 11;
+        d.session_stats.scroll = 11;
         d.models.scroll = 3;
         d.switch_session("b");
-        assert_eq!(d.telemetry.scroll, 0, "fresh session starts clean");
+        assert_eq!(d.session_stats.scroll, 0, "fresh session starts clean");
         assert_eq!(d.models.scroll, 3, "global state untouched");
-        d.telemetry.scroll = 22;
+        d.session_stats.scroll = 22;
         d.switch_session("a");
-        assert_eq!(d.telemetry.scroll, 11, "session A reinstated");
+        assert_eq!(d.session_stats.scroll, 11, "session A reinstated");
         d.switch_session("b");
-        assert_eq!(d.telemetry.scroll, 22, "session B reinstated");
+        assert_eq!(d.session_stats.scroll, 22, "session B reinstated");
     }
 
     #[test]

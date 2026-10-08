@@ -114,6 +114,8 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         token_report: None,
         context_tokens: None,
         usage_stats: None,
+        provider_quotas: None,
+        connection_usages: std::collections::HashMap::new(),
         modal_body_height: 0,
         sticky_summary_line: None,
         pin_summary_line: None,

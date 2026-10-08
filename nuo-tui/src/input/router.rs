@@ -372,11 +372,14 @@ pub fn route_event(
                         // another modal too.
                         return InputAction::ViewSwitcherToggle;
                     }
-                    crate::keymap::CommandId::OpenTelemetry if dispatch.overlay.is_none() => {
-                        // Ctrl+O (model-bar telemetry keycap). Top level only:
+                    crate::keymap::CommandId::OpenSessionStats if dispatch.overlay.is_none() => {
+                        // Ctrl+O (model-bar session stats keycap). Top level only:
                         // the model bar is session chrome, never visible
                         // behind a modal.
-                        return InputAction::OpenTelemetry;
+                        return InputAction::OpenSessionStats;
+                    }
+                    crate::keymap::CommandId::OpenSessionTrace if dispatch.overlay.is_none() => {
+                        return InputAction::OpenSessionTrace;
                     }
                     crate::keymap::CommandId::OpenQueue if dispatch.overlay.is_none() => {
                         // Ctrl+Q (queue-bar expand keycap, ADR-0126's Ctrl row).

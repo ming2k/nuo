@@ -171,7 +171,8 @@ pub(crate) enum SurfaceFixture {
     None,
     UsageStats,
     Config,
-    Telemetry,
+    SessionStats,
+    SessionTrace,
     Sessions,
     Queue,
     HistorySearch,
@@ -203,8 +204,12 @@ impl SurfaceFixture {
                 Some(OverlaySurface::Dialog(DialogKind::UsageStats)),
                 SceneKind::Conversation,
             ),
-            Self::Telemetry => (
-                Some(OverlaySurface::Dialog(DialogKind::Telemetry)),
+            Self::SessionStats => (
+                Some(OverlaySurface::Dialog(DialogKind::SessionStats)),
+                SceneKind::Conversation,
+            ),
+            Self::SessionTrace => (
+                Some(OverlaySurface::Dialog(DialogKind::SessionTrace)),
                 SceneKind::Conversation,
             ),
             Self::Sessions => (

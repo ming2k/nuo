@@ -350,7 +350,14 @@ define_builtin_commands! {
         summary: "Cross-session token usage statistics overlay",
         usage: ["/usage"],
         examples: [("/usage", "Open the usage statistics overlay")],
-        intent_keywords: ["usage", "stats", "statistics", "tokens", "tokens-per-day", "daily", "consumption", "spend", "quota"],
+        intent_keywords: ["usage", "stats", "statistics", "tokens", "tokens-per-day", "daily", "consumption", "spend"],
+        category: System,
+    },
+    Quota = "/quota" : {
+        summary: "Provider quota pool and allowance dashboard",
+        usage: ["/quota", "/quota <provider>"],
+        examples: [("/quota", "Open provider quota dashboard"), ("/quota google-antigravity", "Inspect Google Antigravity quotas")],
+        intent_keywords: ["quota", "quotas", "allowance", "capacity", "antigravity", "limits", "balance"],
         category: System,
     },
     Btw = "/btw" : {

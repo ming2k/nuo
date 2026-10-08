@@ -14,13 +14,29 @@ pub struct EditPresenter;
 
 impl ToolPresenter for EditPresenter {
     fn render_summary<'a>(&self, view: &'a ToolView) -> SemanticLine<'a> {
-        let Some(raw_path) = view.str("path") else {
+        let raw_path = view
+            .str("path")
+            .or_else(|| view.str("file_path"))
+            .or_else(|| view.str("filename"))
+            .or_else(|| view.str("file"))
+            .filter(|p| !p.trim().is_empty());
+        let Some(raw_path) = raw_path else {
             return SemanticLine::plain("Edit text");
         };
         let mut line = SemanticLine::new()
             .push_fixed("Edit ")
             .push_path(PathView::from_str(raw_path).maybe_base_dir(view.workspace_root));
-        if let (Some(old), Some(new)) = (view.str("old_string"), view.str("new_string")) {
+        let old = view
+            .str("old_string")
+            .or_else(|| view.str("old_str"))
+            .or_else(|| view.str("old_text"))
+            .or_else(|| view.str("old"));
+        let new = view
+            .str("new_string")
+            .or_else(|| view.str("new_str"))
+            .or_else(|| view.str("new_text"))
+            .or_else(|| view.str("new"));
+        if let (Some(old), Some(new)) = (old, new) {
             let (added, removed) = line_diff_counts(old, new);
             line = line.push_fixed(format!(" +{} -{}", added, removed));
         }
@@ -44,13 +60,23 @@ pub struct WritePresenter;
 
 impl ToolPresenter for WritePresenter {
     fn render_summary<'a>(&self, view: &'a ToolView) -> SemanticLine<'a> {
-        let Some(raw_path) = view.str("path") else {
+        let raw_path = view
+            .str("path")
+            .or_else(|| view.str("file_path"))
+            .or_else(|| view.str("filename"))
+            .or_else(|| view.str("file"))
+            .filter(|p| !p.trim().is_empty());
+        let Some(raw_path) = raw_path else {
             return SemanticLine::plain("Write file");
         };
         let mut line = SemanticLine::new()
             .push_fixed("Write ")
             .push_path(PathView::from_str(raw_path).maybe_base_dir(view.workspace_root));
-        if let Some(content) = view.str("content") {
+        let content = view
+            .str("content")
+            .or_else(|| view.str("new_string"))
+            .or_else(|| view.str("text"));
+        if let Some(content) = content {
             let (added, _) = line_diff_counts("", content);
             line = line.push_fixed(format!(" +{}", added));
         }

@@ -1923,76 +1923,202 @@ pub(crate) async fn query_connection_detail(
 
     // Phase 2: Async remote query in background task.
     let resp_tx_bg = resp_tx.clone();
-    let conn_id = connection.name.clone();
-    let conn_auth = connection.auth.clone();
-    let provider = connection.provider.clone();
-    let raw_key_str = raw_key.expose_secret().to_string();
+    let conn = connection.clone();
+    let base_url_bg = base_url.clone();
     tokio::spawn(async move {
-        let (api_key, project, is_oauth) = if conn_auth.is_oauth() {
-            let source =
-                nuo_oauth::OAuthCredentialSource::new(
-                    &crate::credentials_host::host(),
-                    &conn_id,
-                    conn_auth.clone(),
-                );
-            match nuo_wire::CredentialSource::resolve_auth(&source).await {
-                Ok(auth) => {
-                    let project = auth
-                        .extension::<nuo_model_codec::GoogleAuthMetadata>()
-                        .map(|m| m.project_id.clone());
-                    (auth.token.expose_secret().to_string(), project, true)
-                }
-                Err(err) => {
-                    initial_detail.usage = nuo_wire::ConnectionUsageState::Error(err);
-                    let _ = resp_tx_bg.send(AgentResponse::ConnectionDetail(initial_detail));
-                    return;
-                }
-            }
-        } else {
-            (raw_key_str, None, false)
-        };
-
-        let mut usage = crate::provider_registry::fetch_provider_usage_ext(
-            &provider,
-            &base_url,
-            &api_key,
-            project.as_deref(),
-        )
-        .await;
-
-        if is_oauth
-            && let nuo_wire::ConnectionUsageState::Error(ref err) = usage
-            && is_auth_error(err)
-        {
-            let source =
-                nuo_oauth::OAuthCredentialSource::new(
-                    &crate::credentials_host::host(),
-                    &conn_id,
-                    conn_auth.clone(),
-                );
-            let rejected = SecretString::from(api_key.as_str());
-            if let Ok(refreshed) =
-                nuo_wire::CredentialSource::force_refresh_after_rejection(&source, &rejected)
-                    .await
-            {
-                let refreshed_project = refreshed
-                    .extension::<nuo_model_codec::GoogleAuthMetadata>()
-                    .map(|m| m.project_id.as_str())
-                    .or(project.as_deref());
-                usage = crate::provider_registry::fetch_provider_usage_ext(
-                    &provider,
-                    &base_url,
-                    refreshed.token.expose_secret(),
-                    refreshed_project,
-                )
-                .await;
-            }
-        }
-
-        crate::usage_cache::shared_usage_cache().put(&conn_id, usage.clone());
+        let (usage, _) = fetch_usage_for_connection(&conn, &raw_key, &base_url_bg).await;
+        crate::usage_cache::shared_usage_cache().put(&conn.name, usage.clone());
         initial_detail.usage = usage;
         let _ = resp_tx_bg.send(AgentResponse::ConnectionDetail(initial_detail));
     });
+}
+
+/// Fetch live provider usage for a single connection, handling OAuth resolution and 401 retry.
+pub(crate) async fn fetch_usage_for_connection(
+    connection: &nuo_persistence::connections::Connection,
+    raw_key: &SecretString,
+    base_url: &str,
+) -> (nuo_wire::ConnectionUsageState, Option<String>) {
+    let (api_key, project, account_id, is_oauth) = if connection.auth.is_oauth() {
+        let source = nuo_oauth::OAuthCredentialSource::new(
+            &crate::credentials_host::host(),
+            &connection.name,
+            connection.auth.clone(),
+        );
+        match nuo_wire::CredentialSource::resolve_auth(&source).await {
+            Ok(auth) => {
+                let project = auth
+                    .extension::<nuo_model_codec::GoogleAuthMetadata>()
+                    .map(|m| m.project_id.clone());
+                let account_id = auth.user_email.clone().or_else(|| project.clone());
+                (auth.token.expose_secret().to_string(), project, account_id, true)
+            }
+            Err(err) => {
+                return (nuo_wire::ConnectionUsageState::Error(err), None);
+            }
+        }
+    } else {
+        (raw_key.expose_secret().to_string(), None, None, false)
+    };
+
+    let mut usage = crate::provider_registry::fetch_provider_usage_ext(
+        &connection.provider,
+        base_url,
+        &api_key,
+        project.as_deref(),
+    )
+    .await;
+
+    if is_oauth
+        && let nuo_wire::ConnectionUsageState::Error(ref err) = usage
+        && is_auth_error(err)
+    {
+        let source = nuo_oauth::OAuthCredentialSource::new(
+            &crate::credentials_host::host(),
+            &connection.name,
+            connection.auth.clone(),
+        );
+        let rejected = SecretString::from(api_key.as_str());
+        if let Ok(refreshed) =
+            nuo_wire::CredentialSource::force_refresh_after_rejection(&source, &rejected)
+                .await
+        {
+            let refreshed_project = refreshed
+                .extension::<nuo_model_codec::GoogleAuthMetadata>()
+                .map(|m| m.project_id.as_str())
+                .or(project.as_deref());
+            usage = crate::provider_registry::fetch_provider_usage_ext(
+                &connection.provider,
+                base_url,
+                refreshed.token.expose_secret(),
+                refreshed_project,
+            )
+            .await;
+        }
+    }
+
+    (usage, account_id)
+}
+
+/// Query aggregated provider quota inspection overview across configured connections (ADR-0036).
+pub async fn query_provider_quotas(
+    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
+    provider_filter: Option<String>,
+    force_refresh: bool,
+) {
+    use futures::StreamExt;
+    let stores = catalog::Stores::load();
+    let config = Config::load();
+    let default_conn_id = config.default_connection.clone();
+
+    let targets: Vec<nuo_persistence::connections::Connection> = stores
+        .connections
+        .connections
+        .iter()
+        .filter(|c| {
+            if let Some(ref filter) = provider_filter {
+                if c.provider != *filter && c.auth.subscription_provider() != Some(filter.as_str()) {
+                    return false;
+                }
+            }
+            crate::provider_registry::model_provider_spec(&c.provider)
+                .and_then(|s| s.quota)
+                .is_some()
+        })
+        .cloned()
+        .collect();
+
+    let mut stream = futures::stream::iter(targets)
+        .map(|conn| {
+            let default_id = default_conn_id.clone();
+            let inputs = stores.inputs();
+            let entry = catalog::derive_entry(&conn, &inputs);
+            let base_url = entry
+                .default_channel()
+                .map(|c| c.transport.base_url().to_string())
+                .unwrap_or_else(|| {
+                    crate::provider_registry::model_provider_spec(&conn.provider)
+                        .map(|s| s.root_url.to_string())
+                        .unwrap_or_default()
+                });
+            let raw_key = catalog::resolve_credential(&conn, &stores.creds);
+
+            async move {
+                let (usage_state, account_id) = if !force_refresh
+                    && let Some(cached) = crate::usage_cache::shared_usage_cache().get(&conn.name)
+                {
+                    (cached, None)
+                } else {
+                    let (fetched, acct) = fetch_usage_for_connection(&conn, &raw_key, &base_url).await;
+                    crate::usage_cache::shared_usage_cache().put(&conn.name, fetched.clone());
+                    (fetched, acct)
+                };
+
+                let (primary_balance, quota, plan, earliest_reset_ms) = match &usage_state {
+                    nuo_wire::ConnectionUsageState::Available(u) => {
+                        let reset = u.quota.as_ref().and_then(|q| match q {
+                            nuo_wire::ProviderQuotaData::Periodic(p) => {
+                                p.buckets.iter().filter_map(|b| b.reset_at_ms).min()
+                            }
+                            _ => None,
+                        });
+                        (u.primary_balance.clone(), u.quota.clone(), u.plan.clone(), reset)
+                    }
+                    _ => (None, None, None, None),
+                };
+
+                nuo_wire::ConnectionQuotaEntry {
+                    name: conn.name.clone(),
+                    provider: conn.provider.clone(),
+                    provider_label: nuo_wire::model_providers::model_provider_label(&conn.provider).to_string(),
+                    account_id,
+                    is_default: conn.name == default_id,
+                    primary_balance,
+                    quota,
+                    plan,
+                    state: usage_state,
+                    earliest_reset_ms,
+                }
+            }
+        })
+        .buffer_unordered(4);
+
+    let mut entries = Vec::new();
+    while let Some(item) = stream.next().await {
+        entries.push(item);
+    }
+
+    // Sort entries: active connection first, then by name
+    entries.sort_by(|a, b| {
+        b.is_default.cmp(&a.is_default).then_with(|| a.name.cmp(&b.name))
+    });
+
+    let total_accounts = entries.len();
+    let available_accounts = entries
+        .iter()
+        .filter(|e| matches!(e.state, nuo_wire::ConnectionUsageState::Available(_)))
+        .count();
+    let depleted_accounts = entries
+        .iter()
+        .filter(|e| match &e.state {
+            nuo_wire::ConnectionUsageState::Error(_) => true,
+            nuo_wire::ConnectionUsageState::Available(u) => {
+                u.primary_balance.as_deref().map_or(false, |b| b.starts_with("0%") || b.contains("DEPLETED"))
+            }
+            _ => false,
+        })
+        .count();
+
+    let snapshot = nuo_wire::ProviderQuotaSnapshot {
+        provider_filter,
+        entries,
+        total_accounts,
+        available_accounts,
+        depleted_accounts,
+        updated_at_ms: chrono::Utc::now().timestamp_millis() as u64,
+    };
+
+    let _ = resp_tx.send(AgentResponse::ProviderQuotas(snapshot));
 }
 
 /// Query all connections' live provider usage concurrently and stream updates.
@@ -2602,5 +2728,20 @@ mod tests {
         }
 
         nuo_persistence::paths::set_test_default(None);
+    }
+
+    #[tokio::test]
+    async fn query_provider_quotas_snapshot_aggregates_connections() {
+        let (resp_tx, mut resp_rx) = mpsc::unbounded_channel();
+        query_provider_quotas(&resp_tx, Some("google-antigravity".to_string()), false).await;
+        let resp = resp_rx.try_recv().expect("must receive ProviderQuotas response");
+        match resp {
+            AgentResponse::ProviderQuotas(snapshot) => {
+                assert_eq!(snapshot.provider_filter.as_deref(), Some("google-antigravity"));
+                // Connections from default store or empty test environment
+                assert_eq!(snapshot.total_accounts, snapshot.entries.len());
+            }
+            other => panic!("expected ProviderQuotas, got {other:?}"),
+        }
     }
 }

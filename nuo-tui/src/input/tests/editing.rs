@@ -337,7 +337,8 @@ fn ctrl_arrows_page_scroll_modal_body() {
     let scrollable = [
         SurfaceFixture::UsageStats,
         SurfaceFixture::Config,
-        SurfaceFixture::Telemetry,
+        SurfaceFixture::SessionStats,
+        SurfaceFixture::SessionTrace,
         SurfaceFixture::Sessions,
         SurfaceFixture::Queue,
         SurfaceFixture::HistorySearch,

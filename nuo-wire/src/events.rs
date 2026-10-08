@@ -342,6 +342,16 @@ pub enum AgentRequest {
         #[serde(default)]
         force_refresh: bool,
     },
+    /// Request aggregated provider quota overview across configured connections (ADR-0036).
+    /// When `provider` is Some(id), filters to connections serving that provider
+    /// (e.g. "google-antigravity"); None inspects all quota-capable connections.
+    /// The reply is [`AgentResponse::ProviderQuotas`].
+    QueryProviderQuotas {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider: Option<String>,
+        #[serde(default)]
+        force_refresh: bool,
+    },
     /// Request the current sessions-picker rows without changing frontend
     /// navigation. The reply is [`AgentResponse::SessionsOverview`].
     QuerySessionsOverview,
@@ -740,6 +750,9 @@ pub enum AgentResponse {
     /// Reply to [`AgentRequest::QueryConnectionDetail`]: full detail and usage
     /// for one connection (identity, endpoint, auth, models, usage/balance).
     ConnectionDetail(crate::ConnectionDetail),
+    /// Reply to [`AgentRequest::QueryProviderQuotas`] (ADR-0036): aggregated
+    /// provider quota inspection overview across configured connections.
+    ProviderQuotas(crate::ProviderQuotaSnapshot),
     /// Reply to [`AgentRequest::QueryTokenUsage`]: the server-side token-source
     /// report for one session (per-round request usage, reported vs.
     /// estimated). Attached frontends hold no local ledger, so the

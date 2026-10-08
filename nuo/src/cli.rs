@@ -40,6 +40,11 @@ pub enum Mode {
     Skill(SkillAction),
     /// `nuo context migrate` — offline legacy→canonical conversion (ADR-0280).
     Context(ContextAction),
+    /// `nuo quota [provider] [--refresh]` — inspect provider quotas across connections (ADR-0036).
+    Quota {
+        provider: Option<String>,
+        refresh: bool,
+    },
     Doctor,
     /// `nuo completions <shell>`.
     Completions(Shell),
@@ -403,6 +408,11 @@ const COMMANDS: &[Spec] = &[
         name: "auth",
         names: &["auth"],
         about: "manage provider credentials and API keys",
+    },
+    Spec {
+        name: "quota",
+        names: &["quota", "quotas"],
+        about: "inspect provider quotas, sliding-window allowances, and account pool status",
     },
     Spec {
         name: "mcp",
@@ -996,6 +1006,20 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 ["init", name, "--user"] | ["init", "--user", name] => Mode::Skill(SkillAction::Init { name: (*name).to_string(), user: true }),
                 [bad, ..] => return unexpected(bad),
             }
+        }
+        "quota" | "quotas" => {
+            let mut provider = None;
+            let mut refresh = false;
+            for arg in &extra {
+                if arg == "--refresh" || arg == "-r" {
+                    refresh = true;
+                } else if !arg.starts_with('-') && provider.is_none() {
+                    provider = Some(arg.clone());
+                } else {
+                    return unexpected(arg);
+                }
+            }
+            Mode::Quota { provider, refresh }
         }
         "doctor" => {
             if extra.is_empty() {

@@ -1816,13 +1816,13 @@ fn pop_sublayer_steps_back_one_level_at_a_time() {
     // The shared one-step-back (phase 4): Esc's deepest-first chain and the
     // outside-click mirror both route through here.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.open_dialog(crate::surfaces::DialogKind::Telemetry);
-    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail = true;
+    app.open_dialog(crate::surfaces::DialogKind::SessionTrace);
+    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail = true;
     assert!(app.pop_sublayer());
-    assert!(!app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail, "drill-in closed");
+    assert!(!app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail, "drill-in closed");
     assert_eq!(
         app.active_dialog(),
-        Some(crate::surfaces::DialogKind::Telemetry),
+        Some(crate::surfaces::DialogKind::SessionTrace),
         "view stays up"
     );
     assert!(!app.pop_sublayer(), "no sub-layer left");
@@ -1855,29 +1855,29 @@ fn pop_sublayer_steps_back_one_level_at_a_time() {
 }
 
 #[test]
-fn pop_sublayer_pops_telemetry_turn_page_before_round_detail() {
-    // Session Telemetry has three levels (round list -> round detail -> attempt inspector):
+fn pop_sublayer_pops_trace_turn_page_before_round_detail() {
+    // Session Trace has three levels (round list -> round detail -> attempt inspector):
     // Esc walks back one level at a time, attempt inspector first.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.open_dialog(crate::surfaces::DialogKind::Telemetry);
-    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail = true;
-    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn = Some((2, 1));
-    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn_cursor = 1;
-    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll = 4;
+    app.open_dialog(crate::surfaces::DialogKind::SessionTrace);
+    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail = true;
+    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn = Some((2, 1));
+    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn_cursor = 1;
+    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().scroll = 4;
     assert!(app.pop_sublayer());
     assert!(
-        app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn.is_none(),
+        app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn.is_none(),
         "attempt inspector closed first"
     );
-    assert!(app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail, "round detail stays open");
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll, 0);
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn_cursor, 1, "cursor retained");
+    assert!(app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail, "round detail stays open");
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().scroll, 0);
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn_cursor, 1, "cursor retained");
     assert!(app.pop_sublayer());
-    assert!(!app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail, "round detail closed next");
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn_cursor, 0, "cursor reset");
+    assert!(!app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail, "round detail closed next");
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn_cursor, 0, "cursor reset");
     assert_eq!(
         app.active_dialog(),
-        Some(crate::surfaces::DialogKind::Telemetry),
+        Some(crate::surfaces::DialogKind::SessionTrace),
         "view stays up"
     );
     assert!(!app.pop_sublayer(), "no sub-layer left");
@@ -1986,18 +1986,16 @@ fn modal_arrows_route_through_the_dialog_entity() {
     // the active dialog entity's `DialogView::handle_input`, mutating only that
     // entity's own state.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.open_dialog(crate::surfaces::DialogKind::Telemetry);
-    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().tab =
-        crate::overlays::telemetry::TelemetryTab::Overview;
-    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll = 5;
+    app.open_dialog(crate::surfaces::DialogKind::SessionStats);
+    app.surfaces.dlg_mut::<crate::surfaces::SessionStatsDialog>().scroll = 5;
 
     crate::event_loop::actions::handle_modal_up(&mut app, "test-session");
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll, 4,
-        "arrow handled by the telemetry entity"
+        app.surfaces.dlg_mut::<crate::surfaces::SessionStatsDialog>().scroll, 4,
+        "arrow handled by the session stats entity"
     );
     crate::event_loop::actions::handle_modal_down(&mut app, "test-session");
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll, 5);
+    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::SessionStatsDialog>().scroll, 5);
 }
 
 #[test]
@@ -2018,4 +2016,82 @@ fn dialog_reads_see_the_entity_while_it_is_rendered() {
     );
     app.surfaces.put_active_view(taken);
     assert_eq!(app.picker_query(), "claude");
+}
+
+#[tokio::test]
+async fn session_stats_t_affordance_transitions_to_session_trace() {
+    // `[INV-STATS-01]` + `[INV-AFFORDANCE-01]` / ADR-0037:
+    // SessionStats modal binds `t` to transition directly to SessionTrace.
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "test-session".to_string();
+    app.open_dialog(crate::surfaces::DialogKind::SessionStats);
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::SessionStats)
+    );
+
+    let runtime = crate::event_loop::runtime::UiRuntime::minimal_for_test();
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::SessionStatsOpenTrace,
+        "test-session",
+    )
+    .await;
+
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::SessionTrace),
+        "`t` affordance in SessionStats opens SessionTrace"
+    );
+}
+
+#[tokio::test]
+async fn session_trace_slash_and_drill_down_lifecycle() {
+    // `[INV-TRACE-01]` / ADR-0037:
+    // SessionTrace has hierarchical drill-down without tabs or lateral page hops.
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "test-session".to_string();
+
+    let runtime = crate::event_loop::runtime::UiRuntime::minimal_for_test();
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::OpenSessionTrace,
+        "test-session",
+    )
+    .await;
+
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::SessionTrace),
+        "OpenSessionTrace opens SessionTrace dialog"
+    );
+
+    // Initial state: L1 rounds list, no detail, no turn
+    assert!(!app.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().detail);
+    assert!(app.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().turn.is_none());
+
+    // Enter in L1 drills into L2 (turns list) when rounds exist or directly via action
+    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail = true;
+    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn = Some((1, 1));
+    assert!(app.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().turn.is_some());
+
+    // Esc from L3 steps back to L2
+    assert!(app.pop_sublayer());
+    assert!(app.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().turn.is_none());
+    assert!(app.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().detail);
+
+    // Esc from L2 steps back to L1
+    assert!(app.pop_sublayer());
+    assert!(!app.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().detail);
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::SessionTrace)
+    );
+
+    // In L1, no sub-layer remains
+    assert!(!app.pop_sublayer(), "no sub-layer left in L1");
+    assert!(app.dismiss_surface());
+    assert_eq!(app.active_dialog(), None);
 }

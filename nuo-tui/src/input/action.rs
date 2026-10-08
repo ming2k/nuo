@@ -166,6 +166,15 @@ pub enum InputAction {
     /// never pushed — see ADR-0209's 2026-09-11 addendum). While the reply is
     /// in flight the previously rendered numbers stay on screen.
     OpenUsage,
+    /// Open the provider quota dashboard (`/quota`, ADR-0036): type-scoped
+    /// batch inspection of provider allowances, sliding-window limits, and
+    /// multi-account pool balances. Intercepted locally; the handler issues
+    /// `AgentRequest::QueryProviderQuotas` on open.
+    OpenQuotas,
+    /// Activate/switch the highlighted account in the quota dashboard (`Space`).
+    QuotasActivate,
+    /// Force a remote concurrent refresh in the quota dashboard (`r`).
+    RefreshQuotas,
     /// Open the MCP manager modal: a centered, selectable list of every
     /// configured MCP server with `Space` toggle and `r` reconnect. Reached via
     /// the `/mcp` slash command (intercepted locally, never sent to the
@@ -252,14 +261,10 @@ pub enum InputAction {
     HostPromptSeed(char),
     /// Dashboard inline-prompt submit (Enter while `p`/`n` is open).
     HostPromptSubmit,
-    /// Drill into the selected round or turn in the Telemetry modal. Bound to `Enter`.
-    TelemetryActivate,
-    /// Advance to the next tab in the Telemetry modal (Tab / Right).
-    TelemetryNextTab,
-    /// Return to the previous tab in the Telemetry modal (Shift+Tab / Left).
-    TelemetryPrevTab,
-    /// Switch directly to a specific tab in the Telemetry modal ('1' / '2').
-    TelemetrySetTab(crate::TelemetryTab),
+    /// Drill into the selected round or turn in the Session Trace modal. Bound to `Enter`.
+    TraceInspectDetail,
+    /// Open the Session Trace modal from Session Stats. Bound to `t`.
+    SessionStatsOpenTrace,
     /// Delete the currently-selected session in the sessions picker.
     DeleteSelectedSession,
     /// Create a brand new session from the sessions picker ('n' / 'N').
@@ -297,9 +302,10 @@ pub enum InputAction {
     /// Plain Ctrl+C: copy selection, clear input, or arm quit. It never
     /// interrupts a running turn — only double-Esc does.
     CtrlC,
-    /// Open the unified session telemetry report — the drill-down behind the model
-    /// bar's context meter and rate gauge. Keyboard twin of clicking those gauges (`Ctrl+O`).
-    OpenTelemetry,
+    /// Open the session stats report (`Ctrl+O`).
+    OpenSessionStats,
+    /// Open the session execution trace report (`/trace`).
+    OpenSessionTrace,
     /// Move keyboard focus to the next activatable target. When no target is
     /// focused yet, focuses the first (oldest) step. Driven by `Ctrl+N` and by
     /// `↓` while a step is already focused.

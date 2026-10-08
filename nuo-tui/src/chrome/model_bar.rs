@@ -180,7 +180,7 @@ pub fn draw_model_bar(
         |text: &str| Span::styled(text.to_string(), Style::default().fg(theme.dim()).bg(bg));
     // Both keycaps render the chord the registry actually resolves (ADR-0238):
     // a retired/remapped/unbound chord must never be advertised.
-    let telemetry_key = key_overrides.effective_binding(crate::keymap::CommandId::OpenTelemetry);
+    let telemetry_key = key_overrides.effective_binding(crate::keymap::CommandId::OpenSessionStats);
     let connection_key =
         key_overrides.effective_binding(crate::keymap::CommandId::OpenActiveConnectionDetail);
     let telemetry_keycap_width = telemetry_key.map_or(0, |key| key.display().width() + 1);

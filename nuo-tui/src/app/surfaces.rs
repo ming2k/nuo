@@ -142,7 +142,9 @@ impl App {
                 DialogKind::Asides => self.surfaces.dlg_mut::<crate::surfaces::AsidesDialog>().follow = follow,
                 DialogKind::Permissions
                 | DialogKind::UsageStats
-                | DialogKind::Telemetry
+                | DialogKind::Quotas
+                | DialogKind::SessionStats
+                | DialogKind::SessionTrace
                 | DialogKind::Switcher => {}
             }
         }
@@ -236,7 +238,9 @@ impl App {
             return match id {
                 DialogKind::Permissions
                 | DialogKind::UsageStats
-                | DialogKind::Telemetry
+                | DialogKind::Quotas
+                | DialogKind::SessionStats
+                | DialogKind::SessionTrace
                 | DialogKind::Switcher => Some((scroll, None)),
                 _ => Some((scroll, follow)),
             };
@@ -326,9 +330,9 @@ impl App {
                 && (self.host_prompting || self.host_preview.is_some()))
             && !(active_dialog == Some(DialogKind::Sessions)
                 && self.surfaces.dlg::<crate::surfaces::SessionsDialog>().info_detail)
-            && !(active_dialog == Some(DialogKind::Telemetry)
-                && (self.surfaces.dlg::<crate::surfaces::TelemetryDialog>().detail
-                    || self.surfaces.dlg::<crate::surfaces::TelemetryDialog>().turn.is_some()))
+            && !(active_dialog == Some(DialogKind::SessionTrace)
+                && (self.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().detail
+                    || self.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().turn.is_some()))
             && !(scene == SceneKind::Settings
                 && (self.config_dropdown.is_some()
                     || self.config_focus == crate::overlays::ConfigFocus::Detail))
@@ -423,11 +427,10 @@ impl App {
             self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll = 0;
             self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().models_expanded = false;
         }
-        if id == DialogKind::Telemetry {
-            self.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().tab = crate::overlays::telemetry::TelemetryTab::Overview;
-            self.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail = false;
-            self.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn = None;
-            self.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn_cursor = 0;
+        if id == DialogKind::SessionTrace {
+            self.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail = false;
+            self.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn = None;
+            self.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn_cursor = 0;
         }
         if id == DialogKind::Queue
             && let Some(sid) = self.queue_exit_session.take()
@@ -581,8 +584,8 @@ impl App {
         }
         if let Some(dialog) = self.active_dialog() {
             match dialog {
-                DialogKind::Telemetry => {
-                    let t = &mut self.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>();
+                DialogKind::SessionTrace => {
+                    let t = &mut self.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>();
                     if t.turn.is_some() {
                         t.turn = None;
                         t.scroll = 0;

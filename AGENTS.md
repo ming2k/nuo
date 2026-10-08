@@ -1,5 +1,7 @@
 # Agent Directives
 
+严禁使用 git stash、 git branch、 git reset 特性。
+
 <!-- BEGIN DOCGOV DIRECTIVES -->
 ## Documentation Governance Directives
 

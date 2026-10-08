@@ -72,6 +72,8 @@ fn enter_with_slash_command_dispatches_recognized_commands() {
         ("/permissions", InputAction::OpenPermissions),
         ("/tools", InputAction::OpenTools),
         ("/usage", InputAction::OpenUsage),
+        ("/quota", InputAction::OpenQuotas),
+        ("/quotas", InputAction::OpenQuotas),
         ("/mcp", InputAction::OpenMcp),
         ("/skills", InputAction::OpenSkills),
         ("/settings", InputAction::OpenConfig),

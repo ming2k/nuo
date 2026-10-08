@@ -1,4 +1,4 @@
-//! The session server runtime (ADR-0096): one process that owns every
+//! The session server runtime: one process that owns every
 //! session across every project for the user and serves them over the
 //! control plane (owner-only native local IPC by default, TCP + bearer token
 //! with `--public`) so TUI/CLI/web clients can drive, observe, and manage them.
@@ -6,7 +6,7 @@
 //! Vocabulary: the *role* is the **server**; `nuo start --fg` runs
 //! it in the foreground and `nuo start` detaches it.
 //!
-//! # Lifecycle (ADR-0101)
+//! # Lifecycle (ADR-0034)
 //!
 //! Shutdown here is a **budgeted state transition**, not an await chain:
 //!
@@ -41,11 +41,11 @@ pub struct HostOptions {
     pub port: u16,
     pub expose: ServeExpose,
     pub token: Option<String>,
-    /// Require a bearer token on the loopback TCP listener (ADR-0105);
+    /// Require a bearer token on the loopback TCP listener;
     /// resolved by the CLI from `[server] local_auth` + `--no-local-auth`.
     pub local_auth: bool,
-    /// Fall back to an OS-assigned port when the requested one is taken
-    /// (ADR-0105): on for the CLI default port, off for an explicit `--port`
+    /// Fall back to an OS-assigned port when the requested one is taken:
+    /// on for the CLI default port, off for an explicit `--port`
     /// (a stated bind must fail loudly, not silently move).
     pub port_fallback: bool,
     /// Serve the control plane over the native per-user local IPC transport.
@@ -61,15 +61,15 @@ pub struct HostIdentity {
     pub ui: Arc<dyn UiBridge>,
 }
 
-/// The server lifecycle configuration, resolved once at startup (ADR-0101).
+/// The server lifecycle configuration, resolved once at startup (ADR-0034).
 /// Mirrors `[server]` in `config.toml` (see `ServerConfig`) with the
 /// always-on escape hatch surfaced as `idle_exit: None`.
 #[derive(Debug, Clone)]
 pub struct LifecycleOptions {
     /// Total budget for the graceful drain before the force path.
     pub shutdown_grace: Duration,
-    /// Auto-exit after this much continuous zero-sessions-zero-clients time
-    /// (ADR-0100 rule 3). `None` = never (always-on deployments).
+    /// Auto-exit after this much continuous zero-sessions-zero-clients time.
+    /// `None` = never (always-on deployments).
     pub idle_exit: Option<Duration>,
     /// Auto-exit when all interactive TUI clients close (ADR-0029).
     pub client_driven: bool,
@@ -149,7 +149,7 @@ pub async fn run(
     Ok(())
 }
 
-/// The lifecycle state machine (ADR-0101). Exposed for the binaries, which
+/// The lifecycle state machine (ADR-0034). Exposed for the binaries, which
 /// map [`RunOutcome`] onto exit codes and final log lines.
 pub async fn run_with_outcome(identity: HostIdentity, opts: HostOptions) -> RunOutcome {
     run_with_gate(
@@ -209,30 +209,10 @@ async fn run_inner(
     let gate: Arc<ShutdownGate> =
         Arc::new((*gate).clone().with_version(crate::serve::server_version()));
     bootstrap::ensure_app_roots();
-    let registry = registry.unwrap_or_else(|| {
-        Arc::new(SessionRegistry::new(HostParams {
-            identity,
-            preset,
-            ui,
-        }))
-    });
-    let started_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    registry.set_monitor_meta(String::new(), started_at).await;
-    // ADR-0190 D6: the server-task monitor tap folds server-fabric events
-    // into monitor snapshots/diffs so rehosted services are operator-visible.
-    registry.start_server_task_monitor();
-    // ADR-0196 D4: the durability-health tap publishes persistence-writer
-    // transitions so degradation is user-visible, not log-only.
-    registry.start_persistence_health_monitor();
 
-    // Single instance (ADR-0101)
-    // Hold the global lock for the process lifetime. A second server spawned
-    // while this one drains blocks (bounded) on the same lock instead of
-    // unlinking a live server's UDS socket — the clobbering race the
-    // pre-0101 "remove stale socket file" step could not tell apart.
+    // Single instance & takeover (ADR-0029, ADR-0034, ADR-0101):
+    // MUST complete takeover and acquire the instance lock BEFORE initializing
+    // SessionRegistry or any persistence handles, preventing lock races and handle poisoning.
     let lock_path = discovery::global_lock_path();
     if let Some(parent) = lock_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -272,6 +252,25 @@ async fn run_inner(
             }
         }
     };
+
+    let registry = registry.unwrap_or_else(|| {
+        Arc::new(SessionRegistry::new(HostParams {
+            identity,
+            preset,
+            ui,
+        }))
+    });
+    let started_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    registry.set_monitor_meta(String::new(), started_at).await;
+    // The server-task monitor tap folds server-fabric events
+    // into monitor snapshots/diffs so rehosted services are operator-visible.
+    registry.start_server_task_monitor();
+    // The durability-health tap publishes persistence-writer
+    // transitions so degradation is user-visible, not log-only.
+    registry.start_persistence_health_monitor();
 
     let mut handle = start_server(
         ServeOptions {
@@ -361,7 +360,7 @@ async fn run_inner(
         image_digest: image_identity.as_ref().map(|(_, digest)| digest.clone()),
         image_len: image_identity.as_ref().map(|(len, _)| *len),
         // Publish the drain budget so `nuo stop` waits *this*
-        // server's grace before escalating (ADR-0116): an early SIGTERM
+        // server's grace before escalating: an early SIGTERM
         // would force-exit the server and skip the very session teardown
         // the stop requested.
         grace_secs: Some(lifecycle.shutdown_grace.as_secs()),
@@ -419,11 +418,10 @@ async fn run_inner(
     }
     tracing::info!(%bind, port, "nuo server: listening");
 
-    // Boot rehost (ADR-0190 D4, the general successor of ADR-0125's
-    // armed-schedule rehost): every service task in the durable task ledger
+    // Boot rehost: every service task in the durable task ledger
     // that carries a restart policy is re-spawned on the **registry's
-    // server-task fabric** — so its lifecycle events are monitor-visible
-    // (the D6 hub), not lost to an unobserved manager. Failures are logged
+    // server-task fabric** — so its lifecycle events are monitor-visible,
+    // not lost to an unobserved manager. Failures are logged
     // and non-fatal.
     {
         use nuo_wire::JobSpec;
@@ -463,8 +461,7 @@ async fn run_inner(
     }
 
     // Serving
-    // Wait for a trigger, or the idle-exit timer (which itself is just
-    // another trigger source, ADR-0100 rule 3).
+    // Wait for a trigger, or the idle-exit timer.
     serve_until_trigger(
         &gate,
         &registry,
@@ -474,7 +471,7 @@ async fn run_inner(
     )
     .await;
 
-    // Draining (ADR-0101): budgeted phases, each checking `forced`
+    // Draining (ADR-0034): budgeted phases, each checking `forced`
     let reason = gate
         .reason()
         .unwrap_or(ShutdownReason::Fatal("unknown".into()));
@@ -593,6 +590,12 @@ async fn takeover_conflicting_server(
             candidate_pids.insert(pid);
         }
     }
+    let db_lock_path = nuo_host::paths::get().db_file().with_extension("db.owner.lock");
+    if let Some(pid) = ProcessLock::probe_holder(&db_lock_path) {
+        if pid != current_pid {
+            candidate_pids.insert(pid);
+        }
+    }
     if let Some(record) = discovery::read() {
         if record.pid != current_pid {
             candidate_pids.insert(record.pid);
@@ -602,10 +605,11 @@ async fn takeover_conflicting_server(
     let is_uds_in_use = uds_path.map(is_uds_live).unwrap_or(false);
     let is_port_in_use = is_tcp_port_live(port);
     let is_locked = ProcessLock::is_locked(lock_path);
+    let is_db_locked = ProcessLock::is_locked(&db_lock_path);
 
-    if !candidate_pids.is_empty() || is_uds_in_use || is_port_in_use || is_locked {
+    if !candidate_pids.is_empty() || is_uds_in_use || is_port_in_use || is_locked || is_db_locked {
         for pid in candidate_pids {
-            tracing::warn!(pid, "interface conflict detected on UDS/port; terminating existing instance for takeover");
+            tracing::warn!(pid, "interface or lock conflict detected; terminating existing instance for takeover");
             let _ = nuo_host::process::takeover_pid(pid, nuo_host::process::TakeoverOptions::default()).await;
         }
 
@@ -634,8 +638,8 @@ async fn wait_for_lock(path: &std::path::Path, budget: Duration) -> Result<Proce
 
 /// The serving steady-state: wait for the first trigger. When `idle_exit`
 /// is armed, also watch for "zero sessions + zero connections held for the
-/// whole grace period" and request the IdleTimeout trigger (ADR-0100
-/// rule 3). When `client_driven` is armed (ADR-0029), auto-terminate when all
+/// whole grace period" and request the IdleTimeout trigger.
+/// When `client_driven` is armed (ADR-0029), auto-terminate when all
 /// interactive TUI clients close.
 async fn serve_until_trigger(
     gate: &Arc<ShutdownGate>,
@@ -703,7 +707,7 @@ async fn client_driven_exit_future(conns: Arc<crate::serve::ConnTable>) {
 
 /// Resolves after `grace` of continuous zero-sessions-zero-connections.
 /// Resets its timer on any activity, so spawn/exit flapping between
-/// back-to-back invocations never trips it (ADR-0100 rule 3's grace).
+/// back-to-back invocations never trips it.
 fn idle_exit_future(
     registry: &Arc<SessionRegistry>,
     handle: &crate::serve::ServeHandle,

@@ -217,8 +217,9 @@ pub use catalog::{
 };
 pub use connection_auth::{ConnectionAuth, LoginMethod};
 pub use connection_detail::{
-    BalanceQuota, ConnectionDetail, ConnectionUsageState, PeriodicQuota, ProviderQuotaData,
-    ProviderUsage, QuotaWindowBucket, QuotaWindowKind, RateLimitSpec, UsageMetric,
+    BalanceQuota, ConnectionDetail, ConnectionQuotaEntry, ConnectionUsageState, PeriodicQuota,
+    ProviderQuotaData, ProviderQuotaSnapshot, ProviderUsage, QuotaWindowBucket, QuotaWindowKind,
+    RateLimitSpec, UsageMetric,
 };
 pub use dynamic::{DynamicCatalog, DynamicToolSink};
 pub use provider_state::{

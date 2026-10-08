@@ -823,6 +823,50 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 viewed_session_id,
             );
         }
+        input::InputAction::OpenQuotas => {
+            enter_panel(
+                app,
+                crate::surfaces::DialogKind::Quotas,
+                runtime,
+                viewed_session_id,
+            );
+        }
+        input::InputAction::QuotasActivate => {
+            if let Some(snap) = &app.provider_quotas {
+                let idx = app.active_index();
+                if let Some(entry) = snap.entries.get(idx) {
+                    let conn_name = entry.name.clone();
+                    app.send_intent(nuo_wire::AgentRequest::SwitchConnection {
+                        provider: conn_name.clone(),
+                        model: String::new(),
+                        api_key: None,
+                        base_url: None,
+                    });
+                    show_local_toast(
+                        app,
+                        &format!("Switched active connection to `{conn_name}`"),
+                        false,
+                        std::time::Duration::from_millis(1500),
+                    );
+                }
+            }
+        }
+        input::InputAction::RefreshQuotas => {
+            show_local_toast(
+                app,
+                "Refreshing provider quotas…",
+                false,
+                std::time::Duration::from_millis(1500),
+            );
+            let filter = app
+                .provider_quotas
+                .as_ref()
+                .and_then(|q| q.provider_filter.clone());
+            app.send_intent(nuo_wire::AgentRequest::QueryProviderQuotas {
+                provider: filter,
+                force_refresh: true,
+            });
+        }
         input::InputAction::OpenMcp => {
             enter_panel(
                 app,
@@ -1395,22 +1439,19 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::CancelSceneNamespace => {
             app.scene_namespace_armed = false;
         }
-        input::InputAction::TelemetryActivate => {
-            if app.active_dialog() == Some(DialogKind::Telemetry) {
-                if app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().tab == crate::overlays::telemetry::TelemetryTab::Overview {
-                    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().tab = crate::overlays::telemetry::TelemetryTab::Activity;
-                    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll = 0;
-                } else if !app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail {
+        input::InputAction::TraceInspectDetail => {
+            if app.active_dialog() == Some(DialogKind::SessionTrace) {
+                if !app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail {
                     let has_rounds = app
                         .token_source_report(viewed_session_id)
                         .map(|report| render::telemetry_round_count(&report) > 0)
                         .unwrap_or(false);
                     if has_rounds {
-                        app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().detail = true;
-                        app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn_cursor = 0;
-                        app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll = 0;
+                        app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail = true;
+                        app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn_cursor = 0;
+                        app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().scroll = 0;
                     }
-                } else if app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn.is_none() {
+                } else if app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn.is_none() {
                     let report = app.token_source_report(viewed_session_id);
                     let round_index = app.active_index().min(
                         report
@@ -1422,46 +1463,22 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         render::telemetry_attempt_key(
                             report,
                             round_index,
-                            app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn_cursor,
+                            app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn_cursor,
                         )
                     }) {
-                        app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().turn = Some(key);
-                        app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll = 0;
+                        app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn = Some(key);
+                        app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().scroll = 0;
                     }
                 }
             }
         }
-        input::InputAction::TelemetryNextTab => {
-            if app.active_dialog() == Some(DialogKind::Telemetry) {
-                app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().tab = match app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().tab {
-                    crate::overlays::telemetry::TelemetryTab::Overview => {
-                        crate::overlays::telemetry::TelemetryTab::Activity
-                    }
-                    crate::overlays::telemetry::TelemetryTab::Activity => {
-                        crate::overlays::telemetry::TelemetryTab::Overview
-                    }
-                };
-                app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll = 0;
-            }
-        }
-        input::InputAction::TelemetryPrevTab => {
-            if app.active_dialog() == Some(DialogKind::Telemetry) {
-                app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().tab = match app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().tab {
-                    crate::overlays::telemetry::TelemetryTab::Overview => {
-                        crate::overlays::telemetry::TelemetryTab::Activity
-                    }
-                    crate::overlays::telemetry::TelemetryTab::Activity => {
-                        crate::overlays::telemetry::TelemetryTab::Overview
-                    }
-                };
-                app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll = 0;
-            }
-        }
-        input::InputAction::TelemetrySetTab(tab) => {
-            if app.active_dialog() == Some(DialogKind::Telemetry) && app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().tab != tab {
-                app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().tab = tab;
-                app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll = 0;
-            }
+        input::InputAction::SessionStatsOpenTrace => {
+            enter_panel(
+                app,
+                crate::surfaces::DialogKind::SessionTrace,
+                runtime,
+                viewed_session_id,
+            );
         }
         input::InputAction::ToggleDialogKeys => {
             let open = !app.dialog_keys();
@@ -1586,11 +1603,18 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 viewed_session_id,
             );
         }
-        input::InputAction::OpenTelemetry => {
-            // Ctrl+O opens the session telemetry report (Context & Performance).
+        input::InputAction::OpenSessionStats => {
             enter_panel(
                 app,
-                crate::surfaces::DialogKind::Telemetry,
+                crate::surfaces::DialogKind::SessionStats,
+                runtime,
+                viewed_session_id,
+            );
+        }
+        input::InputAction::OpenSessionTrace => {
+            enter_panel(
+                app,
+                crate::surfaces::DialogKind::SessionTrace,
                 runtime,
                 viewed_session_id,
             );
@@ -2383,7 +2407,7 @@ pub(super) fn enter_panel(
         // stay on screen until the fresh reply lands, so reopening does not
         // flash the loading state.
         DialogKind::UsageStats => Some(AgentRequest::QueryUsageStats { event_cap: 200 }),
-        DialogKind::Telemetry if app.token_ledger.is_none() => {
+        DialogKind::SessionStats | DialogKind::SessionTrace if app.token_ledger.is_none() => {
             if app.token_report.is_none() {
                 Some(AgentRequest::QueryTokenUsage {
                     session_id: viewed_session_id.to_string(),
@@ -2907,13 +2931,43 @@ async fn execute_command_by_id(
                 viewed_session_id,
             );
         }
-        CommandId::OpenTelemetry => {
+        CommandId::OpenSessionStats => {
             enter_panel(
                 app,
-                crate::surfaces::DialogKind::Telemetry,
+                crate::surfaces::DialogKind::SessionStats,
                 runtime,
                 viewed_session_id,
             );
+        }
+        CommandId::OpenSessionTrace => {
+            enter_panel(
+                app,
+                crate::surfaces::DialogKind::SessionTrace,
+                runtime,
+                viewed_session_id,
+            );
+        }
+        CommandId::SessionStatsOpenTrace => {
+            enter_panel(
+                app,
+                crate::surfaces::DialogKind::SessionTrace,
+                runtime,
+                viewed_session_id,
+            );
+        }
+        CommandId::TraceInspectDetail => {
+            if app.active_dialog() == Some(crate::surfaces::DialogKind::SessionTrace) {
+                let has_rounds = app
+                    .token_source_report(viewed_session_id)
+                    .map(|report| render::telemetry_round_count(&report) > 0)
+                    .unwrap_or(false);
+                if has_rounds {
+                    let d = app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>();
+                    d.detail = true;
+                    d.turn_cursor = 0;
+                    d.scroll = 0;
+                }
+            }
         }
         CommandId::OpenModels => {
             enter_panel(
@@ -2970,6 +3024,14 @@ async fn execute_command_by_id(
             enter_panel(
                 app,
                 crate::surfaces::DialogKind::UsageStats,
+                runtime,
+                viewed_session_id,
+            );
+        }
+        CommandId::OpenQuotas => {
+            enter_panel(
+                app,
+                crate::surfaces::DialogKind::Quotas,
                 runtime,
                 viewed_session_id,
             );

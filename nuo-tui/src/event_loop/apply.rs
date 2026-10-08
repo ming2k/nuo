@@ -415,6 +415,13 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             app.usage_stats = Some(report);
             true
         }
+        AppMutation::ProviderQuotas(snapshot) => {
+            for entry in &snapshot.entries {
+                app.connection_usages.insert(entry.name.clone(), entry.state.clone());
+            }
+            app.provider_quotas = Some(snapshot);
+            true
+        }
         AppMutation::SessionTree(tree) => {
             app.session_tree = tree;
             true
@@ -674,11 +681,15 @@ fn apply_transcript(app: &mut App, buffer: Buffer, edit: TranscriptEdit) -> bool
                 }
                 messages.push(message);
             }
-            TranscriptEdit::ToolCallCollapse { slot, call_id } => {
+            TranscriptEdit::ToolCallCollapse {
+                slot,
+                call_id,
+                arguments,
+            } => {
                 if let Some(step) = find_pending_announced_tool_step_mut(messages, slot) {
-                    // Re-key onto the dispatch id and clear the pre-dispatch
-                    // slot/byte state in one transition.
-                    step.rekey_tool_step(call_id);
+                    // Re-key onto the dispatch id, store completed arguments,
+                    // and clear the pre-dispatch slot/byte state in one transition.
+                    step.collapse_tool_call(call_id, arguments);
                     post = PostEdit::Invalidate(step.id);
                 }
             }

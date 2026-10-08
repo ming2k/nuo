@@ -633,7 +633,8 @@ pub enum CommandId {
     NavigateDashboard,
     NavigateSettings,
     OpenQueue,
-    OpenTelemetry,
+    OpenSessionStats,
+    OpenSessionTrace,
     OpenModels,
     OpenConnections,
     OpenActiveConnectionDetail,
@@ -642,6 +643,7 @@ pub enum CommandId {
     OpenSkills,
     OpenPermissions,
     OpenUsage,
+    OpenQuotas,
     OpenTree,
     OpenBtw,
     OpenSessions,
@@ -689,12 +691,11 @@ pub enum CommandId {
     QueueMoveItemUp,
     QueueMoveItemDown,
 
-    // Dialog Actions: Telemetry
-    TelemetryTabOverview,
-    TelemetryTabActivity,
-    TelemetryPrevTab,
-    TelemetryNextTab,
-    TelemetryInspectDetail,
+    // Dialog Actions: Session Stats
+    SessionStatsOpenTrace,
+
+    // Dialog Actions: Session Trace
+    TraceInspectDetail,
 
     // Dialog Actions: Skills
     SkillsToggleDetail,
@@ -1064,7 +1065,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         description: "Inspect and manage pending message outbox",
     },
     CommandSpec {
-        id: CommandId::OpenTelemetry,
+        id: CommandId::OpenSessionStats,
         label: "Session Stats",
         hint: "Ctrl-o",
         category: CommandCategory::Navigate,
@@ -1075,6 +1076,19 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
         description: "View context token accounting and session stats",
+    },
+    CommandSpec {
+        id: CommandId::OpenSessionTrace,
+        label: "Session Trace",
+        hint: "/trace",
+        category: CommandCategory::Navigate,
+        scope: Scope::Global,
+        bindings: &[],
+        slash: Some("/trace"),
+        availability: avail_session,
+        disclosure: DisclosurePriority::L2Palette,
+        danger: DangerLevel::Safe,
+        description: "Inspect session execution trace and latency waterfall",
     },
     CommandSpec {
         id: CommandId::OpenModels,
@@ -1179,6 +1193,19 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
         description: "View cross-session token usage and activity ledger",
+    },
+    CommandSpec {
+        id: CommandId::OpenQuotas,
+        label: "Provider Quotas",
+        hint: "/quota",
+        category: CommandCategory::Navigate,
+        scope: Scope::Global,
+        bindings: &[],
+        slash: Some("/quota"),
+        availability: avail_always,
+        disclosure: DisclosurePriority::L2Palette,
+        danger: DangerLevel::Safe,
+        description: "View provider quota pools, sliding-window allowances, and account status",
     },
     CommandSpec {
         id: CommandId::OpenTree,
@@ -1603,65 +1630,27 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         danger: DangerLevel::Safe,
         description: "Move highlighted message later in dispatch order",
     },
-    // Dialog Actions: Telemetry
+    // Dialog Actions: Session Stats
     CommandSpec {
-        id: CommandId::TelemetryTabOverview,
-        label: "Telemetry Overview Tab",
-        hint: "1",
+        id: CommandId::SessionStatsOpenTrace,
+        label: "Open Trace",
+        hint: "t",
         category: CommandCategory::Actions,
-        scope: Scope::Dialog(DialogKind::Telemetry),
-        bindings: &[Key::plain('1')],
+        scope: Scope::Dialog(DialogKind::SessionStats),
+        bindings: &[Key::plain('t')],
         slash: None,
         availability: avail_always,
         disclosure: DisclosurePriority::L0Footer,
         danger: DangerLevel::Safe,
-        description: "Show session token and cost overview",
+        description: "Open session execution trace from session stats",
     },
+    // Dialog Actions: Session Trace
     CommandSpec {
-        id: CommandId::TelemetryTabActivity,
-        label: "Telemetry Activity Tab",
-        hint: "2",
-        category: CommandCategory::Actions,
-        scope: Scope::Dialog(DialogKind::Telemetry),
-        bindings: &[Key::plain('2')],
-        slash: None,
-        availability: avail_always,
-        disclosure: DisclosurePriority::L0Footer,
-        danger: DangerLevel::Safe,
-        description: "Show per-round model generation activity",
-    },
-    CommandSpec {
-        id: CommandId::TelemetryPrevTab,
-        label: "Previous Telemetry Tab",
-        hint: "[",
-        category: CommandCategory::Actions,
-        scope: Scope::Dialog(DialogKind::Telemetry),
-        bindings: &[Key::plain('['), Key::plain('h')],
-        slash: None,
-        availability: avail_always,
-        disclosure: DisclosurePriority::L1FocusRegion,
-        danger: DangerLevel::Safe,
-        description: "Switch to previous telemetry tab",
-    },
-    CommandSpec {
-        id: CommandId::TelemetryNextTab,
-        label: "Next Telemetry Tab",
-        hint: "]",
-        category: CommandCategory::Actions,
-        scope: Scope::Dialog(DialogKind::Telemetry),
-        bindings: &[Key::plain(']'), Key::plain('l')],
-        slash: None,
-        availability: avail_always,
-        disclosure: DisclosurePriority::L1FocusRegion,
-        danger: DangerLevel::Safe,
-        description: "Switch to next telemetry tab",
-    },
-    CommandSpec {
-        id: CommandId::TelemetryInspectDetail,
+        id: CommandId::TraceInspectDetail,
         label: "Inspect Attempt Details",
         hint: "Enter",
         category: CommandCategory::Actions,
-        scope: Scope::Dialog(DialogKind::Telemetry),
+        scope: Scope::Dialog(DialogKind::SessionTrace),
         bindings: &[Key::ENTER],
         slash: None,
         availability: avail_always,
@@ -2033,7 +2022,8 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
         CommandId::CommandPalette => None,
         CommandId::Quit => Some(Key::CTRL_C),
         CommandId::CopySelection => Some(Key::CTRL_SHIFT_C),
-        CommandId::OpenTelemetry => Some(Key::CTRL_O),
+        CommandId::OpenSessionStats => Some(Key::CTRL_O),
+        CommandId::OpenSessionTrace => None,
         CommandId::OpenActiveConnectionDetail => None,
         // `Esc` is a real chord, not a placeholder: it is the registry's
         // declared binding for CancelOrBack and it resolves there. (It is also
@@ -2056,7 +2046,7 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
 /// is opened by the `C-x` scene namespace (ADR-0023).
 fn canonical_global_key(key: Key) -> Option<CommandId> {
     if key == Key::CTRL_O {
-        Some(CommandId::OpenTelemetry)
+        Some(CommandId::OpenSessionStats)
     } else if key == Key::CTRL_Q {
         Some(CommandId::OpenQueue)
     } else if key == Key::ESC {
@@ -2077,8 +2067,12 @@ pub fn command_id_from_name(name: &str) -> Option<CommandId> {
         "interrupt" | "interrupt_task" | "interrupt-task" => CommandId::InterruptTask,
         "quit" | "quit_nuo" | "quit-nuo" => CommandId::Quit,
         "copy" | "copy_selection" | "copy-selection" => CommandId::CopySelection,
-        "stats" | "session_stats" | "session-stats" | "telemetry" | "open_telemetry"
-        | "open-telemetry" => CommandId::OpenTelemetry,
+        "stats" | "session_stats" | "session-stats" | "open_session_stats"
+        | "open-session-stats" => CommandId::OpenSessionStats,
+        "trace" | "session_trace" | "session-trace" | "open_session_trace"
+        | "open-session-trace" | "telemetry" | "open_telemetry" | "open-telemetry" => {
+            CommandId::OpenSessionTrace
+        }
         "connection"
         | "connection_detail"
         | "active_connection_detail"
@@ -2407,7 +2401,7 @@ mod tests {
         assert_eq!(resolve_global_key(Key::CTRL_L), None);
         assert_eq!(
             resolve_global_key(Key::CTRL_O),
-            Some(CommandId::OpenTelemetry)
+            Some(CommandId::OpenSessionStats)
         );
         assert_eq!(resolve_global_key(Key::ESC), Some(CommandId::CancelOrBack));
         assert_eq!(resolve_global_key(Key::CTRL_C), Some(CommandId::Quit));
@@ -2585,7 +2579,7 @@ mod tests {
         // Unremapped commands keep their canonical behavior.
         assert_eq!(
             resolve_global_key_with(Key::CTRL_O, &o),
-            Some(CommandId::OpenTelemetry)
+            Some(CommandId::OpenSessionStats)
         );
         // Effective binding follows the override for remapped commands.
         assert_eq!(o.effective_binding(CommandId::Quit), Some(ctrl_shift_q));
@@ -2647,7 +2641,7 @@ mod tests {
         );
         assert_eq!(
             command_id_from_name("telemetry"),
-            Some(CommandId::OpenTelemetry)
+            Some(CommandId::OpenSessionTrace)
         );
         assert_eq!(command_id_from_name("nope"), None);
     }

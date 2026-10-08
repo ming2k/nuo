@@ -128,6 +128,7 @@ Whenever shutdown is initiated (`ShutdownGate`), the server proceeds strictly in
 - **[INV-LIFECYCLE-04] Three-Stage Drain Invariant**: Server teardown MUST execute in strict order: (1) revoke discovery, (2) drain active tasks, (3) flush persistent stores. Stragglers MUST be aborted only when the total shutdown grace budget expires.
 - **[INV-LIFECYCLE-05] Explicit Restart Contract**: The CLI coordinator MUST provide explicit `server restart` verbs supporting both graceful handover and forced takeover modes.
 - **[INV-LIFECYCLE-06] Session Lease Protection**: Interactive clients engaged in session resolution or picker navigation MUST maintain a persistent active connection guard, preventing premature client-driven server termination.
+- **[INV-LIFECYCLE-07] Pre-Bootstrap Takeover & Lock Ordering**: The server runtime MUST execute conflicting process takeover and acquire the global instance lock (`server.lock`) BEFORE initializing the session registry or any persistence handles. Database handle acquisition MUST poll with bounded backoff and never cache unrecoverable startup errors globally, preventing startup race conditions and handle poisoning.
 
 ---
 

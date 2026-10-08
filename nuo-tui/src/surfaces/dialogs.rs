@@ -18,7 +18,6 @@ use std::collections::HashSet;
 
 use nuotc::{Frame, Rect};
 
-use crate::TelemetryTab;
 use crate::input::InputAction;
 use crate::model::layout::LayoutMap;
 use crate::model::selection::SelectionState;
@@ -177,8 +176,9 @@ pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
         DialogKind::Mcp => ContentModalSpec::MCP.modal_spec(),
         DialogKind::Queue => ContentModalSpec::QUEUE.modal_spec(),
         DialogKind::Asides => ContentModalSpec::BTW.modal_spec(),
-        DialogKind::Telemetry => ContentModalSpec::TELEMETRY.modal_spec(),
-        DialogKind::UsageStats => ContentModalSpec::USAGE_STATS.modal_spec(),
+        DialogKind::SessionStats => ContentModalSpec::SESSION_STATS.modal_spec(),
+        DialogKind::SessionTrace => ContentModalSpec::SESSION_TRACE.modal_spec(),
+        DialogKind::UsageStats | DialogKind::Quotas => ContentModalSpec::USAGE_STATS.modal_spec(),
         DialogKind::Permissions => ContentModalSpec::PERMISSIONS.modal_spec(),
         DialogKind::Skills => ContentModalSpec::SKILLS.modal_spec(),
         // The history panel is a composer-anchored dropdown and the switcher
@@ -297,15 +297,32 @@ fn render_dialog(
                 ctx.layout_map,
             ))
         }
-        DialogKind::Telemetry => {
+        DialogKind::Quotas => {
             let d = view
                 .as_any_mut()
-                .downcast_mut::<TelemetryDialog>()
+                .downcast_mut::<QuotasDialog>()
+                .expect("kind");
+            let loading = app.provider_quotas.is_none();
+            Some(crate::overlays::draw_quotas_modal(
+                frame,
+                app.provider_quotas.as_ref(),
+                loading,
+                d.index,
+                &mut d.scroll,
+                ctx.theme,
+                ctx.selection,
+                ctx.layout_map,
+            ))
+        }
+        DialogKind::SessionStats => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<SessionStatsDialog>()
                 .expect("kind");
             let report = app.token_source_report(ctx.viewed_session_id);
             let loading = app.token_ledger.is_none() && report.is_none();
             let report = report.unwrap_or_default();
-            Some(crate::overlays::draw_telemetry_modal(
+            Some(crate::overlays::draw_session_stats_modal(
                 frame,
                 &report,
                 crate::render::ContextUsageProps {
@@ -314,7 +331,30 @@ fn render_dialog(
                     draft_content_tokens: nuo_wire::count_tokens(&app.input),
                     draft_tokens: nuo_wire::estimate_draft_tokens(&app.input),
                 },
-                d.tab,
+                loading,
+                &mut d.scroll,
+                ctx.theme,
+                ctx.selection,
+                ctx.layout_map,
+            ))
+        }
+        DialogKind::SessionTrace => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<SessionTraceDialog>()
+                .expect("kind");
+            let report = app.token_source_report(ctx.viewed_session_id);
+            let loading = app.token_ledger.is_none() && report.is_none();
+            let report = report.unwrap_or_default();
+            Some(crate::overlays::draw_session_trace_modal(
+                frame,
+                &report,
+                crate::render::ContextUsageProps {
+                    snapshot: app.context_tokens,
+                    window_tokens: Some(app.active_model_context_window()),
+                    draft_content_tokens: nuo_wire::count_tokens(&app.input),
+                    draft_tokens: nuo_wire::estimate_draft_tokens(&app.input),
+                },
                 d.index
                     .min(crate::render::telemetry_round_count(&report).saturating_sub(1)),
                 d.detail,
@@ -442,6 +482,7 @@ fn render_dialog(
                     connection_info_standalone: d.info_standalone,
                     refreshing: d.refreshing,
                     connection_models_expanded: d.models_expanded,
+                    connection_usages: Some(&app.connection_usages),
                 },
                 ctx.theme,
                 ctx.selection,
@@ -668,12 +709,24 @@ fn input_dialog(
             e.follow = true;
             DialogOutcome::Consumed
         }
-        DialogKind::Telemetry => {
+        DialogKind::SessionStats => {
             let e = view
                 .as_any_mut()
-                .downcast_mut::<TelemetryDialog>()
+                .downcast_mut::<SessionStatsDialog>()
                 .expect("kind");
-            if e.tab == crate::overlays::telemetry::TelemetryTab::Overview || e.turn.is_some() {
+            if forward {
+                e.scroll = e.scroll.saturating_add(1);
+            } else {
+                e.scroll = e.scroll.saturating_sub(1);
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::SessionTrace => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<SessionTraceDialog>()
+                .expect("kind");
+            if e.turn.is_some() {
                 if forward {
                     e.scroll = e.scroll.saturating_add(1);
                 } else {
@@ -712,6 +765,30 @@ fn input_dialog(
                 e.scroll = e.scroll.saturating_add(1);
             } else {
                 e.scroll = e.scroll.saturating_sub(1);
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Quotas => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<QuotasDialog>()
+                .expect("kind");
+            if arrow {
+                if forward {
+                    e.scroll = e.scroll.saturating_add(1);
+                } else {
+                    e.scroll = e.scroll.saturating_sub(1);
+                }
+                e.follow = false;
+            } else {
+                let count = app
+                    .provider_quotas
+                    .as_ref()
+                    .map(|q| q.entries.len())
+                    .unwrap_or(0)
+                    .max(1);
+                e.index = rotate(e.index, count, forward);
+                e.follow = true;
             }
             DialogOutcome::Consumed
         }
@@ -908,10 +985,11 @@ dialog_entity!(SkillsDialog, Skills, {
 
 dialog_entity!(PermissionsDialog, Permissions, {});
 dialog_entity!(UsageStatsDialog, UsageStats, {});
+dialog_entity!(QuotasDialog, Quotas, {});
 
-dialog_entity!(TelemetryDialog, Telemetry, {
-    /// Active tab (`Overview` or `Activity`).
-    tab: TelemetryTab = TelemetryTab::Overview,
+dialog_entity!(SessionStatsDialog, SessionStats, {});
+
+dialog_entity!(SessionTraceDialog, SessionTrace, {
     /// `true` when drilled into one round's turns (L2).
     detail: bool = false,
     /// `Some((round, attempt))` when drilled into an attempt inspector (L3).
@@ -994,7 +1072,8 @@ pub struct SessionSnapshot {
     pub mcp: McpDialog,
     pub skills: SkillsDialog,
     pub permissions: PermissionsDialog,
-    pub telemetry: TelemetryDialog,
+    pub session_stats: SessionStatsDialog,
+    pub session_trace: SessionTraceDialog,
     pub asides: AsidesDialog,
     pub queue: QueueDialog,
     pub session_tree: SessionTreeDialog,
@@ -1012,7 +1091,9 @@ pub struct Dialogs {
     pub skills: SkillsDialog,
     pub permissions: PermissionsDialog,
     pub usage_stats: UsageStatsDialog,
-    pub telemetry: TelemetryDialog,
+    pub quotas: QuotasDialog,
+    pub session_stats: SessionStatsDialog,
+    pub session_trace: SessionTraceDialog,
     pub asides: AsidesDialog,
     pub models: ModelsDialog,
     pub connections: ConnectionsDialog,
@@ -1068,7 +1149,8 @@ impl Dialogs {
             mcp: self.mcp.clone(),
             skills: self.skills.clone(),
             permissions: self.permissions.clone(),
-            telemetry: self.telemetry.clone(),
+            session_stats: self.session_stats.clone(),
+            session_trace: self.session_trace.clone(),
             asides: self.asides.clone(),
             queue: self.queue.clone(),
             session_tree: self.session_tree.clone(),
@@ -1080,7 +1162,8 @@ impl Dialogs {
         self.mcp = snapshot.mcp;
         self.skills = snapshot.skills;
         self.permissions = snapshot.permissions;
-        self.telemetry = snapshot.telemetry;
+        self.session_stats = snapshot.session_stats;
+        self.session_trace = snapshot.session_trace;
         self.asides = snapshot.asides;
         self.queue = snapshot.queue;
         self.session_tree = snapshot.session_tree;
@@ -1096,7 +1179,9 @@ impl Dialogs {
             DialogKind::Skills => &self.skills,
             DialogKind::Permissions => &self.permissions,
             DialogKind::UsageStats => &self.usage_stats,
-            DialogKind::Telemetry => &self.telemetry,
+            DialogKind::Quotas => &self.quotas,
+            DialogKind::SessionStats => &self.session_stats,
+            DialogKind::SessionTrace => &self.session_trace,
             DialogKind::Asides => &self.asides,
             DialogKind::Models => &self.models,
             DialogKind::Connections => &self.connections,
@@ -1116,7 +1201,9 @@ impl Dialogs {
             DialogKind::Skills => &mut self.skills,
             DialogKind::Permissions => &mut self.permissions,
             DialogKind::UsageStats => &mut self.usage_stats,
-            DialogKind::Telemetry => &mut self.telemetry,
+            DialogKind::Quotas => &mut self.quotas,
+            DialogKind::SessionStats => &mut self.session_stats,
+            DialogKind::SessionTrace => &mut self.session_trace,
             DialogKind::Asides => &mut self.asides,
             DialogKind::Models => &mut self.models,
             DialogKind::Connections => &mut self.connections,
@@ -1143,7 +1230,9 @@ impl Dialogs {
             DialogKind::Skills => Box::new(std::mem::take(&mut self.skills)),
             DialogKind::Permissions => Box::new(std::mem::take(&mut self.permissions)),
             DialogKind::UsageStats => Box::new(std::mem::take(&mut self.usage_stats)),
-            DialogKind::Telemetry => Box::new(std::mem::take(&mut self.telemetry)),
+            DialogKind::Quotas => Box::new(std::mem::take(&mut self.quotas)),
+            DialogKind::SessionStats => Box::new(std::mem::take(&mut self.session_stats)),
+            DialogKind::SessionTrace => Box::new(std::mem::take(&mut self.session_trace)),
             DialogKind::Asides => Box::new(std::mem::take(&mut self.asides)),
             DialogKind::Models => Box::new(std::mem::take(&mut self.models)),
             DialogKind::Connections => Box::new(std::mem::take(&mut self.connections)),
@@ -1170,8 +1259,16 @@ impl Dialogs {
             DialogKind::UsageStats => {
                 self.usage_stats = *view.into_any().downcast::<UsageStatsDialog>().expect("kind")
             }
-            DialogKind::Telemetry => {
-                self.telemetry = *view.into_any().downcast::<TelemetryDialog>().expect("kind")
+            DialogKind::Quotas => {
+                self.quotas = *view.into_any().downcast::<QuotasDialog>().expect("kind")
+            }
+            DialogKind::SessionStats => {
+                self.session_stats =
+                    *view.into_any().downcast::<SessionStatsDialog>().expect("kind")
+            }
+            DialogKind::SessionTrace => {
+                self.session_trace =
+                    *view.into_any().downcast::<SessionTraceDialog>().expect("kind")
             }
             DialogKind::Asides => {
                 self.asides = *view.into_any().downcast::<AsidesDialog>().expect("kind")
@@ -1205,7 +1302,9 @@ impl Dialogs {
             DialogKind::Skills => self.skills.index,
             DialogKind::Permissions => self.permissions.index,
             DialogKind::UsageStats => self.usage_stats.index,
-            DialogKind::Telemetry => self.telemetry.index,
+            DialogKind::Quotas => self.quotas.index,
+            DialogKind::SessionStats => self.session_stats.index,
+            DialogKind::SessionTrace => self.session_trace.index,
             DialogKind::Asides => self.asides.index,
             DialogKind::Models => self.models.index,
             DialogKind::Connections => self.connections.index,
@@ -1225,7 +1324,9 @@ impl Dialogs {
             DialogKind::Skills => self.skills.index = value,
             DialogKind::Permissions => self.permissions.index = value,
             DialogKind::UsageStats => self.usage_stats.index = value,
-            DialogKind::Telemetry => self.telemetry.index = value,
+            DialogKind::Quotas => self.quotas.index = value,
+            DialogKind::SessionStats => self.session_stats.index = value,
+            DialogKind::SessionTrace => self.session_trace.index = value,
             DialogKind::Asides => self.asides.index = value,
             DialogKind::Models => self.models.index = value,
             DialogKind::Connections => self.connections.index = value,
@@ -1245,7 +1346,9 @@ impl Dialogs {
             DialogKind::Skills => self.skills.follow,
             DialogKind::Permissions => self.permissions.follow,
             DialogKind::UsageStats => self.usage_stats.follow,
-            DialogKind::Telemetry => self.telemetry.follow,
+            DialogKind::Quotas => self.quotas.follow,
+            DialogKind::SessionStats => self.session_stats.follow,
+            DialogKind::SessionTrace => self.session_trace.follow,
             DialogKind::Asides => self.asides.follow,
             DialogKind::Models => self.models.follow,
             DialogKind::Connections => self.connections.follow,
@@ -1265,7 +1368,9 @@ impl Dialogs {
             DialogKind::Skills => self.skills.keys_open,
             DialogKind::Permissions => self.permissions.keys_open,
             DialogKind::UsageStats => self.usage_stats.keys_open,
-            DialogKind::Telemetry => self.telemetry.keys_open,
+            DialogKind::Quotas => self.quotas.keys_open,
+            DialogKind::SessionStats => self.session_stats.keys_open,
+            DialogKind::SessionTrace => self.session_trace.keys_open,
             DialogKind::Asides => self.asides.keys_open,
             DialogKind::Models => self.models.keys_open,
             DialogKind::Connections => self.connections.keys_open,
@@ -1286,7 +1391,9 @@ impl Dialogs {
             DialogKind::Skills => self.skills.keys_open = open,
             DialogKind::Permissions => self.permissions.keys_open = open,
             DialogKind::UsageStats => self.usage_stats.keys_open = open,
-            DialogKind::Telemetry => self.telemetry.keys_open = open,
+            DialogKind::Quotas => self.quotas.keys_open = open,
+            DialogKind::SessionStats => self.session_stats.keys_open = open,
+            DialogKind::SessionTrace => self.session_trace.keys_open = open,
             DialogKind::Asides => self.asides.keys_open = open,
             DialogKind::Models => self.models.keys_open = open,
             DialogKind::Connections => self.connections.keys_open = open,
@@ -1309,7 +1416,9 @@ impl Dialogs {
             DialogKind::Skills => &mut self.skills.keys_scroll,
             DialogKind::Permissions => &mut self.permissions.keys_scroll,
             DialogKind::UsageStats => &mut self.usage_stats.keys_scroll,
-            DialogKind::Telemetry => &mut self.telemetry.keys_scroll,
+            DialogKind::Quotas => &mut self.quotas.keys_scroll,
+            DialogKind::SessionStats => &mut self.session_stats.keys_scroll,
+            DialogKind::SessionTrace => &mut self.session_trace.keys_scroll,
             DialogKind::Asides => &mut self.asides.keys_scroll,
             DialogKind::Models => &mut self.models.keys_scroll,
             DialogKind::Connections => &mut self.connections.keys_scroll,

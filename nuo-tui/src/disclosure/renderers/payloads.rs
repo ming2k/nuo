@@ -2957,6 +2957,9 @@ pub(crate) fn draw_tool_result(
                     .ok()
                     .and_then(|v| {
                         v.get("path")
+                            .or_else(|| v.get("file_path"))
+                            .or_else(|| v.get("filename"))
+                            .or_else(|| v.get("file"))
                             .and_then(|p| p.as_str())
                             .map(|s| s.to_string())
                     }),
@@ -2997,7 +3000,22 @@ pub(crate) fn draw_tool_result(
                     );
                 }
             }
-            draw_diff_content(ctx, hunks.as_ref(), indent, inner_w, lang);
+            if hunks.is_empty() && !output.trim().is_empty() {
+                draw_code_content(
+                    ctx,
+                    mi,
+                    block_idx,
+                    output,
+                    1,
+                    None,
+                    crate::syntax::Language::Plain,
+                    selection,
+                    indent,
+                    inner_w,
+                );
+            } else {
+                draw_diff_content(ctx, hunks.as_ref(), indent, inner_w, lang);
+            }
         }
         ResultKind::Checklist => {
             draw_checklist_content(

@@ -360,6 +360,7 @@ fn resolve_enter(
             "/permissions" => InputAction::OpenPermissions,
             "/tools" => InputAction::OpenTools,
             "/usage" => InputAction::OpenUsage,
+            "/quota" | "/quotas" => InputAction::OpenQuotas,
             "/mcp" => InputAction::OpenMcp,
             "/skills" => InputAction::OpenSkills,
             // Bare `/settings` (or `/config`) opens the manager modal locally;

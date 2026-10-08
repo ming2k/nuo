@@ -520,8 +520,8 @@ fn session_change_isolates_session_scoped_dialogs() {
     app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll = 5;
     app.set_active_index(1);
     app.surfaces
-        .present_dialog(crate::surfaces::DialogKind::Telemetry);
-    app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll = 8;
+        .present_dialog(crate::surfaces::DialogKind::SessionStats);
+    app.surfaces.dlg_mut::<crate::surfaces::SessionStatsDialog>().scroll = 8;
 
     app.on_viewed_session_changed();
 
@@ -530,12 +530,12 @@ fn session_change_isolates_session_scoped_dialogs() {
         "global usage stats survives the session change"
     );
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::TelemetryDialog>().scroll, 0,
-        "session telemetry is reset"
+        app.surfaces.dlg_mut::<crate::surfaces::SessionStatsDialog>().scroll, 0,
+        "session stats is reset"
     );
     assert!(
         !app.surfaces
-            .contains_dialog(crate::surfaces::DialogKind::Telemetry),
+            .contains_dialog(crate::surfaces::DialogKind::SessionStats),
         "session dialog unwound"
     );
     assert!(

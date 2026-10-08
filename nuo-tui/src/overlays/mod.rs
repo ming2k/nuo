@@ -23,6 +23,7 @@ pub mod permission;
 pub mod permissions_manager;
 pub mod provider;
 pub mod provider_delete_confirm;
+pub mod quotas;
 pub mod queue;
 pub mod session;
 pub mod skills;
@@ -65,10 +66,11 @@ pub use queue::{QueueModalProps, draw_queue_modal};
 pub use session::draw_sessions_modal;
 pub use skills::draw_skills_modal;
 pub use telemetry::{
-    ContextUsageProps, draw_telemetry_modal, telemetry_attempt_count, telemetry_attempt_key,
-    telemetry_round_count,
+    ContextUsageProps, draw_session_stats_modal, draw_session_trace_modal,
+    telemetry_attempt_count, telemetry_attempt_key, telemetry_round_count,
 };
 pub use toast::{draw_armed_toast, draw_copy_toast, draw_notice_toast};
 pub use tools::draw_tools_modal;
 pub use tree::draw_tree_modal;
 pub use usage_stats::draw_usage_stats_modal;
+pub use quotas::draw_quotas_modal;

@@ -209,3 +209,52 @@ pub struct ConnectionDetail {
     /// Remote provider usage / quota / balance state.
     pub usage: ConnectionUsageState,
 }
+
+/// Individual connection quota inspection entry for batch inspection (ADR-0036).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConnectionQuotaEntry {
+    /// Connection instance name.
+    pub name: String,
+    /// Provider identifier (e.g. "google-antigravity", "deepseek").
+    pub provider: String,
+    /// Human-friendly provider label.
+    pub provider_label: String,
+    /// Associated account email or identifier if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+    /// Whether this is the active default connection.
+    #[serde(default)]
+    pub is_default: bool,
+    /// Primary remaining percentage or balance string (e.g. "100%", "45%", "$12.50").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary_balance: Option<String>,
+    /// Detailed quota data (periodic buckets or balance).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota: Option<ProviderQuotaData>,
+    /// Plan or tier label if known (e.g. "Google One AI Premium").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+    /// Retrieval state.
+    pub state: ConnectionUsageState,
+    /// Earliest upcoming reset timestamp in epoch milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub earliest_reset_ms: Option<u64>,
+}
+
+/// Aggregated provider quota snapshot across connections (ADR-0036).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ProviderQuotaSnapshot {
+    /// Target provider filter if this was a type-scoped query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_filter: Option<String>,
+    /// Individual connection quota records.
+    pub entries: Vec<ConnectionQuotaEntry>,
+    /// Summary pool metrics: total accounts inspected.
+    pub total_accounts: usize,
+    /// Healthy accounts with available quota.
+    pub available_accounts: usize,
+    /// Depleted / rate-limited accounts (0% remaining or error).
+    pub depleted_accounts: usize,
+    /// Query timestamp in epoch milliseconds.
+    pub updated_at_ms: u64,
+}

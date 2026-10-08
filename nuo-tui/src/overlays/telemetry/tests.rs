@@ -1,6 +1,4 @@
-use super::TelemetryTab;
 use super::attempt::build_attempt_inspector_body;
-use super::draw::tab_strip_line;
 use super::model::*;
 use super::overview::build_overview_body;
 use super::tables::{build_rounds_table, build_turns_table};
@@ -480,26 +478,7 @@ fn test_build_overview_and_sticky_table_headers() {
     assert!(turns_header_str.contains("TTFT"));
     assert!(turns_header_str.contains("Status"));
 
-    // 4. Test Tab Strip
-    let ov_tab = tab_strip_line(TelemetryTab::Overview, 1, &theme);
-    let ov_tab_str = ov_tab
-        .spans
-        .iter()
-        .map(|s| s.content.as_ref())
-        .collect::<Vec<_>>()
-        .join("");
-    assert!(ov_tab_str.contains("[ 1 Overview ]"));
-    assert!(ov_tab_str.contains("2 Activity (1)"));
 
-    let act_tab = tab_strip_line(TelemetryTab::Activity, 1, &theme);
-    let act_tab_str = act_tab
-        .spans
-        .iter()
-        .map(|s| s.content.as_ref())
-        .collect::<Vec<_>>()
-        .join("");
-    assert!(act_tab_str.contains("1 Overview"));
-    assert!(act_tab_str.contains("[ 2 Activity (1) ]"));
 }
 
 #[test]

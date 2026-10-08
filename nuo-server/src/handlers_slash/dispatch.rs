@@ -47,6 +47,7 @@ pub async fn dispatch(cmd: String, env: SlashEnv<'_>) {
         Some(BuiltinCmd::Undo) => commands::undo(env, name, args, &parts).await,
         Some(BuiltinCmd::Dashboard) => commands::dashboard(env, name, args, &parts).await,
         Some(BuiltinCmd::Usage) => commands::usage(env, name, args, &parts).await,
+        Some(BuiltinCmd::Quota) => commands::quota(env, name, args, &parts).await,
         Some(BuiltinCmd::Btw) => commands::btw(env, &cmd, name, args, &parts).await,
         Some(BuiltinCmd::Compact) => commands::compact(env, name, args, &parts).await,
         Some(BuiltinCmd::Jobs) => commands::jobs(env, name, args, &parts).await,

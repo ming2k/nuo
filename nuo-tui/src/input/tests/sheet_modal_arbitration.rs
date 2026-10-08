@@ -47,7 +47,8 @@ fn esc_over_modal_never_rejects_the_permission_beneath() {
         SurfaceFixture::Models,
         SurfaceFixture::Tools,
         SurfaceFixture::Queue,
-        SurfaceFixture::Telemetry,
+        SurfaceFixture::SessionStats,
+        SurfaceFixture::SessionTrace,
         SurfaceFixture::Sessions,
     ] {
         let action = route(overlaid(fixture, SheetKind::Permission), KeyCode::Esc);

@@ -141,6 +141,7 @@ fn redesigned_components_render_without_panicking() {
                 connection_info_standalone: false,
                 refreshing: false,
                 connection_models_expanded: false,
+                connection_usages: None,
             },
             &theme,
             &crate::model::selection::SelectionState::None,

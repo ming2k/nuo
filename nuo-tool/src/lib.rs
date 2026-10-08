@@ -49,6 +49,7 @@ pub use mcp::McpTool;
 pub use mention::*;
 pub use message::{ImagePart, InjectionKind, InjectionOrigin, Message, Role, SubagentMeta, ToolCall, ToolResult};
 pub use output::ToolOutput;
+pub use tool_output::PatchOp;
 pub use policy::ToolPolicy;
 pub use registry::ToolRegistry;
 pub use risk::RiskProfile;

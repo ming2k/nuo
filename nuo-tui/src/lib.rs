@@ -103,7 +103,6 @@ mod snapshot_tests;
 
 pub(crate) use app::{App, CaretOwner, ProviderDeleteChoice, SelectionEdge};
 pub(crate) use completion::CompletionKind;
-pub(crate) use overlays::telemetry::TelemetryTab;
 pub(crate) use providers::{CustomField, PROVIDER_PRESETS, provider_label_for};
 
 use nuo_wire::{
@@ -1181,7 +1180,11 @@ pub async fn run_tui(
                                     .and_then(|queue| queue.pop_front());
                                 match announced_slot {
                                     Some(slot) => {
-                                        transcript!(E::ToolCallCollapse { slot, call_id: id });
+                                        transcript!(E::ToolCallCollapse {
+                                            slot,
+                                            call_id: id,
+                                            arguments,
+                                        });
                                     }
                                     None => {
                                         let mut message =
@@ -1842,6 +1845,9 @@ pub async fn run_tui(
                         // Session-independent by design (ADR-0122).
                         mutations.send(M::UsageStats(report)).await;
                     }
+                    AgentResponse::ProviderQuotas(snapshot) => {
+                        mutations.send(M::ProviderQuotas(snapshot)).await;
+                    }
                     AgentResponse::ComposerCompletions {
                         request_id,
                         text,
@@ -2077,6 +2083,8 @@ pub async fn run_tui(
         token_report: None,
         context_tokens: None,
         usage_stats: None,
+        provider_quotas: None,
+        connection_usages: std::collections::HashMap::new(),
         modal_body_height: 0,
         sticky_summary_line: None,
         pin_summary_line: None,

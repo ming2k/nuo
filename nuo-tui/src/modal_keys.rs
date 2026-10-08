@@ -174,10 +174,13 @@ pub(crate) fn resolve_modal_key(
                         | DialogKind::SessionTree
                         | DialogKind::UsageStats,
                     ) => InputAction::CloseModal,
+                    OverlaySurface::Dialog(DialogKind::Quotas) => InputAction::QuotasActivate,
                     OverlaySurface::Dialog(DialogKind::Skills) => InputAction::SkillsToggleDetail,
                     OverlaySurface::Dialog(DialogKind::Queue) => InputAction::RecallQueuedSelected,
                     OverlaySurface::Dialog(DialogKind::Asides) => InputAction::BtwFocusSelected,
-                    OverlaySurface::Dialog(DialogKind::Telemetry) => InputAction::TelemetryActivate,
+                    OverlaySurface::Dialog(DialogKind::SessionTrace) => {
+                        InputAction::TraceInspectDetail
+                    }
                     _ => return None,
                 }
             } else {
@@ -200,14 +203,15 @@ pub(crate) fn resolve_modal_key(
                         | DialogKind::Sessions
                         | DialogKind::Permissions
                         | DialogKind::SessionTree
-                        | DialogKind::Telemetry,
+                        | DialogKind::SessionTrace,
                     ) => InputAction::ModalUp,
                     OverlaySurface::Dialog(
                         DialogKind::Tools
                         | DialogKind::Mcp
                         | DialogKind::Skills
                         | DialogKind::Queue
-                        | DialogKind::Asides,
+                        | DialogKind::Asides
+                        | DialogKind::Quotas,
                     ) => InputAction::SessionSelect { forward: false },
                     OverlaySurface::Sheet(SheetKind::ProviderPreset) => {
                         InputAction::MovePresetChoice { forward: false }
@@ -216,7 +220,9 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Sheet(SheetKind::CustomProvider) => {
                         InputAction::ScrollCustomProvider { forward: false }
                     }
-                    OverlaySurface::Dialog(DialogKind::UsageStats) => InputAction::ScrollUp,
+                    OverlaySurface::Dialog(DialogKind::UsageStats | DialogKind::SessionStats) => {
+                        InputAction::ScrollUp
+                    },
                     _ => return None,
                 }
             } else {
@@ -238,14 +244,15 @@ pub(crate) fn resolve_modal_key(
                         | DialogKind::Sessions
                         | DialogKind::Permissions
                         | DialogKind::SessionTree
-                        | DialogKind::Telemetry,
+                        | DialogKind::SessionTrace,
                     ) => InputAction::ModalDown,
                     OverlaySurface::Dialog(
                         DialogKind::Tools
                         | DialogKind::Mcp
                         | DialogKind::Skills
                         | DialogKind::Queue
-                        | DialogKind::Asides,
+                        | DialogKind::Asides
+                        | DialogKind::Quotas,
                     ) => InputAction::SessionSelect { forward: true },
                     OverlaySurface::Sheet(SheetKind::ProviderPreset) => {
                         InputAction::MovePresetChoice { forward: true }
@@ -254,7 +261,9 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Sheet(SheetKind::CustomProvider) => {
                         InputAction::ScrollCustomProvider { forward: true }
                     }
-                    OverlaySurface::Dialog(DialogKind::UsageStats) => InputAction::ScrollDown,
+                    OverlaySurface::Dialog(DialogKind::UsageStats | DialogKind::SessionStats) => {
+                        InputAction::ScrollDown
+                    },
                     _ => return None,
                 }
             } else {
@@ -267,9 +276,7 @@ pub(crate) fn resolve_modal_key(
         KeyCode::Left => {
             if let Some(overlay) = overlay {
                 match overlay {
-                    OverlaySurface::Dialog(DialogKind::Telemetry) => {
-                        return Some(InputAction::TelemetryPrevTab);
-                    }
+
                     OverlaySurface::Sheet(SheetKind::ModelEditor)
                         if keys.editor_field == Some(1) =>
                     {
@@ -291,9 +298,7 @@ pub(crate) fn resolve_modal_key(
         KeyCode::Right => {
             if let Some(overlay) = overlay {
                 match overlay {
-                    OverlaySurface::Dialog(DialogKind::Telemetry) => {
-                        return Some(InputAction::TelemetryNextTab);
-                    }
+
                     OverlaySurface::Sheet(SheetKind::ModelEditor)
                         if keys.editor_field == Some(1) =>
                     {
@@ -321,7 +326,6 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Sheet(SheetKind::CustomProvider) => {
                         InputAction::CustomProviderNextField
                     }
-                    OverlaySurface::Dialog(DialogKind::Telemetry) => InputAction::TelemetryNextTab,
                     OverlaySurface::Sheet(SheetKind::OAuthPending) => {
                         InputAction::CycleOauthSelection
                     }
@@ -342,9 +346,7 @@ pub(crate) fn resolve_modal_key(
                 OverlaySurface::Sheet(SheetKind::CustomProvider) => {
                     Some(InputAction::CustomProviderPrevField)
                 }
-                OverlaySurface::Dialog(DialogKind::Telemetry) => {
-                    Some(InputAction::TelemetryPrevTab)
-                }
+
                 OverlaySurface::Sheet(SheetKind::OAuthPending) => {
                     Some(InputAction::CycleOauthSelection)
                 }
@@ -406,15 +408,13 @@ pub(crate) fn resolve_modal_key(
                 'c' => Some(InputAction::PermissionsClearAll),
                 _ => None,
             },
-            OverlaySurface::Dialog(DialogKind::Telemetry) => match c {
-                '1' => Some(InputAction::TelemetrySetTab(
-                    crate::overlays::telemetry::TelemetryTab::Overview,
-                )),
-                '2' => Some(InputAction::TelemetrySetTab(
-                    crate::overlays::telemetry::TelemetryTab::Activity,
-                )),
-                '[' | 'h' => Some(InputAction::TelemetryPrevTab),
-                ']' | 'l' => Some(InputAction::TelemetryNextTab),
+            OverlaySurface::Dialog(DialogKind::Quotas) => match c {
+                ' ' => Some(InputAction::QuotasActivate),
+                'r' | 'R' => Some(InputAction::RefreshQuotas),
+                _ => None,
+            },
+            OverlaySurface::Dialog(DialogKind::SessionStats) => match c {
+                't' | 'T' => Some(InputAction::SessionStatsOpenTrace),
                 _ => None,
             },
             OverlaySurface::Dialog(DialogKind::Models) => resolve_picker_key(c, true, keys),

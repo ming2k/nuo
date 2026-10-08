@@ -308,7 +308,10 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         description: "Expand file modifications, patch diffs, and write previews by default",
         members: &[
             ("edit_text", &edit_text::EditPresenter),
+            ("edit", &edit_text::EditPresenter),
+            ("edit_file", &edit_text::EditPresenter),
             ("write_file", &edit_text::WritePresenter),
+            ("write", &edit_text::WritePresenter),
         ],
         expanded_by_default: true,
     },
@@ -541,10 +544,23 @@ pub fn diff_hunks_for(name: &str, arguments: &str) -> Vec<DiffHunk> {
     let Ok(value) = serde_json::from_str::<Value>(arguments) else {
         return Vec::new();
     };
-    let get = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or("");
-    match name {
-        "edit_text" => diff::line_diff_hunks(get("old_string"), get("new_string"), 0),
-        "write_file" => diff::line_diff_hunks("", get("content"), 0),
+    let get_any = |keys: &[&str]| {
+        keys.iter()
+            .find_map(|k| value.get(*k).and_then(Value::as_str))
+            .unwrap_or("")
+    };
+    let base = name.rsplit_once(':').map(|(_, b)| b).unwrap_or(name);
+    match base {
+        "edit_text" | "edit" | "edit_file" => diff::line_diff_hunks(
+            get_any(&["old_string", "old_str", "old_text", "old"]),
+            get_any(&["new_string", "new_str", "new_text", "new"]),
+            0,
+        ),
+        "write_file" | "write" => diff::line_diff_hunks(
+            "",
+            get_any(&["content", "new_string", "text"]),
+            0,
+        ),
         _ => Vec::new(),
     }
 }
@@ -578,6 +594,14 @@ mod tests {
         );
         assert_eq!(
             summary("edit_text", serde_json::json!({"path": "a.rs"})),
+            "Edit a.rs"
+        );
+        assert_eq!(
+            summary("edit", serde_json::json!({"path": "a.rs"})),
+            "Edit a.rs"
+        );
+        assert_eq!(
+            summary("edit_text", serde_json::json!({"file_path": "a.rs"})),
             "Edit a.rs"
         );
         assert_eq!(

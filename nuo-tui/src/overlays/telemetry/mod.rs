@@ -1,10 +1,13 @@
-//! Session Stats modal: unified context usage and performance stats
-//! grouped by user round, with turn-level drill-down and attempt inspection.
+//! Session Stats and Session Trace overlays (ADR-0037).
+//!
+//! Separated into two distinct surfaces:
+//! - [`draw::draw_session_stats_modal`] — Session Stats (/stats, Ctrl+O)
+//! - [`draw::draw_session_trace_modal`] — Session Trace (/trace) with hierarchical drill-in (L1/L2/L3)
 //!
 //! Rendering lives in level-focused submodules:
 //! - [`draw`]     — modal chrome, breadcrumbs, level routing
-//! - [`overview`] — Overview tab body
-//! - [`tables`]   — Activity tab rounds/turns tables
+//! - [`overview`] — stats overview body
+//! - [`tables`]   — trace rounds/turns tables
 //! - [`attempt`]  — attempt inspector with the latency timeline
 
 pub mod attempt;
@@ -16,23 +19,7 @@ pub mod tables;
 #[cfg(test)]
 mod tests;
 
-pub use draw::draw_telemetry_modal;
+pub use draw::{draw_session_stats_modal, draw_session_trace_modal};
 pub use model::{
     ContextUsageProps, telemetry_attempt_count, telemetry_attempt_key, telemetry_round_count,
 };
-
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, Default)]
-pub enum TelemetryTab {
-    #[default]
-    Overview,
-    Activity,
-}
-
-impl TelemetryTab {
-    pub fn label(self) -> &'static str {
-        match self {
-            TelemetryTab::Overview => "Overview",
-            TelemetryTab::Activity => "Activity",
-        }
-    }
-}

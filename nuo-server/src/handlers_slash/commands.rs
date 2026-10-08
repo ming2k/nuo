@@ -705,6 +705,17 @@ pub(crate) async fn usage(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&
     .await;
 }
 
+pub(crate) async fn quota(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv { session, .. } = env;
+    record_ack(
+        session,
+        name,
+        args,
+        "Provider quotas are shown by CLI or TUI — run `nuo quota [provider]` in your terminal.",
+    )
+    .await;
+}
+
 pub(crate) async fn btw(env: SlashEnv<'_>, cmd: &str, name: &str, args: &str, _parts: &[&str]) {
     let SlashEnv {
         config,

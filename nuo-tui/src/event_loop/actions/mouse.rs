@@ -105,10 +105,18 @@ pub(super) async fn handle_selection_start(
                 viewed_session_id,
             );
         }
-        Some(UiKey::Context | UiKey::Performance) => {
+        Some(UiKey::Context) => {
             super::enter_panel(
                 app,
-                crate::surfaces::DialogKind::Telemetry,
+                crate::surfaces::DialogKind::SessionStats,
+                runtime,
+                viewed_session_id,
+            );
+        }
+        Some(UiKey::Performance) => {
+            super::enter_panel(
+                app,
+                crate::surfaces::DialogKind::SessionTrace,
                 runtime,
                 viewed_session_id,
             );

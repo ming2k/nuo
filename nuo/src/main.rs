@@ -65,6 +65,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Mode::Doctor => session::run_doctor(project_override.as_deref())
             .await
             .map_err(Into::into),
+        Mode::Quota { provider, refresh } => commands::quota::run(provider, refresh).await,
         Mode::Config(action) => commands::config::run(action),
         Mode::Context(action) => commands::context::run(action),
         Mode::Auth(action) => commands::auth::run(action),

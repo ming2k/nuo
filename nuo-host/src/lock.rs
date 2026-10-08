@@ -7,6 +7,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 /// Guard for an exclusive process lock. The native lock is released on drop.
+#[derive(Debug)]
 pub struct ProcessLock {
     file: File,
 }
@@ -28,7 +29,7 @@ impl ProcessLock {
                 .unwrap_or_default();
             return Err(format!(
                 "could not acquire advisory lock on {}: {error}{holder} \
-                 (another nuo instance may already be running for this project)",
+                 (another nuo instance may already be running)",
                 path.display()
             ));
         }
@@ -187,5 +188,15 @@ mod tests {
         drop(first);
         assert!(!ProcessLock::is_locked(&path));
         assert!(ProcessLock::acquire(&path).is_ok());
+    }
+
+    #[test]
+    fn lock_error_message_does_not_contain_project_baggage() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("process.lock");
+        let _first = ProcessLock::acquire(&path).unwrap();
+        let err = ProcessLock::acquire(&path).unwrap_err();
+        assert!(!err.contains("for this project"));
+        assert!(err.contains("another nuo instance may already be running"));
     }
 }

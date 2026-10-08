@@ -1301,7 +1301,7 @@ async fn handle_wire_stream(
             },
             msg = wire_source.next() => match msg {
                 Some(Ok(Wire::Request { request: AgentRequest::EndSession })) => {
-                    // Client-declared session end (ADR-0112): the
+                    // Client-declared session end (`EndSession`): the
                     // operator said "I am done with this session", so
                     // tear it down now through the same path as
                     // `ControlRequest::KillSession` — cancel the driver,
@@ -1364,7 +1364,7 @@ async fn handle_wire_stream(
             },
         }
     }
-    // ADR-0141: release this connection's channel hold. When the last
+    // Release this connection's channel hold (Detach). When the last
     // interactive watcher leaves, the session drops to Autonomous and any
     // request parked since resolves by labeled policy instead of hanging.
     let after_detach = bound.human_channel.detach();

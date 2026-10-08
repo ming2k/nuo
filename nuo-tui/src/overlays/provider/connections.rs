@@ -44,6 +44,8 @@ pub struct ConnectionsModalProps<'a> {
     pub connection_info_standalone: bool,
     pub refreshing: bool,
     pub connection_models_expanded: bool,
+    /// Ambient quota balances keyed by connection id (ADR-0036).
+    pub connection_usages: Option<&'a std::collections::HashMap<String, nuo_wire::ConnectionUsageState>>,
 }
 
 /// Draw the **Connections** modal — the provider-instance management surface (`/connections`).
@@ -71,6 +73,7 @@ pub fn draw_connections_modal(
         connection_info_standalone,
         refreshing,
         connection_models_expanded,
+        connection_usages,
     } = props;
     let area = modal_area(frame, FixedModalSpec::PROVIDER);
     let f = modal_frame(frame, area, theme, true, true);
@@ -232,6 +235,7 @@ pub fn draw_connections_modal(
 
     let body = provider_list_body(
         providers,
+        connection_usages,
         current_provider,
         modal_index,
         theme,
@@ -268,6 +272,7 @@ pub fn draw_connections_modal(
 /// standard.
 pub(crate) fn provider_list_body(
     providers: &[RankedProvider],
+    connection_usages: Option<&std::collections::HashMap<String, nuo_wire::ConnectionUsageState>>,
     _current_provider: &str,
     modal_index: usize,
     theme: &Theme,
@@ -305,6 +310,19 @@ pub(crate) fn provider_list_body(
         }
 
         let mut row = ListRow::new(style, body_width).group(identity);
+
+        if let Some(usages) = connection_usages
+            && let Some(nuo_wire::ConnectionUsageState::Available(usage)) = usages.get(&rp.id)
+            && let Some(balance) = &usage.primary_balance
+        {
+            row = row.group(RowGroup::trailing().styled(
+                RowStyledAtom {
+                    text: balance.clone(),
+                    style: Style::default().fg(if is_selected { style.fg } else { theme.success }),
+                },
+                0,
+            ));
+        }
 
         if let Some(label) = crate::providers::provider_type_label(&rp.provider) {
             row = row.group(RowGroup::midpoint().text(label, style.dim, 0));
