@@ -8,6 +8,45 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.11] - 2026-10-08
+
+### Added
+
+- **Provider quota aggregation dashboard (ADR-0036, [INV-QUOTA-01..04]).** Nuo
+  now separates forward-looking provider *capacity* (`Quota`) from historical
+  token *consumption* (`Usage`). New typed wire aggregates
+  (`ProviderQuotaSnapshot`, `ConnectionQuotaEntry`) and the
+  `QueryProviderQuotas` request/reply pair back three new surfaces: a `/quota`
+  TUI dashboard with ambient selectable account rows, and a headless
+  `nuo quota [provider] [--refresh]` CLI verb. Quota fetch is type-scoped and
+  concurrent across an account pool, reusing pooled connections with a
+  memory TTL cache and explicit project-ID propagation.
+- **`nuo quota` CLI command.** Fast, headless inspection of provider
+  allowances, sliding-window buckets, credit balances, and account pools.
+- **Public reference `docs/reference/lifecycle-and-action-semantics.md`.**
+- **`edit_text` tool refinements** for terminal-side text editing.
+
+### Changed
+
+- **Session telemetry bifurcated into two surfaces (ADR-0037,
+  [INV-STATS-01, INV-TRACE-01, INV-AFFORDANCE-01]).** The former tabbed
+  telemetry modal is split into `SessionStats` (`/stats`, `Ctrl+O`) for
+  context/token accounting and `SessionTrace` (`/trace`) for the
+  round/turn/attempt execution waterfall. Lateral `Left`/`Right` tab chording
+  is eradicated; arrow keys now exclusively scroll or select, and `Enter`
+  semantics are consistent per surface, with a frictionless cross-surface
+  affordance from Stats to Trace.
+
+### Fixed
+
+- **Deterministic pre-bootstrap takeover and lock ordering (ADR-0034
+  [INV-LIFECYCLE-07]).** The server runtime now executes conflicting-process
+  takeover and acquires the global instance lock (`server.lock`) *before*
+  initializing the session registry or any persistence handles. Database
+  handles are acquired with bounded-backoff polling and unrecoverable startup
+  errors are no longer cached globally, preventing startup race conditions and
+  handle poisoning.
+
 ## [0.0.10] - 2026-10-07
 
 ### Changed
