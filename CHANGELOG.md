@@ -8,6 +8,25 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.12] - 2026-10-09
+
+### Added
+
+- **Thread entity taxonomy and server SSOT fan-out (ADR-0038).** Eliminates
+  session abstraction ambiguity by strictly separating transport connections, UI
+  viewports, and persistent thread business entities. The server is the canonical
+  single source of truth for thread state, fanning out updates across attached
+  viewports.
+- **Client-centric tab workspace and reactive surface sync (ADR-0039).**
+  Unified scene and session tab management in the client workspace, with full
+  reactive synchronization of surface and dialog states.
+- **Cross-domain action matrix and polymorphic TUI architecture (ADR-0040).**
+  Introduces domain-scoped action routing, spatial topology, and a redesigned
+  three-tier view header cleanly decoupling display layout from input processing.
+- **Thread command purity and explicit tab management topology (ADR-0041).**
+  Pure thread command boundaries, strict viewport/workspace separation, and
+  tab navigation shortcuts (`Alt+W`, `Alt+1..9`).
+
 ## [0.0.11] - 2026-10-08
 
 ### Added
