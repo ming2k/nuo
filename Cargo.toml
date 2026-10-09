@@ -43,7 +43,7 @@ default-members = ["nuo"]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.12"
+version = "0.0.13"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -113,51 +113,51 @@ mockito = "1"
 tempfile = "3"
 
 # ACP & Substrates
-nuo-acp = { version = "0.0.12", path = "nuo-acp" }
-acp = { version = "0.0.12", package = "nuo-acp", path = "nuo-acp" }
-nuo-agent = { version = "0.0.12", path = "nuo-agent" }
-nuo-tool = { version = "0.0.12", path = "nuo-tool" }
-nuo-tool-derive = { version = "0.0.12", path = "nuo-tool-derive" }
-nuo-provider = { version = "0.0.12", path = "nuo-provider" }
-nuo-oauth = { version = "0.0.12", path = "nuo-oauth" }
-nuo-provider-transport = { version = "0.0.12", path = "nuo-provider-transport" }
-nuo-provider-qoder = { version = "0.0.12", path = "providers/nuo-provider-qoder" }
-nuo-provider-catalog = { version = "0.0.12", path = "providers/nuo-provider-catalog" }
-nuo-provider-anthropic = { version = "0.0.12", path = "providers/nuo-provider-anthropic" }
-nuo-provider-google-antigravity = { version = "0.0.12", path = "providers/nuo-provider-google-antigravity" }
-nuo-provider-openai = { version = "0.0.12", path = "providers/nuo-provider-openai" }
-nuo-provider-chatgpt-plan = { version = "0.0.12", path = "providers/nuo-provider-chatgpt-plan" }
-nuo-provider-deepseek = { version = "0.0.12", path = "providers/nuo-provider-deepseek" }
-nuo-provider-kimi = { version = "0.0.12", path = "providers/nuo-provider-kimi" }
-nuo-provider-copilot = { version = "0.0.12", path = "providers/nuo-provider-copilot" }
-nuo-provider-commandcode-plan = { version = "0.0.12", path = "providers/nuo-provider-commandcode-plan" }
-nuo-provider-opencode = { version = "0.0.12", path = "providers/nuo-provider-opencode" }
-nuo-provider-openrouter = { version = "0.0.12", path = "providers/nuo-provider-openrouter" }
-nuo-provider-xai = { version = "0.0.12", path = "providers/nuo-provider-xai" }
-nuo-provider-qianwen = { version = "0.0.12", path = "providers/nuo-provider-qianwen" }
-nuo-provider-zai = { version = "0.0.12", path = "providers/nuo-provider-zai" }
-nuo-provider-siliconflow = { version = "0.0.12", path = "providers/nuo-provider-siliconflow" }
-nuo-mcp = { version = "0.0.12", path = "nuo-mcp" }
-nuo-model-codec = { version = "0.0.12", path = "nuo-model-codec", default-features = false }
+nuo-acp = { version = "0.0.13", path = "nuo-acp" }
+acp = { version = "0.0.13", package = "nuo-acp", path = "nuo-acp" }
+nuo-agent = { version = "0.0.13", path = "nuo-agent" }
+nuo-tool = { version = "0.0.13", path = "nuo-tool" }
+nuo-tool-derive = { version = "0.0.13", path = "nuo-tool-derive" }
+nuo-provider = { version = "0.0.13", path = "nuo-provider" }
+nuo-oauth = { version = "0.0.13", path = "nuo-oauth" }
+nuo-provider-transport = { version = "0.0.13", path = "nuo-provider-transport" }
+nuo-provider-qoder = { version = "0.0.13", path = "providers/nuo-provider-qoder" }
+nuo-provider-catalog = { version = "0.0.13", path = "providers/nuo-provider-catalog" }
+nuo-provider-anthropic = { version = "0.0.13", path = "providers/nuo-provider-anthropic" }
+nuo-provider-google-antigravity = { version = "0.0.13", path = "providers/nuo-provider-google-antigravity" }
+nuo-provider-openai = { version = "0.0.13", path = "providers/nuo-provider-openai" }
+nuo-provider-chatgpt-plan = { version = "0.0.13", path = "providers/nuo-provider-chatgpt-plan" }
+nuo-provider-deepseek = { version = "0.0.13", path = "providers/nuo-provider-deepseek" }
+nuo-provider-kimi = { version = "0.0.13", path = "providers/nuo-provider-kimi" }
+nuo-provider-copilot = { version = "0.0.13", path = "providers/nuo-provider-copilot" }
+nuo-provider-commandcode-plan = { version = "0.0.13", path = "providers/nuo-provider-commandcode-plan" }
+nuo-provider-opencode = { version = "0.0.13", path = "providers/nuo-provider-opencode" }
+nuo-provider-openrouter = { version = "0.0.13", path = "providers/nuo-provider-openrouter" }
+nuo-provider-xai = { version = "0.0.13", path = "providers/nuo-provider-xai" }
+nuo-provider-qianwen = { version = "0.0.13", path = "providers/nuo-provider-qianwen" }
+nuo-provider-zai = { version = "0.0.13", path = "providers/nuo-provider-zai" }
+nuo-provider-siliconflow = { version = "0.0.13", path = "providers/nuo-provider-siliconflow" }
+nuo-mcp = { version = "0.0.13", path = "nuo-mcp" }
+nuo-model-codec = { version = "0.0.13", path = "nuo-model-codec", default-features = false }
 
 # Terminal Substrate (Nuotc)
 nuotc = "0.0.2"
 
 # In-house Nuo crates
-nuo-wire = { version = "0.0.12", path = "nuo-wire" }
-nuo-client = { version = "0.0.12", path = "nuo-client" }
-nuo = { version = "0.0.12", path = "nuo" }
-nuo-server = { version = "0.0.12", path = "nuo-server" }
-nuo-tui = { version = "0.0.12", path = "nuo-tui" }
-nuox = { package = "nuo-tui", version = "0.0.12", path = "nuo-tui" }
-nuo-persistence = { version = "0.0.12", path = "nuo-persistence" }
-nuo-host = { version = "0.0.12", path = "nuo-host" }
-nuo-harness = { version = "0.0.12", path = "nuo-harness" }
-nuo-tool-fs = { version = "0.0.12", path = "tools/nuo-tool-fs" }
-nuo-tool-exec = { version = "0.0.12", path = "tools/nuo-tool-exec" }
-nuo-tool-web = { version = "0.0.12", path = "tools/nuo-tool-web" }
-nuo-tool-ast = { version = "0.0.12", path = "tools/nuo-tool-ast" }
-nuo-code = { version = "0.0.12", path = "nuo-code" }
+nuo-wire = { version = "0.0.13", path = "nuo-wire" }
+nuo-client = { version = "0.0.13", path = "nuo-client" }
+nuo = { version = "0.0.13", path = "nuo" }
+nuo-server = { version = "0.0.13", path = "nuo-server" }
+nuo-tui = { version = "0.0.13", path = "nuo-tui" }
+nuox = { package = "nuo-tui", version = "0.0.13", path = "nuo-tui" }
+nuo-persistence = { version = "0.0.13", path = "nuo-persistence" }
+nuo-host = { version = "0.0.13", path = "nuo-host" }
+nuo-harness = { version = "0.0.13", path = "nuo-harness" }
+nuo-tool-fs = { version = "0.0.13", path = "tools/nuo-tool-fs" }
+nuo-tool-exec = { version = "0.0.13", path = "tools/nuo-tool-exec" }
+nuo-tool-web = { version = "0.0.13", path = "tools/nuo-tool-web" }
+nuo-tool-ast = { version = "0.0.13", path = "tools/nuo-tool-ast" }
+nuo-code = { version = "0.0.13", path = "nuo-code" }
 
 [workspace.lints.rust]
 unsafe_code = "allow"

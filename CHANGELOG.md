@@ -8,6 +8,22 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.13] - 2026-10-09
+
+### Added
+
+- **Thread domain nomenclature unification and compact TabBar affordance (ADR-0043).**
+  Standardizes thread entity domain terminology across CLI (`nuo thread`),
+  slash commands (`/threads`), and interactive picker surfaces (`ThreadsDialog`)
+  while maintaining backward-compatible aliases (`/sessions`, `/resume`).
+  Reorganizes the TabBar client menu affordance into a compact "label-first, dim-chord"
+  `menu C-x` presentation, and completes the `C-x` Client Global Workspace namespace
+  wiring Settings (`C-x ,`), Threads (`C-x s`), and Close Tab (`C-x w`).
+- **Client viewport routing ownership, tab-autonomous scene stacks, and domain scene self-projection (ADR-0042).**
+  Formalizes Row 1 / Row 2 client shell vs Row 3 / body domain scene ownership.
+  Isolates per-tab navigation history with the root `Esc` invariant, and clarifies
+  subagent drill-in vs thread fork orthogonality across TUI surfaces.
+
 ## [0.0.12] - 2026-10-09
 
 ### Added
