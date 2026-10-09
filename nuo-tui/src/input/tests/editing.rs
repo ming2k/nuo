@@ -1211,8 +1211,6 @@ fn text_modal_commands_resolve_and_consume_composer() {
         ("/tools", InputAction::OpenTools),
         ("/mcp", InputAction::OpenMcp),
         ("/skills", InputAction::OpenSkills),
-        ("/settings", InputAction::OpenConfig),
-        ("/config", InputAction::OpenConfig),
     ] {
         let mut input = cmd.to_string();
         let action = enter(&mut input, true);

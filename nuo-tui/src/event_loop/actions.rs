@@ -99,7 +99,7 @@ fn scroll_tick(app: &mut App, down: bool) {
         }
     } else {
         // While a permission sheet is open the transcript stays scrollable,
-        // so the wheel / page keys drive the conversation behind it, not the
+        // so the wheel / page keys drive the thread behind it, not the
         // sheet's own body.
         app.follow_bottom = false;
         app.pin_summary_line = None;
@@ -260,9 +260,75 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             sgr_guard.reset();
         }
         input::InputAction::Quit => {
-            app.send_intent(AgentRequest::EndSession);
-            tracing::info!(reason = "slash_exit", "app exiting");
+            // ADR-0038 [INV-ACTION-02]: Quitting the TUI client is strictly a non-destructive Detach.
+            tracing::info!(reason = "slash_exit", "client detaching");
             return ActionFlow::Exit;
+        }
+        input::InputAction::SelectTab(idx) => {
+            if let Some(target_tab) = app.surfaces.tabs().get(idx).cloned() {
+                match &target_tab.kind {
+                    crate::surfaces::TabKind::Thread(id) => {
+                        if id != viewed_session_id {
+                            app.switch_to_target = Some(id.clone());
+                            app.should_quit.store(true, Ordering::SeqCst);
+                        } else {
+                            app.surfaces.select_tab(idx);
+                        }
+                    }
+                    _ => {
+                        app.surfaces.select_tab(idx);
+                    }
+                }
+            }
+        }
+        input::InputAction::NextTab => {
+            let next_idx = (app.surfaces.active_tab_index() + 1) % app.surfaces.tabs().len().max(1);
+            if let Some(target_tab) = app.surfaces.tabs().get(next_idx).cloned() {
+                match &target_tab.kind {
+                    crate::surfaces::TabKind::Thread(id) => {
+                        if id != viewed_session_id {
+                            app.switch_to_target = Some(id.clone());
+                            app.should_quit.store(true, Ordering::SeqCst);
+                        } else {
+                            app.surfaces.select_tab(next_idx);
+                        }
+                    }
+                    _ => {
+                        app.surfaces.select_tab(next_idx);
+                    }
+                }
+            }
+        }
+        input::InputAction::PrevTab => {
+            let total = app.surfaces.tabs().len().max(1);
+            let prev_idx = if app.surfaces.active_tab_index() == 0 {
+                total - 1
+            } else {
+                app.surfaces.active_tab_index() - 1
+            };
+            if let Some(target_tab) = app.surfaces.tabs().get(prev_idx).cloned() {
+                match &target_tab.kind {
+                    crate::surfaces::TabKind::Thread(id) => {
+                        if id != viewed_session_id {
+                            app.switch_to_target = Some(id.clone());
+                            app.should_quit.store(true, Ordering::SeqCst);
+                        } else {
+                            app.surfaces.select_tab(prev_idx);
+                        }
+                    }
+                    _ => {
+                        app.surfaces.select_tab(prev_idx);
+                    }
+                }
+            }
+        }
+        input::InputAction::CloseTab => {
+            let active_idx = app.surfaces.active_tab_index();
+            app.close_tab(active_idx);
+            if app.surfaces.tabs().is_empty() {
+                tracing::info!(reason = "close_last_tab", "client detaching");
+                return ActionFlow::Exit;
+            }
         }
         input::InputAction::SendChat(text) => {
             commands::handle_send_chat(app, runtime, viewed_session_id, text).await;
@@ -278,6 +344,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 crate::app::ComposerSendMode::Steer => crate::app::ComposerSendMode::FollowUp,
                 crate::app::ComposerSendMode::FollowUp => crate::app::ComposerSendMode::Steer,
             };
+        }
+        input::InputAction::WorkspaceGuardrailNotice(notice) => {
+            show_local_toast(app, notice, false, std::time::Duration::from_millis(3500));
         }
         input::InputAction::SendSlash(cmd) => {
             return commands::handle_send_slash(app, runtime, session, cmd).await;
@@ -790,7 +859,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // a slash-command selection doesn't flash its completion
             // popup until the next real edit.
             app.completion_dismissed = true;
-            app.reset_to_conversation();
+            app.reset_to_thread();
         }
         input::InputAction::HistoryDeleteSelected => {
             if app.active_composer_extension()
@@ -1214,7 +1283,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.dismiss_active_dialog();
                 app.set_active_index(0);
                 // A session was chosen from the startup picker, so a
-                // real conversation now backs the view: subsequent
+                // real thread now backs the view: subsequent
                 // `/sessions` modals should behave as ordinary
                 // transient overlays (Esc = dismiss, not quit).
                 app.startup_overlay = crate::StartupOverlay::None;
@@ -1421,13 +1490,18 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // it is dismissed first; the scene itself is left on the next
             // press (ADR-0298 §1). Leaving a *standalone* scene (a startup
             // `nuo dashboard` / `nuo settings` with no requested
-            // conversation) is a program exit instead: there is no
-            // conversation to return to. The leader arm itself is cleared by
+            // thread) is a program exit instead: there is no
+            // thread to return to. The leader arm itself is cleared by
             // the shared pre-dispatch reset, so neither branch repeats it.
             if app.active_dialog().is_some() {
                 app.dismiss_surface();
             } else if !modals::quit_standalone_scene_at_startup(app) {
+                let had_tabs = !app.surfaces.tabs().is_empty();
                 app.close_scene();
+                if had_tabs && app.surfaces.tabs().is_empty() {
+                    tracing::info!(reason = "close_last_tab", "client detaching");
+                    return ActionFlow::Exit;
+                }
             }
         }
         input::InputAction::SceneBack => {
@@ -1778,7 +1852,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         requires_args,
                     } => {
                         if requires_args {
-                            app.reset_to_conversation();
+                            app.reset_to_thread();
                             app.input = format!("{} ", slash);
                             app.set_cursor_end();
                             app.completion_dismissed = false;
@@ -2407,6 +2481,16 @@ pub(super) fn enter_panel(
         // stay on screen until the fresh reply lands, so reopening does not
         // flash the loading state.
         DialogKind::UsageStats => Some(AgentRequest::QueryUsageStats { event_cap: 200 }),
+        DialogKind::Quotas => {
+            let filter = app
+                .provider_quotas
+                .as_ref()
+                .and_then(|q| q.provider_filter.clone());
+            Some(AgentRequest::QueryProviderQuotas {
+                provider: filter,
+                force_refresh: false,
+            })
+        }
         DialogKind::SessionStats | DialogKind::SessionTrace if app.token_ledger.is_none() => {
             if app.token_report.is_none() {
                 Some(AgentRequest::QueryTokenUsage {
@@ -2450,7 +2534,17 @@ pub(super) fn enter_scene(
     if previous != scene {
         app.leave_scene_for_navigation(previous);
     }
-    app.switch_scene(scene);
+    match scene {
+        SceneKind::Dashboard => {
+            app.open_tab(crate::surfaces::ClientTab::dashboard());
+        }
+        SceneKind::Settings => {
+            app.open_tab(crate::surfaces::ClientTab::settings());
+        }
+        _ => {
+            app.switch_scene(scene);
+        }
+    }
     app.selection = SelectionState::None;
     app.focused_target = None;
     app.drag.cancel();
@@ -2487,7 +2581,7 @@ pub(super) fn enter_scene(
             app.host_kill_confirm_id = None;
             None
         }
-        SceneKind::Conversation | SceneKind::TaskInspection | SceneKind::Aside => None,
+        SceneKind::Thread | SceneKind::TaskInspection | SceneKind::Aside => None,
     };
     if let Some(request) = request
         && !app.send_intent(request)
@@ -2704,6 +2798,35 @@ mod transcript_scroll_tests {
         assert!(app.completion_dismissed);
         assert_eq!(app.suggestion_index, None);
     }
+
+    #[tokio::test]
+    async fn mouse_click_on_tab_bar_switches_active_tab() {
+        let mut app = crate::tests::new_app_for_relay_tests();
+        let runtime = UiRuntime::minimal_for_test();
+
+        // Mount tabs
+        app.surfaces.open_tab(crate::surfaces::ClientTab::thread("s1", "Thread 1"));
+        app.surfaces.open_tab(crate::surfaces::ClientTab::dashboard());
+        app.surfaces.open_tab(crate::surfaces::ClientTab::settings());
+        app.surfaces.select_tab(0);
+        assert_eq!(app.surfaces.active_tab_index(), 0);
+
+        // Mount TabBarItem(1) (Dashboard tab) at (14, 0)
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui.mount(crate::ui::UiKey::TabBarItem(1), nuotc::Rect::new(14, 0, 14, 1));
+        app.ui.mount(crate::ui::UiKey::TabBarItem(2), nuotc::Rect::new(30, 0, 13, 1));
+        app.ui.commit();
+
+        // Click on Tab 1
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 16, 0).await;
+        assert_eq!(app.surfaces.active_tab_index(), 1);
+        assert_eq!(app.surfaces.active_scene(), crate::surfaces::SceneKind::Dashboard);
+
+        // Click on Tab 2
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 32, 0).await;
+        assert_eq!(app.surfaces.active_tab_index(), 2);
+        assert_eq!(app.surfaces.active_scene(), crate::surfaces::SceneKind::Settings);
+    }
 }
 
 #[cfg(test)]
@@ -2871,6 +2994,20 @@ async fn execute_command_by_id(
             .await;
         }
         CommandId::Quit => {
+            // ADR-0038 [INV-ACTION-02]: Quitting the TUI client is strictly a non-destructive Detach.
+            tracing::info!(reason = "command_quit", "client detaching");
+            return ActionFlow::Exit;
+        }
+        CommandId::CloseTab => {
+            let active_idx = app.surfaces.active_tab_index();
+            app.close_tab(active_idx);
+            if app.surfaces.tabs().is_empty() {
+                tracing::info!(reason = "close_last_tab", "client detaching");
+                return ActionFlow::Exit;
+            }
+        }
+        CommandId::KillThread => {
+            // ADR-0038: Explicit kill terminates the thread on the server.
             app.send_intent(AgentRequest::EndSession);
             return ActionFlow::Exit;
         }
@@ -2915,7 +3052,7 @@ async fn execute_command_by_id(
             );
         }
         CommandId::NavigateSession => {
-            enter_scene(app, crate::surfaces::SceneKind::Conversation, runtime);
+            enter_scene(app, crate::surfaces::SceneKind::Thread, runtime);
         }
         CommandId::NavigateDashboard => {
             enter_scene(app, crate::surfaces::SceneKind::Dashboard, runtime);

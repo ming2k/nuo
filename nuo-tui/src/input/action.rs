@@ -16,6 +16,16 @@ pub enum InputAction {
     None,
     /// Quit the application.
     Quit,
+    /// Jump to tab by 0-based ordinal index (Alt+1..9, ADR-0040 [INV-KEY-01]).
+    SelectTab(usize),
+    /// Cycle to next tab.
+    NextTab,
+    /// Cycle to previous tab.
+    PrevTab,
+    /// Close active tab (Ctrl+W, ADR-0039 [INV-TAB-03]).
+    CloseTab,
+    /// Guardrail notice when a client workspace action is attempted within the thread composer (ADR-0041 [INV-ROUTER-01]).
+    WorkspaceGuardrailNotice(String),
     /// Send a chat message.
     SendChat(String),
     /// Immediate steering intervention (while running).

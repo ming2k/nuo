@@ -122,7 +122,7 @@ fn command_ledger_restores_as_non_conversational_command_rows() {
         search.command_result_text().as_deref(),
         Some("No relevant history found.")
     );
-    assert_eq!(search.round, None, "a command is not a conversation turn");
+    assert_eq!(search.round, None, "a command is not a thread turn");
     assert_ne!(
         search.role,
         nuo_wire::Role::Assistant,

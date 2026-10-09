@@ -157,7 +157,7 @@ pub(super) fn transcript_retry_resolutions_from_records(
 /// Merge rebuilt round-interrupt rows into a restored transcript (C11),
 /// mirroring [`merge_command_rows`]'s seam rule: each marker lands **before
 /// the first user message whose send time is later than the stop** — at the
-/// seam between conversation turns, never inside one. An interrupt older
+/// seam between thread turns, never inside one. An interrupt older
 /// than every seam, or carrying no comparable seam, lands at the tail: it
 /// was the last thing that happened before the transcript ended, which is
 /// exactly the "the process died mid-round" case the marker exists to show.
@@ -223,7 +223,7 @@ pub(super) fn transcript_commands_from_ledger(
 ///
 /// 1. Each command row lands **before the first user message whose send time
 ///    is later than the command's invocation** — i.e. at the seam between
-///    conversation turns, never inside one. A command issued between turn 2
+///    thread turns, never inside one. A command issued between turn 2
 ///    and turn 3 renders after turn 2's assistant reply and before turn 3's
 ///    prompt, exactly where it appeared live.
 /// 2. Commands older than every user seam, or carrying no timestamp, keep

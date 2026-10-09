@@ -151,14 +151,14 @@ impl SessionSource {
 }
 
 /// Which full-screen overlay (if any) the TUI opens straight into at startup
-/// instead of a conversation view. In that mode the overlay is not a transient
-/// modal — there is no conversation the user asked for behind it — so closing
+/// instead of a thread view. In that mode the overlay is not a transient
+/// modal — there is no thread the user asked for behind it — so closing
 /// it quits the program rather than dropping into an empty chat (mirrors how
 /// `nuo attach`'s picker behaves). Distinct from `None`, where the TUI
-/// opens directly onto a conversation.
+/// opens directly onto a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StartupOverlay {
-    /// Ordinary startup: land on the conversation.
+    /// Ordinary startup: land on the thread.
     None,
     /// `nuo attach` (no id): open the sessions picker to choose a session.
     SessionsPicker,
@@ -671,7 +671,7 @@ pub async fn run_tui(
                 // do not wake the loop one-by-one: while responding, its 10fps
                 // heartbeat coalesces them into a smooth stream.
                 dirty_clone.store(true, Ordering::Release);
-                // A side conversation can receive stream deltas while the
+                // A side thread can receive stream deltas while the
                 // primary activity indicator is idle — no heartbeat then, so
                 // retain the immediate wake.
                 let defer_stream_wakeup =
@@ -1822,9 +1822,6 @@ pub async fn run_tui(
                     AgentResponse::OpenTreePanel => {
                         mutations.send(M::OpenTreePanel).await;
                     }
-                    AgentResponse::OpenHostPanel => {
-                        mutations.send(M::OpenHostPanel).await;
-                    }
                     AgentResponse::SessionDetail(detail) => {
                         mutations.send(M::SessionDetail(detail)).await;
                     }
@@ -2102,7 +2099,6 @@ pub async fn run_tui(
         context_tokens_by_session: HashMap::new(),
         open_sessions_signal: false,
         open_tree_signal: false,
-        open_host_signal: matches!(startup_overlay, StartupOverlay::Dashboard),
         view_transitioned: false,
         transcript_changed_pending: false,
         side_transcript_changed_pending: false,
@@ -2303,6 +2299,18 @@ pub async fn run_tui(
         logo: load_user_logo(),
         background_tasks: Vec::new(),
     };
+
+    // Mount initial thread tab on startup (ADR-0039 [INV-TAB-02])
+    let initial_tab_title = format!("Thread ({})", crate::session::short_session_id(&live_session_init));
+    app.surfaces.open_tab(crate::surfaces::ClientTab::thread(
+        &live_session_init,
+        initial_tab_title,
+    ));
+    if matches!(startup_overlay, StartupOverlay::Dashboard) {
+        app.surfaces.open_tab(crate::surfaces::ClientTab::dashboard());
+    } else if matches!(startup_overlay, StartupOverlay::Settings { .. }) {
+        app.surfaces.open_tab(crate::surfaces::ClientTab::settings());
+    }
 
     if startup_overlay == StartupOverlay::SessionsPicker {
         app.surface_store

@@ -173,6 +173,8 @@ pub struct ConfigRects {
     /// Every visible detail row as `(detail_index, rect)`, mounted as pointer
     /// targets so the row under the mouse can light up.
     pub row_rects: Vec<(usize, Rect)>,
+    /// Bounding rects for each rendered tab in the top tab bar: `(tab_index, rect)`.
+    pub tab_rects: Vec<(usize, Rect)>,
 }
 
 /// Properties passed to render the complete Settings View.
@@ -196,7 +198,7 @@ pub struct SettingsProps<'a> {
     pub tui_config: &'a crate::config::TuiConfig,
     /// The session identity for the head band's top row (ADR-0024): the band is
     /// uniform across scenes, so Settings draws the same `SESSION` row as the
-    /// conversation. `None` hides row 1. Crate-visible only (`SessionHead` is
+    /// thread. `None` hides row 1. Crate-visible only (`SessionHead` is
     /// crate-private; the shell is the sole caller).
     pub(crate) session_head: Option<SessionHead<'a>>,
     /// The session's persistent run-mode flags for the head band's scene row.
@@ -236,9 +238,11 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
     let category = ConfigCategory::from_index(props.category_index);
 
     // 1. Top Header Row (session identity, shared across scenes)
-    if let Some(head) = props.session_head {
-        draw_view_header(frame, header_rect, &head, props.theme);
-    }
+    let tab_rects = if let Some(head) = props.session_head {
+        draw_view_header(frame, header_rect, &head, props.theme)
+    } else {
+        Vec::new()
+    };
 
     // 2. Scene row: the `settings` scene name, the category breadcrumb context,
     //    the run-mode flags, and the namespace pair (ADR-0024).
@@ -248,6 +252,7 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         context_warn: false,
         unattended: props.unattended,
         confined: props.confined,
+        workspace: None,
     };
     draw_view_header_hints(frame, subhead_rect, &view_hints, props.theme);
 
@@ -330,6 +335,7 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         detail_body: detail_rect,
         selected_row_rect: detail.selected_row,
         row_rects: detail.rows,
+        tab_rects,
     }
 }
 

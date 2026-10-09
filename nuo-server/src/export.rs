@@ -1,9 +1,9 @@
-//! Conversation exporter: renders the durable [`Message`] stream as a single
+//! Thread exporter: renders the durable [`Message`] stream as a single
 //! Markdown document suitable for clipboard copying and handoff. Triggered by
 //! the `/export` slash command, which copies the result to the system clipboard.
 //!
-//! Format matches the clean conversational Markdown specification:
-//! - Top-level `# Nuo conversation` title.
+//! Format matches the clean Markdown specification:
+//! - Top-level `# Nuo thread` title.
 //! - Clean `## User`, `## Reasoning`, `## Assistant`, and `## Activity` sections.
 //! - Activities render tool invocations and outputs as indented code blocks (4 spaces).
 //! - Hidden and system messages are skipped. Subagent transcripts are summarised inline.
@@ -19,10 +19,10 @@ pub struct ExportContext<'a> {
     pub model: &'a str,
 }
 
-/// Render the current conversation as a Markdown handoff document.
+/// Render the current thread as a Markdown handoff document.
 ///
 /// `commands` is the ADR-0091 command ledger: slash commands (and `!cmd`
-/// passthroughs) are operations, not conversation, so they render as a
+/// passthroughs) are operations, not thread dialogue, so they render as a
 /// distinct blockquote block after the dialogue instead of a `## User`
 /// heading, keeping the dialogue pure.
 pub fn format_export_markdown(
@@ -30,7 +30,7 @@ pub fn format_export_markdown(
     messages: &[Message],
     commands: &[nuo_wire::CommandRecord],
 ) -> String {
-    let mut out = String::from("# Nuo conversation\n\n");
+    let mut out = String::from("# Nuo thread\n\n");
     let mut emitted_any = false;
     let mut tool_call_cursor: std::collections::HashMap<&str, usize> =
         std::collections::HashMap::new();
@@ -513,7 +513,7 @@ mod tests {
             &[user("hello")],
             &[],
         );
-        assert!(out.starts_with("# Nuo conversation\n\n"));
+        assert!(out.starts_with("# Nuo thread\n\n"));
         assert!(out.contains("## User\n\nhello"));
     }
 

@@ -1706,10 +1706,22 @@ impl SessionRegistry {
         }
     }
 
-    /// Number of currently hosted sessions (the idle-exit probe,
-    /// ADR-0100 rule 3).
+    /// Number of currently hosted sessions (the idle-exit probe).
     pub async fn session_count(&self) -> usize {
         self.sessions.lock().await.len()
+    }
+
+    /// Check whether any hosted session has active in-flight work (status != Idle).
+    /// Used by client-driven shutdown to prevent killing running background tasks (ADR-0038).
+    pub async fn has_active_work(&self) -> bool {
+        let map = self.sessions.lock().await;
+        for hosted in map.values() {
+            let status = hosted.tracker.lock().await.row().status;
+            if status != nuo_wire::SessionStatus::Idle {
+                return true;
+            }
+        }
+        false
     }
 
     /// Subscribe to the host-level monitor topic (ADR-0093 §4).

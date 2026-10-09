@@ -2000,7 +2000,61 @@ pub(crate) async fn fetch_usage_for_connection(
     (usage, account_id)
 }
 
+fn extract_quota_metrics(
+    usage_state: &nuo_wire::ConnectionUsageState,
+) -> (Option<String>, Option<nuo_wire::ProviderQuotaData>, Option<String>, Option<u64>) {
+    match usage_state {
+        nuo_wire::ConnectionUsageState::Available(u) => {
+            let reset = u.quota.as_ref().and_then(|q| match q {
+                nuo_wire::ProviderQuotaData::Periodic(p) => {
+                    p.buckets.iter().filter_map(|b| b.reset_at_ms).min()
+                }
+                _ => None,
+            });
+            (u.primary_balance.clone(), u.quota.clone(), u.plan.clone(), reset)
+        }
+        _ => (None, None, None, None),
+    }
+}
+
+fn build_provider_quota_snapshot(
+    provider_filter: &Option<String>,
+    entries: &[nuo_wire::ConnectionQuotaEntry],
+) -> nuo_wire::ProviderQuotaSnapshot {
+    let total_accounts = entries.len();
+    let available_accounts = entries
+        .iter()
+        .filter(|e| matches!(e.state, nuo_wire::ConnectionUsageState::Available(_)))
+        .count();
+    let depleted_accounts = entries
+        .iter()
+        .filter(|e| match &e.state {
+            nuo_wire::ConnectionUsageState::Error(_) => true,
+            nuo_wire::ConnectionUsageState::Available(u) => {
+                u.primary_balance
+                    .as_deref()
+                    .map_or(false, |b| b.starts_with("0%") || b.contains("DEPLETED"))
+            }
+            _ => false,
+        })
+        .count();
+
+    nuo_wire::ProviderQuotaSnapshot {
+        provider_filter: provider_filter.clone(),
+        entries: entries.to_vec(),
+        total_accounts,
+        available_accounts,
+        depleted_accounts,
+        updated_at_ms: chrono::Utc::now().timestamp_millis() as u64,
+    }
+}
+
 /// Query aggregated provider quota inspection overview across configured connections (ADR-0036).
+///
+/// Executes in two phases to guarantee immediate UI rendering and eliminate all-or-nothing blocking:
+/// Phase 1: Immediately emit a skeleton snapshot with cached or `Fetching` states.
+/// Phase 2: Stream concurrent background requests (bounded by 4); on each individual connection resolution,
+/// emit an updated snapshot so the UI incrementally reflects quota progress without blocking.
 pub async fn query_provider_quotas(
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     provider_filter: Option<String>,
@@ -2028,9 +2082,64 @@ pub async fn query_provider_quotas(
         .cloned()
         .collect();
 
-    let mut stream = futures::stream::iter(targets)
+    if targets.is_empty() {
+        let empty_snap = build_provider_quota_snapshot(&provider_filter, &[]);
+        let _ = resp_tx.send(AgentResponse::ProviderQuotas(empty_snap));
+        return;
+    }
+
+    let mut entries = Vec::with_capacity(targets.len());
+    let mut needs_fetch = Vec::new();
+
+    for conn in &targets {
+        if force_refresh {
+            crate::usage_cache::shared_usage_cache().invalidate(&conn.name);
+        }
+
+        let (usage_state, cached_account_id) = if !force_refresh
+            && let Some(cached) = crate::usage_cache::shared_usage_cache().get(&conn.name)
+        {
+            (cached, None)
+        } else {
+            needs_fetch.push(conn.clone());
+            (nuo_wire::ConnectionUsageState::Fetching, None)
+        };
+
+        let (primary_balance, quota, plan, earliest_reset_ms) = extract_quota_metrics(&usage_state);
+
+        entries.push(nuo_wire::ConnectionQuotaEntry {
+            name: conn.name.clone(),
+            provider: conn.provider.clone(),
+            provider_label: nuo_wire::model_providers::model_provider_label(&conn.provider).to_string(),
+            account_id: cached_account_id,
+            is_default: conn.name == default_conn_id,
+            primary_balance,
+            quota,
+            plan,
+            state: usage_state,
+            earliest_reset_ms,
+        });
+    }
+
+    // Sort entries stably: active connection first, then by name
+    entries.sort_by(|a, b| {
+        b.is_default.cmp(&a.is_default).then_with(|| a.name.cmp(&b.name))
+    });
+
+    // Phase 1: Emit initial skeleton snapshot immediately so UI renders instantaneously.
+    let _ = resp_tx.send(AgentResponse::ProviderQuotas(build_provider_quota_snapshot(
+        &provider_filter,
+        &entries,
+    )));
+
+    if needs_fetch.is_empty() {
+        return;
+    }
+
+    // Phase 2: Concurrent bounded fan-out (buffer_unordered(4)) streaming incremental updates.
+    let prepared_fetch: Vec<_> = needs_fetch
+        .into_iter()
         .map(|conn| {
-            let default_id = default_conn_id.clone();
             let inputs = stores.inputs();
             let entry = catalog::derive_entry(&conn, &inputs);
             let base_url = entry
@@ -2042,83 +2151,37 @@ pub async fn query_provider_quotas(
                         .unwrap_or_default()
                 });
             let raw_key = catalog::resolve_credential(&conn, &stores.creds);
+            (conn, raw_key, base_url)
+        })
+        .collect();
 
-            async move {
-                let (usage_state, account_id) = if !force_refresh
-                    && let Some(cached) = crate::usage_cache::shared_usage_cache().get(&conn.name)
-                {
-                    (cached, None)
-                } else {
-                    let (fetched, acct) = fetch_usage_for_connection(&conn, &raw_key, &base_url).await;
-                    crate::usage_cache::shared_usage_cache().put(&conn.name, fetched.clone());
-                    (fetched, acct)
-                };
-
-                let (primary_balance, quota, plan, earliest_reset_ms) = match &usage_state {
-                    nuo_wire::ConnectionUsageState::Available(u) => {
-                        let reset = u.quota.as_ref().and_then(|q| match q {
-                            nuo_wire::ProviderQuotaData::Periodic(p) => {
-                                p.buckets.iter().filter_map(|b| b.reset_at_ms).min()
-                            }
-                            _ => None,
-                        });
-                        (u.primary_balance.clone(), u.quota.clone(), u.plan.clone(), reset)
-                    }
-                    _ => (None, None, None, None),
-                };
-
-                nuo_wire::ConnectionQuotaEntry {
-                    name: conn.name.clone(),
-                    provider: conn.provider.clone(),
-                    provider_label: nuo_wire::model_providers::model_provider_label(&conn.provider).to_string(),
-                    account_id,
-                    is_default: conn.name == default_id,
-                    primary_balance,
-                    quota,
-                    plan,
-                    state: usage_state,
-                    earliest_reset_ms,
-                }
-            }
+    let mut stream = futures::stream::iter(prepared_fetch)
+        .map(|(conn, raw_key, base_url)| async move {
+            let (fetched, acct) = fetch_usage_for_connection(&conn, &raw_key, &base_url).await;
+            crate::usage_cache::shared_usage_cache().put(&conn.name, fetched.clone());
+            (conn.name, fetched, acct)
         })
         .buffer_unordered(4);
 
-    let mut entries = Vec::new();
-    while let Some(item) = stream.next().await {
-        entries.push(item);
-    }
-
-    // Sort entries: active connection first, then by name
-    entries.sort_by(|a, b| {
-        b.is_default.cmp(&a.is_default).then_with(|| a.name.cmp(&b.name))
-    });
-
-    let total_accounts = entries.len();
-    let available_accounts = entries
-        .iter()
-        .filter(|e| matches!(e.state, nuo_wire::ConnectionUsageState::Available(_)))
-        .count();
-    let depleted_accounts = entries
-        .iter()
-        .filter(|e| match &e.state {
-            nuo_wire::ConnectionUsageState::Error(_) => true,
-            nuo_wire::ConnectionUsageState::Available(u) => {
-                u.primary_balance.as_deref().map_or(false, |b| b.starts_with("0%") || b.contains("DEPLETED"))
+    while let Some((conn_name, usage_state, acct)) = stream.next().await {
+        if let Some(entry) = entries.iter_mut().find(|e| e.name == conn_name) {
+            let (primary_balance, quota, plan, earliest_reset_ms) = extract_quota_metrics(&usage_state);
+            entry.state = usage_state;
+            entry.primary_balance = primary_balance;
+            entry.quota = quota;
+            entry.plan = plan;
+            entry.earliest_reset_ms = earliest_reset_ms;
+            if acct.is_some() {
+                entry.account_id = acct;
             }
-            _ => false,
-        })
-        .count();
 
-    let snapshot = nuo_wire::ProviderQuotaSnapshot {
-        provider_filter,
-        entries,
-        total_accounts,
-        available_accounts,
-        depleted_accounts,
-        updated_at_ms: chrono::Utc::now().timestamp_millis() as u64,
-    };
-
-    let _ = resp_tx.send(AgentResponse::ProviderQuotas(snapshot));
+            // Immediately emit updated snapshot as each item resolves
+            let _ = resp_tx.send(AgentResponse::ProviderQuotas(build_provider_quota_snapshot(
+                &provider_filter,
+                &entries,
+            )));
+        }
+    }
 }
 
 /// Query all connections' live provider usage concurrently and stream updates.
@@ -2743,5 +2806,55 @@ mod tests {
             }
             other => panic!("expected ProviderQuotas, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn query_provider_quotas_emits_immediate_initial_and_streamed_snapshots() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dirs = nuo_persistence::paths::Dirs {
+            config_dir: tmp.path().join("config"),
+            data_dir: tmp.path().join("data"),
+            state_dir: tmp.path().join("state"),
+            cache_dir: tmp.path().join("cache"),
+            runtime_dir: None,
+        };
+        nuo_persistence::paths::set_test_default(Some(dirs));
+
+        // Add a dummy quota-capable connection
+        let mut conns = Connections::default();
+        conns.connections.push(nuo_persistence::connections::Connection {
+            name: "test-antigravity".into(),
+            provider: "google-antigravity".into(),
+            auth: nuo_wire::ConnectionAuth::ApiKey,
+            ..Default::default()
+        });
+        conns.save().unwrap();
+
+        let (resp_tx, mut resp_rx) = mpsc::unbounded_channel();
+        // Force refresh ensures it performs phase 1 (Fetching) then phase 2
+        query_provider_quotas(&resp_tx, Some("google-antigravity".to_string()), true).await;
+
+        // Phase 1 response must be received first
+        let first = resp_rx.try_recv().expect("must receive phase 1 skeleton snapshot");
+        if let AgentResponse::ProviderQuotas(snap1) = first {
+            assert_eq!(snap1.entries.len(), 1);
+            assert_eq!(snap1.entries[0].name, "test-antigravity");
+            assert!(matches!(snap1.entries[0].state, nuo_wire::ConnectionUsageState::Fetching));
+        } else {
+            panic!("expected ProviderQuotas, got {first:?}");
+        }
+
+        // Phase 2 updated response must follow
+        let second = resp_rx.try_recv().expect("must receive phase 2 update snapshot");
+        if let AgentResponse::ProviderQuotas(snap2) = second {
+            assert_eq!(snap2.entries.len(), 1);
+            assert_eq!(snap2.entries[0].name, "test-antigravity");
+            // Since it's a dummy connection with no real credentials, state will transition away from Fetching
+            assert!(!matches!(snap2.entries[0].state, nuo_wire::ConnectionUsageState::Fetching));
+        } else {
+            panic!("expected ProviderQuotas, got {second:?}");
+        }
+
+        nuo_persistence::paths::set_test_default(None);
     }
 }

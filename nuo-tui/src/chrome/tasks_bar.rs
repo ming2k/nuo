@@ -2,7 +2,7 @@
 //!
 //! Renders persistent or transient background jobs (running and settled)
 //! immediately above the composer/activity bar. Decouples task execution
-//! observability from conversational history.
+//! observability from thread history.
 
 use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 

@@ -448,9 +448,9 @@ impl App {
     ///    - If it delegates to the composer (`HistorySearch`), it owns `CaretOwner::Composer`.
     ///    - Otherwise (browse dialogs, list navigation, delete confirmation), cursor is suppressed (`CaretOwner::None`).
     /// 2. If no overlay is mounted, the active root Scene owns the terminal:
-    ///    - In `ConversationScene`, the composer owns `CaretOwner::Composer` unless a transcript step
+    ///    - In `ThreadScene`, the composer owns `CaretOwner::Composer` unless a transcript step
     ///      or browse focus has blurred the composer (`CaretOwner::None`).
-    ///    - Non-conversational scenes without composer claim `CaretOwner::None`.
+    ///    - Non-thread scenes without composer claim `CaretOwner::None`.
     pub fn caret_owner(&self) -> CaretOwner {
         use crate::surfaces::{DialogKind, SheetKind};
         if self.surfaces.active_overlay().is_some() || self.active_sheet().is_some() {
@@ -527,7 +527,7 @@ impl App {
             // composer — owns the cursor while it is open.
             return CaretOwner::Scene;
         }
-        if self.current_scene() != crate::surfaces::SceneKind::Conversation
+        if self.current_scene() != crate::surfaces::SceneKind::Thread
             || self.focused_target.is_some()
             || self.transcript_focused
             || self.in_subagent_view()
@@ -615,6 +615,9 @@ impl App {
     pub fn active_composer_extension(
         &self,
     ) -> Option<crate::composer_extension::ComposerExtensionKind> {
+        if self.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch) {
+            return Some(crate::composer_extension::ComposerExtensionKind::HistorySearch);
+        }
         if self.surfaces.active_overlay().is_none() && !self.completion_dismissed {
             match self.completion_kind() {
                 crate::completion::CompletionKind::Slash => {

@@ -467,7 +467,7 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
     {
         // `nuo attach` (no id) opened the picker at startup
         // instead of loading any session: there is no real
-        // conversation behind the modal, so closing the *list*
+        // thread behind the modal, so closing the *list*
         // (not a sub-view — those are handled above) must quit
         // the program rather than drop into an empty chat.
         tracing::info!(reason = "startup_picker_cancelled", "app exiting");
@@ -499,7 +499,7 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
         }
         // Nothing left to dismiss: the gesture is spent. The Scene beneath is
         // deliberately left exactly as it was — a dismiss never navigates
-        // (ADR-0298 §2). (A trailing `reset_to_conversation()` used to demote
+        // (ADR-0298 §2). (A trailing `reset_to_thread()` used to demote
         // the Scene here, which made every overlay-dismiss on the Dashboard or
         // Settings scene a back-door scene exit.)
     }
@@ -509,7 +509,7 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
 /// out, when that scene was opened *standalone* at startup (`nuo dashboard`,
 /// `nuo settings` with no carrier session the user asked to converse with).
 ///
-/// This is a **program exit**, not a scene transition: with no conversation
+/// This is a **program exit**, not a scene transition: with no thread
 /// ever requested, "returning" to the carrier chat would trap the user in an
 /// empty session (the trap ADR-0205's startup carve-outs exist to prevent).
 /// Called from the scene-exit verbs (`C-x w`/`C-x k`, each scene's own `q`)
@@ -580,7 +580,7 @@ pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
                     }
                 }
             },
-            SceneKind::Conversation | SceneKind::TaskInspection | SceneKind::Aside => {}
+            SceneKind::Thread | SceneKind::TaskInspection | SceneKind::Aside => {}
         }
     }
 }
@@ -629,7 +629,7 @@ pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
                     }
                 }
             },
-            SceneKind::Conversation | SceneKind::TaskInspection | SceneKind::Aside => {}
+            SceneKind::Thread | SceneKind::TaskInspection | SceneKind::Aside => {}
         }
     }
 }

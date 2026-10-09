@@ -768,7 +768,7 @@ fn ctrl_c_at_startup_picker_quits_instead_of_dropping_to_empty_session() {
         app.should_quit.store(true, Ordering::SeqCst);
         true
     } else if app.surfaces.active_overlay().is_some() && app.active_sheet().is_none() {
-        app.reset_to_conversation();
+        app.reset_to_thread();
         false
     } else if app.active_sheet().is_some() {
         app.dismiss_sheet();
@@ -788,18 +788,18 @@ fn ctrl_c_at_startup_picker_quits_instead_of_dropping_to_empty_session() {
 
 /// `nuo dashboard` opens the session dashboard (`Modal::Host`) over a
 /// carrier session at startup. The user asked for a dashboard, not a
-/// conversation, so leaving the screen must quit the whole TUI — the
+/// thread, so leaving the screen must quit the whole TUI — the
 /// dashboard is the app while it is open. These tests lock the exits:
 ///
 /// 1. The scene-exit verb (`C-x w` / `C-x k` / `q` → `CloseScene`) quits
 ///    immediately when it would otherwise demote the dashboard to a carrier
-///    conversation the user never asked for. **Esc is not an exit** — it only
+///    thread the user never asked for. **Esc is not an exit** — it only
 ///    unwinds scene-local sub-layers (ADR-0298 §2).
 /// 2. Ctrl+C follows the app-wide double-press contract: first press arms
 ///    the 2s quit window WITHOUT closing the dashboard, second press quits.
 ///    Regression: Ctrl+C used to hit the generic modal-close arm and drop
-///    the user into the carrier conversation.
-/// 3. Ctrl+C never lands in the conversation even after the arm expires —
+///    the user into the carrier thread.
+/// 3. Ctrl+C never lands in the thread even after the arm expires —
 ///    pressing again re-arms rather than closing.
 #[test]
 fn esc_at_startup_dashboard_steps_back_and_the_scene_exit_quits() {
@@ -846,7 +846,7 @@ fn esc_at_startup_dashboard_steps_back_and_the_scene_exit_quits() {
     );
 
     // The scene-exit verb (what `C-x w` / `q` dispatch to) quits the TUI
-    // rather than demoting the dashboard to the carrier conversation. The
+    // rather than demoting the dashboard to the carrier thread. The
     // handler is `if !quit_standalone_scene_at_startup(app) { app.close_scene() }`,
     // so a `true` here means the scene was never left.
     assert!(crate::event_loop::host_test_shims::quit_standalone_scene_at_startup(&mut app));
@@ -857,7 +857,7 @@ fn esc_at_startup_dashboard_steps_back_and_the_scene_exit_quits() {
     assert_eq!(
         app.current_scene(),
         crate::surfaces::SceneKind::Dashboard,
-        "quit path never demotes the dashboard to a conversation"
+        "quit path never demotes the dashboard to a thread"
     );
 }
 
@@ -890,7 +890,7 @@ fn ctrl_c_at_startup_dashboard_arms_then_quits_never_opens_chat() {
     assert_eq!(
         app.current_scene(),
         crate::surfaces::SceneKind::Dashboard,
-        "the exit never demotes the dashboard to the conversation"
+        "the exit never demotes the dashboard to the thread"
     );
 }
 
@@ -915,12 +915,11 @@ fn ctrl_c_at_startup_dashboard_after_window_expires_rearms_not_opens_chat() {
     assert!(!app.should_quit.load(Ordering::SeqCst));
 }
 
-/// The in-session dashboard (`/dashboard` typed in a conversation) keeps the
-/// same double-Ctrl+C UX, but its second press is the client-declared
-/// session end (ADR-0112) — `EndSession` to the agent, then loop exit — not
-/// the detach-flavoured `should_quit` of the startup screen.
+/// The in-session dashboard (`/dashboard` typed in a thread) keeps the
+/// same double-Ctrl+C UX, and its second press is a non-destructive client
+/// detach (ADR-0038 [INV-ACTION-02]) — loop exits without sending EndSession.
 #[test]
-fn ctrl_c_at_in_session_dashboard_double_press_ends_session() {
+fn ctrl_c_at_in_session_dashboard_double_press_detaches() {
     use std::sync::atomic::Ordering;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
@@ -931,15 +930,11 @@ fn ctrl_c_at_in_session_dashboard_double_press_ends_session() {
     let (copy_tx, _copy_rx) = mpsc::unbounded_channel();
     let copy_pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
-    // Arm, then quit. The loop-exit flow is asserted indirectly: the arm is
-    // consumed and `EndSession` was sent (the Exit arm is the only path that
-    // sends it), while `should_quit` stays clear — the startup flavour never
-    // runs in-session.
     super::event_loop::handle_ctrl_c(&mut app, "test-session", &copy_tx, &copy_pending);
     super::event_loop::handle_ctrl_c(&mut app, "test-session", &copy_tx, &copy_pending);
     assert!(
-        matches!(rx.try_recv(), Ok(AgentRequest::EndSession)),
-        "double Ctrl+C declares the session end like the conversation path"
+        rx.try_recv().is_err(),
+        "double Ctrl+C detaches the client without sending EndSession (ADR-0038)"
     );
     assert!(!app.should_quit.load(Ordering::SeqCst));
 }
@@ -1022,8 +1017,8 @@ fn ctrl_c_at_composer_clears_text_without_arming_then_double_press_quits() {
     let flow = super::event_loop::handle_ctrl_c(&mut app, "test-session", &copy_tx, &copy_pending);
     assert_eq!(flow, ActionFlow::Exit);
     assert!(
-        matches!(rx.try_recv(), Ok(AgentRequest::EndSession)),
-        "double Ctrl+C ends the session"
+        rx.try_recv().is_err(),
+        "double Ctrl+C detaches the client without sending EndSession (ADR-0038)"
     );
 }
 

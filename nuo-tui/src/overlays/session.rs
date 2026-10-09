@@ -38,7 +38,7 @@ fn absolute_time(ts: u64) -> String {
 ///
 /// `startup_picker` is `true` only when the picker opened at startup
 /// (`nuo attach` with no id). In that mode Esc/click-outside quits the
-/// program (there is no conversation behind the modal yet), so the footer
+/// program (there is no thread behind the modal yet), so the footer
 /// hint reads "quit" instead of "close".
 ///
 /// `session_info_detail` switches the body to the detail sub-view for the

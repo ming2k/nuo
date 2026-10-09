@@ -1737,6 +1737,9 @@ fn history_panel_uses_composer_padding_not_brand_column() {
                 follow_selection: true,
                 input_rect,
                 activity_height: 0,
+                query: "",
+                cursor_position: 0,
+                show_caret: false,
             },
             &theme,
         )

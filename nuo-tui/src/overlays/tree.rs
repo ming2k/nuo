@@ -130,7 +130,7 @@ pub fn draw_tree_modal(
 
     if rows.is_empty() {
         body.push(placeholder(
-            "No conversation tree nodes available yet.",
+            "No thread tree nodes available yet.",
             true,
             theme.muted(),
         ));

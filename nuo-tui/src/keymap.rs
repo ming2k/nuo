@@ -298,6 +298,7 @@ impl Key {
     pub const CTRL_V: Key = Key::ctrl('v');
 
     pub const ALT_S: Key = Key::alt('s');
+    pub const ALT_W: Key = Key::alt('w');
     pub const ALT_P: Key = Key::alt('p');
     pub const ALT_N: Key = Key::alt('n');
     pub const ALT_UP: Key = Key {
@@ -619,6 +620,8 @@ pub enum CommandId {
     CancelOrBack,
     InterruptTask,
     Quit,
+    KillThread,
+    CloseTab,
     CopySelection,
 
     // Session & Composer
@@ -822,13 +825,13 @@ fn avail_session(ctx: &AppContext) -> Availability {
     }
 }
 
-/// A scene-scoped dialog (the conversation-bound HistorySearch) additionally
-/// requires the conversation scene (`[INV-SURFACE-03]`).
-fn avail_conversation(ctx: &AppContext) -> Availability {
+/// A scene-scoped dialog (the thread-bound HistorySearch) additionally
+/// requires the thread scene (`[INV-SURFACE-03]`).
+fn avail_thread(ctx: &AppContext) -> Availability {
     if !ctx.has_session {
         Availability::Unavailable("no active session")
-    } else if ctx.scene != SceneKind::Conversation {
-        Availability::Unavailable("only in the conversation scene")
+    } else if ctx.scene != SceneKind::Thread {
+        Availability::Unavailable("only in the thread scene")
     } else {
         Availability::Available
     }
@@ -929,8 +932,34 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         slash: Some("/exit"),
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
+        danger: DangerLevel::Safe,
+        description: "Exit client gracefully (Detach without killing thread)",
+    },
+    CommandSpec {
+        id: CommandId::CloseTab,
+        label: "Close Tab",
+        hint: "Alt-w",
+        category: CommandCategory::Global,
+        scope: Scope::Global,
+        bindings: &[Key::ALT_W],
+        slash: Some("/close"),
+        availability: avail_always,
+        disclosure: DisclosurePriority::L2Palette,
+        danger: DangerLevel::Safe,
+        description: "Close active tab (Detaches thread if attached)",
+    },
+    CommandSpec {
+        id: CommandId::KillThread,
+        label: "Kill Thread",
+        hint: "",
+        category: CommandCategory::Session,
+        scope: Scope::Session,
+        bindings: &[],
+        slash: Some("/kill"),
+        availability: avail_session,
+        disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Dangerous,
-        description: "Exit application gracefully (Ctrl-c twice)",
+        description: "Terminate active thread and halt all background tasks",
     },
     CommandSpec {
         id: CommandId::CopySelection,
@@ -1006,7 +1035,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         scope: Scope::Composer,
         bindings: &[Key::CTRL_R],
         slash: Some("/history"),
-        availability: avail_conversation,
+        availability: avail_thread,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
         description: "Search and recall past prompt history",
@@ -1023,7 +1052,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Switch to live conversation session view",
+        description: "Switch to live thread session view",
     },
     CommandSpec {
         id: CommandId::NavigateDashboard,
@@ -1032,7 +1061,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         category: CommandCategory::Navigate,
         scope: Scope::Global,
         bindings: &[],
-        slash: Some("/dashboard"),
+        slash: None,
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
@@ -1041,15 +1070,15 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::NavigateSettings,
         label: "Settings",
-        hint: "/settings",
+        hint: "C-x ,",
         category: CommandCategory::Settings,
         scope: Scope::Global,
         bindings: &[],
-        slash: Some("/settings"),
+        slash: None,
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Open application and appearance settings",
+        description: "Open application and appearance settings (C-x ,)",
     },
     CommandSpec {
         id: CommandId::OpenQueue,
@@ -1231,7 +1260,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         availability: avail_session,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "List background aside conversations",
+        description: "List background aside threads",
     },
     CommandSpec {
         id: CommandId::OpenSessions,
@@ -1697,7 +1726,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         availability: avail_always,
         disclosure: DisclosurePriority::L0Footer,
         danger: DangerLevel::Dangerous,
-        description: "Close highlighted aside conversation",
+        description: "Close highlighted aside thread",
     },
     CommandSpec {
         id: CommandId::AsideRefresh,
@@ -2021,6 +2050,8 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
         // keycap for a chord the global layer does not own.
         CommandId::CommandPalette => None,
         CommandId::Quit => Some(Key::CTRL_C),
+        CommandId::CloseTab => Some(Key::ALT_W),
+        CommandId::KillThread => None,
         CommandId::CopySelection => Some(Key::CTRL_SHIFT_C),
         CommandId::OpenSessionStats => Some(Key::CTRL_O),
         CommandId::OpenSessionTrace => None,
@@ -2053,6 +2084,8 @@ fn canonical_global_key(key: Key) -> Option<CommandId> {
         Some(CommandId::CancelOrBack)
     } else if key == Key::CTRL_C {
         Some(CommandId::Quit)
+    } else if key == Key::ALT_W {
+        Some(CommandId::CloseTab)
     } else if key == Key::CTRL_SHIFT_C || key == Key::CMD_C {
         Some(CommandId::CopySelection)
     } else {
@@ -2066,6 +2099,10 @@ pub fn command_id_from_name(name: &str) -> Option<CommandId> {
         "command_palette" | "command-palette" | "palette" => CommandId::CommandPalette,
         "interrupt" | "interrupt_task" | "interrupt-task" => CommandId::InterruptTask,
         "quit" | "quit_nuo" | "quit-nuo" => CommandId::Quit,
+        "close_tab" | "close-tab" | "close" => CommandId::CloseTab,
+        "kill" | "kill_thread" | "kill-thread" | "kill_conversation" | "kill-conversation" => {
+            CommandId::KillThread
+        }
         "copy" | "copy_selection" | "copy-selection" => CommandId::CopySelection,
         "stats" | "session_stats" | "session-stats" | "open_session_stats"
         | "open-session-stats" => CommandId::OpenSessionStats,
@@ -2237,7 +2274,7 @@ pub enum SurfaceVerb {
     FocusNextTarget,
     /// Clear step focus back to the composer (`Esc`).
     ClearFocusedTarget,
-    /// Jump the focused step's scroll to the conversation edges (`Home`/`End`).
+    /// Jump the focused step's scroll to the thread edges (`Home`/`End`).
     ScrollTop,
     ScrollBottom,
     /// Subagent-zoom sibling navigation (`[` / `]`).
@@ -2718,10 +2755,9 @@ mod tests {
             find_by_slash("/models").map(|c| c.id),
             Some(CommandId::OpenModels)
         );
-        assert_eq!(
-            find_by_slash("/settings").map(|c| c.id),
-            Some(CommandId::NavigateSettings)
-        );
+        // ADR-0041 [INV-CMD-01]: Workspace views are purged from thread slash triggers
+        assert!(find_by_slash("/settings").is_none());
+        assert!(find_by_slash("/dashboard").is_none());
         assert_eq!(
             find_by_slash("/commands").map(|c| c.id),
             Some(CommandId::CommandPalette)

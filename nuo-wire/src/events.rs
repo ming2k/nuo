@@ -739,10 +739,6 @@ pub enum AgentResponse {
     },
     /// Presentation signal for `/tree`.
     OpenTreePanel,
-    /// Open the session dashboard (`/dashboard`, formerly `/host`; ADR-0096).
-    /// The TUI renders the monitor stream it maintains independently; this is
-    /// only the open signal, carrying no data.
-    OpenHostPanel,
     /// Reply to [`AgentRequest::QuerySessionDetail`]: full detail for one
     /// session (complete last prompt, title, timestamps). Consumed by the
     /// session-info sub-view.

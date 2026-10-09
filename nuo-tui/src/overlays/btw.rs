@@ -1,6 +1,6 @@
 //! `/btw` asides modal (ADR-0103 §5) — the live background-asides list.
 //!
-//! Opened by `F5` or `/btw list`. Every live aside conversation appears as
+//! Opened by `F5` or `/btw list`. Every live aside thread appears as
 //! one row, newest first: its title (first prompt), a running/idle state
 //! badge, and its last-activity time. `Enter` jumps back into the selected
 //! aside (the harness answers with `SideViewOpened` carrying the full

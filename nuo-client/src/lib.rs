@@ -58,26 +58,24 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
         ("/compact", "Compact older rounds into durable context memory", &["compact", "compress", "summarize", "prune", "truncate", "shrink", "clean-context", "context"], &[]),
         ("/new", "Start a new session, keeping history", &["clear", "reset", "clean", "restart", "fresh", "cls", "wipe", "blank", "new-session"], &[]),
         ("/permissions", "Show or clear always-allowed tool rules", &["permission", "allow", "rule", "policy", "security", "approve", "always-allow", "grant"], &[("clear", "Clear all always-allowed tool rules")]),
-        ("/settings", "Open Settings overlay (theme, appearance)", &["settings", "config", "preferences", "theme", "themes", "appearance", "options", "color", "layout", "conf"], &[]),
         ("/unattended", "Toggle unattended execution posture", &["unattended", "auto", "autopilot", "yolo", "delegate", "autonomous", "headless", "skip-confirm", "auto-approve", "bypass"], &[("on", "Enable unattended decisions and tool auto-approval"), ("off", "Return to interactive confirmation mode")]),
         ("/delegate", "Delegate tasks to subagents", &["delegate", "subagent"], &[("on", "Enable delegation"), ("off", "Disable delegation")]),
         ("/confinement", "Toggle workspace filesystem confinement (confine file tools to workspace)", &["confinement", "confined", "unconfine", "unconfined", "jail", "escape", "sandbox"], &[("on", "Enable workspace confinement (confine file tools to workspace)"), ("off", "Disable confinement (allow full host filesystem access)")]),
         ("/role", "Switch agent role (identity, capability, and workspace)", &["role", "preset", "mode", "identity", "developer", "philosophist", "ops", "switch", "switch-role"], &[("developer", "the default developer role (full native capabilities with workspace)"), ("ops", "system administration, infrastructure maintenance & remote operations (workspace-free)"), ("philosophist", "philosophical inquiry & reflection (workspace-free)")]),
         ("/search", "Semantic search over session history", &["search", "find", "query", "grep", "history", "lookup", "recall", "past-messages"], &[]),
         ("/sessions", "Browse or resume past sessions", &["sessions", "session", "resume", "continue", "history", "list", "reopen", "browse", "switch-session"], &[]),
-        ("/fork", "Fork conversation into a child session", &["fork", "branch", "clone", "duplicate", "split", "copy-session"], &[]),
+        ("/fork", "Fork thread into a child session", &["fork", "branch", "clone", "duplicate", "split", "copy-session"], &[]),
         ("/tree", "Visual DAG session tree and branch navigation", &["tree", "dag", "branch", "branches", "lineage", "timeline", "history-tree", "checkout"], &[]),
         ("/diff", "View workspace modifications made in this session", &["diff", "changes", "modified", "patch", "git-diff", "review-changes"], &[]),
-        ("/undo", "Undo the last conversation turn and file changes", &["undo", "revert", "rollback", "back", "pop", "discard-turn"], &[]),
-        ("/dashboard", "Session server control dashboard", &["dashboard", "host", "server", "monitor", "status", "overview", "dock", "fleet"], &[]),
+        ("/undo", "Undo the last thread turn and file changes", &["undo", "revert", "rollback", "back", "pop", "discard-turn"], &[]),
         ("/usage", "Cross-session token usage statistics overlay", &["usage", "stats", "statistics", "tokens", "tokens-per-day", "daily", "consumption", "spend", "quota"], &[]),
-        ("/btw", "Open a background side conversation (aside)", &["btw", "aside", "side", "subtask", "parallel", "quick", "note", "by-the-way"], &[("list", "Open the active asides modal")]),
+        ("/btw", "Open a background side thread (aside)", &["btw", "aside", "side", "subtask", "parallel", "quick", "note", "by-the-way"], &[("list", "Open the active asides modal")]),
         ("/jobs", "Inspect and manage background processes and sub-subagents", &["jobs", "job", "background", "process", "task", "tasks", "running", "kill", "ps", "async"], &[("kill", "Terminate an active background job"), ("logs", "Show recent stdout/stderr output of a background job")]),
         ("/skills", "Browse available skills and view trust status", &["skills", "skill", "capabilities", "extensions"], &[("list", "List discovered project and user skills"), ("status", "Show skills health and trust state")]),
         ("/init", "Scaffold a project-local .nuo/ config tree", &["init", "scaffold", "bootstrap", "create-config"], &[]),
         ("/trust", "Trust project-authored asset domains", &["trust", "authorize", "asset-trust", "project-assets", "security"], &[("all", "Trust every present project asset domain"), ("instructions", "Trust project instructions and AGENTS.md"), ("ex-workspace", "Trust project external workspace roots"), ("mcp", "Trust project MCP definitions only"), ("skills", "Trust project skills only"), ("hooks", "Trust project hooks only"), ("status", "Show trust state for every asset domain"), ("revoke", "Revoke every asset-domain grant")]),
         ("/untrust", "Revoke project asset trust", &["untrust", "revoke", "quarantine", "asset-trust"], &[]),
-        ("/export", "Export conversation to clipboard as Markdown", &["export", "copy", "share", "clipboard", "markdown", "dump", "save"], &[]),
+        ("/export", "Export thread to clipboard as Markdown", &["export", "copy", "share", "clipboard", "markdown", "dump", "save"], &[]),
         ("/debug", "Dev tools: request tracing and body preview", &["debug", "trace", "log", "dry-run", "inspect", "troubleshoot"], &[("trace", "Toggle provider round-trip capture on/off"), ("preview", "Dry-run next provider wire body to disk")]),
         ("/retry", "Retry last failed model request", &["retry", "again", "resend", "redo", "re-run"], &[]),
         ("/help", "Show available commands and keybindings", &["help", "man", "docs", "guide", "info", "usage", "?", "shortcuts", "keybindings"], &[]),
@@ -2457,8 +2455,20 @@ mod tests {
         }
     }
     fn dead_port() -> u16 {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        l.local_addr().unwrap().port()
+        for _ in 0..10 {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = l.local_addr().unwrap().port();
+            drop(l);
+            if std::net::TcpStream::connect_timeout(
+                &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+                std::time::Duration::from_millis(5),
+            )
+            .is_err()
+            {
+                return port;
+            }
+        }
+        1
     }
     #[test]
     fn discover_at_returns_none_without_racing_to_delete_stale_record() {

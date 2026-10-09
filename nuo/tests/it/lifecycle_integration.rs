@@ -107,11 +107,12 @@ impl nuo::UiBridge for HeadlessProbe {
 
 /// Host one hand-built session; returns the monitor subscription-friendly
 /// registry (fixtures mirror `serve_integration::prehosted`, minus the tap).
-async fn host_one(registry: &Arc<SessionRegistry>, project: &str) {
+async fn host_one(registry: &Arc<SessionRegistry>, project: &str) -> String {
     let session = Arc::new(SessionStore::load_for_project(project.into()));
     let (req_tx, _req_rx) = mpsc::channel::<nuo_wire::AgentRequest>(512);
     let (bc_tx, _) = broadcast::channel::<nuo_wire::AgentResponse>(16);
     let id = session.id().await;
+    let id_ret = id.clone();
     let tracker = Arc::new(Mutex::new(
         nuo::monitor::MonitorTracker::bootstrap(
             nuo_wire::MonitoredSession::empty(id),
@@ -142,6 +143,7 @@ async fn host_one(registry: &Arc<SessionRegistry>, project: &str) {
             agent_for_session_end: None,
         })
         .await;
+    id_ret
 }
 
 static LIFECYCLE_TEST_LOCK: Mutex<()> = Mutex::const_new(());
@@ -440,12 +442,13 @@ async fn client_driven_lifecycle_stops_when_interactive_client_disconnects() {
     host_one(&registry, proj_dir.to_str().unwrap()).await;
 
     let gate = Arc::new(ShutdownGate::new());
+    let gate_run = gate.clone();
     let sock_clone = sock.clone();
     let run = tokio::spawn(async move {
         nuo::host::run_with_registry(
             test_identity(),
             options(sock_clone, 0),
-            gate,
+            gate_run,
             LifecycleOptions {
                 shutdown_grace: Duration::from_secs(3),
                 idle_exit: None,
@@ -482,21 +485,99 @@ async fn client_driven_lifecycle_stops_when_interactive_client_disconnects() {
     let welcome = source.next().await.unwrap().unwrap();
     assert!(matches!(welcome, nuo_client::wire::Wire::Welcome { .. }));
 
-    // Disconnect the interactive client
+    // Disconnect (Detach) the interactive client
     drop(sink);
     drop(source);
 
-    // Server terminates cleanly after 1s debounce
+    // Under ADR-0038 [INV-SERVER-07], disconnecting an interactive client does NOT kill the server
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(!run.is_finished(), "server must remain running after client disconnect (ADR-0038 [INV-SERVER-07])");
+
+    // Cleanly stop for test completion
+    gate.request(ShutdownReason::ControlVerb, false);
     let outcome = tokio::time::timeout(Duration::from_secs(5), run)
         .await
-        .expect("server timed out waiting for client_driven exit")
+        .expect("server timed out waiting for stop")
         .expect("join run");
 
     assert_eq!(outcome.exit_code(), 0);
-    match &outcome {
-        RunOutcome::Stopped { reason } => assert_eq!(*reason, ShutdownReason::AllClientsClosed),
-        other => panic!("expected AllClientsClosed, got {other:?}"),
+}
+
+#[tokio::test]
+async fn client_detach_spares_active_autonomous_work() {
+    sandbox_once();
+    let _lock = LIFECYCLE_TEST_LOCK.lock().await;
+    let tmp = tempfile::tempdir().unwrap();
+    let sock = tmp.path().join("client_detach_active.sock");
+    let registry = Arc::new(SessionRegistry::prehost_only());
+    let proj_dir = tmp.path().join("proj-cd-active");
+    let session_id = host_one(&registry, proj_dir.to_str().unwrap()).await;
+
+    // Simulate active in-flight work on the hosted session (ADR-0038 [INV-ACTION-02])
+    {
+        let hosted = registry.get(&session_id).await.expect("hosted session");
+        hosted.tracker.lock().await.observe(&nuo_wire::AgentResponse::Round {
+            session_id: session_id.clone(),
+            event: nuo_wire::RoundEvent::TurnStarted { round: 1, turn: 1 },
+        });
     }
+    assert!(registry.has_active_work().await);
+
+    let gate = Arc::new(ShutdownGate::new());
+    let gate_clone = gate.clone();
+    let sock_clone = sock.clone();
+    let run = tokio::spawn(async move {
+        nuo::host::run_with_registry(
+            test_identity(),
+            options(sock_clone, 0),
+            gate_clone,
+            LifecycleOptions {
+                shutdown_grace: Duration::from_secs(3),
+                idle_exit: None,
+                client_driven: true,
+                drain_probe: None,
+            },
+            registry,
+        )
+        .await
+    });
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while !sock.exists() {
+        if tokio::time::Instant::now() >= deadline {
+            panic!("socket was not created in time");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let stream = tokio::net::UnixStream::connect(&sock).await.unwrap();
+    let (mut sink, mut source) = nuo_client::wire::native_framed_split(stream);
+
+    use futures::{SinkExt, StreamExt};
+    sink.send(nuo_client::wire::Wire::Select {
+        action: nuo_client::wire::AttachAction::Attach(None),
+        project: Some(proj_dir),
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        version: None,
+        protocol: Some(nuo_client::wire::PROTOCOL_VERSION),
+    })
+    .await
+    .unwrap();
+
+    let welcome = source.next().await.unwrap().unwrap();
+    assert!(matches!(welcome, nuo_client::wire::Wire::Welcome { .. }));
+
+    // Disconnect (Detach) the interactive client
+    drop(sink);
+    drop(source);
+
+    // Give it 2 seconds: because active autonomous work is running, server must NOT terminate!
+    tokio::time::sleep(Duration::from_millis(2000)).await;
+    assert!(!run.is_finished(), "server must remain running while autonomous work is active");
+
+    // Cleanly stop for test completion
+    gate.request(ShutdownReason::ControlVerb, false);
+    let _ = run.await;
 }
 
 #[tokio::test]

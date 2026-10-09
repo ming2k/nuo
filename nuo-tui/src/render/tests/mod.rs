@@ -48,6 +48,8 @@ fn render_full_view(
                     workspace: "~/projects/xx",
                     role: Some("developer"),
                     switching_target: None,
+                    tabs: None,
+                    active_tab: 0,
                 }),
                 round_started_at: None,
                 hovered_step: None,

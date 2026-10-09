@@ -240,6 +240,8 @@ pub fn route_event(
                         InputAction::SelectionStart { x, y }
                     } else if dispatch.sheet == Some(crate::sheet::SheetKind::Question)
                         || dispatch.overlay.is_some()
+                        || dispatch.scene == crate::surfaces::SceneKind::Dashboard
+                        || dispatch.scene == crate::surfaces::SceneKind::Settings
                     {
                         InputAction::SelectionStart { x, y }
                     } else {
@@ -352,6 +354,16 @@ pub fn route_event(
             }
 
             // Stage 5: Global Hard-Bound Shortcuts
+            // Alt+1..9 tab jump (ADR-0040 [INV-KEY-01])
+            if key.modifiers == KeyModifiers::ALT {
+                if let KeyCode::Char(c) = key.code {
+                    if ('1'..='9').contains(&c) {
+                        let idx = (c as usize) - ('1' as usize);
+                        return InputAction::SelectTab(idx);
+                    }
+                }
+            }
+
             // Ctrl+O (stats), Ctrl+Q (queue), Ctrl+C (Interrupt/Quit),
             // CopySelection, and the user-remappable globals. The Command
             // Palette is deliberately absent from the canonical table: its
@@ -390,6 +402,7 @@ pub fn route_event(
                     }
                     crate::keymap::CommandId::InterruptTask => return InputAction::Interrupt,
                     crate::keymap::CommandId::Quit => return InputAction::CtrlC,
+                    crate::keymap::CommandId::CloseTab => return InputAction::CloseTab,
                     crate::keymap::CommandId::CopySelection => return InputAction::CopySelection,
                     _ => {}
                 }

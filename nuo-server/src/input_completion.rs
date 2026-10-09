@@ -857,13 +857,13 @@ mod tests {
         assert!(items.iter().any(|item| item.label == "/models"));
 
         let AgentResponse::ComposerCompletions { items, .. } =
-            engine.complete(8, "/theme".into(), 6).await
+            engine.complete(8, "/switch".into(), 7).await
         else {
             panic!("unexpected response")
         };
         assert_eq!(
             items.first().map(|item| item.label.as_str()),
-            Some("/settings")
+            Some("/models")
         );
     }
 
@@ -958,56 +958,56 @@ mod tests {
     async fn slash_aliases_are_first_class_candidates() {
         let engine = InputCompletionEngine::new(catalog(), PathBuf::from("."));
 
-        // Typing `/confi` surfaces the alias `/config` under its own label
+        // Typing `/resum` surfaces the alias `/resume` under its own label
         // (the user's spelling is preserved in the menu), but accepting it
-        // commits the canonical `/settings`: `insert_text` is the target and
+        // commits the canonical `/sessions`: `insert_text` is the target and
         // `alias_of` marks the row so frontends render it distinctly.
         let AgentResponse::ComposerCompletions { items, .. } =
-            engine.complete(20, "/confi".into(), 6).await
+            engine.complete(20, "/resum".into(), 6).await
         else {
             panic!("unexpected response")
         };
-        let config_row = items
+        let resume_row = items
             .iter()
-            .find(|i| i.label == "/config")
-            .expect("alias /config surfaces for prefix /confi");
-        assert_eq!(config_row.kind, InputCompletionKind::SlashAlias);
-        assert_eq!(config_row.insert_text, "/settings");
-        assert_eq!(config_row.alias_of.as_deref(), Some("/settings"));
+            .find(|i| i.label == "/resume")
+            .expect("alias /resume surfaces for prefix /resum");
+        assert_eq!(resume_row.kind, InputCompletionKind::SlashAlias);
+        assert_eq!(resume_row.insert_text, "/sessions");
+        assert_eq!(resume_row.alias_of.as_deref(), Some("/sessions"));
         assert_eq!(
-            config_row.description, "Open Settings overlay (theme, appearance)",
+            resume_row.description, "Browse or resume past sessions",
             "description is the target's plain summary — no inline (alias …) prose"
         );
         // The flyout doc is the target's spec.
         assert_eq!(
-            config_row.command.as_ref().map(|spec| spec.name.as_str()),
-            Some("/settings")
+            resume_row.command.as_ref().map(|spec| spec.name.as_str()),
+            Some("/sessions")
         );
 
         // The canonical command row exists alongside, with plain summary and
         // no alias marker.
-        let settings_row = items
+        let sessions_row = items
             .iter()
-            .find(|i| i.label == "/settings")
-            .expect("canonical /settings also offered");
-        assert_eq!(settings_row.kind, InputCompletionKind::Intent);
-        assert_eq!(settings_row.alias_of, None);
-        assert_eq!(settings_row.insert_text, "/settings");
+            .find(|i| i.label == "/sessions")
+            .expect("canonical /sessions also offered");
+        assert_eq!(sessions_row.kind, InputCompletionKind::Intent);
+        assert_eq!(sessions_row.alias_of, None);
+        assert_eq!(sessions_row.insert_text, "/sessions");
 
         // Exact alias input behaves identically: the row stays the alias
         // label, the committed edit is the canonical target.
         let AgentResponse::ComposerCompletions { items, .. } =
-            engine.complete(21, "/config".into(), 7).await
+            engine.complete(21, "/resume".into(), 7).await
         else {
             panic!("unexpected response")
         };
         let row = items
             .iter()
-            .find(|i| i.label == "/config")
+            .find(|i| i.label == "/resume")
             .expect("alias row persists at exact match");
         assert_eq!(row.kind, InputCompletionKind::SlashAlias);
-        assert_eq!(row.insert_text, "/settings");
-        assert_eq!(row.alias_of.as_deref(), Some("/settings"));
+        assert_eq!(row.insert_text, "/sessions");
+        assert_eq!(row.alias_of.as_deref(), Some("/sessions"));
     }
 
     #[tokio::test]

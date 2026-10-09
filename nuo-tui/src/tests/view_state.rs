@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn resolve_focused_mut_indexes_root_when_unfocused() {
-    let mut messages = conversation_with_subagents();
+    let mut messages = thread_with_subagents();
     let focus: Vec<crate::app::ZoomFrame> = Vec::new();
     let resolved = event_loop::resolve_focused_mut(&mut messages, &focus, 2);
     assert_eq!(resolved.map(|m| m.raw.clone()).as_deref(), Some("ok"));
@@ -12,7 +12,7 @@ fn resolve_focused_mut_indexes_root_when_unfocused() {
 
 #[test]
 fn resolve_focused_mut_indexes_children_when_focused() {
-    let mut messages = conversation_with_subagents();
+    let mut messages = thread_with_subagents();
     let focus = vec![crate::app::ZoomFrame {
         call_id: "task_b".to_string(),
         saved_scroll: crate::app::ScrollSnapshot::default(),
@@ -30,7 +30,7 @@ fn composer_paste_still_chips_large_text_on_main_prompt() {
     // `[Pasted text #N +M lines]` chip and stages the full text, so the
     // modal-aware branching did not regress the composer behaviour.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.reset_to_conversation();
+    app.reset_to_thread();
     app.input = String::new();
     app.cursor_position = 0;
     let big = format!("line\n{}", "x".repeat(2048));
@@ -55,7 +55,7 @@ fn composer_image_paste_rejected_when_model_lacks_vision() {
     // No picker-snapshot row exists for the route, so the gate falls back to
     // the in-process static registry (glm-5.2 baseline: vision: false).
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.reset_to_conversation();
+    app.reset_to_thread();
     app.current_provider = "mock".to_string();
     app.current_model = "glm-5.2".to_string(); // vision: false
     app.input = String::new();
@@ -96,7 +96,7 @@ fn composer_image_paste_accepted_when_model_vision_is_undeclared() {
     // *undeclared*, not text-only. The paste must go through — the client has
     // no grounds to refuse it, and the provider answers if it cannot take it.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.reset_to_conversation();
+    app.reset_to_thread();
     app.current_provider = "mock".to_string();
     app.current_model = "mystery-relay-model".to_string();
     app.input = String::new();
@@ -137,7 +137,7 @@ fn composer_image_paste_accepted_when_model_has_vision() {
     // No picker-snapshot row exists for the route, so the gate falls back to
     // the in-process static registry (gpt-4o baseline: vision: true).
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.reset_to_conversation();
+    app.reset_to_thread();
     app.current_provider = "mock".to_string();
     app.current_model = "gpt-4o".to_string(); // vision: true
     app.input = String::new();
@@ -176,7 +176,7 @@ fn composer_image_paste_follows_picker_snapshot_vision() {
     // overlay — the client's static registry would say `vision: false` and
     // wrongly reject the paste).
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.reset_to_conversation();
+    app.reset_to_thread();
     app.current_provider = "gogo".to_string();
     app.current_model = "omen-alpha".to_string();
     app.provider_picker
@@ -240,7 +240,7 @@ fn active_model_context_window_follows_picker_snapshot_for_relay_models() {
     // A relay model like `glm-5.3` discovered on `opencode-go` has no static
     // baseline in the TUI client process. The client must not fall back to 0.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.reset_to_conversation();
+    app.reset_to_thread();
     app.current_provider = "opencode-go".to_string();
     app.current_model = "glm-5.3".to_string();
     app.provider_picker
@@ -292,7 +292,7 @@ fn composer_image_paste_snapshot_override_forces_off() {
     // baseline-vision-capable model, so the snapshot must veto the paste even
     // though the in-process registry says the model takes images.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.reset_to_conversation();
+    app.reset_to_thread();
     app.current_provider = "mock".to_string();
     app.current_model = "gpt-4o".to_string();
     app.provider_picker
@@ -357,7 +357,7 @@ fn composer_text_paste_of_image_file_path_stages_attachment() {
     // attachment pipeline Ctrl+V uses — in both the bare-path and
     // `file://` URI forms a terminal's text flavor produces.
     let (mut app, tmp) = app_in_tempdir(&[], &[]);
-    app.reset_to_conversation();
+    app.reset_to_thread();
     app.current_model = "gpt-4o".to_string(); // vision: true
     app.input = String::new();
     app.cursor_position = 0;
@@ -401,7 +401,7 @@ fn composer_text_paste_of_non_image_or_prose_stays_verbatim() {
     // and prose around a path is just text: neither may be hijacked into
     // the attachment pipeline.
     let (mut app, tmp) = app_in_tempdir(&[], &[]);
-    app.reset_to_conversation();
+    app.reset_to_thread();
     app.input = String::new();
     app.cursor_position = 0;
     let source = tmp.path().join("main.rs");
@@ -601,7 +601,7 @@ fn switcher_rows_filter_and_gate_by_availability() {
     // "mcp" matches the MCP label (with a session present).
     let rows = store.switcher_rows_filtered(
         "mcp",
-        crate::surfaces::SceneKind::Conversation,
+        crate::surfaces::SceneKind::Thread,
         true,
     );
     assert_eq!(
@@ -614,7 +614,7 @@ fn switcher_rows_filter_and_gate_by_availability() {
     // "dash" matches the Dashboard label.
     let rows = store.switcher_rows_filtered(
         "dash",
-        crate::surfaces::SceneKind::Conversation,
+        crate::surfaces::SceneKind::Thread,
         true,
     );
     assert_eq!(
@@ -626,12 +626,12 @@ fn switcher_rows_filter_and_gate_by_availability() {
 
     assert!(
         store
-            .switcher_rows_filtered("zzz", crate::surfaces::SceneKind::Conversation, true)
+            .switcher_rows_filtered("zzz", crate::surfaces::SceneKind::Thread, true)
             .is_empty()
     );
 
     // Without a session, session-scoped dialogs are not advertised.
-    let rows = store.switcher_rows(crate::surfaces::SceneKind::Conversation, false);
+    let rows = store.switcher_rows(crate::surfaces::SceneKind::Thread, false);
     assert!(
         rows.iter().all(|r| !matches!(
             r,
@@ -641,7 +641,7 @@ fn switcher_rows_filter_and_gate_by_availability() {
         )),
         "session-scoped dialogs are gated out with no session"
     );
-    // HistorySearch is scene-scoped to the Conversation and needs a session.
+    // HistorySearch is scene-scoped to the Thread and needs a session.
     assert!(
         rows.iter().all(|r| !matches!(
             r,

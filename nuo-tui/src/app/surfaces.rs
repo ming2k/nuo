@@ -206,10 +206,36 @@ impl App {
         }
     }
 
-    /// Hard reset to Conversation home scene: unwind all overlays and history.
-    pub(crate) fn reset_to_conversation(&mut self) {
+    /// Open or focus a client tab, running each dropped sheet's teardown (ADR-0041 [INV-TAB-07]).
+    pub(crate) fn open_tab(&mut self, tab: crate::surfaces::ClientTab) -> usize {
         let sheets = self.surfaces.take_sheets();
-        self.surfaces.reset_to_conversation();
+        let idx = self.surfaces.open_tab(tab);
+        for s in sheets {
+            self.on_sheet_dismissed(s);
+        }
+        idx
+    }
+
+    /// Close a client tab at `index` (ADR-0039 [INV-TAB-04]), running teardown hooks
+    /// if the active tab is being closed.
+    pub(crate) fn close_tab(&mut self, index: usize) -> Option<crate::surfaces::ClientTab> {
+        let is_active = index == self.surfaces.active_tab_index();
+        if is_active {
+            let leaving = self.current_scene();
+            let sheets = self.surfaces.take_sheets();
+            for s in sheets {
+                self.on_sheet_dismissed(s);
+            }
+            self.deactivate_scene(leaving);
+            self.surfaces.unwind_scene(leaving);
+        }
+        self.surfaces.close_tab(index)
+    }
+
+    /// Hard reset to Thread home scene: unwind all overlays and history.
+    pub(crate) fn reset_to_thread(&mut self) {
+        let sheets = self.surfaces.take_sheets();
+        self.surfaces.reset_to_thread();
         for s in sheets {
             self.on_sheet_dismissed(s);
         }
@@ -406,7 +432,7 @@ impl App {
             SceneKind::Settings => {
                 self.config_dropdown = None;
             }
-            SceneKind::Conversation | SceneKind::TaskInspection | SceneKind::Aside => {}
+            SceneKind::Thread | SceneKind::TaskInspection | SceneKind::Aside => {}
         }
     }
 
@@ -454,7 +480,7 @@ impl App {
     /// Leave a root scene back to the scene it came from.
     pub(crate) fn leave_scene(&mut self) -> bool {
         let leaving = self.current_scene();
-        if leaving == SceneKind::Conversation {
+        if leaving == SceneKind::Thread {
             return false;
         }
         let sheets = self.surfaces.take_sheets();
@@ -493,8 +519,27 @@ impl App {
                     self.leave_scene()
                 }
             }
-            SceneKind::Dashboard | SceneKind::Settings => self.leave_scene(),
-            SceneKind::Conversation => false,
+            SceneKind::Dashboard | SceneKind::Settings => {
+                let active_idx = self.surfaces.active_tab_index();
+                if let Some(tab) = self.surfaces.tabs().get(active_idx) {
+                    if !tab.can_back() {
+                        self.close_tab(active_idx);
+                        return true;
+                    } else {
+                        let leaving = self.current_scene();
+                        let sheets = self.surfaces.take_sheets();
+                        for s in sheets {
+                            self.on_sheet_dismissed(s);
+                        }
+                        self.deactivate_scene(leaving);
+                        self.surfaces.unwind_scene(leaving);
+                        self.surfaces.tab_history_back();
+                        return true;
+                    }
+                }
+                self.leave_scene()
+            }
+            SceneKind::Thread => false,
         }
     }
 

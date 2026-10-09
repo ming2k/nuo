@@ -42,12 +42,12 @@ Two frictions followed:
    (`Main › Aside`) or absent entirely (`SETTINGS`) — never a consistent,
    lowercase scene name.
 2. **The session's ambient facts were scattered.** The session identity
-   (id tail, role, workspace) lived on row 1 for the conversation but was
+   (id tail, role, workspace) lived on row 1 for the thread but was
    *replaced* by scene-specific content in every other scene, and the run-mode
    flags rode a different row depending on the scene. Nothing tied a scene back
    to the session the client was attached to.
 
-Separately, the conversation scene had no place to show the **chat's title**
+Separately, the thread scene had no place to show the **chat's title**
 (the AI-generated or manual session title) even though it existed durably and
 was already surfaced in the sessions picker.
 
@@ -67,7 +67,7 @@ records the rejected alternatives.
   must stay visible regardless of the scene the user navigates into.
 - **Run-mode honesty**: the persistent safety flags (`UNATTENDED`,
   `UNCONFINED`) must sit in one predictable place, not migrate with the scene.
-- **Title discoverability**: the conversation's chat title should be visible in
+- **Title discoverability**: the thread's chat title should be visible in
   the head, not only in the sessions picker.
 - **Namespace discoverability**: the `C-x menu` pair stays a standing row-2
   affordance on every scene ([ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md) `[INV-HINT-01]`).
@@ -83,7 +83,7 @@ records the rejected alternatives.
   row 2 without unifying row 1's content.
 - **Option 3**: Single-row band carrying both the session identity and the scene
   name (drop row 2's context, keep only the namespace pair).
-- **Option 4**: Keep the status quo; only add the chat title to the conversation
+- **Option 4**: Keep the status quo; only add the chat title to the thread
   row 1.
 
 ---
@@ -106,12 +106,12 @@ they sit in one predictable place across scenes.
 
 ### 2. Row 2 is the scene row
 
-Row 2 names the scene the user stands in, in plain lowercase: `conversation`
+Row 2 names the scene the user stands in, in plain lowercase: `thread`
 (the default home scene), `dashboard`, `settings`, `subagent`, `aside`. After
 the name comes the scene's own **context** (left-aligned, truncated first under
 width pressure):
 
-- **conversation**: the chat's title, derived from the first real chat prompt
+- **thread**: the chat's title, derived from the first real chat prompt
   and cleaned by the shared titler rule (`nuo_wire::clean_title`); `None` before
   the first prompt renders the label alone.
 - **dashboard**: the live fleet summary (`3 session(s) 1 running …`); flagged
@@ -142,7 +142,7 @@ that is present on every scene.
   render on **row 2's right edge** on every scene that shows them — never on
   row 1 — so their location never migrates with the scene.
 - **INV-HINT-04**: A scene name is drawn from the closed
-  [`ViewKind::scene_label`] set (`conversation` / `dashboard` / `settings` /
+  [`ViewKind::scene_label`] set (`thread` / `dashboard` / `settings` /
   `subagent` / `aside`); a scene never invents a name inline.
 
 ### Positive Consequences
@@ -157,7 +157,7 @@ that is present on every scene.
 
 ### Negative Consequences & Trade-offs
 
-- The conversation head no longer shows the run-mode flags on row 1; a user who
+- The thread head no longer shows the run-mode flags on row 1; a user who
   read them there must look one row lower. Mitigation: they are still always
   present, just on row 2.
 - Row 2 now carries more (label + context + flags + namespace) on narrow
@@ -170,7 +170,7 @@ that is present on every scene.
 
 ### Option 2 (Rejected) — per-scene row 1, add the scene name to row 2 only
 - Why considered: smaller diff; preserves each scene's current row-1 identity.
-- Why rejected: leaves the session identity *replaced* in every non-conversation
+- Why rejected: leaves the session identity *replaced* in every non-thread
   scene, so the user loses the tie back to the session they are attached to the
   moment they navigate. The whole point is a stable identity row.
 

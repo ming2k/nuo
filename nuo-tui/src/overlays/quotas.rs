@@ -102,21 +102,29 @@ fn quotas_body(
         let is_selected = idx == selected_index;
         let prefix = if is_selected { "▶ " } else { "  " };
 
-        let status_color = match &entry.state {
+        let (bal_str, bal_style) = match &entry.state {
             ConnectionUsageState::Available(_) => {
-                if entry
-                    .primary_balance
-                    .as_deref()
-                    .is_some_and(|b| b.starts_with("0%"))
-                {
+                let s = entry.primary_balance.as_deref().unwrap_or("-");
+                let color = if s.starts_with("0%") {
                     theme.warn()
                 } else {
                     theme.ok()
-                }
+                };
+                (
+                    s.to_string(),
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                )
             }
-            ConnectionUsageState::Error(_) => theme.err(),
-            ConnectionUsageState::Fetching => theme.info(),
-            ConnectionUsageState::Unsupported => theme.muted(),
+            ConnectionUsageState::Fetching => {
+                ("querying…".to_string(), Style::default().fg(theme.info()))
+            }
+            ConnectionUsageState::Error(_) => (
+                "error".to_string(),
+                Style::default().fg(theme.err()).add_modifier(Modifier::BOLD),
+            ),
+            ConnectionUsageState::Unsupported => {
+                ("unsupported".to_string(), Style::default().fg(theme.muted()))
+            }
         };
 
         let active_tag = if entry.is_default { " (active)" } else { "" };
@@ -134,15 +142,12 @@ fn quotas_body(
             Style::default().fg(theme.muted()),
         );
 
-        let bal_str = entry.primary_balance.as_deref().unwrap_or("-");
-        let bal_span = Span::styled(
-            bal_str.to_string(),
-            Style::default().fg(status_color).add_modifier(Modifier::BOLD),
-        );
+        let bal_span = Span::styled(bal_str.clone(), bal_style);
 
         let left_len =
             prefix.len() + entry.name.len() + active_tag.len() + 4 + entry.provider.len();
-        let pad = body_width.saturating_sub(left_len + bal_str.len()).max(1);
+        let bal_w = unicode_width::UnicodeWidthStr::width(bal_str.as_str());
+        let pad = body_width.saturating_sub(left_len + bal_w).max(1);
 
         lines.push(Line::from(vec![
             name_span,
@@ -198,4 +203,90 @@ fn quota_bar(used_fraction: f32) -> String {
     let filled = ((1.0 - used_fraction.clamp(0.0, 1.0)) * width as f32).round() as usize;
     let empty = width.saturating_sub(filled);
     format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nuo_wire::{ConnectionQuotaEntry, ConnectionUsageState, ProviderQuotaSnapshot};
+
+    fn line_to_string(line: &Line<'_>) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect::<Vec<_>>().join("")
+    }
+
+    #[test]
+    fn quotas_body_renders_fetching_state_as_querying() {
+        let theme = Theme::ansi16();
+        let snap = ProviderQuotaSnapshot {
+            provider_filter: None,
+            entries: vec![ConnectionQuotaEntry {
+                name: "antigravity-1".into(),
+                provider: "google-antigravity".into(),
+                provider_label: "Google Antigravity".into(),
+                account_id: Some("dev@example.com".into()),
+                is_default: true,
+                primary_balance: None,
+                quota: None,
+                plan: None,
+                state: ConnectionUsageState::Fetching,
+                earliest_reset_ms: None,
+            }],
+            total_accounts: 1,
+            available_accounts: 0,
+            depleted_accounts: 0,
+            updated_at_ms: 1_000_000,
+        };
+
+        let lines = quotas_body(&snap, 0, 80, &theme);
+        let rendered: Vec<String> = lines.iter().map(line_to_string).collect();
+        assert!(rendered.iter().any(|s| s.contains("antigravity-1")));
+        assert!(rendered.iter().any(|s| s.contains("querying…")));
+        assert!(rendered.iter().any(|s| s.contains("account: dev@example.com")));
+    }
+
+    #[test]
+    fn quotas_body_renders_available_and_error_states() {
+        let theme = Theme::ansi16();
+        let snap = ProviderQuotaSnapshot {
+            provider_filter: Some("google-antigravity".into()),
+            entries: vec![
+                ConnectionQuotaEntry {
+                    name: "antigravity-1".into(),
+                    provider: "google-antigravity".into(),
+                    provider_label: "Google Antigravity".into(),
+                    account_id: None,
+                    is_default: false,
+                    primary_balance: Some("85%".into()),
+                    quota: None,
+                    plan: None,
+                    state: ConnectionUsageState::Available(Box::new(nuo_wire::ProviderUsage {
+                        primary_balance: Some("85%".into()),
+                        ..Default::default()
+                    })),
+                    earliest_reset_ms: None,
+                },
+                ConnectionQuotaEntry {
+                    name: "antigravity-2".into(),
+                    provider: "google-antigravity".into(),
+                    provider_label: "Google Antigravity".into(),
+                    account_id: None,
+                    is_default: false,
+                    primary_balance: None,
+                    quota: None,
+                    plan: None,
+                    state: ConnectionUsageState::Error("401 Unauthorized".into()),
+                    earliest_reset_ms: None,
+                },
+            ],
+            total_accounts: 2,
+            available_accounts: 1,
+            depleted_accounts: 1,
+            updated_at_ms: 1_000_000,
+        };
+
+        let lines = quotas_body(&snap, 0, 80, &theme);
+        let rendered: Vec<String> = lines.iter().map(line_to_string).collect();
+        assert!(rendered.iter().any(|s| s.contains("85%")));
+        assert!(rendered.iter().any(|s| s.contains("error")));
+    }
 }

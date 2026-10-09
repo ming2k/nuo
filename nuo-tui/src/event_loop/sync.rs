@@ -246,21 +246,19 @@ pub(crate) async fn sync_transcripts_and_session(
 
 /// Consume the one-shot backend navigation signals the applier latched
 /// (ADR-0197 M1: formerly `AtomicBool` swaps on shared cells).
-pub(crate) fn consume_navigation_signals(app: &mut App, runtime: &UiRuntime) -> (bool, bool, bool) {
+pub(crate) fn consume_navigation_signals(app: &mut App, runtime: &UiRuntime) -> (bool, bool) {
     let can_apply_backend_navigation = app.can_accept_navigation_signal();
     let open_sessions =
         can_apply_backend_navigation && std::mem::take(&mut app.open_sessions_signal);
     let open_tree = can_apply_backend_navigation && std::mem::take(&mut app.open_tree_signal);
-    let open_host = can_apply_backend_navigation && std::mem::take(&mut app.open_host_signal);
     if !can_apply_backend_navigation {
         // Drop the signals anyway: a navigation the surface cannot accept
         // right now must not silently queue behind the next frame forever.
         app.open_sessions_signal = false;
         app.open_tree_signal = false;
-        app.open_host_signal = false;
     }
     let _ = runtime;
-    (open_sessions, open_tree, open_host)
+    (open_sessions, open_tree)
 }
 
 /// Consume the backend completion round-trip the applier latched.

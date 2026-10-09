@@ -76,12 +76,31 @@ fn enter_with_slash_command_dispatches_recognized_commands() {
         ("/quotas", InputAction::OpenQuotas),
         ("/mcp", InputAction::OpenMcp),
         ("/skills", InputAction::OpenSkills),
-        ("/settings", InputAction::OpenConfig),
-        ("/config", InputAction::OpenConfig),
         ("/exit", InputAction::Quit),
     ] {
         let mut input = cmd.to_string();
         assert_eq!(enter(&mut input, false), expected, "failed for {cmd}");
+        assert_eq!(input, "");
+    }
+}
+
+#[test]
+fn enter_with_workspace_view_commands_triggers_guardrail_notice() {
+    // ADR-0041 [INV-CMD-01], [INV-ROUTER-01]: Workspace views are intercepted with educational notices
+    for (cmd, keychord) in [
+        ("/dashboard", "C-x d"),
+        ("/dashboard with args", "C-x d"),
+        ("/settings", "C-x ,"),
+        ("/config", "C-x ,"),
+    ] {
+        let mut input = cmd.to_string();
+        let action = enter(&mut input, false);
+        match action {
+            InputAction::WorkspaceGuardrailNotice(msg) => {
+                assert!(msg.contains(keychord), "notice for {cmd} must mention {keychord}");
+            }
+            other => panic!("expected WorkspaceGuardrailNotice for {cmd}, got {other:?}"),
+        }
         assert_eq!(input, "");
     }
 }

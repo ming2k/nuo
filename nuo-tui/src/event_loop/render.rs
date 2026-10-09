@@ -225,7 +225,7 @@ fn compose_frame(
     // layer was the keyboard foreground.
     let overlay_owns_caret = app.caret_visible() && app.caret_owner() == crate::CaretOwner::Overlay;
     let scene_owns_caret = app.caret_visible() && app.caret_owner() == crate::CaretOwner::Composer;
-    // A non-conversation scene's own inline prompt (the Dashboard task line)
+    // A non-thread scene's own inline prompt (the Dashboard task line)
     // owns the cursor through its scene chrome rather than through SceneKeys.
     let scene_prompt_owns_caret =
         app.caret_visible() && app.caret_owner() == crate::CaretOwner::Scene;
@@ -236,7 +236,7 @@ fn compose_frame(
 
     // When zoomed into a Subagent, render its child messages and
     // show a contextual first-row header; otherwise render the
-    // root conversation.
+    // root thread.
     let view_messages = app.focused_messages();
     // `/btw` aside scene context (ADR-0017, ADR-0024): shown only while
     // the aside view is active. Subagent zoom and the aside view are mutually
@@ -296,7 +296,7 @@ fn compose_frame(
         } else {
             (
                 render::ViewKind::Session,
-                conversation_title(app.focused_messages()),
+                thread_title(app.focused_messages()),
                 false,
             )
         };
@@ -306,6 +306,15 @@ fn compose_frame(
         context_warn: scene_context_warn,
         unattended: app.unattended,
         confined: app.confined,
+        workspace: if matches!(
+            scene_kind,
+            render::ViewKind::Session | render::ViewKind::Subagent | render::ViewKind::Btw
+        ) && !app.current_workspace.is_empty()
+        {
+            Some(&app.current_workspace)
+        } else {
+            None
+        },
     };
 
     // Empty-state guidance policy (ADR-0057/0104): the app shell picks the
@@ -418,6 +427,8 @@ fn compose_frame(
                     workspace: &app.current_workspace,
                     role: app.current_role.as_deref(),
                     switching_target: app.switching_session.as_deref(),
+                    tabs: Some(app.surfaces.tabs()),
+                    active_tab: app.surfaces.active_tab_index(),
                 }),
                 // View-scoped: the elapsed-timer origin belongs to the viewed
                 // session's round (an aside view times the aside's round, not
@@ -452,6 +463,9 @@ fn compose_frame(
             render::FooterRowId::ModelBar => UiKey::ModelBar,
         };
         ui.mount(key, *rect);
+    }
+    for (idx, tab_rect) in &transcript_render.tab_rects {
+        ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
     }
     if let Some(rect) = layout_map.transcript_content_rect() {
         ui.mount(UiKey::Transcript, rect);
@@ -526,7 +540,7 @@ fn compose_frame(
 
     // The input box is only shown when no overlay modal is open. The
     // `focused` flag drops the panel to its dim "blurred" palette and
-    // hides the caret whenever keyboard focus is on the conversation
+    // hides the caret whenever keyboard focus is on the thread
     // stream (Browse zone), so the user can see at a glance which
     // surface the next keypress will land on. A pending permission
     // request replaces the composer with the inline permission sheet.
@@ -601,9 +615,11 @@ fn compose_frame(
             // the transcript content parks attention there and dims the
             // composer panel until a composer click or a keystroke
             // hands it back.
+            let active_extension = app.active_composer_extension();
             let step_focused = app.focused_target.is_some() || app.transcript_focused;
             let show_caret = scene_owns_caret && !step_focused;
-            let composer_focused = !step_focused && (!has_overlay || scene_owns_caret);
+            let composer_focused = !step_focused
+                && (!has_overlay || scene_owns_caret || active_extension.is_some());
             // A fully-typed known `/command` is painted in bold +
             // accent color so it reads as a resolved command
             // rather than prose; an unmatched `/`-prefix keeps
@@ -616,7 +632,6 @@ fn compose_frame(
             // still immutable; the result is an owned value the composer can
             // consume after taking its mutable borrows.
             let busy = app.running_sessions.contains(viewed_session_id);
-            let active_extension = app.active_composer_extension();
             let composer_hints = {
                 use crate::components::composer_hints::{
                     ComposerHints, compose_target_for_extension,
@@ -1080,6 +1095,8 @@ fn compose_frame(
                             workspace: &app.current_workspace,
                             role: app.current_role.as_deref(),
                             switching_target: app.switching_session.as_deref(),
+                            tabs: Some(app.surfaces.tabs()),
+                            active_tab: app.surfaces.active_tab_index(),
                         }),
                         unattended: app.unattended,
                         confined: app.confined,
@@ -1087,6 +1104,9 @@ fn compose_frame(
                     &app.theme,
                 );
                 dashboard_list_body_height = Some(rects.list_body.height);
+                for (idx, tab_rect) in &rects.tab_rects {
+                    ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
+                }
                 if let Some(preview_id) = &app.host_preview {
                     let row = app.host_sessions.iter().find(|r| &r.id == preview_id);
                     render::draw_session_preview(f, row, &mut app.host_preview_scroll, &app.theme);
@@ -1123,12 +1143,17 @@ fn compose_frame(
                             workspace: &app.current_workspace,
                             role: app.current_role.as_deref(),
                             switching_target: app.switching_session.as_deref(),
+                            tabs: Some(app.surfaces.tabs()),
+                            active_tab: app.surfaces.active_tab_index(),
                         }),
                         unattended: app.unattended,
                         confined: app.confined,
                     },
                 );
                 app.config_selected_rect = rects.selected_row_rect;
+                for (idx, tab_rect) in &rects.tab_rects {
+                    ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
+                }
                 if let Some(row_rect) = rects.selected_row_rect {
                     ui.mount(UiKey::SettingsOption(app.config_detail_index), row_rect);
                 }
@@ -1157,7 +1182,7 @@ fn compose_frame(
                 }
                 Some(rects.area)
             }
-            SceneKind::Conversation | SceneKind::TaskInspection | SceneKind::Aside => None,
+            SceneKind::Thread | SceneKind::TaskInspection | SceneKind::Aside => None,
         }
     };
 
@@ -1220,7 +1245,7 @@ fn compose_frame(
     // rather than a fixed promise (ADR-0238).
     let close_label = crate::components::which_key::close_label_for(
         app.active_dialog().is_some(),
-        app.current_scene() != crate::surfaces::SceneKind::Conversation,
+        app.current_scene() != crate::surfaces::SceneKind::Thread,
     );
     crate::components::which_key::draw_which_key_overlay(
         f,
@@ -1289,13 +1314,13 @@ fn mcp_connecting_status(app: &App) -> Option<String> {
     Some(format!("connecting MCP ({connected}/{total}: {names})…"))
 }
 
-/// The conversation scene's row-2 context (ADR-0024): the chat's title. The
+/// The thread scene's row-2 context (ADR-0024): the chat's title. The
 /// title is derived from the first real chat prompt the user drove the
-/// conversation with — a slash command or steering insert is not a title — and
+/// thread with — a slash command or steering insert is not a title — and
 /// cleaned to a single bounded line by the same rule the session titler uses
 /// ([`nuo_wire::clean_title`]). `None` before the first real prompt, so the
 /// scene row shows only its label.
-fn conversation_title(messages: &[TranscriptMessage]) -> Option<String> {
+fn thread_title(messages: &[TranscriptMessage]) -> Option<String> {
     let prompt = messages.iter().find(|m| {
         m.role == nuo_wire::Role::User && m.origin == crate::model::document::UserMessageOrigin::Chat
     })?;

@@ -45,7 +45,7 @@ pub(super) async fn handle_send_chat(
     // here — Enter in `Modal::HistorySearch` emits the dedicated
     // `HistoryInsert` action so the chosen entry lands in the
     // input box for editing instead of being sent immediately.
-    app.reset_to_conversation();
+    app.reset_to_thread();
     app.suggestion_index = None;
     app.input_scroll = 0;
     // The latency timeline starts here: the server records dispatch, this
@@ -323,7 +323,7 @@ pub(crate) fn handle_ctrl_c(
         && app.active_dialog() == Some(DialogKind::Sessions)
     {
         // `nuo attach` (no id) opened the picker at startup:
-        // there is no conversation behind it, so Ctrl+C — like
+        // there is no thread behind it, so Ctrl+C — like
         // Esc and an outside click — quits the program rather
         // than dropping into an empty session. Without this,
         // Ctrl+C used to close the modal and land the user in a
@@ -351,7 +351,7 @@ pub(crate) fn handle_ctrl_c(
     } else if app.current_scene() == SceneKind::Dashboard {
         // The session dashboard owns Ctrl+C: it is a first-class
         // screen, not a transient modal, so Ctrl+C never closes
-        // it into the conversation behind it. The gesture is the
+        // it into the thread behind it. The gesture is the
         // app-wide double-press — first press arms a 2s quit
         // window (the "press Ctrl+C again to exit" toast), the
         // second exits the whole TUI.
@@ -373,13 +373,11 @@ pub(crate) fn handle_ctrl_c(
                 || matches!(app.startup_overlay, crate::StartupOverlay::Settings { .. })
             {
                 // Standalone entry (`nuo dashboard` or `nuo settings`) opened this
-                // screen without an attached conversation: quit cleanly.
+                // screen without an attached thread: quit cleanly.
                 app.should_quit.store(true, Ordering::SeqCst);
             } else {
-                // `/dashboard` opened in-session: the same
-                // client-declared session end as the
-                // conversation's double Ctrl+C (ADR-0112).
-                app.send_intent(AgentRequest::EndSession);
+                // Client detach (ADR-0038 [INV-ACTION-02]).
+                tracing::info!(reason = "ctrl_c_dashboard", "client detaching");
                 return ActionFlow::Exit;
             }
         } else {
@@ -430,11 +428,9 @@ pub(crate) fn handle_ctrl_c(
             std::time::Duration::from_millis(1500),
         );
     } else if app.ctrl_c_armed() {
-        // Double Ctrl+C inside the conversation is a quit intent — same
-        // client-declared session end as `/exit` (ADR-0112), unlike the
-        // detach-flavoured exits (host switch, startup overlays).
-        app.send_intent(AgentRequest::EndSession);
-        tracing::info!(reason = "ctrl_c_double_press", "app exiting");
+        // Double Ctrl+C inside the thread is a client detach intent (ADR-0038 [INV-ACTION-02]).
+        // Quits the TUI gracefully without sending EndSession, leaving the thread running.
+        tracing::info!(reason = "ctrl_c_double_press", "client detaching");
         return ActionFlow::Exit;
     } else {
         // Arm a real 2s window (wall-clock) in which a second Ctrl+C

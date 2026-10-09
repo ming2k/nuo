@@ -36,9 +36,9 @@ pub use dialogs::{
 /// Root full-screen scene identifier (closed set of destinations).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SceneKind {
-    /// The live conversation: transcript + composer. The default workspace.
+    /// The live thread: transcript + composer. The default workspace.
     #[default]
-    Conversation,
+    Thread,
     /// The session and cluster dashboard (`/dashboard`).
     Dashboard,
     /// The full-screen settings center (`/config` / `/settings`).
@@ -53,7 +53,7 @@ impl SceneKind {
     /// The label shown in the quick switcher and used for fuzzy matching.
     pub fn label(self) -> &'static str {
         match self {
-            Self::Conversation => "Session",
+            Self::Thread => "Thread",
             Self::Dashboard => "Session dashboard",
             Self::Settings => "Settings",
             Self::TaskInspection => "Subagent task",
@@ -64,7 +64,7 @@ impl SceneKind {
     /// The secondary line the switcher shows under the label.
     pub fn hint(self) -> &'static str {
         match self {
-            Self::Conversation => "Esc  home",
+            Self::Thread => "Esc  home",
             Self::Dashboard => "/dashboard",
             Self::Settings => "/config  /settings",
             Self::TaskInspection => "zoom a subagent task",
@@ -181,7 +181,7 @@ impl DialogKind {
             | DialogKind::Permissions
             | DialogKind::Queue => DialogScope::Session,
             // Scene: bound to one workspace capability.
-            DialogKind::HistorySearch => DialogScope::Scene(SceneKind::Conversation),
+            DialogKind::HistorySearch => DialogScope::Scene(SceneKind::Thread),
         }
     }
 
@@ -358,6 +358,120 @@ impl StackEntry {
     }
 }
 
+/// Canonical client tab representation (ADR-0039 [INV-TAB-01], ADR-0040 [INV-HEAD-02]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientTab {
+    pub kind: TabKind,
+    pub title: String,
+    /// Tab-autonomous navigation history stack (ADR-0040 [INV-HEAD-02]).
+    pub history: Vec<SceneKind>,
+    /// Pointer within `history` for Back/Forward navigation.
+    pub cursor: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TabKind {
+    Thread(String),
+    Dashboard,
+    Settings,
+}
+
+impl ClientTab {
+    pub fn thread(id: impl Into<String>, title: impl Into<String>) -> Self {
+        let id_str = id.into();
+        Self {
+            kind: TabKind::Thread(id_str),
+            title: title.into(),
+            history: vec![SceneKind::Thread],
+            cursor: 0,
+        }
+    }
+
+    pub fn dashboard() -> Self {
+        Self {
+            kind: TabKind::Dashboard,
+            title: "Dashboard".to_string(),
+            history: vec![SceneKind::Dashboard],
+            cursor: 0,
+        }
+    }
+
+    pub fn settings() -> Self {
+        Self {
+            kind: TabKind::Settings,
+            title: "Settings".to_string(),
+            history: vec![SceneKind::Settings],
+            cursor: 0,
+        }
+    }
+
+    pub fn label(&self) -> &str {
+        match &self.kind {
+            TabKind::Thread(_) => self.title.as_str(),
+            TabKind::Dashboard => "Dashboard",
+            TabKind::Settings => "Settings",
+        }
+    }
+
+    pub fn is_thread(&self) -> bool {
+        matches!(self.kind, TabKind::Thread(_))
+    }
+
+    pub fn thread_id(&self) -> Option<&str> {
+        match &self.kind {
+            TabKind::Thread(id) => Some(id.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn current_scene(&self) -> SceneKind {
+        self.history.get(self.cursor).copied().unwrap_or(match &self.kind {
+            TabKind::Thread(_) => SceneKind::Thread,
+            TabKind::Dashboard => SceneKind::Dashboard,
+            TabKind::Settings => SceneKind::Settings,
+        })
+    }
+
+    pub fn can_back(&self) -> bool {
+        self.cursor > 0
+    }
+
+    pub fn can_forward(&self) -> bool {
+        self.cursor + 1 < self.history.len()
+    }
+
+    pub fn push_scene(&mut self, scene: SceneKind) {
+        if self.current_scene() == scene {
+            return;
+        }
+        self.history.truncate(self.cursor + 1);
+        self.history.push(scene);
+        self.cursor = self.history.len() - 1;
+    }
+
+    pub fn back(&mut self) -> Option<SceneKind> {
+        if self.can_back() {
+            self.cursor -= 1;
+            Some(self.current_scene())
+        } else {
+            None
+        }
+    }
+
+    pub fn forward(&mut self) -> Option<SceneKind> {
+        if self.can_forward() {
+            self.cursor += 1;
+            Some(self.current_scene())
+        } else {
+            None
+        }
+    }
+
+    pub fn breadcrumbs(&self) -> &[SceneKind] {
+        &self.history[..=self.cursor]
+    }
+}
+
 /// Unified router managing the active root scene, the LIFO overlay stack (which
 /// **owns** each open dialog's entity), and the retained registry of dialogs
 /// that are not currently open.
@@ -370,6 +484,10 @@ pub struct SurfaceRouter {
     overlay_stack: Vec<StackEntry>,
     /// Bounded historical trace of scenes for explicit back-navigation.
     scene_history: Vec<SceneKind>,
+    /// Client-owned active tabs in this viewport (ADR-0039 [INV-TAB-01]).
+    tabs: Vec<ClientTab>,
+    /// Active tab index within `tabs`.
+    active_tab: usize,
     /// Retained state for every dialog that is not currently open.
     pub dialogs: Dialogs,
 }
@@ -377,9 +495,11 @@ pub struct SurfaceRouter {
 impl Default for SurfaceRouter {
     fn default() -> Self {
         Self {
-            scene: SceneKind::Conversation,
+            scene: SceneKind::Thread,
             overlay_stack: Vec::new(),
             scene_history: Vec::new(),
+            tabs: Vec::new(),
+            active_tab: 0,
             dialogs: Dialogs::default(),
         }
     }
@@ -395,20 +515,138 @@ impl SurfaceRouter {
         let mut dialogs = Dialogs::default();
         let view = dialogs.take(id);
         Self {
-            scene: SceneKind::Conversation,
+            scene: SceneKind::Thread,
             overlay_stack: vec![StackEntry::dialog(id, view)],
             scene_history: Vec::new(),
+            tabs: Vec::new(),
+            active_tab: 0,
             dialogs,
         }
     }
 
     /// Boot directly into a root scene (e.g. dashboard or settings).
     pub fn with_scene(scene: SceneKind) -> Self {
+        let tab = match scene {
+            SceneKind::Dashboard => Some(ClientTab::dashboard()),
+            SceneKind::Settings => Some(ClientTab::settings()),
+            _ => None,
+        };
+        let tabs = tab.into_iter().collect();
         Self {
             scene,
             overlay_stack: Vec::new(),
             scene_history: Vec::new(),
+            tabs,
+            active_tab: 0,
             dialogs: Dialogs::default(),
+        }
+    }
+
+    /// View client tabs currently mounted in this viewport (ADR-0039 [INV-TAB-01]).
+    pub fn tabs(&self) -> &[ClientTab] {
+        &self.tabs
+    }
+
+    /// Active tab index within mounted tabs.
+    pub fn active_tab_index(&self) -> usize {
+        self.active_tab
+    }
+
+    /// Currently active tab, if any.
+    pub fn active_tab(&self) -> Option<&ClientTab> {
+        self.tabs.get(self.active_tab)
+    }
+
+    /// Open or focus a tab in this viewport (ADR-0039 [INV-TAB-02]).
+    pub fn open_tab(&mut self, tab: ClientTab) -> usize {
+        if let Some(pos) = self.tabs.iter().position(|t| match (&t.kind, &tab.kind) {
+            (TabKind::Thread(a), TabKind::Thread(b)) => a == b,
+            (TabKind::Dashboard, TabKind::Dashboard) => true,
+            (TabKind::Settings, TabKind::Settings) => true,
+            _ => false,
+        }) {
+            self.active_tab = pos;
+            self.sync_scene_to_active_tab();
+            return pos;
+        }
+
+        self.tabs.push(tab);
+        self.active_tab = self.tabs.len().saturating_sub(1);
+        self.sync_scene_to_active_tab();
+        self.active_tab
+    }
+
+    /// Close tab at `index` (ADR-0039 [INV-TAB-03]). Returns closed tab.
+    pub fn close_tab(&mut self, index: usize) -> Option<ClientTab> {
+        if index >= self.tabs.len() {
+            return None;
+        }
+        let closed = self.tabs.remove(index);
+        if self.tabs.is_empty() {
+            self.active_tab = 0;
+        } else if self.active_tab >= self.tabs.len() {
+            self.active_tab = self.tabs.len() - 1;
+        }
+        self.sync_scene_to_active_tab();
+        Some(closed)
+    }
+
+    /// Select tab by ordinal index.
+    pub fn select_tab(&mut self, index: usize) -> bool {
+        if index < self.tabs.len() {
+            self.active_tab = index;
+            self.sync_scene_to_active_tab();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Switch to next tab.
+    pub fn next_tab(&mut self) {
+        if !self.tabs.is_empty() {
+            self.active_tab = (self.active_tab + 1) % self.tabs.len();
+            self.sync_scene_to_active_tab();
+        }
+    }
+
+    /// Switch to previous tab.
+    pub fn prev_tab(&mut self) {
+        if !self.tabs.is_empty() {
+            if self.active_tab == 0 {
+                self.active_tab = self.tabs.len() - 1;
+            } else {
+                self.active_tab -= 1;
+            }
+            self.sync_scene_to_active_tab();
+        }
+    }
+
+    /// Step back in active tab's navigation stack (ADR-0040 [INV-KEY-02]).
+    pub fn tab_history_back(&mut self) -> bool {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            if let Some(scene) = tab.back() {
+                self.scene = scene;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Step forward in active tab's navigation stack (ADR-0040 [INV-KEY-02]).
+    pub fn tab_history_forward(&mut self) -> bool {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            if let Some(scene) = tab.forward() {
+                self.scene = scene;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn sync_scene_to_active_tab(&mut self) {
+        if let Some(tab) = self.tabs.get(self.active_tab) {
+            self.scene = tab.current_scene();
         }
     }
 
@@ -671,10 +909,10 @@ impl SurfaceRouter {
         self.scene = scene;
     }
 
-    /// Navigate back to the previous scene in history, or Conversation.
+    /// Navigate back to the previous scene in history, or Thread.
     pub fn back_scene(&mut self) -> SceneKind {
         let leaving = self.scene;
-        let next = self.scene_history.pop().unwrap_or(SceneKind::Conversation);
+        let next = self.scene_history.pop().unwrap_or(SceneKind::Thread);
         self.unwind_scene(leaving);
         self.overlay_stack
             .retain(|e| matches!(e.overlay, OverlaySurface::Dialog(_)));
@@ -682,10 +920,10 @@ impl SurfaceRouter {
         next
     }
 
-    /// Hard reset to Conversation home scene: unwind all overlays and history.
-    pub fn reset_to_conversation(&mut self) {
+    /// Hard reset to Thread home scene: unwind all overlays and history.
+    pub fn reset_to_thread(&mut self) {
         self.unwind_all();
-        self.scene = SceneKind::Conversation;
+        self.scene = SceneKind::Thread;
         self.scene_history.clear();
     }
 
@@ -873,7 +1111,7 @@ mod tests {
     fn scope_matrix_assigns_exactly_one_domain_per_dialog() {
         // `[INV-SURFACE-02]`: the matrix is total and each dialog has exactly
         // one scope.
-        assert_eq!(DialogKind::HistorySearch.scope(), DialogScope::Scene(SceneKind::Conversation));
+        assert_eq!(DialogKind::HistorySearch.scope(), DialogScope::Scene(SceneKind::Thread));
         for id in [
             DialogKind::Switcher,
             DialogKind::Sessions,
@@ -903,11 +1141,11 @@ mod tests {
     fn availability_gates_by_scope() {
         // `[INV-SURFACE-03]`.
         assert!(DialogKind::Models.is_available(SceneKind::Settings, false));
-        assert!(!DialogKind::Tools.is_available(SceneKind::Conversation, false));
+        assert!(!DialogKind::Tools.is_available(SceneKind::Thread, false));
         assert!(DialogKind::Tools.is_available(SceneKind::Settings, true));
-        assert!(DialogKind::HistorySearch.is_available(SceneKind::Conversation, true));
+        assert!(DialogKind::HistorySearch.is_available(SceneKind::Thread, true));
         assert!(!DialogKind::HistorySearch.is_available(SceneKind::Settings, true));
-        assert!(!DialogKind::HistorySearch.is_available(SceneKind::Conversation, false));
+        assert!(!DialogKind::HistorySearch.is_available(SceneKind::Thread, false));
     }
 
     #[test]
@@ -1019,7 +1257,7 @@ mod tests {
         assert!(tools.layout_spec().width_percent > 0);
         assert_eq!(
             d.view_mut(DialogKind::HistorySearch).scope(),
-            DialogScope::Scene(SceneKind::Conversation)
+            DialogScope::Scene(SceneKind::Thread)
         );
     }
 
@@ -1051,5 +1289,76 @@ mod tests {
         d.reset(DialogKind::Tools);
         assert_eq!(d.tools.scroll, 0);
         assert_eq!(d.mcp.scroll, 9, "no aliasing between entities");
+    }
+
+    #[test]
+    fn client_tab_mounting_switching_and_non_destructive_closing() {
+        let mut router = SurfaceRouter::new();
+        assert!(router.tabs().is_empty());
+
+        // 1. Mount thread tab (ADR-0039 [INV-TAB-02])
+        let idx0 = router.open_tab(ClientTab::thread("conv-1", "Refactor DB"));
+        assert_eq!(idx0, 0);
+        assert_eq!(router.active_tab_index(), 0);
+        assert_eq!(router.active_scene(), SceneKind::Thread);
+        assert_eq!(router.tabs().len(), 1);
+
+        // 2. Mount second thread tab
+        let idx1 = router.open_tab(ClientTab::thread("conv-2", "Quick Query"));
+        assert_eq!(idx1, 1);
+        assert_eq!(router.active_tab_index(), 1);
+        assert_eq!(router.active_scene(), SceneKind::Thread);
+
+        // 3. Mount dashboard tab
+        let idx2 = router.open_tab(ClientTab::dashboard());
+        assert_eq!(idx2, 2);
+        assert_eq!(router.active_tab_index(), 2);
+        assert_eq!(router.active_scene(), SceneKind::Dashboard);
+
+        // 4. Re-opening existing dashboard focuses it rather than duplicating
+        let idx2_reopen = router.open_tab(ClientTab::dashboard());
+        assert_eq!(idx2_reopen, 2);
+        assert_eq!(router.tabs().len(), 3);
+
+        // 5. Tab navigation
+        router.select_tab(0);
+        assert_eq!(router.active_tab_index(), 0);
+        assert_eq!(router.active_scene(), SceneKind::Thread);
+
+        router.next_tab();
+        assert_eq!(router.active_tab_index(), 1);
+
+        router.prev_tab();
+        assert_eq!(router.active_tab_index(), 0);
+
+        // 6. Non-destructive close / Detach (ADR-0039 [INV-TAB-03])
+        let closed = router.close_tab(0);
+        assert_eq!(closed, Some(ClientTab::thread("conv-1", "Refactor DB")));
+        assert_eq!(router.tabs().len(), 2);
+        assert_eq!(router.active_tab_index(), 0);
+        assert_eq!(router.tabs()[0], ClientTab::thread("conv-2", "Quick Query"));
+
+        // 7. Autonomous Tab History Stack (ADR-0040 [INV-HEAD-02])
+        // Push Subagent TaskInspection on Tab 0 (conv-2)
+        router.tabs[0].push_scene(SceneKind::TaskInspection);
+        assert_eq!(router.tabs[0].current_scene(), SceneKind::TaskInspection);
+        assert!(router.tabs[0].can_back());
+        assert_eq!(router.tabs[0].breadcrumbs(), &[SceneKind::Thread, SceneKind::TaskInspection]);
+
+        // Push Aside on Tab 0
+        router.tabs[0].push_scene(SceneKind::Aside);
+        assert_eq!(router.tabs[0].current_scene(), SceneKind::Aside);
+
+        // History back on Tab 0
+        assert_eq!(router.tabs[0].back(), Some(SceneKind::TaskInspection));
+        assert_eq!(router.tabs[0].current_scene(), SceneKind::TaskInspection);
+
+        // History forward on Tab 0
+        assert_eq!(router.tabs[0].forward(), Some(SceneKind::Aside));
+        assert_eq!(router.tabs[0].current_scene(), SceneKind::Aside);
+
+        // Verify Tab 1 (Dashboard) is completely isolated from Tab 0's history
+        assert_eq!(router.tabs[1].current_scene(), SceneKind::Dashboard);
+        assert!(!router.tabs[1].can_back());
     }
 }

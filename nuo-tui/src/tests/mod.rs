@@ -32,7 +32,7 @@ fn test_command_catalog() -> nuo_wire::CommandCatalog {
     nuo_client::command_catalog(&[])
 }
 
-fn conversation_with_subagents() -> Vec<TranscriptMessage> {
+fn thread_with_subagents() -> Vec<TranscriptMessage> {
     let mut a = TranscriptMessage::tool_step(
         "task_a",
         "spawn_agent",
@@ -171,7 +171,6 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         context_tokens_by_session: HashMap::new(),
         open_sessions_signal: false,
         open_tree_signal: false,
-        open_host_signal: false,
         view_transitioned: false,
         transcript_changed_pending: false,
         side_transcript_changed_pending: false,

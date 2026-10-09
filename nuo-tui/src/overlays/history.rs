@@ -65,6 +65,9 @@ pub struct HistoryPanelProps<'a> {
     pub follow_selection: bool,
     pub input_rect: Rect,
     pub activity_height: u16,
+    pub query: &'a str,
+    pub cursor_position: usize,
+    pub show_caret: bool,
 }
 
 /// Draw the input history dropdown panel.
@@ -81,6 +84,9 @@ pub fn draw_history_panel(
         follow_selection,
         input_rect,
         activity_height,
+        query,
+        cursor_position,
+        show_caret,
     } = props;
     // Compute the panel footprint: it grows upward from the top edge of the
     // composer. The activity bar sits flush above the composer, so reserve
@@ -143,7 +149,16 @@ pub fn draw_history_panel(
         )
     };
 
-    draw_header(frame, header_rect, history.len(), ranked.len(), theme);
+    draw_header(
+        frame,
+        header_rect,
+        history.len(),
+        ranked.len(),
+        query,
+        cursor_position,
+        show_caret,
+        theme,
+    );
 
     {
         let body = list_body(
@@ -167,8 +182,17 @@ pub fn draw_history_panel(
     Some(area)
 }
 
-/// Header: `History` title, the count of visible/total.
-fn draw_header(frame: &mut Frame, rect: Rect, total: usize, shown: usize, theme: &Theme) {
+/// Header: `History` title, the query echo, and the count of visible/total.
+fn draw_header(
+    frame: &mut Frame,
+    rect: Rect,
+    total: usize,
+    shown: usize,
+    query: &str,
+    cursor_position: usize,
+    show_caret: bool,
+    theme: &Theme,
+) {
     let title = Span::styled(
         "History",
         Style::default()
@@ -185,7 +209,34 @@ fn draw_header(frame: &mut Frame, rect: Rect, total: usize, shown: usize, theme:
             Style::default().fg(theme.muted()),
         )
     };
-    frame.render_widget(Paragraph::new(Line::from(vec![title, count])), rect);
+    let mut spans = vec![title];
+    if show_caret || !query.is_empty() {
+        spans.push(Span::styled("  › ", Style::default().fg(theme.muted())));
+        if query.is_empty() {
+            spans.push(Span::styled(
+                "type to filter…",
+                Style::default().fg(theme.muted()),
+            ));
+        } else {
+            spans.push(Span::styled(
+                query.to_string(),
+                Style::default()
+                    .fg(theme.fg())
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+    }
+    spans.push(count);
+    frame.render_widget(Paragraph::new(Line::from(spans)), rect);
+
+    if show_caret {
+        let prefix_cols = "History  › ".chars().count() as u16;
+        let query_cols = query.chars().take(cursor_position).count() as u16;
+        let cursor_x = rect.x.saturating_add(prefix_cols).saturating_add(query_cols);
+        if cursor_x < rect.x + rect.width {
+            frame.set_cursor_position((cursor_x, rect.y));
+        }
+    }
 }
 
 /// Build the one-line-per-entry fuzzy list body. Multi-line entries are

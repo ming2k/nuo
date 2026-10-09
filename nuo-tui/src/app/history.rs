@@ -129,7 +129,7 @@ impl App {
                     m.score = m.score.saturating_add(recency_bonus);
                 }
 
-                // 2. In-session affinity: items sent in this exact conversation have high contextual relevance
+                // 2. In-session affinity: items sent in this exact thread have high contextual relevance
                 if !self.current_session_id.is_empty()
                     && entry.session_id.as_deref() == Some(self.current_session_id.as_str())
                 {
@@ -167,7 +167,7 @@ impl App {
     /// ([`Self::input_history`], filtered to entries whose `session_id`
     /// matches [`App::current_session_id`]) and the **derived** transcript
     /// rows ([`Self::session_history_backfill`]), so arrow-key recall
-    /// surfaces exactly the prompts of *this* conversation — including ones
+    /// surfaces exactly the prompts of *this* thread — including ones
     /// this client never recorded (a session resumed from elsewhere). Ctrl+R
     /// is unaffected — it searches the whole persisted list regardless of
     /// session.
@@ -228,14 +228,14 @@ impl App {
 
     /// Seed [`Self::session_history_backfill`] with the **viewed
     /// transcript's** genuine chat prompts, so the inline ↑/↓ recall reflects
-    /// the conversation the user is actually looking at rather than only what
+    /// the thread the user is actually looking at rather than only what
     /// this client's database happens to contain.
     ///
     /// This is the resume path: `ConversationReplaced` hands the TUI another
     /// session's transcript, and prompts typed into that session by a
     /// *different* client (or before this session existed) were never
     /// recorded locally. Without the backfill, `↑` after a resume comes up
-    /// empty even though the conversation visibly contains prompts. The
+    /// empty even though the thread visibly contains prompts. The
     /// initial startup transcript is backfilled the same way before the
     /// first frame.
     ///
@@ -269,7 +269,7 @@ impl App {
             if !is_chat || text.is_empty() || recorded.contains(text.as_str()) {
                 continue;
             }
-            // Same prompt twice in one conversation (an intentional resend)
+            // Same prompt twice in one thread (an intentional resend)
             // is one recallable row — the newest position wins, matching the
             // persisted history's newest-first contract.
             if let Some(existing) = self
@@ -303,7 +303,7 @@ impl App {
     ///
     /// `images` / `text_pastes` are the attachments staged behind the chips
     /// in `entry` at send time. They are **not** persisted into SQLite (input history is
-    /// rebuildable cosmetic telemetry, never conversation data)
+    /// rebuildable cosmetic telemetry, never thread data)
     /// but are cached in memory keyed by the entry's `(text, session_id)`
     /// identity, so the ↑/↓ and Ctrl+R recall paths can restore a just-sent
     /// or interrupted message's attachments instead of shipping a bare chip

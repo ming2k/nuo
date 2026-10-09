@@ -30,11 +30,11 @@ However, as the application grew in complexity, the lack of a formal ownership a
 2. **Field Aliasing and Cross-Dialog State Contamination**:
    Multiple distinct dialogs share the exact same raw fields on `App`. For example, `Tools`, `Mcp`, `Skills`, and `Sessions` all project into `self.session_scroll` and `self.session_modal_follow`. If any lifecycle hook is skipped, one dialog's scroll position or follow mode silently corrupts another's.
 3. **Destructive Component Borrowing (Composer Hijacking)**:
-   The dialog search/filter mechanism relies on `owns_composer_draft` (`Models`, `Connections`, `HistorySearch`), which strips the user's active draft from the main conversation input line (`self.input`) and parks it into `state.draft`. If a scene transition or async dismissal occurs while a dialog is active, this parked draft is stranded or permanently erased.
+   The dialog search/filter mechanism relies on `owns_composer_draft` (`Models`, `Connections`, `HistorySearch`), which strips the user's active draft from the main thread input line (`self.input`) and parks it into `state.draft`. If a scene transition or async dismissal occurs while a dialog is active, this parked draft is stranded or permanently erased.
 4. **Lifecycle Bypass on Scene Navigation**:
    When navigating between scenes via `SurfaceRouter::switch_scene()`, the router performs a blunt `self.overlay_stack.clear()`. This completely bypasses `App::deactivate_dialog()`, leaving parked drafts un-restored, and stranding transient UI flags such as `dialog_keys = true` active into the next scene.
 5. **Absence of Precondition Scoping and Domain Boundaries**:
-   All 13 dialog kinds in `DialogKind::ALL` are unconditionally exposed across the application (notably in the `C-x p` Quick Switcher). A user can summon `HistorySearch` from within the Settings scene (which has no conversation composer) or `Telemetry` and `Queue` when no ambient session exists, inducing undefined focus fighting, invalid state queries, and crashes.
+   All 13 dialog kinds in `DialogKind::ALL` are unconditionally exposed across the application (notably in the `C-x p` Quick Switcher). A user can summon `HistorySearch` from within the Settings scene (which has no thread composer) or `Telemetry` and `Queue` when no ambient session exists, inducing undefined focus fighting, invalid state queries, and crashes.
 6. **Unimplemented Architectural Intent**:
    While `RetentionPolicy::SessionScoped` was declared in the type system, zero dialogs use it. Consequently, viewed-session changes trigger an indiscriminate `close_all()`, discarding global configuration states (such as provider settings and model picker selections) alongside session-local data.
 
@@ -44,7 +44,7 @@ We need an uncompromising, future-proof architectural redesign that establishes 
 
 ## Decision Drivers
 
-- **Zero-Baggage Entity Encapsulation (`[INV-SURFACE-01]`)**: Every dialog MUST be a self-contained entity owning its own state, cursor, scroll, and embedded input widgets. No shared mutable fields on `App`. No borrowing or hijacking of the conversation composer line.
+- **Zero-Baggage Entity Encapsulation (`[INV-SURFACE-01]`)**: Every dialog MUST be a self-contained entity owning its own state, cursor, scroll, and embedded input widgets. No shared mutable fields on `App`. No borrowing or hijacking of the thread composer line.
 - **Three-Tier Domain Scoping (`[INV-SURFACE-02]`)**: Dialogs MUST be explicitly classified by ownership domain: `AppScoped` (global), `SessionScoped` (ambient session bound), and `SceneScoped` (bound to workspace capabilities).
 - **Contractual Precondition Enforcing (`[INV-SURFACE-03]`)**: A dialog MUST NOT be opened or advertised in command palettes if its required context (`Session`, `Scene`) is absent.
 - **Deterministic Unwinding Pipeline (`[INV-SURFACE-04]`)**: Overlay stack transitions MUST NOT execute blunt truncation (`clear()`). Any transition that pops or clears overlays MUST execute an orderly unwinding pipeline guaranteeing dismissal hooks and resource reclamation.
@@ -124,7 +124,7 @@ pub struct HistorySearchDialog {
     scroll: usize,
 }
 ```
-The conversation composer's draft is **never touched, parked, or borrowed** by floating dialogs.
+The thread composer's draft is **never touched, parked, or borrowed** by floating dialogs.
 
 ### 2. Domain Scoping Matrix (`[INV-SURFACE-02]`)
 
@@ -248,7 +248,7 @@ impl OverlayStack {
 
 ## Invariants & Behavioral Boundaries
 
-- **`[INV-SURFACE-01]` Autonomous Entity Invariant**: Every floating dialog MUST be a self-contained entity maintaining its own layout state, cursor, and text-input components. Dialogs MUST NOT read, write, or alias shared scratchpad fields on `App`, and MUST NOT borrow or park the conversation composer line.
+- **`[INV-SURFACE-01]` Autonomous Entity Invariant**: Every floating dialog MUST be a self-contained entity maintaining its own layout state, cursor, and text-input components. Dialogs MUST NOT read, write, or alias shared scratchpad fields on `App`, and MUST NOT borrow or park the thread composer line.
 - **`[INV-SURFACE-02]` Domain Scoping Invariant**: Every dialog MUST be assigned exactly one domain scope: `Global`, `Session`, or `Scene`.
 - **`[INV-SURFACE-03]` Precondition Gating Invariant**: No dialog may be opened, focused, or advertised in palette discovery when its domain preconditions are unsatisfied.
 - **`[INV-SURFACE-04]` Deterministic Unwinding Invariant**: The overlay stack MUST NOT be reset via raw truncation (`clear()`). Every overlay eviction MUST execute its `on_dismiss()` lifecycle hook in reverse LIFO order.

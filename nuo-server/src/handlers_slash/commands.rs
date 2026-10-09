@@ -642,7 +642,7 @@ pub(crate) async fn diff(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&s
         session,
         name,
         args,
-        "Workspace diff tracking is active on the current conversation branch.",
+        "Workspace diff tracking is active on the current thread branch.",
     )
     .await;
 }
@@ -662,7 +662,7 @@ pub(crate) async fn undo(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&s
             name,
             args,
             &format!(
-                "Rolled back active conversation branch to parent node {}.",
+                "Rolled back active thread branch to parent node {}.",
                 parent_id
             ),
         )
@@ -672,20 +672,10 @@ pub(crate) async fn undo(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&s
             session,
             name,
             args,
-            "Cannot undo: already at the root of the conversation tree.",
+            "Cannot undo: already at the root of the thread tree.",
         )
         .await;
     }
-}
-
-pub(crate) async fn dashboard(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
-    let SlashEnv {
-        resp_tx, session, ..
-    } = env;
-    record_invocation(session, name, args).await;
-    // The session dashboard renders the monitor stream the TUI
-    // maintains client-side (ADR-0096); this is only the open signal.
-    let _ = resp_tx.send(AgentResponse::OpenHostPanel);
 }
 
 pub(crate) async fn usage(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {

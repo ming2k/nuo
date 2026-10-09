@@ -15,13 +15,18 @@ pub async fn run(
     let (tx, mut rx) = mpsc::unbounded_channel();
     nuo_server::handlers_provider::query_provider_quotas(&tx, provider_filter, force_refresh)
         .await;
+    drop(tx);
 
-    let snapshot = match rx.recv().await {
-        Some(AgentResponse::ProviderQuotas(snap)) => snap,
-        _ => {
-            eprintln!("nuo: failed to retrieve provider quota overview");
-            return Ok(());
+    let mut last_snapshot = None;
+    while let Some(msg) = rx.recv().await {
+        if let AgentResponse::ProviderQuotas(snap) = msg {
+            last_snapshot = Some(snap);
         }
+    }
+
+    let Some(snapshot) = last_snapshot else {
+        eprintln!("nuo: failed to retrieve provider quota overview");
+        return Ok(());
     };
 
     render_quota_table(&snapshot);

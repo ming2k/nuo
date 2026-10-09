@@ -35,6 +35,24 @@ pub(super) async fn handle_selection_start(
         let _ = app.ui.runtime.capture_pointer(id);
     }
     match target {
+        Some(UiKey::TabBarItem(index)) => {
+            if let Some(target_tab) = app.surfaces.tabs().get(index).cloned() {
+                match &target_tab.kind {
+                    crate::surfaces::TabKind::Thread(id) => {
+                        if id != viewed_session_id {
+                            app.switch_to_target = Some(id.clone());
+                            app.should_quit.store(true, std::sync::atomic::Ordering::SeqCst);
+                        } else {
+                            app.surfaces.select_tab(index);
+                        }
+                    }
+                    _ => {
+                        app.surfaces.select_tab(index);
+                    }
+                }
+            }
+            return;
+        }
         Some(UiKey::ProviderDelete) if !app.ui.contains(UiKey::ProviderDelete, x, y) => {
             app.pending_provider_delete = None;
             app.provider_delete_focus = ProviderDeleteChoice::default();

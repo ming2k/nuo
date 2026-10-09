@@ -91,7 +91,7 @@ pub fn modal_claims_composer_line(
     match overlay {
         None => matches!(
             scene,
-            SceneKind::Conversation | SceneKind::TaskInspection | SceneKind::Aside
+            SceneKind::Thread | SceneKind::TaskInspection | SceneKind::Aside
         ),
         Some(OverlaySurface::Sheet(SheetKind::ModelEditor)) => true,
         Some(OverlaySurface::Dialog(DialogKind::Models | DialogKind::Connections)) => {
@@ -729,7 +729,7 @@ mod tests {
     ) -> Option<InputAction> {
         resolve_modal_key(
             Some(OverlaySurface::Dialog(dialog)),
-            SceneKind::Conversation,
+            SceneKind::Thread,
             k,
             keys,
             &mut String::new(),
@@ -744,7 +744,7 @@ mod tests {
     ) -> Option<InputAction> {
         resolve_modal_key(
             Some(OverlaySurface::Sheet(sheet)),
-            SceneKind::Conversation,
+            SceneKind::Thread,
             k,
             keys,
             &mut String::new(),

@@ -89,7 +89,7 @@ fn key_in_view(code: KeyCode, in_subagent_view: bool, input: &mut String) -> Inp
         dispatch.scene = if in_subagent_view {
             crate::surfaces::SceneKind::TaskInspection
         } else {
-            crate::surfaces::SceneKind::Conversation
+            crate::surfaces::SceneKind::Thread
         };
     })
 }
@@ -198,75 +198,75 @@ impl SurfaceFixture {
     ) {
         use crate::surfaces::{DialogKind, OverlaySurface, SceneKind, SheetKind};
         match self {
-            Self::None => (None, SceneKind::Conversation),
+            Self::None => (None, SceneKind::Thread),
             Self::Config => (None, SceneKind::Settings),
             Self::UsageStats => (
                 Some(OverlaySurface::Dialog(DialogKind::UsageStats)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::SessionStats => (
                 Some(OverlaySurface::Dialog(DialogKind::SessionStats)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::SessionTrace => (
                 Some(OverlaySurface::Dialog(DialogKind::SessionTrace)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::Sessions => (
                 Some(OverlaySurface::Dialog(DialogKind::Sessions)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::Queue => (
                 Some(OverlaySurface::Dialog(DialogKind::Queue)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::HistorySearch => (
                 Some(OverlaySurface::Dialog(DialogKind::HistorySearch)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::Models => (
                 Some(OverlaySurface::Dialog(DialogKind::Models)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::Connections => (
                 Some(OverlaySurface::Dialog(DialogKind::Connections)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::Skills => (
                 Some(OverlaySurface::Dialog(DialogKind::Skills)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::Tools => (
                 Some(OverlaySurface::Dialog(DialogKind::Tools)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::Mcp => (
                 Some(OverlaySurface::Dialog(DialogKind::Mcp)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::Btw => (
                 Some(OverlaySurface::Dialog(DialogKind::Asides)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::Permissions => (
                 Some(OverlaySurface::Dialog(DialogKind::Permissions)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::ProviderPreset => (
                 Some(OverlaySurface::Sheet(SheetKind::ProviderPreset)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::CustomProvider => (
                 Some(OverlaySurface::Sheet(SheetKind::CustomProvider)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::OauthPending => (
                 Some(OverlaySurface::Sheet(SheetKind::OAuthPending)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
             Self::ModelEditor => (
                 Some(OverlaySurface::Sheet(SheetKind::ModelEditor)),
-                SceneKind::Conversation,
+                SceneKind::Thread,
             ),
         }
     }

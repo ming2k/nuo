@@ -219,7 +219,7 @@ define_builtin_commands! {
     Compact = "/compact" : {
         summary: "Compact older rounds into durable context memory",
         usage: ["/compact"],
-        examples: [("/compact", "Trigger immediate conversation compaction")],
+        examples: [("/compact", "Trigger immediate thread compaction")],
         intent_keywords: ["compact", "compress", "summarize", "prune", "truncate", "shrink", "clean-context", "context"],
         category: Session,
     },
@@ -239,14 +239,6 @@ define_builtin_commands! {
         subcommands: [
             ("clear", "Clear all always-allowed tool rules"),
         ],
-    },
-    Settings = "/settings" : {
-        summary: "Open Settings overlay (theme, appearance)",
-        usage: ["/settings"],
-        examples: [("/settings", "Open Settings overlay")],
-        intent_keywords: ["settings", "config", "preferences", "theme", "themes", "appearance", "options", "color", "layout", "conf"],
-        category: Config,
-        subcommands: [],
     },
     Unattended = "/unattended" : {
         summary: "Toggle unattended execution posture",
@@ -312,9 +304,9 @@ define_builtin_commands! {
         category: Session,
     },
     Fork = "/fork" : {
-        summary: "Fork conversation into a child session",
+        summary: "Fork thread into a child session",
         usage: ["/fork"],
-        examples: [("/fork", "Branch current conversation into a child session")],
+        examples: [("/fork", "Branch current thread into a child session")],
         intent_keywords: ["fork", "branch", "clone", "duplicate", "split", "copy-session"],
         category: Session,
     },
@@ -333,18 +325,11 @@ define_builtin_commands! {
         category: Session,
     },
     Undo = "/undo" : {
-        summary: "Undo the last conversation turn and file changes",
+        summary: "Undo the last thread turn and file changes",
         usage: ["/undo"],
         examples: [("/undo", "Undo last turn")],
         intent_keywords: ["undo", "revert", "rollback", "back", "pop", "discard-turn"],
         category: Session,
-    },
-    Dashboard = "/dashboard" : {
-        summary: "Session server control dashboard",
-        usage: ["/dashboard"],
-        examples: [("/dashboard", "Open full-screen session dashboard")],
-        intent_keywords: ["dashboard", "host", "server", "monitor", "status", "overview", "dock", "fleet"],
-        category: System,
     },
     Usage = "/usage" : {
         summary: "Cross-session token usage statistics overlay",
@@ -361,7 +346,7 @@ define_builtin_commands! {
         category: System,
     },
     Btw = "/btw" : {
-        summary: "Open a background side conversation (aside)",
+        summary: "Open a background side thread (aside)",
         usage: ["/btw", "/btw <prompt>", "/btw list"],
         examples: [("/btw explain this regex", "Ask a quick side question"), ("/btw list", "Open active asides list modal")],
         intent_keywords: ["btw", "aside", "side", "subtask", "parallel", "quick", "note", "by-the-way"],
@@ -437,9 +422,9 @@ define_builtin_commands! {
         category: Project,
     },
     Export = "/export" : {
-        summary: "Export conversation to clipboard as Markdown",
+        summary: "Export thread to clipboard as Markdown",
         usage: ["/export"],
-        examples: [("/export", "Copy conversation markdown to clipboard")],
+        examples: [("/export", "Copy thread markdown to clipboard")],
         intent_keywords: ["export", "copy", "share", "clipboard", "markdown", "dump", "save"],
         category: Session,
     },
@@ -486,9 +471,6 @@ impl BuiltinCmd {
     /// [`BuiltinCmd::ALL`] so `/help` keeps listing canonical names only.
     fn from_alias(input: &str) -> Option<Self> {
         match input {
-            // `/host` was the pre-dashboard name (it leaked the server "host"
-            // concept, ADR-0096); the surface is now the session dashboard.
-            "/host" => Some(BuiltinCmd::Dashboard),
             // `/resume` was a second spelling of `/session resume` — an
             // identical help line with no ADR justifying the duplication, and
             // an arm that skipped the provider-pin reapply. Retired as an
@@ -501,8 +483,6 @@ impl BuiltinCmd {
             // top-level. The alias keeps old invocations working (the
             // handler translates the legacy grammar).
             "/session" => Some(BuiltinCmd::Sessions),
-            // `/config` was renamed to `/settings`; the legacy alias keeps old invocations working.
-            "/config" => Some(BuiltinCmd::Settings),
             // `/auto`, `/delegate`, `/autopilot`, `/yolo` are aliases for `/unattended`.
             "/auto" | "/delegate" | "/autopilot" | "/yolo" => Some(BuiltinCmd::Unattended),
             // `/unconfine`, `/unconfined`, `/jail`, `/escape` are aliases for `/confinement`.
@@ -548,31 +528,6 @@ pub const TRIGGER_WORD_SUGGESTIONS: &[(&str, &str, &str)] = &[
         "continue",
         "/sessions",
         "/sessions picks the session up where it left off",
-    ),
-    (
-        "preferences",
-        "/settings",
-        "/settings opens the Settings overlay (theme, components, web)",
-    ),
-    (
-        "options",
-        "/settings",
-        "/settings opens the Settings overlay",
-    ),
-    (
-        "theme",
-        "/settings",
-        "/settings lets you select and customize color themes",
-    ),
-    (
-        "themes",
-        "/settings",
-        "/settings lets you select and customize color themes",
-    ),
-    (
-        "appearance",
-        "/settings",
-        "/settings lets you customize UI appearance and layout",
     ),
 ];
 
@@ -658,10 +613,8 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
     nuo_wire::CommandCatalog {
         commands,
         aliases: [
-            ("/host", "/dashboard"),
             ("/resume", "/sessions"),
             ("/session", "/sessions"),
-            ("/config", "/settings"),
             ("/auto", "/unattended"),
             ("/delegate", "/unattended"),
             ("/autopilot", "/unattended"),
@@ -759,21 +712,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn settings_is_the_canonical_command() {
-        assert!(matches!(
-            BuiltinCmd::from_slash("/settings"),
-            Some(BuiltinCmd::Settings)
-        ));
+    fn sessions_is_canonical_and_resume_resolves_as_alias() {
+        assert_eq!(
+            BuiltinCmd::from_slash("/sessions"),
+            Some(BuiltinCmd::Sessions)
+        );
+        assert_eq!(
+            BuiltinCmd::from_slash("/resume"),
+            Some(BuiltinCmd::Sessions)
+        );
+        assert!(!BuiltinCmd::ALL.iter().any(|(name, _)| *name == "/resume"));
+        assert!(BuiltinCmd::ALL.iter().any(|(name, _)| *name == "/sessions"));
     }
 
     #[test]
-    fn config_resolves_as_settings_alias_but_is_not_listed() {
-        assert!(matches!(
-            BuiltinCmd::from_slash("/config"),
-            Some(BuiltinCmd::Settings)
-        ));
-        assert!(!BuiltinCmd::ALL.iter().any(|(name, _)| *name == "/config"));
-        assert!(BuiltinCmd::ALL.iter().any(|(name, _)| *name == "/settings"));
+    fn dashboard_and_settings_are_purged_from_builtin_commands() {
+        // ADR-0041 [INV-CMD-01]: Workspace views are purged from the harness command registry
+        for cmd in ["/dashboard", "/settings", "/host", "/config"] {
+            assert!(
+                BuiltinCmd::from_slash(cmd).is_none(),
+                "{cmd} must not resolve to a harness command"
+            );
+            assert!(
+                !BuiltinCmd::ALL.iter().any(|(name, _)| *name == cmd),
+                "{cmd} must not be present in BuiltinCmd::ALL"
+            );
+        }
+
+        let catalog = command_catalog(&[]);
+        assert!(
+            !catalog.commands.iter().any(|s| s.name == "/dashboard" || s.name == "/settings"),
+            "catalog commands must not contain /dashboard or /settings"
+        );
+        assert!(
+            !catalog.aliases.iter().any(|a| a.name == "/host" || a.name == "/config" || a.target == "/dashboard" || a.target == "/settings"),
+            "catalog aliases must not reference /dashboard or /settings"
+        );
     }
 
     #[test]

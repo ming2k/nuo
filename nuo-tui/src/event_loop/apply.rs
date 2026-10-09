@@ -387,10 +387,6 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             app.open_tree_signal = true;
             true
         }
-        AppMutation::OpenHostPanel => {
-            app.open_host_signal = true;
-            true
-        }
         AppMutation::SessionDetail(detail) => {
             let same_id = app.session_detail.as_ref().map(|s| &s.id) == Some(&detail.id);
             app.session_detail = Some(detail);

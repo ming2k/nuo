@@ -1187,7 +1187,7 @@ fn test_shift_delete_and_bare_delete_dispatch() {
         Some(crate::surfaces::OverlaySurface::Dialog(
             crate::surfaces::DialogKind::HistorySearch,
         )),
-        crate::surfaces::SceneKind::Conversation,
+        crate::surfaces::SceneKind::Thread,
         shift_del,
         &c,
         &mut String::new(),
@@ -1207,13 +1207,35 @@ fn test_shift_delete_and_bare_delete_dispatch() {
         Some(crate::surfaces::OverlaySurface::Dialog(
             crate::surfaces::DialogKind::HistorySearch,
         )),
-        crate::surfaces::SceneKind::Conversation,
+        crate::surfaces::SceneKind::Thread,
         bare_del,
         &c,
         &mut String::new(),
         &mut 0,
     );
     assert_eq!(action, None);
+}
+
+#[tokio::test]
+async fn test_history_delete_selected_action_dispatch() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.input_history.push(nuo_wire::HistoryEntry::new(
+        "entry 1".to_string(),
+        Some("s1".to_string()),
+        None,
+        100,
+    ));
+    app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    let flow = crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::HistoryDeleteSelected,
+        "s1",
+    )
+    .await;
+    assert_eq!(flow, crate::event_loop::actions::ActionFlow::Handled);
+    assert_eq!(app.input_history.len(), 0);
 }
 
 #[test]
@@ -1478,6 +1500,61 @@ async fn history_search_overlay_does_not_dim_composer() {
     assert_eq!(
         hist_cell.bg, normal_cell.bg,
         "composer background should not be dimmed when history search is open"
+    );
+}
+
+#[tokio::test]
+async fn test_history_search_keeps_composer_active_and_shows_hints() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "session-a".to_string();
+    app.input = "live draft text".to_string();
+    app.cursor_position = "live draft text".chars().count();
+    app.record_input_history("existing entry".to_string(), Vec::new(), Vec::new());
+
+    // Enter HistorySearch (simulating Ctrl+R)
+    app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search = true;
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::HistorySearch)
+    );
+    assert!(app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().search);
+    assert_eq!(
+        app.active_composer_extension(),
+        Some(crate::composer_extension::ComposerExtensionKind::HistorySearch)
+    );
+
+    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    terminal.draw(|f| {
+        crate::event_loop::render_frame(&mut app, f, "session-a");
+    });
+
+    let buffer = terminal.buffer();
+    let screen = (0..buffer.area().height)
+        .map(|y| {
+            (0..buffer.area().width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Composer must NOT be marked inactive
+    assert!(
+        !screen.contains("(Composer inactive)"),
+        "composer must remain active in history search, found inactive marker: {screen}"
+    );
+
+    // Composer top row must show history search badge
+    assert!(
+        screen.contains("[history search · draft saved]"),
+        "top row must display history search badge: {screen}"
+    );
+
+    // Composer hint row must show history search action hints
+    assert!(
+        screen.contains("close") && screen.contains("insert"),
+        "hint row must display history hints: {screen}"
     );
 }
 

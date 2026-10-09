@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn focused_tool_steps_mut_only_touches_focused_subagent_children() {
-    let mut messages = conversation_with_subagents();
+    let mut messages = thread_with_subagents();
     // Focused on task_a: its single child is an assistant message (not a
     // tool step), so the focused stream has 1 message and 0 tool steps.
     let focus = vec![crate::app::ZoomFrame {

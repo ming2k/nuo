@@ -61,7 +61,7 @@ pub enum ComposerSendMode {
 /// (handed back by `UserInputUnavailable`) wait here to become the **next**
 /// round's prompt. The item is intentionally absent from the transcript until
 /// the harness dispatches it, so pending state never scrolls away or
-/// masquerades as conversation history. (A *live* insert is different: it is
+/// masquerades as thread history. (A *live* insert is different: it is
 /// a transcript entry from the moment it is sent — see
 /// `DeliveryStatus::Queued` — and never passes
 /// through the outbox.)
@@ -92,7 +92,7 @@ pub struct QueuedDispatch {
 ///
 /// Deliberately **not** persisted: input history in SQLite is rebuildable cosmetic
 /// telemetry, and base64 image blobs would balloon the database and
-/// duplicate conversation data. The cache lives for the process lifetime
+/// duplicate thread data. The cache lives for the process lifetime
 /// (capped, newest-first) and is re-seeded on every send, which is exactly
 /// the window the interrupt → ↑/↓ → resend flow needs.
 #[derive(Debug, Clone, Default)]
@@ -126,7 +126,7 @@ pub enum RecallQueued {
 pub enum CaretOwner {
     /// The live chat composer (no overlay, no subagent zoom, no transcript-step focus).
     Composer,
-    /// A text field belonging to a non-conversation root scene — today the
+    /// A text field belonging to a non-thread root scene — today the
     /// Dashboard's inline new-session / prompt task line, whose text is the
     /// composer buffer but whose field is the scene's own footer. Distinct
     /// from [`Self::Composer`] because the composer's readline family and
@@ -322,7 +322,7 @@ pub struct App {
     /// O(1) streaming-delta target for `messages` (id, index); reset on
     /// wholesale replacement (ADR-0187).
 
-    /// Side-conversation transcript (ADR-0017). Populated only while a `/btw`
+    /// Side-thread transcript (ADR-0017). Populated only while a `/btw`
     /// side session is live; per-turn events tagged with the side `session_id`
     /// route here instead of into `messages`.
     pub side_messages: Vec<TranscriptMessage>,
@@ -420,7 +420,6 @@ pub struct App {
     /// them; the loop consumes and clears when it mounts the surface.
     pub open_sessions_signal: bool,
     pub open_tree_signal: bool,
-    pub open_host_signal: bool,
     /// Set by the applier when a view transition (aside enter/exit) landed;
     /// the loop consumes it to re-anchor scroll exactly once.
     pub view_transitioned: bool,
@@ -479,7 +478,7 @@ pub struct App {
     /// [`Self::pin_summary_line`].
     pub scroll_settle_pending: bool,
     /// Stack of nested zoom frames (subagent tasks). Empty means the root
-    /// conversation is shown; the top frame is the currently focused view.
+    /// thread is shown; the top frame is the currently focused view.
     /// Each frame carries the parent's scroll snapshot, restored on exit.
     pub focus_stack: Vec<ZoomFrame>,
     pub tx: mpsc::UnboundedSender<AgentRequest>,
@@ -716,8 +715,8 @@ pub struct App {
     /// caller after the TUI exits to re-attach (ADR-0096).
     pub switch_to_target: Option<String>,
     /// Which full-screen overlay (if any) the TUI opened straight into at
-    /// startup instead of a conversation view. In that mode the overlay is not
-    /// a transient modal — there is no conversation the user asked for behind
+    /// startup instead of a thread view. In that mode the overlay is not
+    /// a transient modal — there is no thread the user asked for behind
     /// it — so closing it must quit the program rather than drop into an empty
     /// chat. Cleared (set to [`crate::StartupOverlay::None`]) once a
     /// session is opened from the picker. Always `None` for the in-session
@@ -741,9 +740,9 @@ pub struct App {
     pub input_history: Vec<nuo_wire::HistoryEntry>,
     /// **Derived** prompt rows for the viewed session, reconstructed from the
     /// transcript (see [`Self::backfill_session_history`]). Never persisted:
-    /// the session file is the durable source of truth for conversation
+    /// the session file is the durable source of truth for thread
     /// content (ADR-0018), so these rows exist only so the inline ↑/↓ recall
-    /// can walk a resumed conversation's prompts without this client having
+    /// can walk a resumed thread's prompts without this client having
     /// recorded them. Indexed by `input_history.len() + i` in
     /// [`Self::current_session_history`] — see [`Self::history_entry`].
     /// Ordered oldest-first (transcript append order) so growth never shifts

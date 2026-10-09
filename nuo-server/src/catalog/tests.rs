@@ -1666,14 +1666,10 @@ fn antigravity_models_derivation_and_hidden_filter() {
 #[test]
 fn prune_stale_models_prunes_favorites_and_usage_and_default_model() {
     let _sandbox = sandboxed_paths();
-    register_mock_provider(
-        "test-open-relay-prune",
-        "https://relay.example.com",
-        WireProtocol::ChatCompletions,
-        &[],
-        nuo_provider::CatalogShape::OpenAi,
-    );
-    let mut conn = instance("my-custom", Some("test-open-relay-prune"));
+    let mut conn = instance("my-custom", None);
+    conn.models.filter = Some(nuo_persistence::connections::ConnectionFilterPolicy::Named(
+        nuo_persistence::connections::NamedFilterPolicy::All,
+    ));
     conn.models.include = vec![
         nuo_wire::model::DeclaredModel {
             id: "model-a".to_string(),

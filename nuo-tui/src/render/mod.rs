@@ -666,6 +666,8 @@ pub struct TranscriptRender {
     /// can render/click a sticky header pinned under the HUD bar. `None` when no
     /// expanded step body covers the top of the viewport.
     pub sticky: Option<StickyInfo>,
+    /// Bounding rects for each rendered tab in the top tab bar: `(tab_index, rect)`.
+    pub tab_rects: Vec<(usize, Rect)>,
 }
 
 /// A sticky pinned step summary (returned to the app for click handling).
@@ -745,6 +747,7 @@ pub fn draw_transcript(
             content_lines: 0,
             view_height: 0,
             sticky: None,
+            tab_rects: Vec::new(),
         };
     }
 
@@ -935,9 +938,11 @@ pub fn draw_transcript(
     // transcript. The band is a sibling of the transcript, not content inside
     // it, so it was already split from `full` above; just paint it here.
     // Row 1 carries the session identity; row 2 the scene + context + status.
-    if let (Some(head), Some(rect)) = (session_head.as_ref(), head_rect) {
-        draw_view_header(frame, rect, head, theme);
-    }
+    let tab_rects = if let (Some(head), Some(rect)) = (session_head.as_ref(), head_rect) {
+        draw_view_header(frame, rect, head, theme)
+    } else {
+        Vec::new()
+    };
     if let (Some(hints), Some(rect)) = (page_hints_view.as_ref(), hints_rect) {
         draw_view_header_hints(frame, rect, hints, theme);
     }
@@ -1187,6 +1192,7 @@ pub fn draw_transcript(
         content_lines,
         view_height: transcript_area.height,
         sticky: sticky_info,
+        tab_rects,
     }
 }
 

@@ -306,7 +306,7 @@ pub(crate) fn resolve_scene_key(
     cursor_position: &mut usize,
 ) -> Option<InputAction> {
     match scene.into() {
-        crate::surfaces::SceneKind::Conversation => {
+        crate::surfaces::SceneKind::Thread => {
             resolve_chat_surface_key(key, keys, input, cursor_position)
         }
         crate::surfaces::SceneKind::TaskInspection => {
@@ -351,6 +351,24 @@ fn resolve_enter(
     let text = std::mem::take(input);
     *cursor_position = 0;
     if text.starts_with('/') {
+        // Workspace views (Dashboard, Settings) are not in-session harness commands
+        // (ADR-0041 [INV-CMD-01], [INV-ROUTER-01]). Intercept and guide the operator.
+        let trimmed = text.trim();
+        if trimmed == "/dashboard" || trimmed.starts_with("/dashboard ") {
+            return Some(InputAction::WorkspaceGuardrailNotice(
+                "💡 Notice: Dashboard is a workspace view. Press 'C-x d' or switch tabs.".to_string(),
+            ));
+        }
+        if trimmed == "/settings"
+            || trimmed.starts_with("/settings ")
+            || trimmed == "/config"
+            || trimmed.starts_with("/config ")
+        {
+            return Some(InputAction::WorkspaceGuardrailNotice(
+                "💡 Notice: Settings is a workspace view. Press 'C-x ,' or switch tabs.".to_string(),
+            ));
+        }
+
         // Match on the trimmed text so a slash command typed with a trailing
         // space (e.g. `/models `) still hits the exact-match arm.
         let action = match text.trim() {
@@ -363,10 +381,6 @@ fn resolve_enter(
             "/quota" | "/quotas" => InputAction::OpenQuotas,
             "/mcp" => InputAction::OpenMcp,
             "/skills" => InputAction::OpenSkills,
-            // Bare `/settings` (or `/config`) opens the manager modal locally;
-            // any argument form is a backend command and falls through to
-            // SendSlash.
-            "/settings" | "/config" => InputAction::OpenConfig,
             "/exit" => InputAction::Quit,
             _ => InputAction::SendSlash(text),
         };
@@ -551,7 +565,7 @@ mod tests {
         match mode {
             Mode::Subagent => SceneKind::TaskInspection,
             Mode::Side => SceneKind::Aside,
-            _ => SceneKind::Conversation,
+            _ => SceneKind::Thread,
         }
     }
 
@@ -916,11 +930,11 @@ mod tests {
     #[test]
     fn router_offers_chat_keys_only_on_chat_surfaces() {
         use crate::input::InputAction;
-        // Tab on the Conversation scene without a completion is inert (ADR-0173:
+        // Tab on the Thread scene without a completion is inert (ADR-0173:
         // the chord belongs to completion, not to plane switching).
         assert_eq!(
             process(
-                SceneKind::Conversation,
+                SceneKind::Thread,
                 KeyCode::Tab,
                 KeyModifiers::NONE,
                 Mode::Idle
@@ -1193,10 +1207,10 @@ mod tests {
             "side Esc dismisses a completion first"
         );
 
-        // The Conversation scene never emits the subagent/side exits.
+        // The Thread scene never emits the subagent/side exits.
         let c = ctx(Mode::FocusedTarget, |_| {});
         let action = resolve_scene_key(
-            SceneKind::Conversation,
+            SceneKind::Thread,
             Key::ESC,
             &c,
             &mut String::new(),

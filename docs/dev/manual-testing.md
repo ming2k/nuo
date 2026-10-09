@@ -18,8 +18,10 @@ Manual verification complements automated testing (`cargo test --workspace`, sna
    Validate terminal layout responsiveness, border integrity, CJK wide-character alignment, ANSI color fidelity, breathing animations, and cursor state restoration powered by `nuo-tui` and `nuotc`.
 4. **Interactive Safety & Approval Barriers**:
    Verify that high-hazard operations (destructive bash commands, file modifications) pause cleanly for explicit human confirmation and never execute prematurely.
-5. **Host Isolation Invariant**:
-   Manual test runs must never pollute the operator's host configuration (`~/.config/nuo`) or collide with running production servers on default ports. Every test session must explicitly run inside an isolated sandbox directory using `NUO_HOME` and `NUO_PORT`.
+5. **Host Isolation & Posture Invariant**:
+   Manual test runs must never pollute the operator's host configuration (`~/.config/nuo`) or collide with running production servers. Every test session must explicitly run inside an isolated sandbox directory using `NUO_HOME`. Furthermore, testing must strictly distinguish between the two dual hosting postures (ADR-0033):
+   - **Native Scheme (`nuo`)**: Client-bound interactive sessions run purely over local Unix Domain Sockets (UDS) / Named Pipes with zero TCP port binding (`[INV-SERVER-03]`).
+   - **Port Scheme (`nuo serve` / `nuo start`)**: Standalone hosted servers bind a dedicated TCP port (`NUO_PORT`, default `9800`) plus UDS for network control planes, HTTP probes, and remote clients.
 
 ---
 
@@ -48,6 +50,10 @@ export PATH="$PWD/target/debug:$PATH"
 
 echo "Sandbox initialized at: $NUO_HOME (Port: $NUO_PORT)"
 ```
+
+> **Posture Configuration Note**:
+> - `NUO_HOME` is mandatory for all test suites: it roots all configuration, database state, and local UDS instance sockets (`$NUO_HOME/nuo/instance/server.sock`) into the sandbox.
+> - `NUO_PORT` is used by the **Port Scheme** (`nuo serve`, `nuo start`, HTTP probes, and remote clients) to avoid colliding with default port `9800`. The **Native Scheme** (`nuo` standalone) runs exclusively over UDS and ignores TCP ports.
 
 To clean up after testing:
 
@@ -88,11 +94,11 @@ rm -rf "$NUO_HOME"
 
 ---
 
-### Suite 2: Server Lifecycle & Server Control Plane
+### Suite 2: Standalone Hosted Server Lifecycle & Port Scheme (`nuo serve` / `nuo start`)
 
 #### Scenario 2.1: Foreground Server Container Execution (`nuo serve` / `nuo start --fg`)
 - **Action**:
-  1. In Terminal A, start the server service in foreground mode:
+  1. In Terminal A, start the standalone server service in foreground mode (Port Scheme):
      ```bash
      nuo serve --port "$NUO_PORT"
      ```
@@ -102,14 +108,14 @@ rm -rf "$NUO_HOME"
      ```
   3. Send `Ctrl+C` (SIGINT) to Terminal A.
 - **Expected Outcome**:
-  - Terminal A logs startup details, active TCP port `$NUO_PORT`, and domain socket path.
+  - Terminal A logs startup details, active TCP port `$NUO_PORT`, and domain socket path. Standalone posture binds both TCP (`127.0.0.1:$NUO_PORT`) and local UDS.
   - Terminal B outputs the active server endpoint and zero active sessions.
   - Upon `Ctrl+C`, the server performs a graceful drain, shuts down worker threads, removes Unix domain sockets, and exits cleanly.
 
 #### Scenario 2.2: Detached Server Lifecycle (`start` / `status` / `token` / `stop`)
 - **Action**:
   ```bash
-  # 1. Start server detached
+  # 1. Start server detached (Port Scheme)
   nuo start --port "$NUO_PORT"
 
   # 2. Inspect status
@@ -161,6 +167,29 @@ rm -rf "$NUO_HOME"
   - The second invocation fails immediately with an informative error (e.g. `server lock already held` or already running) and exit code `1`.
   - The first server process remains undisturbed.
 
+#### Scenario 2.5: Dual Hosting Posture & Opportunistic Attachment (`[INV-SERVER-03]`, `[INV-SERVER-05]`)
+- **Action**:
+  1. Start the standalone hosted server on TCP `$NUO_PORT`:
+     ```bash
+     nuo start --port "$NUO_PORT"
+     ```
+  2. In a second command, verify that client CLI attached opportunistically to the hosted server instead of spawning a new instance:
+     ```bash
+     nuo run "echo opportunistic attachment test"
+     ```
+  3. Query status to ensure the session was hosted by the standalone server:
+     ```bash
+     nuo status
+     ```
+  4. Gracefully terminate the standalone server:
+     ```bash
+     nuo stop
+     ```
+- **Expected Outcome**:
+  - `nuo run` attaches to the already-running standalone server without spawning an isolated process (`[INV-SERVER-05]`).
+  - `nuo status` confirms the hosted server handled the execution.
+  - `nuo stop` shuts down the standalone server cleanly.
+
 ---
 
 ### Suite 3: Configuration & Provider Authentication
@@ -199,19 +228,25 @@ rm -rf "$NUO_HOME"
 
 ---
 
-### Suite 4: Semantic Terminal Experience (`nuo` Interactive TUI)
+### Suite 4: Semantic Terminal Experience & Native Scheme (`nuo` Interactive TUI)
 
-#### Scenario 4.1: Cold-Start Interactive TUI Launch
+#### Scenario 4.1: Cold-Start Interactive TUI Launch (Native IPC Scheme)
 - **Action**:
   ```bash
+  # 1. Verify no standalone server is active
+  nuo status
+
+  # 2. Launch interactive terminal
   nuo
   ```
 - **Expected Outcome**:
-  - If `nuo` server is not yet running, `nuo` automatically bootstraps the local server in the background.
+  - Because no standalone server is active, `nuo` automatically bootstraps an isolated client-bound server in the background using the **Native Scheme** (`--client-driven`).
+  - **Zero TCP listener (`[INV-SERVER-03]`)**: The client-bound server binds strictly to the local Unix Domain Socket (`$NUO_HOME/nuo/instance/server.sock` or Named Pipe) and listens on **zero** TCP ports. Port `$NUO_PORT` and default port `9800` remain completely unopened.
   - Terminal enters alternate screen buffer and raw mode.
-  - Header displays active model/role, conversation status, and session indicator.
+  - Header displays active model/role, thread status, and session indicator.
   - Input composer sits at bottom ready for prompt entry.
   - Typing characters displays smoothly with zero cursor lag.
+  - Exiting the TUI (via `/exit` or `Ctrl+C` twice) triggers graceful automatic teardown of the client-bound server shortly after client disconnection.
 
 #### Scenario 4.2: Dialogue Turn & Streaming Rendering
 - **Action**:
@@ -245,7 +280,7 @@ rm -rf "$NUO_HOME"
 - **Action**:
   - Type `/help` and press Enter.
   - Type `/models` or press `Ctrl+M` to inspect the model catalog.
-  - Type `/settings` to open the settings modal.
+  - Press `C-x ,` or `Ctrl+T` -> `Settings` to open the Settings tab.
   - Type `/exit` or press `Ctrl+C` twice to exit.
 - **Expected Outcome**:
   - `/help` renders available commands without invoking the LLM provider.
@@ -254,7 +289,7 @@ rm -rf "$NUO_HOME"
 
 #### Scenario 4.5: Settings → Components Reflects the Declared Registry (ADR-0020)
 - **Action**:
-  - Open `/settings` and select the **Components** category.
+  - Open Settings (`C-x ,` or `nuo settings`) and select the **Components** category.
   - Confirm the pane lists one row per declared tool component (`Command
     Execution Logs`, `File Changes (Diffs)`, `File Content Previews`, `Image
     Reads`, `Search & Grep Results`, `Web Article Reads`, `Web Search Results`,
@@ -516,7 +551,7 @@ rm -rf "$NUO_HOME"
   3. Re-launch `nuo --resume`.
 - **Expected Outcome**:
   - Server survives client disconnect without panicking.
-  - `--resume` reconnects to the existing session, recovers the transcript up to the last persisted turn, and allows continuing the conversation.
+  - `--resume` reconnects to the existing session, recovers the transcript up to the last persisted turn, and allows continuing the thread.
 
 #### Scenario 8.3: Rebuilt-Binary Server Self-Heal (ADR-0021)
 - **Action**:
@@ -555,8 +590,10 @@ Prior to tagging and publishing a new release, verify each item:
 | **Clean Build** | `cargo build --release -p nuo` | Zero compilation warnings or errors | [ ] |
 | **Doc Governance** | `docgov check` | All protocol invariants pass | [ ] |
 | **Unit & E2E Tests** | `cargo test --workspace` | All automated tests pass | [ ] |
-| **Cold-Start Service** | `nuo serve --port "$NUO_PORT"` | Foreground server starts, binds port, drains gracefully on SIGINT | [ ] |
-| **Detached Server** | `nuo start` -> `status` -> `token` -> `stop` | Background PID managed cleanly, token generated, clean stop | [ ] |
+| **Port Scheme Service** | `nuo serve --port "$NUO_PORT"` | Foreground server starts, binds TCP port & UDS, drains gracefully on SIGINT | [ ] |
+| **Detached Port Server** | `nuo start` -> `status` -> `token` -> `stop` | Background PID managed cleanly, TCP port listening, token generated, clean stop | [ ] |
+| **Native Scheme TUI** | Cold-start `nuo` (no server running) | Client-bound server spawns on pure UDS with zero TCP listeners `[INV-SERVER-03]` | [ ] |
+| **Opportunistic Attach** | `nuo` while `nuo serve` is running | Attaches to existing hosted server instance without duplicate daemon `[INV-SERVER-05]` | [ ] |
 | **TUI Ergonomics** | Interactive `nuo` prompt and tool approval | Crisp rendering, no CJK glitches, clean exit | [ ] |
 | **Headless CLI** | `nuo run "prompt"` and stdin pipe | Non-interactive execution, correct exit code 0 | [ ] |
 | **Attach & Fleet** | `nuo attach` and `nuo dashboard` | Interactive picker & full-screen dashboard function smoothly | [ ] |

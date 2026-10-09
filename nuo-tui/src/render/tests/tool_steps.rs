@@ -238,12 +238,15 @@ fn subagent_step_and_view_render_without_panicking() {
                     context_warn: false,
                     unattended: false,
                     confined: true,
+                    workspace: Some("~/projects/nuo"),
                 }),
                 session_head: Some(SessionHead {
                     session_id: "sess-01a2b3c4",
                     workspace: "~/projects/nuo",
                     role: None,
                     switching_target: None,
+                    tabs: None,
+                    active_tab: 0,
                 }),
                 round_started_at: None,
                 hovered_step: None,
@@ -265,14 +268,18 @@ fn subagent_step_and_view_render_without_panicking() {
             .map(|cell| cell.symbol())
             .collect()
     };
-    // Row 1 is the uniform session identity (ADR-0024), not a subagent crumb.
+    // Row 1 is the uniform session identity (ADR-0024), carrying client C-x menu on the right.
     let head_row = row_text(0);
     assert!(
         head_row.contains("SESSION"),
         "session identity on row 1: {head_row:?}"
     );
+    assert!(
+        head_row.contains("Ctrl-x") && head_row.contains("menu"),
+        "the client row offers the namespace pair: {head_row:?}"
+    );
     // Row 2 is the scene row: the scene name, then the task's `[ROLE] label
-    // (i/n)` context, with the `C-x menu` namespace pair on the right.
+    // (i/n)` context, followed by the workspace path.
     let scene_row = row_text(1);
     assert!(
         scene_row.trim_start().starts_with("subagent"),
@@ -283,8 +290,12 @@ fn subagent_step_and_view_render_without_panicking() {
         "role tag, title and sibling index on the scene row: {scene_row:?}"
     );
     assert!(
-        scene_row.contains("Ctrl-x") && scene_row.contains("menu"),
-        "the scene row offers the namespace pair: {scene_row:?}"
+        scene_row.contains("~/projects/nuo"),
+        "workspace attached to scene row: {scene_row:?}"
+    );
+    assert!(
+        !scene_row.contains("Ctrl-x"),
+        "scene row no longer carries namespace pair: {scene_row:?}"
     );
     // The TaskInspection scene carries no *shortcut legend* row beyond the
     // shared band (ADR-0205): its three chords are one `Esc` and a pair of
@@ -664,9 +675,15 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
         context_warn: false,
         unattended: false,
         confined: true,
+        workspace: None,
     };
     assert!(hints.has_content(), "every scene stands up row 2 (ADR-0024)");
     let terminal = render_full_view(80, 24, &[], Some(hints));
+    let row0 = grid_row(&terminal, 0);
+    assert!(
+        row0.contains("Ctrl-x") && row0.contains("menu"),
+        "client row carries namespace pair: {row0:?}"
+    );
     let row1 = grid_row(&terminal, 1);
     assert!(row1.starts_with("  subagent"), "scene name leads: {row1:?}");
     assert!(
@@ -674,8 +691,8 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
         "task context follows: {row1:?}"
     );
     assert!(
-        row1.contains("Ctrl-x") && row1.contains("menu"),
-        "namespace pair retained: {row1:?}"
+        !row1.contains("Ctrl-x"),
+        "scene row no longer carries namespace pair: {row1:?}"
     );
 }
 

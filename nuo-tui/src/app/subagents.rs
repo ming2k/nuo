@@ -344,7 +344,7 @@ impl App {
 
     /// The message slice currently in view: the `/btw` side transcript when
     /// the side view is active (ADR-0017), the focused subagent task's child
-    /// messages when zoomed, or the root conversation otherwise.
+    /// messages when zoomed, or the root thread otherwise.
     pub fn focused_messages(&self) -> &[TranscriptMessage] {
         if self.in_side_view {
             return &self.side_messages;
@@ -501,7 +501,7 @@ impl App {
         self.in_side_view = false;
         self.side_session_id = None;
         if self.current_scene() == crate::surfaces::SceneKind::Aside {
-            self.surfaces.reset_to_conversation();
+            self.surfaces.reset_to_thread();
         }
         // Dropping any armed Esc confirmation is part of leaving: the arm
         // targeted the aside's round, and a carried arm would fire the

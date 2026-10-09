@@ -310,7 +310,7 @@ pub enum CommandPhase {
 }
 
 /// How a command row presents its result — derived at render time from the
-/// result's shape, not stored. Commands are operations, not conversation:
+/// result's shape, not stored. Commands are operations, not thread dialogue:
 /// most replies are one short line that should simply *be* the row, with no
 /// disclosure marker at all. Only a genuinely long reply earns the `+`/`-`
 /// affordance. See ADR-0106.
@@ -624,7 +624,7 @@ pub enum DeliveryStatus {
     Queued,
     /// A busy-Enter steer whose round ended — naturally or by an
     /// interrupt (Esc Esc) — before it could be admitted at a turn boundary.
-    /// The entry stays in the transcript (it never leaves the conversation)
+    /// The entry stays in the transcript (it never leaves the thread)
     /// but is re-queued as the **next round's** prompt: it renders with the
     /// same pending treatment as [`DeliveryStatus::Queued`] and flips to
     /// delivered when that round starts.

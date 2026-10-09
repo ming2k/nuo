@@ -80,32 +80,19 @@ fn completions_continue_trigger_suggests_sessions() {
 }
 
 #[test]
-fn completions_settings_triggers_and_subcommands() {
+fn completions_settings_and_dashboard_purged_from_session_completions() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
 
-    // Typing /preferences steers to /settings
-    app.input = "/preferences".to_string();
+    // ADR-0041 [INV-CMD-01]: Workspace views are purged from thread completions
+    app.input = "/settings".to_string();
     app.cursor_position = app.input.chars().count();
     let completions = app.completions();
-    assert_eq!(
-        completions.first().map(|c| c.label.as_str()),
-        Some("/settings")
-    );
+    assert!(completions.is_empty(), "expected no completion for /settings");
 
-    // Typing /theme steers to /settings
-    app.input = "/theme".to_string();
+    app.input = "/dashboard".to_string();
     app.cursor_position = app.input.chars().count();
     let completions = app.completions();
-    assert_eq!(
-        completions.first().map(|c| c.label.as_str()),
-        Some("/settings")
-    );
-
-    // Typing /settings has no subcommands (it is a pure view overlay)
-    app.input = "/settings ".to_string();
-    app.cursor_position = app.input.chars().count();
-    let completions = app.completions();
-    assert!(completions.is_empty());
+    assert!(completions.is_empty(), "expected no completion for /dashboard");
 }
 
 #[test]
@@ -663,7 +650,7 @@ fn sessions_picker_data_refresh_does_not_reset_cursor_when_already_open() {
 
     // Now simulate opening from a different scene/dialog (the genuine-open case):
     // cursor and scroll reset to the top.
-    app.reset_to_conversation();
+    app.reset_to_thread();
     let opening = app.active_dialog() != Some(crate::surfaces::DialogKind::Sessions); // true
     if opening {
         app.open_dialog(crate::surfaces::DialogKind::Sessions);

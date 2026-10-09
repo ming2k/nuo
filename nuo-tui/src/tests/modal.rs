@@ -324,7 +324,7 @@ fn cancel_provider_delete_clears_and_resets_focus() {
 
 /// Switching the viewed session must not carry composer state across the
 /// boundary: the ↑/↓ cursor, the stashed draft, staged attachments, and the
-/// backfill all belong to the conversation being left.
+/// backfill all belong to the thread being left.
 #[tokio::test]
 async fn switching_sessions_resets_navigation_and_backfill() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
@@ -358,7 +358,7 @@ async fn switching_sessions_resets_navigation_and_backfill() {
     assert!(app.pending_images.is_empty(), "attachments do not leak");
     assert!(
         app.session_history_backfill.is_empty(),
-        "backfill is rebuilt per conversation"
+        "backfill is rebuilt per thread"
     );
     assert_eq!(app.session_history_backfill_cursor, 0);
 
@@ -967,8 +967,8 @@ fn modal_scroll_field_resolves_every_scrollable_modal() {
     assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll, 7);
     assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::PermissionsDialog>().scroll, 7);
 
-    // Conversation and ModelEditor do not scroll their own body.
-    app.reset_to_conversation();
+    // Thread and ModelEditor do not scroll their own body.
+    app.reset_to_thread();
     assert!(app.modal_scroll_field().is_none());
 
     app.surfaces
@@ -1014,7 +1014,7 @@ fn modal_page_step_tracks_body_height_and_floors_at_one() {
 /// 1. The overlay defaults to `None` in an ordinary (in-session) App, so the
 ///    `/sessions` modal only ever dismisses on Esc.
 /// 2. Selecting a session from the picker clears the overlay — once a real
-///    conversation backs the view, the picker reverts to a plain transient
+///    thread backs the view, the picker reverts to a plain transient
 ///    overlay. (The event loop's `OpenSelectedSession` arm does this.)
 #[test]
 fn startup_picker_flag_governs_sessions_modal_quit_and_resets_on_open() {
@@ -1039,7 +1039,7 @@ fn startup_picker_flag_governs_sessions_modal_quit_and_resets_on_open() {
     // Open a session from the picker: the overlay clears so a later `/sessions`
     // modal behaves as a normal transient overlay.
     app.startup_overlay = crate::StartupOverlay::None;
-    app.reset_to_conversation();
+    app.reset_to_thread();
     assert_eq!(
         app.startup_overlay,
         crate::StartupOverlay::None,
@@ -1399,7 +1399,7 @@ fn config_view_reopen_keeps_pane_and_category() {
     app.close_scene();
     assert_eq!(
         app.current_scene(),
-        crate::surfaces::SceneKind::Conversation
+        crate::surfaces::SceneKind::Thread
     );
 
     // Reopen: the pane/category survived.
@@ -1462,20 +1462,20 @@ fn esc_never_leaves_a_scene_anywhere_in_the_dispatch() {
         app.close_scene();
         assert_eq!(
             app.current_scene(),
-            SceneKind::Conversation,
+            SceneKind::Thread,
             "`close_scene` leaves {scene:?}"
         );
     }
 }
 
-/// The Conversation scene is the home: `close_scene` there is a spent gesture,
+/// The Thread scene is the home: `close_scene` there is a spent gesture,
 /// not a navigation (there is nowhere to go).
 #[test]
 fn close_scene_at_home_is_a_spent_gesture() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     assert_eq!(
         app.current_scene(),
-        crate::surfaces::SceneKind::Conversation
+        crate::surfaces::SceneKind::Thread
     );
     assert!(
         !app.close_scene(),
@@ -1483,7 +1483,7 @@ fn close_scene_at_home_is_a_spent_gesture() {
     );
     assert_eq!(
         app.current_scene(),
-        crate::surfaces::SceneKind::Conversation
+        crate::surfaces::SceneKind::Thread
     );
 }
 
@@ -1511,7 +1511,7 @@ fn close_scene_spends_itself_on_a_foreground_dialog_first() {
     app.close_scene();
     assert_eq!(
         app.current_scene(),
-        crate::surfaces::SceneKind::Conversation
+        crate::surfaces::SceneKind::Thread
     );
 }
 
@@ -1565,7 +1565,7 @@ fn config_view_navigation_and_theme_preview() {
     app.close_scene();
     assert_eq!(
         app.current_scene(),
-        crate::surfaces::SceneKind::Conversation
+        crate::surfaces::SceneKind::Thread
     );
 }
 
@@ -1901,12 +1901,63 @@ fn dashboard_reopen_keeps_selection_and_log() {
     app.close_scene();
     assert_eq!(
         app.current_scene(),
-        crate::surfaces::SceneKind::Conversation
+        crate::surfaces::SceneKind::Thread
     );
 
     app.switch_scene(crate::surfaces::SceneKind::Dashboard);
     assert_eq!(app.modal_index, 3, "dock selection retained");
     assert_eq!(app.host_console_log.len(), 1, "cockpit log retained");
+}
+
+#[tokio::test]
+async fn closing_dashboard_scene_closes_singleton_tab() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+
+    // 1. Mount initial thread tab and dashboard tab
+    app.surfaces.open_tab(crate::surfaces::ClientTab::thread("s1", "Thread 1"));
+    app.open_tab(crate::surfaces::ClientTab::dashboard());
+
+    assert_eq!(app.surfaces.tabs().len(), 2);
+    assert_eq!(app.surfaces.active_tab_index(), 1);
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Dashboard);
+
+    // 2. Dispatch CloseScene (C-x w / C-x k)
+    let flow = crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::CloseScene,
+        "s1",
+    )
+    .await;
+
+    assert_eq!(flow, crate::event_loop::actions::ActionFlow::Handled);
+    assert_eq!(app.surfaces.tabs().len(), 1, "dashboard tab must be closed and removed");
+    assert_eq!(app.surfaces.active_tab_index(), 0, "active tab should switch to remaining thread tab");
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
+    assert!(app.surfaces.tabs()[0].is_thread());
+}
+
+#[tokio::test]
+async fn closing_sole_dashboard_tab_detaches_client() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+
+    // Only dashboard tab mounted
+    app.surfaces.open_tab(crate::surfaces::ClientTab::dashboard());
+    assert_eq!(app.surfaces.tabs().len(), 1);
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Dashboard);
+
+    let flow = crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::CloseScene,
+        "s1",
+    )
+    .await;
+
+    assert_eq!(flow, crate::event_loop::actions::ActionFlow::Exit, "closing sole tab exits client");
+    assert!(app.surfaces.tabs().is_empty());
 }
 
 #[test]

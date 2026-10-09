@@ -467,7 +467,6 @@ async fn run_inner(
         &registry,
         &handle,
         lifecycle.idle_exit,
-        lifecycle.client_driven,
     )
     .await;
 
@@ -639,14 +638,13 @@ async fn wait_for_lock(path: &std::path::Path, budget: Duration) -> Result<Proce
 /// The serving steady-state: wait for the first trigger. When `idle_exit`
 /// is armed, also watch for "zero sessions + zero connections held for the
 /// whole grace period" and request the IdleTimeout trigger.
-/// When `client_driven` is armed (ADR-0029), auto-terminate when all
-/// interactive TUI clients close.
+/// Under ADR-0038 [INV-SERVER-07], server integrity is persistent and does NOT
+/// prematurely self-terminate simply because client viewports disconnect.
 async fn serve_until_trigger(
     gate: &Arc<ShutdownGate>,
     registry: &Arc<SessionRegistry>,
     handle: &crate::serve::ServeHandle,
     idle_exit: Option<Duration>,
-    client_driven: bool,
 ) {
     let triggered = gate.triggered();
     tokio::pin!(triggered);
@@ -655,52 +653,10 @@ async fn serve_until_trigger(
         None => Box::pin(std::future::pending::<()>()),
     };
     tokio::pin!(idle);
-    let client_driven_fut: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
-        if client_driven {
-            Box::pin(client_driven_exit_future(handle.conns.clone()))
-        } else {
-            Box::pin(std::future::pending::<()>())
-        };
-    tokio::pin!(client_driven_fut);
     tokio::select! {
         _ = &mut triggered => {}
         _ = &mut idle => {
             gate.request(ShutdownReason::IdleTimeout, false);
-        }
-        _ = &mut client_driven_fut => {
-            gate.request(ShutdownReason::AllClientsClosed, false);
-        }
-    }
-}
-
-async fn client_driven_exit_future(conns: Arc<crate::serve::ConnTable>) {
-    let startup_deadline = tokio::time::Instant::now() + Duration::from_secs(15);
-    while !conns.has_had_interactive() && conns.interactive_count() == 0 {
-        if tokio::time::Instant::now() >= startup_deadline {
-            tracing::info!("no interactive client connected within startup window; terminating server");
-            return;
-        }
-        tokio::select! {
-            _ = conns.notified() => {}
-            _ = tokio::time::sleep(Duration::from_millis(200)) => {}
-        }
-    }
-
-    loop {
-        if conns.interactive_count() == 0 {
-            tokio::select! {
-                _ = conns.notified() => {
-                    continue;
-                }
-                _ = tokio::time::sleep(Duration::from_millis(1500)) => {
-                    if conns.interactive_count() == 0 {
-                        tracing::info!("all interactive clients closed and debounce expired; terminating server");
-                        return;
-                    }
-                }
-            }
-        } else {
-            conns.notified().await;
         }
     }
 }

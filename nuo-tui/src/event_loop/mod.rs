@@ -282,7 +282,7 @@ pub async fn run_app_loop(
         let (displayed_transcript_changed, viewed_session_id) =
             sync_transcripts_and_session(app, &runtime).await;
 
-        let (open_sessions, open_tree, open_host) = consume_navigation_signals(app, &runtime);
+        let (open_sessions, open_tree) = consume_navigation_signals(app, &runtime);
         if open_sessions {
             crate::event_loop::actions::enter_panel(
                 app,
@@ -297,13 +297,6 @@ pub async fn run_app_loop(
                 crate::surfaces::DialogKind::SessionTree,
                 &runtime,
                 &viewed_session_id,
-            );
-        }
-        if open_host {
-            crate::event_loop::actions::enter_scene(
-                app,
-                crate::surfaces::SceneKind::Dashboard,
-                &runtime,
             );
         }
 

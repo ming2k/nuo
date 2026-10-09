@@ -52,6 +52,8 @@ pub enum UiKey {
     /// A visible (non-cursor) Settings detail row that exists only as a pointer
     /// hover target so the row under the mouse can light up.
     SettingsRow(usize),
+    /// An interactive Tab Bar item at the top of the viewport (ADR-0039, ADR-0040).
+    TabBarItem(usize),
 }
 
 /// The application has one mounted UI runtime. Semantic text mappings travel
@@ -292,6 +294,13 @@ impl ComponentTree {
                 31,
                 PointerPolicy::Target,
                 InputPolicy::Bubble,
+                true,
+            ),
+            UiKey::TabBarItem(_) => (
+                Some(UiKey::Root),
+                20,
+                PointerPolicy::Target,
+                InputPolicy::None,
                 true,
             ),
         };

@@ -45,7 +45,7 @@ pub(crate) struct CompletionSignal {
 /// Which transcript document a mutation targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Buffer {
-    /// The primary conversation.
+    /// The primary thread.
     Primary,
     /// The focused `/btw` aside's buffer (ADR-0103).
     Side,
@@ -359,7 +359,6 @@ pub(crate) enum AppMutation {
     SessionsOverview(Vec<SessionOverview>),
     OpenSessionsPanel,
     OpenTreePanel,
-    OpenHostPanel,
     SessionDetail(nuo_wire::SessionDetail),
     ConnectionDetail(nuo_wire::ConnectionDetail),
     TokenReport(Option<nuo_wire::TokenSourceReport>),

@@ -3,7 +3,7 @@
 //! Every floating dialog owns its own presentation state — selection cursor,
 //! body scroll, follow mode, embedded text input, and sub-layer flags. No
 //! dialog state is shared between dialogs or aliased onto `App` scratchpad
-//! fields, and no dialog borrows the conversation composer line.
+//! fields, and no dialog borrows the thread composer line.
 //!
 //! The [`DialogView`] contract binds each entity to a [`DialogKind`] and its
 //! [`DialogScope`] domain; the [`Dialogs`] registry is owned by the surface
@@ -26,7 +26,7 @@ use crate::render::Theme;
 use crate::surfaces::{DialogKind, DialogScope};
 
 /// An embedded single-line text field owned by a dialog. Replaces the old
-/// practice of borrowing the conversation composer line for a dialog's
+/// practice of borrowing the thread composer line for a dialog's
 /// filter/query (`[INV-SURFACE-01]`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TextInput {
@@ -527,6 +527,9 @@ fn render_dialog(
                     follow_selection: d.follow,
                     input_rect,
                     activity_height: ctx.activity_height,
+                    query: &d.query.text,
+                    cursor_position: d.query.cursor,
+                    show_caret: ctx.overlay_owns_caret,
                 },
                 ctx.theme,
             )

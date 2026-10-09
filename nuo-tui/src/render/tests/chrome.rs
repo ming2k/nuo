@@ -10,6 +10,8 @@ fn test_session_head() -> SessionHead<'static> {
         workspace: "~/workspace",
         role: Some("developer"),
         switching_target: None,
+        tabs: None,
+        active_tab: 0,
     }
 }
 
@@ -185,6 +187,9 @@ fn redesigned_components_render_without_panicking() {
                 follow_selection: true,
                 input_rect,
                 activity_height: 0,
+                query: "",
+                cursor_position: 0,
+                show_caret: false,
             },
             &theme,
         );
@@ -1303,10 +1308,10 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
 }
 
 /// ADR-0023/0024: the head band's scene row stands up on **every** scene. On
-/// the main view it names the scene (`conversation`) and carries the chat title
+/// the main view it names the scene (`thread`) and carries the chat title
 /// as its context, with the `C-x menu` namespace pair on the right.
 #[test]
-fn main_view_shows_the_conversation_scene_row() {
+fn main_view_shows_the_thread_scene_row() {
     let terminal = render_full_view(
         80,
         24,
@@ -1317,23 +1322,33 @@ fn main_view_shows_the_conversation_scene_row() {
             context_warn: false,
             unattended: false,
             confined: true,
+            workspace: Some("~/workspace"),
         }),
     );
-    assert!(grid_row(&terminal, 0).contains("SESSION"));
+    let row0 = grid_row(&terminal, 0);
+    assert!(row0.contains("SESSION"));
+    assert!(
+        row0.contains("Ctrl-x") && row0.contains("menu"),
+        "client top bar offers the C-x menu namespace: {row0:?}"
+    );
     let row1 = grid_row(&terminal, 1);
-    assert!(row1.starts_with("  conversation"), "scene name: {row1:?}");
+    assert!(row1.starts_with("  thread"), "scene name: {row1:?}");
     assert!(
         row1.contains("Fix the retry loop"),
         "chat title context: {row1:?}"
     );
     assert!(
-        row1.contains("Ctrl-x") && row1.contains("menu"),
-        "row 2 always offers the namespace pair: {row1:?}"
+        row1.contains("~/workspace"),
+        "workspace belongs to thread scene row: {row1:?}"
+    );
+    assert!(
+        !row1.contains("Ctrl-x"),
+        "scene row no longer carries C-x: {row1:?}"
     );
 }
 
 /// ADR-0024: the run-mode flags ride the scene row's right edge, so a
-/// conversation read-out states the session's persistent posture alongside the
+/// thread read-out states the session's persistent posture alongside the
 /// scene name and title.
 #[test]
 fn main_view_scene_row_carries_run_mode_flags() {
@@ -1347,12 +1362,15 @@ fn main_view_scene_row_carries_run_mode_flags() {
             context_warn: false,
             unattended: true,
             confined: false,
+            workspace: None,
         }),
     );
+    let row0 = grid_row(&terminal, 0);
+    assert!(row0.contains("Ctrl-x menu"), "client menu on row 0: {row0:?}");
     let row1 = grid_row(&terminal, 1);
     assert!(row1.contains("UNATTENDED"), "unattended flag: {row1:?}");
     assert!(row1.contains("UNCONFINED"), "unconfined flag: {row1:?}");
-    assert!(row1.contains("Ctrl-x menu"), "namespace pair: {row1:?}");
+    assert!(!row1.contains("Ctrl-x"), "namespace on row 0 not row 1: {row1:?}");
     assert!(!row1.contains("Esc"), "no interrupt pair: {row1:?}");
     assert!(!row1.contains("F1"), "no global help pair: {row1:?}");
 }

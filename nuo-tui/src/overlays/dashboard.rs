@@ -64,6 +64,8 @@ pub struct DashboardRects {
     /// The sessions-dock body when visible. Reserved for future hit-testing.
     #[allow(dead_code)]
     pub detail_body: Option<Rect>,
+    /// Bounding rects for each rendered tab in the top tab bar: `(tab_index, rect)`.
+    pub tab_rects: Vec<(usize, Rect)>,
 }
 
 /// A session card's dock position: its 1-based sequence number (creation
@@ -172,11 +174,11 @@ pub struct DashboardProps<'a> {
     pub show_caret: bool,
     /// The session identity for the head band's top row (ADR-0024): the band is
     /// uniform across scenes, so the dashboard draws the same `SESSION` row as
-    /// the conversation. `None` hides row 1 (the body then starts at row 0).
+    /// the thread. `None` hides row 1 (the body then starts at row 0).
     pub session_head: Option<SessionHead<'a>>,
     /// The session's persistent run-mode flags for the head band's scene row
     /// (ADR-0024): unattended execution and confinement. Mirrors the ambient
-    /// session state the conversation scene reads from `App`.
+    /// session state the thread scene reads from `App`.
     pub unattended: bool,
     pub confined: bool,
 }
@@ -309,9 +311,11 @@ pub fn draw_dashboard(
     // the uniform session identity; row 2 names the scene (`dashboard`) and
     // carries the live fleet summary as its context, with the session's
     // run-mode flags and the namespace pair on the right.
-    if let Some(head) = session_head.as_ref() {
-        crate::render::draw_view_header(frame, header_rect, head, theme);
-    }
+    let tab_rects = if let Some(head) = session_head.as_ref() {
+        crate::render::draw_view_header(frame, header_rect, head, theme)
+    } else {
+        Vec::new()
+    };
     let (summary, needs_attention) = header_content(rows);
     crate::render::draw_view_header_hints(
         frame,
@@ -322,6 +326,7 @@ pub fn draw_dashboard(
             context_warn: needs_attention,
             unattended,
             confined,
+            workspace: None,
         },
         theme,
     );
@@ -364,6 +369,7 @@ pub fn draw_dashboard(
         area,
         list_body: console_body,
         detail_body: Some(dock_body),
+        tab_rects,
     }
 }
 
@@ -551,7 +557,7 @@ fn dock_card_line(
     // status (15) · three 2-cell gutters (6). The name takes the rest.
     const FIXED: usize = 2 + 5 + 7 + 15 + 6;
     let name_w = cell_width.saturating_sub(FIXED).max(4);
-    // Lineage badge (fork surfacing): a branch of a live conversation is
+    // Lineage badge (fork surfacing): a branch of a live thread is
     // labeled with its kind — `⑂ aside` for a `/btw` fork, `⑂ fork` for an
     // explicit branch — so the dock reads as trunk cards with their derived
     // branches marked, not as N independent sessions. A trunk keeps the
@@ -1429,6 +1435,8 @@ mod tests {
             workspace: "~/work",
             role: Some("developer"),
             switching_target: None,
+            tabs: None,
+            active_tab: 0,
         };
         terminal.draw(|f| {
             draw_dashboard(
@@ -1465,23 +1473,21 @@ mod tests {
                 .collect()
         };
 
-        // Row 1: the uniform session identity.
+        // Row 1: the uniform session identity and namespace pair.
         let head = row_text(0);
         assert!(head.contains("SESSION"), "session identity on row 1: {head:?}");
         assert!(head.contains("b3c4"), "id tail on row 1: {head:?}");
-        assert!(head.contains("~/work"), "workspace on row 1: {head:?}");
+        assert!(
+            head.contains("Ctrl-x") && head.contains("menu"),
+            "row 1 advertises the scene namespace: {head:?}"
+        );
 
-        // Row 2: the scene name, the fleet summary context, the run-mode flag,
-        // and the namespace pair.
+        // Row 2: the scene name, the fleet summary context, the run-mode flag.
         let scene = row_text(1);
         assert!(scene.contains("dashboard"), "scene name on row 2: {scene:?}");
         assert!(scene.contains("1 session(s)"), "fleet summary context: {scene:?}");
         assert!(scene.contains("1 running"), "running count: {scene:?}");
         assert!(scene.contains("UNATTENDED"), "run-mode flag: {scene:?}");
-        assert!(
-            scene.contains("Ctrl-x") && scene.contains("menu"),
-            "row 2 advertises the scene namespace: {scene:?}"
-        );
         assert!(
             !scene.contains("Esc"),
             "Esc is never advertised as a scene exit: {scene:?}"
@@ -1609,7 +1615,7 @@ mod tests {
     #[test]
     fn dock_card_badges_a_forked_session_by_kind() {
         // Lineage surfacing: a trunk card carries no badge (exactly one main
-        // line per conversation); an aside/fork branch is badged `⑂aside` /
+        // line per thread); an aside/fork branch is badged `⑂aside` /
         // `⑂fork` so the dock reads as trunk + derived branches rather than
         // N independent sessions.
         let theme = Theme::default();

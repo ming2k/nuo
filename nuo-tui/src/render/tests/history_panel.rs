@@ -58,6 +58,9 @@ fn history_panel_renders_every_query_state() {
                     follow_selection: true,
                     input_rect,
                     activity_height: 0,
+                    query,
+                    cursor_position: query.len(),
+                    show_caret: true,
                 },
                 &theme,
             );
@@ -80,6 +83,9 @@ fn history_panel_renders_every_query_state() {
                 follow_selection: true,
                 input_rect,
                 activity_height: 0,
+                query: "",
+                cursor_position: 0,
+                show_caret: false,
             },
             &theme,
         );
@@ -116,6 +122,9 @@ fn history_panel_folds_multiline_entries() {
                 follow_selection: true,
                 input_rect,
                 activity_height: 0,
+                query: "",
+                cursor_position: 0,
+                show_caret: false,
             },
             &theme,
         );
@@ -162,6 +171,9 @@ fn history_panel_collapses_to_actual_row_count() {
                 follow_selection: true,
                 input_rect,
                 activity_height: 0,
+                query: "",
+                cursor_position: 0,
+                show_caret: false,
             },
             &theme,
         )
@@ -207,6 +219,9 @@ fn history_panel_reserves_activity_bar_rows() {
                 follow_selection: true,
                 input_rect,
                 activity_height: 1,
+                query: "",
+                cursor_position: 0,
+                show_caret: false,
             },
             &theme,
         )

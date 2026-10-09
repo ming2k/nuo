@@ -63,7 +63,7 @@ fn home_and_end_navigate_line_in_composer_and_scroll_in_focus() {
 
 #[test]
 fn home_and_end_scroll_in_browse_zone() {
-    // In Browse the conversation owns focus, so Home/End drive scrolling
+    // In Browse the thread owns focus, so Home/End drive scrolling
     // instead of moving the (unfocused) input caret.
     let mut input = "hello".to_string();
     let mut cursor = 3;
@@ -875,4 +875,43 @@ fn esc_on_dashboard_and_settings_is_scene_local_back() {
             "Esc is a step back, never a scene exit, on {scene:?}"
         );
     }
+}
+
+#[test]
+fn alt_digits_route_to_select_tab() {
+    for digit in '1'..='9' {
+        let mut input = String::new();
+        let mut cursor = 0;
+        let mut drag = SelectionDrag::default();
+        let action = route_event(
+            Event::Key(crossterm::event::KeyEvent::new(KeyCode::Char(digit), KeyModifiers::ALT)),
+            &mut input,
+            &mut cursor,
+            Dispatch::default(),
+            &ModalKeys::default(),
+            &SheetKeys::default(),
+            &SceneKeys::default(),
+            &mut drag,
+        );
+        let expected_idx = (digit as usize) - ('1' as usize);
+        assert_eq!(action, InputAction::SelectTab(expected_idx));
+    }
+}
+
+#[test]
+fn alt_w_routes_to_close_tab() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+    let action = route_event(
+        Event::Key(crossterm::event::KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)),
+        &mut input,
+        &mut cursor,
+        Dispatch::default(),
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::CloseTab);
 }

@@ -19,7 +19,7 @@ pub async fn dispatch(cmd: String, env: SlashEnv<'_>) {
     let name = parts[0].trim_start_matches('/');
     let args = cmd.strip_prefix(parts[0]).unwrap_or("").trim();
     match BuiltinCmd::from_slash(parts[0]) {
-        Some(BuiltinCmd::Models) | Some(BuiltinCmd::Connections) | Some(BuiltinCmd::Settings) => {
+        Some(BuiltinCmd::Models) | Some(BuiltinCmd::Connections) => {
             // Handled in client UI / overlay
         }
         Some(BuiltinCmd::Tools) => {
@@ -45,7 +45,6 @@ pub async fn dispatch(cmd: String, env: SlashEnv<'_>) {
         Some(BuiltinCmd::Tree) => commands::tree(env, name, args, &parts).await,
         Some(BuiltinCmd::Diff) => commands::diff(env, name, args, &parts).await,
         Some(BuiltinCmd::Undo) => commands::undo(env, name, args, &parts).await,
-        Some(BuiltinCmd::Dashboard) => commands::dashboard(env, name, args, &parts).await,
         Some(BuiltinCmd::Usage) => commands::usage(env, name, args, &parts).await,
         Some(BuiltinCmd::Quota) => commands::quota(env, name, args, &parts).await,
         Some(BuiltinCmd::Btw) => commands::btw(env, &cmd, name, args, &parts).await,
