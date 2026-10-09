@@ -111,7 +111,7 @@ pub(crate) fn draw_which_key_overlay(
     //    background alone — a borderless floating pill (the toast's visual
     //    language). `Hybrid` / `Structured` cannot rely on a background delta,
     //    so they keep an explicit thick frame.
-    let bg = theme.panel();
+    let bg = theme.which_key_bg();
     let fill = Style::default().bg(bg);
     let is_borderless = matches!(theme.elevation, nuotc::ElevationArchetype::Chromatic);
 
@@ -218,7 +218,7 @@ mod tests {
             !content.contains('┏') && !content.contains('┃') && !content.contains('━'),
             "the modern card must draw no heavy border glyphs: {content}"
         );
-        // The card's own cells carry the elevated panel background, not the
+        // The card's own cells carry the dedicated elevated which-key background, not the
         // default — that background *is* the separation.
         let card_cell = terminal
             .buffer()
@@ -228,8 +228,8 @@ mod tests {
             .expect("title text present");
         assert_eq!(
             card_cell.bg,
-            theme.panel(),
-            "card cells paint the elevated panel surface"
+            theme.which_key_bg(),
+            "card cells paint the dedicated which-key overlay surface"
         );
 
         // Structured fallback keeps the frame.

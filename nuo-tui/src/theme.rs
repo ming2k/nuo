@@ -177,6 +177,10 @@ pub struct Theme {
     pub element_bg: Color,
     /// Background for menus / suggestion popups.
     pub menu_bg: Color,
+    /// Background for transient notification toast bubbles (Layer 3 overlay).
+    pub toast_bg: Color,
+    /// Background for the floating which-key scene namespace card (Layer 3 corner float).
+    pub which_key_bg: Color,
     /// Dim overlay drawn behind modals to fake alpha.
     pub backdrop: Color,
     /// Brightness multiplier (0.0–1.0) applied to every cell of the live
@@ -258,6 +262,8 @@ impl Default for Theme {
             user_panel_bg_queued: Color::Rgb(9, 12, 11),
             element_bg: Color::Rgb(21, 23, 22),
             menu_bg: Color::Rgb(17, 19, 18),
+            toast_bg: Color::Rgb(36, 40, 38),
+            which_key_bg: Color::Rgb(28, 31, 30),
             backdrop: Color::Rgb(3, 4, 4),
             modal_dim_factor: 0.5,
             primary: Color::Rgb(142, 161, 145),
@@ -317,6 +323,8 @@ impl Theme {
             user_panel_bg_queued: Color::Reset,
             element_bg: Color::Reset,
             menu_bg: Color::Reset,
+            toast_bg: Color::Reset,
+            which_key_bg: Color::Reset,
             backdrop: Color::Reset,
             modal_dim_factor: 1.0,
             primary: Color::Cyan,
@@ -372,6 +380,8 @@ impl Theme {
             user_panel_bg_queued: Color::Reset,
             element_bg: Color::Reset,
             menu_bg: Color::Reset,
+            toast_bg: Color::Reset,
+            which_key_bg: Color::Reset,
             backdrop: Color::Reset,
             modal_dim_factor: 1.0,
             primary: Color::Reset,
@@ -617,6 +627,14 @@ impl Theme {
                 self.modal_dim_factor = val.clamp(0.0, 1.0);
             }
         }
+        if let Some(ref overlay) = surfaces.overlay {
+            if let Some(val) = overlay.toast_bg.as_deref().and_then(Self::color_from_hex) {
+                self.toast_bg = val;
+            }
+            if let Some(val) = overlay.which_key_bg.as_deref().and_then(Self::color_from_hex) {
+                self.which_key_bg = val;
+            }
+        }
     }
 
     /// Apply component-specific overrides onto an existing theme.
@@ -777,6 +795,8 @@ impl Theme {
             user_panel_bg_queued: mix(background, user_bg, 0.45),
             element_bg: mix(surface, text, if light { 0.035 } else { 0.05 }),
             menu_bg,
+            toast_bg: mix(surface, text, if light { 0.08 } else { 0.12 }),
+            which_key_bg: mix(surface, text, if light { 0.05 } else { 0.08 }),
             backdrop: mix(background, Color::Black, if light { 0.45 } else { 0.55 }),
             modal_dim_factor: if light { 0.72 } else { 0.5 },
             primary: accent,
@@ -842,13 +862,13 @@ impl Theme {
             _ => self.app_bg,
         }
     }
-    /// Floating overlay / notification toast surface (lighter than scene head `theme.raised()`).
+    /// Floating overlay / notification toast surface (Layer 3 overlay).
     pub fn toast_bg(&self) -> Color {
-        match self.element_bg {
-            Color::Rgb(..) => mix(self.element_bg, Color::Rgb(255, 255, 255), 0.08),
-            Color::Reset => Color::Reset,
-            other => other,
-        }
+        self.toast_bg
+    }
+    /// Floating which-key card surface for armed scene namespace (Layer 3 corner float).
+    pub fn which_key_bg(&self) -> Color {
+        self.which_key_bg
     }
     /// Live input-box surface while the box owns the keyboard.
     pub fn input_surface(&self) -> Color {
@@ -1259,7 +1279,8 @@ impl Theme {
                 selected: self.selected_bg,
             },
             overlay: OverlayTokens {
-                toast_bg: self.element_bg,
+                toast_bg: self.toast_bg,
+                which_key_bg: self.which_key_bg,
                 shadow: Color::Black,
             },
         }
@@ -1347,6 +1368,7 @@ pub struct ModalTokens {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OverlayTokens {
     pub toast_bg: Color,
+    pub which_key_bg: Color,
     pub shadow: Color,
 }
 
@@ -1810,6 +1832,8 @@ hover_bg = "#282828"
         assert_eq!(surfaces.view.canvas, theme.surface());
         assert_eq!(surfaces.modal.surface, theme.panel());
         assert_eq!(surfaces.modal.dim_factor, 0.5);
+        assert_eq!(surfaces.overlay.toast_bg, theme.toast_bg());
+        assert_eq!(surfaces.overlay.which_key_bg, theme.which_key_bg());
 
         let fb_warn = theme.feedback(nuo_wire::NoticeSeverity::Warning);
         assert_eq!(fb_warn.border, theme.warn());
@@ -1844,6 +1868,10 @@ header_bg = "#111111"
 [surfaces.modal]
 surface = "#222222"
 dim_factor = 0.65
+
+[surfaces.overlay]
+toast_bg = "#333333"
+which_key_bg = "#282828"
 "##;
         let file: ThemeFile = toml::from_str(raw).expect("should parse");
         let theme = Theme::from_theme_file(&file);
@@ -1851,6 +1879,10 @@ dim_factor = 0.65
         assert_eq!(theme.surfaces().view.header_bg, Color::Rgb(17, 17, 17));
         assert_eq!(theme.surfaces().modal.surface, Color::Rgb(34, 34, 34));
         assert_eq!(theme.surfaces().modal.dim_factor, 0.65);
+        assert_eq!(theme.surfaces().overlay.toast_bg, Color::Rgb(51, 51, 51));
+        assert_eq!(theme.surfaces().overlay.which_key_bg, Color::Rgb(40, 40, 40));
+        assert_eq!(theme.toast_bg(), Color::Rgb(51, 51, 51));
+        assert_eq!(theme.which_key_bg(), Color::Rgb(40, 40, 40));
     }
 
     #[test]

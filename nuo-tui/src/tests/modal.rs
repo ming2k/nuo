@@ -1424,7 +1424,7 @@ fn esc_never_leaves_a_scene_anywhere_in_the_dispatch() {
     for scene in [
         SceneKind::Dashboard,
         SceneKind::Settings,
-        SceneKind::TaskInspection,
+        SceneKind::Subagent,
         SceneKind::Aside,
     ] {
         let (mut app, _tmp) = app_in_tempdir(&[], &[]);

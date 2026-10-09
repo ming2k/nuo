@@ -338,10 +338,10 @@ define_builtin_commands! {
         intent_keywords: ["usage", "stats", "statistics", "tokens", "tokens-per-day", "daily", "consumption", "spend"],
         category: System,
     },
-    Quota = "/quota" : {
+    Quotas = "/quotas" : {
         summary: "Provider quota pool and allowance dashboard",
-        usage: ["/quota", "/quota <provider>"],
-        examples: [("/quota", "Open provider quota dashboard"), ("/quota google-antigravity", "Inspect Google Antigravity quotas")],
+        usage: ["/quotas", "/quotas <provider>"],
+        examples: [("/quotas", "Open provider quota dashboard"), ("/quotas google-antigravity", "Inspect Google Antigravity quotas")],
         intent_keywords: ["quota", "quotas", "allowance", "capacity", "antigravity", "limits", "balance"],
         category: System,
     },

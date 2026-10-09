@@ -269,7 +269,7 @@ fn compose_frame(
     // followed by the scene's own context. Subagent outranks the aside view in
     // this resolution (they are mutually exclusive in the app; keeping a
     // deterministic precedence guards a malformed caller).
-    let (scene_kind, scene_context, scene_context_warn): (render::ViewKind, Option<String>, bool) =
+    let (scene_kind, scene_context, scene_context_warn): (crate::surfaces::SceneKind, Option<String>, bool) =
         if let Some(bar) = subagent_bar.as_ref() {
             let role = bar
                 .role
@@ -286,20 +286,25 @@ fn compose_frame(
             } else {
                 format!("{role} {}{count}", bar.label)
             };
-            (render::ViewKind::Subagent, Some(context), false)
+            (crate::surfaces::SceneKind::Subagent, Some(context), false)
         } else if let Some(parent) = side_banner {
             (
-                render::ViewKind::Btw,
+                crate::surfaces::SceneKind::Aside,
                 Some(render::parent_status_context(parent).to_string()),
                 render::parent_status_needs_attention(parent),
             )
         } else {
             (
-                render::ViewKind::Session,
+                crate::surfaces::SceneKind::Thread,
                 thread_title(app.focused_messages()),
                 false,
             )
         };
+    let (breadcrumbs, can_back, can_forward) = if let Some(tab) = app.surfaces.active_tab() {
+        (Some(tab.breadcrumbs()), tab.can_back(), tab.can_forward())
+    } else {
+        (None, false, false)
+    };
     let page_hints = render::ViewHints {
         kind: scene_kind,
         context: scene_context.as_deref(),
@@ -308,13 +313,16 @@ fn compose_frame(
         confined: app.confined,
         workspace: if matches!(
             scene_kind,
-            render::ViewKind::Session | render::ViewKind::Subagent | render::ViewKind::Btw
+            crate::surfaces::SceneKind::Thread | crate::surfaces::SceneKind::Subagent | crate::surfaces::SceneKind::Aside
         ) && !app.current_workspace.is_empty()
         {
             Some(&app.current_workspace)
         } else {
             None
         },
+        breadcrumbs,
+        can_back,
+        can_forward,
     };
 
     // Empty-state guidance policy (ADR-0057/0104): the app shell picks the
@@ -1182,7 +1190,7 @@ fn compose_frame(
                 }
                 Some(rects.area)
             }
-            SceneKind::Thread | SceneKind::TaskInspection | SceneKind::Aside => None,
+            SceneKind::Thread | SceneKind::Subagent | SceneKind::Aside => None,
         }
     };
 

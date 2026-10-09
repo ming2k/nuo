@@ -239,6 +239,9 @@ fn subagent_step_and_view_render_without_panicking() {
                     unattended: false,
                     confined: true,
                     workspace: Some("~/projects/nuo"),
+                    breadcrumbs: None,
+                    can_back: false,
+                    can_forward: false,
                 }),
                 session_head: Some(SessionHead {
                     session_id: "sess-01a2b3c4",
@@ -676,6 +679,9 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
         unattended: false,
         confined: true,
         workspace: None,
+        breadcrumbs: None,
+        can_back: false,
+        can_forward: false,
     };
     assert!(hints.has_content(), "every scene stands up row 2 (ADR-0024)");
     let terminal = render_full_view(80, 24, &[], Some(hints));

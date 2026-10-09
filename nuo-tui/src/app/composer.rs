@@ -107,7 +107,7 @@ impl App {
         if !self.esc_armed() {
             return;
         }
-        let target_running = if self.current_scene() == crate::surfaces::SceneKind::TaskInspection {
+        let target_running = if self.current_scene() == crate::surfaces::SceneKind::Subagent {
             self.focused_subagent_running()
         } else {
             self.running_sessions

@@ -330,6 +330,12 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 return ActionFlow::Exit;
             }
         }
+        input::InputAction::TabHistoryBack => {
+            app.tab_history_back();
+        }
+        input::InputAction::TabHistoryForward => {
+            app.tab_history_forward();
+        }
         input::InputAction::SendChat(text) => {
             commands::handle_send_chat(app, runtime, viewed_session_id, text).await;
         }
@@ -935,6 +941,18 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 provider: filter,
                 force_refresh: true,
             });
+        }
+        input::InputAction::QuotasToggleDetail => {
+            // Toggle the detail block of the selected quota row.
+            let idx = app.active_index();
+            app.surfaces.dlg_mut::<crate::surfaces::QuotasDialog>().expanded =
+                if app.surfaces.dlg_mut::<crate::surfaces::QuotasDialog>().expanded == Some(idx)
+                {
+                    None
+                } else {
+                    Some(idx)
+                };
+            app.set_active_follow(true);
         }
         input::InputAction::OpenMcp => {
             enter_panel(
@@ -2581,7 +2599,7 @@ pub(super) fn enter_scene(
             app.host_kill_confirm_id = None;
             None
         }
-        SceneKind::Thread | SceneKind::TaskInspection | SceneKind::Aside => None,
+        SceneKind::Thread | SceneKind::Subagent | SceneKind::Aside => None,
     };
     if let Some(request) = request
         && !app.send_intent(request)

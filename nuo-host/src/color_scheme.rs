@@ -115,6 +115,7 @@ pub struct DialogThemeConfig {
 #[serde(default)]
 pub struct OverlayThemeConfig {
     pub toast_bg: Option<String>,
+    pub which_key_bg: Option<String>,
     pub shadow: Option<String>,
 }
 
@@ -272,6 +273,10 @@ surface = "#141724"
 border = "#00f0ff"
 dim_factor = 0.55
 
+[surfaces.overlay]
+toast_bg = "#1f2438"
+which_key_bg = "#191d2e"
+
 [feedback.warning]
 container = "#26200a"
 border = "#ffd700"
@@ -288,6 +293,9 @@ caret = "#00f0ff"
             Some("#090a10")
         );
         assert_eq!(surfaces.dialog.and_then(|m| m.dim_factor), Some(0.55));
+        let overlay = surfaces.overlay.expect("overlay should exist");
+        assert_eq!(overlay.toast_bg.as_deref(), Some("#1f2438"));
+        assert_eq!(overlay.which_key_bg.as_deref(), Some("#191d2e"));
         let feedback = parsed.feedback.expect("feedback should exist");
         assert_eq!(
             feedback.warning.and_then(|w| w.container).as_deref(),

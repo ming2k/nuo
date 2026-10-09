@@ -321,12 +321,15 @@ pub fn draw_dashboard(
         frame,
         hints_rect,
         &crate::render::ViewHints {
-            kind: crate::render::ViewKind::Dashboard,
+            kind: crate::surfaces::SceneKind::Dashboard,
             context: Some(summary.trim_end()),
             context_warn: needs_attention,
             unattended,
             confined,
             workspace: None,
+            breadcrumbs: None,
+            can_back: false,
+            can_forward: false,
         },
         theme,
     );

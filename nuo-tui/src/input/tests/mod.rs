@@ -87,7 +87,7 @@ fn key_in_view(code: KeyCode, in_subagent_view: bool, input: &mut String) -> Inp
         // Surface dispatch keys off the explicit scene (ADR-0205), not the
         // legacy flags.
         dispatch.scene = if in_subagent_view {
-            crate::surfaces::SceneKind::TaskInspection
+            crate::surfaces::SceneKind::Subagent
         } else {
             crate::surfaces::SceneKind::Thread
         };

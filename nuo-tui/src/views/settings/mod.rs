@@ -253,6 +253,9 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         unattended: props.unattended,
         confined: props.confined,
         workspace: None,
+        breadcrumbs: None,
+        can_back: false,
+        can_forward: false,
     };
     draw_view_header_hints(frame, subhead_rect, &view_hints, props.theme);
 

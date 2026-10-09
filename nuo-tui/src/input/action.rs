@@ -24,6 +24,10 @@ pub enum InputAction {
     PrevTab,
     /// Close active tab (Ctrl+W, ADR-0039 [INV-TAB-03]).
     CloseTab,
+    /// Step back in active tab's navigation history stack (Alt+Left, ADR-0040 [INV-KEY-02], ADR-0042).
+    TabHistoryBack,
+    /// Step forward in active tab's navigation history stack (Alt+Right, ADR-0040 [INV-KEY-02], ADR-0042).
+    TabHistoryForward,
     /// Guardrail notice when a client workspace action is attempted within the thread composer (ADR-0041 [INV-ROUTER-01]).
     WorkspaceGuardrailNotice(String),
     /// Send a chat message.
@@ -185,6 +189,8 @@ pub enum InputAction {
     QuotasActivate,
     /// Force a remote concurrent refresh in the quota dashboard (`r`).
     RefreshQuotas,
+    /// Toggle detail expansion of the selected quota row (`Enter`).
+    QuotasToggleDetail,
     /// Open the MCP manager modal: a centered, selectable list of every
     /// configured MCP server with `Space` toggle and `r` reconnect. Reached via
     /// the `/mcp` slash command (intercepted locally, never sent to the

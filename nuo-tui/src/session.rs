@@ -309,7 +309,7 @@ pub(crate) fn resolve_scene_key(
         crate::surfaces::SceneKind::Thread => {
             resolve_chat_surface_key(key, keys, input, cursor_position)
         }
-        crate::surfaces::SceneKind::TaskInspection => {
+        crate::surfaces::SceneKind::Subagent => {
             resolve_subagent_key(key, keys, input, cursor_position)
         }
         crate::surfaces::SceneKind::Aside => resolve_side_key(key, keys, input, cursor_position),
@@ -563,7 +563,7 @@ mod tests {
     /// scene, ADR-0205).
     fn scene_of(mode: Mode) -> SceneKind {
         match mode {
-            Mode::Subagent => SceneKind::TaskInspection,
+            Mode::Subagent => SceneKind::Subagent,
             Mode::Side => SceneKind::Aside,
             _ => SceneKind::Thread,
         }
@@ -954,7 +954,7 @@ mod tests {
         // A subagent step's Enter still activates through the shared path.
         assert_eq!(
             process(
-                SceneKind::TaskInspection,
+                SceneKind::Subagent,
                 KeyCode::Enter,
                 KeyModifiers::NONE,
                 Mode::FocusedTarget
@@ -1044,7 +1044,7 @@ mod tests {
         let rc = ctx(Mode::Subagent, |c| c.surface_overrides = ov);
         assert_eq!(
             resolve_scene_key(
-                SceneKind::TaskInspection,
+                SceneKind::Subagent,
                 Key::ALT_BRACKET_LEFT,
                 &rc,
                 &mut String::new(),
@@ -1054,7 +1054,7 @@ mod tests {
         );
         assert_eq!(
             resolve_scene_key(
-                SceneKind::TaskInspection,
+                SceneKind::Subagent,
                 Key::BRACKET_LEFT,
                 &rc,
                 &mut String::new(),
@@ -1073,7 +1073,7 @@ mod tests {
         // it never exits the scene (ADR-0298 §2). `q` is the scene's own exit.
         assert_eq!(
             resolve_scene_key(
-                SceneKind::TaskInspection,
+                SceneKind::Subagent,
                 Key::ESC,
                 &ctx(Mode::Subagent, |_| {}),
                 &mut String::new(),
@@ -1084,7 +1084,7 @@ mod tests {
         );
         assert_eq!(
             resolve_scene_key(
-                SceneKind::TaskInspection,
+                SceneKind::Subagent,
                 Key {
                     modifiers: KeyModifiers::NONE,
                     code: KeyCode::Char('q'),
@@ -1098,7 +1098,7 @@ mod tests {
         );
         assert_eq!(
             resolve_scene_key(
-                SceneKind::TaskInspection,
+                SceneKind::Subagent,
                 Key::ESC,
                 &ctx(Mode::Subagent, |c| c.focused_target = true),
                 &mut String::new(),
@@ -1113,7 +1113,7 @@ mod tests {
         // it must not penetrate the scene boundary and stop the outer round.
         assert_eq!(
             resolve_scene_key(
-                SceneKind::TaskInspection,
+                SceneKind::Subagent,
                 Key::ESC,
                 &ctx(Mode::Subagent, |c| {
                     c.is_responding = true; // the *primary* is running
@@ -1128,7 +1128,7 @@ mod tests {
         );
         assert_eq!(
             resolve_scene_key(
-                SceneKind::TaskInspection,
+                SceneKind::Subagent,
                 Key::ESC,
                 &ctx(Mode::Subagent, |c| {
                     c.is_responding = true;
@@ -1148,7 +1148,7 @@ mod tests {
         };
         assert_eq!(
             resolve_scene_key(
-                SceneKind::TaskInspection,
+                SceneKind::Subagent,
                 bracket,
                 &ctx(Mode::Subagent, |_| {}),
                 &mut String::new(),
@@ -1158,7 +1158,7 @@ mod tests {
         );
         assert_eq!(
             resolve_scene_key(
-                SceneKind::TaskInspection,
+                SceneKind::Subagent,
                 bracket,
                 &ctx(Mode::Subagent, |c| c.focused_target = true),
                 &mut String::new(),

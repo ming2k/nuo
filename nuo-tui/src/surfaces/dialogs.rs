@@ -309,6 +309,7 @@ fn render_dialog(
                 loading,
                 d.index,
                 &mut d.scroll,
+                d.expanded,
                 ctx.theme,
                 ctx.selection,
                 ctx.layout_map,
@@ -988,7 +989,10 @@ dialog_entity!(SkillsDialog, Skills, {
 
 dialog_entity!(PermissionsDialog, Permissions, {});
 dialog_entity!(UsageStatsDialog, UsageStats, {});
-dialog_entity!(QuotasDialog, Quotas, {});
+dialog_entity!(QuotasDialog, Quotas, {
+    /// Row whose detail block is expanded, if any.
+    expanded: Option<usize> = None,
+});
 
 dialog_entity!(SessionStatsDialog, SessionStats, {});
 

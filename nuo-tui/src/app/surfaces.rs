@@ -432,7 +432,7 @@ impl App {
             SceneKind::Settings => {
                 self.config_dropdown = None;
             }
-            SceneKind::Thread | SceneKind::TaskInspection | SceneKind::Aside => {}
+            SceneKind::Thread | SceneKind::Subagent | SceneKind::Aside => {}
         }
     }
 
@@ -488,7 +488,7 @@ impl App {
         for s in sheets {
             self.on_sheet_dismissed(s);
         }
-        if leaving == SceneKind::TaskInspection {
+        if leaving == SceneKind::Subagent {
             self.focus_stack.clear();
             self.reset_view_state();
         }
@@ -512,7 +512,7 @@ impl App {
                 self.send_intent(nuo_wire::AgentRequest::ExitSideView);
                 true
             }
-            SceneKind::TaskInspection => {
+            SceneKind::Subagent => {
                 if self.exit_subagent() {
                     true
                 } else {
@@ -540,6 +540,35 @@ impl App {
                 self.leave_scene()
             }
             SceneKind::Thread => false,
+        }
+    }
+
+    /// Step back in active tab's navigation stack (Alt+Left, ADR-0040, ADR-0042).
+    pub(crate) fn tab_history_back(&mut self) -> bool {
+        if self.in_subagent_view() {
+            return self.exit_subagent();
+        }
+        let leaving = self.current_scene();
+        if self.surfaces.tab_history_back() {
+            self.deactivate_scene(leaving);
+            self.surfaces.unwind_scene(leaving);
+            self.reset_view_state();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Step forward in active tab's navigation stack (Alt+Right, ADR-0040, ADR-0042).
+    pub(crate) fn tab_history_forward(&mut self) -> bool {
+        let leaving = self.current_scene();
+        if self.surfaces.tab_history_forward() {
+            self.deactivate_scene(leaving);
+            self.surfaces.unwind_scene(leaving);
+            self.reset_view_state();
+            true
+        } else {
+            false
         }
     }
 

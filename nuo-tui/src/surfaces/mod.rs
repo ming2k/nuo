@@ -1,7 +1,7 @@
 //! TUI surface routing: Stage-Scene-Overlay architecture (ADR-0035).
 //!
 //! - A [`SceneKind`] is an **independent full-screen workspace** (`Conversation`,
-//!   `Dashboard`, `Settings`, `TaskInspection`, `Aside`). Exactly one Scene is
+//!   `Dashboard`, `Settings`, `Subagent`, `Aside`). Exactly one Scene is
 //!   active at any given moment.
 //! - A [`DialogKind`] names a **centered floating dialog** that floats over
 //!   whatever Scene is active. Each dialog is an encapsulated entity in the
@@ -43,8 +43,8 @@ pub enum SceneKind {
     Dashboard,
     /// The full-screen settings center (`/config` / `/settings`).
     Settings,
-    /// Deep-dive inspection into a subagent/envoy task's transcript.
-    TaskInspection,
+    /// Deep-dive inspection into a spawned subagent's execution stream.
+    Subagent,
     /// An aside's transcript (`/btw`).
     Aside,
 }
@@ -56,7 +56,7 @@ impl SceneKind {
             Self::Thread => "Thread",
             Self::Dashboard => "Session dashboard",
             Self::Settings => "Settings",
-            Self::TaskInspection => "Subagent task",
+            Self::Subagent => "Subagent",
             Self::Aside => "Aside",
         }
     }
@@ -67,9 +67,25 @@ impl SceneKind {
             Self::Thread => "Esc  home",
             Self::Dashboard => "/dashboard",
             Self::Settings => "/config  /settings",
-            Self::TaskInspection => "zoom a subagent task",
+            Self::Subagent => "zoom a subagent task",
             Self::Aside => "focus an aside",
         }
+    }
+
+    /// The scene-head label (ADR-0040, ADR-0042).
+    pub fn scene_label(self) -> &'static str {
+        match self {
+            Self::Thread => "thread",
+            Self::Dashboard => "dashboard",
+            Self::Settings => "settings",
+            Self::Subagent => "subagent",
+            Self::Aside => "aside",
+        }
+    }
+
+    /// The breadcrumb label shown in the tab navigation bar (ADR-0040, ADR-0042).
+    pub fn breadcrumb_label(self) -> &'static str {
+        self.scene_label()
     }
 }
 
@@ -144,7 +160,7 @@ impl DialogKind {
             DialogKind::Skills => "/skills",
             DialogKind::Permissions => "/permissions",
             DialogKind::UsageStats => "/usage",
-            DialogKind::Quotas => "/quota",
+            DialogKind::Quotas => "/quotas",
             DialogKind::SessionStats => "/stats",
             DialogKind::SessionTrace => "/trace",
             DialogKind::Asides => "/btw",
@@ -327,8 +343,6 @@ pub enum RetentionPolicy {
     SessionScoped,
 }
 
-const SCENE_HISTORY_CAP: usize = 16;
-
 /// One overlay entry: the surface identity, its domain scope, and — for
 /// dialogs — the encapsulated view the stack owns (ADR-0035 §4,
 /// `StackEntry { kind, scope, view }`). Sheets are action prompts, not
@@ -482,8 +496,6 @@ pub struct SurfaceRouter {
     /// Stack of overlays currently floating over `scene` (bottom to top). The
     /// top of the stack has primary input focus and owns its dialog's entity.
     overlay_stack: Vec<StackEntry>,
-    /// Bounded historical trace of scenes for explicit back-navigation.
-    scene_history: Vec<SceneKind>,
     /// Client-owned active tabs in this viewport (ADR-0039 [INV-TAB-01]).
     tabs: Vec<ClientTab>,
     /// Active tab index within `tabs`.
@@ -497,7 +509,6 @@ impl Default for SurfaceRouter {
         Self {
             scene: SceneKind::Thread,
             overlay_stack: Vec::new(),
-            scene_history: Vec::new(),
             tabs: Vec::new(),
             active_tab: 0,
             dialogs: Dialogs::default(),
@@ -517,7 +528,6 @@ impl SurfaceRouter {
         Self {
             scene: SceneKind::Thread,
             overlay_stack: vec![StackEntry::dialog(id, view)],
-            scene_history: Vec::new(),
             tabs: Vec::new(),
             active_tab: 0,
             dialogs,
@@ -535,7 +545,6 @@ impl SurfaceRouter {
         Self {
             scene,
             overlay_stack: Vec::new(),
-            scene_history: Vec::new(),
             tabs,
             active_tab: 0,
             dialogs: Dialogs::default(),
@@ -893,12 +902,6 @@ impl SurfaceRouter {
     /// Navigate to a root scene, unwinding the leaving scene's bound dialogs.
     pub fn switch_scene(&mut self, scene: SceneKind) {
         if scene != self.scene {
-            if matches!(self.scene, SceneKind::TaskInspection | SceneKind::Aside) {
-                self.scene_history.push(self.scene);
-                if self.scene_history.len() > SCENE_HISTORY_CAP {
-                    self.scene_history.remove(0);
-                }
-            }
             let leaving = self.scene;
             self.unwind_scene(leaving);
             // Sheet overlays carry no scene binding; a scene switch still
@@ -907,12 +910,19 @@ impl SurfaceRouter {
                 .retain(|e| matches!(e.overlay, OverlaySurface::Dialog(_)));
         }
         self.scene = scene;
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            tab.push_scene(scene);
+        }
     }
 
     /// Navigate back to the previous scene in history, or Thread.
     pub fn back_scene(&mut self) -> SceneKind {
         let leaving = self.scene;
-        let next = self.scene_history.pop().unwrap_or(SceneKind::Thread);
+        let next = if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            tab.back().unwrap_or(SceneKind::Thread)
+        } else {
+            SceneKind::Thread
+        };
         self.unwind_scene(leaving);
         self.overlay_stack
             .retain(|e| matches!(e.overlay, OverlaySurface::Dialog(_)));
@@ -924,7 +934,10 @@ impl SurfaceRouter {
     pub fn reset_to_thread(&mut self) {
         self.unwind_all();
         self.scene = SceneKind::Thread;
-        self.scene_history.clear();
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            tab.history = vec![SceneKind::Thread];
+            tab.cursor = 0;
+        }
     }
 
     /// Push an overlay onto the stack.
@@ -1338,20 +1351,20 @@ mod tests {
         assert_eq!(router.active_tab_index(), 0);
         assert_eq!(router.tabs()[0], ClientTab::thread("conv-2", "Quick Query"));
 
-        // 7. Autonomous Tab History Stack (ADR-0040 [INV-HEAD-02])
-        // Push Subagent TaskInspection on Tab 0 (conv-2)
-        router.tabs[0].push_scene(SceneKind::TaskInspection);
-        assert_eq!(router.tabs[0].current_scene(), SceneKind::TaskInspection);
+        // 7. Autonomous Tab History Stack (ADR-0040 [INV-HEAD-02], ADR-0042)
+        // Push Subagent on Tab 0 (conv-2)
+        router.tabs[0].push_scene(SceneKind::Subagent);
+        assert_eq!(router.tabs[0].current_scene(), SceneKind::Subagent);
         assert!(router.tabs[0].can_back());
-        assert_eq!(router.tabs[0].breadcrumbs(), &[SceneKind::Thread, SceneKind::TaskInspection]);
+        assert_eq!(router.tabs[0].breadcrumbs(), &[SceneKind::Thread, SceneKind::Subagent]);
 
         // Push Aside on Tab 0
         router.tabs[0].push_scene(SceneKind::Aside);
         assert_eq!(router.tabs[0].current_scene(), SceneKind::Aside);
 
         // History back on Tab 0
-        assert_eq!(router.tabs[0].back(), Some(SceneKind::TaskInspection));
-        assert_eq!(router.tabs[0].current_scene(), SceneKind::TaskInspection);
+        assert_eq!(router.tabs[0].back(), Some(SceneKind::Subagent));
+        assert_eq!(router.tabs[0].current_scene(), SceneKind::Subagent);
 
         // History forward on Tab 0
         assert_eq!(router.tabs[0].forward(), Some(SceneKind::Aside));
@@ -1360,5 +1373,12 @@ mod tests {
         // Verify Tab 1 (Dashboard) is completely isolated from Tab 0's history
         assert_eq!(router.tabs[1].current_scene(), SceneKind::Dashboard);
         assert!(!router.tabs[1].can_back());
+
+        // 8. switch_scene and back_scene sync with active tab (ADR-0042)
+        router.switch_scene(SceneKind::Subagent);
+        assert_eq!(router.active_scene(), SceneKind::Subagent);
+        assert_eq!(router.active_tab().unwrap().current_scene(), SceneKind::Subagent);
+        assert_eq!(router.back_scene(), SceneKind::Aside);
+        assert_eq!(router.active_scene(), SceneKind::Aside);
     }
 }

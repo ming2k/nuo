@@ -314,7 +314,7 @@ impl App {
     /// from the router (ADR-0141), not from zoom-stack emptiness: a
     /// dashboard opened over the zoom keeps the zoom alive underneath.
     pub fn in_subagent_view(&self) -> bool {
-        self.current_scene() == crate::surfaces::SceneKind::TaskInspection
+        self.current_scene() == crate::surfaces::SceneKind::Subagent
     }
 
     /// The parent tool-call id of the subagent the zoom is focused on — the top
@@ -378,9 +378,9 @@ impl App {
             call_id,
             saved_scroll,
         });
-        if self.current_scene() != crate::surfaces::SceneKind::TaskInspection {
+        if self.current_scene() != crate::surfaces::SceneKind::Subagent {
             self.surfaces
-                .switch_scene(crate::surfaces::SceneKind::TaskInspection);
+                .switch_scene(crate::surfaces::SceneKind::Subagent);
         }
         self.reset_view_state();
     }

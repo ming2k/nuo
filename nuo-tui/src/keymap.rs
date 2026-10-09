@@ -1226,11 +1226,11 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::OpenQuotas,
         label: "Provider Quotas",
-        hint: "/quota",
+        hint: "/quotas",
         category: CommandCategory::Navigate,
         scope: Scope::Global,
         bindings: &[],
-        slash: Some("/quota"),
+        slash: Some("/quotas"),
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,

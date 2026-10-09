@@ -1,7 +1,7 @@
 //! Full-screen scene destinations (ADR-0205).
 //!
 //! A **scene** is an independent, full-screen destination (`Conversation`, `Dashboard`,
-//! `Settings`, `TaskInspection`, `Aside`). Dialogs and sheets float over scenes and
+//! `Settings`, `Subagent`, `Aside`). Dialogs and sheets float over scenes and
 //! never own the full screen.
 
 pub mod settings;

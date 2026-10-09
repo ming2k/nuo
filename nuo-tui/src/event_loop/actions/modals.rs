@@ -580,7 +580,7 @@ pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
                     }
                 }
             },
-            SceneKind::Thread | SceneKind::TaskInspection | SceneKind::Aside => {}
+            SceneKind::Thread | SceneKind::Subagent | SceneKind::Aside => {}
         }
     }
 }
@@ -629,7 +629,7 @@ pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
                     }
                 }
             },
-            SceneKind::Thread | SceneKind::TaskInspection | SceneKind::Aside => {}
+            SceneKind::Thread | SceneKind::Subagent | SceneKind::Aside => {}
         }
     }
 }

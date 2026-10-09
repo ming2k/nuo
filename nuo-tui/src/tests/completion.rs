@@ -1192,7 +1192,7 @@ fn subagent_scene_esc_interrupts_only_the_viewed_child() {
     app.messages.push(task);
     app.running_sessions.insert(app.current_session_id.clone());
     app.enter_subagent("call_zoom".to_string());
-    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::TaskInspection);
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Subagent);
     assert!(app.focused_subagent_running(), "the zoomed child runs");
 
     // Arm + fire via the real dispatch arm.
@@ -1244,7 +1244,7 @@ fn finished_viewed_child_advertises_no_subagent_interrupt() {
 
     // The Esc interrupt arm is inert: no `InterruptSubagent`, so no wire verb.
     let action = crate::session::resolve_scene_key(
-        crate::surfaces::SceneKind::TaskInspection,
+        crate::surfaces::SceneKind::Subagent,
         crate::keymap::Key::ESC,
         &crate::session::SceneKeys {
             is_responding: true, // primary running

@@ -915,3 +915,33 @@ fn alt_w_routes_to_close_tab() {
     );
     assert_eq!(action, InputAction::CloseTab);
 }
+
+#[test]
+fn alt_arrows_route_to_tab_history() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+    let back = route_event(
+        Event::Key(crossterm::event::KeyEvent::new(KeyCode::Left, KeyModifiers::ALT)),
+        &mut input,
+        &mut cursor,
+        Dispatch::default(),
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(back, InputAction::TabHistoryBack);
+
+    let fwd = route_event(
+        Event::Key(crossterm::event::KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)),
+        &mut input,
+        &mut cursor,
+        Dispatch::default(),
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(fwd, InputAction::TabHistoryForward);
+}

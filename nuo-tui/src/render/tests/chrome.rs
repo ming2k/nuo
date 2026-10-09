@@ -1317,12 +1317,15 @@ fn main_view_shows_the_thread_scene_row() {
         24,
         &[],
         Some(ViewHints {
-            kind: ViewKind::Session,
+            kind: crate::surfaces::SceneKind::Thread,
             context: Some("Fix the retry loop"),
             context_warn: false,
             unattended: false,
             confined: true,
             workspace: Some("~/workspace"),
+            breadcrumbs: None,
+            can_back: false,
+            can_forward: false,
         }),
     );
     let row0 = grid_row(&terminal, 0);
@@ -1357,12 +1360,15 @@ fn main_view_scene_row_carries_run_mode_flags() {
         24,
         &[],
         Some(ViewHints {
-            kind: ViewKind::Session,
+            kind: crate::surfaces::SceneKind::Thread,
             context: None,
             context_warn: false,
             unattended: true,
             confined: false,
             workspace: None,
+            breadcrumbs: None,
+            can_back: false,
+            can_forward: false,
         }),
     );
     let row0 = grid_row(&terminal, 0);

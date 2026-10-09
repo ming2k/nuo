@@ -91,7 +91,7 @@ pub fn modal_claims_composer_line(
     match overlay {
         None => matches!(
             scene,
-            SceneKind::Thread | SceneKind::TaskInspection | SceneKind::Aside
+            SceneKind::Thread | SceneKind::Subagent | SceneKind::Aside
         ),
         Some(OverlaySurface::Sheet(SheetKind::ModelEditor)) => true,
         Some(OverlaySurface::Dialog(DialogKind::Models | DialogKind::Connections)) => {
@@ -174,7 +174,7 @@ pub(crate) fn resolve_modal_key(
                         | DialogKind::SessionTree
                         | DialogKind::UsageStats,
                     ) => InputAction::CloseModal,
-                    OverlaySurface::Dialog(DialogKind::Quotas) => InputAction::QuotasActivate,
+                    OverlaySurface::Dialog(DialogKind::Quotas) => InputAction::QuotasToggleDetail,
                     OverlaySurface::Dialog(DialogKind::Skills) => InputAction::SkillsToggleDetail,
                     OverlaySurface::Dialog(DialogKind::Queue) => InputAction::RecallQueuedSelected,
                     OverlaySurface::Dialog(DialogKind::Asides) => InputAction::BtwFocusSelected,

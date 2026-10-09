@@ -55,9 +55,30 @@ pub(crate) struct ViewHints<'a> {
     /// Tilde-shortened workspace path bound to the active thread. Displayed
     /// only on thread-scoped scenes.
     pub workspace: Option<&'a str>,
+    /// Optional breadcrumbs from the active tab's history stack (ADR-0040, ADR-0042).
+    pub breadcrumbs: Option<&'a [crate::surfaces::SceneKind]>,
+    /// Whether back navigation is available in the active tab.
+    pub can_back: bool,
+    /// Whether forward navigation is available in the active tab.
+    pub can_forward: bool,
 }
 
-impl ViewHints<'_> {
+impl<'a> ViewHints<'a> {
+    #[allow(dead_code)]
+    pub fn simple(kind: ViewKind) -> Self {
+        Self {
+            kind,
+            context: None,
+            context_warn: false,
+            unattended: false,
+            confined: true,
+            workspace: None,
+            breadcrumbs: None,
+            can_back: false,
+            can_forward: false,
+        }
+    }
+
     /// Row 2 always has content (ADR-0024): the scene label and the `C-x menu`
     /// namespace pair stand up on every scene, so the head band is always two
     /// rows. Retained as a method so callers keep one place to ask the band's
@@ -67,30 +88,10 @@ impl ViewHints<'_> {
     }
 }
 
-/// Which scene the header band is describing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ViewKind {
-    Session,
-    Btw,
-    Subagent,
-    Settings,
-    Dashboard,
-}
+use crate::surfaces::SceneKind;
 
-impl ViewKind {
-    /// The plain, lowercase name of the scene shown as row 2's leading label
-    /// (ADR-0024): the default home scene is `thread`; the rest name
-    /// themselves.
-    pub(crate) fn scene_label(self) -> &'static str {
-        match self {
-            ViewKind::Session => "thread",
-            ViewKind::Btw => "aside",
-            ViewKind::Subagent => "subagent",
-            ViewKind::Settings => "settings",
-            ViewKind::Dashboard => "dashboard",
-        }
-    }
-}
+/// Canonical scene identifier alias for header presentation (ADR-0042).
+pub(crate) type ViewKind = SceneKind;
 
 /// Row-1 content: the ambient session identity. Uniform across **every**
 /// scene (ADR-0024) — the head band's top row always describes the session the
@@ -320,14 +321,38 @@ pub(crate) fn draw_view_header_hints(
     let flags_width = flags.width();
     let right_width = flags_width;
 
-    // The left side: the scene label, then the scene's context, and (for thread-scoped scenes) the workspace path.
-    let label = hints.kind.scene_label();
-    let label_width = label.width();
+    // The left side: the scene label or breadcrumbs, then the scene's context, and (for thread-scoped scenes) the workspace path.
+    let (lead_spans, lead_width) = if let Some(crumbs) = hints.breadcrumbs.filter(|c| c.len() > 1) {
+        let mut spans = Vec::new();
+        let mut width = 0usize;
+        if hints.can_back {
+            let back_arrow = "< ";
+            spans.push(Span::styled(back_arrow, fill.fg(theme.dim())));
+            width += back_arrow.width();
+        }
+        for (idx, crumb) in crumbs.iter().enumerate() {
+            let crumb_str = crumb.breadcrumb_label();
+            let is_last = idx + 1 == crumbs.len();
+            if is_last {
+                spans.push(Span::styled(crumb_str, label_style));
+                width += crumb_str.width();
+            } else {
+                spans.push(Span::styled(crumb_str, fill.fg(theme.dim())));
+                spans.push(Span::styled(" > ", fill.fg(theme.dim())));
+                width += crumb_str.width() + 3;
+            }
+        }
+        (spans, width)
+    } else {
+        let label = hints.kind.scene_label();
+        let width = label.width();
+        (vec![Span::styled(label, label_style)], width)
+    };
 
     // Only thread-scoped scenes display a bound workspace path.
     let show_workspace = matches!(
         hints.kind,
-        ViewKind::Session | ViewKind::Subagent | ViewKind::Btw
+        SceneKind::Thread | SceneKind::Subagent | SceneKind::Aside
     );
     let ws = if show_workspace {
         hints.workspace.filter(|w| !w.is_empty())
@@ -336,15 +361,15 @@ pub(crate) fn draw_view_header_hints(
     };
 
     let ws_len = ws.map(|w| w.width() + 2).unwrap_or(0);
-    let context_budget = text_width.saturating_sub(label_width + 2 + ws_len + right_width);
+    let context_budget = text_width.saturating_sub(lead_width + 2 + ws_len + right_width);
     let context = hints
         .context
         .filter(|c| !c.is_empty())
         .map(|c| truncate_to_width(c, context_budget));
 
     let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
-    spans.push(Span::styled(label, label_style));
-    let mut left_width = label_width;
+    spans.extend(lead_spans);
+    let mut left_width = lead_width;
 
     if let Some(context) = context {
         spans.push(Span::styled("  ", fill));
@@ -483,14 +508,7 @@ mod tests {
     }
 
     fn hints<'a>(kind: ViewKind) -> ViewHints<'a> {
-        ViewHints {
-            kind,
-            context: None,
-            context_warn: false,
-            unattended: false,
-            confined: true,
-            workspace: None,
-        }
+        ViewHints::simple(kind)
     }
 
     /// Row 1 is the client-level top bar: `SESSION` (or tabs), the id tail,
@@ -649,10 +667,10 @@ mod tests {
         let row = render_row2(
             80,
             ViewHints {
-                kind: ViewKind::Session,
+                kind: SceneKind::Thread,
                 context: Some("Fix the retry loop"),
                 workspace: Some("~/projects/xx"),
-                ..hints(ViewKind::Session)
+                ..hints(SceneKind::Thread)
             },
         );
         assert!(row.starts_with("  thread  Fix the retry loop"), "{row}");
@@ -663,7 +681,7 @@ mod tests {
 
     #[test]
     fn row2_thread_without_a_title_shows_the_label_alone() {
-        let row = render_row2(80, hints(ViewKind::Session));
+        let row = render_row2(80, hints(SceneKind::Thread));
         assert!(row.starts_with("  thread"), "{row}");
         assert!(!row.contains("Ctrl-x"), "no namespace on scene row: {row}");
         assert!(
@@ -677,9 +695,9 @@ mod tests {
         let session_row = render_row2(
             80,
             ViewHints {
-                kind: ViewKind::Session,
+                kind: SceneKind::Thread,
                 workspace: Some("~/repo"),
-                ..hints(ViewKind::Session)
+                ..hints(SceneKind::Thread)
             },
         );
         assert!(session_row.contains("~/repo"), "session scene has workspace: {session_row}");
@@ -687,9 +705,9 @@ mod tests {
         let dashboard_row = render_row2(
             80,
             ViewHints {
-                kind: ViewKind::Dashboard,
+                kind: SceneKind::Dashboard,
                 workspace: Some("~/repo"),
-                ..hints(ViewKind::Dashboard)
+                ..hints(SceneKind::Dashboard)
             },
         );
         assert!(!dashboard_row.contains("~/repo"), "dashboard scene ignores workspace: {dashboard_row}");
@@ -697,9 +715,9 @@ mod tests {
         let settings_row = render_row2(
             80,
             ViewHints {
-                kind: ViewKind::Settings,
+                kind: SceneKind::Settings,
                 workspace: Some("~/repo"),
-                ..hints(ViewKind::Settings)
+                ..hints(SceneKind::Settings)
             },
         );
         assert!(!settings_row.contains("~/repo"), "settings scene ignores workspace: {settings_row}");
@@ -708,11 +726,11 @@ mod tests {
     #[test]
     fn row2_scene_labels_are_per_scene() {
         for (kind, label) in [
-            (ViewKind::Session, "thread"),
-            (ViewKind::Btw, "aside"),
-            (ViewKind::Subagent, "subagent"),
-            (ViewKind::Settings, "settings"),
-            (ViewKind::Dashboard, "dashboard"),
+            (SceneKind::Thread, "thread"),
+            (SceneKind::Aside, "aside"),
+            (SceneKind::Subagent, "subagent"),
+            (SceneKind::Settings, "settings"),
+            (SceneKind::Dashboard, "dashboard"),
         ] {
             assert_eq!(kind.scene_label(), label);
             let row = render_row2(80, hints(kind));
@@ -728,7 +746,7 @@ mod tests {
             ViewHints {
                 unattended: true,
                 confined: false,
-                ..hints(ViewKind::Dashboard)
+                ..hints(SceneKind::Dashboard)
             },
         );
         assert!(row.contains("UNATTENDED"), "unattended flag: {row}");
@@ -752,7 +770,7 @@ mod tests {
             80,
             ViewHints {
                 context: Some("main running"),
-                ..hints(ViewKind::Dashboard)
+                ..hints(SceneKind::Dashboard)
             },
             &theme,
         );
@@ -761,7 +779,7 @@ mod tests {
             ViewHints {
                 context: Some("needs approval"),
                 context_warn: true,
-                ..hints(ViewKind::Dashboard)
+                ..hints(SceneKind::Dashboard)
             },
             &theme,
         );
@@ -777,11 +795,11 @@ mod tests {
     #[test]
     fn row2_stands_up_on_every_scene() {
         for kind in [
-            ViewKind::Session,
-            ViewKind::Btw,
-            ViewKind::Subagent,
-            ViewKind::Settings,
-            ViewKind::Dashboard,
+            SceneKind::Thread,
+            SceneKind::Aside,
+            SceneKind::Subagent,
+            SceneKind::Settings,
+            SceneKind::Dashboard,
         ] {
             assert!(hints(kind).has_content(), "{kind:?} stands up row 2");
             let row = render_row2(80, hints(kind));
@@ -794,7 +812,7 @@ mod tests {
         let theme = Theme::default();
         let mut terminal = nuotc::TestTerminal::new(60, 1);
         terminal.draw(|frame| {
-            draw_view_header_hints(frame, frame.area(), &hints(ViewKind::Settings), &theme);
+            draw_view_header_hints(frame, frame.area(), &hints(SceneKind::Settings), &theme);
         });
         for cell in &terminal.buffer().content {
             assert_eq!(cell.bg, theme.raised());
@@ -815,6 +833,25 @@ mod tests {
         assert!(!parent_status_needs_attention(nuo_wire::ParentStatus::Running));
         assert!(parent_status_needs_attention(nuo_wire::ParentStatus::NeedsApproval));
         assert!(parent_status_needs_attention(nuo_wire::ParentStatus::Failed));
+    }
+
+    #[test]
+    fn row2_renders_tab_breadcrumbs_and_subagent_drill_in() {
+        let crumbs = [SceneKind::Thread, SceneKind::Subagent];
+        let row = render_row2(
+            80,
+            ViewHints {
+                kind: SceneKind::Subagent,
+                context: Some("[EXPLORE] inspect codebase"),
+                breadcrumbs: Some(&crumbs),
+                can_back: true,
+                can_forward: false,
+                ..hints(SceneKind::Subagent)
+            },
+        );
+        assert!(row.contains("< "), "shows back affordance: {row}");
+        assert!(row.contains("thread > subagent"), "shows breadcrumb trail: {row}");
+        assert!(row.contains("[EXPLORE] inspect codebase"), "shows scene context: {row}");
     }
 }
 
