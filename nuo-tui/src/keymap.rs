@@ -1096,10 +1096,10 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::OpenSessionStats,
         label: "Session Stats",
-        hint: "Ctrl-o",
+        hint: "/stats",
         category: CommandCategory::Navigate,
         scope: Scope::Global,
-        bindings: &[Key::CTRL_O],
+        bindings: &[],
         slash: Some("/stats"),
         availability: avail_session,
         disclosure: DisclosurePriority::L2Palette,
@@ -1264,16 +1264,16 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     },
     CommandSpec {
         id: CommandId::OpenSessions,
-        label: "Sessions",
+        label: "Threads",
         hint: "C-x s",
         category: CommandCategory::Navigate,
         scope: Scope::Global,
         bindings: &[],
-        slash: Some("/sessions"),
+        slash: Some("/threads"),
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Switch between saved project sessions (C-x s)",
+        description: "Switch between saved project threads (C-x s / /threads)",
     },
     // Management Actions
     CommandSpec {
@@ -1341,58 +1341,58 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         danger: DangerLevel::Safe,
         description: "Force full TUI terminal redraw and layout sync",
     },
-    // Dialog Actions: Sessions
+    // Dialog Actions: Threads
     CommandSpec {
         id: CommandId::SessionOpenSelected,
-        label: "Open Session",
+        label: "Open Thread",
         hint: "Enter",
         category: CommandCategory::Actions,
-        scope: Scope::Dialog(DialogKind::Sessions),
+        scope: Scope::Dialog(DialogKind::Threads),
         bindings: &[Key::ENTER],
         slash: None,
         availability: avail_always,
         disclosure: DisclosurePriority::L0Footer,
         danger: DangerLevel::Safe,
-        description: "Open the highlighted session",
+        description: "Open the highlighted thread",
     },
     CommandSpec {
         id: CommandId::SessionDeleteSelected,
-        label: "Delete Session",
+        label: "Delete Thread",
         hint: "d",
         category: CommandCategory::Actions,
-        scope: Scope::Dialog(DialogKind::Sessions),
+        scope: Scope::Dialog(DialogKind::Threads),
         bindings: &[Key::plain('d')],
         slash: None,
         availability: avail_always,
         disclosure: DisclosurePriority::L0Footer,
         danger: DangerLevel::Dangerous,
-        description: "Delete the selected session permanently",
+        description: "Delete the selected thread permanently",
     },
     CommandSpec {
         id: CommandId::SessionCreateNew,
-        label: "New Session",
+        label: "New Thread",
         hint: "n",
         category: CommandCategory::Actions,
-        scope: Scope::Dialog(DialogKind::Sessions),
+        scope: Scope::Dialog(DialogKind::Threads),
         bindings: &[Key::plain('n')],
         slash: None,
         availability: avail_always,
         disclosure: DisclosurePriority::L0Footer,
         danger: DangerLevel::Safe,
-        description: "Create a new session",
+        description: "Create a new thread",
     },
     CommandSpec {
         id: CommandId::SessionOpenInfo,
-        label: "Session Info",
+        label: "Thread Info",
         hint: "i",
         category: CommandCategory::Actions,
-        scope: Scope::Dialog(DialogKind::Sessions),
+        scope: Scope::Dialog(DialogKind::Threads),
         bindings: &[Key::plain('i')],
         slash: None,
         availability: avail_always,
         disclosure: DisclosurePriority::L1FocusRegion,
         danger: DangerLevel::Safe,
-        description: "View session details, token usage, and history",
+        description: "View thread details, token usage, and history",
     },
     // Dialog Actions: Models
     CommandSpec {
@@ -1879,14 +1879,16 @@ pub mod scene_namespace {
     /// One scene-lifecycle verb reachable as `C-x <stroke>`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum SceneVerb {
-        /// Leave the current scene (or dismiss a foreground dialog first).
-        Leave,
         /// Open (or close) the Command Palette / surface switcher.
         Switcher,
-        /// Open the saved sessions picker dialog (`/sessions`).
-        Sessions,
         /// Navigate directly to the server session orchestrator dashboard (`/dashboard`).
         Dashboard,
+        /// Open application and appearance settings (`/settings`, `C-x ,`, ADR-0043).
+        Settings,
+        /// Open the saved threads overview picker dialog (`/threads`, ADR-0043).
+        Threads,
+        /// Close active tab (or dismiss a foreground dialog first).
+        Leave,
         /// Quit nuo — the same armed double-press as the global `Ctrl+C`.
         Quit,
     }
@@ -1895,10 +1897,11 @@ pub mod scene_namespace {
         /// Every verb, in advertisement order. The which-key card renders this
         /// slice; the router resolves against it. One list, two consumers.
         pub const ALL: &'static [SceneVerb] = &[
-            SceneVerb::Leave,
             SceneVerb::Switcher,
-            SceneVerb::Sessions,
             SceneVerb::Dashboard,
+            SceneVerb::Settings,
+            SceneVerb::Threads,
+            SceneVerb::Leave,
             SceneVerb::Quit,
         ];
 
@@ -1908,6 +1911,33 @@ pub mod scene_namespace {
         /// card advertises.
         pub const fn strokes(self) -> &'static [Key] {
             match self {
+                // `p` (palette) and `b` (buffer/switch — the Emacs `C-x b`
+                // muscle memory for "switch what I'm looking at").
+                SceneVerb::Switcher => &[
+                    Key {
+                        modifiers: KeyModifiers::NONE,
+                        code: KeyCode::Char('p'),
+                    },
+                    Key {
+                        modifiers: KeyModifiers::NONE,
+                        code: KeyCode::Char('b'),
+                    },
+                ],
+                // `d` (dashboard — opens server session orchestrator dashboard).
+                SceneVerb::Dashboard => &[Key {
+                    modifiers: KeyModifiers::NONE,
+                    code: KeyCode::Char('d'),
+                }],
+                // `,` (settings — opens application and appearance settings, ADR-0043).
+                SceneVerb::Settings => &[Key {
+                    modifiers: KeyModifiers::NONE,
+                    code: KeyCode::Char(','),
+                }],
+                // `s` (threads — opens the saved threads overview picker, ADR-0043).
+                SceneVerb::Threads => &[Key {
+                    modifiers: KeyModifiers::NONE,
+                    code: KeyCode::Char('s'),
+                }],
                 // `w` (Emacs `C-x C-w`-family window/`C-x w` muscle memory) and
                 // `k` (the close-window convention). Case-insensitive: the
                 // router folds the second stroke, since a leader chord is
@@ -1922,28 +1952,6 @@ pub mod scene_namespace {
                         code: KeyCode::Char('k'),
                     },
                 ],
-                // `p` (palette) and `b` (buffer/switch — the Emacs `C-x b`
-                // muscle memory for "switch what I'm looking at").
-                SceneVerb::Switcher => &[
-                    Key {
-                        modifiers: KeyModifiers::NONE,
-                        code: KeyCode::Char('p'),
-                    },
-                    Key {
-                        modifiers: KeyModifiers::NONE,
-                        code: KeyCode::Char('b'),
-                    },
-                ],
-                // `s` (sessions — opens the saved sessions overview picker).
-                SceneVerb::Sessions => &[Key {
-                    modifiers: KeyModifiers::NONE,
-                    code: KeyCode::Char('s'),
-                }],
-                // `d` (dashboard — opens server session orchestrator dashboard).
-                SceneVerb::Dashboard => &[Key {
-                    modifiers: KeyModifiers::NONE,
-                    code: KeyCode::Char('d'),
-                }],
                 // `C-c` mirrors the global quit chord's spelling inside the
                 // namespace (Emacs' `C-x C-c`).
                 SceneVerb::Quit => &[Key {
@@ -1963,10 +1971,11 @@ pub mod scene_namespace {
         /// (`components::which_key::close_label_for`); this is its fallback.
         pub const fn label(self) -> &'static str {
             match self {
-                SceneVerb::Leave => "leave scene",
                 SceneVerb::Switcher => "command palette",
-                SceneVerb::Sessions => "sessions",
                 SceneVerb::Dashboard => "dashboard",
+                SceneVerb::Settings => "settings",
+                SceneVerb::Threads => "threads",
+                SceneVerb::Leave => "close tab",
                 SceneVerb::Quit => "quit nuo",
             }
         }
@@ -1984,6 +1993,7 @@ pub mod scene_namespace {
                     KeyCode::Char('b') => "b",
                     KeyCode::Char('s') => "s",
                     KeyCode::Char('d') => "d",
+                    KeyCode::Char(',') => ",",
                     _ => "?",
                 },
                 _ => match self.advertised_stroke().code {
@@ -2053,7 +2063,7 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
         CommandId::CloseTab => Some(Key::ALT_W),
         CommandId::KillThread => None,
         CommandId::CopySelection => Some(Key::CTRL_SHIFT_C),
-        CommandId::OpenSessionStats => Some(Key::CTRL_O),
+        CommandId::OpenSessionStats => None,
         CommandId::OpenSessionTrace => None,
         CommandId::OpenActiveConnectionDetail => None,
         // `Esc` is a real chord, not a placeholder: it is the registry's
@@ -2070,15 +2080,13 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
 }
 
 /// The canonical resolution table (the hard-bound globals + the bar chords:
-/// Ctrl+O session stats, Ctrl+Q queue, Esc dismiss/step-back, Ctrl+C quit,
+/// Ctrl+Q queue, Esc dismiss/step-back, Ctrl+C quit,
 /// Ctrl+Shift+C copy), ignoring user overrides. Esc resolves to
 /// [`CommandId::CancelOrBack`], which never navigates between Scenes.
 /// The Command Palette has **no** single-stroke global chord — it
 /// is opened by the `C-x` scene namespace (ADR-0023).
 fn canonical_global_key(key: Key) -> Option<CommandId> {
-    if key == Key::CTRL_O {
-        Some(CommandId::OpenSessionStats)
-    } else if key == Key::CTRL_Q {
+    if key == Key::CTRL_Q {
         Some(CommandId::OpenQueue)
     } else if key == Key::ESC {
         Some(CommandId::CancelOrBack)
@@ -2436,10 +2444,7 @@ mod tests {
         // The Command Palette has no canonical single-stroke chord: it is
         // opened by the `C-x` scene namespace's `p` verb (ADR-0023).
         assert_eq!(resolve_global_key(Key::CTRL_L), None);
-        assert_eq!(
-            resolve_global_key(Key::CTRL_O),
-            Some(CommandId::OpenSessionStats)
-        );
+        assert_eq!(resolve_global_key(Key::CTRL_O), None);
         assert_eq!(resolve_global_key(Key::ESC), Some(CommandId::CancelOrBack));
         assert_eq!(resolve_global_key(Key::CTRL_C), Some(CommandId::Quit));
         assert_eq!(resolve_global_key(Key::CTRL_Q), Some(CommandId::OpenQueue));
@@ -2613,11 +2618,8 @@ mod tests {
             resolve_global_key_with(Key::CTRL_Q, &o),
             Some(CommandId::OpenQueue)
         );
-        // Unremapped commands keep their canonical behavior.
-        assert_eq!(
-            resolve_global_key_with(Key::CTRL_O, &o),
-            Some(CommandId::OpenSessionStats)
-        );
+        // Commands without canonical chords resolve to None.
+        assert_eq!(resolve_global_key_with(Key::CTRL_O, &o), None);
         // Effective binding follows the override for remapped commands.
         assert_eq!(o.effective_binding(CommandId::Quit), Some(ctrl_shift_q));
         // A command with no canonical chord reports none — chrome renders no

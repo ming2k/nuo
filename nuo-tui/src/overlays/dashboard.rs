@@ -1481,7 +1481,7 @@ mod tests {
         assert!(head.contains("SESSION"), "session identity on row 1: {head:?}");
         assert!(head.contains("b3c4"), "id tail on row 1: {head:?}");
         assert!(
-            head.contains("Ctrl-x") && head.contains("menu"),
+            head.contains("menu C-x"),
             "row 1 advertises the scene namespace: {head:?}"
         );
 

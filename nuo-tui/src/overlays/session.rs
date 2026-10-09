@@ -185,7 +185,7 @@ pub fn draw_sessions_modal(
     // The header is a breadcrumb (`Sessions › Info`) — the modal hierarchy
     // convention: a sub-page keeps the same modal but shows where it sits.
     if session_info_detail {
-        let header = breadcrumb_parts("Sessions", "Info");
+        let header = breadcrumb_parts("Threads", "Info");
         modal_header_parts(frame, f.header, &header, theme);
         let detail_footer: [FooterHint; 1] =
             [FooterHint::key_always(crate::keymap::Key::ESC, "list")];
@@ -197,7 +197,7 @@ pub fn draw_sessions_modal(
                     Line::from(vec![
                         Span::styled(format!("{spin} "), Style::default().fg(theme.primary)),
                         Span::styled(
-                            "Loading session detail…",
+                            "Loading thread detail…",
                             Style::default().fg(theme.muted()),
                         ),
                     ]),
@@ -228,7 +228,7 @@ pub fn draw_sessions_modal(
         return area;
     }
 
-    modal_header(frame, f.header, "Sessions", theme);
+    modal_header(frame, f.header, "Threads", theme);
 
     let body_width = f.body.width as usize;
 
@@ -241,12 +241,12 @@ pub fn draw_sessions_modal(
                 Line::from(""),
                 Line::from(vec![
                     Span::styled(format!("{spin} "), Style::default().fg(theme.primary)),
-                    Span::styled("Loading sessions…", Style::default().fg(theme.muted())),
+                    Span::styled("Loading threads…", Style::default().fg(theme.muted())),
                 ]),
             ]
         } else {
             vec![Line::from(vec![Span::styled(
-                "No other sessions found.",
+                "No other threads found.",
                 Style::default().fg(theme.muted()),
             )])]
         };
@@ -486,12 +486,12 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
-            output.contains("Loading sessions…"),
+            output.contains("Loading threads…"),
             "must show loading indicator while sessions_loading=true: {output}"
         );
         assert!(
-            !output.contains("No previous sessions"),
-            "must NOT mislead with no previous sessions while loading: {output}"
+            !output.contains("No other threads"),
+            "must NOT mislead with no previous threads while loading: {output}"
         );
     }
 
@@ -533,8 +533,8 @@ mod tests {
             .map(|r| r.iter().map(|c| c.symbol()).collect::<String>())
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(output.contains("No other sessions found."));
-        assert!(!output.contains("Loading sessions…"));
+        assert!(output.contains("No other threads found."));
+        assert!(!output.contains("Loading threads…"));
     }
 
     #[test]

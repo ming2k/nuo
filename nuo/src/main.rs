@@ -72,7 +72,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Mode::Mcp(McpAction::Probe { name }) => commands::mcp::probe(&name).await,
         Mode::Mcp(action) => commands::mcp::run(action),
         Mode::Skill(action) => commands::skill::run(action).await,
-        Mode::Session(action) => commands::session::run(action, project_override).await,
+        Mode::Thread(action) => commands::session::run(action, project_override).await,
         Mode::Server(action) => run_server_action(action, project_override).await,
     }
 }

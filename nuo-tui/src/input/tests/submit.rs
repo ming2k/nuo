@@ -66,6 +66,7 @@ fn enter_in_compose_while_busy_queues_follow_up_in_follow_up_mode() {
 #[test]
 fn enter_with_slash_command_dispatches_recognized_commands() {
     for (cmd, expected) in [
+        ("/threads", InputAction::OpenSessions),
         ("/sessions", InputAction::OpenSessions),
         ("/models", InputAction::OpenModels),
         ("/connections", InputAction::OpenConnections),
@@ -76,6 +77,8 @@ fn enter_with_slash_command_dispatches_recognized_commands() {
         ("/quotas", InputAction::OpenQuotas),
         ("/mcp", InputAction::OpenMcp),
         ("/skills", InputAction::OpenSkills),
+        ("/stats", InputAction::OpenSessionStats),
+        ("/trace", InputAction::OpenSessionTrace),
         ("/exit", InputAction::Quit),
     ] {
         let mut input = cmd.to_string();

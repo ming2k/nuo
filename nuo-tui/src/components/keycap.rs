@@ -51,6 +51,7 @@ pub(crate) struct KeyAffordance {
 
 impl KeyAffordance {
     /// Construct a new typed KeyAffordance from a canonical `Key`.
+    #[allow(dead_code)]
     pub const fn from_key(key: crate::keymap::Key, label: &'static str) -> Self {
         Self::new(key.display(), label)
     }
@@ -68,12 +69,22 @@ impl KeyAffordance {
         Self { key, label }
     }
 
+    /// Construct a compact TabBar menu affordance: prominent label on the left,
+    /// dim chord "C-x" on the right (ADR-0043 [INV-UI-02]).
+    pub const fn tabbar_menu(label: &'static str) -> Self {
+        Self {
+            key: "C-x",
+            label,
+        }
+    }
+
     /// The visual column width of the keycap + space + label unit.
     pub fn width(&self) -> usize {
         self.key.width() + 1 + self.label.width()
     }
 
     /// Render this affordance as a pair of styled spans: keycap (keycap_fg + bold) + space + label (keycap_label).
+    #[allow(dead_code)]
     pub fn render_spans(&self, theme: &Theme, bg: Color) -> [Span<'static>; 2] {
         let key_fg = theme.keycap_fg();
         let key_style = Style::default()
@@ -84,6 +95,20 @@ impl KeyAffordance {
         [
             Span::styled(self.key.to_string(), key_style),
             Span::styled(format!(" {}", self.label), label_style),
+        ]
+    }
+
+    /// Render this affordance in TabBar label-first style (ADR-0043 [INV-UI-02]):
+    /// prominent label on the left (brand + bold), dim shortcut on the right (dim).
+    pub fn render_tabbar_spans(&self, theme: &Theme, bg: Color) -> [Span<'static>; 2] {
+        let label_style = Style::default()
+            .fg(theme.brand())
+            .bg(bg)
+            .add_modifier(Modifier::BOLD);
+        let key_style = Style::default().fg(theme.dim()).bg(bg);
+        [
+            Span::styled(self.label.to_string(), label_style),
+            Span::styled(format!(" {}", self.key), key_style),
         ]
     }
 }
@@ -111,6 +136,21 @@ mod tests {
         assert_eq!(key_span.style.fg, theme.keycap_fg());
         assert_eq!(label_span.content, " back");
         assert_eq!(label_span.style.fg, theme.keycap_label());
+    }
+
+    #[test]
+    fn key_affordance_tabbar_menu_renders_compact_label_first() {
+        let theme = Theme::default();
+        let affordance = KeyAffordance::tabbar_menu("menu");
+        assert_eq!(affordance.width(), 8); // "menu" (4) + " " (1) + "C-x" (3)
+
+        let [label_span, key_span] = affordance.render_tabbar_spans(&theme, theme.body());
+        assert_eq!(label_span.content, "menu");
+        assert_eq!(label_span.style.fg, theme.brand());
+        assert!(label_span.style.add.contains(Modifier::BOLD));
+        assert_eq!(key_span.content, " C-x");
+        assert_eq!(key_span.style.fg, theme.dim());
+        assert!(!key_span.style.add.contains(Modifier::BOLD));
     }
 
     #[test]

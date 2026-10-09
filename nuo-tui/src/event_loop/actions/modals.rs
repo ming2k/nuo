@@ -463,7 +463,7 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
     if app.pop_sublayer() {
         // Sub-layer closed; the parent view keeps the surface.
     } else if app.startup_overlay == crate::StartupOverlay::SessionsPicker
-        && app.active_dialog() == Some(DialogKind::Sessions)
+        && app.active_dialog() == Some(DialogKind::Threads)
     {
         // `nuo attach` (no id) opened the picker at startup
         // instead of loading any session: there is no real

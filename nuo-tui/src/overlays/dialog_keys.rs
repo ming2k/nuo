@@ -29,7 +29,7 @@ use crate::surfaces::DialogKind;
 /// Compute the modal rect matching the parent dialog's layout specification.
 fn dialog_keys_area(frame: &Frame, parent: DialogKind, desired_content_rows: u16) -> Rect {
     match parent {
-        DialogKind::Sessions => modal_area(frame, FixedModalSpec::SESSIONS),
+        DialogKind::Threads => modal_area(frame, FixedModalSpec::SESSIONS),
         DialogKind::Models | DialogKind::Connections | DialogKind::Switcher => {
             modal_area(frame, FixedModalSpec::PROVIDER)
         }

@@ -1331,7 +1331,7 @@ fn main_view_shows_the_thread_scene_row() {
     let row0 = grid_row(&terminal, 0);
     assert!(row0.contains("SESSION"));
     assert!(
-        row0.contains("Ctrl-x") && row0.contains("menu"),
+        row0.contains("menu C-x"),
         "client top bar offers the C-x menu namespace: {row0:?}"
     );
     let row1 = grid_row(&terminal, 1);
@@ -1345,7 +1345,7 @@ fn main_view_shows_the_thread_scene_row() {
         "workspace belongs to thread scene row: {row1:?}"
     );
     assert!(
-        !row1.contains("Ctrl-x"),
+        !row1.contains("menu C-x") && !row1.contains("C-x"),
         "scene row no longer carries C-x: {row1:?}"
     );
 }
@@ -1372,11 +1372,11 @@ fn main_view_scene_row_carries_run_mode_flags() {
         }),
     );
     let row0 = grid_row(&terminal, 0);
-    assert!(row0.contains("Ctrl-x menu"), "client menu on row 0: {row0:?}");
+    assert!(row0.contains("menu C-x"), "client menu on row 0: {row0:?}");
     let row1 = grid_row(&terminal, 1);
     assert!(row1.contains("UNATTENDED"), "unattended flag: {row1:?}");
     assert!(row1.contains("UNCONFINED"), "unconfined flag: {row1:?}");
-    assert!(!row1.contains("Ctrl-x"), "namespace on row 0 not row 1: {row1:?}");
+    assert!(!row1.contains("menu C-x") && !row1.contains("C-x"), "namespace on row 0 not row 1: {row1:?}");
     assert!(!row1.contains("Esc"), "no interrupt pair: {row1:?}");
     assert!(!row1.contains("F1"), "no global help pair: {row1:?}");
 }

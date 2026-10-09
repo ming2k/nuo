@@ -135,7 +135,7 @@ impl App {
                 DialogKind::Tools => self.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().follow = follow,
                 DialogKind::Mcp => self.surfaces.dlg_mut::<crate::surfaces::McpDialog>().follow = follow,
                 DialogKind::Skills => self.surfaces.dlg_mut::<crate::surfaces::SkillsDialog>().follow = follow,
-                DialogKind::Sessions => self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().follow = follow,
+                DialogKind::Threads => self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().follow = follow,
                 DialogKind::HistorySearch => self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().follow = follow,
                 DialogKind::SessionTree => self.surfaces.dlg_mut::<crate::surfaces::SessionTreeDialog>().follow = follow,
                 DialogKind::Queue => self.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().follow = follow,
@@ -354,8 +354,8 @@ impl App {
         no_transient_sheet
             && !(scene == SceneKind::Dashboard
                 && (self.host_prompting || self.host_preview.is_some()))
-            && !(active_dialog == Some(DialogKind::Sessions)
-                && self.surfaces.dlg::<crate::surfaces::SessionsDialog>().info_detail)
+            && !(active_dialog == Some(DialogKind::Threads)
+                && self.surfaces.dlg::<crate::surfaces::ThreadsDialog>().info_detail)
             && !(active_dialog == Some(DialogKind::SessionTrace)
                 && (self.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().detail
                     || self.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().turn.is_some()))
@@ -380,8 +380,8 @@ impl App {
         self.in_side_view = false;
         self.side_session_id = None;
         self.session_detail = None;
-        self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail = false;
-        self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_scroll = 0;
+        self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = false;
+        self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll = 0;
         self.session_history_backfill_cursor = 0;
     }
 
@@ -440,11 +440,11 @@ impl App {
     /// dismissal hook runs in `SurfaceRouter::pop_overlay`.
     pub(crate) fn deactivate_dialog(&mut self, id: DialogKind) {
         self.set_dialog_keys(false);
-        if id == DialogKind::Sessions {
-            self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().loading = false;
-            self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail = false;
+        if id == DialogKind::Threads {
+            self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().loading = false;
+            self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = false;
             self.session_detail = None;
-            self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_scroll = 0;
+            self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll = 0;
         }
         if id == DialogKind::Connections {
             self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail = false;
@@ -672,10 +672,10 @@ impl App {
                         return true;
                     }
                 }
-                DialogKind::Sessions if self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail => {
-                    self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail = false;
+                DialogKind::Threads if self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail => {
+                    self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = false;
                     self.session_detail = None;
-                    self.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_scroll = 0;
+                    self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll = 0;
                     return true;
                 }
                 DialogKind::Connections if self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail => {

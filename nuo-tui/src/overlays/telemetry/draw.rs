@@ -1,7 +1,7 @@
 //! Telemetry overlays: Session Stats and Session Trace modal orchestrators.
 //!
 //! Separated into two distinct surfaces (ADR-0037):
-//! - `draw_session_stats_modal` — Session Stats (/stats, Ctrl+O)
+//! - `draw_session_stats_modal` — Session Stats (/stats)
 //! - `draw_session_trace_modal` — Session Trace (/trace) with hierarchical drill-in (L1/L2/L3)
 
 use nuo_wire::TokenSourceReport;

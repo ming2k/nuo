@@ -348,8 +348,8 @@ quit = "ctrl+shift+q"
         );
         // Unconfigured commands keep their canonical binding.
         assert_eq!(
-            o.effective_binding(crate::keymap::CommandId::OpenSessionStats),
-            Some(crate::keymap::Key::CTRL_O)
+            o.effective_binding(crate::keymap::CommandId::OpenQueue),
+            Some(crate::keymap::Key::CTRL_Q)
         );
     }
 

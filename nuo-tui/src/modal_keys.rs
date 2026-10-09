@@ -161,10 +161,10 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Sheet(SheetKind::CustomProvider) => {
                         InputAction::SubmitCustomProvider
                     }
-                    OverlaySurface::Dialog(DialogKind::Sessions) if keys.session_info_detail => {
+                    OverlaySurface::Dialog(DialogKind::Threads) if keys.session_info_detail => {
                         return None;
                     }
-                    OverlaySurface::Dialog(DialogKind::Sessions) => {
+                    OverlaySurface::Dialog(DialogKind::Threads) => {
                         InputAction::OpenSelectedSession
                     }
                     OverlaySurface::Dialog(
@@ -200,7 +200,7 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Dialog(
                         DialogKind::Models
                         | DialogKind::Connections
-                        | DialogKind::Sessions
+                        | DialogKind::Threads
                         | DialogKind::Permissions
                         | DialogKind::SessionTree
                         | DialogKind::SessionTrace,
@@ -241,7 +241,7 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Dialog(
                         DialogKind::Models
                         | DialogKind::Connections
-                        | DialogKind::Sessions
+                        | DialogKind::Threads
                         | DialogKind::Permissions
                         | DialogKind::SessionTree
                         | DialogKind::SessionTrace,
@@ -329,7 +329,7 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Sheet(SheetKind::OAuthPending) => {
                         InputAction::CycleOauthSelection
                     }
-                    OverlaySurface::Dialog(DialogKind::Sessions) => {
+                    OverlaySurface::Dialog(DialogKind::Threads) => {
                         InputAction::ToggleSessionTimelineExpand
                     }
                     _ => return None,
@@ -427,7 +427,7 @@ pub(crate) fn resolve_modal_key(
                 }
             }
             OverlaySurface::Dialog(DialogKind::Connections) => resolve_picker_key(c, false, keys),
-            OverlaySurface::Dialog(DialogKind::Sessions) if !keys.session_info_detail => match c {
+            OverlaySurface::Dialog(DialogKind::Threads) if !keys.session_info_detail => match c {
                 'd' => Some(InputAction::DeleteSelectedSession),
                 'n' | 'N' => Some(InputAction::CreateNewSession),
                 'i' => Some(InputAction::OpenSessionInfo),

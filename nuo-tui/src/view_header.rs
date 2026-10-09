@@ -166,11 +166,8 @@ pub(crate) fn draw_view_header(
     let pad = TRANSCRIPT_H_INSET as usize;
     let text_width = full_width.saturating_sub(2 * pad);
 
-    // C-x affordance belongs to the client-level TabBar / Header (ADR-0039, ADR-0040)
-    let affordance = crate::components::keycap::KeyAffordance::from_key(
-        crate::keymap::Key::CTRL_X,
-        SCENE_NAMESPACE_LABEL,
-    );
+    // C-x affordance belongs to the client-level TabBar / Header (ADR-0039, ADR-0040, ADR-0043 [INV-UI-02])
+    let affordance = crate::components::keycap::KeyAffordance::tabbar_menu(SCENE_NAMESPACE_LABEL);
     let right_width = affordance.width();
 
     // Tab workspace rendering (ADR-0039 [INV-TAB-01], ADR-0040 [INV-UI-01])
@@ -239,9 +236,9 @@ pub(crate) fn draw_view_header(
 
         let gap = text_width.saturating_sub(used_tab_w + right_width);
         spans.push(Span::styled(" ".repeat(gap), fill));
-        let [key_span, label_span] = affordance.render_spans(theme, bg);
-        spans.push(key_span);
+        let [label_span, key_span] = affordance.render_tabbar_spans(theme, bg);
         spans.push(label_span);
+        spans.push(key_span);
         spans.push(Span::styled(" ".repeat(pad), fill));
         frame.render_widget(Paragraph::new(Line::from(spans)), rect);
         return tab_rects;
@@ -271,9 +268,9 @@ pub(crate) fn draw_view_header(
         spans.push(Span::styled(format!("{badge} "), badge_style));
     }
     spans.push(Span::styled(" ".repeat(gap), fill));
-    let [key_span, label_span] = affordance.render_spans(theme, bg);
-    spans.push(key_span);
+    let [label_span, key_span] = affordance.render_tabbar_spans(theme, bg);
     spans.push(label_span);
+    spans.push(key_span);
     spans.push(Span::styled(" ".repeat(pad), fill));
 
     frame.render_widget(Paragraph::new(Line::from(spans)), rect);
@@ -534,7 +531,7 @@ mod tests {
             !row.contains("UNATTENDED") && !row.contains("UNCONFINED"),
             "the run-mode flags live on row 2 now: {row}"
         );
-        assert!(row.contains("Ctrl-x") && row.contains("menu"), "client menu on row 1: {row}");
+        assert!(row.contains("menu C-x"), "compact client menu on row 1: {row}");
     }
 
     #[test]
@@ -556,7 +553,7 @@ mod tests {
         assert!(!row.contains("[1:thread-b3c4]"), "tabs must not use brackets: {row}");
         assert!(row.contains("2:dashboard"), "{row}");
         assert!(!row.contains("~/projects/xx"), "workspace removed from client TabBar: {row}");
-        assert!(row.contains("Ctrl-x") && row.contains("menu"), "client menu on TabBar: {row}");
+        assert!(row.contains("menu C-x"), "compact client menu on TabBar: {row}");
     }
 
     #[test]

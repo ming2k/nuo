@@ -40,11 +40,13 @@ pub async fn dispatch(cmd: String, env: SlashEnv<'_>) {
         Some(BuiltinCmd::Search) => {
             commands::search(env, &cmd, name, args, &parts, start_instant).await
         }
-        Some(BuiltinCmd::Sessions) => commands::sessions(env, name, args, &parts).await,
+        Some(BuiltinCmd::Threads) => commands::sessions(env, name, args, &parts).await,
         Some(BuiltinCmd::Fork) => commands::fork(env, name, args, &parts).await,
         Some(BuiltinCmd::Tree) => commands::tree(env, name, args, &parts).await,
         Some(BuiltinCmd::Diff) => commands::diff(env, name, args, &parts).await,
         Some(BuiltinCmd::Undo) => commands::undo(env, name, args, &parts).await,
+        Some(BuiltinCmd::Stats) => commands::stats(env, name, args, &parts).await,
+        Some(BuiltinCmd::Trace) => commands::trace(env, name, args, &parts).await,
         Some(BuiltinCmd::Usage) => commands::usage(env, name, args, &parts).await,
         Some(BuiltinCmd::Quotas) => commands::quota(env, name, args, &parts).await,
         Some(BuiltinCmd::Btw) => commands::btw(env, &cmd, name, args, &parts).await,

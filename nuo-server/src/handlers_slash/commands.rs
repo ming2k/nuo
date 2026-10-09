@@ -678,6 +678,28 @@ pub(crate) async fn undo(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&s
     }
 }
 
+pub(crate) async fn stats(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv { session, .. } = env;
+    record_ack(
+        session,
+        name,
+        args,
+        "Session stats are shown by the TUI overlay — run /stats in the terminal app.",
+    )
+    .await;
+}
+
+pub(crate) async fn trace(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv { session, .. } = env;
+    record_ack(
+        session,
+        name,
+        args,
+        "Session execution trace is shown by the TUI overlay — run /trace in the terminal app.",
+    )
+    .await;
+}
+
 pub(crate) async fn usage(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
     let SlashEnv { session, .. } = env;
     // Handled in TUI: `/usage` opens the usage-statistics overlay

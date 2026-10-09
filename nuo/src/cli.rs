@@ -29,7 +29,8 @@ use std::path::PathBuf;
 pub enum Mode {
     /// Interactive TUI session or headless run (`nuox` unified engine per ADR-0005).
     Interactive(Vec<String>),
-    Session(SessionAction),
+    /// `nuo thread …` / `nuo session …` (ADR-0043).
+    Thread(ThreadAction),
     /// Session server commands and lifecycle operations.
     Server(ServerAction),
     Config(ConfigAction),
@@ -78,13 +79,16 @@ pub enum SkillAction {
     Init { name: String, user: bool },
 }
 
-/// `nuo session …`
+/// `nuo thread …` / `nuo session …` (ADR-0043)
 #[derive(Debug, Clone, PartialEq)]
-pub enum SessionAction {
-    /// `nuo session rm <id>` — terminate a hosted session. Listing is
-    /// `nuo status`: the session table is the server's view.
+pub enum ThreadAction {
+    /// `nuo thread rm <id>` — terminate a hosted thread. Listing is
+    /// `nuo status`: the thread table is the server's view.
     Delete(String),
 }
+
+/// Backward-compatible alias for [`ThreadAction`].
+pub type SessionAction = ThreadAction;
 
 /// `nuo` server actions (server, serve, start, stop, restart, status, token)
 #[derive(Debug, Clone, PartialEq)]
@@ -213,17 +217,18 @@ struct Spec {
     about: &'static str,
 }
 
-const SESSION_SUBS: &[Spec] = &[
-    // The listing is `nuo status`, not a session subcommand: the
-    // session table is the server's view of what it hosts (ADR-0116's
-    // one-noun-per-resource — `session ls` duplicated `nuo status`
-    // verbatim).
+const THREAD_SUBS: &[Spec] = &[
+    // The listing is `nuo status`, not a thread subcommand: the
+    // thread table is the server's view of what it hosts.
     Spec {
         name: "rm",
         names: &["rm", "delete"],
-        about: "terminate a hosted session by id",
+        about: "terminate a hosted thread by id",
     },
 ];
+
+#[allow(dead_code)]
+const SESSION_SUBS: &[Spec] = THREAD_SUBS;
 
 const CONFIG_SUBS: &[Spec] = &[
     Spec {
@@ -390,9 +395,9 @@ const COMMANDS: &[Spec] = &[
         about: "print the local server bearer token",
     },
     Spec {
-        name: "session",
-        names: &["session"],
-        about: "manage sessions (rm; listing is `status`)",
+        name: "thread",
+        names: &["thread", "session"],
+        about: "manage threads (rm; listing is `status`)",
     },
     Spec {
         name: "config",
@@ -884,13 +889,13 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             [] => Mode::Server(ServerAction::Token),
             [bad, ..] => return unexpected(bad),
         },
-        "session" => {
+        "thread" | "session" => {
             if extra.is_empty() {
-                return Err("nuo session needs a subcommand: `nuo session rm <id>` \
-                     (to list sessions, use `nuo status`)"
+                return Err("nuo thread needs a subcommand: `nuo thread rm <id>` \
+                     (to list threads, use `nuo status`)"
                     .into());
             }
-            let sub = match resolve(&extra[0], SESSION_SUBS) {
+            let sub = match resolve(&extra[0], THREAD_SUBS) {
                 Some(sub) => sub,
                 None => return unexpected(&extra[0]),
             };
@@ -900,13 +905,13 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                     let args: &[String] = sub_extra;
                     match args {
                         [id] if !id.starts_with('-') => {
-                            Mode::Session(SessionAction::Delete(id.clone()))
+                            Mode::Thread(ThreadAction::Delete(id.clone()))
                         }
-                        [] => return Err("session rm requires a session id".into()),
+                        [] => return Err("thread rm requires a thread id".into()),
                         [bad, ..] => return unexpected(bad),
                     }
                 }
-                _ => unreachable!("session subcommands are closed"),
+                _ => unreachable!("thread subcommands are closed"),
             }
         }
         "config" => {
@@ -1109,7 +1114,7 @@ fn command_flags(cmd: &str) -> &'static [(&'static str, &'static str)] {
             ("--all", "include idle sessions"),
             ("--diagnostic", "report discovery/lock/socket/log health"),
         ],
-        "session" => &[("rm <id>", "terminate a hosted session by id")],
+        "thread" | "session" => &[("rm <id>", "terminate a hosted thread by id")],
         "mcp" => &[
             ("ls", "list configured MCP servers"),
             ("get <name>", "print one server's config entry"),
@@ -1188,7 +1193,7 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
 
 fn subs_of(cmd: &str) -> Option<&'static [Spec]> {
     match cmd {
-        "session" => Some(SESSION_SUBS),
+        "thread" | "session" => Some(THREAD_SUBS),
         "config" => Some(CONFIG_SUBS),
         "auth" => Some(AUTH_SUBS),
         "mcp" => Some(MCP_SUBS),
@@ -1500,5 +1505,17 @@ mod surface_tests {
 
         let import_err = parse(&["mcp", "import", "-"]).unwrap_err();
         assert!(import_err.contains("retired (ADR-0252)"));
+    }
+
+    #[test]
+    fn thread_verbs_parse_for_thread_and_legacy_session() {
+        assert!(matches!(
+            parse(&["thread", "rm", "thr-0123"]).unwrap().mode,
+            Mode::Thread(ThreadAction::Delete(ref id)) if id == "thr-0123"
+        ));
+        assert!(matches!(
+            parse(&["session", "rm", "thr-0123"]).unwrap().mode,
+            Mode::Thread(ThreadAction::Delete(ref id)) if id == "thr-0123"
+        ));
     }
 }

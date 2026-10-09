@@ -372,13 +372,15 @@ fn resolve_enter(
         // Match on the trimmed text so a slash command typed with a trailing
         // space (e.g. `/models `) still hits the exact-match arm.
         let action = match text.trim() {
-            "/sessions" => InputAction::OpenSessions,
+            "/threads" | "/sessions" => InputAction::OpenSessions,
             "/models" => InputAction::OpenModels,
             "/connections" => InputAction::OpenConnections,
             "/permissions" => InputAction::OpenPermissions,
             "/tools" => InputAction::OpenTools,
             "/usage" => InputAction::OpenUsage,
             "/quota" | "/quotas" => InputAction::OpenQuotas,
+            "/stats" => InputAction::OpenSessionStats,
+            "/trace" => InputAction::OpenSessionTrace,
             "/mcp" => InputAction::OpenMcp,
             "/skills" => InputAction::OpenSkills,
             "/exit" => InputAction::Quit,
@@ -684,7 +686,6 @@ mod tests {
             crate::keymap::Key::CTRL_G,
             crate::keymap::Key::CTRL_W,
             crate::keymap::Key::CTRL_L,
-            crate::keymap::Key::CTRL_O,
             crate::keymap::Key::PAGE_UP,
             crate::keymap::Key::PAGE_DOWN,
         ] {

@@ -320,7 +320,7 @@ pub(crate) fn handle_ctrl_c(
             app.dismiss_surface();
         }
     } else if app.startup_overlay == crate::StartupOverlay::SessionsPicker
-        && app.active_dialog() == Some(DialogKind::Sessions)
+        && app.active_dialog() == Some(DialogKind::Threads)
     {
         // `nuo attach` (no id) opened the picker at startup:
         // there is no thread behind it, so Ctrl+C — like

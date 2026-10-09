@@ -296,29 +296,29 @@ define_builtin_commands! {
         intent_keywords: ["search", "find", "query", "grep", "history", "lookup", "recall", "past-messages"],
         category: Session,
     },
-    Sessions = "/sessions" : {
-        summary: "Browse or resume past sessions",
-        usage: ["/sessions", "/sessions <id>"],
-        examples: [("/sessions", "Open interactive session picker"), ("/sessions 0195", "Resume session matching prefix")],
-        intent_keywords: ["sessions", "session", "resume", "continue", "history", "list", "reopen", "browse", "switch-session"],
+    Threads = "/threads" : {
+        summary: "Browse or resume past threads",
+        usage: ["/threads", "/threads <id>"],
+        examples: [("/threads", "Open interactive thread picker"), ("/threads 0195", "Resume thread matching prefix")],
+        intent_keywords: ["threads", "thread", "sessions", "session", "resume", "continue", "history", "list", "reopen", "browse", "switch-thread"],
         category: Session,
     },
     Fork = "/fork" : {
-        summary: "Fork thread into a child session",
+        summary: "Fork thread into a child thread",
         usage: ["/fork"],
-        examples: [("/fork", "Branch current thread into a child session")],
-        intent_keywords: ["fork", "branch", "clone", "duplicate", "split", "copy-session"],
+        examples: [("/fork", "Branch current thread into a child thread")],
+        intent_keywords: ["fork", "branch", "clone", "duplicate", "split", "copy-thread"],
         category: Session,
     },
     Tree = "/tree" : {
-        summary: "Visual DAG session tree and branch navigation",
+        summary: "Visual DAG thread tree and branch navigation",
         usage: ["/tree"],
-        examples: [("/tree", "Open interactive DAG session tree")],
+        examples: [("/tree", "Open interactive DAG thread tree")],
         intent_keywords: ["tree", "dag", "branch", "branches", "lineage", "timeline", "history-tree", "checkout"],
         category: Session,
     },
     Diff = "/diff" : {
-        summary: "View workspace modifications made in this session",
+        summary: "View workspace modifications made in this thread",
         usage: ["/diff"],
         examples: [("/diff", "View workspace file changes")],
         intent_keywords: ["diff", "changes", "modified", "patch", "git-diff", "review-changes"],
@@ -329,6 +329,20 @@ define_builtin_commands! {
         usage: ["/undo"],
         examples: [("/undo", "Undo last turn")],
         intent_keywords: ["undo", "revert", "rollback", "back", "pop", "discard-turn"],
+        category: Session,
+    },
+    Stats = "/stats" : {
+        summary: "View context token accounting and session stats",
+        usage: ["/stats"],
+        examples: [("/stats", "Open session stats overlay")],
+        intent_keywords: ["stats", "tokens", "context", "session-stats", "tps", "streaming-rate"],
+        category: Session,
+    },
+    Trace = "/trace" : {
+        summary: "Inspect session execution trace and latency waterfall",
+        usage: ["/trace"],
+        examples: [("/trace", "Open session execution trace overlay")],
+        intent_keywords: ["trace", "waterfall", "latency", "ttft", "tps", "profiler", "execution"],
         category: Session,
     },
     Usage = "/usage" : {
@@ -471,18 +485,9 @@ impl BuiltinCmd {
     /// [`BuiltinCmd::ALL`] so `/help` keeps listing canonical names only.
     fn from_alias(input: &str) -> Option<Self> {
         match input {
-            // `/resume` was a second spelling of `/session resume` — an
-            // identical help line with no ADR justifying the duplication, and
-            // an arm that skipped the provider-pin reapply. Retired as an
-            // alias of `/sessions`: bare `/resume` opens the picker, and
-            // `/resume <id>` opens that session.
-            "/resume" => Some(BuiltinCmd::Sessions),
-            // `/session` grew subcommands that all duplicate better surfaces:
-            // `status`/`list` are read-only reports, `resume`/`open` fold
-            // into `/sessions`, `new` is `/new`, and `fork` is now
-            // top-level. The alias keeps old invocations working (the
-            // handler translates the legacy grammar).
-            "/session" => Some(BuiltinCmd::Sessions),
+            // `/resume`, `/session`, and `/sessions` map to `/threads` for seamless
+            // backward compatibility (ADR-0043).
+            "/resume" | "/session" | "/sessions" => Some(BuiltinCmd::Threads),
             // `/auto`, `/delegate`, `/autopilot`, `/yolo` are aliases for `/unattended`.
             "/auto" | "/delegate" | "/autopilot" | "/yolo" => Some(BuiltinCmd::Unattended),
             // `/unconfine`, `/unconfined`, `/jail`, `/escape` are aliases for `/confinement`.
@@ -526,8 +531,8 @@ pub const TRIGGER_WORD_SUGGESTIONS: &[(&str, &str, &str)] = &[
     ),
     (
         "continue",
-        "/sessions",
-        "/sessions picks the session up where it left off",
+        "/threads",
+        "/threads picks the thread up where it left off",
     ),
 ];
 
@@ -613,8 +618,9 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
     nuo_wire::CommandCatalog {
         commands,
         aliases: [
-            ("/resume", "/sessions"),
-            ("/session", "/sessions"),
+            ("/resume", "/threads"),
+            ("/session", "/threads"),
+            ("/sessions", "/threads"),
             ("/auto", "/unattended"),
             ("/delegate", "/unattended"),
             ("/autopilot", "/unattended"),
@@ -712,17 +718,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sessions_is_canonical_and_resume_resolves_as_alias() {
+    fn threads_is_canonical_and_sessions_resume_resolve_as_aliases() {
+        assert_eq!(
+            BuiltinCmd::from_slash("/threads"),
+            Some(BuiltinCmd::Threads)
+        );
         assert_eq!(
             BuiltinCmd::from_slash("/sessions"),
-            Some(BuiltinCmd::Sessions)
+            Some(BuiltinCmd::Threads)
         );
         assert_eq!(
             BuiltinCmd::from_slash("/resume"),
-            Some(BuiltinCmd::Sessions)
+            Some(BuiltinCmd::Threads)
         );
         assert!(!BuiltinCmd::ALL.iter().any(|(name, _)| *name == "/resume"));
-        assert!(BuiltinCmd::ALL.iter().any(|(name, _)| *name == "/sessions"));
+        assert!(!BuiltinCmd::ALL.iter().any(|(name, _)| *name == "/sessions"));
+        assert!(BuiltinCmd::ALL.iter().any(|(name, _)| *name == "/threads"));
     }
 
     #[test]
@@ -795,7 +806,7 @@ mod tests {
         );
         assert_eq!(
             crate::startup::suggest_for_trigger("continue").map(|(t, _)| t),
-            Some("/sessions")
+            Some("/threads")
         );
         assert!(crate::startup::suggest_for_trigger("cle").is_none());
         assert!(crate::startup::suggest_for_trigger("new").is_none());

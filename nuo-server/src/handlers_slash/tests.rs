@@ -14,6 +14,14 @@ mod session_route_tests {
     #[test]
     fn canonical_sessions_forms() {
         assert_eq!(
+            session_route("threads", &parts("/threads")),
+            Ok(SessionRoute::Open(None))
+        );
+        assert_eq!(
+            session_route("threads", &parts("/threads abc123")),
+            Ok(SessionRoute::Open(Some("abc123")))
+        );
+        assert_eq!(
             session_route("sessions", &parts("/sessions")),
             Ok(SessionRoute::Open(None))
         );
@@ -366,6 +374,12 @@ mod role_command_tests {
     #[test]
     fn role_command_resolves_to_builtin_role() {
         assert_eq!(BuiltinCmd::from_slash("/role"), Some(BuiltinCmd::Role));
+    }
+
+    #[test]
+    fn telemetry_commands_resolve_to_builtin_cmds() {
+        assert_eq!(BuiltinCmd::from_slash("/stats"), Some(BuiltinCmd::Stats));
+        assert_eq!(BuiltinCmd::from_slash("/trace"), Some(BuiltinCmd::Trace));
     }
 
     #[test]

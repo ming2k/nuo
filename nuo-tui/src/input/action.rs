@@ -318,7 +318,7 @@ pub enum InputAction {
     /// Plain Ctrl+C: copy selection, clear input, or arm quit. It never
     /// interrupts a running turn — only double-Esc does.
     CtrlC,
-    /// Open the session stats report (`Ctrl+O`).
+    /// Open the session stats report (`/stats`).
     OpenSessionStats,
     /// Open the session execution trace report (`/trace`).
     OpenSessionTrace,
@@ -575,6 +575,8 @@ pub enum InputAction {
     CloseScene,
     /// Navigate directly to the server session orchestrator dashboard scene (`C-x d`).
     NavigateDashboard,
+    /// Navigate directly to the application settings workspace scene (`C-x ,`, ADR-0043).
+    NavigateSettings,
     /// Terminal was resized (SIGWINCH). The event loop forces a redraw and
     /// re-emits `EnableMouseCapture` so the crossterm parser's internal state
     /// machine is resynced: a resize frequently splits an in-flight SGR mouse
@@ -609,6 +611,8 @@ impl InputAction {
                 | InputAction::OpenMcp
                 | InputAction::OpenSkills
                 | InputAction::OpenConfig
+                | InputAction::OpenSessionStats
+                | InputAction::OpenSessionTrace
         )
     }
 }

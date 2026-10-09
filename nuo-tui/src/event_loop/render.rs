@@ -64,7 +64,7 @@ fn compose_frame(
     }
 
     if app.startup_overlay == crate::StartupOverlay::SessionsPicker
-        && app.active_dialog() == Some(DialogKind::Sessions)
+        && app.active_dialog() == Some(DialogKind::Threads)
     {
         // `nuo attach` (no id): initial launch opens ONLY the sessions picker
         // on a clean background. Do not open/render the chat interface, empty state,

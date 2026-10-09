@@ -30,7 +30,7 @@ mod dialogs;
 pub use dialogs::{
     AsidesDialog, ConnectionsDialog, DialogRenderCtx, DialogView, Dialogs, HistorySearchDialog,
     McpDialog, ModelsDialog, PermissionsDialog, QueueDialog, QuotasDialog, SessionTreeDialog, SessionsDialog,
-    SessionStatsDialog, SessionTraceDialog, SkillsDialog, SwitcherDialog, ToolsDialog, UsageStatsDialog,
+    SessionStatsDialog, SessionTraceDialog, SkillsDialog, SwitcherDialog, ThreadsDialog, ToolsDialog, UsageStatsDialog,
 };
 
 /// Root full-screen scene identifier (closed set of destinations).
@@ -105,12 +105,16 @@ pub enum DialogKind {
     Connections,
     HistorySearch,
     Queue,
-    Sessions,
+    Threads,
     SessionTree,
     Switcher,
 }
 
 impl DialogKind {
+    /// Backward-compatible alias for [`DialogKind::Threads`].
+    #[allow(non_upper_case_globals)]
+    pub const Sessions: DialogKind = DialogKind::Threads;
+
     /// Every dialog id that appears in the switcher's reference/discovery list.
     pub const ALL: [DialogKind; 15] = [
         DialogKind::Tools,
@@ -126,7 +130,7 @@ impl DialogKind {
         DialogKind::Connections,
         DialogKind::HistorySearch,
         DialogKind::Queue,
-        DialogKind::Sessions,
+        DialogKind::Threads,
         DialogKind::SessionTree,
     ];
 
@@ -146,7 +150,7 @@ impl DialogKind {
             DialogKind::Connections => "Connections",
             DialogKind::HistorySearch => "History",
             DialogKind::Queue => "Queue (outbox)",
-            DialogKind::Sessions => "Sessions",
+            DialogKind::Threads => "Threads",
             DialogKind::SessionTree => "Session tree",
             DialogKind::Switcher => "Quick switcher",
         }
@@ -168,7 +172,7 @@ impl DialogKind {
             DialogKind::Connections => "/connections",
             DialogKind::HistorySearch => "Ctrl-r",
             DialogKind::Queue => "/queue",
-            DialogKind::Sessions => "/sessions",
+            DialogKind::Threads => "/threads",
             DialogKind::SessionTree => "/tree",
             DialogKind::Switcher => "C-x p",
         }
@@ -181,7 +185,7 @@ impl DialogKind {
             // Global: the terminal app's own surfaces. They survive session
             // and scene switches.
             DialogKind::Switcher
-            | DialogKind::Sessions
+            | DialogKind::Threads
             | DialogKind::Models
             | DialogKind::Connections
             | DialogKind::UsageStats
@@ -1127,7 +1131,7 @@ mod tests {
         assert_eq!(DialogKind::HistorySearch.scope(), DialogScope::Scene(SceneKind::Thread));
         for id in [
             DialogKind::Switcher,
-            DialogKind::Sessions,
+            DialogKind::Threads,
             DialogKind::Models,
             DialogKind::Connections,
             DialogKind::UsageStats,

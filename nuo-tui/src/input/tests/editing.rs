@@ -1204,6 +1204,7 @@ fn text_modal_commands_resolve_and_consume_composer() {
     // history + transcript recording — so these must stay in sync with the
     // intercepted set in `route_event`.
     for (cmd, expected) in [
+        ("/threads", InputAction::OpenSessions),
         ("/sessions", InputAction::OpenSessions),
         ("/models", InputAction::OpenModels),
         ("/connections", InputAction::OpenConnections),
@@ -1211,6 +1212,8 @@ fn text_modal_commands_resolve_and_consume_composer() {
         ("/tools", InputAction::OpenTools),
         ("/mcp", InputAction::OpenMcp),
         ("/skills", InputAction::OpenSkills),
+        ("/stats", InputAction::OpenSessionStats),
+        ("/trace", InputAction::OpenSessionTrace),
     ] {
         let mut input = cmd.to_string();
         let action = enter(&mut input, true);

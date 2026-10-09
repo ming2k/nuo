@@ -89,7 +89,7 @@ Chosen option: **Option 3**.
 ### 1. Invariants Defined
 
 - **`[INV-STATS-01] Pure Resource Accounting`**:
-  `DialogKind::SessionStats` is dedicated solely to session context window pressure and token accounting (`/stats`, `Ctrl+O`). It is strictly read-only and vertically scrollable (`Up`/`Down`). It possesses zero tab states, zero lateral arrow handlers, and zero drill-down levels.
+  `DialogKind::SessionStats` is dedicated solely to session context window pressure and token accounting (`/stats`). It is strictly read-only and vertically scrollable (`Up`/`Down`). It possesses zero tab states, zero lateral arrow handlers, and zero drill-down levels.
 - **`[INV-TRACE-01] Hierarchical Execution Tracing`**:
   `DialogKind::SessionTrace` is dedicated solely to execution profiling and latency waterfall inspection (`/trace`). It owns a deterministic 3-tier hierarchical drill-down (`L1 Rounds` $\leftrightarrow$ `L2 Turns` $\leftrightarrow$ `L3 Attempt Timeline`). Navigation is strictly vertical (`Up`/`Down` row selection, `Enter` drill-in, `Esc` step-back unwinding). It possesses zero tabs and zero horizontal arrow paging.
 - **`[INV-AFFORDANCE-01] Cross-Surface Transition Chord`**:
@@ -114,8 +114,8 @@ dialog_entity!(SessionTraceDialog, SessionTrace, {
 
 | Dialog | Kind | Title | Slash Command | Shortcut | Scope |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Session Stats** | `DialogKind::SessionStats` | `Session Stats` | `/stats` | `Ctrl+O` | `DialogScope::Session` |
-| **Session Trace** | `DialogKind::SessionTrace` | `Session Trace` | `/trace` | (via stats `t` or switcher) | `DialogScope::Session` |
+| **Session Stats** | `DialogKind::SessionStats` | `Session Stats` | `/stats` | (slash or switcher) | `DialogScope::Session` |
+| **Session Trace** | `DialogKind::SessionTrace` | `Session Trace` | `/trace` | (slash, stats `t`, or switcher) | `DialogScope::Session` |
 
 ---
 

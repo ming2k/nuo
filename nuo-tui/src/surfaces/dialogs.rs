@@ -171,7 +171,7 @@ pub trait DialogView: std::fmt::Debug + Send + 'static {
 pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
     match kind {
         DialogKind::Connections | DialogKind::Models => FixedModalSpec::PROVIDER.modal_spec(),
-        DialogKind::Sessions => FixedModalSpec::SESSIONS.modal_spec(),
+        DialogKind::Threads => FixedModalSpec::SESSIONS.modal_spec(),
         DialogKind::Tools | DialogKind::SessionTree => ContentModalSpec::TOOLS.modal_spec(),
         DialogKind::Mcp => ContentModalSpec::MCP.modal_spec(),
         DialogKind::Queue => ContentModalSpec::QUEUE.modal_spec(),
@@ -416,8 +416,8 @@ fn render_dialog(
                 ctx.layout_map,
             ))
         }
-        DialogKind::Sessions => {
-            let d = view.as_any_mut().downcast_mut::<SessionsDialog>().expect("kind");
+        DialogKind::Threads => {
+            let d = view.as_any_mut().downcast_mut::<ThreadsDialog>().expect("kind");
             let projected_count = crate::overlays::session::project_session_rows(
                 &app.sessions_overview,
                 Some(&d.expanded),
@@ -686,8 +686,8 @@ fn input_dialog(
             e.follow = true;
             DialogOutcome::Consumed
         }
-        DialogKind::Sessions => {
-            let e = view.as_any_mut().downcast_mut::<SessionsDialog>().expect("kind");
+        DialogKind::Threads => {
+            let e = view.as_any_mut().downcast_mut::<ThreadsDialog>().expect("kind");
             let count = crate::overlays::session::project_session_rows(
                 &app.sessions_overview,
                 Some(&e.expanded),
@@ -1041,7 +1041,7 @@ dialog_entity!(HistorySearchDialog, HistorySearch, {
     query: TextInput = TextInput::default(),
 });
 
-dialog_entity!(SessionsDialog, Sessions, {
+dialog_entity!(ThreadsDialog, Threads, {
     /// `true` while the session-info sub-view is open.
     info_detail: bool = false,
     /// Body scroll offset of the session-info sub-view.
@@ -1051,6 +1051,9 @@ dialog_entity!(SessionsDialog, Sessions, {
     /// Expanded trunk session ids in the hierarchical picker.
     expanded: HashSet<String> = HashSet::new(),
 });
+
+/// Backward-compatible alias for [`ThreadsDialog`].
+pub type SessionsDialog = ThreadsDialog;
 
 dialog_entity!(SessionTreeDialog, SessionTree, {});
 
@@ -1106,7 +1109,7 @@ pub struct Dialogs {
     pub connections: ConnectionsDialog,
     pub history_search: HistorySearchDialog,
     pub queue: QueueDialog,
-    pub sessions: SessionsDialog,
+    pub threads: ThreadsDialog,
     pub session_tree: SessionTreeDialog,
     pub switcher: SwitcherDialog,
     /// Per-session archives of the session-scoped entities.
@@ -1194,7 +1197,7 @@ impl Dialogs {
             DialogKind::Connections => &self.connections,
             DialogKind::HistorySearch => &self.history_search,
             DialogKind::Queue => &self.queue,
-            DialogKind::Sessions => &self.sessions,
+            DialogKind::Threads => &self.threads,
             DialogKind::SessionTree => &self.session_tree,
             DialogKind::Switcher => &self.switcher,
         }
@@ -1216,7 +1219,7 @@ impl Dialogs {
             DialogKind::Connections => &mut self.connections,
             DialogKind::HistorySearch => &mut self.history_search,
             DialogKind::Queue => &mut self.queue,
-            DialogKind::Sessions => &mut self.sessions,
+            DialogKind::Threads => &mut self.threads,
             DialogKind::SessionTree => &mut self.session_tree,
             DialogKind::Switcher => &mut self.switcher,
         }
@@ -1245,7 +1248,7 @@ impl Dialogs {
             DialogKind::Connections => Box::new(std::mem::take(&mut self.connections)),
             DialogKind::HistorySearch => Box::new(std::mem::take(&mut self.history_search)),
             DialogKind::Queue => Box::new(std::mem::take(&mut self.queue)),
-            DialogKind::Sessions => Box::new(std::mem::take(&mut self.sessions)),
+            DialogKind::Threads => Box::new(std::mem::take(&mut self.threads)),
             DialogKind::SessionTree => Box::new(std::mem::take(&mut self.session_tree)),
             DialogKind::Switcher => Box::new(std::mem::take(&mut self.switcher)),
         }
@@ -1289,8 +1292,8 @@ impl Dialogs {
                     *view.into_any().downcast::<HistorySearchDialog>().expect("kind")
             }
             DialogKind::Queue => self.queue = *view.into_any().downcast::<QueueDialog>().expect("kind"),
-            DialogKind::Sessions => {
-                self.sessions = *view.into_any().downcast::<SessionsDialog>().expect("kind")
+            DialogKind::Threads => {
+                self.threads = *view.into_any().downcast::<ThreadsDialog>().expect("kind")
             }
             DialogKind::SessionTree => {
                 self.session_tree = *view.into_any().downcast::<SessionTreeDialog>().expect("kind")
@@ -1317,7 +1320,7 @@ impl Dialogs {
             DialogKind::Connections => self.connections.index,
             DialogKind::HistorySearch => self.history_search.index,
             DialogKind::Queue => self.queue.index,
-            DialogKind::Sessions => self.sessions.index,
+            DialogKind::Threads => self.threads.index,
             DialogKind::SessionTree => self.session_tree.index,
             DialogKind::Switcher => self.switcher.selected,
         }
@@ -1339,7 +1342,7 @@ impl Dialogs {
             DialogKind::Connections => self.connections.index = value,
             DialogKind::HistorySearch => self.history_search.index = value,
             DialogKind::Queue => self.queue.index = value,
-            DialogKind::Sessions => self.sessions.index = value,
+            DialogKind::Threads => self.threads.index = value,
             DialogKind::SessionTree => self.session_tree.index = value,
             DialogKind::Switcher => self.switcher.selected = value,
         }
@@ -1361,7 +1364,7 @@ impl Dialogs {
             DialogKind::Connections => self.connections.follow,
             DialogKind::HistorySearch => self.history_search.follow,
             DialogKind::Queue => self.queue.follow,
-            DialogKind::Sessions => self.sessions.follow,
+            DialogKind::Threads => self.threads.follow,
             DialogKind::SessionTree => self.session_tree.follow,
             DialogKind::Switcher => self.switcher.follow,
         }
@@ -1383,7 +1386,7 @@ impl Dialogs {
             DialogKind::Connections => self.connections.keys_open,
             DialogKind::HistorySearch => self.history_search.keys_open,
             DialogKind::Queue => self.queue.keys_open,
-            DialogKind::Sessions => self.sessions.keys_open,
+            DialogKind::Threads => self.threads.keys_open,
             DialogKind::SessionTree => self.session_tree.keys_open,
             DialogKind::Switcher => self.switcher.keys_open,
         }
@@ -1406,7 +1409,7 @@ impl Dialogs {
             DialogKind::Connections => self.connections.keys_open = open,
             DialogKind::HistorySearch => self.history_search.keys_open = open,
             DialogKind::Queue => self.queue.keys_open = open,
-            DialogKind::Sessions => self.sessions.keys_open = open,
+            DialogKind::Threads => self.threads.keys_open = open,
             DialogKind::SessionTree => self.session_tree.keys_open = open,
             DialogKind::Switcher => self.switcher.keys_open = open,
         }
@@ -1431,7 +1434,7 @@ impl Dialogs {
             DialogKind::Connections => &mut self.connections.keys_scroll,
             DialogKind::HistorySearch => &mut self.history_search.keys_scroll,
             DialogKind::Queue => &mut self.queue.keys_scroll,
-            DialogKind::Sessions => &mut self.sessions.keys_scroll,
+            DialogKind::Threads => &mut self.threads.keys_scroll,
             DialogKind::SessionTree => &mut self.session_tree.keys_scroll,
             DialogKind::Switcher => &mut self.switcher.keys_scroll,
         }

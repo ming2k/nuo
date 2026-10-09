@@ -2070,6 +2070,30 @@ fn dialog_reads_see_the_entity_while_it_is_rendered() {
 }
 
 #[tokio::test]
+async fn session_stats_slash_open_and_unbound_ctrl_o() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "test-session".to_string();
+
+    let runtime = crate::event_loop::runtime::UiRuntime::minimal_for_test();
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::OpenSessionStats,
+        "test-session",
+    )
+    .await;
+
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::SessionStats),
+        "OpenSessionStats (/stats) opens SessionStats dialog"
+    );
+
+    // Ctrl+O is no longer bound canonically to OpenSessionStats
+    assert_eq!(crate::keymap::resolve_global_key(crate::keymap::Key::CTRL_O), None);
+}
+
+#[tokio::test]
 async fn session_stats_t_affordance_transitions_to_session_trace() {
     // `[INV-STATS-01]` + `[INV-AFFORDANCE-01]` / ADR-0037:
     // SessionStats modal binds `t` to transition directly to SessionTrace.

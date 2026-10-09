@@ -278,7 +278,7 @@ fn subagent_step_and_view_render_without_panicking() {
         "session identity on row 1: {head_row:?}"
     );
     assert!(
-        head_row.contains("Ctrl-x") && head_row.contains("menu"),
+        head_row.contains("menu C-x"),
         "the client row offers the namespace pair: {head_row:?}"
     );
     // Row 2 is the scene row: the scene name, then the task's `[ROLE] label
@@ -297,7 +297,7 @@ fn subagent_step_and_view_render_without_panicking() {
         "workspace attached to scene row: {scene_row:?}"
     );
     assert!(
-        !scene_row.contains("Ctrl-x"),
+        !scene_row.contains("menu C-x") && !scene_row.contains("C-x"),
         "scene row no longer carries namespace pair: {scene_row:?}"
     );
     // The TaskInspection scene carries no *shortcut legend* row beyond the
@@ -687,7 +687,7 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
     let terminal = render_full_view(80, 24, &[], Some(hints));
     let row0 = grid_row(&terminal, 0);
     assert!(
-        row0.contains("Ctrl-x") && row0.contains("menu"),
+        row0.contains("menu C-x"),
         "client row carries namespace pair: {row0:?}"
     );
     let row1 = grid_row(&terminal, 1);
@@ -697,7 +697,7 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
         "task context follows: {row1:?}"
     );
     assert!(
-        !row1.contains("Ctrl-x"),
+        !row1.contains("menu C-x") && !row1.contains("C-x"),
         "scene row no longer carries namespace pair: {row1:?}"
     );
 }

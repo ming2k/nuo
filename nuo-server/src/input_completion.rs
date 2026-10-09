@@ -972,27 +972,27 @@ mod tests {
             .find(|i| i.label == "/resume")
             .expect("alias /resume surfaces for prefix /resum");
         assert_eq!(resume_row.kind, InputCompletionKind::SlashAlias);
-        assert_eq!(resume_row.insert_text, "/sessions");
-        assert_eq!(resume_row.alias_of.as_deref(), Some("/sessions"));
+        assert_eq!(resume_row.insert_text, "/threads");
+        assert_eq!(resume_row.alias_of.as_deref(), Some("/threads"));
         assert_eq!(
-            resume_row.description, "Browse or resume past sessions",
+            resume_row.description, "Browse or resume past threads",
             "description is the target's plain summary — no inline (alias …) prose"
         );
         // The flyout doc is the target's spec.
         assert_eq!(
             resume_row.command.as_ref().map(|spec| spec.name.as_str()),
-            Some("/sessions")
+            Some("/threads")
         );
 
         // The canonical command row exists alongside, with plain summary and
         // no alias marker.
-        let sessions_row = items
+        let threads_row = items
             .iter()
-            .find(|i| i.label == "/sessions")
-            .expect("canonical /sessions also offered");
-        assert_eq!(sessions_row.kind, InputCompletionKind::Intent);
-        assert_eq!(sessions_row.alias_of, None);
-        assert_eq!(sessions_row.insert_text, "/sessions");
+            .find(|i| i.label == "/threads")
+            .expect("canonical /threads also offered");
+        assert_eq!(threads_row.kind, InputCompletionKind::Intent);
+        assert_eq!(threads_row.alias_of, None);
+        assert_eq!(threads_row.insert_text, "/threads");
 
         // Exact alias input behaves identically: the row stays the alias
         // label, the committed edit is the canonical target.
@@ -1006,8 +1006,8 @@ mod tests {
             .find(|i| i.label == "/resume")
             .expect("alias row persists at exact match");
         assert_eq!(row.kind, InputCompletionKind::SlashAlias);
-        assert_eq!(row.insert_text, "/sessions");
-        assert_eq!(row.alias_of.as_deref(), Some("/sessions"));
+        assert_eq!(row.insert_text, "/threads");
+        assert_eq!(row.alias_of.as_deref(), Some("/threads"));
     }
 
     #[tokio::test]

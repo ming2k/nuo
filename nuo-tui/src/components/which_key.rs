@@ -27,8 +27,8 @@ use crate::keymap::scene_namespace::SceneVerb;
 pub(crate) const CLOSE_OVERLAY_LABEL: &str = "close overlay";
 /// What the leave verb does when a Scene other than the home Conversation is
 /// current: leave it (detach from an aside, pop the task zoom, or return from
-/// the dashboard / settings).
-pub(crate) const CLOSE_SCENE_LABEL: &str = "leave scene";
+/// the dashboard / settings, or close active tab).
+pub(crate) const CLOSE_SCENE_LABEL: &str = "close tab";
 /// What the leave verb does at the bare home scene: the chord still resolves
 /// (it disarms the namespace) but it has nothing to act on. The card says so
 /// rather than promising an exit that will not happen (ADR-0238).
@@ -190,9 +190,10 @@ mod tests {
             .map(|c| c.symbol())
             .collect();
         assert!(content.contains("C-x menu"));
-        assert!(content.contains("leave scene"));
-        assert!(content.contains("sessions"));
+        assert!(content.contains("close tab"));
+        assert!(content.contains("threads"));
         assert!(content.contains("dashboard"));
+        assert!(content.contains("settings"));
         assert!(content.contains("cancel"));
     }
 
@@ -268,7 +269,7 @@ mod tests {
             .collect();
         assert!(content.contains("home already"), "{content}");
         assert!(
-            !content.contains("leave scene") && !content.contains("close overlay"),
+            !content.contains("close tab") && !content.contains("close overlay"),
             "no exit is promised at the home scene: {content}"
         );
     }

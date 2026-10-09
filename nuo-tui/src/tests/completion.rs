@@ -182,6 +182,14 @@ fn resolved_slash_len_matches_builtin_command_without_args() {
         resolved_slash_command_len("/models", &test_command_catalog()),
         Some(7)
     );
+    assert_eq!(
+        resolved_slash_command_len("/stats", &test_command_catalog()),
+        Some(6)
+    );
+    assert_eq!(
+        resolved_slash_command_len("/trace", &test_command_catalog()),
+        Some(6)
+    );
 }
 
 #[test]
@@ -470,17 +478,17 @@ fn accept_slash_completion_does_not_append_trailing_space() {
     // of "Enter/Tab finishes the completion". The user opts into subcommand
     // discovery by typing a space themselves.
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/ses".to_string();
+    app.input = "/thr".to_string();
     app.cursor_position = app.input.chars().count();
     let completions = app.completions();
     let idx = completions
         .iter()
-        .position(|c| c.label == "/sessions")
-        .expect("/sessions in candidates");
+        .position(|c| c.label == "/threads")
+        .expect("/threads in candidates");
     app.accept_completion(idx);
     // The label is spliced verbatim — no trailing space.
-    assert_eq!(app.input, "/sessions");
-    assert_eq!(app.cursor_position, "/sessions".chars().count());
+    assert_eq!(app.input, "/threads");
+    assert_eq!(app.cursor_position, "/threads".chars().count());
     // A slash accept is a terminal commit: the popup must stay hidden and
     // no subcommand menu may fire. This holds for BOTH Tab and Enter since
     // both route through accept_completion for slash commands.

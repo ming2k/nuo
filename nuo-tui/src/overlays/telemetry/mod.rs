@@ -1,7 +1,7 @@
 //! Session Stats and Session Trace overlays (ADR-0037).
 //!
 //! Separated into two distinct surfaces:
-//! - [`draw::draw_session_stats_modal`] — Session Stats (/stats, Ctrl+O)
+//! - [`draw::draw_session_stats_modal`] — Session Stats (/stats)
 //! - [`draw::draw_session_trace_modal`] — Session Trace (/trace) with hierarchical drill-in (L1/L2/L3)
 //!
 //! Rendering lives in level-focused submodules:

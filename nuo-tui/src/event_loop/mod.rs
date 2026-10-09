@@ -286,7 +286,7 @@ pub async fn run_app_loop(
         if open_sessions {
             crate::event_loop::actions::enter_panel(
                 app,
-                crate::surfaces::DialogKind::Sessions,
+                crate::surfaces::DialogKind::Threads,
                 &runtime,
                 &viewed_session_id,
             );

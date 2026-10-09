@@ -716,13 +716,16 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::OpenSessions => {
             enter_panel(
                 app,
-                crate::surfaces::DialogKind::Sessions,
+                crate::surfaces::DialogKind::Threads,
                 runtime,
                 viewed_session_id,
             );
         }
         input::InputAction::NavigateDashboard => {
             enter_scene(app, crate::surfaces::SceneKind::Dashboard, runtime);
+        }
+        input::InputAction::NavigateSettings => {
+            enter_scene(app, crate::surfaces::SceneKind::Settings, runtime);
         }
         input::InputAction::OpenModels => {
             enter_panel(
@@ -2519,7 +2522,7 @@ pub(super) fn enter_panel(
             }
         }
         DialogKind::Asides => Some(AgentRequest::QueryBtwList),
-        DialogKind::Sessions => Some(AgentRequest::QuerySessionsOverview),
+        DialogKind::Threads => Some(AgentRequest::QuerySessionsOverview),
         DialogKind::SessionTree => Some(AgentRequest::QuerySessionTree),
         _ => None,
     };
@@ -2884,7 +2887,7 @@ mod view_entry_tests {
 
         enter_panel(
             &mut app,
-            crate::surfaces::DialogKind::Sessions,
+            crate::surfaces::DialogKind::Threads,
             &runtime,
             "s1",
         );
@@ -3210,7 +3213,7 @@ async fn execute_command_by_id(
         CommandId::OpenSessions => {
             enter_panel(
                 app,
-                crate::surfaces::DialogKind::Sessions,
+                crate::surfaces::DialogKind::Threads,
                 runtime,
                 viewed_session_id,
             );

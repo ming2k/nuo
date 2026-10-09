@@ -337,8 +337,9 @@ pub fn route_event(
                 return match SceneVerb::from_second_stroke(physical_key) {
                     Some(SceneVerb::Leave) => InputAction::CloseScene,
                     Some(SceneVerb::Switcher) => InputAction::ViewSwitcherToggle,
-                    Some(SceneVerb::Sessions) => InputAction::OpenSessions,
+                    Some(SceneVerb::Threads) => InputAction::OpenSessions,
                     Some(SceneVerb::Dashboard) => InputAction::NavigateDashboard,
+                    Some(SceneVerb::Settings) => InputAction::NavigateSettings,
                     // `C-x C-c` is the namespace's quit spelling; a bare `c`
                     // carries no meaning here (it is not in the verb's strokes).
                     Some(SceneVerb::Quit) => InputAction::CtrlC,
@@ -368,7 +369,7 @@ pub fn route_event(
                 }
             }
 
-            // Ctrl+O (stats), Ctrl+Q (queue), Ctrl+C (Interrupt/Quit),
+            // Ctrl+Q (queue), Ctrl+C (Interrupt/Quit),
             // CopySelection, and the user-remappable globals. The Command
             // Palette is deliberately absent from the canonical table: its
             // canonical entry is the `C-x` scene namespace's switcher verb
@@ -389,7 +390,7 @@ pub fn route_event(
                         return InputAction::ViewSwitcherToggle;
                     }
                     crate::keymap::CommandId::OpenSessionStats if dispatch.overlay.is_none() => {
-                        // Ctrl+O (model-bar session stats keycap). Top level only:
+                        // Open session stats (/stats). Top level only:
                         // the model bar is session chrome, never visible
                         // behind a modal.
                         return InputAction::OpenSessionStats;

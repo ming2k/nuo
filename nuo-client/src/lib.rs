@@ -63,11 +63,13 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
         ("/confinement", "Toggle workspace filesystem confinement (confine file tools to workspace)", &["confinement", "confined", "unconfine", "unconfined", "jail", "escape", "sandbox"], &[("on", "Enable workspace confinement (confine file tools to workspace)"), ("off", "Disable confinement (allow full host filesystem access)")]),
         ("/role", "Switch agent role (identity, capability, and workspace)", &["role", "preset", "mode", "identity", "developer", "philosophist", "ops", "switch", "switch-role"], &[("developer", "the default developer role (full native capabilities with workspace)"), ("ops", "system administration, infrastructure maintenance & remote operations (workspace-free)"), ("philosophist", "philosophical inquiry & reflection (workspace-free)")]),
         ("/search", "Semantic search over session history", &["search", "find", "query", "grep", "history", "lookup", "recall", "past-messages"], &[]),
-        ("/sessions", "Browse or resume past sessions", &["sessions", "session", "resume", "continue", "history", "list", "reopen", "browse", "switch-session"], &[]),
-        ("/fork", "Fork thread into a child session", &["fork", "branch", "clone", "duplicate", "split", "copy-session"], &[]),
+        ("/threads", "Browse or resume past threads", &["threads", "thread", "sessions", "session", "resume", "continue", "history", "list", "reopen", "browse", "switch-thread"], &[]),
+        ("/fork", "Fork thread into a child thread", &["fork", "branch", "clone", "duplicate", "split", "copy-thread"], &[]),
         ("/tree", "Visual DAG session tree and branch navigation", &["tree", "dag", "branch", "branches", "lineage", "timeline", "history-tree", "checkout"], &[]),
         ("/diff", "View workspace modifications made in this session", &["diff", "changes", "modified", "patch", "git-diff", "review-changes"], &[]),
         ("/undo", "Undo the last thread turn and file changes", &["undo", "revert", "rollback", "back", "pop", "discard-turn"], &[]),
+        ("/stats", "View context token accounting and session stats", &["stats", "tokens", "context", "session-stats", "tps", "streaming-rate"], &[]),
+        ("/trace", "Inspect session execution trace and latency waterfall", &["trace", "waterfall", "latency", "ttft", "tps", "profiler", "execution"], &[]),
         ("/usage", "Cross-session token usage statistics overlay", &["usage", "stats", "statistics", "tokens", "tokens-per-day", "daily", "consumption", "spend", "quota"], &[]),
         ("/btw", "Open a background side thread (aside)", &["btw", "aside", "side", "subtask", "parallel", "quick", "note", "by-the-way"], &[("list", "Open the active asides modal")]),
         ("/jobs", "Inspect and manage background processes and sub-subagents", &["jobs", "job", "background", "process", "task", "tasks", "running", "kill", "ps", "async"], &[("kill", "Terminate an active background job"), ("logs", "Show recent stdout/stderr output of a background job")]),
@@ -107,7 +109,11 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
     });
     catalog.aliases.push(nuo_wire::CommandAlias {
         name: "/resume".to_string(),
-        target: "/sessions".to_string(),
+        target: "/threads".to_string(),
+    });
+    catalog.aliases.push(nuo_wire::CommandAlias {
+        name: "/sessions".to_string(),
+        target: "/threads".to_string(),
     });
 
     catalog.suggestions.push(nuo_wire::CommandSuggestion {
@@ -117,8 +123,8 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
     });
     catalog.suggestions.push(nuo_wire::CommandSuggestion {
         trigger: "/continue".into(),
-        target: "/sessions".into(),
-        reason: "Resume a previous session".into(),
+        target: "/threads".into(),
+        reason: "Resume a previous thread".into(),
     });
 
     for (name, desc) in custom {

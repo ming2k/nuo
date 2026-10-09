@@ -260,7 +260,7 @@ fn context_usage_spans_render_used_and_percentage() {
 }
 
 /// Split-row contract: the telemetry gauges (`context`, `rate`, and unified
-/// `Ctrl+O` hint) anchor the left half, and the identity group (`model effort
+/// anchor the left half, and the identity group (`model effort
 /// @instance`) pins right — reading left → right as **context → speed →
 /// identity**. Under width pressure the keycap hint drops first, then
 /// the instance suffix (provenance is nice-to-have) while the model
@@ -290,8 +290,8 @@ fn model_bar_orders_context_then_model() {
             .collect::<String>()
     };
 
-    // Wide enough for everything: `ctx Ctrl+O` left,
-    // `model effort @instance Ctrl+N` right, in that left-to-right order.
+    // Wide enough for everything: `ctx` left,
+    // `model effort @instance` right, in that left-to-right order.
     let wide = row_text(80);
     let ctx_pos = wide.find("(0%)").expect("context meter shown");
     let model_pos = wide.find("kimi-k2.7-code").expect("model shown");
@@ -301,11 +301,10 @@ fn model_bar_orders_context_then_model() {
     );
     let inst_pos = wide.find("@kimi-code").expect("instance suffix shown");
     assert!(model_pos < inst_pos, "instance follows the model: {wide:?}");
-    // Progressive disclosure: single unified keycap trails the telemetry cluster.
-    let telemetry_key = wide.find("Ctrl-o").expect("telemetry keycap hint shown");
+    // Unbound telemetry command renders no keycap hint (ADR-0238).
     assert!(
-        ctx_pos < telemetry_key,
-        "keycap trails the context gauge: {wide:?}"
+        !wide.contains("Ctrl-o"),
+        "unbound telemetry renders no keycap: {wide:?}"
     );
     // Justified split: the identity cluster pins flush to the row's
     // right edge (mirrored `inner` indent).
@@ -315,13 +314,9 @@ fn model_bar_orders_context_then_model() {
         "identity must end at the right edge: {wide:?}"
     );
 
-    // Narrower row: the telemetry keycap hint drops first, then the instance suffix (35),
+    // Narrower row: instance suffix drops at 35,
     // while the context meter, model name, and effort tag survive in order.
     let narrow = row_text(42);
-    assert!(
-        !narrow.contains("Ctrl-o"),
-        "telemetry keycap hint hides first: {narrow:?}"
-    );
     assert!(
         narrow.contains("@kimi-code"),
         "provenance suffix survives at 48: {narrow:?}"
@@ -460,15 +455,15 @@ fn model_bar_click_rects_follow_context_and_connection_layout() {
     // The gauges anchor the row's left edge: the context rect starts at
     // the inner indent, one cell in.
     assert_eq!(ctx.x, 1, "gauges must lead the row from the left indent");
-    // Rects carry their gauge segment text; the context gauge includes
-    // the single Ctrl-o keycap hint.
+    // Rects carry their gauge segment text; the context gauge
+    // renders without unbound keycap.
     let buf = terminal.buffer();
     let slice = |r: Rect| -> String {
         (r.x..r.x + r.width)
             .map(|x| buf[(x, r.y)].symbol().to_string())
             .collect::<String>()
     };
-    assert_eq!(slice(ctx), "0 (0%) Ctrl-o", "context rect mismatch");
+    assert_eq!(slice(ctx), "0 (0%)", "context rect mismatch");
     assert_eq!(
         slice(conn),
         "kimi-k2.7-code",
