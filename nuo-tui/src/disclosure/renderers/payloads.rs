@@ -478,8 +478,7 @@ fn parse_dir_entry(line: &str) -> Option<DirEntry<'_>> {
 /// - `list_dir`:   ``Directory: `path` (N items):``
 ///
 /// Returns `None` when the first line is neither (a restored session may start
-/// at the first entry), in which case no band is invented — mirroring how
-/// [`parse_matches_header`] guards the search block's count band.
+/// at the first entry), in which case no band is invented.
 fn parse_listing_header(first: &str) -> Option<String> {
     let first = first.trim_end();
     if let Some(rest) = first.strip_prefix("Found ") {
@@ -1794,35 +1793,15 @@ struct MatchLine<'a> {
     content_offset: usize,
 }
 
-/// A search block's leading count line — the `Found N match(es):` header the
-/// `search_text` tool emits — parsed into a friendlier `(matches, files)`
-/// summary for the block's top band.
-struct MatchesHeader {
-    count: usize,
-    files: usize,
-}
-
-/// Parse a search block's leading `Found N match(es):` count line and tally
-/// the distinct file paths that follow it. Returns `None` when the first
-/// logical line is not the tool's count header (a structured `Matches` payload
-/// drops the header, and a restored session may start at the first match), in
-/// which case the renderer draws the matches alone with no count band.
-fn parse_matches_header(logical: &[(usize, &str)]) -> Option<MatchesHeader> {
-    let (_, first) = logical.first()?;
-    let rest = first.strip_prefix("Found ")?.strip_suffix("match(es):")?;
-    let count: usize = rest.trim().parse().ok()?;
-    let mut files: Vec<&str> = Vec::new();
-    for (_, line) in &logical[1..] {
-        if let Some(p) = parse_match_line(line)
-            && !files.contains(&p.path)
-        {
-            files.push(p.path);
+/// Check if a leading line is the filesystem tool's `Found N match(es):` count header.
+fn is_matches_header(first: &str) -> bool {
+    let first = first.trim();
+    if let Some(rest) = first.strip_prefix("Found ") {
+        if let Some(num) = rest.strip_suffix("match(es):") {
+            return num.trim().parse::<usize>().is_ok();
         }
     }
-    Some(MatchesHeader {
-        count,
-        files: files.len(),
-    })
+    false
 }
 
 /// Recover the literal search query from a `search_text` call's arguments.
@@ -2016,21 +1995,18 @@ fn emit_simple_rows(
     }
 }
 
-/// Render a `search_text` result as a *layered* block: a top count band
-/// (`Found N matches`, or `Found N matches · M files` when the result spans more
-/// than one file), then per file a distinct title band carrying the path, then
-/// its match rows (`{lineno}  {content}`) with the line number dimmed and the
-/// literal query bolded. Each of the three tiers sits on its own background
-/// (`match_count_surface` > `match_title_surface` > `code_surface`) and/or its
-/// own weight, so the file heading and the matched text read as part of a real
-/// result tree instead of one flat run of text.
+/// Render a `search_text` result directly as file groups separated by
+/// distinct file title bands, with line numbers aligned in a gutter column.
 ///
-/// The count band only appears when the tool's `Found N match(es):` header is
-/// present (structural parity: a structured `Matches` payload drops it, so no
-/// band is invented). The line-number column is aligned across the whole result
-/// (widest lineno wins), and selection byte ranges stay anchored in the original
-/// tool output — but the count band is decoration, like the raw header today, so
-/// it is not registered as a selectable row.
+/// Each file begins with a full-width title row showing the workspace-relative
+/// path. Matches within the file show the line number right-aligned in the
+/// gutter, a fixed 2-character gap, and the wrapped line content with any
+/// literal query occurrence rendered in bold. The file titles sit on
+/// `match_title_surface` above the match content on `code_surface`.
+///
+/// Any legacy `Found N match(es):` count header from the tool is stripped
+/// so the view transitions directly from the action header to the file groups
+/// without an intermediate metadata band.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_matches_content(
     ctx: &mut RenderCtx<'_, '_>,
@@ -2043,7 +2019,6 @@ pub(crate) fn draw_matches_content(
     inner_w: usize,
 ) {
     let code_bg = ctx.theme.code_surface();
-    let count_bg = ctx.theme.match_count_surface();
     let title_bg = ctx.theme.match_title_surface();
     let pad = Style::default().bg(code_bg);
     let title_style = Style::default()
@@ -2064,34 +2039,13 @@ pub(crate) fn draw_matches_content(
         offset += line.len() + 1;
     }
 
-    // Optional count band: parse the leading `Found N match(es):` header and
-    // tally the files beneath it. `header_idx` is the logical-line index where
-    // the match rows begin (0 without a header, 1 with one).
-    let header = parse_matches_header(&logical);
-    let header_idx = if header.is_some() { 1 } else { 0 };
-    if let Some(h) = &header {
-        // The `· N files` segment is redundant (and, for a single-file search,
-        // pure noise) when everything sits under one path, so it only appears
-        // once the result actually spans more than one file.
-        let text = if h.files > 1 {
-            format!(
-                "Found {} {} · {} {}",
-                h.count,
-                plural(h.count, "match", "matches"),
-                h.files,
-                plural(h.files, "file", "files"),
-            )
-        } else {
-            format!("Found {} {}", h.count, plural(h.count, "match", "matches"))
-        };
-        let label_style = Style::default()
-            .bg(count_bg)
-            .fg(ctx.theme.brand())
-            .add_modifier(Modifier::BOLD);
-        // Decoration, not content: like the raw `Found N …:` header today it is
-        // not registered as a selectable block region.
-        draw_band_row(ctx, indent, &text, label_style, count_bg);
-    }
+    // Skip the legacy `Found N match(es):` count header emitted by the filesystem
+    // tool so it does not leak into match rows as raw unparsed text.
+    let header_idx = if logical.first().is_some_and(|(_, line)| is_matches_header(line)) {
+        1
+    } else {
+        0
+    };
 
     // Width of the line-number column: the widest lineno across all matches, so
     // the content column stays aligned within and across files.
@@ -3541,27 +3495,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_matches_header_reads_count_and_distinct_files() {
-        let content = "Found 3 match(es):\nsrc/a.rs:10:let foo = 1;\nsrc/a.rs:22:foo();\nsrc/b.rs:5:foo,";
-        let logical: Vec<(usize, &str)> = {
-            let mut v = Vec::new();
-            let mut off = 0usize;
-            for line in content.split('\n') {
-                v.push((off, line));
-                off += line.len() + 1;
-            }
-            v
-        };
-        let header = parse_matches_header(&logical).expect("header parses");
-        assert_eq!(header.count, 3);
-        assert_eq!(header.files, 2, "two distinct files: src/a.rs and src/b.rs");
-    }
-
-    #[test]
-    fn parse_matches_header_is_none_without_the_count_line() {
-        // A structured payload (or restored session) starts at the first match.
-        let logical = vec![(0usize, "src/a.rs:10:let foo = 1;")];
-        assert!(parse_matches_header(&logical).is_none());
+    fn is_matches_header_detects_tool_count_line() {
+        assert!(is_matches_header("Found 3 match(es):"));
+        assert!(is_matches_header("Found 1 match(es):"));
+        assert!(!is_matches_header("src/a.rs:10:let foo = 1;"));
+        assert!(!is_matches_header("No matching lines found."));
     }
 
     #[test]

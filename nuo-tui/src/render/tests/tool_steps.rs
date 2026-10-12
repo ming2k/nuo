@@ -702,13 +702,11 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
     );
 }
 
-/// A `search_text` block renders as three layered tiers — a top count band, a
-/// per-file title band, and the match rows — each on its own background so the
-/// heading/content contrast is visible without color-only weight. This locks the
-/// layering (`match_count_surface` > `match_title_surface` > `code_surface`) and
-/// the count/title wording.
+/// A `search_text` block renders directly with per-file title bands and match rows,
+/// omitting redundant "Found N matches" count bands so the hierarchy stays clean.
+/// The file title band layers above the match content surface.
 #[test]
-fn search_text_block_layers_count_title_and_content_backgrounds() {
+fn search_text_block_layers_title_and_content_backgrounds() {
     let theme = Theme::default();
     let mut m = TranscriptMessage::tool_step(
         "call_test",
@@ -736,36 +734,31 @@ fn search_text_block_layers_count_title_and_content_backgrounds() {
     };
     let bg_at = |y: usize, x: usize| buffer[(x as u16, y as u16)].style().bg;
 
-    // Locate the three tiers by their text; each is a distinct row.
-    let (mut count_y, mut title_y, mut match_y) = (None, None, None);
+    // Locate the tiers by their text; count band must be absent.
+    let (mut title_y, mut match_y) = (None, None);
     for y in 0..buffer.area().height as usize {
         let text = row_text(y);
-        if text.contains("Found 3 matches · 2 files") {
-            count_y = Some(y);
-        } else if text.contains("src/a.rs") {
+        assert!(
+            !text.contains("Found 3 matches") && !text.contains("Found "),
+            "count band row must not be rendered; got row {y}: {text}"
+        );
+        if text.contains("src/a.rs") {
             title_y = Some(y);
         } else if text.contains("let foo = 1;") {
             match_y = Some(y);
         }
     }
-    let count_y = count_y.expect("count band renders");
     let title_y = title_y.expect("file title band renders");
     let match_y = match_y.expect("match row renders");
 
     let content_bg = theme.code_surface();
     let title_bg = theme.match_title_surface();
-    let count_bg = theme.match_count_surface();
     assert_ne!(
         title_bg, content_bg,
         "the file title band must layer above the content surface"
     );
-    assert_ne!(
-        count_bg, title_bg,
-        "the count band must layer above the title band"
-    );
 
     // Sampled at column 40 (past the short heading text, inside each full-width band).
-    assert_eq!(bg_at(count_y, 40), count_bg, "count row band background");
     assert_eq!(bg_at(title_y, 40), title_bg, "title row band background");
     assert_eq!(bg_at(match_y, 40), content_bg, "match row surface background");
 }
@@ -843,13 +836,10 @@ fn list_dir_table_colors_names_by_ls_class() {
     }
 }
 
-/// A single-file `search_text` result drops the redundant `· N files` segment
-/// from the count band (one file is implied), while still rendering the file
-/// title row and the match row. Regression for a file-rooted search that used
-/// to emit a pathless `:LINE: content` line — the renderer then tallied `0
-/// files` and dropped the title row entirely.
+/// A single-file `search_text` result omits the redundant count band row
+/// and directly renders the file title row and match content.
 #[test]
-fn search_text_single_file_drops_file_count_and_keeps_title() {
+fn search_text_single_file_omits_count_band_and_renders_file_title() {
     let mut m = TranscriptMessage::tool_step(
         "call_test",
         "search_text",
@@ -880,20 +870,16 @@ fn search_text_single_file_drops_file_count_and_keeps_title() {
     let joined = rows.join("\n");
 
     assert!(
-        joined.contains("Found 1 match"),
-        "count band renders the match count; got:\n{joined}"
-    );
-    assert!(
-        !joined.contains("· 1 file"),
-        "the redundant `· 1 file` segment must be gone; got:\n{joined}"
-    );
-    assert!(
-        !joined.contains("0 files"),
-        "the count band must never report `0 files`; got:\n{joined}"
+        !joined.contains("Found 1 match"),
+        "search_text must not render a count band row; got:\n{joined}"
     );
     assert!(
         joined.contains("nuo-tui/src/event_loop/actions.rs"),
         "the file title row must render with the real path; got:\n{joined}"
+    );
+    assert!(
+        joined.contains("pub(super) fn enter_scene("),
+        "the match content must render; got:\n{joined}"
     );
 }
 
