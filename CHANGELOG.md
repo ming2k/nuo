@@ -8,7 +8,15 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
-## [0.0.13] - 2026-10-09
+## [0.0.14] - 2026-10-21
+
+### Added
+
+- **Composer-native history search, ghost preview, and draft stash topology (ADR-0044).**
+  - **Single Input Source of Truth (`[INV-HIST-01]`)**: Establishes Composer as the sole authoritative text input and physical caret owner (`CaretOwner::Composer`) throughout history search, eliminating floating dual-input popups and eye-jumping caret displacement.
+  - **Live Ghost Multiline Preview (`[INV-HIST-02]`)**: Dynamically projects selected historical entries into the Composer viewport with full multi-line ghost preview styling, eliminating blind selection of complex prompts.
+  - **Atomic Draft Stash & Rollback (`[INV-HIST-03]`)**: Automatically stashes active uncommitted drafts and attachments into `history_draft` upon entering history search, guaranteeing 100% loss-free restoration on `Esc` dismissal.
+  - **Zero Dual-Input Chrome (`[INV-HIST-04]`)**: Strips embedded query inputs, fake carets, and prompt noise from the floating history panel, keeping it as a pure candidate drawer.
 
 ### Added
 
