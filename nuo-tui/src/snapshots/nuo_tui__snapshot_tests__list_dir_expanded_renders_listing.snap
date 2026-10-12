@@ -4,10 +4,10 @@ expression: "render_grid(&m, 80, 30)"
 ---
 - List .
   Name          Size
-  src/        4096 B
-  tests/      4096 B
+  src/        4.0 KB
+  tests/      4.0 KB
   Cargo.toml   128 B
-  README.md   2048 B
+  README.md   2.0 KB
 
 backgrounds:
 A=#070808  B=#111312  .=reset

@@ -405,8 +405,35 @@ fn draw_title_band(
 struct DirEntry<'a> {
     class: ListingClass,
     name: &'a str,
-    /// The byte size exactly as the tool printed it (e.g. `"4096 B"`), if any.
-    size: Option<&'a str>,
+    /// The formatted human-readable size for display (e.g. `"4.0 KB"`, `"128 B"`), if any.
+    size: Option<String>,
+}
+
+/// Format a raw size token (e.g. `"12201 B"`, `"4096 B"`, `"128 B"`) into
+/// a human-readable display string (e.g. `"11.9 KB"`, `"4.0 KB"`, `"128 B"`).
+///
+/// Plain integer byte strings or `"SIZE B"` strings are formatted through
+/// [`crate::composer_attachments::human_size`]. Tokens that already carry a
+/// scaled unit (e.g. `"1.5 KB"`, `"10 MB"`) or cannot be parsed as a byte
+/// count are preserved as-is.
+fn format_human_size(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let candidate = if let Some(rest) = trimmed.strip_suffix(" B") {
+        rest
+    } else if let Some(rest) = trimmed.strip_suffix('B') {
+        if rest.ends_with(|c: char| c.is_alphabetic()) {
+            return trimmed.to_string();
+        }
+        rest
+    } else {
+        trimmed
+    };
+    let clean = candidate.replace(',', "");
+    if let Ok(bytes) = clean.trim().parse::<usize>() {
+        crate::composer_attachments::human_size(bytes)
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Parse a `list_dir` entry — `[DIR]  name                    (4096 B)`.
@@ -436,7 +463,8 @@ fn parse_dir_entry(line: &str) -> Option<DirEntry<'_>> {
     // when the name itself contains ` (`.
     let (name, size) = match rest.rfind(" (") {
         Some(open) if rest.ends_with(')') => {
-            (rest[..open].trim_end(), Some(&rest[open + 2..rest.len() - 1]))
+            let raw_size = &rest[open + 2..rest.len() - 1];
+            (rest[..open].trim_end(), Some(format_human_size(raw_size)))
         }
         _ => (rest, None),
     };
@@ -572,7 +600,7 @@ pub(crate) fn draw_listing_content(
             if let Some(entry) = parse_dir_entry(line) {
                 let dir_slash = usize::from(entry.class == ListingClass::Dir);
                 name_w = name_w.max(entry.name.width() + dir_slash);
-                size_w = size_w.max(entry.size.map(|s| s.width()).unwrap_or(0));
+                size_w = size_w.max(entry.size.as_ref().map(|s| s.width()).unwrap_or(0));
             }
         }
         let name_col = name_w.min(ctx.full_width.saturating_sub(indent + size_w + 3).max(1));
@@ -623,10 +651,10 @@ pub(crate) fn draw_listing_content(
                 ctx.theme.selected(),
             );
             let mut used = indent + display.width();
-            if let Some(size) = entry.size {
+            if let Some(size) = entry.size.as_deref() {
                 // Pad across the rest of the name column plus a two-cell gap,
                 // then right-align the size within the measured size column so
-                // every `B` unit sits on the same column edge.
+                // every unit sits on the same column edge.
                 let pad_cols = name_col.saturating_sub(display.width()) + 2;
                 let size_w = size.width();
                 let lead = max_size_w.saturating_sub(size_w);
@@ -3584,23 +3612,38 @@ mod tests {
         let dir = parse_dir_entry("[DIR]  src                      (4096 B)").unwrap();
         assert_eq!(dir.class, ListingClass::Dir);
         assert_eq!(dir.name, "src");
-        assert_eq!(dir.size, Some("4096 B"));
+        assert_eq!(dir.size.as_deref(), Some("4.0 KB"));
 
         let file = parse_dir_entry("[FILE] Cargo.toml               (128 B)").unwrap();
         assert_eq!(file.class, ListingClass::File);
         assert_eq!(file.name, "Cargo.toml");
-        assert_eq!(file.size, Some("128 B"));
+        assert_eq!(file.size.as_deref(), Some("128 B"));
 
         // The two `ls` classes the tool distinguishes beyond a plain file.
         let exec = parse_dir_entry("[EXEC] run.sh                   (42 B)").unwrap();
         assert_eq!(exec.class, ListingClass::Exec);
+        assert_eq!(exec.size.as_deref(), Some("42 B"));
         let link = parse_dir_entry("[LINK] current                  (7 B)").unwrap();
         assert_eq!(link.class, ListingClass::Link);
+        assert_eq!(link.size.as_deref(), Some("7 B"));
 
         // A name containing ` (` must not confuse the size split (last ` (` wins).
         let tricky = parse_dir_entry("[FILE] weird (name).rs           (12 B)").unwrap();
         assert_eq!(tricky.name, "weird (name).rs");
-        assert_eq!(tricky.size, Some("12 B"));
+        assert_eq!(tricky.size.as_deref(), Some("12 B"));
+
+        // Human-readable size conversions for various magnitudes.
+        let session = parse_dir_entry("[FILE] BinarySessionRecords.ts           (12201 B)").unwrap();
+        assert_eq!(session.name, "BinarySessionRecords.ts");
+        assert_eq!(session.size.as_deref(), Some("11.9 KB"));
+
+        let target = parse_dir_entry("[FILE] BinaryTargetSummary.ts              (438 B)").unwrap();
+        assert_eq!(target.name, "BinaryTargetSummary.ts");
+        assert_eq!(target.size.as_deref(), Some("438 B"));
+
+        let router = parse_dir_entry("[FILE] SessionProviderRouter.ts           (6817 B)").unwrap();
+        assert_eq!(router.name, "SessionProviderRouter.ts");
+        assert_eq!(router.size.as_deref(), Some("6.7 KB"));
 
         // Not a `list_dir` row → `None` (the `find_files` path shape).
         assert!(parse_dir_entry("src/main.rs").is_none());

@@ -591,8 +591,9 @@ fn list_dir_expanded_renders_listing() {
         "no per-row type glyph remains: {grid}"
     );
     assert!(grid.contains("Cargo.toml"), "file row renders: {grid}");
-    assert!(grid.contains("4096 B"), "directory size renders: {grid}");
+    assert!(grid.contains("4.0 KB"), "directory size renders: {grid}");
     assert!(grid.contains("128 B"), "file size renders: {grid}");
+    assert!(grid.contains("2.0 KB"), "file size renders: {grid}");
     // The raw tags and the tool's header prefix are consumed, never dumped.
     assert!(!grid.contains("[DIR]"), "raw tag must not leak: {grid}");
     assert!(!grid.contains("[FILE]"), "raw tag must not leak: {grid}");
