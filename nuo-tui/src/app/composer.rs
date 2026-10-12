@@ -462,16 +462,10 @@ impl App {
             if self.pending_provider_delete.is_some() {
                 return CaretOwner::None;
             }
-            // The history panel owns its own embedded query field (ADR-0035):
-            // it never borrows the composer line.
+            // The history panel is a composer extension (ADR-0044):
+            // the composer is the single input and physical caret owner.
             if self.active_dialog() == Some(DialogKind::HistorySearch) {
-                // The panel is anchored to the composer: browsing keeps the
-                // composer's normal palette (the panel is an extension of it),
-                // while the search sub-layer owns the visible cursor in its own
-                // embedded field.
-                return if self.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().search {
-                    CaretOwner::Overlay
-                } else if self.in_subagent_view() {
+                return if self.in_subagent_view() {
                     CaretOwner::None
                 } else {
                     CaretOwner::Composer

@@ -855,13 +855,13 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.pending_text_pastes.clone(),
                 crate::app::DraftAdoption::Replace,
             );
-            // The selection replaces the in-progress draft, and the search
-            // filter query's task is completed, so query and cursor reset.
+            // Clear the stashed draft since user committed a historical entry
+            app.history_draft.clear();
+            app.history_draft_images.clear();
+            app.history_draft_text_pastes.clear();
+            // The selection replaces the in-progress draft, and history search completes.
             app.surfaces.dismiss_all_overlays();
-            app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search = false;
             app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 0;
-            app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.clear();
-            app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.cursor = 0;
             app.input_scroll = 0;
             app.suggestion_index = None;
             // A programmatic input replacement — latch the dismissal so
@@ -2476,9 +2476,13 @@ pub(super) fn enter_panel(
     }
 
     if id == DialogKind::HistorySearch {
-        app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search = true;
-        app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.cursor =
-            app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text.len();
+        // [INV-HIST-03] Atomic draft stash on entering history search
+        if app.history_draft.is_empty() && !app.input.is_empty() {
+            app.history_draft = std::mem::take(&mut app.input);
+            app.history_draft_images = std::mem::take(&mut app.pending_images);
+            app.history_draft_text_pastes = std::mem::take(&mut app.pending_text_pastes);
+            app.cursor_position = 0;
+        }
     }
     if id == DialogKind::Queue {
         // ADR-0197 M4: the editing-safety auto-pause is mirrored to the

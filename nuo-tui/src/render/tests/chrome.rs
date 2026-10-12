@@ -187,9 +187,6 @@ fn redesigned_components_render_without_panicking() {
                 follow_selection: true,
                 input_rect,
                 activity_height: 0,
-                query: "",
-                cursor_position: 0,
-                show_caret: false,
             },
             &theme,
         );

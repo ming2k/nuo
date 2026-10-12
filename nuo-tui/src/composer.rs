@@ -363,13 +363,14 @@ pub fn draw_composer(
             image_count,
             paste_count,
             hints,
+            ghost_text: None,
         },
         None,
     )
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct ComposerDrawOptions {
+pub struct ComposerDrawOptions<'a> {
     pub focused: bool,
     pub show_caret: bool,
     /// Keep the viewport pinned to the logical caret. The live composer
@@ -382,9 +383,11 @@ pub struct ComposerDrawOptions {
     /// Owned meta-row inputs: what the buffer is and what Enter does. Built
     /// by the caller before the mutable composer borrow begins.
     pub hints: crate::components::composer_hints::ComposerHints,
+    /// Optional ghost text preview (e.g. active history candidate).
+    pub ghost_text: Option<&'a str>,
 }
 
-impl Default for ComposerDrawOptions {
+impl<'a> Default for ComposerDrawOptions<'a> {
     fn default() -> Self {
         Self {
             focused: false,
@@ -394,6 +397,7 @@ impl Default for ComposerDrawOptions {
             image_count: 0,
             paste_count: 0,
             hints: crate::components::composer_hints::ComposerHints::default(),
+            ghost_text: None,
         }
     }
 }
@@ -407,7 +411,7 @@ impl Default for ComposerDrawOptions {
 pub fn draw_composer_highlighted(
     props: ComposerProps<'_, '_>,
     text: ComposerText<'_>,
-    options: ComposerDrawOptions,
+    options: ComposerDrawOptions<'_>,
     highlight_len: usize,
 ) {
     draw_composer_impl(props, text, options, Some(highlight_len));
@@ -420,7 +424,7 @@ pub fn draw_composer_highlighted(
 pub fn draw_composer_with_options(
     props: ComposerProps<'_, '_>,
     text: ComposerText<'_>,
-    options: ComposerDrawOptions,
+    options: ComposerDrawOptions<'_>,
 ) {
     draw_composer_impl(props, text, options, None);
 }
@@ -428,7 +432,7 @@ pub fn draw_composer_with_options(
 fn draw_composer_impl(
     props: ComposerProps<'_, '_>,
     text: ComposerText<'_>,
-    options: ComposerDrawOptions,
+    options: ComposerDrawOptions<'_>,
     highlight_len: Option<usize>,
 ) {
     let ComposerDrawOptions {
@@ -439,6 +443,7 @@ fn draw_composer_impl(
         image_count,
         paste_count,
         hints,
+        ghost_text,
     } = options;
     let ComposerProps {
         frame,
@@ -535,16 +540,38 @@ fn draw_composer_impl(
         " ".repeat(COMPOSER_PROMPT_PREFIX_COLS),
         Style::default().bg(panel_bg),
     );
-    if wrapped.is_empty() {
-        let used = COMPOSER_PROMPT_PREFIX_COLS;
-        // Suffix after the (empty) text: the row's remaining panel columns.
-        // used + tail = full_w.
-        let tail_cols = full_w.saturating_sub(used);
-        lines.push(Line::from(vec![
-            prompt_glyph.clone(),
-            prompt_gap.clone(),
-            Span::styled(" ".repeat(tail_cols), Style::default().bg(panel_bg)),
-        ]));
+    if input.is_empty() {
+        if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
+            let ghost_style = Style::default()
+                .bg(panel_bg)
+                .fg(theme.muted())
+                .add_modifier(Modifier::DIM);
+            let ghost_wrapped = composer_wrapped(ghost, text_width, 0);
+            let start = *input_scroll;
+            let end = (*input_scroll + visible_rows).min(ghost_wrapped.len());
+            for (i, wl) in ghost_wrapped[start..end].iter().enumerate() {
+                let mut spans = if start + i == 0 {
+                    vec![prompt_glyph.clone(), prompt_gap.clone()]
+                } else {
+                    vec![indent.clone()]
+                };
+                spans.push(Span::styled(wl.text.clone(), ghost_style));
+                let used = COMPOSER_PROMPT_PREFIX_COLS + str_len(&wl.text);
+                let tail_cols = full_w.saturating_sub(used);
+                spans.push(Span::styled(" ".repeat(tail_cols), Style::default().bg(panel_bg)));
+                lines.push(Line::from(spans));
+            }
+        } else {
+            let used = COMPOSER_PROMPT_PREFIX_COLS;
+            // Suffix after the (empty) text: the row's remaining panel columns.
+            // used + tail = full_w.
+            let tail_cols = full_w.saturating_sub(used);
+            lines.push(Line::from(vec![
+                prompt_glyph.clone(),
+                prompt_gap.clone(),
+                Span::styled(" ".repeat(tail_cols), Style::default().bg(panel_bg)),
+            ]));
+        }
     } else {
         let start = *input_scroll;
         let end = (*input_scroll + visible_rows).min(wrapped.len());
@@ -656,14 +683,56 @@ fn draw_composer_impl(
                     chip_image_fg,
                 },
             );
+            let mut ghost_cols = 0;
+            if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
+                if ghost.starts_with(input) && start + i == wrapped.len() - 1 {
+                    let suffix = &ghost[input.len()..];
+                    let ghost_first_line = match suffix.find('\n') {
+                        Some(pos) => &suffix[..pos],
+                        None => suffix,
+                    };
+                    if !ghost_first_line.is_empty() {
+                        let available = full_w.saturating_sub(used);
+                        let to_show = crate::overlays::common::truncate_ellipsis(ghost_first_line, available);
+                        ghost_cols = str_len(&to_show);
+                        spans.push(Span::styled(
+                            to_show,
+                            Style::default().bg(panel_bg).fg(theme.muted()).add_modifier(Modifier::DIM),
+                        ));
+                    }
+                }
+            }
             // Close the row with panel-bg air to the right edge.
             // used + tail = full_w.
-            let tail_cols = full_w.saturating_sub(used);
+            let tail_cols = full_w.saturating_sub(used + ghost_cols);
             spans.push(Span::styled(
                 " ".repeat(tail_cols),
                 Style::default().bg(panel_bg),
             ));
             lines.push(Line::from(spans));
+        }
+        if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
+            if !ghost.starts_with(input) {
+                let ghost_wrapped = composer_wrapped(ghost, text_width, 0);
+                for (gi, gw) in ghost_wrapped.iter().enumerate() {
+                    if lines.len() >= visible_rows {
+                        break;
+                    }
+                    let prefix = if gi == 0 { "↳ " } else { "  " };
+                    let preview_text = format!("{prefix}{}", gw.text);
+                    let to_show = crate::overlays::common::truncate_ellipsis(&preview_text, text_width);
+                    let text_cols = str_len(&to_show);
+                    let tail_cols = full_w.saturating_sub(COMPOSER_PROMPT_PREFIX_COLS + text_cols);
+                    lines.push(Line::from(vec![
+                        indent.clone(),
+                        Span::styled(
+                            to_show,
+                            Style::default().bg(panel_bg).fg(theme.muted()).add_modifier(Modifier::DIM),
+                        ),
+                        Span::styled(" ".repeat(tail_cols), Style::default().bg(panel_bg)),
+                    ]));
+                }
+            }
         }
     }
 

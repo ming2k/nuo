@@ -307,15 +307,13 @@ pub(crate) fn handle_ctrl_c(
     ) {
         clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
     } else if app.active_dialog() == Some(DialogKind::HistorySearch) {
-        // The panel owns its embedded query (ADR-0035); Ctrl+C clears that
-        // field (keeping the panel open) or dismisses the panel when it is
-        // already empty.
-        if !app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.is_empty() {
-            let d = &mut app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>();
-            d.query.clear();
-            d.query.cursor = 0;
-            d.index = 0;
-            d.follow = true;
+        // [ADR-0044] Single Input SSOT: Composer is the live query input.
+        // Ctrl+C clears the query, or cancels history search and restores draft if already empty.
+        if !app.input.is_empty() {
+            app.input.clear();
+            app.cursor_position = 0;
+            app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 0;
+            app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().follow = true;
         } else {
             app.dismiss_surface();
         }

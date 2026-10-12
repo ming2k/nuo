@@ -396,8 +396,16 @@ impl App {
         {
             self.deactivate_dialog(current);
         }
-        if id == DialogKind::HistorySearch && self.input_history_persist {
-            self.send_intent(nuo_wire::AgentRequest::QueryInputHistory);
+        if id == DialogKind::HistorySearch {
+            if self.history_draft.is_empty() && !self.input.is_empty() {
+                self.history_draft = std::mem::take(&mut self.input);
+                self.history_draft_images = std::mem::take(&mut self.pending_images);
+                self.history_draft_text_pastes = std::mem::take(&mut self.pending_text_pastes);
+                self.cursor_position = 0;
+            }
+            if self.input_history_persist {
+                self.send_intent(nuo_wire::AgentRequest::QueryInputHistory);
+            }
         }
         let first = !self.surface_store.is_open(id);
         self.surface_store.open(id);
@@ -462,6 +470,19 @@ impl App {
             && let Some(sid) = self.queue_exit_session.take()
         {
             self.resume_queue(&sid);
+        }
+        if id == DialogKind::HistorySearch {
+            if !self.history_draft.is_empty() {
+                self.input = std::mem::take(&mut self.history_draft);
+                self.pending_images = std::mem::take(&mut self.history_draft_images);
+                self.pending_text_pastes = std::mem::take(&mut self.history_draft_text_pastes);
+                self.set_cursor_end();
+            } else {
+                self.input.clear();
+                self.set_cursor(0);
+            }
+            self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 0;
+            self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().scroll = 0;
         }
     }
 

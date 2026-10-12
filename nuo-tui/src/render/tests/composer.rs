@@ -282,6 +282,7 @@ fn draw_composer_highlighted_accents_only_the_command_token() {
                 image_count: 0,
                 paste_count: 0,
                 hints: crate::components::composer_hints::ComposerHints::default(),
+                ghost_text: None,
             },
             "/repeat".len(),
         );
@@ -338,6 +339,7 @@ fn draw_composer_highlight_clamps_at_wrap_boundary() {
                 image_count: 0,
                 paste_count: 0,
                 hints: crate::components::composer_hints::ComposerHints::default(),
+                ghost_text: None,
             },
             "/sessions".len(),
         );
@@ -839,6 +841,7 @@ fn composer_render_preserves_scroll_excursion_until_caret_follow_rearms() {
                 image_count: 0,
                 paste_count: 0,
                 hints: crate::components::composer_hints::ComposerHints::default(),
+                ghost_text: None,
             },
         );
     });
@@ -889,6 +892,7 @@ fn composer_render_preserves_scroll_excursion_until_caret_follow_rearms() {
                 image_count: 0,
                 paste_count: 0,
                 hints: crate::components::composer_hints::ComposerHints::default(),
+                ghost_text: None,
             },
         );
     });
@@ -1737,9 +1741,6 @@ fn history_panel_uses_composer_padding_not_brand_column() {
                 follow_selection: true,
                 input_rect,
                 activity_height: 0,
-                query: "",
-                cursor_position: 0,
-                show_caret: false,
             },
             &theme,
         )

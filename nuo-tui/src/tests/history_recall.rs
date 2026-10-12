@@ -368,7 +368,7 @@ fn history_rows_lists_newest_first_then_ranks_search() {
     ];
 
     // Empty query → newest-first by timestamp, score 0, no highlights.
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.clear();
+    app.input.clear();
     let rows = app.history_rows();
     let indices: Vec<usize> = rows.iter().map(|(i, _)| *i).collect();
     assert_eq!(indices, vec![3, 2, 1, 0], "newest first by timestamp");
@@ -381,7 +381,7 @@ fn history_rows_lists_newest_first_then_ranks_search() {
     // "cargo build" (no 't' after the 'ca'). Boundary matches outrank
     // scatter; among the tied boundary matches the newest-first order wins
     // (idx 3 "the cat sat" ts=40 before idx 1 "catalog" ts=20).
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "cat".to_string();
+    app.input = "cat".to_string();
     let rows = app.history_rows();
     let indices: Vec<usize> = rows.iter().map(|(i, _)| *i).collect();
     assert_eq!(
@@ -396,30 +396,26 @@ fn history_rows_lists_newest_first_then_ranks_search() {
 
     // Query with no subsequence match → empty list (the renderer turns this
     // into the "no matches" placeholder).
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "xyz".to_string();
+    app.input = "xyz".to_string();
     assert!(app.history_rows().is_empty());
 }
 
 #[test]
 fn history_modal_never_borrows_the_draft_and_resets_its_own_query() {
-    // `[INV-SURFACE-01]`: the history panel owns its embedded query; the
-    // composer draft is never parked or stolen, and dismissing clears only
-    // the panel's own search state.
+    // `[INV-HIST-03]`: draft is stashed on open and restored on dismiss.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.input = "my draft".to_string();
     app.cursor_position = "my draft".chars().count();
     app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search = true;
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "git".to_string();
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.cursor = 3;
+    assert_eq!(app.input, "", "composer input cleared for search query");
+    assert_eq!(app.history_draft, "my draft", "composer draft stashed");
+    app.input = "git".to_string();
     app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 4;
 
     assert!(app.dismiss_surface());
 
-    assert_eq!(app.input, "my draft", "composer draft untouched");
+    assert_eq!(app.input, "my draft", "composer draft restored");
     assert_eq!(app.cursor_position, "my draft".chars().count());
-    assert!(!app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search);
-    assert!(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.is_empty());
     assert!(app.surfaces.active_overlay().is_none());
 }
 
@@ -441,8 +437,7 @@ fn history_insert_clears_search_query_buffer_and_places_entry() {
 
     app.input = "draft before search".to_string();
     app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search = true;
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "row".to_string();
+    app.input = "row".to_string();
 
     // Simulate HistoryInsert action (Tab / Enter accept)
     let ranked = app.history_rows();
@@ -451,14 +446,12 @@ fn history_insert_clears_search_query_buffer_and_places_entry() {
     let (orig_idx, _) = *pick.unwrap();
     let text = app.input_history[orig_idx].text.clone();
     app.adopt_as_draft(text, vec![], vec![], crate::app::DraftAdoption::Replace);
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search = false;
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.clear();
+    app.history_draft.clear();
     app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 0;
     app.surfaces.dismiss_all_overlays();
 
     // Composer now holds the selected history entry, not the search query or old draft
     assert_eq!(app.input, "history row 2");
-    assert!(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.is_empty());
 }
 
 #[test]
@@ -1313,8 +1306,8 @@ async fn test_ctrl_c_in_history_search() {
     );
 
     // Case 1: Filter query is non-empty -> Ctrl+C clears the filter and resets cursor
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "my search query".to_string();
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.cursor = 5;
+    app.input = "my search query".to_string();
+    app.cursor_position = 5;
     app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 2;
 
     let (copy_tx, _copy_rx) = mpsc::unbounded_channel();
@@ -1322,12 +1315,12 @@ async fn test_ctrl_c_in_history_search() {
 
     crate::event_loop::handle_ctrl_c(&mut app, "test-session", &copy_tx, &copy_pending);
 
-    // Dialog remains open, embedded query cleared, index reset
+    // Dialog remains open, input query cleared, index reset
     assert_eq!(
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::HistorySearch)
     );
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text, "");
+    assert_eq!(app.input, "");
     assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index, 0);
 
     // Case 2: Filter query is empty -> Ctrl+C dismisses history dialog
@@ -1379,7 +1372,7 @@ fn test_history_ranking_prefers_exact_word_over_scattered_and_applies_recency() 
         ),
     ];
 
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "adr".to_string();
+    app.input = "adr".to_string();
     let rows = app.history_rows();
     assert_eq!(rows.len(), 4, "all 4 match the subsequence 'adr'");
 
@@ -1513,12 +1506,10 @@ async fn test_history_search_keeps_composer_active_and_shows_hints() {
 
     // Enter HistorySearch (simulating Ctrl+R)
     app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().search = true;
     assert_eq!(
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::HistorySearch)
     );
-    assert!(app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().search);
     assert_eq!(
         app.active_composer_extension(),
         Some(crate::composer_extension::ComposerExtensionKind::HistorySearch)
@@ -1616,7 +1607,7 @@ async fn history_rows_scales_to_100k_entries_without_lag() {
 
     // 1. Empty query returns all 100,000 items newest-first
     let t0 = std::time::Instant::now();
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.clear();
+    app.input.clear();
     let rows_empty = app.history_rows();
     let d0 = t0.elapsed();
     assert_eq!(rows_empty.len(), count);
@@ -1628,7 +1619,7 @@ async fn history_rows_scales_to_100k_entries_without_lag() {
 
     // 2. Filtered search with pre-filter pruning
     let t1 = std::time::Instant::now();
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().query.text = "gcm".to_string();
+    app.input = "gcm".to_string();
     let rows_filtered = app.history_rows();
     let d1 = t1.elapsed();
     // 100 matches of "git commit -m 'release {i}'"
@@ -1643,4 +1634,118 @@ async fn history_rows_scales_to_100k_entries_without_lag() {
     for w in rows_filtered.windows(2) {
         assert!(w[0].1.score >= w[1].1.score);
     }
+}
+
+#[test]
+fn adr0044_composer_owns_caret_and_direct_typing_filters_history() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.input_history.push(nuo_wire::HistoryEntry::new(
+        "cargo test --package nuo-tui".to_string(),
+        Some("s1".to_string()),
+        None,
+        100,
+    ));
+    app.input_history.push(nuo_wire::HistoryEntry::new(
+        "git status --short".to_string(),
+        Some("s1".to_string()),
+        None,
+        200,
+    ));
+
+    // [INV-HIST-01]: Opening HistorySearch keeps CaretOwner::Composer
+    app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
+    assert_eq!(
+        app.caret_owner(),
+        crate::CaretOwner::Composer,
+        "Composer must retain caret ownership during history search"
+    );
+
+    // Typing directly into Composer acts as the live search query
+    app.input = "cargo".to_string();
+    let rows = app.history_rows();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(app.input_history[rows[0].0].text, "cargo test --package nuo-tui");
+
+    app.input = "git".to_string();
+    let rows = app.history_rows();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(app.input_history[rows[0].0].text, "git status --short");
+}
+
+#[test]
+fn adr0044_atomic_draft_stashing_and_esc_rollback() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.input_history.push(nuo_wire::HistoryEntry::new(
+        "historical command".to_string(),
+        Some("s1".to_string()),
+        None,
+        100,
+    ));
+
+    // Pre-populate an in-progress draft with text and attachments
+    app.input = "uncommitted work in progress".to_string();
+    app.cursor_position = app.input.len();
+    app.pending_text_pastes.push("staged paste block".to_string());
+
+    // Opening history search stashes the draft atomically ([INV-HIST-03])
+    app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
+    assert_eq!(app.history_draft, "uncommitted work in progress");
+    assert_eq!(app.history_draft_text_pastes, vec!["staged paste block".to_string()]);
+    assert_eq!(app.input, "", "Composer input should clear for live query typing");
+
+    // Operator types a query, filtering candidates
+    app.input = "historical".to_string();
+    assert_eq!(app.history_rows().len(), 1);
+
+    // Operator cancels via Esc (dismissing surface)
+    assert!(app.dismiss_surface());
+
+    // Draft is restored 100% loss-free
+    assert_eq!(app.input, "uncommitted work in progress");
+    assert_eq!(app.cursor_position, "uncommitted work in progress".len());
+    assert_eq!(app.pending_text_pastes, vec!["staged paste block".to_string()]);
+    assert!(app.history_draft.is_empty(), "Stash should be cleared on rollback");
+}
+
+#[test]
+fn adr0044_ghost_preview_rendering() {
+    let theme = Theme::default();
+    let rect = nuotc::Rect::new(0, 0, 80, 5);
+    let mut terminal = nuotc::TestTerminal::new(80, 5);
+    let mut scroll = 0usize;
+
+    // Empty input with ghost text preview renders the ghost text in muted style
+    let ghost = "multi-line\nghost candidate";
+    terminal.draw(|f| {
+        crate::composer::draw_composer_with_options(
+            crate::composer::ComposerProps {
+                frame: f,
+                input_rect: rect,
+                theme: &theme,
+                layout_map: &mut crate::model::layout::LayoutMap::new(),
+                input_scroll: &mut scroll,
+                selection: &crate::SelectionState::None,
+            },
+            crate::composer::ComposerText {
+                input: "",
+                byte_cursor: 0,
+            },
+            crate::composer::ComposerDrawOptions {
+                focused: true,
+                show_caret: true,
+                follow_caret: true,
+                record: false,
+                image_count: 0,
+                paste_count: 0,
+                hints: crate::components::composer_hints::ComposerHints::default(),
+                ghost_text: Some(ghost),
+            },
+        );
+    });
+
+    let buf = terminal.buffer();
+    // Ghost text content must be visible in the buffer
+    let text = buf.content.iter().map(|c| c.symbol()).collect::<String>();
+    assert!(text.contains("multi-line"), "Buffer must contain ghost preview line 1");
+    assert!(text.contains("ghost candidate"), "Buffer must contain ghost preview line 2");
 }

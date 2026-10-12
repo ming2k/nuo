@@ -211,8 +211,6 @@ pub fn dismiss_cleanup(view: &mut dyn DialogView) {
                 .as_any_mut()
                 .downcast_mut::<HistorySearchDialog>()
                 .expect("kind");
-            d.search = false;
-            d.query.clear();
             d.index = 0;
             d.scroll = 0;
             d.follow = true;
@@ -528,9 +526,6 @@ fn render_dialog(
                     follow_selection: d.follow,
                     input_rect,
                     activity_height: ctx.activity_height,
-                    query: &d.query.text,
-                    cursor_position: d.query.cursor,
-                    show_caret: ctx.overlay_owns_caret,
                 },
                 ctx.theme,
             )
@@ -1034,12 +1029,7 @@ dialog_entity!(ConnectionsDialog, Connections, {
     models_expanded: bool = false,
 });
 
-dialog_entity!(HistorySearchDialog, HistorySearch, {
-    /// Whether the search sub-layer is active.
-    search: bool = false,
-    /// Embedded fuzzy query (self-contained; never the composer line).
-    query: TextInput = TextInput::default(),
-});
+dialog_entity!(HistorySearchDialog, HistorySearch, {});
 
 dialog_entity!(ThreadsDialog, Threads, {
     /// `true` while the session-info sub-view is open.

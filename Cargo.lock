@@ -2599,6 +2599,8 @@ dependencies = [
 [[package]]
 name = "nuotc"
 version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6656f348f55a34e1ff1b68c11b6884396917a45addc614ef87f5a949fa7fe74"
 dependencies = [
  "bitflags",
  "crossterm",
