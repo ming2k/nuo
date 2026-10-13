@@ -78,14 +78,17 @@ pub fn ensure_dev_environment() {
 }
 
 pub async fn run_cli_args(raw_args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let mut parsed = match cli::parse(raw_args) {
+    let parsed = match cli::parse(raw_args) {
         Ok(parsed) => parsed,
         Err(error) => {
             eprintln!("nuo: {error}\n\nRun 'nuo --help' for more information.");
             std::process::exit(2);
         }
     };
+    run_with_options(parsed).await
+}
 
+pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::error::Error>> {
     // Stdin pipeline detection: piped input becomes (or joins) the prompt.
     // Only the prompt-bearing modes take it — piping into a non-prompt
     // command is a shell mistake, not a headless run.
@@ -102,7 +105,7 @@ pub async fn run_cli_args(raw_args: &[String]) -> Result<(), Box<dyn std::error:
         None
     };
     if let Some(piped) = stdin_input {
-        match &parsed.mode {
+        match &mut parsed.mode {
             Mode::Fresh | Mode::Run { .. } => {
                 let joined = match parsed.prompt.take() {
                     Some(existing) => format!("{existing}\n\n--- Standard Input ---\n{piped}"),

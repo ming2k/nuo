@@ -27,8 +27,8 @@ use std::path::PathBuf;
 /// What the user asked the binary to do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
-    /// Interactive TUI session or headless run (`nuox` unified engine per ADR-0005).
-    Interactive(Vec<String>),
+    /// Interactive TUI session or headless run (`nuox` unified engine per ADR-0005, ADR-0048).
+    Interactive(nuo_tui::cli::CliArgs),
     /// `nuo thread …` / `nuo session …` (ADR-0043).
     Thread(ThreadAction),
     /// Session server commands and lifecycle operations.
@@ -79,16 +79,18 @@ pub enum SkillAction {
     Init { name: String, user: bool },
 }
 
-/// `nuo thread …` / `nuo session …` (ADR-0043)
+/// `nuo thread …` / `nuo session …` (ADR-0043, ADR-0048)
 #[derive(Debug, Clone, PartialEq)]
 pub enum ThreadAction {
-    /// `nuo thread rm <id>` — terminate a hosted thread. Listing is
-    /// `nuo status`: the thread table is the server's view.
+    /// `nuo thread ls` — list hosted threads.
+    List {
+        watch: bool,
+        json: bool,
+        all: bool,
+    },
+    /// `nuo thread rm <id>` — terminate a hosted thread by id.
     Delete(String),
 }
-
-/// Backward-compatible alias for [`ThreadAction`].
-pub type SessionAction = ThreadAction;
 
 /// `nuo` server actions (server, serve, start, stop, restart, status, token)
 #[derive(Debug, Clone, PartialEq)]
@@ -218,8 +220,11 @@ struct Spec {
 }
 
 const THREAD_SUBS: &[Spec] = &[
-    // The listing is `nuo status`, not a thread subcommand: the
-    // thread table is the server's view of what it hosts.
+    Spec {
+        name: "ls",
+        names: &["ls", "list"],
+        about: "list hosted threads",
+    },
     Spec {
         name: "rm",
         names: &["rm", "delete"],
@@ -227,13 +232,10 @@ const THREAD_SUBS: &[Spec] = &[
     },
 ];
 
-#[allow(dead_code)]
-const SESSION_SUBS: &[Spec] = THREAD_SUBS;
-
 const CONFIG_SUBS: &[Spec] = &[
     Spec {
-        name: "list",
-        names: &["list", "show"],
+        name: "ls",
+        names: &["ls", "list", "show"],
         about: "show current configuration",
     },
     Spec {
@@ -260,8 +262,8 @@ const CONFIG_SUBS: &[Spec] = &[
 
 const AUTH_SUBS: &[Spec] = &[
     Spec {
-        name: "list",
-        names: &["list", "status"],
+        name: "ls",
+        names: &["ls", "list", "status"],
         about: "list configured providers and auth status",
     },
     Spec {
@@ -396,8 +398,8 @@ const COMMANDS: &[Spec] = &[
     },
     Spec {
         name: "thread",
-        names: &["thread", "session"],
-        about: "manage threads (rm; listing is `status`)",
+        names: &["thread"],
+        about: "manage threads (ls, rm)",
     },
     Spec {
         name: "config",
@@ -530,7 +532,7 @@ struct ServerStartFlags {
 impl Default for ServerStartFlags {
     fn default() -> Self {
         Self {
-            foreground: true,
+            foreground: false,
             port: None,
             public: false,
             no_local_auth: false,
@@ -541,8 +543,11 @@ impl Default for ServerStartFlags {
     }
 }
 
-fn parse_server_start_flags(args: &[String]) -> Result<ServerStartFlags, FlagError> {
-    let mut flags = ServerStartFlags::default();
+fn parse_server_start_flags(args: &[String], default_foreground: bool) -> Result<ServerStartFlags, FlagError> {
+    let mut flags = ServerStartFlags {
+        foreground: default_foreground,
+        ..ServerStartFlags::default()
+    };
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         let (name, inline) = split_flag(arg);
@@ -652,6 +657,10 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         project: project.clone(),
     };
     let ok = |mode| Ok(base(mode));
+    let parse_interactive = |input_args: &[String]| -> Result<CliArgs, String> {
+        let tui_args = nuo_tui::cli::parse(input_args)?;
+        Ok(base(Mode::Interactive(tui_args)))
+    };
 
     if version {
         return ok(Mode::Version);
@@ -679,8 +688,14 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     }
 
     let Some(cmd) = rest.first().cloned() else {
-        return ok(Mode::Interactive(args.to_vec()));
+        return parse_interactive(args);
     };
+
+    if cmd == "session" {
+        return Err(
+            "'session' was removed in favor of 'nuo thread' (ADR-0038, ADR-0048).\n\n  tip: use 'nuo thread ls' or 'nuo thread rm <id>'".into(),
+        );
+    }
 
     if cmd == "-i"
         || cmd == "--interactive"
@@ -691,11 +706,11 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         || cmd == "dashboard"
         || cmd == "settings"
     {
-        return ok(Mode::Interactive(args.to_vec()));
+        return parse_interactive(args);
     }
 
     if cmd == "serve" {
-        let flags = parse_server_start_flags(&rest[1..]).map_err(|e| e.0)?;
+        let flags = parse_server_start_flags(&rest[1..], true).map_err(|e| e.0)?;
         return ok(Mode::Server(ServerAction::Start {
             foreground: true,
             port: flags.port,
@@ -719,7 +734,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             || cmd == "--zero-tcp"
             || cmd == "--client-driven"
         {
-            let flags = parse_server_start_flags(&rest).map_err(|e| e.0)?;
+            let flags = parse_server_start_flags(&rest, false).map_err(|e| e.0)?;
             return ok(Mode::Server(ServerAction::Start {
                 foreground: flags.foreground,
                 port: flags.port,
@@ -730,7 +745,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 zero_tcp: flags.zero_tcp,
             }));
         } else {
-            return ok(Mode::Interactive(args.to_vec()));
+            return parse_interactive(args);
         }
     }
 
@@ -747,7 +762,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             return Err(format!("unrecognized command '{cmd}'\n\n  tip: a similar command exists: '{s}'"));
         } else {
             // Unrecognized word without command suggestion: treat as interactive session prompt
-            return ok(Mode::Interactive(args.to_vec()));
+            return parse_interactive(args);
         }
     }
 
@@ -768,7 +783,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             let sub_extra = &extra[1..];
             match sub.name {
                 "start" => {
-                    let flags = parse_server_start_flags(sub_extra).map_err(|e| e.0)?;
+                    let flags = parse_server_start_flags(sub_extra, false).map_err(|e| e.0)?;
                     Mode::Server(ServerAction::Start {
                         foreground: flags.foreground,
                         port: flags.port,
@@ -801,7 +816,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                             remaining.push(arg.clone());
                         }
                     }
-                    let flags = parse_server_start_flags(&remaining).map_err(|e| e.0)?;
+                    let flags = parse_server_start_flags(&remaining, false).map_err(|e| e.0)?;
                     Mode::Server(ServerAction::Restart {
                         force,
                         port: flags.port,
@@ -829,7 +844,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             }
         }
         "serve" => {
-            let flags = parse_server_start_flags(&extra).map_err(|e| e.0)?;
+            let flags = parse_server_start_flags(&extra, true).map_err(|e| e.0)?;
             Mode::Server(ServerAction::Start {
                 foreground: true,
                 port: flags.port,
@@ -841,10 +856,10 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             })
         }
         "run" | "attach" | "dashboard" | "settings" => {
-            Mode::Interactive(args.to_vec())
+            return parse_interactive(args);
         }
         "start" => {
-            let flags = parse_server_start_flags(&extra).map_err(|e| e.0)?;
+            let flags = parse_server_start_flags(&extra, false).map_err(|e| e.0)?;
             Mode::Server(ServerAction::Start {
                 foreground: flags.foreground,
                 port: flags.port,
@@ -879,7 +894,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                     remaining.push(arg.clone());
                 }
             }
-            let flags = parse_server_start_flags(&remaining).map_err(|e| e.0)?;
+            let flags = parse_server_start_flags(&remaining, false).map_err(|e| e.0)?;
             Mode::Server(ServerAction::Restart {
                 force,
                 port: flags.port,
@@ -903,18 +918,49 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             [] => Mode::Server(ServerAction::Token),
             [bad, ..] => return unexpected(bad),
         },
-        "thread" | "session" => {
-            if extra.is_empty() {
-                return Err("nuo thread needs a subcommand: `nuo thread rm <id>` \
-                     (to list threads, use `nuo status`)"
-                    .into());
-            }
-            let sub = match resolve(&extra[0], THREAD_SUBS) {
-                Some(sub) => sub,
-                None => return unexpected(&extra[0]),
+        "thread" => {
+            let (sub, sub_extra) = if extra.is_empty() {
+                (
+                    &Spec {
+                        name: "ls",
+                        names: &["ls", "list"],
+                        about: "list hosted threads",
+                    },
+                    &[][..],
+                )
+            } else if let Some(sub) = resolve(&extra[0], THREAD_SUBS) {
+                (sub, &extra[1..])
+            } else if extra[0].starts_with('-') {
+                (
+                    &Spec {
+                        name: "ls",
+                        names: &["ls", "list"],
+                        about: "list hosted threads",
+                    },
+                    &extra[..],
+                )
+            } else {
+                return unexpected(&extra[0]);
             };
-            let sub_extra = &extra[1..];
             match sub.name {
+                "ls" => {
+                    let mut watch = false;
+                    let mut json_flag = false;
+                    let mut all = false;
+                    for arg in sub_extra {
+                        match arg.as_str() {
+                            "-w" | "--watch" => watch = true,
+                            "-j" | "--json" => json_flag = true,
+                            "-a" | "--all" => all = true,
+                            bad => return unexpected(bad),
+                        }
+                    }
+                    Mode::Thread(ThreadAction::List {
+                        watch,
+                        json: json_flag || json,
+                        all,
+                    })
+                }
                 "rm" => {
                     let args: &[String] = sub_extra;
                     match args {
@@ -931,7 +977,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         "config" => {
             let extra_str: Vec<&str> = extra.iter().map(String::as_str).collect();
             match extra_str.as_slice() {
-                [] | ["list"] | ["show"] => Mode::Config(ConfigAction::List),
+                [] | ["ls"] | ["list"] | ["show"] => Mode::Config(ConfigAction::List),
                 ["path"] => Mode::Config(ConfigAction::Path),
                 ["check"] => Mode::Config(ConfigAction::Check),
                 ["migrate"] => Mode::Config(ConfigAction::Migrate),
@@ -973,7 +1019,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         "auth" => {
             let extra_str: Vec<&str> = extra.iter().map(String::as_str).collect();
             match extra_str.as_slice() {
-                [] | ["list"] | ["status"] => Mode::Auth(AuthAction::List),
+                [] | ["ls"] | ["list"] | ["status"] => Mode::Auth(AuthAction::List),
                 ["show", provider] => Mode::Auth(AuthAction::Show((*provider).to_string())),
                 ["set", provider, key] => Mode::Auth(AuthAction::Set {
                     provider: (*provider).to_string(),
@@ -1395,13 +1441,25 @@ mod surface_tests {
     }
 
     #[test]
-    fn start_defaults_to_foreground_server() {
+    fn start_defaults_to_background_server() {
         let parsed = parse(&["start"]).unwrap();
         assert!(matches!(
             parsed.mode,
             Mode::Server(ServerAction::Start {
-                foreground: true,
+                foreground: false,
                 zero_tcp: false,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn start_with_fg_sets_foreground() {
+        let parsed = parse(&["start", "--fg"]).unwrap();
+        assert!(matches!(
+            parsed.mode,
+            Mode::Server(ServerAction::Start {
+                foreground: true,
                 ..
             })
         ));
@@ -1489,10 +1547,16 @@ mod surface_tests {
 
     #[test]
     fn tui_commands_route_to_interactive() {
-        for command in ["run", "attach", "dashboard", "settings"] {
+        for command in [
+            &["run", "hello"][..],
+            &["attach"][..],
+            &["dashboard"][..],
+            &["settings"][..],
+        ] {
             assert!(
-                matches!(parse(&[command]).unwrap().mode, Mode::Interactive(_)),
-                "{command}"
+                matches!(parse(command).unwrap().mode, Mode::Interactive(_)),
+                "{:?}",
+                command
             );
         }
     }
@@ -1530,14 +1594,24 @@ mod surface_tests {
     }
 
     #[test]
-    fn thread_verbs_parse_for_thread_and_legacy_session() {
+    fn thread_verbs_parse_and_legacy_session_is_retired() {
         assert!(matches!(
             parse(&["thread", "rm", "thr-0123"]).unwrap().mode,
             Mode::Thread(ThreadAction::Delete(ref id)) if id == "thr-0123"
         ));
         assert!(matches!(
-            parse(&["session", "rm", "thr-0123"]).unwrap().mode,
-            Mode::Thread(ThreadAction::Delete(ref id)) if id == "thr-0123"
+            parse(&["thread", "ls"]).unwrap().mode,
+            Mode::Thread(ThreadAction::List { watch: false, json: false, all: false })
         ));
+        assert!(matches!(
+            parse(&["thread"]).unwrap().mode,
+            Mode::Thread(ThreadAction::List { watch: false, json: false, all: false })
+        ));
+        assert!(matches!(
+            parse(&["thread", "list", "--json", "--watch"]).unwrap().mode,
+            Mode::Thread(ThreadAction::List { watch: true, json: true, all: false })
+        ));
+        let session_err = parse(&["session", "rm", "thr-0123"]).unwrap_err();
+        assert!(session_err.contains("'session' was removed in favor of 'nuo thread'"));
     }
 }

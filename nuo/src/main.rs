@@ -47,7 +47,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     } = parsed;
 
     match mode {
-        Mode::Interactive(raw_args) => nuo_tui::runner::run_cli_args(&raw_args).await,
+        Mode::Interactive(options) => nuo_tui::runner::run_with_options(options).await,
         Mode::Version => {
             println!("nuo {}", env!("CARGO_PKG_VERSION"));
             Ok(())
@@ -72,7 +72,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Mode::Mcp(McpAction::Probe { name }) => commands::mcp::probe(&name).await,
         Mode::Mcp(action) => commands::mcp::run(action),
         Mode::Skill(action) => commands::skill::run(action).await,
-        Mode::Thread(action) => commands::session::run(action, project_override).await,
+        Mode::Thread(action) => commands::thread::run(action, project_override).await,
         Mode::Server(action) => run_server_action(action, project_override).await,
     }
 }

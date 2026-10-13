@@ -2041,6 +2041,39 @@ pub async fn run_tui(
                     AgentResponse::ServerEndpointsStatus(report) => {
                         mutations.send(M::ServerEndpoints(report)).await;
                     }
+                    AgentResponse::SessionSnapshot(snapshot) => {
+                        let sid = snapshot.session_id.clone();
+                        if let Some(picker) = snapshot.provider_picker {
+                            mutations.send(M::ProviderPicker(picker)).await;
+                        }
+                        if let Some(keys) = snapshot.provider_keys {
+                            mutations.send(M::KeyStatus(keys.into_iter().collect())).await;
+                        }
+                        if let Some(ct) = snapshot.context_tokens {
+                            mutations.send(M::ContextTokens {
+                                session_id: sid,
+                                snapshot: ct,
+                            }).await;
+                        }
+                        if let Some(harness) = snapshot.harness_state {
+                            mutations.send(M::Harness(harness)).await;
+                        }
+                        mutations.send(M::ProviderSwitched {
+                            provider: snapshot.provider,
+                            model: snapshot.model,
+                        }).await;
+                    }
+                    AgentResponse::StateDelta(delta) => {
+                        if let (Some(provider), Some(model)) = (delta.provider, delta.model) {
+                            mutations.send(M::ProviderSwitched { provider, model }).await;
+                        }
+                        if let Some(ct) = delta.context_tokens {
+                            mutations.send(M::ContextTokens {
+                                session_id: delta.session_id,
+                                snapshot: ct,
+                            }).await;
+                        }
+                    }
                 }
             }
         });

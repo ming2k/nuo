@@ -139,6 +139,53 @@ impl AttachSyncBuffer {
         }
         count
     }
+
+    /// Produce a declarative SessionSnapshot (ADR-0049).
+    pub fn build_session_snapshot(&self, session_id: &str) -> nuo_wire::SessionSnapshot {
+        let (provider, model) = match &self.provider_switched {
+            Some(AgentResponse::ProviderSwitched { provider, model }) => {
+                (provider.clone(), model.clone())
+            }
+            _ => ("default".to_string(), "default".to_string()),
+        };
+        let provider_keys = match &self.provider_keys {
+            Some(AgentResponse::ProviderKeys(k)) => Some(k.clone()),
+            _ => None,
+        };
+        let provider_picker = match &self.provider_picker {
+            Some(AgentResponse::ProviderPicker(p)) => Some(p.clone()),
+            _ => None,
+        };
+        let context_tokens = match &self.context_tokens {
+            Some(AgentResponse::Round {
+                event: nuo_wire::RoundEvent::ContextTokens(ct),
+                ..
+            }) => Some(*ct),
+            _ => None,
+        };
+        let harness_state = match &self.harness_state {
+            Some(AgentResponse::Round {
+                event: nuo_wire::RoundEvent::HarnessState(hs),
+                ..
+            }) => Some(hs.clone()),
+            _ => None,
+        };
+
+        nuo_wire::SessionSnapshot {
+            session_id: session_id.to_string(),
+            round_counter: 0,
+            messages: Vec::new(),
+            provider,
+            model,
+            todos: Vec::new(),
+            context_tokens,
+            harness_state,
+            activity: None,
+            provider_picker,
+            provider_keys,
+            watermark_seq: 0,
+        }
+    }
 }
 
 /// Read-only snapshot of the attach-sync buffer:
@@ -148,6 +195,13 @@ pub(crate) async fn snapshot_attach_sync(
     buffer: &tokio::sync::Mutex<AttachSyncBuffer>,
 ) -> Vec<AgentResponse> {
     buffer.lock().await.snapshot()
+}
+
+pub(crate) async fn build_declarative_snapshot(
+    buffer: &tokio::sync::Mutex<AttachSyncBuffer>,
+    session_id: &str,
+) -> nuo_wire::SessionSnapshot {
+    buffer.lock().await.build_session_snapshot(session_id)
 }
 
 /// Inform a newly attached client that previously trusted project-authored
@@ -1494,6 +1548,16 @@ async fn handle_wire_stream(
         effective = ?after_attach,
         "nuo server: human channel accounted"
     );
+    // ADR-0049: Emit declarative SessionSnapshot for deterministic universal hydration
+    if !bound.sync_buffer.lock().await.is_empty() {
+        let session_snapshot = build_declarative_snapshot(&bound.sync_buffer, &attached_session_id).await;
+        let _ = wire_sink
+            .send(Wire::Response {
+                response: AgentResponse::SessionSnapshot(Box::new(session_snapshot)),
+            })
+            .await;
+    }
+
     // Replay the buffered attach-sync events (ADR-0096) so a client that
     // attached after the session began hydrates its picker/key/context
     // state immediately, before joining the live broadcast.
@@ -1548,6 +1612,14 @@ async fn handle_wire_stream(
                     // the same idempotent startup state a fresh attach gets
                     // — so the client resynchronizes instead of drifting.
                     tracing::warn!(skipped = n, "nuo server: client lagged; resyncing from attach-sync buffer");
+                    if !bound.sync_buffer.lock().await.is_empty() {
+                        let resync_snapshot = build_declarative_snapshot(&bound.sync_buffer, &attached_session_id).await;
+                        let _ = wire_sink
+                            .send(Wire::Response {
+                                response: AgentResponse::SessionSnapshot(Box::new(resync_snapshot)),
+                            })
+                            .await;
+                    }
                     for event in snapshot_attach_sync(&bound.sync_buffer).await {
                         if let Err(e) = wire_sink.send(Wire::Response { response: event }).await {
                             return Err(format!("wire send: {e}"));

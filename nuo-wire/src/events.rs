@@ -803,6 +803,10 @@ pub enum AgentResponse {
     WebSearchConfigUpdated(WebConfigView),
     /// Response with current server endpoints status (ADR-0045).
     ServerEndpointsStatus(crate::ServerEndpointsReport),
+    /// Full authoritative declarative session snapshot upon attachment (ADR-0049).
+    SessionSnapshot(Box<SessionSnapshot>),
+    /// Incremental state delta update (ADR-0049).
+    StateDelta(StateDelta),
 }
 
 
@@ -1724,7 +1728,7 @@ pub struct ProviderPickerSnapshot {
 
 pub type ConnectionPickerSnapshot = ProviderPickerSnapshot;
 
-/// Complete state snapshot of a live or persisted session for client hydration.
+/// Complete state snapshot of a live or persisted session for client hydration (ADR-0049).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSnapshot {
     pub session_id: String,
@@ -1737,11 +1741,31 @@ pub struct SessionSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_tokens: Option<ContextTokenSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness_state: Option<HarnessSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub activity: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_picker: Option<ProviderPickerSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_keys: Option<Vec<(String, bool)>>,
+    #[serde(default)]
+    pub watermark_seq: u64,
+}
+
+/// Incremental state delta update (ADR-0049).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StateDelta {
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_tokens: Option<ContextTokenSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watermark_seq: Option<u64>,
 }
 
 /// Steering operations a parent can submit into a running agent's inbox — the

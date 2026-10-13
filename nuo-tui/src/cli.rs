@@ -48,7 +48,7 @@ impl Shell {
 }
 
 /// The parsed command line: the [`Mode`] plus terminal-app global options.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CliArgs {
     pub mode: Mode,
     /// `--project <path>`: operate on the project at `<path>`.

@@ -65,7 +65,7 @@ pub async fn run(
         Some(_) => return Err("monitor stream opened without a snapshot".into()),
         None => return Err("server closed the monitor stream".into()),
     };
-    render(&state, opts);
+    render(&info, &state, opts);
     if !opts.watch {
         return Ok(());
     }
@@ -97,7 +97,7 @@ pub async fn run(
                 return Ok(());
             }
         }
-        render(&state, opts);
+        render(&info, &state, opts);
     }
     Ok(())
 }
@@ -272,12 +272,22 @@ pub(crate) fn format_diagnostics(diag: &ServerDiagnostics) -> String {
     out
 }
 
-fn render(snapshot: &MonitorSnapshot, opts: StatusOptions) {
+fn render(info: &client::ServerInfo, snapshot: &MonitorSnapshot, opts: StatusOptions) {
     if opts.json {
+        let payload = serde_json::json!({
+            "server": {
+                "pid": info.pid,
+                "port": info.port,
+                "version": info.version,
+                "started_at": info.started_at,
+                "uds_path": info.uds_path,
+                "transport": if info.port == 0 { "local_ipc_zero_tcp" } else { "tcp" },
+            },
+            "snapshot": snapshot,
+        });
         println!(
             "{}",
-            serde_json::to_string(&MonitorEvent::Snapshot(snapshot.clone()))
-                .unwrap_or_else(|_| "{}".to_string())
+            serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string())
         );
         return;
     }
@@ -286,7 +296,58 @@ fn render(snapshot: &MonitorSnapshot, opts: StatusOptions) {
         // alternate-screen TUI is overkill for a status table.
         print!("\x1b[2J\x1b[H");
     }
+
+    let transport = if info.port == 0 {
+        "Local IPC (0-TCP secure)".to_string()
+    } else {
+        format!("ws://127.0.0.1:{} (bearer auth)", info.port)
+    };
+    let uptime = format_uptime(info.started_at);
+    let root = if snapshot.project_root.is_empty() {
+        "all projects"
+    } else {
+        snapshot.project_root.as_str()
+    };
+
+    println!("● Nuo [Healthy] · Server PID {} (uptime {})", info.pid, uptime);
+    println!("  Transport: {transport} · Project: {root}");
+
+    let db_path = nuo_host::paths::get().db_file();
+    let db_status = if let Some(health) = &snapshot.persistence_health {
+        if health.is_healthy() {
+            "WAL healthy".to_string()
+        } else {
+            let detail = health.detail().unwrap_or_default();
+            format!("Degraded: {detail}")
+        }
+    } else {
+        "WAL healthy".to_string()
+    };
+    println!("  Database:  {} ({})", db_path.display(), db_status);
+    println!();
+
     println!("{}", table(snapshot));
+}
+
+fn format_uptime(started_at_secs: u64) -> String {
+    if started_at_secs == 0 {
+        return "–".to_string();
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if now < started_at_secs {
+        return "just started".to_string();
+    }
+    let elapsed = now - started_at_secs;
+    if elapsed < 60 {
+        format!("{elapsed}s")
+    } else if elapsed < 3600 {
+        format!("{}m {}s", elapsed / 60, elapsed % 60)
+    } else {
+        format!("{}h {}m", elapsed / 3600, (elapsed % 3600) / 60)
+    }
 }
 
 /// The human-readable table. Extracted (and `pub(crate)`) so tests can pin
@@ -351,6 +412,7 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
     }
     if snapshot.sessions.is_empty() {
         out.push_str("  (all quiet — no running or blocked sessions)\n");
+        out.push_str("\nTip: Run `nuo thread ls` for full thread history, or `nuo status --diagnostic` for transport internals.\n");
         return out;
     }
     out.push_str(&format!(
@@ -369,6 +431,7 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
             detail(row),
         ));
     }
+    out.push_str("\nTip: Run `nuo thread ls` for full thread history, or `nuo status --diagnostic` for transport internals.\n");
     out
 }
 
