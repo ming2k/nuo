@@ -8,6 +8,32 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.17] - 2026-10-24
+
+### Added
+
+- **Unified instruction pipeline, pure role topology, and end-to-end cache fidelity (ADR-0052).**
+  - **Deterministic Pipeline Structure (`[INV-PROMPT-01]`)**: Implements strict 5-tier instruction bundling (Global Rules -> Runtime Baseline -> Profile Persona -> Project Directives -> Dynamic Directives) with semantic dependency-directed topological ordering and memoization.
+  - **Zero Frame Mutation (`[INV-PROMPT-02]`)**: Directs all harness instruction layers into top-level system frames with zero conversational history mutation or synthetic turn injection.
+  - **Role Topology Purity (`[INV-PROMPT-03]`)**: Enforces pure `developer`/`system`/`user`/`assistant`/`tool` role fidelity across all provider adapters without mimicked role multiplexing.
+  - **Prompt Cache Frontier Preservation (`[INV-PROMPT-04]`)**: Pinpoints and aligns prompt cache breakpoints across Anthropic, Google Antigravity, and OpenAI wire adapters for optimal prefix cache hits.
+
+- **Composer canonical quadrant modality, atomic draft capsule, and in-place recall topology (ADR-0051).**
+  - **Canonical Modality Quad-Partition (`[INV-COMP-01]`)**: Establishes four orthogonal, mutually exclusive composer states: `Normal`, `Recall`, `FollowUp`, and `Steer`.
+  - **Atomic Draft Capsule (`[INV-COMP-02]`)**: Unifies text buffer, caret position, and staged attachment handles into an atomic snapshot stashed and restored deterministically across modality shifts.
+  - **In-Place Recall Topology (`[INV-COMP-03]`)**: Binds history search and ghost preview entirely to the native composer text surface without separate popup input fields.
+  - **Zero Mode Ambiguity (`[INV-COMP-04]`)**: Unifies `Enter` / `Esc` semantic dispatch with visual modal indicator badges and distinct tone highlights.
+
+- **Authentic thread title lifecycle, clean scene head, and semantic tab projection (ADR-0050).**
+  - **Single Title Source of Truth (`[INV-TITLE-01]`)**: Binds thread titles durably to session identity with automatic cognitive generation on first turn completion and manual lock preservation.
+  - **Clean Scene Head (`[INV-HEAD-01]`)**: De-clutters top-level scene headers into distinct identity and scene-status bands, eliminating redundant title and status duplication.
+  - **Semantic Tab Projection (`[INV-TAB-01]`)**: Automatically projects authentic session titles and role badges into the top TabBar tabs with graceful middle-truncation.
+
+- **CLI modernization, resource symmetry, and universal state snapshot protocol (ADR-0048, ADR-0049).**
+  - **Domain Alignment & Thread Terminology (`[INV-CLI-01]`, `[INV-RES-01]`)**: Modernizes CLI verbs (`nuo thread`, `nuo start`, `nuo stop`) with symmetric subcommands and deprecates legacy commands with actionable hints.
+  - **Universal State Snapshot Protocol (`[INV-SNAP-01]`)**: Standardizes JSON/tabular diagnostic outputs across client and server with real-time daemon status monitoring.
+  - **Client-Driven Lifecycle & Zero-TCP IPC (`[INV-IPC-01]`)**: Robust local socket communication with instant client-driven daemon lifecycle handoff.
+
 ## [0.0.16] - 2026-10-23
 
 ### Added
