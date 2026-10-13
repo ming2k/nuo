@@ -526,6 +526,7 @@ mod tests {
     fn row(id: &str, status: SessionStatus) -> MonitoredSession {
         MonitoredSession {
             id: id.into(),
+            title: Some("refactor the parser".into()),
             overview: "refactor the parser".into(),
             created_at: 1,
             updated_at: 100,

@@ -1505,6 +1505,7 @@ mod tests {
     ) -> MonitoredSession {
         MonitoredSession {
             id: id.into(),
+            title: None,
             overview: format!("task for {id}"),
             created_at,
             updated_at: created_at,

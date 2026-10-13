@@ -15,6 +15,7 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 fn idle_base(id: String) -> nuo_wire::MonitoredSession {
     nuo_wire::MonitoredSession {
         id,
+        title: None,
         overview: String::new(),
         created_at: 0,
         updated_at: 0,

@@ -171,6 +171,16 @@ mod tests {
             code: KeyCode::Delete,
         };
         assert_eq!(ext.intercept_key(bare_delete, &keys), None);
+
+        // Ctrl+R and Ctrl+Shift+R cycle candidates (ADR-0051 [INV-COMP-04])
+        assert_eq!(
+            ext.intercept_key(Key::CTRL_R, &keys),
+            Some(InputAction::ModalDown)
+        );
+        assert_eq!(
+            ext.intercept_key(Key::CTRL_SHIFT_R, &keys),
+            Some(InputAction::ModalUp)
+        );
     }
 
     #[test]

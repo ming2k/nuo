@@ -302,7 +302,16 @@ pub fn draw_sessions_modal(
                 };
                 let badge_w = badge.width();
                 let col1_budget = body_width.saturating_sub(meta_w + badge_w + COL_GUTTER);
-                let overview = truncate_ellipsis(&one_line(&session.overview), col1_budget);
+                let display_title = session
+                    .title
+                    .as_deref()
+                    .filter(|t| !t.trim().is_empty())
+                    .unwrap_or(if !session.overview.trim().is_empty() {
+                        session.overview.as_str()
+                    } else {
+                        "(untitled)"
+                    });
+                let overview = truncate_ellipsis(&one_line(display_title), col1_budget);
                 let left_w = overview.width() + badge_w;
                 let pad = body_width.saturating_sub(left_w + meta_w);
                 let badge_style = if is_selected {
@@ -326,7 +335,16 @@ pub fn draw_sessions_modal(
                 };
                 let prefix_w = prefix.width();
                 let col1_budget = body_width.saturating_sub(meta_w + prefix_w + COL_GUTTER);
-                let overview = truncate_ellipsis(&one_line(&session.overview), col1_budget);
+                let display_title = session
+                    .title
+                    .as_deref()
+                    .filter(|t| !t.trim().is_empty())
+                    .unwrap_or(if !session.overview.trim().is_empty() {
+                        session.overview.as_str()
+                    } else {
+                        "(untitled)"
+                    });
+                let overview = truncate_ellipsis(&one_line(display_title), col1_budget);
                 let left_w = prefix_w + overview.width();
                 let pad = body_width.saturating_sub(left_w + meta_w);
                 let branch_prefix_style = if is_selected {
@@ -542,6 +560,7 @@ mod tests {
         use nuo_wire::{SessionForkKind, SessionOverview};
         let s1 = SessionOverview {
             id: "s1".into(),
+            title: Some("Trunk 1".into()),
             overview: "Trunk 1".into(),
             created_at: 100,
             updated_at: 100,
@@ -553,6 +572,7 @@ mod tests {
         };
         let s2 = SessionOverview {
             id: "s2".into(),
+            title: Some("Aside 1".into()),
             overview: "Aside 1".into(),
             created_at: 110,
             updated_at: 110,
@@ -564,6 +584,7 @@ mod tests {
         };
         let s3 = SessionOverview {
             id: "s3".into(),
+            title: Some("Trunk 2".into()),
             overview: "Trunk 2".into(),
             created_at: 120,
             updated_at: 120,
@@ -628,6 +649,7 @@ mod tests {
 
         let s1 = SessionOverview {
             id: "s1".into(),
+            title: Some("Auth Refactor".into()),
             overview: "Auth Refactor".into(),
             created_at: 100,
             updated_at: 100,
@@ -639,6 +661,7 @@ mod tests {
         };
         let s2 = SessionOverview {
             id: "s2".into(),
+            title: Some("Regex Aside".into()),
             overview: "Regex Aside".into(),
             created_at: 110,
             updated_at: 110,

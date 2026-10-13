@@ -1825,6 +1825,7 @@ fn base_row(
 ) -> MonitoredSession {
     MonitoredSession {
         id: overview.id,
+        title: overview.title,
         overview: overview.overview,
         created_at: overview.created_at,
         updated_at: overview.updated_at,
@@ -1856,6 +1857,7 @@ async fn overview_of(session: &SessionStore, active: bool) -> SessionOverview {
         if let Some(item) = items.into_iter().find(|i| i.id == id) {
             return SessionOverview {
                 id: item.id,
+                title: item.title,
                 overview: item.overview,
                 created_at: item.created_at,
                 updated_at: item.updated_at,
@@ -1869,8 +1871,10 @@ async fn overview_of(session: &SessionStore, active: bool) -> SessionOverview {
     }
     let mc = session.full_transcript().await.len();
     let digest = session.digest().await.0;
+    let (real_title, _) = session.title().await;
     SessionOverview {
         id,
+        title: real_title,
         overview: String::new(),
         created_at: 0,
         updated_at: 0,

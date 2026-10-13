@@ -162,7 +162,8 @@ fn push_summary(
     if final_msg_count == 0 && id != active_id {
         return;
     }
-    let overview = if let Some(t) = title.as_deref().filter(|t| !t.trim().is_empty()) {
+    let real_title = title.as_deref().filter(|t| !t.trim().is_empty()).map(|s| s.to_string());
+    let overview = if let Some(ref t) = real_title {
         crate::session::truncate_preview(t, 64)
     } else if let Some(prompt) = last_user_prompt.as_deref().filter(|p| !p.trim().is_empty()) {
         crate::session::truncate_preview(prompt, 64)
@@ -172,6 +173,7 @@ fn push_summary(
     let digest = digest_json.and_then(|digest_raw| serde_json::from_str(&digest_raw).ok());
     summaries.push(crate::session::SessionSummary {
         id: id.clone(),
+        title: real_title,
         parent_id,
         fork_kind,
         message_count: final_msg_count,

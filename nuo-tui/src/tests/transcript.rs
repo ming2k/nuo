@@ -405,7 +405,7 @@ async fn sending_clears_the_remembered_draft() {
     let sent = std::mem::take(&mut app.input);
     app.record_input_history(sent, Vec::new(), Vec::new());
     app.clear_history_draft();
-    assert!(app.history_draft.is_empty());
+    assert!(app.draft_capsule.is_empty());
     assert!(app.input.is_empty(), "composer is blank after a send");
 
     // A later ↑→↓ round-trip restores an empty composer, not the sent text.

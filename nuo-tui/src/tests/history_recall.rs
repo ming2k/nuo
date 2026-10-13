@@ -408,7 +408,7 @@ fn history_modal_never_borrows_the_draft_and_resets_its_own_query() {
     app.cursor_position = "my draft".chars().count();
     app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
     assert_eq!(app.input, "", "composer input cleared for search query");
-    assert_eq!(app.history_draft, "my draft", "composer draft stashed");
+    assert_eq!(app.draft_capsule.text, "my draft", "composer draft stashed in capsule");
     app.input = "git".to_string();
     app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 4;
 
@@ -446,7 +446,7 @@ fn history_insert_clears_search_query_buffer_and_places_entry() {
     let (orig_idx, _) = *pick.unwrap();
     let text = app.input_history[orig_idx].text.clone();
     app.adopt_as_draft(text, vec![], vec![], crate::app::DraftAdoption::Replace);
-    app.history_draft.clear();
+    app.clear_stashed_draft();
     app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 0;
     app.surfaces.dismiss_all_overlays();
 
@@ -606,14 +606,10 @@ fn history_draft_round_trip_keeps_attachments() {
     app.pending_images = vec![image.clone()];
 
     // First ↑: stash text + attachments (what the HistoryPrev handler does).
-    app.history_draft = std::mem::take(&mut app.input);
-    app.history_draft_images = std::mem::take(&mut app.pending_images);
-    app.history_draft_text_pastes = std::mem::take(&mut app.pending_text_pastes);
+    app.stash_draft();
 
     // ↓ past the newest entry: restore text + attachments together.
-    app.input = std::mem::take(&mut app.history_draft);
-    app.pending_images = std::mem::take(&mut app.history_draft_images);
-    app.pending_text_pastes = std::mem::take(&mut app.history_draft_text_pastes);
+    app.restore_stashed_draft();
 
     assert_eq!(app.input, draft);
     assert_eq!(app.pending_images.len(), 1);
@@ -892,7 +888,7 @@ async fn history_rows_are_readonly_snapshots() {
     assert_eq!(app.input, "newest row");
     assert!(!app.history_next(&rows));
     // The adopted/empty draft comes back, never the temporary edit.
-    assert_eq!(app.input, app.history_draft);
+    assert_eq!(app.input, app.draft_capsule.text);
 }
 
 /// The composer's recall badge (ADR-0192): a 1-based pointer position over
@@ -949,7 +945,6 @@ async fn esc_cancels_history_recall_and_restores_draft() {
 
     // A draft (with a staged attachment) exists before navigation.
     app.input = "half-typed draft".to_string();
-    app.history_draft = app.input.clone();
 
     assert!(app.history_prev(&rows));
     assert_eq!(app.input, "newest row");
@@ -983,10 +978,10 @@ fn recall_queued_adopts_content_as_draft() {
     assert_eq!(app.input, "queued msg");
     assert_eq!(app.history_index, None, "recall enters draft mode");
     assert_eq!(
-        app.history_draft, "queued msg",
+        app.draft_capsule.text, "queued msg",
         "recalled text becomes the draft"
     );
-    assert_eq!(app.history_draft_images.len(), 1);
+    assert_eq!(app.draft_capsule.pending_images.len(), 1);
     assert_eq!(app.pending_images.len(), 1);
 }
 
@@ -1232,6 +1227,31 @@ fn test_shift_delete_and_bare_delete_dispatch() {
         &mut 0,
     );
     assert_eq!(action_n, Some(crate::input::InputAction::ModalDown));
+
+    // Ctrl+R cycles next match and Ctrl+Shift+R cycles previous match (ADR-0051 [INV-COMP-04])
+    let action_ctrl_r = resolve_modal_key(
+        Some(crate::surfaces::OverlaySurface::Dialog(
+            crate::surfaces::DialogKind::HistorySearch,
+        )),
+        crate::surfaces::SceneKind::Thread,
+        Key::CTRL_R,
+        &c,
+        &mut String::new(),
+        &mut 0,
+    );
+    assert_eq!(action_ctrl_r, Some(crate::input::InputAction::ModalDown));
+
+    let action_ctrl_shift_r = resolve_modal_key(
+        Some(crate::surfaces::OverlaySurface::Dialog(
+            crate::surfaces::DialogKind::HistorySearch,
+        )),
+        crate::surfaces::SceneKind::Thread,
+        Key::CTRL_SHIFT_R,
+        &c,
+        &mut String::new(),
+        &mut 0,
+    );
+    assert_eq!(action_ctrl_shift_r, Some(crate::input::InputAction::ModalUp));
 }
 
 #[tokio::test]
@@ -1436,7 +1456,7 @@ async fn ctrl_c_clears_history_recall_and_resets_draft() {
     assert!(app.history_prev(&rows));
     assert_eq!(app.input, "prior command");
     assert!(app.history_index.is_some());
-    assert_eq!(app.history_draft, "draft text");
+    assert_eq!(app.draft_capsule.text, "draft text");
 
     // Edit the recalled text
     app.input.push_str(" --flag");
@@ -1449,7 +1469,7 @@ async fn ctrl_c_clears_history_recall_and_resets_draft() {
 
     assert_eq!(app.input, "");
     assert_eq!(app.history_index, None);
-    assert_eq!(app.history_draft, "");
+    assert_eq!(app.draft_capsule.text, "");
 }
 
 #[test]
@@ -1712,10 +1732,10 @@ fn adr0044_atomic_draft_stashing_and_esc_rollback() {
     app.cursor_position = app.input.len();
     app.pending_text_pastes.push("staged paste block".to_string());
 
-    // Opening history search stashes the draft atomically ([INV-HIST-03])
+    // Opening history search stashes the draft atomically ([INV-HIST-03], [INV-COMP-03])
     app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
-    assert_eq!(app.history_draft, "uncommitted work in progress");
-    assert_eq!(app.history_draft_text_pastes, vec!["staged paste block".to_string()]);
+    assert_eq!(app.draft_capsule.text, "uncommitted work in progress");
+    assert_eq!(app.draft_capsule.pending_text_pastes, vec!["staged paste block".to_string()]);
     assert_eq!(app.input, "", "Composer input should clear for live query typing");
 
     // Operator types a query, filtering candidates
@@ -1729,7 +1749,7 @@ fn adr0044_atomic_draft_stashing_and_esc_rollback() {
     assert_eq!(app.input, "uncommitted work in progress");
     assert_eq!(app.cursor_position, "uncommitted work in progress".len());
     assert_eq!(app.pending_text_pastes, vec!["staged paste block".to_string()]);
-    assert!(app.history_draft.is_empty(), "Stash should be cleared on rollback");
+    assert!(app.draft_capsule.is_empty(), "Stash should be cleared on rollback");
 }
 
 #[test]
@@ -1863,9 +1883,9 @@ async fn test_history_search_stashes_and_restores_attachments_with_empty_text() 
 
     // 1. Open HistorySearch
     app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
-    assert!(app.history_draft.is_empty());
-    assert_eq!(app.history_draft_images, vec![img.clone()]);
-    assert_eq!(app.history_draft_text_pastes, vec!["staged paste without text".to_string()]);
+    assert!(app.draft_capsule.text.is_empty());
+    assert_eq!(app.draft_capsule.pending_images, vec![img.clone()]);
+    assert_eq!(app.draft_capsule.pending_text_pastes, vec!["staged paste without text".to_string()]);
     assert!(app.pending_images.is_empty(), "Pending attachments cleared for query typing");
     assert!(app.pending_text_pastes.is_empty());
 
@@ -1918,3 +1938,199 @@ async fn test_history_search_empty_placeholder_visible_and_index_clamped() {
         "Screen must show visible empty state placeholder: {screen}"
     );
 }
+
+#[test]
+fn adr0051_canonical_quadrant_modality_transitions() {
+    use crate::composer_mode::{CompleteKind, ComposerMode};
+
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "session-test".to_string();
+
+    // 1. Default state is Edit mode ([INV-COMP-01])
+    assert_eq!(app.composer_mode(), ComposerMode::Edit);
+    assert_eq!(app.composer_mode().label(), "Edit");
+
+    // 2. In-place history stepping enters Recall mode ([INV-COMP-02])
+    app.input_history.push(nuo_wire::HistoryEntry::new(
+        "entry 1".to_string(),
+        Some("session-test".to_string()),
+        None,
+        100,
+    ));
+    let rows = app.current_session_history();
+    assert!(app.history_prev(&rows));
+    assert!(matches!(
+        app.composer_mode(),
+        ComposerMode::Recall { history_index: 0 }
+    ));
+    assert_eq!(app.composer_mode().label(), "Recall");
+
+    // Stepping back past newest restores draft and returns to Edit
+    assert!(!app.history_next(&rows));
+    assert_eq!(app.composer_mode(), ComposerMode::Edit);
+
+    // 3. Opening HistorySearch transitions to Search mode ([INV-COMP-04])
+    app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
+    app.input = "query".to_string();
+    assert!(matches!(
+        app.composer_mode(),
+        ComposerMode::Search {
+            selected_index: 0,
+            ..
+        }
+    ));
+    assert_eq!(app.composer_mode().label(), "Search");
+
+    // Dismissing search returns to Edit mode
+    assert!(app.dismiss_surface());
+    assert_eq!(app.composer_mode(), ComposerMode::Edit);
+
+    // 4. Slash command autocomplete enters Complete mode
+    app.input = "/m".to_string();
+    app.cursor_position = 2;
+    app.completion_dismissed = false;
+    assert!(matches!(
+        app.composer_mode(),
+        ComposerMode::Complete {
+            kind: CompleteKind::Command,
+            ..
+        }
+    ));
+    assert_eq!(app.composer_mode().label(), "Command");
+}
+
+#[tokio::test]
+async fn adr0051_ctrl_r_continuous_cycling_in_history_search() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "session-test".to_string();
+
+    // Populate multiple history entries
+    app.record_input_history("command 1".to_string(), Vec::new(), Vec::new());
+    app.record_input_history("command 2".to_string(), Vec::new(), Vec::new());
+    app.record_input_history("command 3".to_string(), Vec::new(), Vec::new());
+
+    // 1. Enter HistorySearch via OpenHistory
+    app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::HistorySearch)
+    );
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        0
+    );
+
+    // 2. In HistorySearch, Ctrl-R resolves to ModalDown (cycling downward)
+    let c = crate::modal_keys::ModalKeys::default();
+    let action_ctrl_r = crate::modal_keys::resolve_modal_key(
+        Some(crate::surfaces::OverlaySurface::Dialog(
+            crate::surfaces::DialogKind::HistorySearch,
+        )),
+        crate::surfaces::SceneKind::Thread,
+        crate::keymap::Key::CTRL_R,
+        &c,
+        &mut String::new(),
+        &mut 0,
+    );
+    assert_eq!(action_ctrl_r, Some(crate::input::InputAction::ModalDown));
+
+    // 3. Dispatching ModalDown rotates index 0 -> 1 -> 2 -> 0 ([INV-COMP-04])
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::ModalDown,
+        "session-test",
+    )
+    .await;
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        1
+    );
+
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::ModalDown,
+        "session-test",
+    )
+    .await;
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        2
+    );
+
+    // Wrapping around
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::ModalDown,
+        "session-test",
+    )
+    .await;
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        0
+    );
+
+    // 4. Ctrl+Shift+R steps backwards (ModalUp)
+    let action_ctrl_shift_r = crate::modal_keys::resolve_modal_key(
+        Some(crate::surfaces::OverlaySurface::Dialog(
+            crate::surfaces::DialogKind::HistorySearch,
+        )),
+        crate::surfaces::SceneKind::Thread,
+        crate::keymap::Key::CTRL_SHIFT_R,
+        &c,
+        &mut String::new(),
+        &mut 0,
+    );
+    assert_eq!(action_ctrl_shift_r, Some(crate::input::InputAction::ModalUp));
+
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::ModalUp,
+        "session-test",
+    )
+    .await;
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        2
+    );
+}
+
+#[test]
+fn adr0051_draft_capsule_atomic_stashing_and_restoration() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "session-test".to_string();
+
+    // Draft with text and pending attachments
+    app.input = "in-flight prompt".to_string();
+    app.cursor_position = 8;
+    let img = nuo_wire::ImagePart {
+        mime: "image/png".to_string(),
+        data: "base64data".to_string(),
+    };
+    app.pending_images.push(img.clone());
+    app.pending_text_pastes.push("paste payload".to_string());
+
+    // 1. Open history search -> draft is captured into draft_capsule ([INV-COMP-03])
+    app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
+    assert!(!app.draft_capsule.is_empty());
+    assert_eq!(app.draft_capsule.text, "in-flight prompt");
+    assert_eq!(app.draft_capsule.cursor_position, 8);
+    assert_eq!(app.draft_capsule.pending_images, vec![img.clone()]);
+    assert_eq!(
+        app.draft_capsule.pending_text_pastes,
+        vec!["paste payload".to_string()]
+    );
+    assert_eq!(app.input, "");
+
+    // 2. Dismiss history search -> draft is 100% restored and capsule cleared
+    assert!(app.dismiss_surface());
+    assert_eq!(app.input, "in-flight prompt");
+    assert_eq!(app.pending_images, vec![img]);
+    assert_eq!(app.pending_text_pastes, vec!["paste payload".to_string()]);
+    assert!(app.draft_capsule.is_empty());
+}
+

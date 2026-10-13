@@ -198,6 +198,9 @@ pub struct MonitoredTask {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MonitoredSession {
     pub id: String,
+    /// Authentic AI/manual thread title, when established (ADR-0050).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     /// Stored AI/manual title, falling back to the first-prompt preview.
     pub overview: String,
     pub created_at: u64,
@@ -257,6 +260,7 @@ impl MonitoredSession {
     pub fn empty(id: String) -> Self {
         Self {
             id,
+            title: None,
             overview: String::new(),
             created_at: 0,
             updated_at: 0,
@@ -408,6 +412,7 @@ mod tests {
             persistence_health: None,
             sessions: vec![MonitoredSession {
                 id: "s-1".into(),
+                title: None,
                 overview: "fix the flaky test".into(),
                 created_at: 1,
                 updated_at: 2,

@@ -48,6 +48,7 @@ pub enum UiKey {
     OauthCode,
     Toast,
     PreAttach,
+    SettingsCategory(usize),
     SettingsOption(usize),
     /// A visible (non-cursor) Settings detail row that exists only as a pointer
     /// hover target so the row under the mouse can light up.
@@ -289,7 +290,9 @@ impl ComponentTree {
                 InputPolicy::Modal,
                 true,
             ),
-            UiKey::SettingsOption(_) | UiKey::SettingsRow(_) => (
+            UiKey::SettingsCategory(_)
+            | UiKey::SettingsOption(_)
+            | UiKey::SettingsRow(_) => (
                 Some(UiKey::Root),
                 31,
                 PointerPolicy::Target,

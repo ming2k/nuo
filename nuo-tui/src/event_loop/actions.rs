@@ -855,10 +855,8 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.pending_text_pastes.clone(),
                 crate::app::DraftAdoption::Replace,
             );
-            // Clear the stashed draft since user committed a historical entry
-            app.history_draft.clear();
-            app.history_draft_images.clear();
-            app.history_draft_text_pastes.clear();
+            // Clear the stashed draft capsule since user committed a historical entry
+            app.clear_stashed_draft();
             // The selection replaces the in-progress draft, and history search completes.
             app.surfaces.dismiss_all_overlays();
             app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 0;
@@ -1000,207 +998,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::ConfigActivate => {
-            if app.current_scene() == SceneKind::Settings {
-                let ws_path = if app.current_workspace.is_empty() {
-                    None
-                } else {
-                    Some(std::path::Path::new(&app.current_workspace))
-                };
-                let active_category =
-                    crate::overlays::ConfigCategory::from_index(app.config_category);
-                match app.config_focus {
-                    crate::overlays::ConfigFocus::Categories => {
-                        app.config_focus = crate::overlays::ConfigFocus::Detail;
-                        if active_category == crate::overlays::ConfigCategory::Appearance {
-                            app.config_detail_index = Theme::color_scheme_index_with_workspace(
-                                &app.color_scheme,
-                                ws_path,
-                            );
-                        } else {
-                            app.config_detail_index = 0;
-                        }
-                    }
-                    crate::overlays::ConfigFocus::Detail => {
-                        match active_category {
-                            crate::overlays::ConfigCategory::Appearance => {
-                                if app.profile.supports_color_themes() {
-                                    // Appearance category:
-                                    let schemes =
-                                        Theme::available_color_schemes_with_workspace(ws_path);
-                                    let sel_idx = app.config_detail_index % schemes.len().max(1);
-                                    if let Some(scheme) = schemes.get(sel_idx) {
-                                        let name = &scheme.id;
-                                        app.color_scheme = name.to_string();
-                                        app.theme = Theme::resolve_with_profile(
-                                            name.as_ref(),
-                                            &app.custom_color_scheme,
-                                            ws_path,
-                                            &app.profile,
-                                        );
-                                        app.send_intent(AgentRequest::UpdateTuiColorScheme {
-                                            name: app.color_scheme.clone(),
-                                            custom: app.custom_color_scheme.clone(),
-                                        });
-                                        app.save_tui_config();
-                                    }
-                                }
-                            }
-                            crate::overlays::ConfigCategory::Components => {
-                                // Rows are resolved by identity, never by a
-                                // literal index: the panel's ordering lives in
-                                // `settings::components::row_for_index`, so a
-                                // new tool component needs no arm here
-                                // (ADR-0020).
-                                use crate::views::settings::components::{
-                                    ComponentRowId, row_for_index,
-                                };
-                                match row_for_index(app.config_detail_index) {
-                                    Some(ComponentRowId::Reasoning) => {
-                                        // Reasoning Traces (thinking)
-                                        let next = !crate::config::reasoning_default_expanded(&app.tui_config);
-                                        app.tui_config
-                                            .default_expanded
-                                            .insert(crate::config::THINKING_KEY.to_string(), next);
-                                        app.reasoning_default_expanded = next;
-                                        app.save_tui_config();
-                                    }
-                                    Some(ComponentRowId::Tool(component)) => {
-                                        // One row per declared component; the
-                                        // setter fans the choice out to every
-                                        // name the component owns.
-                                        let next = !crate::config::tool_default_expanded(
-                                            &app.tui_config,
-                                            component.primary_name(),
-                                        );
-                                        crate::config::set_component_default_expanded(
-                                            &mut app.tui_config,
-                                            component,
-                                            next,
-                                        );
-                                        app.save_tui_config();
-                                    }
-                                    Some(ComponentRowId::AutoScroll) => {
-                                        // Auto-Scroll on Expand
-                                        app.expand_auto_scroll = !app.expand_auto_scroll;
-                                        app.tui_config.expand_auto_scroll = app.expand_auto_scroll;
-                                        app.save_tui_config();
-                                    }
-                                    None => {}
-                                }
-                            }
-                            crate::overlays::ConfigCategory::WebSearch | crate::overlays::ConfigCategory::WebReader => {
-                                let Some(revision) =
-                                    app.websearch_config.as_ref().map(|config| config.revision)
-                                else {
-                                    return ActionFlow::NextEvent;
-                                };
-                                let is_search = active_category == crate::overlays::ConfigCategory::WebSearch;
-                                match app.config_detail_index {
-                                    0 => {
-                                        let anchor = if let Some(target_rect) =
-                                            app.config_selected_rect
-                                        {
-                                            crate::components::dropdown::DropdownAnchor::anchored(
-                                                target_rect,
-                                                crate::components::dropdown::DropdownPlacement::Auto,
-                                            )
-                                        } else {
-                                            crate::components::dropdown::DropdownAnchor::center_screen()
-                                        };
-                                        if is_search {
-                                            let current = app
-                                                .websearch_config
-                                                .as_ref()
-                                                .map(|ws| ws.provider.as_str())
-                                                .unwrap_or("exa");
-                                            let dropdown =
-                                                crate::views::settings::build_websearch_provider_dropdown(
-                                                    current,
-                                                    app.websearch_config.as_ref(),
-                                                );
-                                            app.config_dropdown = Some((dropdown, anchor));
-                                        } else {
-                                            let current = app
-                                                .websearch_config
-                                                .as_ref()
-                                                .map(|ws| ws.reader.as_str())
-                                                .unwrap_or("disabled");
-                                            let dropdown =
-                                                crate::views::settings::build_websearch_reader_dropdown(
-                                                    current,
-                                                    app.websearch_config.as_ref(),
-                                                );
-                                            app.config_dropdown = Some((dropdown, anchor));
-                                        }
-                                    }
-                                    1 => {
-                                        let current = app
-                                            .websearch_config
-                                            .as_ref()
-                                            .map(|ws| ws.timeout_secs)
-                                            .unwrap_or(20);
-                                        let next = if current >= 120 {
-                                            5
-                                        } else {
-                                            (current + 5).max(5)
-                                        };
-                                        app.send_intent(AgentRequest::UpdateWebSearchConfig(
-                                            Box::new(nuo_wire::WebSearchConfigUpdate {
-                                                expected_revision: revision,
-                                                timeout_secs: Some(next),
-                                                ..Default::default()
-                                            }),
-                                        ));
-                                    }
-                                    2 => {
-                                        // Collect the editor prefill while the config
-                                        // borrow is live, then drop it before mutating `app`.
-                                        let editor = app.websearch_config.as_ref().and_then(|ws| {
-                                            let (axis, id) = if is_search {
-                                                ("search", ws.provider.id())
-                                            } else {
-                                                ("reader", ws.reader.id())
-                                            };
-                                            let capability = ws.capabilities.iter().find(|capability| {
-                                                capability.id == id
-                                                    && capability.axis == if is_search {
-                                                        nuo_wire::WebProviderAxis::Search
-                                                    } else {
-                                                        nuo_wire::WebProviderAxis::Reader
-                                                    }
-                                            })?;
-                                            let endpoint = capability.endpoint
-                                                == nuo_wire::WebEndpointRequirement::UserSupplied;
-                                            let target = if endpoint {
-                                                format!("web_endpoint:{id}")
-                                            } else {
-                                                format!("web_credential:{axis}:{id}")
-                                            };
-                                            let initial = if endpoint {
-                                                ws.searxng_url.clone().unwrap_or_default()
-                                            } else {
-                                                String::new()
-                                            };
-                                            Some((target, capability.display_name.clone(), initial))
-                                        });
-                                        if let Some((target, display_name, initial)) = editor {
-                                            app.surfaces.present_sheet(SheetKind::ModelEditor);
-                                            app.editor_target = Some(target);
-                                            app.editor_model = display_name;
-                                            app.editor_key.clear();
-                                            app.editor_field = 0;
-                                            app.input = initial;
-                                            app.set_cursor(app.input.len());
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
+            handle_config_activate(app);
         }
         input::InputAction::ConfigSegmentPrev => {
             if app.current_scene() == SceneKind::Settings {
@@ -2707,6 +2505,198 @@ pub(super) fn enter_scene(
     let _ = runtime;
 }
 
+pub(crate) fn handle_config_activate(app: &mut App) {
+    if app.current_scene() != SceneKind::Settings {
+        return;
+    }
+    let ws_path = if app.current_workspace.is_empty() {
+        None
+    } else {
+        Some(std::path::Path::new(&app.current_workspace))
+    };
+    let active_category =
+        crate::overlays::ConfigCategory::from_index(app.config_category);
+    match app.config_focus {
+        crate::overlays::ConfigFocus::Categories => {
+            app.config_focus = crate::overlays::ConfigFocus::Detail;
+            if active_category == crate::overlays::ConfigCategory::Appearance {
+                app.config_detail_index = Theme::color_scheme_index_with_workspace(
+                    &app.color_scheme,
+                    ws_path,
+                );
+            } else {
+                app.config_detail_index = 0;
+            }
+        }
+        crate::overlays::ConfigFocus::Detail => {
+            match active_category {
+                crate::overlays::ConfigCategory::Appearance => {
+                    if app.profile.supports_color_themes() {
+                        let schemes =
+                            Theme::available_color_schemes_with_workspace(ws_path);
+                        let sel_idx = app.config_detail_index % schemes.len().max(1);
+                        if let Some(scheme) = schemes.get(sel_idx) {
+                            let name = &scheme.id;
+                            app.color_scheme = name.to_string();
+                            app.theme = Theme::resolve_with_profile(
+                                name.as_ref(),
+                                &app.custom_color_scheme,
+                                ws_path,
+                                &app.profile,
+                            );
+                            app.send_intent(AgentRequest::UpdateTuiColorScheme {
+                                name: app.color_scheme.clone(),
+                                custom: app.custom_color_scheme.clone(),
+                            });
+                            app.save_tui_config();
+                        }
+                    }
+                }
+                crate::overlays::ConfigCategory::Components => {
+                    use crate::views::settings::components::{
+                        ComponentRowId, row_for_index,
+                    };
+                    match row_for_index(app.config_detail_index) {
+                        Some(ComponentRowId::Reasoning) => {
+                            let next = !crate::config::reasoning_default_expanded(&app.tui_config);
+                            app.tui_config
+                                .default_expanded
+                                .insert(crate::config::THINKING_KEY.to_string(), next);
+                            app.reasoning_default_expanded = next;
+                            app.save_tui_config();
+                        }
+                        Some(ComponentRowId::Tool(component)) => {
+                            let next = !crate::config::tool_default_expanded(
+                                &app.tui_config,
+                                component.primary_name(),
+                            );
+                            crate::config::set_component_default_expanded(
+                                &mut app.tui_config,
+                                component,
+                                next,
+                            );
+                            app.save_tui_config();
+                        }
+                        Some(ComponentRowId::AutoScroll) => {
+                            app.expand_auto_scroll = !app.expand_auto_scroll;
+                            app.tui_config.expand_auto_scroll = app.expand_auto_scroll;
+                            app.save_tui_config();
+                        }
+                        None => {}
+                    }
+                }
+                crate::overlays::ConfigCategory::WebSearch | crate::overlays::ConfigCategory::WebReader => {
+                    let Some(revision) =
+                        app.websearch_config.as_ref().map(|config| config.revision)
+                    else {
+                        return;
+                    };
+                    let is_search = active_category == crate::overlays::ConfigCategory::WebSearch;
+                    match app.config_detail_index {
+                        0 => {
+                            let anchor = if let Some(target_rect) =
+                                app.config_selected_rect
+                            {
+                                crate::components::dropdown::DropdownAnchor::anchored(
+                                    target_rect,
+                                    crate::components::dropdown::DropdownPlacement::Auto,
+                                )
+                            } else {
+                                crate::components::dropdown::DropdownAnchor::center_screen()
+                            };
+                            if is_search {
+                                let current = app
+                                    .websearch_config
+                                    .as_ref()
+                                    .map(|ws| ws.provider.as_str())
+                                    .unwrap_or("exa");
+                                let dropdown =
+                                    crate::views::settings::build_websearch_provider_dropdown(
+                                        current,
+                                        app.websearch_config.as_ref(),
+                                    );
+                                app.config_dropdown = Some((dropdown, anchor));
+                            } else {
+                                let current = app
+                                    .websearch_config
+                                    .as_ref()
+                                    .map(|ws| ws.reader.as_str())
+                                    .unwrap_or("disabled");
+                                let dropdown =
+                                    crate::views::settings::build_websearch_reader_dropdown(
+                                        current,
+                                        app.websearch_config.as_ref(),
+                                    );
+                                app.config_dropdown = Some((dropdown, anchor));
+                            }
+                        }
+                        1 => {
+                            let current = app
+                                .websearch_config
+                                .as_ref()
+                                .map(|ws| ws.timeout_secs)
+                                .unwrap_or(20);
+                            let next = if current >= 120 {
+                                5
+                            } else {
+                                (current + 5).max(5)
+                            };
+                            app.send_intent(AgentRequest::UpdateWebSearchConfig(
+                                Box::new(nuo_wire::WebSearchConfigUpdate {
+                                    expected_revision: revision,
+                                    timeout_secs: Some(next),
+                                    ..Default::default()
+                                }),
+                            ));
+                        }
+                        2 => {
+                            let editor = app.websearch_config.as_ref().and_then(|ws| {
+                                let (axis, id) = if is_search {
+                                    ("search", ws.provider.id())
+                                } else {
+                                    ("reader", ws.reader.id())
+                                };
+                                let capability = ws.capabilities.iter().find(|capability| {
+                                    capability.id == id
+                                        && capability.axis == if is_search {
+                                            nuo_wire::WebProviderAxis::Search
+                                        } else {
+                                            nuo_wire::WebProviderAxis::Reader
+                                        }
+                                })?;
+                                let endpoint = capability.endpoint
+                                    == nuo_wire::WebEndpointRequirement::UserSupplied;
+                                let target = if endpoint {
+                                    format!("web_endpoint:{id}")
+                                } else {
+                                    format!("web_credential:{axis}:{id}")
+                                };
+                                let initial = if endpoint {
+                                    ws.searxng_url.clone().unwrap_or_default()
+                                } else {
+                                    String::new()
+                                };
+                                Some((target, capability.display_name.clone(), initial))
+                            });
+                            if let Some((target, display_name, initial)) = editor {
+                                app.surfaces.present_sheet(SheetKind::ModelEditor);
+                                app.editor_target = Some(target);
+                                app.editor_model = display_name;
+                                app.editor_key.clear();
+                                app.editor_field = 0;
+                                app.input = initial;
+                                app.set_cursor(app.input.len());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 pub(crate) fn handle_wheel(app: &mut App, up: bool, x: u16, y: u16, viewed_session_id: &str) {
     use crate::ui::UiKey;
     match app.ui.scene().hit_test(x, y).copied() {
@@ -2724,6 +2714,13 @@ pub(crate) fn handle_wheel(app: &mut App, up: bool, x: u16, y: u16, viewed_sessi
                 }
             }
             scroll_tick(app, !up);
+        }
+        Some(UiKey::SettingsCategory(_)) => {
+            app.config_scroll = if up {
+                app.config_scroll.saturating_sub(1)
+            } else {
+                app.config_scroll.saturating_add(1)
+            };
         }
         Some(
             UiKey::OauthUrl
@@ -3006,7 +3003,7 @@ mod transcript_scroll_tests {
         let runtime = UiRuntime::minimal_for_test();
 
         // Mount tabs
-        app.surfaces.open_tab(crate::surfaces::ClientTab::thread("s1", "Thread 1"));
+        app.surfaces.open_tab(crate::surfaces::ClientTab::thread("s1", Some("Thread 1")));
         app.surfaces.open_tab(crate::surfaces::ClientTab::dashboard());
         app.surfaces.open_tab(crate::surfaces::ClientTab::settings());
         app.surfaces.select_tab(0);
@@ -3027,6 +3024,182 @@ mod transcript_scroll_tests {
         mouse::handle_selection_start(&mut app, &runtime, "s1", 32, 0).await;
         assert_eq!(app.surfaces.active_tab_index(), 2);
         assert_eq!(app.surfaces.active_scene(), crate::surfaces::SceneKind::Settings);
+    }
+
+    #[tokio::test]
+    async fn mouse_click_on_dialog_entry_selects_row() {
+        let mut app = crate::tests::new_app_for_relay_tests();
+        let runtime = UiRuntime::minimal_for_test();
+
+        app.sessions_overview = (0..5)
+            .map(|i| crate::tests::overview_row(&format!("s{i}")))
+            .collect();
+        app.open_dialog(crate::surfaces::DialogKind::Threads);
+        let threads = app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>();
+        threads.index = 0;
+        threads.scroll = 0;
+
+        // Modal bounding box: y=5..20 (height=15).
+        // Body starts at y = 5 + 3 = 8.
+        // Row 0 is at y=8, Row 1 is at y=9, Row 2 is at y=10.
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui.mount(
+            crate::ui::UiKey::Overlay(crate::surfaces::OverlaySurface::Dialog(
+                crate::surfaces::DialogKind::Threads,
+            )),
+            nuotc::Rect::new(10, 5, 60, 15),
+        );
+        app.ui.commit();
+
+        // 1. Click on Row 1 (y = 9) inside modal: selects row 1
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 20, 9).await;
+        assert_eq!(
+            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().index,
+            1,
+            "clicking row 1 sets index to 1"
+        );
+        assert!(app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().follow);
+
+        // 2. Click on Row 2 (y = 10) inside modal: selects row 2
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 20, 10).await;
+        assert_eq!(
+            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().index,
+            2,
+            "clicking row 2 sets index to 2"
+        );
+
+        // 3. Sub-view parity [INV-SURFACE-08]: in info_detail mode, clicking inside list area does not corrupt index
+        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = true;
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 20, 8).await;
+        assert_eq!(
+            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().index,
+            2,
+            "info_detail mode protects list index"
+        );
+        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = false;
+
+        // 4. Re-clicking an already-selected thread row for a different session switches to target
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 20, 10).await;
+        assert_eq!(app.switch_to_target, Some("s2".to_string()));
+
+        // 5. Re-clicking the already-selected row for the current session dismisses the dialog
+        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().index = 1;
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 20, 9).await;
+        assert!(app.active_dialog().is_none(), "re-clicking current session dismisses dialog");
+    }
+
+    #[tokio::test]
+    async fn mouse_click_on_config_dropdown_selects_and_outside_dismisses() {
+        let mut app = crate::tests::new_app_for_relay_tests();
+        let runtime = UiRuntime::minimal_for_test();
+
+        app.switch_scene(crate::surfaces::SceneKind::Settings);
+        app.websearch_config = Some(nuo_wire::WebSearchConfigView {
+            revision: 42,
+            provider: nuo_wire::WebSearchProvider::Exa,
+            reader: nuo_wire::WebReaderProvider::Disabled,
+            timeout_secs: 20,
+            searxng_url: None,
+            search_credential: nuo_wire::WebCredentialStatus::Stored,
+            reader_credential: nuo_wire::WebCredentialStatus::NotRequired,
+            capabilities: nuo_wire::web_provider_capabilities(),
+        });
+
+        // 1. Open dropdown
+        let dropdown = crate::views::settings::build_websearch_provider_dropdown(
+            "exa",
+            app.websearch_config.as_ref(),
+        );
+        let anchor = crate::components::dropdown::DropdownAnchor::center_screen();
+        app.config_dropdown = Some((dropdown, anchor.clone()));
+        assert!(app.config_dropdown.is_some());
+
+        // Mount dropdown popup at (20, 5, 40, 10)
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui.mount(crate::ui::UiKey::ConfigDropdown, nuotc::Rect::new(20, 5, 40, 10));
+        app.ui.commit();
+
+        // Click outside at (5, 2): dismisses dropdown
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 5, 2).await;
+        assert!(app.config_dropdown.is_none(), "clicking outside dismisses dropdown");
+
+        // 2. Open dropdown again and click item 1 (Tavily) at (25, 8)
+        let dropdown = crate::views::settings::build_websearch_provider_dropdown(
+            "exa",
+            app.websearch_config.as_ref(),
+        );
+        app.config_dropdown = Some((dropdown, anchor));
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui.mount(crate::ui::UiKey::ConfigDropdown, nuotc::Rect::new(20, 5, 40, 10));
+        app.ui.commit();
+
+        // Items start at y = 5 + 2 = 7. Row 0 (Exa) at y=7, Row 1 (Tavily) at y=8.
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 25, 8).await;
+        assert!(app.config_dropdown.is_none(), "selecting item closes dropdown");
+    }
+
+    #[tokio::test]
+    async fn mouse_click_on_settings_category_and_row_toggle() {
+        let mut app = crate::tests::new_app_for_relay_tests();
+        let runtime = UiRuntime::minimal_for_test();
+
+        app.switch_scene(crate::surfaces::SceneKind::Settings);
+        app.config_category = 0; // Appearance
+        app.config_focus = crate::overlays::ConfigFocus::Categories;
+
+        // Mount Category 1 (Components) at (2, 4, 18, 2) and Detail Row 0 at (24, 4, 40, 2)
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui.mount(crate::ui::UiKey::SettingsCategory(1), nuotc::Rect::new(2, 4, 18, 2));
+        app.ui.mount(crate::ui::UiKey::SettingsRow(0), nuotc::Rect::new(24, 4, 40, 2));
+        app.ui.commit();
+
+        // 1. Click Category 1: switches to Components category
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 5, 4).await;
+        assert_eq!(app.config_category, 1, "switched to Components category");
+        assert_eq!(app.config_focus, crate::overlays::ConfigFocus::Categories);
+
+        // 2. Click Detail Row 0 (Components row 0 = Reasoning Traces): toggles reasoning expanded!
+        let initial_reasoning = app.reasoning_default_expanded;
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 30, 4).await;
+        assert_eq!(app.config_focus, crate::overlays::ConfigFocus::Detail);
+        assert_eq!(app.config_detail_index, 0);
+        assert_eq!(
+            app.reasoning_default_expanded,
+            !initial_reasoning,
+            "clicking components row toggles setting"
+        );
+
+        // 3. Click Detail Row 0 again: toggles back
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 30, 4).await;
+        assert_eq!(
+            app.reasoning_default_expanded,
+            initial_reasoning,
+            "clicking components row again toggles setting back"
+        );
+    }
+
+    #[tokio::test]
+    async fn mouse_click_outside_dialog_dismisses_dialog() {
+        let mut app = crate::tests::new_app_for_relay_tests();
+        let runtime = UiRuntime::minimal_for_test();
+
+        app.open_dialog(crate::surfaces::DialogKind::Tools);
+        assert!(app.active_dialog().is_some());
+        app.click_outside_dismiss = true;
+
+        // Modal mounted at (10, 5, 60, 15)
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui.mount(
+            crate::ui::UiKey::Overlay(crate::surfaces::OverlaySurface::Dialog(
+                crate::surfaces::DialogKind::Tools,
+            )),
+            nuotc::Rect::new(10, 5, 60, 15),
+        );
+        app.ui.commit();
+
+        // Click outside at (2, 2) dismisses the dialog
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 2, 2).await;
+        assert!(app.active_dialog().is_none(), "dialog dismissed on backdrop click");
     }
 }
 

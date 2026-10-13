@@ -88,6 +88,7 @@ impl MonitorTracker {
         // re-stamps it on every projection.
         if let AgentResponse::SessionsOverview(items) = response {
             if let Some(item) = items.iter().find(|item| item.id == self.base.id) {
+                self.base.title.clone_from(&item.title);
                 self.base.overview.clone_from(&item.overview);
                 self.base.message_count = item.message_count;
                 self.base.created_at = item.created_at;
@@ -254,6 +255,7 @@ mod tests {
         MonitorTracker::bootstrap(
             MonitoredSession {
                 id: "s".into(),
+                title: None,
                 overview: "task".into(),
                 created_at: 1,
                 updated_at: 1,
@@ -287,6 +289,7 @@ mod tests {
         t.observe(&AgentResponse::SessionsOverview(vec![
             nuo_wire::SessionOverview {
                 id: "s".into(),
+                title: Some("renamed title".into()),
                 overview: "renamed title".into(),
                 created_at: 7,
                 updated_at: 8,
@@ -299,6 +302,7 @@ mod tests {
             // Another session's row must not leak into ours.
             nuo_wire::SessionOverview {
                 id: "other".into(),
+                title: None,
                 overview: "someone else".into(),
                 created_at: 1,
                 updated_at: 1,
@@ -310,6 +314,7 @@ mod tests {
             },
         ]));
         let row = t.row();
+        assert_eq!(row.title.as_deref(), Some("renamed title"));
         assert_eq!(row.overview, "renamed title");
         assert_eq!(row.message_count, 9);
         assert_eq!(row.created_at, 7);
@@ -323,6 +328,7 @@ mod tests {
         t.observe(&AgentResponse::SessionsOverview(vec![
             nuo_wire::SessionOverview {
                 id: "other".into(),
+                title: None,
                 overview: "someone else".into(),
                 created_at: 1,
                 updated_at: 1,

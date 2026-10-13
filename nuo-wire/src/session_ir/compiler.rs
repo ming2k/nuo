@@ -272,36 +272,36 @@ fn pass3_cache_boundary_analysis(
     let mut slices = Vec::new();
     let mut static_bytes = 0;
 
-    // 1. Base Tier: System Persona
+    // 1. Base Tier: System Persona (ADR-0052, [INV-INST-02])
     if let Some(persona) = &ir.policy.rules.system_persona
         && !persona.trim().is_empty()
     {
         static_bytes += persona.len();
         slices.push(InstructionSlice::new(
-            "base_persona",
+            "system.base_persona",
             InstructionTier::Base,
             persona.clone(),
         ));
     }
 
-    // 2. Session Tier: Workspace rules (AGENTS.md, conventions)
+    // 2. Session Tier: Workspace rules (AGENTS.md, conventions) (ADR-0052, [INV-INST-02])
     for (i, rule) in ir.policy.rules.project_rules.iter().enumerate() {
         if !rule.trim().is_empty() {
             static_bytes += rule.len();
             slices.push(InstructionSlice::new(
-                format!("project_rule_{i}"),
+                format!("system.project_rules.{i}"),
                 InstructionTier::Session,
                 rule.clone(),
             ));
         }
     }
 
-    // 3. Ephemeral Tier: Dynamic scratchpad or task-scoped hints
+    // 3. Ephemeral Tier: Dynamic scratchpad or task-scoped hints (ADR-0052, [INV-INST-02])
     if let Some(ephemeral) = &options.ephemeral_instruction
         && !ephemeral.trim().is_empty()
     {
         slices.push(InstructionSlice::new(
-            "ephemeral_hint",
+            "system.ephemeral_hint",
             InstructionTier::Ephemeral,
             ephemeral.clone(),
         ));

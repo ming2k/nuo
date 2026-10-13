@@ -117,7 +117,15 @@ pub fn body_with_capabilities(
     if let Some(instructions) = instructions
         && !instructions.is_empty()
     {
-        let text = instructions.render_combined();
+        // Emit stable static instructions followed by ephemeral nudges (ADR-0052, [INV-INST-03])
+        let static_text = instructions.render_system_instructions();
+        let ephemeral_text = instructions.render_ephemeral();
+        let text = match (static_text.is_empty(), ephemeral_text.is_empty()) {
+            (false, false) => format!("{static_text}\n{ephemeral_text}"),
+            (false, true) => static_text,
+            (true, false) => ephemeral_text,
+            (true, true) => String::new(),
+        };
         if !text.is_empty() {
             messages.insert(0, Message::new(Role::System, text));
         }

@@ -152,6 +152,7 @@ pub async fn build_sessions_overview(session: &SessionStore) -> Vec<SessionOverv
             .into_iter()
             .map(|item| SessionOverview {
                 id: item.id,
+                title: item.title,
                 overview: item.overview,
                 created_at: item.created_at,
                 updated_at: item.updated_at,
@@ -169,6 +170,7 @@ pub async fn build_sessions_overview(session: &SessionStore) -> Vec<SessionOverv
         let summary = session.active_summary().await;
         overview.push(SessionOverview {
             id: summary.id,
+            title: summary.title,
             overview: summary.overview,
             created_at: summary.created_at,
             updated_at: summary.updated_at,

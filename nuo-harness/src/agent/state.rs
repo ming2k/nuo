@@ -355,9 +355,46 @@ impl Agent {
                 .iter()
                 .map(|p| p.display().to_string())
                 .collect(),
+            workspace_topology: self.workspace_root().and_then(|p| detect_workspace_topology(&p)),
             workspace_root: self.workspace_root().map(|p| p.display().to_string()),
         }
     }
+}
+
+/// Lightweight workspace member topology detector (ADR-0052, [INV-INST-04]).
+/// Parses the root manifest if it declares a workspace, emitting member crate names and descriptions.
+fn detect_workspace_topology(root: &std::path::Path) -> Option<String> {
+    let cargo_toml_path = root.join("Cargo.toml");
+    let content = std::fs::read_to_string(&cargo_toml_path).ok()?;
+    let parsed: toml::Value = toml::from_str(&content).ok()?;
+    let members = parsed.get("workspace")?.get("members")?.as_array()?;
+    let mut lines = Vec::new();
+    for member in members {
+        if let Some(m_str) = member.as_str() {
+            if !m_str.contains('*') {
+                let member_cargo = root.join(m_str).join("Cargo.toml");
+                let desc = std::fs::read_to_string(&member_cargo).ok().and_then(|c| {
+                    let v: toml::Value = toml::from_str(&c).ok()?;
+                    v.get("package")?.get("description")?.as_str().map(|s| s.to_string())
+                });
+                if let Some(desc) = desc {
+                    lines.push(format!("- {m_str}: {desc}"));
+                } else {
+                    lines.push(format!("- {m_str}"));
+                }
+            } else {
+                lines.push(format!("- {m_str}"));
+            }
+        }
+    }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
+}
+
+impl Agent {
 
     /// Build one immutable provider request from a borrowed conversation window.
     ///

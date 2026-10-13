@@ -101,13 +101,16 @@ pub fn body_with_capabilities(
     // route that *declared* no image input loses its attachments.
     let (messages, _dropped_images) =
         nuo_provider_transport::vision::project_images_for_route(model_id, messages, capabilities);
-    let mut instructions = input_instructions
-        .map(|b| b.render_combined())
-        .unwrap_or_default();
+    let (mut instructions, ephemeral_instructions) = if let Some(bundle) = input_instructions {
+        (bundle.render_system_instructions(), bundle.render_ephemeral())
+    } else {
+        (String::new(), String::new())
+    };
     let mut working: Vec<Message> = Vec::with_capacity(messages.len());
     for (index, m) in messages.into_iter().enumerate() {
         match m.role {
             Role::System => {
+                // Grandfather Role::System for backward compatibility into static instruction prefix (ADR-0052, [INV-INST-01])
                 if !instructions.is_empty() {
                     instructions.push('\n');
                 }
@@ -128,6 +131,15 @@ pub fn body_with_capabilities(
     let working: Vec<Message> = working.into_iter().filter(valid_message).collect();
 
     let mut input_items: Vec<InputItem> = Vec::new();
+    // Ephemeral instruction slice is emitted as a developer item rather than polluting
+    // the top-level instructions, preserving prefix cache reuse on OpenAI (ADR-0052, [INV-INST-03]).
+    if !ephemeral_instructions.is_empty() {
+        input_items.push(InputItem::plain(json!({
+            "type": "message",
+            "role": "developer",
+            "content": [{ "type": "input_text", "text": ephemeral_instructions }]
+        })));
+    }
     for m in working {
         match m.role {
             Role::User => {

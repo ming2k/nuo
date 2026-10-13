@@ -1451,6 +1451,9 @@ const fn default_confined() -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionOverview {
     pub id: String,
+    /// Authentic AI/manual thread title, when established (ADR-0050).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     pub overview: String,
     pub created_at: u64,
     pub updated_at: u64,

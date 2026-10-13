@@ -31,6 +31,7 @@ pub mod clipboard_ops;
 pub mod completion;
 pub mod composer_attachments;
 pub mod composer_extension;
+pub mod composer_mode;
 pub mod config;
 mod event_loop;
 pub mod headless;
@@ -2246,9 +2247,7 @@ pub async fn run_tui(
                 .collect()
         },
         history_index: None,
-        history_draft: String::new(),
-        history_draft_images: Vec::new(),
-        history_draft_text_pastes: Vec::new(),
+        draft_capsule: crate::composer_mode::DraftCapsule::default(),
         history_attachments: std::collections::HashMap::new(),
         history_attachments_order: std::collections::VecDeque::new(),
         session_history_backfill: Vec::new(),
@@ -2344,11 +2343,10 @@ pub async fn run_tui(
         background_tasks: Vec::new(),
     };
 
-    // Mount initial thread tab on startup (ADR-0039 [INV-TAB-02])
-    let initial_tab_title = format!("Thread ({})", crate::session::short_session_id(&live_session_init));
+    // Mount initial thread tab on startup (ADR-0039 [INV-TAB-02], ADR-0050 [INV-TITLE-01])
     app.surfaces.open_tab(crate::surfaces::ClientTab::thread(
         &live_session_init,
-        initial_tab_title,
+        None::<String>,
     ));
     if matches!(startup_overlay, StartupOverlay::Dashboard) {
         app.surfaces.open_tab(crate::surfaces::ClientTab::dashboard());

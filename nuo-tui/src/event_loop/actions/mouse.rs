@@ -26,6 +26,12 @@ pub(super) async fn handle_selection_start(
     app.input_drag_scroll = None;
     app.ui.runtime.release_pointer();
     let target = app.ui.target(x, y);
+
+    // Dismiss open dropdown if clicking outside it
+    if app.config_dropdown.is_some() && target != Some(UiKey::ConfigDropdown) {
+        app.config_dropdown = None;
+    }
+
     if let Some(key) = target
         && let Some(id) = app.ui.scene().id(&key)
     {
@@ -82,18 +88,129 @@ pub(super) async fn handle_selection_start(
                 return;
             }
         }
+        Some(UiKey::SettingsCategory(index)) => {
+            app.config_category = index;
+            app.config_focus = crate::overlays::ConfigFocus::Categories;
+            app.config_detail_index = 0;
+            app.config_detail_scroll = 0;
+            app.config_hover_index = None;
+        }
+        Some(UiKey::ConfigDropdown) => {
+            if let Some((dropdown, _anchor)) = app.config_dropdown.take() {
+                if let Some(popup_area) = app.ui.bounds(UiKey::ConfigDropdown) {
+                    let has_descriptions =
+                        dropdown.items.iter().any(|it| it.description.is_some());
+                    let rows_per_item = if has_descriptions { 2 } else { 1 };
+                    let items_top = popup_area.y + 2;
+                    let items_bottom = popup_area.y + popup_area.height.saturating_sub(1);
+                    if y >= items_top && y < items_bottom {
+                        let rel_row = (y - items_top) as usize / rows_per_item;
+                        let item_idx = dropdown.scroll_top + rel_row;
+                        if item_idx < dropdown.filtered_indices.len() {
+                            let raw_idx = dropdown.filtered_indices[item_idx];
+                            if !dropdown.items[raw_idx].disabled {
+                                let payload = dropdown.items[raw_idx].payload.clone();
+                                let ctx = dropdown.context.as_deref().unwrap_or("");
+                                let revision =
+                                    app.websearch_config.as_ref().map(|config| config.revision);
+                                match ctx {
+                                    "websearch_provider" => {
+                                        if let (Some(revision), Ok(provider)) =
+                                            (revision, payload.parse())
+                                        {
+                                            app.send_intent(
+                                                nuo_wire::AgentRequest::UpdateWebSearchConfig(
+                                                    Box::new(nuo_wire::WebSearchConfigUpdate {
+                                                        expected_revision: revision,
+                                                        provider: Some(provider),
+                                                        ..Default::default()
+                                                    }),
+                                                ),
+                                            );
+                                        }
+                                    }
+                                    "websearch_reader" => {
+                                        if let (Some(revision), Ok(reader)) =
+                                            (revision, payload.parse())
+                                        {
+                                            app.send_intent(
+                                                nuo_wire::AgentRequest::UpdateWebSearchConfig(
+                                                    Box::new(nuo_wire::WebSearchConfigUpdate {
+                                                        expected_revision: revision,
+                                                        reader: Some(reader),
+                                                        ..Default::default()
+                                                    }),
+                                                ),
+                                            );
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                                app.config_dropdown = None;
+                                return;
+                            }
+                        }
+                    }
+                }
+                app.config_dropdown = None;
+            }
+        }
         Some(UiKey::SettingsOption(index)) => {
             app.config_focus = crate::overlays::ConfigFocus::Detail;
             app.config_detail_index = index;
+            super::handle_config_activate(app);
         }
         Some(UiKey::SettingsRow(index)) => {
-            // A hover-only row: a click parks the keyboard cursor on it, the
-            // same way clicking the cursor row does. Applying the choice stays
-            // an explicit Enter/Space.
+            let was_selected = app.config_focus == crate::overlays::ConfigFocus::Detail
+                && app.config_detail_index == index;
             app.config_focus = crate::overlays::ConfigFocus::Detail;
             app.config_detail_index = index;
+            let active_category =
+                crate::overlays::ConfigCategory::from_index(app.config_category);
+            // Click-to-toggle for Components, click-to-apply for Appearance,
+            // or re-clicking an already-selected row activates:
+            if was_selected
+                || active_category == crate::overlays::ConfigCategory::Components
+                || active_category == crate::overlays::ConfigCategory::Appearance
+            {
+                super::handle_config_activate(app);
+            }
         }
-        Some(UiKey::Overlay(_) | UiKey::OauthUrl | UiKey::OauthCode) => {
+        Some(UiKey::Overlay(_overlay)) => {
+            if let Some(cursor) = app
+                .ui
+                .document
+                .cursor_at(x, y)
+                .filter(|cursor| cursor.message_idx == crate::model::layout::MODAL_DOC_MSG_IDX)
+            {
+                app.drag.begin_range(&mut app.selection, cursor);
+                return;
+            }
+            if let Some(active_overlay) = app.surfaces.active_overlay()
+                && app.click_outside_dismiss
+                && !app.ui.contains(UiKey::Overlay(active_overlay), x, y)
+            {
+                super::modals::handle_close_modal(app, viewed_session_id);
+                return;
+            }
+            if let Some(active_overlay) = app.surfaces.active_overlay()
+                && app.ui.contains(UiKey::Overlay(active_overlay), x, y)
+            {
+                if let Some(mut ent) = app.surfaces.take_active_view() {
+                    let action = input::InputAction::SelectionStart { x, y };
+                    let outcome = ent.handle_input(&action, app, viewed_session_id);
+                    app.surfaces.put_active_view(ent);
+                    if outcome == crate::surfaces::DialogOutcome::Dismiss {
+                        app.surfaces.pop_overlay();
+                        return;
+                    }
+                    if outcome.is_consumed() {
+                        return;
+                    }
+                }
+            }
+        }
+        Some(UiKey::OauthUrl | UiKey::OauthCode) => {
             if let Some(cursor) = app
                 .ui
                 .document

@@ -446,6 +446,8 @@ fn load_session_blobs(data: &mut SessionData, blob_store: &BlobStore) -> Result<
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSummary {
     pub id: String,
+    /// Authentic AI/manual thread title, when established (ADR-0050).
+    pub title: Option<String>,
     pub parent_id: Option<String>,
     /// How this session came to exist: trunk root, explicit `/fork`
     /// branch, or `/btw` aside. Drives the dashboard's lineage grouping.

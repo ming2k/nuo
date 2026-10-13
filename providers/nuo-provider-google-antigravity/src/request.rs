@@ -137,9 +137,14 @@ fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
     if let Some(instructions) = input.instructions
         && !instructions.is_empty()
     {
-        let text = instructions.render_combined();
-        if !text.is_empty() {
-            system.push(text);
+        // Emit stable static prefix (Base, Session, Task) followed by ephemeral nudges (ADR-0052, [INV-INST-03])
+        let static_text = instructions.render_system_instructions();
+        if !static_text.is_empty() {
+            system.push(static_text);
+        }
+        let ephemeral_text = instructions.render_ephemeral();
+        if !ephemeral_text.is_empty() {
+            system.push(ephemeral_text);
         }
     }
     let mut contents: Vec<Value> = Vec::new();
@@ -149,6 +154,7 @@ fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
 
     for message in messages {
         if message.role == Role::System {
+            // Role::System in conversation is grandfathered for backward compatibility (ADR-0052, [INV-INST-01])
             system.push(message.content);
             continue;
         }
@@ -178,8 +184,12 @@ fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
 
     let mut body = json!({ "contents": contents });
     if !system.is_empty() {
+        let parts: Vec<Value> = system
+            .into_iter()
+            .map(|text| json!({ "text": text }))
+            .collect();
         body["systemInstruction"] = json!({
-            "parts": [{ "text": system.join("\n\n") }]
+            "parts": parts
         });
     }
     if let Some(tools) = google_tools(input.tool_specs) {

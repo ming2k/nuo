@@ -296,7 +296,7 @@ fn compose_frame(
         } else {
             (
                 crate::surfaces::SceneKind::Thread,
-                thread_title(app.focused_messages()),
+                app.viewed_thread_title(),
                 false,
             )
         };
@@ -654,9 +654,7 @@ fn compose_frame(
                     ),
                     can_retry: !busy && viewed_chrome.can_retry,
                     history_recall: app.history_recall_badge(),
-                    recall_draft_saved: !app.history_draft.is_empty()
-                        || !app.history_draft_images.is_empty()
-                        || !app.history_draft_text_pastes.is_empty(),
+                    recall_draft_saved: !app.draft_capsule.is_empty(),
                     toggle_mode_key: app
                         .surface_overrides
                         .effective_binding(crate::keymap::SurfaceVerb::ToggleSendMode),
@@ -1171,6 +1169,9 @@ fn compose_frame(
                 for (idx, tab_rect) in &rects.tab_rects {
                     ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
                 }
+                for (index, cat_rect) in rects.category_rects {
+                    ui.mount(UiKey::SettingsCategory(index), cat_rect);
+                }
                 if let Some(row_rect) = rects.selected_row_rect {
                     ui.mount(UiKey::SettingsOption(app.config_detail_index), row_rect);
                 }
@@ -1329,20 +1330,4 @@ fn mcp_connecting_status(app: &App) -> Option<String> {
     let connected = snapshot.mcp.iter().filter(|s| s.connected).count();
     let names = connecting.join(", ");
     Some(format!("connecting MCP ({connected}/{total}: {names})…"))
-}
-
-/// The thread scene's row-2 context (ADR-0024): the chat's title. The
-/// title is derived from the first real chat prompt the user drove the
-/// thread with — a slash command or steering insert is not a title — and
-/// cleaned to a single bounded line by the same rule the session titler uses
-/// ([`nuo_wire::clean_title`]). `None` before the first real prompt, so the
-/// scene row shows only its label.
-fn thread_title(messages: &[TranscriptMessage]) -> Option<String> {
-    let prompt = messages.iter().find(|m| {
-        m.role == nuo_wire::Role::User && m.origin == crate::model::document::UserMessageOrigin::Chat
-    })?;
-    // `clean_title` collapses to the first non-empty line and caps the length
-    // (with an ellipsis), so a multi-line first prompt still yields a tidy
-    // one-line title.
-    nuo_wire::clean_title(&prompt.raw)
 }

@@ -244,9 +244,8 @@ impl App {
     /// "unsent" slot and must not come back on a later ↓. A Phase-1 unsend
     /// re-adopts it via [`Self::adopt_as_draft`] with
     /// [`DraftAdoption::OnlyIfIdle`].
+    /// Clear the stashed draft capsule when a historical prompt is committed.
     pub fn clear_history_draft(&mut self) {
-        self.history_draft.clear();
-        self.history_draft_images.clear();
-        self.history_draft_text_pastes.clear();
+        self.clear_stashed_draft();
     }
 }

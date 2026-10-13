@@ -185,6 +185,36 @@ impl SystemPromptSection for WorkspaceRootsGuidance {
     }
 }
 
+/// Workspace architectural and crate topology summary (ADR-0052, [INV-INST-04]).
+/// Projects static workspace member and dependency relationships into InstructionTier::Session
+/// so agents orient themselves immediately in multi-crate monorepos without exploratory grepping.
+struct WorkspaceTopologyGuidance;
+
+impl SystemPromptSection for WorkspaceTopologyGuidance {
+    fn id(&self) -> &'static str {
+        "system.workspace_topology"
+    }
+    fn tier(&self) -> InstructionTier {
+        InstructionTier::Session
+    }
+    fn order(&self) -> InstructionOrder {
+        InstructionOrder::After("system.workspace_roots")
+    }
+    fn is_active(&self, ctx: &SystemPromptContext) -> bool {
+        ctx.workspace_topology
+            .as_ref()
+            .is_some_and(|t| !t.trim().is_empty())
+    }
+    fn render(&self, ctx: &SystemPromptContext) -> Option<String> {
+        ctx.workspace_topology.as_ref().map(|topo| {
+            format!(
+                "\n# Workspace Architectural Topology\n{}\n\n## Exploration & Inspection Protocol\n- Batch independent inspection and file examination operations into multiple concurrent tool calls within a single round.\n- Prefer structural AST queries (`code_query` outline/symbol) to inspect declarations and module interfaces over reading raw files line-by-line.",
+                topo.trim()
+            )
+        })
+    }
+}
+
 /// Guidance for handling untrusted web content. Active only when a web tool
 /// (`read_url` / `search_web`) is admitted this turn — the same mechanical
 /// tool-name guard the other sections use. This is the prompt-injection
@@ -231,6 +261,7 @@ pub(crate) fn default_system_prompt_registry() -> SystemPromptRegistry {
     registry.register(ProviderGuidance);
     registry.register(ProjectRulesGuidance);
     registry.register(WorkspaceRootsGuidance);
+    registry.register(WorkspaceTopologyGuidance);
     registry.register(WebUntrustedContentGuidance);
     registry
 }

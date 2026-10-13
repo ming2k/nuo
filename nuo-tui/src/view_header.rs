@@ -182,7 +182,12 @@ pub(crate) fn draw_view_header(
             let active = i == head.active_tab;
             let label = match &tab.kind {
                 crate::surfaces::TabKind::Thread(id) => {
-                    format!("{}:thread-{}", i + 1, id_tail(id))
+                    if let Some(title) = tab.display_title() {
+                        let truncated = truncate_to_width(title, 16);
+                        format!("{}:{}", i + 1, truncated)
+                    } else {
+                        format!("{}:#{}", i + 1, id_tail(id))
+                    }
                 }
                 crate::surfaces::TabKind::Dashboard => format!("{}:dashboard", i + 1),
                 crate::surfaces::TabKind::Settings => format!("{}:settings", i + 1),
@@ -341,9 +346,15 @@ pub(crate) fn draw_view_header_hints(
         }
         (spans, width)
     } else {
-        let label = hints.kind.scene_label();
-        let width = label.width();
-        (vec![Span::styled(label, label_style)], width)
+        // ADR-0050 [INV-HEAD-03]: In root thread view, eliminate redundant "thread" label.
+        // If an authentic title exists, the title leads the row; if not, no label is shown.
+        if matches!(hints.kind, SceneKind::Thread) {
+            (Vec::new(), 0)
+        } else {
+            let label = hints.kind.scene_label();
+            let width = label.width();
+            (vec![Span::styled(label, label_style)], width)
+        }
     };
 
     // Only thread-scoped scenes display a bound workspace path.
@@ -358,7 +369,8 @@ pub(crate) fn draw_view_header_hints(
     };
 
     let ws_len = ws.map(|w| w.width() + 2).unwrap_or(0);
-    let context_budget = text_width.saturating_sub(lead_width + 2 + ws_len + right_width);
+    let lead_pad = if lead_width > 0 { lead_width + 2 } else { 0 };
+    let context_budget = text_width.saturating_sub(lead_pad + ws_len + right_width);
     let context = hints
         .context
         .filter(|c| !c.is_empty())
@@ -369,20 +381,27 @@ pub(crate) fn draw_view_header_hints(
     let mut left_width = lead_width;
 
     if let Some(context) = context {
-        spans.push(Span::styled("  ", fill));
+        if left_width > 0 {
+            spans.push(Span::styled("  ", fill));
+            left_width += 2;
+        }
         let context_width = context.width();
         spans.push(Span::styled(context, context_style));
-        left_width += 2 + context_width;
+        left_width += context_width;
     }
 
     if let Some(ws_path) = ws {
-        let ws_budget = text_width.saturating_sub(left_width + 2 + right_width);
+        let ws_pad = if left_width > 0 { left_width + 2 } else { 0 };
+        let ws_budget = text_width.saturating_sub(ws_pad + right_width);
         let truncated_ws = truncate_to_width(ws_path, ws_budget);
         if !truncated_ws.is_empty() {
-            spans.push(Span::styled("  ", fill));
+            if left_width > 0 {
+                spans.push(Span::styled("  ", fill));
+                left_width += 2;
+            }
             let ws_w = truncated_ws.width();
             spans.push(Span::styled(truncated_ws, workspace_style));
-            left_width += 2 + ws_w;
+            left_width += ws_w;
         }
     }
 
@@ -537,7 +556,7 @@ mod tests {
     #[test]
     fn row1_renders_tabs_and_client_namespace() {
         let tabs = vec![
-            crate::surfaces::ClientTab::thread("sess-01a2b3c4", "Thread"),
+            crate::surfaces::ClientTab::thread("sess-01a2b3c4", None::<String>),
             crate::surfaces::ClientTab::dashboard(),
         ];
         let head = SessionHead {
@@ -549,17 +568,38 @@ mod tests {
             active_tab: 0,
         };
         let row = render_row1(80, head);
-        assert!(row.contains("1:thread-b3c4"), "{row}");
-        assert!(!row.contains("[1:thread-b3c4]"), "tabs must not use brackets: {row}");
+        assert!(row.contains("1:#b3c4"), "{row}");
+        assert!(!row.contains("[1:#b3c4]"), "tabs must not use brackets: {row}");
         assert!(row.contains("2:dashboard"), "{row}");
         assert!(!row.contains("~/projects/xx"), "workspace removed from client TabBar: {row}");
         assert!(row.contains("menu C-x"), "compact client menu on TabBar: {row}");
     }
 
     #[test]
+    fn row1_renders_semantic_tab_titles() {
+        let tabs = vec![
+            crate::surfaces::ClientTab::thread("sess-01a2b3c4", Some("Refactor DB")),
+            crate::surfaces::ClientTab::thread("sess-05d6e7f8", None::<String>),
+            crate::surfaces::ClientTab::dashboard(),
+        ];
+        let head = SessionHead {
+            session_id: "sess-01a2b3c4",
+            workspace: "~/projects/xx",
+            role: Some("developer"),
+            switching_target: None,
+            tabs: Some(&tabs),
+            active_tab: 0,
+        };
+        let row = render_row1(80, head);
+        assert!(row.contains("1:Refactor DB"), "semantic title projected: {row}");
+        assert!(row.contains("2:#e7f8"), "untitled tab falls back to compact #tail: {row}");
+        assert!(row.contains("3:dashboard"), "{row}");
+    }
+
+    #[test]
     fn row1_tab_rects_and_styling() {
         let tabs = vec![
-            crate::surfaces::ClientTab::thread("sess-01a2b3c4", "Thread"),
+            crate::surfaces::ClientTab::thread("sess-01a2b3c4", None::<String>),
             crate::surfaces::ClientTab::dashboard(),
             crate::surfaces::ClientTab::settings(),
         ];
@@ -657,8 +697,7 @@ mod tests {
         assert!(row.ends_with("  "), "right pad: {row:?}");
     }
 
-    /// Row 2 names the scene the user stands in, then the scene's context, and
-    /// (for thread) the workspace path.
+    /// Row 2 in root thread view leads directly with the authentic title and workspace path (ADR-0050 [INV-HEAD-03]).
     #[test]
     fn row2_names_the_scene_with_context_and_workspace() {
         let row = render_row2(
@@ -670,21 +709,24 @@ mod tests {
                 ..hints(SceneKind::Thread)
             },
         );
-        assert!(row.starts_with("  thread  Fix the retry loop"), "{row}");
+        assert!(row.starts_with("  Fix the retry loop"), "{row}");
+        assert!(!row.contains("thread"), "redundant thread label purged from root head: {row}");
         assert!(row.contains("~/projects/xx"), "workspace present on scene head: {row}");
         assert!(!row.contains("Ctrl-x"), "namespace moved up to TabBar: {row}");
         assert!(!row.contains("Esc"), "Esc never advertises a scene exit: {row}");
     }
 
     #[test]
-    fn row2_thread_without_a_title_shows_the_label_alone() {
-        let row = render_row2(80, hints(SceneKind::Thread));
-        assert!(row.starts_with("  thread"), "{row}");
-        assert!(!row.contains("Ctrl-x"), "no namespace on scene row: {row}");
-        assert!(
-            !row.contains("Fix") && !row.trim_end().starts_with("thread  Fix"),
-            "{row}"
-        );
+    fn row2_thread_without_a_title_shows_the_workspace_or_clean_row() {
+        let row = render_row2(80, ViewHints {
+            workspace: Some("~/projects/xx"),
+            ..hints(SceneKind::Thread)
+        });
+        assert!(row.starts_with("  ~/projects/xx"), "untitled thread leads with workspace: {row}");
+        assert!(!row.contains("thread"), "no thread label on untitled thread: {row}");
+
+        let blank = render_row2(80, hints(SceneKind::Thread));
+        assert!(!blank.contains("thread"), "blank thread omits thread label: {blank}");
     }
 
     #[test]
@@ -723,7 +765,6 @@ mod tests {
     #[test]
     fn row2_scene_labels_are_per_scene() {
         for (kind, label) in [
-            (SceneKind::Thread, "thread"),
             (SceneKind::Aside, "aside"),
             (SceneKind::Subagent, "subagent"),
             (SceneKind::Settings, "settings"),
@@ -733,6 +774,22 @@ mod tests {
             let row = render_row2(80, hints(kind));
             assert!(row.starts_with(&format!("  {label}")), "{kind:?}: {row}");
         }
+
+        // ADR-0050 [INV-HEAD-03]: Thread scene does not render redundant "thread" label at root
+        assert_eq!(SceneKind::Thread.scene_label(), "thread");
+        let root_thread_empty = render_row2(80, hints(SceneKind::Thread));
+        assert!(!root_thread_empty.contains("thread"), "root thread has no 'thread' label: {root_thread_empty}");
+
+        // Root thread with authentic title displays title directly
+        let root_thread_with_title = render_row2(
+            80,
+            ViewHints {
+                context: Some("Refactor DB"),
+                ..hints(SceneKind::Thread)
+            },
+        );
+        assert!(root_thread_with_title.starts_with("  Refactor DB"), "{root_thread_with_title}");
+        assert!(!root_thread_with_title.contains("thread"), "{root_thread_with_title}");
     }
 
     /// The run-mode flags sit on the right of row 2.
@@ -800,7 +857,11 @@ mod tests {
         ] {
             assert!(hints(kind).has_content(), "{kind:?} stands up row 2");
             let row = render_row2(80, hints(kind));
-            assert!(row.starts_with(&format!("  {}", kind.scene_label())), "{row}");
+            if kind == SceneKind::Thread {
+                assert!(!row.contains("thread"), "root thread omits 'thread': {row}");
+            } else {
+                assert!(row.starts_with(&format!("  {}", kind.scene_label())), "{row}");
+            }
         }
     }
 

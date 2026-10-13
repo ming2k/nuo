@@ -199,6 +199,7 @@ mod tests {
     fn format_threads_table_renders_header_and_rows() {
         let rows = vec![MonitoredSession {
             id: "thr_99998888".into(),
+            title: Some("implement universal snapshot".into()),
             overview: "implement universal snapshot".into(),
             created_at: 100,
             updated_at: 100,

@@ -334,7 +334,7 @@ async fn switching_sessions_resets_navigation_and_backfill() {
     // staged image, plus a backfilled row.
     app.input = "walked row".to_string();
     app.history_index = Some(0);
-    app.history_draft = "half-typed draft in a".to_string();
+    app.draft_capsule.text = "half-typed draft in a".to_string();
     app.pending_images = vec![nuo_wire::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
@@ -353,7 +353,7 @@ async fn switching_sessions_resets_navigation_and_backfill() {
         app.history_index, None,
         "cursor does not cross the boundary"
     );
-    assert!(app.history_draft.is_empty(), "draft does not leak");
+    assert!(app.draft_capsule.is_empty(), "draft does not leak");
     assert!(app.input.is_empty(), "composer starts clean");
     assert!(app.pending_images.is_empty(), "attachments do not leak");
     assert!(
@@ -469,7 +469,7 @@ async fn adopt_as_draft_replaces_stale_draft_and_is_restored() {
     app.record_input_history("older".to_string(), Vec::new(), Vec::new());
 
     // A stale remembered draft from an earlier session of editing.
-    app.history_draft = "stale draft".to_string();
+    app.draft_capsule.text = "stale draft".to_string();
     app.input = "whatever".to_string();
 
     let image = nuo_wire::ImagePart {
@@ -486,10 +486,10 @@ async fn adopt_as_draft_replaces_stale_draft_and_is_restored() {
     assert_eq!(app.input, "interrupted input");
     assert_eq!(app.history_index, None, "adoption enters draft mode");
     assert_eq!(
-        app.history_draft, "interrupted input",
+        app.draft_capsule.text, "interrupted input",
         "stale draft replaced"
     );
-    assert_eq!(app.history_draft_images.len(), 1);
+    assert_eq!(app.draft_capsule.pending_images.len(), 1);
     assert_eq!(app.pending_images.len(), 1);
 
     // ↑ then ↓ past the newest restores the adopted input, not the stale one.
@@ -1011,6 +1011,73 @@ fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
 
     app.reset_to_thread();
     assert!(app.modal_scroll_field().is_none());
+}
+
+/// ADR-0047 [INV-SURFACE-07]: DialogView entities autonomously handle spatial
+/// click-to-select via handle_input(SelectionStart { x, y }).
+#[test]
+fn dialog_spatial_click_to_select_and_models_section_headers() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+
+    app.provider_picker = ProviderPickerSnapshot {
+        default_id: "openai".to_string(),
+        rows: vec![
+            nuo_wire::ProviderPickerRow {
+                id: "openai".to_string(),
+                name: "OpenAI".to_string(),
+                model: "gpt-5.5".to_string(),
+                models: vec!["gpt-5.5".to_string(), "gpt-5-mini".to_string()],
+                model_info: vec![
+                    nuo_wire::ProviderModelInfo {
+                        model: "gpt-5.5".to_string(),
+                        protocol: "openai".to_string(),
+                        ..Default::default()
+                    },
+                    nuo_wire::ProviderModelInfo {
+                        model: "gpt-5-mini".to_string(),
+                        protocol: "openai".to_string(),
+                        ..Default::default()
+                    },
+                ],
+                builtin: true,
+                protocol: "openai".to_string(),
+                base_url: String::new(),
+                key_ready: true,
+                provider: "openai".to_string(),
+                client_identity: Default::default(),
+                last_used_ms: Some(100),
+                auth: Default::default(),
+            },
+        ],
+    };
+
+    app.open_dialog(crate::surfaces::DialogKind::Models);
+    app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+    app.ui.mount(
+        crate::ui::UiKey::Overlay(crate::surfaces::OverlaySurface::Dialog(
+            crate::surfaces::DialogKind::Models,
+        )),
+        nuotc::Rect::new(10, 5, 60, 15),
+    );
+    app.ui.commit();
+
+    let models_dlg = app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
+    models_dlg.index = 0;
+    models_dlg.scroll = 0;
+
+    // Body starts at y = 5 + 3 = 8.
+    // Line 0 is section header "All models", Line 1 is model row 0.
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let action = crate::input::InputAction::SelectionStart { x: 20, y: 9 };
+        let outcome = ent.handle_input(&action, &mut app, "");
+        assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().index,
+        0
+    );
+    assert!(app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().follow);
 }
 
 /// The page step follows the captured modal body height (when known) and
@@ -1952,7 +2019,7 @@ async fn closing_dashboard_scene_closes_singleton_tab() {
     let runtime = crate::event_loop::UiRuntime::minimal_for_test();
 
     // 1. Mount initial thread tab and dashboard tab
-    app.surfaces.open_tab(crate::surfaces::ClientTab::thread("s1", "Thread 1"));
+    app.surfaces.open_tab(crate::surfaces::ClientTab::thread("s1", Some("Thread 1")));
     app.open_tab(crate::surfaces::ClientTab::dashboard());
 
     assert_eq!(app.surfaces.tabs().len(), 2);

@@ -94,22 +94,33 @@ pub fn body_with_capabilities(
         )
     });
 
-    // Pull leading system message(s) out of the list; Anthropic carries
-    // system as a top-level string, not a role.
-    let mut system_text = instructions
-        .map(|b| b.render_combined())
-        .unwrap_or_default();
+    // Resolve instruction pipeline into static and ephemeral tiers (ADR-0052, [INV-INST-01] & [INV-INST-03]).
+    // Structured InstructionBundle is the authoritative SSOT. Leading Role::System messages
+    // in the conversation vector are grandfathered for backward compatibility but merged into the static block.
+    let (mut static_system_text, ephemeral_system_text) = if let Some(bundle) = instructions {
+        (bundle.render_system_instructions(), bundle.render_ephemeral())
+    } else {
+        (String::new(), String::new())
+    };
+
     let mut conversation: Vec<Message> = Vec::with_capacity(messages.len());
     for message in messages {
         if message.role == Role::System {
-            if !system_text.is_empty() {
-                system_text.push_str("\n\n");
+            if !static_system_text.is_empty() {
+                static_system_text.push_str("\n\n");
             }
-            system_text.push_str(&message.content);
+            static_system_text.push_str(&message.content);
             continue;
         }
         conversation.push(message);
     }
+
+    let system_text = match (static_system_text.is_empty(), ephemeral_system_text.is_empty()) {
+        (false, false) => format!("{static_system_text}\n{ephemeral_system_text}"),
+        (false, true) => static_system_text.clone(),
+        (true, false) => ephemeral_system_text.clone(),
+        (true, true) => String::new(),
+    };
 
     // Every assistant `tool_calls` must be followed by a corresponding `tool`
     // result. Collect the ids that got a result, then strip unanswered calls.
@@ -159,7 +170,7 @@ pub fn body_with_capabilities(
                 body["cache_control"] = control;
             }
             nuo_model_codec::PromptCacheMode::Explicit => {
-                stamp_caching_breakpoints(&mut body, &system_text, &control);
+                stamp_caching_breakpoints(&mut body, &static_system_text, &ephemeral_system_text, &control);
             }
             nuo_model_codec::PromptCacheMode::Implicit => {}
         }
@@ -224,8 +235,15 @@ const MAX_BREAKPOINTS: usize = 4;
 
 /// Stamp cache breakpoints across the ordered request regions
 /// (`tools → system → messages`) within the 4-breakpoint budget: last tool,
-/// last system block, and the two newest messages. No-op for absent regions.
-fn stamp_caching_breakpoints(body: &mut Value, system_text: &str, control: &Value) {
+/// static system block, and the two newest messages.
+/// Ephemeral system instructions are emitted after the cached static prefix without cache control,
+/// ensuring static KV-cache reuse is not disrupted by turn-level nudges (ADR-0052, [INV-INST-03]).
+fn stamp_caching_breakpoints(
+    body: &mut Value,
+    static_system_text: &str,
+    ephemeral_system_text: &str,
+    control: &Value,
+) {
     let mut breakpoints = 0usize;
 
     if !body["tools"].is_null()
@@ -235,14 +253,22 @@ fn stamp_caching_breakpoints(body: &mut Value, system_text: &str, control: &Valu
         breakpoints += 1;
     }
 
-    if !system_text.is_empty() {
-        // `system` must be a block *array* to carry a breakpoint; a bare string
-        // cannot. Emit one text block and stamp it within budget.
-        let mut sys_block = json!({"type":"text","text": system_text});
-        if breakpoints < MAX_BREAKPOINTS && stamp_cache_control(&mut sys_block, control) {
+    let mut blocks = Vec::new();
+    if !static_system_text.is_empty() {
+        let mut static_block = json!({"type": "text", "text": static_system_text});
+        if breakpoints < MAX_BREAKPOINTS && stamp_cache_control(&mut static_block, control) {
             breakpoints += 1;
         }
-        body["system"] = json!([sys_block]);
+        blocks.push(static_block);
+    }
+    if !ephemeral_system_text.is_empty() {
+        // Ephemeral block is placed AFTER the cached static prefix without cache_control,
+        // preserving the static cache boundary even when turn-level nudges vary.
+        blocks.push(json!({"type": "text", "text": ephemeral_system_text}));
+    }
+
+    if !blocks.is_empty() {
+        body["system"] = json!(blocks);
     }
 
     // Mark up to two trailing messages (newest, then second-newest) within the

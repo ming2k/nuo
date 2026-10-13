@@ -967,6 +967,7 @@ fn ctrl_r_opens_history_modal_when_no_modal_is_open() {
     );
     assert_eq!(action, InputAction::OpenHistory);
 
+    // Inside HistorySearch, Ctrl+R cycles to the next candidate (ADR-0051 [INV-COMP-04])
     let action = route_event(
         Event::Key(crossterm::event::KeyEvent::new(
             KeyCode::Char('r'),
@@ -985,7 +986,7 @@ fn ctrl_r_opens_history_modal_when_no_modal_is_open() {
         &SceneKeys::default(),
         &mut drag,
     );
-    assert_eq!(action, InputAction::None);
+    assert_eq!(action, InputAction::ModalDown);
 }
 
 #[test]

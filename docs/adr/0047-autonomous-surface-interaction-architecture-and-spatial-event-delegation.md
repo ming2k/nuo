@@ -1,7 +1,7 @@
 ---
 id: ADR-0047
 title: "Autonomous Surface Interaction Architecture: First-Class Spatial Event Delegation and Leaky Nav-Field Retirement"
-status: draft
+status: accepted
 date: 2026-10-24
 scope: tui/nuo-tui, architecture/surfaces, interaction/mouse, presentation/modals, input/routing
 superseded_by: null
@@ -10,7 +10,7 @@ negative_knowledge: true
 
 # 0047. Autonomous Surface Interaction Architecture: First-Class Spatial Event Delegation and Leaky Nav-Field Retirement
 
-- Status: Draft
+- Status: Accepted
 - Date: 2026-10-24
 - Deciders: Nuo Architecture Working Group
 - Consulted: TUI, Interaction, Surfaces, and Presentation Maintainers
@@ -24,7 +24,7 @@ negative_knowledge: true
 
 [ADR-0035](0035-domain-scoped-surface-architecture-and-encapsulated-dialog-lifecycle.md) achieved a critical milestone in decoupling `nuo-tui`: it evicted scattered dialog state from the monolithic `App` struct into domain-scoped, encapsulated `DialogView` entities. Under ADR-0035, each dialog owns its identity, selection cursor, visual layout constraints, and discrete keyboard navigation (`ModalUp`, `ModalDown`, `SessionSelect`).
 
-However, **input routing was only half-migrated**. While discrete keyboard navigation was moved into `DialogView::handle_input`, **scrolling (both mouse wheel ticks and keyboard page navigation) was left behind in the outer event loop**:
+However, **input routing was only half-migrated**. While discrete keyboard navigation was moved into `DialogView::handle_input`, **scrolling (both mouse wheel ticks and keyboard page navigation) and spatial mouse clicks were left behind or unhandled in the outer event loop**:
 
 ```text
 [ Current Bifurcated Input Pipeline (Legacy Leak) ]
@@ -61,6 +61,8 @@ Page Keys (PgUp / PgDn / Home / End)┴──► handle_wheel / actions.rs
    Because scrolling is performed by external pointer mutation rather than component execution, the entity cannot enforce custom step sizes, content clamping, velocity dampening, or drill-down boundary guards.
 4. **Schizophrenic Component Contract**:
    Having keyboard arrows enter through `handle_input` while page keys (`ScrollPageUp`/`ScrollPageDown`/`ScrollTop`/`ScrollBottom`) and mouse wheel ticks (`Wheel`) bypass the entity violates the single-responsibility principle and Chesterton's Fence in component lifecycle design.
+5. **Spatial Click Vacuum in Surface Lists**:
+   While `click_outside_dismiss` allows closing a dialog by clicking the backdrop, clicks landing on dialog list entries (`Models`, `Connections`, `Threads`, `Tools`) were swallowed as no-ops. Meanwhile, in root scenes such as `Settings`, the left Category navigation lacked pointer target mounting entirely, creating an ergonomic fracture between mouse-navigable tabs and keyboard-locked category panes.
 
 ---
 
@@ -90,9 +92,13 @@ Chosen option: **Option 1**, because it establishes a clean, modern, message-pas
 ### Invariants & Behavioral Boundaries
 
 - **`[INV-SURFACE-06] Sovereign Viewport Navigation`**: Every `DialogView` entity MUST autonomously own its scrolling, paging, and viewport bounds. Leaking raw mutable references (`&mut usize`, `&mut bool`) from a surface entity to the outer event loop or `App` is strictly prohibited. `DialogView::nav_fields()` is formally retired.
-- **`[INV-SURFACE-07] First-Class Spatial Event Delegation`**: When a spatial mouse event (`Wheel`, `Click`) hits a focused `DialogView` bounding box (`UiKey::Overlay`), the event loop MUST delegate the interaction directly to `DialogView::handle_input` as a typed `InputAction`. Bypassing the entity to mutate external state is forbidden.
+- **`[INV-SURFACE-07] First-Class Spatial Event Delegation`**: When a spatial mouse event (`Wheel`, `SelectionStart` / `Click`) hits a focused `DialogView` bounding box (`UiKey::Overlay`), the event loop MUST delegate the interaction directly to `DialogView::handle_input` as a typed `InputAction`. Bypassing the entity to mutate external state is forbidden. Clicking a valid content entry moves the selection cursor (`Click-to-Select`).
 - **`[INV-SURFACE-08] Multi-Layer Sub-View Parity`**: Dialog entities containing drill-down sub-layers (`info_detail`, attempt inspectors, secondary panes) MUST route scroll and navigation actions to the visually active sub-layer. A drill-down sub-view must never scroll an obscured parent list.
 - **`[INV-SURFACE-09] Button-Event Mouse Fence`**: Mouse support for surface components MUST operate strictly within Mode 1002 (button press, release, drag, wheel) and SGR-1006 coordinates. Enabling Mode 1003 all-motion tracking or emitting non-button terminal hover events is strictly prohibited to prevent SGR buffer truncation leaks ([ADR-0022](0022-minimum-terminal-geometry-and-frozen-input-contract.md)).
+- **`[INV-SURFACE-10] Scene Spatial Navigation Parity & Non-Destructive Click-to-Toggle`**: In full-screen configuration scenes (`SceneKind::Settings`), spatial pointer interaction MUST maintain symmetry between navigation and content zones:
+  1. Category navigation MUST mount interactive pointer targets (`UiKey::SettingsCategory`) enabling click-to-switch category without keyboard chording.
+  2. Detail options MUST enforce click-to-focus and immediate non-destructive click-to-toggle for Boolean and theme-selection affordances, retiring redundant enter/space chording for switch controls.
+  3. All interactions operate strictly within the button-event fence (`[INV-SURFACE-09]`).
 
 ---
 
@@ -103,6 +109,7 @@ The `DialogView` trait contract receives typed scroll actions:
 - `InputAction::ScrollUp` / `InputAction::ScrollDown` (1-line scroll tick / wheel)
 - `InputAction::ScrollPageUp` / `InputAction::ScrollPageDown` (viewport page step)
 - `InputAction::ScrollTop` / `InputAction::ScrollBottom` (jump to top/bottom)
+- `InputAction::SelectionStart { x, y }` (spatial entry hit testing / click-to-select)
 
 ```rust
 pub trait DialogView: std::fmt::Debug + Send + 'static {
@@ -171,7 +178,7 @@ match action {
 }
 ```
 
-#### 3. Spatial Event Router Delegation (`handle_wheel`)
+#### 3. Spatial Event Router Delegation (`handle_wheel` & `handle_selection_start`)
 In `event_loop/actions.rs`, when a mouse wheel tick lands within an active dialog's bounds:
 
 ```rust
@@ -189,7 +196,23 @@ Some(UiKey::Overlay(OverlaySurface::Dialog(_)))
 }
 ```
 
-Keyboard page actions (`ScrollPageUp`, `ScrollPageDown`, `ScrollTop`, `ScrollBottom`) follow the exact same delegation pattern, cleanly executing against the entity.
+When a pointer press (`SelectionStart { x, y }`) hits within the open dialog panel bounding box, it delegates directly to `DialogView::handle_input`. Standard list dialogs calculate the clicked line offset against `body_y` and update `self.index`:
+
+```rust
+let visual_row = (*y - body_y) as usize;
+let clicked_index = self.scroll + visual_row;
+if clicked_index < total_rows {
+    self.index = clicked_index;
+    self.follow = true;
+    DialogOutcome::Consumed
+}
+```
+
+#### 4. Settings Scene Spatial Parity
+The settings view (`views/settings`) exposes category and detail row bounding rects:
+- `draw_categories_pane` records visible category rects and mounts `UiKey::SettingsCategory(index)`.
+- Clicking a category switches `app.config_category = index` and resets detail scroll/index.
+- Detail options mount `UiKey::SettingsRow(index)` and `UiKey::SettingsOption(index)`. Clicking toggles switches immediately for `Components` and applies themes for `Appearance` (`Click-to-Toggle`), while parking the selection cursor on complex detail entries without unexpected side-effects.
 
 ---
 
@@ -197,13 +220,13 @@ Keyboard page actions (`ScrollPageUp`, `ScrollPageDown`, `ScrollTop`, `ScrollBot
 
 - **Sub-View Scroll Integrity**: Detail cards, inspector drill-downs, and turns tables (`Threads › Info`, `Connections › Info`, `Session Trace`) immediately respond to mouse wheel scrolling without freezing or drifting.
 - **Elimination of Leaky Trait Surface**: Deleting `nav_fields` removes an awkward API where internal entity fields were exposed as raw mutable pointers.
-- **Architectural Uniformity**: All interactions with a dialog (keyboard shortcuts, arrow navigation, page navigation, mouse wheel ticks, and future row clicks) enter through the same `handle_input` pipeline.
-- **Foundation for Click-to-Select**: Paves the way for spatial row selection in dialog lists without creating new ad-hoc paths on `App`.
+- **Architectural Uniformity**: All interactions with a dialog (keyboard shortcuts, arrow navigation, page navigation, mouse wheel ticks, and spatial row clicks) enter through the same `handle_input` pipeline.
+- **Click-to-Select & Click-to-Toggle Ergonomics**: List items in dialogs can be focused by clicking, and Settings scene categories and toggle switches respond naturally to pointer clicks without requiring keyboard navigation chording.
 
 ### Negative Consequences & Trade-offs
 
-- **Entity Implementation Responsibility**: Each specialized dialog entity that manages internal sub-views must explicitly handle scroll actions in its `input_dialog` implementation.
-- *Mitigation*: The `dialog_entity!` macro provides a universal default for all standard dialogs, restricting custom handling only to entities with complex sub-views.
+- **Entity Implementation Responsibility**: Each specialized dialog entity that manages internal sub-views must explicitly handle scroll and click actions in its `input_dialog` implementation.
+- *Mitigation*: The `dialog_entity!` macro and shared `input_dialog` provide universal defaults for standard dialogs, restricting custom handling only to entities with complex sub-views.
 
 ---
 

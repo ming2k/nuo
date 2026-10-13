@@ -754,6 +754,247 @@ fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> Dialog
     }
 }
 
+fn dialog_body_bounds(kind: DialogKind, modal_rect: Rect) -> (u16, u16) {
+    match kind {
+        DialogKind::HistorySearch => (
+            modal_rect.y + 2,
+            modal_rect.y + modal_rect.height.saturating_sub(1),
+        ),
+        DialogKind::Switcher => (
+            modal_rect.y + 5,
+            modal_rect.y + modal_rect.height.saturating_sub(3),
+        ),
+        _ => (
+            modal_rect.y + 3,
+            modal_rect.y + modal_rect.height.saturating_sub(3),
+        ),
+    }
+}
+
+fn handle_dialog_click(
+    view: &mut dyn DialogView,
+    visual_row: usize,
+    app: &mut crate::App,
+    viewed_session_id: &str,
+) -> DialogOutcome {
+    match view.kind() {
+        DialogKind::Threads => {
+            let e = view.as_any_mut().downcast_mut::<ThreadsDialog>().expect("kind");
+            if e.info_detail {
+                return DialogOutcome::Consumed;
+            }
+            let projected = crate::overlays::session::project_session_rows(
+                &app.sessions_overview,
+                Some(&e.expanded),
+            );
+            let visible = if app.modal_body_height > 0 {
+                app.modal_body_height as usize
+            } else {
+                10
+            };
+            let (start, _) = crate::primitives::resolve_scroll(
+                &mut e.scroll,
+                visible,
+                projected.len(),
+                if e.follow { Some(e.index) } else { None },
+                crate::primitives::SCROLL_EDGE_MARGIN,
+            );
+            let target_idx = start + visual_row;
+            if target_idx < projected.len() {
+                let was_selected = e.index == target_idx;
+                e.index = target_idx;
+                e.follow = true;
+                if was_selected {
+                    let target_id = projected[target_idx].session().id.clone();
+                    if target_id != viewed_session_id {
+                        app.switch_to_target = Some(target_id);
+                        app.should_quit.store(true, std::sync::atomic::Ordering::SeqCst);
+                    } else {
+                        return DialogOutcome::Dismiss;
+                    }
+                }
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Models => {
+            let e = view.as_any_mut().downcast_mut::<ModelsDialog>().expect("kind");
+            let models = app.models_flat_filtered();
+            let (geometry, _) = crate::providers::models_body_lines(&models);
+            let target_line = e.scroll + visual_row;
+            if let Some(crate::providers::ModelBodyLine::Row(row_idx)) =
+                geometry.get(target_line)
+            {
+                let was_selected = e.index == *row_idx;
+                e.index = *row_idx;
+                e.follow = true;
+                if was_selected && let Some(rm) = models.get(*row_idx) && rm.usable {
+                    let ready = app.key_status.get(&rm.provider_id).copied().unwrap_or(true);
+                    crate::event_loop::actions::activate_picked_model(
+                        app,
+                        rm.provider_id.clone(),
+                        rm.model.clone(),
+                        ready,
+                    );
+                }
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Connections => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<ConnectionsDialog>()
+                .expect("kind");
+            if e.info_detail {
+                return DialogOutcome::Consumed;
+            }
+            let providers = app.providers_filtered();
+            let target_idx = e.scroll + visual_row;
+            if target_idx < providers.len() {
+                let was_selected = e.index == target_idx;
+                e.index = target_idx;
+                e.follow = true;
+                if was_selected {
+                    e.models_expanded = !e.models_expanded;
+                }
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Tools => {
+            let e = view.as_any_mut().downcast_mut::<ToolsDialog>().expect("kind");
+            let count = app.session_tools_len();
+            let target_idx = e.scroll + visual_row;
+            if target_idx < count {
+                e.index = target_idx;
+                e.follow = true;
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Mcp => {
+            let e = view.as_any_mut().downcast_mut::<McpDialog>().expect("kind");
+            let count = app.session_context.as_ref().map_or(0, |s| s.mcp.len());
+            let target_idx = e.scroll + visual_row;
+            if target_idx < count {
+                e.index = target_idx;
+                e.follow = true;
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Skills => {
+            let e = view.as_any_mut().downcast_mut::<SkillsDialog>().expect("kind");
+            let count = app.session_context.as_ref().map_or(0, |s| s.skills.len());
+            let target_idx = e.scroll + visual_row;
+            if target_idx < count {
+                let was_selected = e.index == target_idx;
+                e.index = target_idx;
+                e.follow = true;
+                if was_selected {
+                    e.expanded = if e.expanded == Some(target_idx) {
+                        None
+                    } else {
+                        Some(target_idx)
+                    };
+                }
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Permissions => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<PermissionsDialog>()
+                .expect("kind");
+            let count = app
+                .session_context
+                .as_ref()
+                .map_or(0, |s| s.permissions.len());
+            let target_idx = e.scroll + visual_row;
+            if target_idx < count {
+                e.index = target_idx;
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::HistorySearch => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<HistorySearchDialog>()
+                .expect("kind");
+            let count = app.history_rows().len();
+            let target_idx = e.scroll + visual_row;
+            if target_idx < count {
+                e.index = target_idx;
+                e.follow = true;
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::SessionTree => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<SessionTreeDialog>()
+                .expect("kind");
+            let count = crate::overlays::tree::flatten_tree(&app.session_tree).len();
+            let target_idx = e.scroll + visual_row;
+            if target_idx < count {
+                e.index = target_idx;
+                e.follow = true;
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Quotas => {
+            let e = view.as_any_mut().downcast_mut::<QuotasDialog>().expect("kind");
+            let count = app.provider_quotas.as_ref().map_or(0, |q| q.entries.len());
+            let target_idx = e.scroll + visual_row;
+            if target_idx < count {
+                let was_selected = e.index == target_idx;
+                e.index = target_idx;
+                e.follow = true;
+                if was_selected {
+                    e.expanded = if e.expanded == Some(target_idx) {
+                        None
+                    } else {
+                        Some(target_idx)
+                    };
+                }
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Queue => {
+            let e = view.as_any_mut().downcast_mut::<QueueDialog>().expect("kind");
+            let count = app.pending_count(viewed_session_id);
+            let target_idx = e.scroll + visual_row;
+            if target_idx < count {
+                e.index = target_idx;
+                e.follow = true;
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Switcher => {
+            let e = view.as_any_mut().downcast_mut::<SwitcherDialog>().expect("kind");
+            let app_ctx = crate::keymap::AppContext {
+                has_overlay: true,
+                active_dialog: app.surfaces.underlying_dialog().or_else(|| app.active_dialog()),
+                is_responding: app.viewed_chrome().responding,
+                has_selection: !matches!(app.selection, SelectionState::None),
+                has_running_task: app.viewed_chrome().responding,
+                queue_count: app.pending_dispatch.len(),
+                has_session: app.has_session(),
+                scene: app.current_scene(),
+            };
+            let entries = crate::overlays::command_palette::filter_palette_commands(
+                &e.query.text,
+                &app.command_catalog,
+                &app.recent_commands,
+                &app_ctx,
+            );
+            let target_idx = e.scroll + visual_row;
+            if target_idx < entries.len() {
+                e.selected = target_idx;
+                e.follow = true;
+            }
+            DialogOutcome::Consumed
+        }
+        _ => DialogOutcome::Consumed,
+    }
+}
+
 /// Handle a local navigation/scroll action for one dialog entity
 /// (`DialogView::handle_input`). `ModalUp`/`ModalDown` are the generic ↑/↓
 /// arrows; `SessionSelect` is the list-navigation family; `Scroll*` and `Wheel`
@@ -786,6 +1027,28 @@ fn input_dialog(
             }
             return DialogOutcome::Consumed;
         }
+    }
+
+    // Spatial click-to-select delegation (ADR-0047 [INV-SURFACE-07]):
+    if let InputAction::SelectionStart { x, y } = action {
+        if view.keys_open() {
+            return DialogOutcome::Consumed;
+        }
+        let modal_bounds = app.ui.bounds(crate::ui::UiKey::Overlay(
+            crate::surfaces::OverlaySurface::Dialog(view.kind()),
+        ));
+        if let Some(modal_rect) = modal_bounds {
+            let (body_top, body_bottom) = dialog_body_bounds(view.kind(), modal_rect);
+            if *y >= body_top
+                && *y < body_bottom
+                && *x >= modal_rect.x
+                && *x < modal_rect.x + modal_rect.width
+            {
+                let visual_row = (*y - body_top) as usize;
+                return handle_dialog_click(view, visual_row, app, viewed_session_id);
+            }
+        }
+        return DialogOutcome::Consumed;
     }
 
     // `(forward, is_modal_arrow)`.

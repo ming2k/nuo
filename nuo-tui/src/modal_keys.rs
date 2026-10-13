@@ -468,10 +468,10 @@ pub(crate) fn resolve_modal_key(
 /// is active, printable keys and Backspace edit the borrowed composer line via
 /// the shared editing layer (`edits_input_field`).
 pub(crate) fn resolve_history_search_key(key: crate::keymap::Key) -> Option<InputAction> {
-    if key == crate::keymap::Key::CTRL_P {
+    if key == crate::keymap::Key::CTRL_P || key == crate::keymap::Key::CTRL_SHIFT_R {
         return Some(InputAction::ModalUp);
     }
-    if key == crate::keymap::Key::CTRL_N {
+    if key == crate::keymap::Key::CTRL_N || key == crate::keymap::Key::CTRL_R {
         return Some(InputAction::ModalDown);
     }
     match key.code {

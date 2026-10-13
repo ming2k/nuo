@@ -213,9 +213,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         permission_max_scroll: 0,
         input_history: Vec::new(),
         history_index: None,
-        history_draft: String::new(),
-        history_draft_images: Vec::new(),
-        history_draft_text_pastes: Vec::new(),
+        draft_capsule: crate::composer_mode::DraftCapsule::default(),
         history_attachments: std::collections::HashMap::new(),
         history_attachments_order: std::collections::VecDeque::new(),
         session_history_backfill: Vec::new(),
@@ -360,11 +358,12 @@ fn prompt_tail(messages: &[TranscriptMessage]) -> Vec<(String, bool, u64)> {
         .collect()
 }
 
-fn overview_row(id: &str) -> nuo_wire::SessionOverview {
+pub(crate) fn overview_row(id: &str) -> nuo_wire::SessionOverview {
     nuo_wire::SessionOverview {
         parent_id: None,
         fork_kind: nuo_wire::SessionForkKind::Trunk,
         id: id.to_string(),
+        title: None,
         overview: format!("overview-{id}"),
         created_at: 0,
         updated_at: 0,
@@ -405,6 +404,7 @@ fn relay_probe(
 fn console_host_rows(app: &mut App) {
     let row = |id: &str, created: u64| nuo_wire::MonitoredSession {
         id: id.to_string(),
+        title: None,
         overview: String::new(),
         created_at: created,
         updated_at: created,

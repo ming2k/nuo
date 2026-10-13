@@ -385,7 +385,8 @@ impl StackEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientTab {
     pub kind: TabKind,
-    pub title: String,
+    /// Authentic semantic title of the tab, if established (ADR-0050 [INV-TITLE-01, INV-TAB-08]).
+    pub title: Option<String>,
     /// Tab-autonomous navigation history stack (ADR-0040 [INV-HEAD-02]).
     pub history: Vec<SceneKind>,
     /// Pointer within `history` for Back/Forward navigation.
@@ -400,11 +401,11 @@ pub enum TabKind {
 }
 
 impl ClientTab {
-    pub fn thread(id: impl Into<String>, title: impl Into<String>) -> Self {
+    pub fn thread(id: impl Into<String>, title: Option<impl Into<String>>) -> Self {
         let id_str = id.into();
         Self {
             kind: TabKind::Thread(id_str),
-            title: title.into(),
+            title: title.map(|t| t.into()).filter(|t| !t.trim().is_empty()),
             history: vec![SceneKind::Thread],
             cursor: 0,
         }
@@ -413,7 +414,7 @@ impl ClientTab {
     pub fn dashboard() -> Self {
         Self {
             kind: TabKind::Dashboard,
-            title: "Dashboard".to_string(),
+            title: Some("Dashboard".to_string()),
             history: vec![SceneKind::Dashboard],
             cursor: 0,
         }
@@ -422,7 +423,7 @@ impl ClientTab {
     pub fn settings() -> Self {
         Self {
             kind: TabKind::Settings,
-            title: "Settings".to_string(),
+            title: Some("Settings".to_string()),
             history: vec![SceneKind::Settings],
             cursor: 0,
         }
@@ -430,9 +431,18 @@ impl ClientTab {
 
     pub fn label(&self) -> &str {
         match &self.kind {
-            TabKind::Thread(_) => self.title.as_str(),
+            TabKind::Thread(_) => self.title.as_deref().unwrap_or(""),
             TabKind::Dashboard => "Dashboard",
             TabKind::Settings => "Settings",
+        }
+    }
+
+    /// Return the authentic semantic display title, or None if untitled (ADR-0050 [INV-TITLE-01, INV-TAB-08]).
+    pub fn display_title(&self) -> Option<&str> {
+        match &self.kind {
+            TabKind::Thread(_) => self.title.as_deref(),
+            TabKind::Dashboard => Some("dashboard"),
+            TabKind::Settings => Some("settings"),
         }
     }
 
@@ -607,6 +617,26 @@ impl SurfaceRouter {
         }
         self.sync_scene_to_active_tab();
         Some(closed)
+    }
+
+    /// Dynamically update the authentic title of a thread tab (ADR-0050 [INV-TAB-08]).
+    pub fn update_tab_title(&mut self, thread_id: &str, title: impl Into<String>) -> bool {
+        let title_str = title.into();
+        let cleaned = if title_str.trim().is_empty() {
+            None
+        } else {
+            Some(title_str)
+        };
+        let mut updated = false;
+        for tab in &mut self.tabs {
+            if let TabKind::Thread(id) = &tab.kind {
+                if id == thread_id {
+                    tab.title = cleaned.clone();
+                    updated = true;
+                }
+            }
+        }
+        updated
     }
 
     /// Select tab by ordinal index.
@@ -1319,14 +1349,14 @@ mod tests {
         assert!(router.tabs().is_empty());
 
         // 1. Mount thread tab (ADR-0039 [INV-TAB-02])
-        let idx0 = router.open_tab(ClientTab::thread("conv-1", "Refactor DB"));
+        let idx0 = router.open_tab(ClientTab::thread("conv-1", Some("Refactor DB")));
         assert_eq!(idx0, 0);
         assert_eq!(router.active_tab_index(), 0);
         assert_eq!(router.active_scene(), SceneKind::Thread);
         assert_eq!(router.tabs().len(), 1);
 
         // 2. Mount second thread tab
-        let idx1 = router.open_tab(ClientTab::thread("conv-2", "Quick Query"));
+        let idx1 = router.open_tab(ClientTab::thread("conv-2", Some("Quick Query")));
         assert_eq!(idx1, 1);
         assert_eq!(router.active_tab_index(), 1);
         assert_eq!(router.active_scene(), SceneKind::Thread);
@@ -1355,10 +1385,10 @@ mod tests {
 
         // 6. Non-destructive close / Detach (ADR-0039 [INV-TAB-03])
         let closed = router.close_tab(0);
-        assert_eq!(closed, Some(ClientTab::thread("conv-1", "Refactor DB")));
+        assert_eq!(closed, Some(ClientTab::thread("conv-1", Some("Refactor DB"))));
         assert_eq!(router.tabs().len(), 2);
         assert_eq!(router.active_tab_index(), 0);
-        assert_eq!(router.tabs()[0], ClientTab::thread("conv-2", "Quick Query"));
+        assert_eq!(router.tabs()[0], ClientTab::thread("conv-2", Some("Quick Query")));
 
         // 7. Autonomous Tab History Stack (ADR-0040 [INV-HEAD-02], ADR-0042)
         // Push Subagent on Tab 0 (conv-2)

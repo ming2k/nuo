@@ -170,6 +170,8 @@ pub struct ConfigRects {
     pub category_body: Rect,
     pub detail_body: Rect,
     pub selected_row_rect: Option<Rect>,
+    /// Bounding rects for each rendered category item in the left nav: `(category_index, rect)`.
+    pub category_rects: Vec<(usize, Rect)>,
     /// Every visible detail row as `(detail_index, rect)`, mounted as pointer
     /// targets so the row under the mouse can light up.
     pub row_rects: Vec<(usize, Rect)>,
@@ -291,7 +293,7 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
 
     // Left pane nav body, inset by the shared pane padding.
     let category_inner = inset_body(category_pane);
-    draw_categories_pane(frame, category_inner, &mut props);
+    let category_rects = draw_categories_pane(frame, category_inner, &mut props);
 
     // Right pane: the detail body fills the pane beneath the shared padding.
     // There is deliberately **no per-pane header band**: the selected category
@@ -337,12 +339,17 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         category_body: category_rect,
         detail_body: detail_rect,
         selected_row_rect: detail.selected_row,
+        category_rects,
         row_rects: detail.rows,
         tab_rects,
     }
 }
 
-fn draw_categories_pane(frame: &mut Frame, area: Rect, props: &mut SettingsProps<'_>) {
+fn draw_categories_pane(
+    frame: &mut Frame,
+    area: Rect,
+    props: &mut SettingsProps<'_>,
+) -> Vec<(usize, Rect)> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     let is_focused = props.focus == ConfigFocus::Categories;
 
@@ -401,6 +408,29 @@ fn draw_categories_pane(frame: &mut Frame, area: Rect, props: &mut SettingsProps
         };
         draw_scrollbar(frame, track_host, content_offset, max_scroll, props.theme);
     }
+
+    let mut category_rects = Vec::new();
+    for (i, _) in ConfigCategory::ALL.iter().enumerate() {
+        let line_top = i * 2;
+        if line_top + 1 <= content_offset || line_top >= content_offset + visible_rows {
+            continue;
+        }
+        let rel_y = line_top.saturating_sub(content_offset) as u16;
+        let screen_y = inner_area.y + rel_y;
+        let avail_h = inner_area.height.saturating_sub(rel_y).min(2);
+        if avail_h > 0 {
+            category_rects.push((
+                i,
+                Rect {
+                    x: inner_area.x,
+                    y: screen_y,
+                    width: inner_area.width,
+                    height: avail_h,
+                },
+            ));
+        }
+    }
+    category_rects
 }
 
 /// Screen rects reported by a scrollable detail pane.

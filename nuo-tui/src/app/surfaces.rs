@@ -217,6 +217,47 @@ impl App {
         idx
     }
 
+    /// Dynamically update the authentic title of a thread tab (ADR-0050 [INV-TAB-08]).
+    pub(crate) fn update_tab_title(&mut self, thread_id: &str, title: impl Into<String>) -> bool {
+        self.surfaces.update_tab_title(thread_id, title)
+    }
+
+    /// Return the authentic title of the currently viewed thread, if one exists (ADR-0050 [INV-TITLE-01]).
+    pub(crate) fn viewed_thread_title(&self) -> Option<String> {
+        let viewed_id = &self.current_session_id;
+        // 1. Check active tab title
+        if let Some(tab) = self.surfaces.active_tab() {
+            if let Some(tab_id) = tab.thread_id() {
+                if tab_id == viewed_id {
+                    if let Some(title) = tab.display_title() {
+                        return Some(title.to_string());
+                    }
+                }
+            }
+        }
+        // 2. Check host_sessions for authentic title
+        if let Some(row) = self.host_sessions.iter().find(|r| &r.id == viewed_id) {
+            if let Some(ref t) = row.title {
+                let trimmed = t.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+        }
+        // 3. Check session_detail if matching viewed session
+        if let Some(ref detail) = self.session_detail {
+            if &detail.id == viewed_id {
+                if let Some(ref t) = detail.title {
+                    let trimmed = t.trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Close a client tab at `index` (ADR-0039 [INV-TAB-04]), running teardown hooks
     /// if the active tab is being closed.
     pub(crate) fn close_tab(&mut self, index: usize) -> Option<crate::surfaces::ClientTab> {
@@ -385,17 +426,12 @@ impl App {
             self.deactivate_dialog(current);
         }
         if id == DialogKind::HistorySearch {
-            if self.history_draft.is_empty()
-                && self.history_draft_images.is_empty()
-                && self.history_draft_text_pastes.is_empty()
+            if self.draft_capsule.is_empty()
                 && (!self.input.is_empty()
                     || !self.pending_images.is_empty()
                     || !self.pending_text_pastes.is_empty())
             {
-                self.history_draft = std::mem::take(&mut self.input);
-                self.history_draft_images = std::mem::take(&mut self.pending_images);
-                self.history_draft_text_pastes = std::mem::take(&mut self.pending_text_pastes);
-                self.cursor_position = 0;
+                self.stash_draft();
             }
             if self.input_history_persist {
                 self.send_intent(nuo_wire::AgentRequest::QueryInputHistory);
@@ -466,10 +502,7 @@ impl App {
             self.resume_queue(&sid);
         }
         if id == DialogKind::HistorySearch {
-            self.input = std::mem::take(&mut self.history_draft);
-            self.pending_images = std::mem::take(&mut self.history_draft_images);
-            self.pending_text_pastes = std::mem::take(&mut self.history_draft_text_pastes);
-            self.set_cursor_end();
+            self.restore_stashed_draft();
             self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 0;
             self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().scroll = 0;
         }

@@ -16,10 +16,7 @@
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use nuo_wire::{
-    InjectionKind, InjectionOrigin, InstructionBundle, InstructionSlice, InstructionTier, Message,
-    Role,
-};
+use nuo_wire::{InstructionBundle, InstructionSlice, InstructionTier};
 
 /// Read-only view of the live turn state an instruction section may draw on to render.
 ///
@@ -49,6 +46,8 @@ pub struct SystemPromptContext {
     pub additional_workspace_roots: Vec<String>,
     /// The primary workspace root path, if any.
     pub workspace_root: Option<String>,
+    /// Deterministic workspace architecture / crate topology summary (ADR-0052, [INV-INST-04]).
+    pub workspace_topology: Option<String>,
 }
 
 impl SystemPromptContext {
@@ -245,13 +244,6 @@ impl SystemPromptRegistry {
             *memo = Some((hash, bundle.clone()));
         }
         bundle
-    }
-
-    /// Legacy / debug helper: render all sections into a combined `Role::System` message.
-    pub fn build_message(&self, ctx: &SystemPromptContext) -> Message {
-        let bundle = self.build_bundle(ctx);
-        Message::new(Role::System, bundle.render_combined())
-            .with_origin(InjectionOrigin::new(InjectionKind::SystemPrompt))
     }
 
     /// Topological assembly path: groups by tier and resolves relative order constraints.
@@ -493,14 +485,14 @@ mod tests {
     }
 
     #[test]
-    fn system_message_origin_is_system_prompt() {
+    fn instruction_bundle_assembly_is_pure_and_deterministic() {
         let mut reg = SystemPromptRegistry::new();
         reg.register(sec("system.a", InstructionOrder::Head, "A"));
-        let msg = reg.build_message(&SystemPromptContext::empty());
-        assert_eq!(
-            msg.origin.map(|o| o.kind),
-            Some(InjectionKind::SystemPrompt)
-        );
+        let bundle = reg.build_bundle(&SystemPromptContext::empty());
+        assert_eq!(bundle.len(), 1);
+        assert_eq!(bundle.slices[0].id, "system.a");
+        assert_eq!(bundle.slices[0].tier, InstructionTier::Base);
+        assert_eq!(bundle.slices[0].content, "A");
     }
 
     #[test]

@@ -244,6 +244,7 @@ fn redesigned_components_render_without_panicking() {
         let sessions_list = [
             nuo_wire::SessionOverview {
                 id: "abc123".to_string(),
+                title: Some("Refactor the renderer".to_string()),
                 overview: "Refactor the renderer".to_string(),
                 created_at: 0,
                 updated_at: 0,
@@ -255,6 +256,7 @@ fn redesigned_components_render_without_panicking() {
             },
             nuo_wire::SessionOverview {
                 id: "def456".to_string(),
+                title: Some("Fix the tool_call_id bug".to_string()),
                 overview: "Fix the tool_call_id bug".to_string(),
                 created_at: 0,
                 updated_at: 0,
@@ -1332,10 +1334,13 @@ fn main_view_shows_the_thread_scene_row() {
         "client top bar offers the C-x menu namespace: {row0:?}"
     );
     let row1 = grid_row(&terminal, 1);
-    assert!(row1.starts_with("  thread"), "scene name: {row1:?}");
     assert!(
-        row1.contains("Fix the retry loop"),
-        "chat title context: {row1:?}"
+        row1.starts_with("  Fix the retry loop"),
+        "root thread head leads with authentic title: {row1:?}"
+    );
+    assert!(
+        !row1.contains("thread"),
+        "root thread omits redundant 'thread' label: {row1:?}"
     );
     assert!(
         row1.contains("~/workspace"),

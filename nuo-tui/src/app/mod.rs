@@ -786,21 +786,10 @@ pub struct App {
     /// newest row and, past it, back to `None` (restoring the draft). A
     /// successful send clears the draft, because the input has been historicised
     /// and is no longer "unsent".
+    /// The in-place history traversal cursor (ADR-0051 [INV-COMP-02]).
     pub history_index: Option<usize>,
-    /// The live, editable, remembered input slot — the content of the **draft**
-    /// mode (when [`Self::history_index`] is `None`). It is stashed here when ↑
-    /// leaves the draft for a history row, and restored when ↓ walks back past
-    /// the newest row, so an accidental ↑/↓ never loses what the user was
-    /// composing. It is **cleared on send** (the input has been historicised)
-    /// and replaced whenever a new input is adopted as the draft (Phase-1
-    /// unsend restore, Ctrl+R insert, queue recall). Distinct from
-    /// `stashed_input`, which is borrowed by modal flows.
-    pub history_draft: String,
-    /// Attachments staged behind [`Self::history_draft`] (the images and
-    /// large pastes that were in the composer when the first ↑ stashed it),
-    /// so ↓ past the newest entry restores them together with the text.
-    pub history_draft_images: Vec<ImagePart>,
-    pub history_draft_text_pastes: Vec<String>,
+    /// Atomic draft capsule snapshot captured on entering transient sub-modes (ADR-0051 [INV-COMP-03]).
+    pub draft_capsule: crate::composer_mode::DraftCapsule,
     /// In-memory attachment cache for recorded history entries, keyed by
     /// `(text, session_id)` — see [`HistoryAttachments`]. Seeded by
     /// [`Self::record_input_history`], consumed by the ↑/↓ and Ctrl+R recall

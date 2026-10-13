@@ -592,13 +592,47 @@ impl App {
         if !text_pastes.is_empty() {
             self.pending_text_pastes = text_pastes;
         }
-        self.history_draft = self.input.clone();
-        self.history_draft_images = self.pending_images.clone();
-        self.history_draft_text_pastes = self.pending_text_pastes.clone();
+        self.draft_capsule = crate::composer_mode::DraftCapsule::capture(
+            self.input.clone(),
+            self.cursor_position,
+            self.pending_images.clone(),
+            self.pending_text_pastes.clone(),
+        );
         // Programmatic input replacement: latch the completion dismissal so
         // the popup doesn't flash until the next real edit.
         self.suggestion_index = None;
         self.completion_dismissed = true;
+    }
+
+    /// Atomic capture of current prompt and attachments into `draft_capsule` (ADR-0051 [INV-COMP-03]).
+    pub fn stash_draft(&mut self) {
+        self.draft_capsule = crate::composer_mode::DraftCapsule::capture(
+            std::mem::take(&mut self.input),
+            self.cursor_position,
+            std::mem::take(&mut self.pending_images),
+            std::mem::take(&mut self.pending_text_pastes),
+        );
+        self.cursor_position = 0;
+    }
+
+    /// Atomic restoration of `draft_capsule` into live prompt and attachments (ADR-0051 [INV-COMP-03]).
+    pub fn restore_stashed_draft(&mut self) {
+        self.draft_capsule.restore_into(
+            &mut self.input,
+            &mut self.pending_images,
+            &mut self.pending_text_pastes,
+            &mut self.cursor_position,
+        );
+    }
+
+    /// Clear the stashed draft capsule (ADR-0051 [INV-COMP-03]).
+    pub fn clear_stashed_draft(&mut self) {
+        self.draft_capsule.clear();
+    }
+
+    /// Whether an atomic draft capsule is currently held.
+    pub fn has_stashed_draft(&self) -> bool {
+        !self.draft_capsule.is_empty()
     }
 
     /// The currently active `ComposerExtensionKind`, if any.
@@ -645,6 +679,53 @@ impl App {
         } else {
             None
         }
+    }
+
+    /// Authoritative Canonical Quadrant Mode of the Composer (ADR-0051 [INV-COMP-01]).
+    pub fn composer_mode(&self) -> crate::composer_mode::ComposerMode {
+        use crate::composer_mode::{CompleteKind, ComposerMode};
+        if self.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch) {
+            let selected_index = self
+                .surfaces
+                .dlg::<crate::surfaces::HistorySearchDialog>()
+                .index;
+            return ComposerMode::Search {
+                query: self.input.clone(),
+                selected_index,
+            };
+        }
+        if let Some(history_index) = self.history_index {
+            return ComposerMode::Recall { history_index };
+        }
+        if let Some(ext) = self.active_composer_extension() {
+            match ext {
+                crate::composer_extension::ComposerExtensionKind::SlashCompletion => {
+                    return ComposerMode::Complete {
+                        kind: CompleteKind::Command,
+                        needle: self.input.clone(),
+                        selected_index: self.suggestion_index.unwrap_or(0),
+                    };
+                }
+                crate::composer_extension::ComposerExtensionKind::PathCompletion => {
+                    return ComposerMode::Complete {
+                        kind: CompleteKind::Context,
+                        needle: self.input.clone(),
+                        selected_index: self.suggestion_index.unwrap_or(0),
+                    };
+                }
+                crate::composer_extension::ComposerExtensionKind::HistorySearch => {
+                    let selected_index = self
+                        .surfaces
+                        .dlg::<crate::surfaces::HistorySearchDialog>()
+                        .index;
+                    return ComposerMode::Search {
+                        query: self.input.clone(),
+                        selected_index,
+                    };
+                }
+            }
+        }
+        ComposerMode::Edit
     }
 
     /// The editor chain's "end at chat" teardown (ADR-0139):

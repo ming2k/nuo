@@ -371,6 +371,14 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             true
         }
         AppMutation::SessionsOverview(mut sessions) => {
+            for s in &sessions {
+                if let Some(ref t) = s.title {
+                    let trimmed = t.trim();
+                    if !trimmed.is_empty() {
+                        app.surfaces.update_tab_title(&s.id, trimmed);
+                    }
+                }
+            }
             // Self-exclusion (ADR-0250): remove the active session from the switch candidates list
             // so the cursor immediately targets the most recently active alternative session (MRU top).
             sessions.retain(|s| !s.active);
@@ -388,6 +396,12 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             true
         }
         AppMutation::SessionDetail(detail) => {
+            if let Some(ref t) = detail.title {
+                let trimmed = t.trim();
+                if !trimmed.is_empty() {
+                    app.surfaces.update_tab_title(&detail.id, trimmed);
+                }
+            }
             let same_id = app.session_detail.as_ref().map(|s| &s.id) == Some(&detail.id);
             app.session_detail = Some(detail);
             if !same_id {
@@ -496,6 +510,14 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             true
         }
         AppMutation::HostSessions(rows) => {
+            for row in &rows {
+                if let Some(ref t) = row.title {
+                    let trimmed = t.trim();
+                    if !trimmed.is_empty() {
+                        app.surfaces.update_tab_title(&row.id, trimmed);
+                    }
+                }
+            }
             app.host_sessions = rows;
             true
         }

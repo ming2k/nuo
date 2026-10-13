@@ -29,7 +29,7 @@ impl App {
     /// pressing ↑ and silently discarding it.
     ///
     /// The `draft saved` reassurance is *not* computed here — it is a
-    /// presentation fact about [`Self::history_draft`] (non-empty vs empty),
+    /// presentation fact about [`Self::draft_capsule`] (non-empty vs empty),
     /// appended by the renderer. This function answers only "where is the
     /// pointer and has the buffer forked".
     pub fn history_recall_badge(&self) -> Option<(usize, usize, bool)> {
@@ -532,10 +532,8 @@ impl App {
             None => {
                 // First ↑: stash the in-progress draft (and its staged
                 // attachments) so a later ↓ past the newest entry restores
-                // it instead of leaving the composer empty.
-                self.history_draft = std::mem::take(&mut self.input);
-                self.history_draft_images = std::mem::take(&mut self.pending_images);
-                self.history_draft_text_pastes = std::mem::take(&mut self.pending_text_pastes);
+                // it instead of leaving the composer empty (ADR-0051 [INV-COMP-03]).
+                self.stash_draft();
                 0
             }
         };
@@ -559,9 +557,7 @@ impl App {
             // was composing before the first ↑ — text and any staged
             // attachments together — rather than blanking the composer.
             self.history_index = None;
-            self.input = std::mem::take(&mut self.history_draft);
-            self.pending_images = std::mem::take(&mut self.history_draft_images);
-            self.pending_text_pastes = std::mem::take(&mut self.history_draft_text_pastes);
+            self.restore_stashed_draft();
             self.set_cursor_end();
             // The restored draft may be a partial slash/path the user was
             // mid-edit on, but it still arrived via navigation rather than
@@ -581,9 +577,7 @@ impl App {
     pub fn cancel_history_recall(&mut self) {
         if self.history_index.is_some() {
             self.history_index = None;
-            self.input = std::mem::take(&mut self.history_draft);
-            self.pending_images = std::mem::take(&mut self.history_draft_images);
-            self.pending_text_pastes = std::mem::take(&mut self.history_draft_text_pastes);
+            self.restore_stashed_draft();
             self.set_cursor_end();
             self.suggestion_index = None;
             self.completion_dismissed = true;

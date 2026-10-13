@@ -441,7 +441,8 @@ impl SessionStore {
     pub async fn active_summary(&self) -> SessionSummary {
         let state = self.state.lock().await;
         let data = &state.data;
-        let overview = match data.title.as_deref().filter(|t| !t.trim().is_empty()) {
+        let real_title = data.title.as_deref().filter(|t| !t.trim().is_empty()).map(|s| s.to_string());
+        let overview = match &real_title {
             Some(title) => truncate_preview(title, 64),
             None => data
                 .transcript
@@ -454,6 +455,7 @@ impl SessionStore {
         };
         SessionSummary {
             id: data.id.clone(),
+            title: real_title,
             parent_id: data.parent_id.clone(),
             fork_kind: data.fork_kind,
             message_count: data.transcript.entries.len(),
