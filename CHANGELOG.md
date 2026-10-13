@@ -8,6 +8,17 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.15] - 2026-10-22
+
+### Added
+
+- **Dynamic port sharing palette, orthogonal control plane, and server lifecycle handoff (ADR-0045).**
+  - **Intent-Driven Server Handoff (`[INV-LIFECYCLE-03]`)**: Interactive sessions launched with explicit network port declarations (`nuo --port <port>`) decouple server lifecycles from client detachment, printing actionable handoff guidance upon TUI exit while keeping server tasks running.
+  - **Port & Remote Sharing Palette (`C-x p`, `[INV-PALETTE-01]`)**: Introduces a dedicated client-level palette modal to hot-enable, hot-disable, or copy connection commands without interrupting ongoing prompts.
+  - **Dynamic Endpoint Control Plane**: Extends wire protocol with `OpenTcpListener`, `CloseTcpListener`, and `GetServerEndpoints` verbs with automatic `server.json` synchronization.
+  - **Canonical Baseline Port Realignment (`[INV-PORT-01]`)**: Unifies system-wide default TCP port to 9800 across all diagnostic and discovery fallbacks, eliminating historical 9527 drift.
+  - **Command Space Purity (`[INV-CMD-02]`)**: Purged `/debug` from conversational slash commands, preserving Thread Command Purity.
+
 ## [0.0.14] - 2026-10-21
 
 ### Added
