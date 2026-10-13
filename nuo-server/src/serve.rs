@@ -5,9 +5,10 @@ use nuo_client::wire::{
 use nuo_wire::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU16, Ordering};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock};
 use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request};
 use tokio_tungstenite::tungstenite::http::StatusCode;
@@ -526,6 +527,196 @@ pub fn server_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+static TCP_MANAGER: std::sync::RwLock<Option<Arc<TcpManager>>> = std::sync::RwLock::new(None);
+
+pub struct TcpManager {
+    port: Arc<AtomicU16>,
+    token: Arc<RwLock<Option<String>>>,
+    cancel: Arc<RwLock<Option<CancellationToken>>>,
+    expose: ServeExpose,
+    local_endpoint: Option<nuo_host::ipc::LocalEndpoint>,
+    registry: Arc<crate::registry::SessionRegistry>,
+    conns: Arc<ConnTable>,
+    gate: Arc<ShutdownGate>,
+    tasks: Arc<crate::shutdown::TaskBook>,
+}
+
+impl TcpManager {
+    pub async fn open_tcp(&self, requested_port: Option<u16>) -> Result<nuo_wire::ServerEndpointsReport, String> {
+        let current_port = self.port.load(Ordering::SeqCst);
+        let target_port = requested_port.unwrap_or_else(|| {
+            if current_port > 0 {
+                current_port
+            } else {
+                crate::startup::env_default_port()
+            }
+        });
+
+        if current_port == target_port && current_port > 0 {
+            return Ok(self.get_endpoints().await);
+        }
+
+        self.close_tcp_internal().await;
+
+        let bind_addr: SocketAddr = match self.expose {
+            ServeExpose::Local => ([127, 0, 0, 1], target_port).into(),
+            ServeExpose::Public => ([0, 0, 0, 0], target_port).into(),
+        };
+
+        let (listener, actual_port) = bind_tcp(bind_addr, true)
+            .await
+            .map_err(|e| format!("could not bind TCP listener to {bind_addr}: {e}"))?;
+
+        let mut token_lock = self.token.write().await;
+        if token_lock.is_none() {
+            *token_lock = Some(generate_token());
+        }
+        let tf = token_lock.clone();
+        drop(token_lock);
+
+        let cancel = CancellationToken::new();
+        *self.cancel.write().await = Some(cancel.clone());
+        self.port.store(actual_port, Ordering::SeqCst);
+
+        if let Some(mut record) = crate::serve_discovery::read() {
+            record.port = actual_port;
+            record.token = tf.clone();
+            let _ = crate::serve_discovery::write_global(&record);
+        }
+
+        let cc = cancel;
+        let registry = self.registry.clone();
+        let conns = self.conns.clone();
+        let gate = self.gate.clone();
+        let expose = self.expose;
+        let tcp_mgr = Arc::new(self.clone_manager());
+        let handle = tokio::spawn(async move {
+            let mut backoff = std::time::Duration::from_millis(5);
+            loop {
+                tokio::select! {
+                    _ = cc.cancelled() => {
+                        tracing::info!("nuo server: dynamic TCP listener cancelled");
+                        break;
+                    }
+                    ac = listener.accept() => {
+                        let (stream, peer) = match ac {
+                            Ok(c) => c,
+                            Err(e) => {
+                                tracing::warn!(error=%e, backoff_ms=backoff.as_millis() as u64, "nuo server: accept failed");
+                                tokio::time::sleep(backoff).await;
+                                backoff = (backoff * 2).min(ACCEPT_BACKOFF_CAP);
+                                continue;
+                            }
+                        };
+                        backoff = std::time::Duration::from_millis(5);
+                        spawn_tcp_connection(
+                            stream,
+                            ServeCtx {
+                                registry: registry.clone(),
+                                conns: conns.clone(),
+                                gate: gate.clone(),
+                                listeners: cc.clone(),
+                                tcp_manager: Some(tcp_mgr.clone()),
+                            },
+                            tf.clone(),
+                            expose,
+                            peer.to_string(),
+                        );
+                    }
+                }
+            }
+        });
+        self.tasks.track("dynamic-tcp-accept", handle);
+
+        Ok(self.get_endpoints().await)
+    }
+
+    async fn close_tcp_internal(&self) {
+        let mut cancel_lock = self.cancel.write().await;
+        if let Some(cancel) = cancel_lock.take() {
+            cancel.cancel();
+        }
+        self.port.store(0, Ordering::SeqCst);
+    }
+
+    pub async fn close_tcp(&self) -> Result<nuo_wire::ServerEndpointsReport, String> {
+        self.close_tcp_internal().await;
+        if let Some(mut record) = crate::serve_discovery::read() {
+            record.port = 0;
+            record.token = None;
+            let _ = crate::serve_discovery::write_global(&record);
+        }
+        Ok(self.get_endpoints().await)
+    }
+
+    pub async fn get_endpoints(&self) -> nuo_wire::ServerEndpointsReport {
+        let port = self.port.load(Ordering::SeqCst);
+        let active = port > 0;
+        let token = self.token.read().await.clone();
+        let local_endpoint = self.local_endpoint.as_ref().map(|e| e.to_string());
+        nuo_wire::ServerEndpointsReport {
+            tcp_port: port,
+            tcp_active: active,
+            token,
+            local_endpoint,
+        }
+    }
+
+    fn clone_manager(&self) -> Self {
+        Self {
+            port: self.port.clone(),
+            token: self.token.clone(),
+            cancel: self.cancel.clone(),
+            expose: self.expose,
+            local_endpoint: self.local_endpoint.clone(),
+            registry: self.registry.clone(),
+            conns: self.conns.clone(),
+            gate: self.gate.clone(),
+            tasks: self.tasks.clone(),
+        }
+    }
+}
+
+pub async fn get_current_endpoints() -> nuo_wire::ServerEndpointsReport {
+    let mgr_opt = TCP_MANAGER.read().ok().and_then(|guard| guard.clone());
+    if let Some(mgr) = mgr_opt {
+        mgr.get_endpoints().await
+    } else if let Some(rec) = crate::serve_discovery::read() {
+        let local_endpoint = rec.effective_local_endpoint().map(|e| e.to_string());
+        nuo_wire::ServerEndpointsReport {
+            tcp_port: rec.port,
+            tcp_active: rec.port > 0,
+            token: rec.token,
+            local_endpoint,
+        }
+    } else {
+        nuo_wire::ServerEndpointsReport {
+            tcp_port: 0,
+            tcp_active: false,
+            token: None,
+            local_endpoint: None,
+        }
+    }
+}
+
+pub async fn open_dynamic_tcp(port: Option<u16>) -> Result<nuo_wire::ServerEndpointsReport, String> {
+    let mgr_opt = TCP_MANAGER.read().ok().and_then(|guard| guard.clone());
+    if let Some(mgr) = mgr_opt {
+        mgr.open_tcp(port).await
+    } else {
+        Err("TCP manager not initialized".to_string())
+    }
+}
+
+pub async fn close_dynamic_tcp() -> Result<nuo_wire::ServerEndpointsReport, String> {
+    let mgr_opt = TCP_MANAGER.read().ok().and_then(|guard| guard.clone());
+    if let Some(mgr) = mgr_opt {
+        mgr.close_tcp().await
+    } else {
+        Err("TCP manager not initialized".to_string())
+    }
+}
+
 pub fn start_server(
     opts: ServeOptions,
     registry: Arc<crate::registry::SessionRegistry>,
@@ -553,6 +744,21 @@ pub fn start_server(
     };
     let port_fallback = opts.port_fallback;
     let expose = opts.expose;
+    let tcp_mgr = Arc::new(TcpManager {
+        port: Arc::new(AtomicU16::new(0)),
+        token: Arc::new(RwLock::new(token.clone())),
+        cancel: Arc::new(RwLock::new(None)),
+        expose,
+        local_endpoint: opts.local_endpoint.clone(),
+        registry: registry.clone(),
+        conns: conns.clone(),
+        gate: gate.clone(),
+        tasks: tasks.clone(),
+    });
+    if let Ok(mut lock) = TCP_MANAGER.write() {
+        *lock = Some(tcp_mgr.clone());
+    }
+
     if opts.disable_tcp {
         // [INV-SERVER-03] Zero TCP on Client-Bound Posture:
         // Pure UDS/Local IPC mode — no TCP socket listener spawned.
@@ -564,10 +770,13 @@ pub fn start_server(
         let conns = conns.clone();
         let tasks = tasks.clone();
         let gate = gate.clone();
+        let tcp_mgr_for_init = tcp_mgr.clone();
         let handle = tokio::spawn(async move {
             let listener = match bind_tcp(bind_addr, port_fallback).await {
                 Ok((l, actual)) => {
                     let _ = actual_port_tx.send(Ok(actual));
+                    tcp_mgr_for_init.port.store(actual, Ordering::SeqCst);
+                    *tcp_mgr_for_init.cancel.write().await = Some(cc.clone());
                     tracing::info!(%bind_addr,actual_port=actual,auth=tf.is_some(),"nuo server: listener started");
                     l
                 }
@@ -592,7 +801,13 @@ pub fn start_server(
                 backoff=std::time::Duration::from_millis(5);
                 spawn_tcp_connection(
                     stream,
-                    ServeCtx { registry: registry.clone(), conns: conns.clone(), gate: gate.clone(), listeners: cc.clone() },
+                    ServeCtx {
+                        registry: registry.clone(),
+                        conns: conns.clone(),
+                        gate: gate.clone(),
+                        listeners: cc.clone(),
+                        tcp_manager: Some(tcp_mgr_for_init.clone()),
+                    },
                     tf.clone(),
                     expose,
                     peer.to_string(),
@@ -654,6 +869,7 @@ pub fn start_server(
                                     conns: conns.clone(),
                                     gate: gate.clone(),
                                     listeners: cc.clone(),
+                                    tcp_manager: Some(tcp_mgr.clone()),
                                 },
                                 format!("local:{endpoint:?}"),
                             );
@@ -721,6 +937,7 @@ fn spawn_tcp_connection(
         conns,
         gate,
         listeners,
+        tcp_manager,
     } = ctx;
     tokio::spawn(async move {
         let expected_token = token.as_deref();
@@ -743,6 +960,7 @@ fn spawn_tcp_connection(
                         conns,
                         gate,
                         listeners,
+                        tcp_manager,
                     },
                     token,
                     expose,
@@ -769,6 +987,7 @@ struct ServeCtx {
     conns: Arc<ConnTable>,
     gate: Arc<ShutdownGate>,
     listeners: CancellationToken,
+    tcp_manager: Option<Arc<TcpManager>>,
 }
 
 fn spawn_local_connection<S>(stream: S, ctx: ServeCtx, peer: String)
@@ -780,6 +999,7 @@ where
         conns,
         gate,
         listeners,
+        tcp_manager,
     } = ctx;
     let (id, conn_cancel) = conns.register();
     let conns_for_guard = conns.clone();
@@ -790,7 +1010,7 @@ where
         };
         let (wire_sink, wire_source) = native_framed_split(stream);
         let result = tokio::select! {
-            r = handle_wire_stream(wire_sink, wire_source, registry, gate, listeners, conns_for_guard) => r,
+            r = handle_wire_stream(wire_sink, wire_source, registry, gate, listeners, conns_for_guard, tcp_manager) => r,
             _ = conn_cancel.cancelled() => {
                 tracing::debug!(%peer, "nuo server: closing local connection for drain");
                 Ok(())
@@ -816,6 +1036,7 @@ fn spawn_connection<S>(
         conns,
         gate,
         listeners,
+        tcp_manager,
     } = ctx;
     let (id, conn_cancel) = conns.register();
     let conns_for_guard = conns.clone();
@@ -826,7 +1047,7 @@ fn spawn_connection<S>(
             id,
         };
         let result = tokio::select! {
-            r = handle_connection(stream, registry, token, expose, gate, listeners, conns_for_guard) => r,
+            r = handle_connection(stream, registry, token, expose, gate, listeners, conns_for_guard, tcp_manager) => r,
             // Draining server (ADR-0101): cancel the connection's future.
             // The socket drops with it, closing the TCP stream; clients
             // treat the disconnect exactly like a Close frame — reconnect
@@ -864,6 +1085,7 @@ async fn run_control(
     registry: Arc<crate::registry::SessionRegistry>,
     gate: Arc<ShutdownGate>,
     listeners: CancellationToken,
+    tcp_manager: Option<Arc<TcpManager>>,
     request: ControlRequest,
 ) -> Result<(), String> {
     let (ok, session_id, error) = match request {
@@ -979,6 +1201,41 @@ async fn run_control(
                 _ => (true, None, Some(answer.text)),
             }
         }
+        ControlRequest::OpenTcpListener { port } => {
+            if let Some(mgr) = &tcp_manager {
+                match mgr.open_tcp(port).await {
+                    Ok(rep) => {
+                        let payload = serde_json::to_string(&rep).unwrap_or_default();
+                        (true, None, Some(payload))
+                    }
+                    Err(e) => (false, None, Some(e)),
+                }
+            } else {
+                (false, None, Some("TCP manager not available".to_string()))
+            }
+        }
+        ControlRequest::CloseTcpListener => {
+            if let Some(mgr) = &tcp_manager {
+                match mgr.close_tcp().await {
+                    Ok(rep) => {
+                        let payload = serde_json::to_string(&rep).unwrap_or_default();
+                        (true, None, Some(payload))
+                    }
+                    Err(e) => (false, None, Some(e)),
+                }
+            } else {
+                (false, None, Some("TCP manager not available".to_string()))
+            }
+        }
+        ControlRequest::GetServerEndpoints => {
+            if let Some(mgr) = &tcp_manager {
+                let rep = mgr.get_endpoints().await;
+                let payload = serde_json::to_string(&rep).unwrap_or_default();
+                (true, None, Some(payload))
+            } else {
+                (false, None, Some("TCP manager not available".to_string()))
+            }
+        }
     };
     let reply = Wire::ControlReply {
         ok,
@@ -1013,6 +1270,7 @@ async fn handle_wire_stream(
     gate: Arc<ShutdownGate>,
     listeners: CancellationToken,
     conns: Arc<ConnTable>,
+    tcp_manager: Option<Arc<TcpManager>>,
 ) -> Result<(), String> {
     let (action, project, client_posture, client_version, client_protocol) =
         match wire_source.next().await {
@@ -1072,7 +1330,7 @@ async fn handle_wire_stream(
             return run_monitor(wire_sink, registry, action, gate).await;
         }
         AttachAction::Control(request) => {
-            return run_control(wire_sink, registry, gate, listeners, request).await;
+            return run_control(wire_sink, registry, gate, listeners, tcp_manager, request).await;
         }
         AttachAction::New(_) | AttachAction::Attach(_) | AttachAction::Picker(_) => {}
     }
@@ -1386,6 +1644,7 @@ async fn handle_connection<S>(
     gate: Arc<ShutdownGate>,
     listeners: CancellationToken,
     conns: Arc<ConnTable>,
+    tcp_manager: Option<Arc<TcpManager>>,
 ) -> Result<(), String>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -1419,7 +1678,7 @@ where
     .map_err(|e| format!("ws handshake: {e}"))?;
 
     let (wire_sink, wire_source) = websocket_split(ws_stream);
-    handle_wire_stream(wire_sink, wire_source, registry, gate, listeners, conns).await
+    handle_wire_stream(wire_sink, wire_source, registry, gate, listeners, conns, tcp_manager).await
 }
 
 /// Serve a host-observability client (ADR-0093): send one snapshot, then —
@@ -1725,6 +1984,40 @@ mod tests {
         drop(guard2);
         assert_eq!(table.interactive_count(), 0);
         assert!(table.has_had_interactive());
+    }
+
+    #[tokio::test]
+    async fn dynamic_tcp_manager_lifecycle() {
+        let registry = Arc::new(crate::registry::SessionRegistry::prehost_only());
+        let conns = Arc::new(ConnTable::new());
+        let gate = Arc::new(ShutdownGate::new());
+        let tasks = Arc::new(crate::shutdown::TaskBook::new());
+        let mgr = TcpManager {
+            port: Arc::new(AtomicU16::new(0)),
+            token: Arc::new(RwLock::new(None)),
+            cancel: Arc::new(RwLock::new(None)),
+            expose: ServeExpose::Local,
+            local_endpoint: None,
+            registry,
+            conns,
+            gate,
+            tasks,
+        };
+
+        let initial = mgr.get_endpoints().await;
+        assert_eq!(initial.tcp_port, 0);
+        assert!(!initial.tcp_active);
+
+        // Open ephemeral port
+        let opened = mgr.open_tcp(Some(0)).await.expect("dynamic open tcp succeeds");
+        assert!(opened.tcp_port > 0);
+        assert!(opened.tcp_active);
+        assert!(opened.token.is_some());
+
+        // Close TCP listener
+        let closed = mgr.close_tcp().await.expect("close tcp succeeds");
+        assert_eq!(closed.tcp_port, 0);
+        assert!(!closed.tcp_active);
     }
     #[test]
     fn end_session_serializes_as_flattened_null_unit_variant() {

@@ -21,6 +21,7 @@ pub mod history;
 pub mod mcp;
 pub mod permission;
 pub mod permissions_manager;
+pub mod port;
 pub mod provider;
 pub mod provider_delete_confirm;
 pub mod quotas;
@@ -47,6 +48,7 @@ pub use dashboard::{
 #[allow(unused_imports)]
 pub use dashboard::DashboardRects;
 pub use history::draw_history_panel;
+pub use port::draw_port_modal;
 // The old centered `/host` modal (`host.rs`) was superseded by the full-screen
 // `dashboard` surface and removed; `/host` now opens the dashboard.
 pub use btw::{BtwModalProps, draw_btw_modal};

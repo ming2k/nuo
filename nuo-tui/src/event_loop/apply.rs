@@ -446,6 +446,17 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             app.websearch_config = snapshot;
             true
         }
+        AppMutation::ServerEndpoints(report) => {
+            let d = app.surfaces.dlg_mut::<crate::surfaces::PortShareDialog>();
+            d.port = report.tcp_port;
+            d.active = report.tcp_active;
+            d.token = report.token;
+            if let Some(endpoint) = report.local_endpoint {
+                d.local_path = endpoint;
+            }
+            d.loading = false;
+            true
+        }
         AppMutation::PreAttach(signal) => {
             let dismissed = runtime
                 .trust_gate_dismissed

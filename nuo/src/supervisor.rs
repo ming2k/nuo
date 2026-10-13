@@ -12,7 +12,7 @@ pub struct ServerStart {
     pub no_local_auth: bool,
     pub idle_exit_minutes: Option<u64>,
     pub shutdown_grace_secs: Option<u64>,
-    pub client_driven: bool,
+    pub zero_tcp: bool,
 }
 
 /// Start detached: spawn the server in the background and return.
@@ -31,8 +31,8 @@ pub fn detach_server(flags: &ServerStart) -> Result<(), Box<dyn std::error::Erro
     let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("nuo"));
     let mut command = std::process::Command::new(&program);
     command.args(["start", "--fg"]);
-    if flags.client_driven {
-        command.arg("--client-driven");
+    if flags.zero_tcp {
+        command.arg("--zero-tcp");
     }
     if let Some(port) = flags.port {
         command.arg("--port").arg(port.to_string());
@@ -142,7 +142,7 @@ pub async fn restart_server(
 /// Run server in foreground (the supervisor shape).
 pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std::error::Error>> {
     let mut lifecycle = nuo::host::LifecycleOptions::from_config();
-    lifecycle.client_driven = flags.client_driven;
+    lifecycle.client_driven = flags.zero_tcp;
     if let Some(minutes) = flags.idle_exit_minutes {
         lifecycle.idle_exit = match minutes {
             0 => None,
@@ -154,8 +154,8 @@ pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std
     }
 
     // [INV-SERVER-03] Zero TCP on Client-Bound Posture:
-    // When running in client_driven mode without an explicit port, do not bind TCP.
-    let disable_tcp = flags.client_driven && flags.port.is_none();
+    // When running with zero_tcp or without an explicit port/env, do not bind TCP.
+    let disable_tcp = flags.zero_tcp || (flags.port.is_none() && std::env::var("NUO_PORT").is_err());
     let port = flags.port.unwrap_or(nuo::startup::env_default_port());
     let preset = agent_code();
     let outcome = nuo::host::run_with_gate(

@@ -126,6 +126,14 @@ pub(crate) fn resolve_modal_key(
                 return resolve_history_search_key(key);
             }
             OverlaySurface::Dialog(DialogKind::Switcher) => return resolve_view_switcher_key(key),
+            OverlaySurface::Dialog(DialogKind::PortShare) => match key.code {
+                KeyCode::Char(' ') => return Some(InputAction::TogglePortListener),
+                KeyCode::Char('y') | KeyCode::Char('c') => {
+                    return Some(InputAction::CopyPortConnectInfo);
+                }
+                KeyCode::Esc => return Some(InputAction::CloseScene),
+                _ => return None,
+            },
             _ => {}
         }
     } else if scene == SceneKind::Dashboard && keys.host_prompting {

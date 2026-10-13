@@ -72,6 +72,8 @@ pub struct CliArgs {
     /// `--remote <addr>` / `--token <token>`: server endpoint override.
     pub remote: Option<String>,
     pub token: Option<String>,
+    /// `--port <n>`: TCP port to bind or connect to.
+    pub port: Option<u16>,
 }
 
 struct Spec {
@@ -166,6 +168,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     let mut version = false;
     let mut remote = None;
     let mut token = None;
+    let mut port = None;
     let mut rest = Vec::new();
 
     let mut iter = args.iter().peekable();
@@ -198,6 +201,10 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             }
             "--remote" => remote = Some(flag_value("--remote", inline, &mut iter)?),
             "--token" => token = Some(flag_value("--token", inline, &mut iter)?),
+            "--port" => {
+                let p_str = flag_value("--port", inline, &mut iter)?;
+                port = Some(p_str.parse::<u16>().map_err(|_| format!("'{p_str}' is not a valid port number"))?);
+            }
             "--version" | "-V" => version = true,
             "--attach" => {
                 let id = match iter.peek() {
@@ -231,6 +238,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         json,
         remote: remote.clone(),
         token: token.clone(),
+        port,
     };
     let ok = |mode| Ok(base(mode));
 

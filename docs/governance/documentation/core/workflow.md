@@ -1,4 +1,4 @@
-# Operational Workflows & Verification Gates (Protocol v6.0.0)
+# Operational Workflows & Verification Gates (Protocol v0.0.3)
 
 This document defines the operational lifecycle: the code-to-doc trigger matrix, pull request review gates, governance intake SOP, and zero-vendoring downstream adoption procedures.
 
@@ -72,9 +72,9 @@ Proposed modifications to the `docgov` specification itself must pass the **Four
 
 ---
 
-## Part 4: Repository Adoption Workflow (Protocol v6.0.0)
+## Part 4: Repository Adoption Workflow (Protocol v0.0.3)
 
-Downstream repositories adopt Protocol v6.0.0 with **zero vendoring**:
+Downstream repositories adopt Protocol v0.0.3 with **zero vendoring**:
 
 1. **Initialize Configuration**:
    Create `/.docgov.yml` at the repository root defining public surfaces, internal surfaces, and triggers.

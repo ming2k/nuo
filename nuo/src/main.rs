@@ -90,7 +90,7 @@ async fn run_server_action(
             no_local_auth,
             idle_exit_minutes,
             shutdown_grace_secs,
-            client_driven,
+            zero_tcp,
         } => {
             let flags = ServerStart {
                 port,
@@ -98,7 +98,7 @@ async fn run_server_action(
                 no_local_auth,
                 idle_exit_minutes,
                 shutdown_grace_secs,
-                client_driven,
+                zero_tcp,
             };
             if !foreground {
                 return detach_server(&flags);
@@ -114,7 +114,7 @@ async fn run_server_action(
             no_local_auth,
             idle_exit_minutes,
             shutdown_grace_secs,
-            client_driven,
+            zero_tcp,
         } => {
             let flags = ServerStart {
                 port,
@@ -122,7 +122,7 @@ async fn run_server_action(
                 no_local_auth,
                 idle_exit_minutes,
                 shutdown_grace_secs,
-                client_driven,
+                zero_tcp,
             };
             restart_server(&flags, force).await
         }

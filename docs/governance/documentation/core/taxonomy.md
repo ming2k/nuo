@@ -1,4 +1,4 @@
-# Spatial Taxonomy: The 4D Coordinate Tensor (Protocol v6.0.0)
+# Spatial Taxonomy: The 4D Coordinate Tensor (Protocol v0.0.3)
 
 Every documentation surface in an adopting repository maps deterministically to a unique coordinate in a **4-Dimensional Space Tensor**:
 

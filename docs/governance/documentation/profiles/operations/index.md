@@ -2,9 +2,10 @@
 
 Domain capability profile governing operational incident postmortems, root cause analysis, and knowledge escalation layering.
 
-Activate this profile in `contracts.md` under `## 1. Activated Profiles`:
-```markdown
-- [x] `operations` (Operational knowledge: postmortems, triage runbooks)
+Activate this profile in `.docgov.yml` under `operations`:
+```yaml
+operations:
+  postmortems_path: "docs/dev/postmortems"
 ```
 
 ---

@@ -183,7 +183,7 @@ pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
         DialogKind::Skills => ContentModalSpec::SKILLS.modal_spec(),
         // The history panel is a composer-anchored dropdown and the switcher
         // is a command palette: neither uses a centered modal footprint.
-        DialogKind::HistorySearch | DialogKind::Switcher => ContentModalSpec::TOOLS.modal_spec(),
+        DialogKind::HistorySearch | DialogKind::Switcher | DialogKind::PortShare => ContentModalSpec::TOOLS.modal_spec(),
     }
 }
 
@@ -566,6 +566,22 @@ fn render_dialog(
                 ctx.layout_map,
             ))
         }
+        DialogKind::PortShare => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<PortShareDialog>()
+                .expect("kind");
+            Some(crate::overlays::draw_port_modal(
+                frame,
+                d.port,
+                d.active,
+                d.token.as_deref(),
+                &d.local_path,
+                d.notice.as_deref(),
+                d.loading,
+                ctx.theme,
+            ))
+        }
     }
 }
 
@@ -848,6 +864,7 @@ fn input_dialog(
             e.selected = rotate(e.selected, count, forward);
             DialogOutcome::Consumed
         }
+        DialogKind::PortShare => DialogOutcome::Consumed,
     }
 }
 
@@ -1063,6 +1080,21 @@ impl SwitcherDialog {
     }
 }
 
+dialog_entity!(PortShareDialog, PortShare, {
+    port: u16 = 0,
+    active: bool = false,
+    token: Option<String> = None,
+    local_path: String = String::new(),
+    notice: Option<String> = None,
+    loading: bool = false,
+});
+
+impl PortShareDialog {
+    pub fn begin(&mut self) {
+        self.notice = None;
+    }
+}
+
 /// A snapshot of every session-scoped dialog entity, archived under a
 /// [`SessionId`](crate::surfaces) so returning to a session reinstates exactly
 /// the modal state the user left behind (`[INV-SURFACE-05]`).
@@ -1102,6 +1134,7 @@ pub struct Dialogs {
     pub threads: ThreadsDialog,
     pub session_tree: SessionTreeDialog,
     pub switcher: SwitcherDialog,
+    pub port_share: PortShareDialog,
     /// Per-session archives of the session-scoped entities.
     session_archive: std::collections::HashMap<String, SessionSnapshot>,
     /// The session whose live state the session-scoped entities currently
@@ -1190,6 +1223,7 @@ impl Dialogs {
             DialogKind::Threads => &self.threads,
             DialogKind::SessionTree => &self.session_tree,
             DialogKind::Switcher => &self.switcher,
+            DialogKind::PortShare => &self.port_share,
         }
     }
 
@@ -1212,6 +1246,7 @@ impl Dialogs {
             DialogKind::Threads => &mut self.threads,
             DialogKind::SessionTree => &mut self.session_tree,
             DialogKind::Switcher => &mut self.switcher,
+            DialogKind::PortShare => &mut self.port_share,
         }
     }
 
@@ -1241,6 +1276,7 @@ impl Dialogs {
             DialogKind::Threads => Box::new(std::mem::take(&mut self.threads)),
             DialogKind::SessionTree => Box::new(std::mem::take(&mut self.session_tree)),
             DialogKind::Switcher => Box::new(std::mem::take(&mut self.switcher)),
+            DialogKind::PortShare => Box::new(std::mem::take(&mut self.port_share)),
         }
     }
 
@@ -1291,6 +1327,9 @@ impl Dialogs {
             DialogKind::Switcher => {
                 self.switcher = *view.into_any().downcast::<SwitcherDialog>().expect("kind")
             }
+            DialogKind::PortShare => {
+                self.port_share = *view.into_any().downcast::<PortShareDialog>().expect("kind")
+            }
         }
     }
 
@@ -1313,6 +1352,7 @@ impl Dialogs {
             DialogKind::Threads => self.threads.index,
             DialogKind::SessionTree => self.session_tree.index,
             DialogKind::Switcher => self.switcher.selected,
+            DialogKind::PortShare => 0,
         }
     }
 
@@ -1335,6 +1375,7 @@ impl Dialogs {
             DialogKind::Threads => self.threads.index = value,
             DialogKind::SessionTree => self.session_tree.index = value,
             DialogKind::Switcher => self.switcher.selected = value,
+            DialogKind::PortShare => {}
         }
     }
 
@@ -1357,6 +1398,7 @@ impl Dialogs {
             DialogKind::Threads => self.threads.follow,
             DialogKind::SessionTree => self.session_tree.follow,
             DialogKind::Switcher => self.switcher.follow,
+            DialogKind::PortShare => false,
         }
     }
 
@@ -1379,6 +1421,7 @@ impl Dialogs {
             DialogKind::Threads => self.threads.keys_open,
             DialogKind::SessionTree => self.session_tree.keys_open,
             DialogKind::Switcher => self.switcher.keys_open,
+            DialogKind::PortShare => false,
         }
     }
 
@@ -1402,6 +1445,7 @@ impl Dialogs {
             DialogKind::Threads => self.threads.keys_open = open,
             DialogKind::SessionTree => self.session_tree.keys_open = open,
             DialogKind::Switcher => self.switcher.keys_open = open,
+            DialogKind::PortShare => {}
         }
         if !open {
             *self.keys_scroll_mut(kind) = 0;
@@ -1427,6 +1471,7 @@ impl Dialogs {
             DialogKind::Threads => &mut self.threads.keys_scroll,
             DialogKind::SessionTree => &mut self.session_tree.keys_scroll,
             DialogKind::Switcher => &mut self.switcher.keys_scroll,
+            DialogKind::PortShare => &mut self.port_share.scroll,
         }
     }
 

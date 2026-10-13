@@ -2030,6 +2030,9 @@ pub async fn run_tui(
                     AgentResponse::CopyToClipboard { text } => {
                         let _ = crate::clipboard::copy(&text).await;
                     }
+                    AgentResponse::ServerEndpointsStatus(report) => {
+                        mutations.send(M::ServerEndpoints(report)).await;
+                    }
                 }
             }
         });

@@ -1176,6 +1176,20 @@ impl SessionDriver {
                         &resp_tx,
                     );
                 }
+                AgentRequest::QueryServerEndpoints => {
+                    let report = crate::serve::get_current_endpoints().await;
+                    let _ = resp_tx.send(AgentResponse::ServerEndpointsStatus(report));
+                }
+                AgentRequest::ToggleServerPort { port, enable } => {
+                    let report = if enable {
+                        crate::serve::open_dynamic_tcp(port).await
+                    } else {
+                        crate::serve::close_dynamic_tcp().await
+                    };
+                    if let Ok(rep) = report {
+                        let _ = resp_tx.send(AgentResponse::ServerEndpointsStatus(rep));
+                    }
+                }
                 AgentRequest::RevokePermission { tool, scope } => {
                     crate::handlers_session::revoke_permission(
                         &agent,

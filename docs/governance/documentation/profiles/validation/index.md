@@ -2,9 +2,11 @@
 
 Domain capability profile governing the dual-tier product validation standard, industrial standards alignment, and execution decoupling for software engineering repositories.
 
-Activate this profile in `contracts.md` under `## 1. Activated Profiles`:
-```markdown
-- [x] `validation` (Product validation: acceptance journeys, testing guides)
+Activate this profile in `.docgov.yml` under `validation`:
+```yaml
+validation:
+  acceptance_path: "docs/dev/acceptance.md"
+  testing_path: "docs/dev/testing.md"
 ```
 
 ---

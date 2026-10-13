@@ -668,6 +668,7 @@ fn scene_namespace_second_strokes_resolve_through_the_verb_table() {
         let expected = match verb {
             SceneVerb::Leave => InputAction::CloseScene,
             SceneVerb::Switcher => InputAction::ViewSwitcherToggle,
+            SceneVerb::PortShare => InputAction::OpenPortPalette,
             SceneVerb::Threads => InputAction::OpenSessions,
             SceneVerb::Dashboard => InputAction::NavigateDashboard,
             SceneVerb::Settings => InputAction::NavigateSettings,

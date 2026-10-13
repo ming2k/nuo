@@ -1814,6 +1814,42 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 d.scroll = 0;
             }
         }
+        input::InputAction::OpenPortPalette => {
+            if app.active_dialog() == Some(DialogKind::PortShare) {
+                app.dismiss_surface();
+            } else {
+                app.surfaces.dlg_mut::<crate::surfaces::PortShareDialog>().begin();
+                app.surfaces.dlg_mut::<crate::surfaces::PortShareDialog>().loading = true;
+                app.open_dialog(DialogKind::PortShare);
+                app.send_intent(nuo_wire::AgentRequest::QueryServerEndpoints);
+            }
+        }
+        input::InputAction::TogglePortListener => {
+            if app.active_dialog() == Some(DialogKind::PortShare) {
+                let current_active = app.surfaces.dlg::<crate::surfaces::PortShareDialog>().active;
+                let d = app.surfaces.dlg_mut::<crate::surfaces::PortShareDialog>();
+                d.loading = true;
+                d.notice = None;
+                app.send_intent(nuo_wire::AgentRequest::ToggleServerPort {
+                    port: None,
+                    enable: !current_active,
+                });
+            }
+        }
+        input::InputAction::CopyPortConnectInfo => {
+            if app.active_dialog() == Some(DialogKind::PortShare) {
+                let d = app.surfaces.dlg_mut::<crate::surfaces::PortShareDialog>();
+                if d.active && d.port > 0 {
+                    let cmd = if let Some(token) = &d.token {
+                        format!("nuo --remote 127.0.0.1:{} --token {}", d.port, token)
+                    } else {
+                        format!("nuo --remote 127.0.0.1:{}", d.port)
+                    };
+                    clipboard_ops::spawn_clipboard_copy(ctx.copy_tx, ctx.copy_pending.clone(), cmd);
+                    d.notice = Some("Copied remote connect command to clipboard!".to_string());
+                }
+            }
+        }
         input::InputAction::ViewSwitcherToggle => {
             if app.active_dialog() == Some(DialogKind::Switcher) {
                 app.dismiss_surface();

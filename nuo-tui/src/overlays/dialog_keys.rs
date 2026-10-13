@@ -30,7 +30,7 @@ use crate::surfaces::DialogKind;
 fn dialog_keys_area(frame: &Frame, parent: DialogKind, desired_content_rows: u16) -> Rect {
     match parent {
         DialogKind::Threads => modal_area(frame, FixedModalSpec::SESSIONS),
-        DialogKind::Models | DialogKind::Connections | DialogKind::Switcher => {
+        DialogKind::Models | DialogKind::Connections | DialogKind::Switcher | DialogKind::PortShare => {
             modal_area(frame, FixedModalSpec::PROVIDER)
         }
         DialogKind::Tools => {

@@ -103,7 +103,7 @@ pub enum ServerAction {
         no_local_auth: bool,
         idle_exit_minutes: Option<u64>,
         shutdown_grace_secs: Option<u64>,
-        client_driven: bool,
+        zero_tcp: bool,
     },
     /// `nuo server stop` / `nuo stop` — graceful, budget-aware drain.
     Stop,
@@ -119,7 +119,7 @@ pub enum ServerAction {
         no_local_auth: bool,
         idle_exit_minutes: Option<u64>,
         shutdown_grace_secs: Option<u64>,
-        client_driven: bool,
+        zero_tcp: bool,
     },
     /// `nuo server token` / `nuo token` — print the local server's bearer token.
     Token,
@@ -524,7 +524,7 @@ struct ServerStartFlags {
     no_local_auth: bool,
     idle_exit_minutes: Option<u64>,
     shutdown_grace_secs: Option<u64>,
-    client_driven: bool,
+    zero_tcp: bool,
 }
 
 impl Default for ServerStartFlags {
@@ -536,7 +536,7 @@ impl Default for ServerStartFlags {
             no_local_auth: false,
             idle_exit_minutes: None,
             shutdown_grace_secs: None,
-            client_driven: false,
+            zero_tcp: false,
         }
     }
 }
@@ -549,7 +549,7 @@ fn parse_server_start_flags(args: &[String]) -> Result<ServerStartFlags, FlagErr
         match name {
             "--fg" | "--foreground" => flags.foreground = true,
             "--detach" | "-d" | "--bg" => flags.foreground = false,
-            "--client-driven" => flags.client_driven = true,
+            "--zero-tcp" | "--client-driven" => flags.zero_tcp = true,
             "--port" => {
                 flags.port = Some(parse_u16(
                     "--port",
@@ -703,21 +703,35 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             no_local_auth: flags.no_local_auth,
             idle_exit_minutes: flags.idle_exit_minutes,
             shutdown_grace_secs: flags.shutdown_grace_secs,
-            client_driven: flags.client_driven,
+            zero_tcp: flags.zero_tcp,
         }));
     }
 
     if cmd.starts_with('-') {
-        let flags = parse_server_start_flags(&rest).map_err(|e| e.0)?;
-        return ok(Mode::Server(ServerAction::Start {
-            foreground: flags.foreground,
-            port: flags.port,
-            public: flags.public,
-            no_local_auth: flags.no_local_auth,
-            idle_exit_minutes: flags.idle_exit_minutes,
-            shutdown_grace_secs: flags.shutdown_grace_secs,
-            client_driven: flags.client_driven,
-        }));
+        // Explicit daemon start flags like `--fg` / `--detach` invoke the server container start action.
+        // Interactive and general flags (e.g. `--resume`, `--role`, `--unattended`, `--port`, `-p`)
+        // route to Mode::Interactive.
+        if cmd == "--fg"
+            || cmd == "--foreground"
+            || cmd == "--detach"
+            || cmd == "-d"
+            || cmd == "--bg"
+            || cmd == "--zero-tcp"
+            || cmd == "--client-driven"
+        {
+            let flags = parse_server_start_flags(&rest).map_err(|e| e.0)?;
+            return ok(Mode::Server(ServerAction::Start {
+                foreground: flags.foreground,
+                port: flags.port,
+                public: flags.public,
+                no_local_auth: flags.no_local_auth,
+                idle_exit_minutes: flags.idle_exit_minutes,
+                shutdown_grace_secs: flags.shutdown_grace_secs,
+                zero_tcp: flags.zero_tcp,
+            }));
+        } else {
+            return ok(Mode::Interactive(args.to_vec()));
+        }
     }
 
     let extra: Vec<String> = rest[1..].to_vec();
@@ -762,7 +776,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                         no_local_auth: flags.no_local_auth,
                         idle_exit_minutes: flags.idle_exit_minutes,
                         shutdown_grace_secs: flags.shutdown_grace_secs,
-                        client_driven: flags.client_driven,
+                        zero_tcp: flags.zero_tcp,
                     })
                 }
                 "stop" => {
@@ -795,7 +809,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                         no_local_auth: flags.no_local_auth,
                         idle_exit_minutes: flags.idle_exit_minutes,
                         shutdown_grace_secs: flags.shutdown_grace_secs,
-                        client_driven: flags.client_driven,
+                        zero_tcp: flags.zero_tcp,
                     })
                 }
                 "status" => {
@@ -823,7 +837,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 no_local_auth: flags.no_local_auth,
                 idle_exit_minutes: flags.idle_exit_minutes,
                 shutdown_grace_secs: flags.shutdown_grace_secs,
-                client_driven: flags.client_driven,
+                zero_tcp: flags.zero_tcp,
             })
         }
         "run" | "attach" | "dashboard" | "settings" => {
@@ -838,7 +852,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 no_local_auth: flags.no_local_auth,
                 idle_exit_minutes: flags.idle_exit_minutes,
                 shutdown_grace_secs: flags.shutdown_grace_secs,
-                client_driven: flags.client_driven,
+                zero_tcp: flags.zero_tcp,
             })
         }
         "stop" => {
@@ -873,7 +887,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 no_local_auth: flags.no_local_auth,
                 idle_exit_minutes: flags.idle_exit_minutes,
                 shutdown_grace_secs: flags.shutdown_grace_secs,
-                client_driven: flags.client_driven,
+                zero_tcp: flags.zero_tcp,
             })
         }
         "status" => {
@@ -1387,7 +1401,7 @@ mod surface_tests {
             parsed.mode,
             Mode::Server(ServerAction::Start {
                 foreground: true,
-                client_driven: false,
+                zero_tcp: false,
                 ..
             })
         ));
@@ -1406,12 +1420,20 @@ mod surface_tests {
     }
 
     #[test]
-    fn start_with_client_driven_sets_flag() {
-        let parsed = parse(&["start", "--client-driven"]).unwrap();
+    fn start_with_zero_tcp_sets_flag() {
+        let parsed = parse(&["start", "--zero-tcp"]).unwrap();
         assert!(matches!(
             parsed.mode,
             Mode::Server(ServerAction::Start {
-                client_driven: true,
+                zero_tcp: true,
+                ..
+            })
+        ));
+        let parsed_legacy = parse(&["start", "--client-driven"]).unwrap();
+        assert!(matches!(
+            parsed_legacy.mode,
+            Mode::Server(ServerAction::Start {
+                zero_tcp: true,
                 ..
             })
         ));

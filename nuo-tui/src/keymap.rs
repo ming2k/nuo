@@ -1879,8 +1879,10 @@ pub mod scene_namespace {
     /// One scene-lifecycle verb reachable as `C-x <stroke>`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum SceneVerb {
-        /// Open (or close) the Command Palette / surface switcher.
+        /// Open (or close) the Command Palette / surface switcher (`C-x b`).
         Switcher,
+        /// Open the Port & Network Sharing Palette (`C-x p`, ADR-0045).
+        PortShare,
         /// Navigate directly to the server session orchestrator dashboard (`/dashboard`).
         Dashboard,
         /// Open application and appearance settings (`/settings`, `C-x ,`, ADR-0043).
@@ -1898,6 +1900,7 @@ pub mod scene_namespace {
         /// slice; the router resolves against it. One list, two consumers.
         pub const ALL: &'static [SceneVerb] = &[
             SceneVerb::Switcher,
+            SceneVerb::PortShare,
             SceneVerb::Dashboard,
             SceneVerb::Settings,
             SceneVerb::Threads,
@@ -1911,16 +1914,18 @@ pub mod scene_namespace {
         /// card advertises.
         pub const fn strokes(self) -> &'static [Key] {
             match self {
-                // `p` (palette) and `b` (buffer/switch — the Emacs `C-x b`
-                // muscle memory for "switch what I'm looking at").
+                // `b` (buffer/switch — the Emacs `C-x b` muscle memory for "switch what I'm looking at").
                 SceneVerb::Switcher => &[
                     Key {
                         modifiers: KeyModifiers::NONE,
-                        code: KeyCode::Char('p'),
+                        code: KeyCode::Char('b'),
                     },
+                ],
+                // `p` (port & network sharing palette, ADR-0045).
+                SceneVerb::PortShare => &[
                     Key {
                         modifiers: KeyModifiers::NONE,
-                        code: KeyCode::Char('b'),
+                        code: KeyCode::Char('p'),
                     },
                 ],
                 // `d` (dashboard — opens server session orchestrator dashboard).
@@ -1972,6 +1977,7 @@ pub mod scene_namespace {
         pub const fn label(self) -> &'static str {
             match self {
                 SceneVerb::Switcher => "command palette",
+                SceneVerb::PortShare => "port & sharing",
                 SceneVerb::Dashboard => "dashboard",
                 SceneVerb::Settings => "settings",
                 SceneVerb::Threads => "threads",

@@ -5,88 +5,40 @@
   "description": "Universal documentation governance: semantic coordinate tensor core with pluggable vertical domain entities.",
   "license": "MIT",
   "homepage": "https://github.com/ming2k/docgov",
-  "protocol_version": "6.0.0",
+  "protocol_version": "0.0.3",
   "protocol_history": [
     {
-      "version": "6.0.0",
-      "date": "2026-08-25",
+      "version": "0.0.3",
+      "date": "2026-03-31",
       "status": "current",
-      "summary": "Protocol v6.0.0 Clean Break: Zero-Vendoring Architecture, Flat Knowledge Topology, in-place Frontmatter lifecycle, and bifurcated invariants (INV-LINT machine layer and INV-AGENT cognitive layer)."
+      "summary": "Protocol v0.0.3: Distributes pre-decision RFC governance architecture standard (RFC-0002), aligns core system invariant headers, and locks protocol assets."
     },
     {
-      "version": "5.1.0",
-      "date": "2026-08-25",
+      "version": "0.0.2",
+      "date": "2026-10-05",
       "status": "superseded",
-      "summary": "Standardize Decision Summary and Primary Invariant column in ADR registry index pattern."
+      "summary": "Protocol v0.0.2: Distributes the canonical .docgov.yml adoption template (spec/default-config.yml) as a first-class, manifest-registered spec asset, enabling `docgov init` to materialize configuration directly from the sovereign specification rather than hard-coding it in the engine."
     },
     {
-      "version": "5.0.0",
-      "date": "2026-08-25",
+      "version": "0.0.1",
+      "date": "2026-10-02",
       "status": "superseded",
-      "summary": "Clean-Break Architecture: Universal Semantic Tensor Core (taxonomy, invariants, workflow, style) and pluggable vertical domain entities (ADR, RFC, Living Snapshot, Acceptance, Testing, Postmortem)."
-    },
-    {
-      "version": "4.0.0",
-      "date": "2026-08-25",
-      "status": "superseded",
-      "summary": "Transitional reorganization to spec directory."
-    },
-    {
-      "version": "3.2.0",
-      "date": "2026-08-25",
-      "status": "superseded",
-      "summary": "Enhance Architecture profile with Log vs Snapshot duality, RFC vs ADR separation of concerns, and ADR compaction pattern."
-    },
-    {
-      "version": "3.1.0",
-      "date": "2026-08-25",
-      "status": "superseded",
-      "summary": "Streamline Product Validation profile to dual-tier model (acceptance.md and testing.md)."
-    },
-    {
-      "version": "3.0.0",
-      "date": "2026-08-24",
-      "status": "superseded",
-      "summary": "Modular Governance Architecture: micro-core protocol decoupled from pluggable domain profiles."
-    },
-    {
-      "version": "2.0.0",
-      "date": "2026-08-23",
-      "status": "superseded",
-      "summary": "Three routing gates with root-files exception and manifest for drift detection."
-    },
-    {
-      "version": "1.0.0",
-      "date": "2026-06-13",
-      "status": "superseded",
-      "summary": "Initial flat Diataxis decision list."
+      "summary": "Protocol v0.0.1 Initial Release: Zero-Vendoring Architecture, Flat Knowledge Topology, in-place Frontmatter lifecycle, and bifurcated invariants (INV-LINT machine layer and INV-AGENT cognitive layer)."
     }
   ],
   "update_policy": "Semantic versioning on protocol_version. MAJOR: a repository following the old protocol would be non-compliant without migration work. MINOR: new optional profiles or non-breaking additions; old content stays valid. PATCH: clarifications and typo-level changes that do not alter any rule.",
   "files": {
-    "AGENTS.md": {
-      "role": "guard",
-      "profile": "core",
-      "editable": false,
-      "sha256": "f0ac07a502a783817c9261a250765b5b8e6bda5099d1ee663418163b9db9b67c"
-    },
-    "contracts.md": {
-      "role": "template",
-      "profile": "core",
-      "editable": true,
-      "sha256": ""
-    },
     "core/index.md": {
       "role": "charter",
       "profile": "core",
       "editable": false,
-      "sha256": "64013eec2ac263814a9275668be68bf0b69ffebb94d5eac03dd2ea593a32497e"
+      "sha256": "187e855f8af69cf20e0980dac8809674162fd1e6cf1ed264725715a241308658"
     },
     "core/invariants.md": {
       "role": "constitution",
       "profile": "core",
       "editable": false,
-      "sha256": "1dc779f7655bb529ee465c956d886af813185795ad91b07c422aa1e6fbb04ba8"
+      "sha256": "c0e8ff6cc67f7b8bd0de72358114d938e5b64c7e04394a96e358926b4468afb0"
     },
     "core/style.md": {
       "role": "guide",
@@ -98,13 +50,13 @@
       "role": "tensor",
       "profile": "core",
       "editable": false,
-      "sha256": "06be77ebd061eaf739273802317b5cda41e7160e5dc16fb80b3d9d7bbc732e6e"
+      "sha256": "ca9c6420f46666be1fb2fed0cddaf8065bf37372b7f38846536ccb46a7c5d846"
     },
     "core/workflow.md": {
       "role": "lifecycle",
       "profile": "core",
       "editable": false,
-      "sha256": "bba4f7fc3fba2f75d24c218e8a7533a1abdfb698cb55fce404dfe07a46873414"
+      "sha256": "05dff7d67612e89f6523a95490980a85e1cbf305134b5f05554f76024cbdea55"
     },
     "profiles/architecture/adr.md": {
       "role": "entity",
@@ -116,7 +68,7 @@
       "role": "charter",
       "profile": "architecture",
       "editable": false,
-      "sha256": "16431fad3816959b053c9e7d8f2073febdfbf389b06286d1f1b3805bfb0c6936"
+      "sha256": "b80e78af89b5229a11a1df0e222268cec6211d1649a127075073782604d30d5d"
     },
     "profiles/architecture/living-snapshot.md": {
       "role": "entity",
@@ -134,7 +86,7 @@
       "role": "charter",
       "profile": "operations",
       "editable": false,
-      "sha256": "735252f455b6b453092e61e98b78dc00e86f07e111abc64a925579b628bc2a1c"
+      "sha256": "64d0f0461cfc46d13599292c4e4dda7ff173c08fef0b90269971b072c3bd15d8"
     },
     "profiles/operations/postmortem.md": {
       "role": "entity",
@@ -146,19 +98,25 @@
       "role": "entity",
       "profile": "validation",
       "editable": false,
-      "sha256": "ee6e546e835335f8e896410bc8a4d9e981b94a51a5ce6135a796b7f22d893121"
+      "sha256": "1e78c51a2896ec7cd312014a5e4634e4c4a3fd7db8491445a39db21039e9d739"
     },
     "profiles/validation/index.md": {
       "role": "charter",
       "profile": "validation",
       "editable": false,
-      "sha256": "1698410d19e2e196bd9cdf226ef41eb2af9ab6bf8551266d756cc4fad4596684"
+      "sha256": "21b4022d31a697e05b0f667bd2ca5f94b8b6c688f3997a36ee95d3114829a95a"
     },
     "profiles/validation/testing.md": {
       "role": "entity",
       "profile": "validation",
       "editable": false,
       "sha256": "1e6f2efcec81c9cfa4a2a9c36f05e666f32fddc4c5ed06ef3e97393275436cb6"
+    },
+    "default-config.yml": {
+      "role": "template",
+      "profile": "core",
+      "editable": false,
+      "sha256": "5fe5fc365bc66575a45eda1a4fbee694f1f5a14fe5f0f29fa6cb3316b13b6275"
     }
   }
 }

@@ -373,6 +373,7 @@ pub(crate) enum AppMutation {
     },
     Oauth(OauthAddSignal),
     WebSearchConfig(Option<nuo_wire::WebSearchConfigView>),
+    ServerEndpoints(nuo_wire::ServerEndpointsReport),
     PreAttach(PreAttachSignal),
     ProviderSwitched {
         provider: String,

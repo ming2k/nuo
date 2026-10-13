@@ -381,6 +381,14 @@ pub enum AgentRequest {
     /// skills / mcp). The harness replies with [`AgentResponse::SessionContext`].
     /// Sent by the TUI when a manager modal opens.
     QuerySessionContext,
+    /// Query server endpoints (port, active, token, local socket) (ADR-0045).
+    QueryServerEndpoints,
+    /// Toggle TCP listener on/off or set port (ADR-0045).
+    ToggleServerPort {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        enable: bool,
+    },
     /// Revoke a single cached "always allow" permission rule. The harness
     /// removes it from the in-memory allowlist and replies with an updated
     /// [`AgentResponse::SessionContext`] so the modal reflects the change.
@@ -793,6 +801,8 @@ pub enum AgentResponse {
     WebSearchConfigSnapshot(WebConfigView),
     /// Validated, persisted and hot-applied authoritative state.
     WebSearchConfigUpdated(WebConfigView),
+    /// Response with current server endpoints status (ADR-0045).
+    ServerEndpointsStatus(crate::ServerEndpointsReport),
 }
 
 

@@ -487,6 +487,24 @@ pub enum ControlRequest {
     AskArchivist {
         text: String,
     },
+    /// ADR-0045: Dynamically open or bind a TCP listener on the running server.
+    OpenTcpListener {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+    },
+    /// ADR-0045: Dynamically close the TCP listener on the running server.
+    CloseTcpListener,
+    /// ADR-0045: Query runtime endpoint status (port, token, UDS path).
+    GetServerEndpoints,
+}
+
+/// Dynamic server endpoint state report (ADR-0045).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerEndpointsReport {
+    pub tcp_port: u16,
+    pub tcp_active: bool,
+    pub token: Option<String>,
+    pub local_endpoint: Option<String>,
 }
 
 /// The unified wire envelope on every connection.

@@ -1,8 +1,8 @@
-# Documentation Governance Core (Protocol v6.0.0)
+# Documentation Governance Core (Protocol v0.0.3)
 
 Universal meta-governance protocol and verification standard for software engineering repositories.
 
-This specification implements the **Zero-Vendoring, Flat-Topology Architecture** (Protocol v6.0.0): combining deterministic machine-layer AST enforcement (`INV-LINT-*`) with cognitive agent protocols (`INV-AGENT-*`).
+This specification implements the **Zero-Vendoring, Flat-Topology Architecture** (Protocol v0.0.3): combining deterministic machine-layer AST enforcement (`INV-LINT-*`) with cognitive agent protocols (`INV-AGENT-*`).
 
 ---
 
@@ -33,7 +33,7 @@ Adopting repositories activate domain capabilities declared in `.docgov.yml`. Ea
 
 ## Quick Navigation
 
-1. **Adopting this governance**: Work through [Workflow: Adoption](workflow.md#part-4-repository-adoption-workflow-protocol-v600).
+1. **Adopting this governance**: Work through [Workflow: Adoption](workflow.md#part-4-repository-adoption-workflow-protocol-v001).
 2. **Deciding where content lives**: Consult the 4D coordinate tensor in [Taxonomy](taxonomy.md).
 3. **Checking hard rules**: Verify against the codified [Invariants](invariants.md).
 4. **Reviewing a Pull Request**: Follow [Workflow: PR Review Gates](workflow.md#part-2-pull-request-review-gates).

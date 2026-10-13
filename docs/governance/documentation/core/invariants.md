@@ -1,4 +1,4 @@
-# System Invariants Constitution (Protocol v6.0.0)
+# System Invariants Constitution (Protocol v0.0.3)
 
 This document codifies the non-negotiable architectural and documentation invariants across software repositories adopting the `docgov` standard.
 

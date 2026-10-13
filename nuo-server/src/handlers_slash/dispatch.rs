@@ -59,7 +59,6 @@ pub async fn dispatch(cmd: String, env: SlashEnv<'_>) {
         Some(BuiltinCmd::Skills) => commands::skills(env, name, args, &parts).await,
         Some(BuiltinCmd::New) => commands::new_session(env, name, args, &parts).await,
         Some(BuiltinCmd::Export) => commands::export(env, name, args, &parts).await,
-        Some(BuiltinCmd::Debug) => commands::debug(env, name, args, &parts).await,
         Some(BuiltinCmd::Retry) => commands::retry(env, name, args, &parts).await,
         Some(BuiltinCmd::Help) => commands::help(env, name, args, &parts).await,
         Some(BuiltinCmd::Exit) => commands::exit(env, name, args, &parts).await,

@@ -30,7 +30,7 @@ mod dialogs;
 pub use dialogs::{
     AsidesDialog, ConnectionsDialog, DialogRenderCtx, DialogView, Dialogs, HistorySearchDialog,
     McpDialog, ModelsDialog, PermissionsDialog, QueueDialog, QuotasDialog, SessionTreeDialog, SessionsDialog,
-    SessionStatsDialog, SessionTraceDialog, SkillsDialog, SwitcherDialog, ThreadsDialog, ToolsDialog, UsageStatsDialog,
+    SessionStatsDialog, SessionTraceDialog, SkillsDialog, SwitcherDialog, PortShareDialog, ThreadsDialog, ToolsDialog, UsageStatsDialog,
 };
 
 /// Root full-screen scene identifier (closed set of destinations).
@@ -108,6 +108,7 @@ pub enum DialogKind {
     Threads,
     SessionTree,
     Switcher,
+    PortShare,
 }
 
 impl DialogKind {
@@ -116,7 +117,7 @@ impl DialogKind {
     pub const Sessions: DialogKind = DialogKind::Threads;
 
     /// Every dialog id that appears in the switcher's reference/discovery list.
-    pub const ALL: [DialogKind; 15] = [
+    pub const ALL: [DialogKind; 16] = [
         DialogKind::Tools,
         DialogKind::Mcp,
         DialogKind::Skills,
@@ -132,6 +133,7 @@ impl DialogKind {
         DialogKind::Queue,
         DialogKind::Threads,
         DialogKind::SessionTree,
+        DialogKind::PortShare,
     ];
 
     /// The label shown in the quick switcher and used for fuzzy matching.
@@ -153,6 +155,7 @@ impl DialogKind {
             DialogKind::Threads => "Threads",
             DialogKind::SessionTree => "Session tree",
             DialogKind::Switcher => "Quick switcher",
+            DialogKind::PortShare => "Port & sharing",
         }
     }
 
@@ -174,7 +177,8 @@ impl DialogKind {
             DialogKind::Queue => "/queue",
             DialogKind::Threads => "/threads",
             DialogKind::SessionTree => "/tree",
-            DialogKind::Switcher => "C-x p",
+            DialogKind::Switcher => "C-x b",
+            DialogKind::PortShare => "C-x p",
         }
     }
 
@@ -185,6 +189,7 @@ impl DialogKind {
             // Global: the terminal app's own surfaces. They survive session
             // and scene switches.
             DialogKind::Switcher
+            | DialogKind::PortShare
             | DialogKind::Threads
             | DialogKind::Models
             | DialogKind::Connections
@@ -219,7 +224,7 @@ impl DialogKind {
     /// dialogs are retained per session; everything else is retained globally.
     pub fn retention_policy(self) -> RetentionPolicy {
         match self {
-            DialogKind::Switcher => RetentionPolicy::Ephemeral,
+            DialogKind::Switcher | DialogKind::PortShare => RetentionPolicy::Ephemeral,
             _ => match self.scope() {
                 DialogScope::Session => RetentionPolicy::SessionScoped,
                 _ => RetentionPolicy::Retained,

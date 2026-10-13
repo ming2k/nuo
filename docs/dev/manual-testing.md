@@ -374,6 +374,37 @@ rm -rf "$NUO_HOME"
     order (the header and bands are decoration; the byte ranges stay anchored in
     the raw output).
 
+#### Scenario 4.9: Dynamic Port & Network Sharing Palette (`C-x p`, ADR-0045)
+- **Action**:
+  1. Inside an active `nuo` terminal session, press `C-x p`.
+  2. Inspect the **Port & Remote Sharing** palette modal:
+     - Verify TCP listener status shows `○ Disabled` under native client-bound posture with zero TCP attack surface.
+     - Verify local IPC endpoint is displayed.
+  3. Press `Space` to dynamically hot-enable the TCP listener.
+     - Verify status switches to `● Active` with bound port (default 9800).
+     - Verify bearer token is generated and remote connect command is displayed (`nuo --remote 127.0.0.1:9800 --token ...`).
+  4. Press `y` to copy the connection command to clipboard; verify feedback notice appears.
+  5. Press `Space` again to dynamically close the TCP listener; verify status reverts cleanly to `○ Disabled`.
+  6. Press `Esc` to dismiss the palette. Verify active thread prompt and history remain completely unaffected.
+
+#### Scenario 4.10: Static Lifecycle Handoff (`nuo --port "$NUO_PORT"`, ADR-0045)
+- **Action**:
+  1. Launch interactive TUI declaring a port:
+     ```bash
+     nuo --port "$NUO_PORT"
+     ```
+  2. Confirm interactive TUI launches smoothly.
+  3. Exit the TUI (`Ctrl+C` twice or `/exit`).
+- **Expected Outcome**:
+  - The client detaches non-destructively, printing the explicit handoff notice:
+    ```text
+    nuo: detached from hosted server (PID <pid>, port <port>).
+      • Reconnect:   nuo
+      • Terminate:   nuo stop
+    ```
+  - `nuo status` confirms the hosted server remains active in the background.
+  - Terminate the background server with `nuo stop`.
+
 ---
 
 ### Suite 5: Headless Execution & CLI Automation (`nuo run` / `nuo -p`)

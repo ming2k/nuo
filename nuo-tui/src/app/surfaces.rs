@@ -145,6 +145,7 @@ impl App {
                 | DialogKind::Quotas
                 | DialogKind::SessionStats
                 | DialogKind::SessionTrace
+                | DialogKind::PortShare
                 | DialogKind::Switcher => {}
             }
         }

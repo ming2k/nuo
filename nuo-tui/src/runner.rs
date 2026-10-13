@@ -138,6 +138,7 @@ pub async fn run_cli_args(raw_args: &[String]) -> Result<(), Box<dyn std::error:
         json: _,
         remote,
         token,
+        port,
         ..
     } = parsed;
     let confined_at_start = !no_confinement;
@@ -181,6 +182,7 @@ pub async fn run_cli_args(raw_args: &[String]) -> Result<(), Box<dyn std::error:
                 resume,
                 crate::StartupOverlay::Settings { category: cat },
                 prompt,
+                port,
             )
             .await
         }
@@ -197,6 +199,7 @@ pub async fn run_cli_args(raw_args: &[String]) -> Result<(), Box<dyn std::error:
                 resume,
                 overlay,
                 prompt,
+                port,
             )
             .await
         }
@@ -214,6 +217,7 @@ pub async fn run_cli_args(raw_args: &[String]) -> Result<(), Box<dyn std::error:
                     resume,
                     overlay,
                     Some(prompt),
+                    port,
                 )
                 .await
             } else {
@@ -244,6 +248,7 @@ pub async fn run_cli_args(raw_args: &[String]) -> Result<(), Box<dyn std::error:
                 resume,
                 overlay,
                 prompt,
+                port,
             )
             .await
         }
@@ -298,6 +303,7 @@ pub async fn run_dashboard(
         false,
         crate::StartupOverlay::Dashboard,
         None,
+        None,
     )
     .await
 }
@@ -313,12 +319,13 @@ pub async fn run_attached(
     resume: bool,
     initial_overlay: crate::StartupOverlay,
     mut initial_prompt: Option<String>,
+    explicit_port: Option<u16>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let raw_root = project_override
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let project_root = nuo_host::paths::find_project_root(&raw_root);
-    let info = client::ensure_server(&project_root).await?;
+    let info = client::ensure_server_explicit(&project_root, explicit_port).await?;
     if !client::versions_compatible(&info) {
         return Err(client::incompatibility_error(&info).into());
     }
@@ -464,7 +471,15 @@ pub async fn run_attached(
                 target = Some(id);
                 continue;
             }
-            None => return Ok(()),
+            None => {
+                if info.port > 0 {
+                    eprintln!(
+                        "nuo: detached from hosted server (PID {}, port {}).\n  • Reconnect:   nuo\n  • Terminate:   nuo stop",
+                        info.pid, info.port
+                    );
+                }
+                return Ok(());
+            }
         }
     }
 }

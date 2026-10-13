@@ -58,7 +58,6 @@ pub enum CommandCategory {
     Automation,
     Project,
     System,
-    Debug,
 }
 
 impl CommandCategory {
@@ -72,7 +71,6 @@ impl CommandCategory {
             Self::Automation => "Automation",
             Self::Project => "Project",
             Self::System => "System",
-            Self::Debug => "Debug",
         }
     }
 }
@@ -441,17 +439,6 @@ define_builtin_commands! {
         examples: [("/export", "Copy thread markdown to clipboard")],
         intent_keywords: ["export", "copy", "share", "clipboard", "markdown", "dump", "save"],
         category: Session,
-    },
-    Debug = "/debug" : {
-        summary: "Dev tools: request tracing and body preview",
-        usage: ["/debug trace [on|off]", "/debug preview"],
-        examples: [("/debug trace on", "Enable request tracing"), ("/debug preview", "Dry run next LLM request payload")],
-        intent_keywords: ["debug", "trace", "log", "dry-run", "inspect", "troubleshoot"],
-        category: Debug,
-        subcommands: [
-            ("trace", "Toggle provider round-trip capture on/off"),
-            ("preview", "Dry-run next provider wire body to disk"),
-        ],
     },
     Retry = "/retry" : {
         summary: "Retry last failed model request",

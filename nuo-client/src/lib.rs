@@ -78,7 +78,6 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
         ("/trust", "Trust project-authored asset domains", &["trust", "authorize", "asset-trust", "project-assets", "security"], &[("all", "Trust every present project asset domain"), ("instructions", "Trust project instructions and AGENTS.md"), ("ex-workspace", "Trust project external workspace roots"), ("mcp", "Trust project MCP definitions only"), ("skills", "Trust project skills only"), ("hooks", "Trust project hooks only"), ("status", "Show trust state for every asset domain"), ("revoke", "Revoke every asset-domain grant")]),
         ("/untrust", "Revoke project asset trust", &["untrust", "revoke", "quarantine", "asset-trust"], &[]),
         ("/export", "Export thread to clipboard as Markdown", &["export", "copy", "share", "clipboard", "markdown", "dump", "save"], &[]),
-        ("/debug", "Dev tools: request tracing and body preview", &["debug", "trace", "log", "dry-run", "inspect", "troubleshoot"], &[("trace", "Toggle provider round-trip capture on/off"), ("preview", "Dry-run next provider wire body to disk")]),
         ("/retry", "Retry last failed model request", &["retry", "again", "resend", "redo", "re-run"], &[]),
         ("/help", "Show available commands and keybindings", &["help", "man", "docs", "guide", "info", "usage", "?", "shortcuts", "keybindings"], &[]),
         ("/exit", "Exit the program", &["exit", "quit", "q", "leave", "bye", "shutdown"], &[]),
@@ -724,6 +723,17 @@ const SERVER_START_TIMEOUT: Duration = Duration::from_secs(10);
 const SERVER_START_POLL: Duration = Duration::from_millis(100);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Canonical default TCP port for the session server control plane (ADR-0033, ADR-0045).
+pub const DEFAULT_SERVER_PORT: u16 = 9800;
+
+/// The port a client resolves when no explicit `--port` was given, honouring `NUO_PORT` (ADR-0045).
+pub fn env_default_port() -> u16 {
+    std::env::var("NUO_PORT")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u16>().ok())
+        .unwrap_or(DEFAULT_SERVER_PORT)
+}
+
 /// Find the unified server (ADR-0096): one global record. The project
 /// argument is accepted for source compatibility but no longer scopes the
 /// lookup — the server serves every project.
@@ -756,8 +766,9 @@ pub fn discover(_project_root: &Path) -> Option<ServerInfo> {
             .as_ref()
             .is_some_and(|endpoint| nuo_host::ipc::probe(endpoint).connectable);
 
+        let default_port = env_default_port();
         let tcp_addr =
-            std::net::SocketAddr::from(([127, 0, 0, 1], 9527));
+            std::net::SocketAddr::from(([127, 0, 0, 1], default_port));
         let tcp_connectable =
             std::net::TcpStream::connect_timeout(&tcp_addr, Duration::from_millis(300)).is_ok();
 
@@ -767,7 +778,7 @@ pub fn discover(_project_root: &Path) -> Option<ServerInfo> {
                 process_birth_token: nuo_host::process::process_identity(pid)
                     .ok()
                     .map(|identity| identity.birth_token),
-                port: 9527,
+                port: default_port,
                 token: None,
                 project_root: String::new(),
                 started_at: 0,
@@ -1253,6 +1264,34 @@ pub async fn reload(info: &ServerInfo) -> Result<(), String> {
     control(info, ControlRequest::Reload).await
 }
 
+/// Dynamically open a TCP listener on the running server (ADR-0045).
+pub async fn open_tcp_listener(
+    info: &ServerInfo,
+    port: Option<u16>,
+) -> Result<nuo_wire::ServerEndpointsReport, String> {
+    let reply = control_with_reply(info, ControlRequest::OpenTcpListener { port }).await?;
+    serde_json::from_str(&reply)
+        .map_err(|e| format!("invalid server endpoints reply: {e}"))
+}
+
+/// Dynamically close the TCP listener on the running server (ADR-0045).
+pub async fn close_tcp_listener(
+    info: &ServerInfo,
+) -> Result<nuo_wire::ServerEndpointsReport, String> {
+    let reply = control_with_reply(info, ControlRequest::CloseTcpListener).await?;
+    serde_json::from_str(&reply)
+        .map_err(|e| format!("invalid server endpoints reply: {e}"))
+}
+
+/// Query runtime server endpoint status (ADR-0045).
+pub async fn get_server_endpoints(
+    info: &ServerInfo,
+) -> Result<nuo_wire::ServerEndpointsReport, String> {
+    let reply = control_with_reply(info, ControlRequest::GetServerEndpoints).await?;
+    serde_json::from_str(&reply)
+        .map_err(|e| format!("invalid server endpoints reply: {e}"))
+}
+
 pub async fn stop(info: &ServerInfo) -> Result<(), String> {
     // The server's own drain budget, when it advertised one: the single
     // number every tier below is coordinated against.
@@ -1338,6 +1377,13 @@ pub async fn stop_server(info: &ServerInfo) -> Result<(), String> {
 }
 
 pub async fn ensure_server(project_root: &Path) -> Result<ServerInfo, String> {
+    ensure_server_explicit(project_root, None).await
+}
+
+pub async fn ensure_server_explicit(
+    project_root: &Path,
+    explicit_port: Option<u16>,
+) -> Result<ServerInfo, String> {
     if let Some(info) = discover(project_root) {
         if versions_compatible(&info) && !is_dev_drift(&info) {
             return Ok(info);
@@ -1407,7 +1453,7 @@ pub async fn ensure_server(project_root: &Path) -> Result<ServerInfo, String> {
         .await;
     }
 
-    let mut child = spawn_server()?;
+    let mut child = spawn_server(explicit_port)?;
     let deadline = std::time::Instant::now() + SERVER_START_TIMEOUT;
     loop {
         tokio::time::sleep(SERVER_START_POLL).await;
@@ -1455,10 +1501,20 @@ pub async fn ensure_server(project_root: &Path) -> Result<ServerInfo, String> {
     }
 }
 
-fn spawn_server() -> Result<std::process::Child, String> {
+fn spawn_server(explicit_port: Option<u16>) -> Result<std::process::Child, String> {
     let program = server_program();
     let mut command = std::process::Command::new(&program);
-    command.args(["start", "--fg", "--client-driven"]);
+    command.args(["start", "--fg"]);
+    let port = explicit_port.or_else(|| {
+        std::env::var("NUO_PORT")
+            .ok()
+            .and_then(|p| p.trim().parse::<u16>().ok())
+    });
+    if let Some(p) = port {
+        command.arg("--port").arg(p.to_string());
+    } else {
+        command.arg("--zero-tcp");
+    }
     command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null());
@@ -1587,11 +1643,12 @@ pub fn diagnose_server() -> ServerDiagnostics {
         .map(nuo_host::ipc::probe)
         .unwrap_or_default();
 
+    let default_port = env_default_port();
     let port = discovery_record
         .as_ref()
         .map(|d| d.port)
         .or_else(|| raw_record.as_ref().map(|d| d.port))
-        .unwrap_or_else(|| 9527);
+        .unwrap_or(default_port);
 
     let tcp_addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let tcp_listening =
@@ -1618,7 +1675,7 @@ pub fn diagnose_server() -> ServerDiagnostics {
 
     ServerDiagnostics {
         instance_dir: discovery::instance_dir(),
-        default_port: 9527,
+        default_port,
         discovery_path,
         discovery_record,
         discovery_valid: discover_at(&discovery::global_discovery_path()).is_some(),

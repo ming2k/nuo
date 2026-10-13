@@ -2,9 +2,13 @@
 
 Domain capability profile governing architectural decision lifecycles, living system blueprints, and pre-decision proposals.
 
-Activate this profile in `contracts.md` under `## 1. Activated Profiles`:
-```markdown
-- [x] `architecture` (Architecture decision records: ADR lifecycle, blueprints, RFCs)
+Activate this profile in `.docgov.yml` under `architecture`:
+```yaml
+architecture:
+  adr_path: "docs/adr"
+  require_frontmatter:
+    status_enum: ["draft", "accepted", "superseded", "rejected", "deprecated"]
+    mandatory_fields: ["id", "title", "status", "date"]
 ```
 
 ---

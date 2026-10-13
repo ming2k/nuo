@@ -517,10 +517,16 @@ pub enum InputAction {
     },
     /// Open the `/btw` asides list modal (ADR-0103 §5). Mapped from F5.
     OpenBtwList,
-    /// Open the global view quick switcher (ADR-0139, `C-x p`). A transient
+    /// Open the global view quick switcher (ADR-0139, `C-x b`). A transient
     /// chooser over every browse surface: open views first in MRU order,
     /// then the rest as discovery. Esc closes it with nothing changed.
     ViewSwitcherToggle,
+    /// Open the Port & Network Sharing Palette (`C-x p`, ADR-0045).
+    OpenPortPalette,
+    /// Toggle the TCP listener in the Port & Network Sharing Palette.
+    TogglePortListener,
+    /// Copy connection link or token in the Port & Network Sharing Palette.
+    CopyPortConnectInfo,
     /// Append a character to the switcher's fuzzy filter (phase 5). The
     /// row set narrows live; ↑/↓ walk the filtered rows.
     ViewSwitcherFilter {

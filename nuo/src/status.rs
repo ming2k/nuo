@@ -218,15 +218,19 @@ pub(crate) fn format_diagnostics(diag: &ServerDiagnostics) -> String {
         out.push_str("    • Local: unavailable (endpoint resolution failed)\n");
     }
 
-    let tcp_status = if diag.tcp_listening {
-        "listening"
+    if diag.tcp_port == 0 && diag.discovery_valid {
+        out.push_str("    • TCP: disabled (zero-attack-surface client-bound posture)\n");
     } else {
-        "closed"
-    };
-    out.push_str(&format!(
-        "    • TCP: ws://127.0.0.1:{} ({tcp_status})\n",
-        diag.tcp_port
-    ));
+        let tcp_status = if diag.tcp_listening {
+            "listening"
+        } else {
+            "closed"
+        };
+        out.push_str(&format!(
+            "    • TCP: ws://127.0.0.1:{} ({tcp_status})\n",
+            diag.tcp_port
+        ));
+    }
 
     // Startup Log
     if let Some(last_log) = &diag.last_startup_log {
@@ -247,7 +251,9 @@ pub(crate) fn format_diagnostics(diag: &ServerDiagnostics) -> String {
         );
         out.push_str("                    `nuo` reclaims it automatically when idle; stop it now with `nuo stop`.\n");
     } else if diag.discovery_valid && diag.tcp_listening {
-        out.push_str("Server is running and healthy. (Observe with `nuo status --watch`)\n");
+        out.push_str("Server is running and healthy (hosted standalone posture). (Observe with `nuo status --watch`)\n");
+    } else if diag.discovery_valid && diag.local_endpoint_connectable {
+        out.push_str("Server is running and healthy (client-bound local IPC). (Observe with `nuo status --watch`)\n");
     } else if diag.lock_held && diag.discovery_record.is_none() {
         out.push_str(
             "Ghost server detected: Instance lock is held but discovery record is missing.\n",
@@ -655,6 +661,35 @@ mod tests {
         // The instance scope line leads the report (ADR-0121).
         assert!(text.contains("Instance:"), "{text}");
         assert!(text.contains("default port 9800"), "{text}");
+    }
+
+    #[test]
+    fn diagnostics_formatter_renders_client_bound_zero_tcp_healthy_state() {
+        // ADR-0033 & ADR-0045: an interactive client-bound server binds only local UDS (port 0,
+        // zero TCP listeners) and must be recognized as healthy rather than unresponsive.
+        let diag = ServerDiagnostics {
+            discovery_record: Some(nuo_client::ServerInfo {
+                pid: 12345,
+                port: 0,
+                started_at: 1000,
+                uds_path: Some(std::path::PathBuf::from("/run/user/1000/nuo/server.sock")),
+                version: Some("0.25.1".to_string()),
+                ..Default::default()
+            }),
+            discovery_valid: true,
+            lock_held: true,
+            lock_holder_pid: Some(12345),
+            lock_holder_alive: true,
+            local_endpoint_exists: true,
+            local_endpoint_connectable: true,
+            tcp_port: 0,
+            tcp_listening: false,
+            ..base_diag()
+        };
+        let text = format_diagnostics(&diag);
+        assert!(text.contains("PID 12345"), "{text}");
+        assert!(text.contains("TCP: disabled (zero-attack-surface client-bound posture)"), "{text}");
+        assert!(text.contains("Server is running and healthy (client-bound local IPC)"), "{text}");
     }
 
     #[test]

@@ -1,9 +1,9 @@
-version: "0.0.9"
+version: "0.0.3"
 
 # Remote Upstream & Protocol Distribution
 upstream:
   source: "https://github.com/ming2k/docgov"
-  ref: "v0.0.9"
+  ref: "v0.0.3"
 
 # Canonical Governance Documentation Mirror (for Agent Context)
 governance_docs:
@@ -55,10 +55,12 @@ agent_directives:
 # baseline: ".docgov-baseline.json"
 
 # [INV-LINT-04] Code-to-Doc Trigger Bindings
+#
+# Monitored source paths that require documentation synchronization in the same change.
+# `require_update` accepts a single glob or a list (any-of semantics).
 triggers:
-  - watch: "src/api/**"
-    require_update: "docs/reference/**"
-    message: "Public API modified; docs/reference/ must be synchronized in the same commit."
-  - watch: "src/cli/**"
-    require_update: "docs/how-to/**"
-    message: "CLI syntax changed; docs/how-to/ must be synchronized in the same commit."
+  - watch: "src/**"
+    require_update:
+      - "docs/**"
+      - "README.md"
+    message: "Source code modified; documentation must be synchronized in the same commit."

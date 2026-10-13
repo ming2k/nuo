@@ -923,23 +923,23 @@ mod tests {
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.is_empty());
 
-        // /debug trace offers on and off
+        // /unattended offers on and off
         let AgentResponse::ComposerCompletions { items, .. } =
-            engine.complete(14, "/debug trace ".into(), 13).await
+            engine.complete(14, "/unattended ".into(), 12).await
         else {
             panic!("unexpected response")
         };
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert_eq!(labels, vec!["/debug trace on", "/debug trace off"]);
+        assert_eq!(labels, vec!["/unattended on", "/unattended off"]);
 
-        // /debug trace of filters to /debug trace off
+        // /unattended of filters to /unattended off
         let AgentResponse::ComposerCompletions { items, .. } =
-            engine.complete(15, "/debug trace of".into(), 15).await
+            engine.complete(15, "/unattended of".into(), 14).await
         else {
             panic!("unexpected response")
         };
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert_eq!(labels, vec!["/debug trace off"]);
+        assert_eq!(labels, vec!["/unattended off"]);
 
         // /role expands subcommands
         let AgentResponse::ComposerCompletions { items, .. } =
@@ -1045,27 +1045,14 @@ mod tests {
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(labels, vec!["/permissions"]);
 
-        // Depth guard: three tokens deep is NOT a subcommand position
-        // (`/debug trace ` already completed `trace`; the next slot belongs
-        // to trace's own on|off usage fallback, not subcommand matching).
+        // Subcommand matching and filtering for declared subcommands
         let AgentResponse::ComposerCompletions { items, .. } =
-            engine.complete(32, "/debug pre".into(), 10).await
+            engine.complete(32, "/unattended o".into(), 13).await
         else {
             panic!("unexpected response")
         };
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert_eq!(labels, vec!["/debug preview"]);
-
-        // Commands without declarations keep the legacy usage-expansion
-        // fallback (bracketed options out of usage strings).
-        let AgentResponse::ComposerCompletions { items, .. } =
-            engine.complete(33, "/debug t".into(), 8).await
-        else {
-            panic!("unexpected response")
-        };
-        // `/debug` HAS declarations now — this exercises the declared path:
-        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert_eq!(labels, vec!["/debug trace"]);
+        assert_eq!(labels, vec!["/unattended on", "/unattended off"]);
     }
 
     #[test]
@@ -1081,12 +1068,12 @@ mod tests {
             ]
         );
         assert_eq!(
-            expand_usage_options("/debug trace [on|off]"),
-            vec!["/debug trace on", "/debug trace off"]
+            expand_usage_options("/trace [on|off]"),
+            vec!["/trace on", "/trace off"]
         );
         assert_eq!(
-            expand_usage_options("/debug trace on|off"),
-            vec!["/debug trace on", "/debug trace off"]
+            expand_usage_options("/trace on|off"),
+            vec!["/trace on", "/trace off"]
         );
         assert_eq!(
             expand_usage_options("/repeat cancel <id>"),
