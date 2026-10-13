@@ -8,6 +8,16 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.16] - 2026-10-23
+
+### Added
+
+- **Autonomous tool execution slot, fault-tolerant streaming projection, and bifurcated lifecycle architecture (ADR-0046).**
+  - **In-Flight Phase Bifurcation (`[INV-TOOL-LIFE-01]`)**: Deconstructs monolithic tool running states into explicit first-class `Ingesting` (model generating parameters) and `Executing` (local host/sandbox execution) stages with dedicated visual channels and theme accent coloring.
+  - **Fault-Tolerant Streaming Projection (`[INV-SLOT-02]`)**: Introduces a resilient streaming JSON parser extracting closed parameter fields (`path`, `command`, `query`) while upstream JSON syntax streams, eliminating generic `Edit text` placeholders in favor of instant semantic file targeting (`Edit src/auth.rs`).
+  - **Pre-Commit In-Flight Diff Preview (`[INV-SLOT-05]`)**: Automatically projects syntax-highlighted diff previews into expanded tool steps upon argument availability before disk write operations commit.
+  - **Streaming Arguments Wire Delivery**: Upgrades wire protocol and harness event channels so `ToolInputProgress` delivers partial argument payloads for real-time frontend projection.
+
 ## [0.0.15] - 2026-10-22
 
 ### Added
