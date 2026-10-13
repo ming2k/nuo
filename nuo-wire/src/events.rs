@@ -1222,12 +1222,13 @@ pub enum RoundEvent {
         id: Option<String>,
         name: String,
     },
-    /// Count-only progress for a still-streaming tool call's arguments
-    /// (ADR-0026, `[INV-STREAM-TOOL-03]`): bytes received, never the bytes.
+    /// ADR-0026 / ADR-0046: Tool call arguments input progress and streaming partial projection.
     ToolInputProgress {
         index: usize,
         id: Option<String>,
         bytes: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        arguments: Option<String>,
     },
     PermissionRequest(PermissionRequest),
     UserQuestionRequest(UserQuestionRequest),
@@ -1846,15 +1847,13 @@ pub enum AgentEvent {
         id: Option<String>,
         name: String,
     },
-    /// Count-only progress for a still-streaming tool call's arguments
-    /// (ADR-0023, `[INV-STREAM-TOOL-03]`). `bytes` is the number of argument
-    /// bytes received so far — **never the bytes themselves**; a frontend
-    /// renders it as a static, non-animated clause (ADR-0008: the activity bar
-    /// is the single breathing anchor).
+    /// ADR-0026 / ADR-0046: Tool call arguments input progress and streaming partial projection.
     ToolInputProgress {
         index: usize,
         id: Option<String>,
         bytes: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        arguments: Option<String>,
     },
     /// The task list changed (`todo` / `todo_update`). The TUI uses this to refresh the
     /// unified sticky panel above the input box.

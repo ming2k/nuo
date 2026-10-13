@@ -98,7 +98,7 @@ pub fn default_tool_expanded(
     config: &TuiConfig,
 ) -> bool {
     match status {
-        ToolStepStatus::Running => tool_default_expanded(config, name),
+        ToolStepStatus::Ingesting | ToolStepStatus::Executing => tool_default_expanded(config, name),
         ToolStepStatus::Failed | ToolStepStatus::Denied => true,
         ToolStepStatus::Cancelled => false,
         // An interrupted subagent preserved partial work, but the user stopped
@@ -191,12 +191,12 @@ mod tests {
         // opens (its output is the point), a file read with no result yet stays
         // collapsed; failures always force-expand.
         assert!(default_tool_expanded(
-            ToolStepStatus::Running,
+            ToolStepStatus::Executing,
             "execute_command",
             &cfg
         ));
         assert!(!default_tool_expanded(
-            ToolStepStatus::Running,
+            ToolStepStatus::Ingesting,
             "read_text",
             &cfg
         ));

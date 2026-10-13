@@ -28,7 +28,7 @@ mod dialogs;
 
 #[allow(unused_imports)]
 pub use dialogs::{
-    AsidesDialog, ConnectionsDialog, DialogRenderCtx, DialogView, Dialogs, HistorySearchDialog,
+    AsidesDialog, ConnectionsDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs, HistorySearchDialog,
     McpDialog, ModelsDialog, PermissionsDialog, QueueDialog, QuotasDialog, SessionTreeDialog, SessionsDialog,
     SessionStatsDialog, SessionTraceDialog, SkillsDialog, SwitcherDialog, PortShareDialog, ThreadsDialog, ToolsDialog, UsageStatsDialog,
 };

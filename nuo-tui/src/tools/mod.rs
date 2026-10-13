@@ -27,10 +27,12 @@ mod meta;
 mod read_image;
 mod read_text;
 mod search;
+mod streaming;
 mod web;
 
 pub(crate) use diff::DiffCache;
 pub use diff::{DiffFrag, DiffHunk, DiffOp};
+pub use streaming::parse_streaming_arguments;
 
 use nuotc::Color;
 use serde_json::Value;
@@ -43,8 +45,10 @@ use crate::model::document::ToolStepStatus;
 /// so the model does not depend on the render layer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ToolStatus {
-    /// No output yet — the call is still in flight.
-    Running,
+    /// Ingesting streaming arguments from model provider (pre-dispatch).
+    Ingesting,
+    /// Arguments complete, actively executing in local host runtime / sandbox.
+    Executing,
     /// Output present and not an error.
     Ok,
     /// Output present and the call failed. Failure is determined by the
@@ -69,7 +73,8 @@ impl ToolStatus {
     /// constructor now that the model carries an explicit status.
     pub fn from_status(status: ToolStepStatus) -> Self {
         match status {
-            ToolStepStatus::Running => ToolStatus::Running,
+            ToolStepStatus::Ingesting => ToolStatus::Ingesting,
+            ToolStepStatus::Executing => ToolStatus::Executing,
             ToolStepStatus::Ok => ToolStatus::Ok,
             ToolStepStatus::Failed => ToolStatus::Failed,
             ToolStepStatus::Denied => ToolStatus::Denied,
@@ -83,17 +88,15 @@ impl ToolStatus {
     /// previously each duplicated.
     pub fn color(self, theme: &Theme) -> Color {
         match self {
-            // Running reads as a neutral, in-flight gray — not a hue. A
-            // pending call carries no success/failure semantics yet, so it
-            // borrows the muted text tone rather than the blue `info` accent,
-            // keeping the accent palette reserved for resolved outcomes.
-            ToolStatus::Running => theme.muted(),
+            // Ingesting reads as a calm, muted tone — model arguments are streaming.
+            ToolStatus::Ingesting => theme.muted(),
+            // Executing reads as an active accent hue (info) — local work is in flight.
+            ToolStatus::Executing => theme.info(),
             ToolStatus::Ok => theme.ok(),
             ToolStatus::Failed => theme.err(),
             // Warn color distinguishes a user denial from a runtime failure.
             ToolStatus::Denied => theme.warn(),
-            // Cancelled steps one rung dimmer than Running: the call was
-            // aborted, so it reads as fully inert rather than merely idle.
+            // Cancelled steps one rung dimmer: the call was aborted.
             ToolStatus::Cancelled => theme.dim(),
             // Interrupted carries the same user-intervention tone as Denied,
             // but on a brighter accent: unlike a dropped call, an interrupted
@@ -490,16 +493,26 @@ pub fn summary_for(name: &str, arguments: &str, profile: Option<&str>) -> String
     }
 }
 
-/// Build the structured semantic summary for a tool step from its raw JSON arguments (ADR-0206).
+/// Build the structured semantic summary for a tool step from its raw JSON arguments (ADR-0206, ADR-0046).
 pub fn semantic_summary_for(
     name: &str,
     arguments: &str,
     profile: Option<&str>,
     workspace_root: Option<&std::path::Path>,
 ) -> SemanticLine<'static> {
-    let parsed: Option<Value> = serde_json::from_str(arguments).ok();
-    let line = match parsed.as_ref().and_then(Value::as_object) {
-        Some(obj) => {
+    let parsed: Option<serde_json::Map<String, Value>> =
+        if let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(arguments) {
+            Some(obj)
+        } else {
+            let streaming = parse_streaming_arguments(arguments);
+            if !streaming.is_empty() {
+                Some(streaming)
+            } else {
+                None
+            }
+        };
+    let line = match parsed {
+        Some(ref obj) => {
             let view = ToolView {
                 name,
                 args: obj,
@@ -541,26 +554,38 @@ pub fn semantic_summary_for(
 /// completed edits use their structured Patch result instead; this path keeps
 /// restored sessions created before structured results were persisted usable.
 pub fn diff_hunks_for(name: &str, arguments: &str) -> Vec<DiffHunk> {
-    let Ok(value) = serde_json::from_str::<Value>(arguments) else {
-        return Vec::new();
+    let map = if let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(arguments) {
+        obj
+    } else {
+        parse_streaming_arguments(arguments)
     };
+    if map.is_empty() {
+        return Vec::new();
+    }
     let get_any = |keys: &[&str]| {
         keys.iter()
-            .find_map(|k| value.get(*k).and_then(Value::as_str))
+            .find_map(|k| map.get(*k).and_then(Value::as_str))
             .unwrap_or("")
     };
     let base = name.rsplit_once(':').map(|(_, b)| b).unwrap_or(name);
     match base {
-        "edit_text" | "edit" | "edit_file" => diff::line_diff_hunks(
-            get_any(&["old_string", "old_str", "old_text", "old"]),
-            get_any(&["new_string", "new_str", "new_text", "new"]),
-            0,
-        ),
-        "write_file" | "write" => diff::line_diff_hunks(
-            "",
-            get_any(&["content", "new_string", "text"]),
-            0,
-        ),
+        "edit_text" | "edit" | "edit_file" => {
+            let old = get_any(&["old_string", "old_str", "old_text", "old"]);
+            let new = get_any(&["new_string", "new_str", "new_text", "new"]);
+            if old.is_empty() && new.is_empty() {
+                Vec::new()
+            } else {
+                diff::line_diff_hunks(old, new, 0)
+            }
+        }
+        "write_file" | "write" => {
+            let content = get_any(&["content", "new_string", "text"]);
+            if content.is_empty() {
+                Vec::new()
+            } else {
+                diff::line_diff_hunks("", content, 0)
+            }
+        }
         _ => Vec::new(),
     }
 }
@@ -703,8 +728,12 @@ mod tests {
     fn from_status_classifies_every_lifecycle_including_cancelled() {
         use crate::model::document::ToolStepStatus;
         assert_eq!(
-            ToolStatus::from_status(ToolStepStatus::Running),
-            ToolStatus::Running
+            ToolStatus::from_status(ToolStepStatus::Ingesting),
+            ToolStatus::Ingesting
+        );
+        assert_eq!(
+            ToolStatus::from_status(ToolStepStatus::Executing),
+            ToolStatus::Executing
         );
         assert_eq!(ToolStatus::from_status(ToolStepStatus::Ok), ToolStatus::Ok);
         assert_eq!(

@@ -508,7 +508,16 @@ fn draw_composer_impl(
     // window once the caret-follow clamp in [`cursor_screen_pos`] has
     // settled the scroll offset for this frame.
     let hidden_above = *input_scroll;
-    let hidden_below = wrapped.len().saturating_sub(*input_scroll + visible_rows);
+    let hidden_below = if input.is_empty() {
+        if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
+            let ghost_wrapped = composer_wrapped(ghost, text_width, 0);
+            ghost_wrapped.len().saturating_sub(*input_scroll + visible_rows)
+        } else {
+            0
+        }
+    } else {
+        wrapped.len().saturating_sub(*input_scroll + visible_rows)
+    };
 
     let mut lines: Vec<Line> =
         Vec::with_capacity(visible_rows + COMPOSER_VERTICAL_CHROME_ROWS as usize);
@@ -685,20 +694,37 @@ fn draw_composer_impl(
             );
             let mut ghost_cols = 0;
             if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
-                if ghost.starts_with(input) && start + i == wrapped.len() - 1 {
-                    let suffix = &ghost[input.len()..];
-                    let ghost_first_line = match suffix.find('\n') {
-                        Some(pos) => &suffix[..pos],
-                        None => suffix,
-                    };
-                    if !ghost_first_line.is_empty() {
+                if start + i == wrapped.len() - 1 {
+                    if ghost.starts_with(input) {
+                        let suffix = &ghost[input.len()..];
+                        let ghost_first_line = match suffix.find('\n') {
+                            Some(pos) => &suffix[..pos],
+                            None => suffix,
+                        };
+                        if !ghost_first_line.is_empty() {
+                            let available = full_w.saturating_sub(used);
+                            let to_show = crate::overlays::common::truncate_ellipsis(ghost_first_line, available);
+                            ghost_cols = str_len(&to_show);
+                            spans.push(Span::styled(
+                                to_show,
+                                Style::default().bg(panel_bg).fg(theme.muted()).add_modifier(Modifier::DIM),
+                            ));
+                        }
+                    } else if visible_rows == 1 {
+                        let ghost_first_line = match ghost.find('\n') {
+                            Some(pos) => &ghost[..pos],
+                            None => ghost,
+                        };
                         let available = full_w.saturating_sub(used);
-                        let to_show = crate::overlays::common::truncate_ellipsis(ghost_first_line, available);
-                        ghost_cols = str_len(&to_show);
-                        spans.push(Span::styled(
-                            to_show,
-                            Style::default().bg(panel_bg).fg(theme.muted()).add_modifier(Modifier::DIM),
-                        ));
+                        if available > 6 {
+                            let preview = format!("  ↳ {ghost_first_line}");
+                            let to_show = crate::overlays::common::truncate_ellipsis(&preview, available);
+                            ghost_cols = str_len(&to_show);
+                            spans.push(Span::styled(
+                                to_show,
+                                Style::default().bg(panel_bg).fg(theme.muted()).add_modifier(Modifier::DIM),
+                            ));
+                        }
                     }
                 }
             }

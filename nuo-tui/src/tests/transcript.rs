@@ -29,6 +29,7 @@ fn only_high_frequency_stream_updates_are_coalesced() {
             index: 0,
             id: None,
             bytes: 4096,
+            arguments: None,
         },
     };
     let tool_call_started = AgentResponse::Round {

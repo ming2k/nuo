@@ -1969,9 +1969,9 @@ pub fn relay_agent_event(
             session_id,
             RoundEvent::ToolCallStarted { index, id, name },
         ),
-        AgentEvent::ToolInputProgress { index, id, bytes } => round_response(
+        AgentEvent::ToolInputProgress { index, id, bytes, arguments } => round_response(
             session_id,
-            RoundEvent::ToolInputProgress { index, id, bytes },
+            RoundEvent::ToolInputProgress { index, id, bytes, arguments },
         ),
         AgentEvent::TodosUpdated(todos) => {
             round_response(session_id, RoundEvent::TodosUpdated(todos))

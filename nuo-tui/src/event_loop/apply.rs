@@ -700,10 +700,16 @@ fn apply_transcript(app: &mut App, buffer: Buffer, edit: TranscriptEdit) -> bool
                     post = PostEdit::Invalidate(step.id);
                 }
             }
-            TranscriptEdit::ToolInputProgress { slot, bytes } => {
+            TranscriptEdit::ToolInputProgress { slot, bytes, arguments } => {
                 if let Some(step) = find_pending_announced_tool_step_mut(messages, slot) {
                     let id = step.tool_step_call_id().unwrap_or_default().to_string();
-                    if step.set_tool_input_bytes(&id, bytes) {
+                    let mut changed = step.set_tool_input_bytes(&id, bytes);
+                    if let Some(args) = arguments {
+                        if step.set_tool_streaming_arguments(&id, args) {
+                            changed = true;
+                        }
+                    }
+                    if changed {
                         post = PostEdit::Invalidate(step.id);
                     }
                 }

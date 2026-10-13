@@ -195,20 +195,6 @@ fn compose_frame(
             const MASK_CHAR: &str = "•";
             let caret_byte = MASK_CHAR.len() * app.cursor_position.min(mask.chars().count());
             (mask, caret_byte)
-        } else if app.active_dialog() == Some(DialogKind::HistorySearch) {
-            let ranked = app.history_rows();
-            let idx = app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index;
-            if let Some((orig_idx, _)) = ranked.get(idx) && let Some(entry) = app.input_history.get(*orig_idx) {
-                let candidate = &entry.text;
-                if app.input.is_empty() || candidate.starts_with(&app.input) {
-                    (candidate.clone(), app.byte_cursor())
-                } else {
-                    let combined = format!("{}\n↳ {}", app.input, candidate);
-                    (combined, app.byte_cursor())
-                }
-            } else {
-                (app.input.clone(), app.byte_cursor())
-            }
         } else {
             (app.input.clone(), app.byte_cursor())
         };
@@ -679,7 +665,8 @@ fn compose_frame(
             let history_ghost: Option<String> = if app.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch) {
                 let ranked = app.history_rows();
                 let idx = app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index;
-                ranked.get(idx).and_then(|(orig_idx, _)| app.input_history.get(*orig_idx)).map(|e| e.text.clone())
+                let pick = ranked.get(idx).or_else(|| ranked.first());
+                pick.and_then(|(orig_idx, _)| app.input_history.get(*orig_idx)).map(|e| e.text.clone())
             } else {
                 None
             };

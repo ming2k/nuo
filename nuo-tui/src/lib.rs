@@ -1144,14 +1144,22 @@ pub async fn run_tui(
                                     message,
                                 });
                             }
-                            RoundEvent::ToolInputProgress { index, id, bytes } => {
-                                // ADR-0026: count-only progress while the
-                                // arguments stream ([INV-STREAM-TOOL-03]).
+                            RoundEvent::ToolInputProgress {
+                                index,
+                                id,
+                                bytes,
+                                arguments,
+                            } => {
+                                // ADR-0026 / ADR-0046: progress tick and streaming arguments.
                                 let _ = id;
                                 if !routes_to_side {
                                     mutations.send(M::SetResponding(true)).await;
                                 }
-                                transcript!(E::ToolInputProgress { slot: index, bytes });
+                                transcript!(E::ToolInputProgress {
+                                    slot: index,
+                                    bytes,
+                                    arguments,
+                                });
                             }
                             RoundEvent::ToolCall {
                                 id,

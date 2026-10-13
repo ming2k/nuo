@@ -125,10 +125,12 @@ pub(crate) enum TranscriptEdit {
         call_id: String,
         arguments: String,
     },
-    /// ADR-0026: count-only argument-progress tick for a still-streaming call.
-    /// Resolves the announced step by `slot` and stores the byte count for the
-    /// static summary clause.
-    ToolInputProgress { slot: usize, bytes: usize },
+    /// ADR-0026 / ADR-0046: argument progress tick and partial argument payload for a still-streaming call.
+    ToolInputProgress {
+        slot: usize,
+        bytes: usize,
+        arguments: Option<String>,
+    },
     /// A tool step finished. Resolves by call id and applies the
     /// lifecycle-aware default disclosure; `fallback` is the synthesized
     /// finished step when no in-flight call matched (history-restored turn).

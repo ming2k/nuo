@@ -828,6 +828,12 @@ async fn process_one_event(
         || (composer_owned_before && event_rearms_composer_follow(event))
     {
         app.input_scroll_follow_cursor = true;
+        if app.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch) {
+            let d = &mut app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>();
+            d.index = 0;
+            d.scroll = 0;
+            d.follow = true;
+        }
     }
 
     if matches!(

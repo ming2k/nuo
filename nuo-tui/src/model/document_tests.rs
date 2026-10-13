@@ -416,7 +416,7 @@ fn subagent_started_event_labels_step_by_role() {
     // The collapsed header carries only the description — the role is
     // shown by the renderer's `[PROFILE]` badge in front of it.
     let header = task.tool_step_summary().expect("summary");
-    assert_eq!(header, "write the plan");
+    assert_eq!(header, "write the plan · executing");
 }
 
 #[test]
@@ -701,8 +701,8 @@ fn push_tool_stream_builds_interleaved_lines_for_live_view() {
 #[test]
 fn cancel_tool_step_transitions_to_a_terminal_state() {
     let mut step = TranscriptMessage::tool_step("call_1", "websearch", r#"{"query":"rust"}"#);
-    // Running -> Cancelled is a real terminal transition.
-    assert_eq!(step.tool_step_status(), Some(ToolStepStatus::Running));
+    // Running (Executing) -> Cancelled is a real terminal transition.
+    assert_eq!(step.tool_step_status(), Some(ToolStepStatus::Executing));
     assert!(step.cancel_tool_step("call_1"));
     assert_eq!(step.tool_step_status(), Some(ToolStepStatus::Cancelled));
 
@@ -728,7 +728,7 @@ fn cancel_only_acts_on_the_matching_call_id() {
     let mut step = TranscriptMessage::tool_step("call_1", "websearch", "{}");
     // A different id does nothing and leaves the step running.
     assert!(!step.cancel_tool_step("call_9"));
-    assert_eq!(step.tool_step_status(), Some(ToolStepStatus::Running));
+    assert_eq!(step.tool_step_status(), Some(ToolStepStatus::Executing));
 }
 
 #[test]
@@ -749,7 +749,7 @@ fn cancelling_a_subagent_also_cancels_its_running_children() {
     let children = task.subagent_children().expect("has children");
     assert_eq!(
         children[0].tool_step_status(),
-        Some(ToolStepStatus::Running)
+        Some(ToolStepStatus::Executing)
     );
 
     // Interrupting the parent task cancels it AND the nested running child,
@@ -1406,7 +1406,7 @@ fn orphan_announced_tool_step_is_cancelled_not_left_running() {
     let mut dispatched = TranscriptMessage::tool_step("call_1", "read_text", "{}");
     assert!(dispatched.push_tool_stream("call_1", &nuo_wire::ToolStream::Stdout("y\n".into())));
     assert!(!dispatched.cancel_pending_announced_tool_step());
-    assert_eq!(dispatched.tool_step_status(), Some(ToolStepStatus::Running));
+    assert_eq!(dispatched.tool_step_status(), Some(ToolStepStatus::Executing));
 }
 
 #[test]
@@ -1420,7 +1420,7 @@ fn announced_tool_step_collapses_with_arguments_and_updates_summary() {
         r#"{"path":"src/lib.rs","old_string":"foo","new_string":"bar"}"#,
     ));
     assert_eq!(step.tool_step_call_id(), Some("call_1"));
-    assert_eq!(step.tool_step_summary().expect("summary"), "Edit src/lib.rs +1 -1");
+    assert_eq!(step.tool_step_summary().expect("summary"), "Edit src/lib.rs +1 -1 · applying");
 
     // When step finishes, duration suffix is added to the real summary
     assert!(step.finish_tool_step(
@@ -1444,15 +1444,89 @@ fn announced_command_and_find_steps_collapse_with_arguments() {
     let mut cmd_step = TranscriptMessage::tool_step(String::new(), "execute_command", String::new())
         .with_input_slot(0);
     assert!(cmd_step.collapse_tool_call("c1", r#"{"command":"git status"}"#));
-    assert_eq!(cmd_step.tool_step_summary().expect("summary"), "Run git");
+    assert_eq!(cmd_step.tool_step_summary().expect("summary"), "Run git · running");
 
     let mut find_step = TranscriptMessage::tool_step(String::new(), "find_files", String::new())
         .with_input_slot(1);
     assert!(find_step.collapse_tool_call("c2", r#"{"patterns":["*.rs"],"path":"."}"#));
-    assert_eq!(find_step.tool_step_summary().expect("summary"), "Find *.rs");
+    assert_eq!(find_step.tool_step_summary().expect("summary"), "Find *.rs · executing");
 
     let mut find_in_path = TranscriptMessage::tool_step(String::new(), "find_files", String::new())
         .with_input_slot(2);
     assert!(find_in_path.collapse_tool_call("c3", r#"{"patterns":["*.rs"],"path":"src"}"#));
-    assert_eq!(find_in_path.tool_step_summary().expect("summary"), "Find *.rs in src");
+    assert_eq!(find_in_path.tool_step_summary().expect("summary"), "Find *.rs in src · executing");
+}
+
+#[test]
+fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
+    use crate::model::document::ToolExecutionPhase;
+
+    // 1. Announce step with slot 0 (Ingesting phase)
+    let mut step = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
+        .with_input_slot(0);
+    assert_eq!(
+        step.tool_execution_phase(),
+        Some(ToolExecutionPhase::Ingesting { bytes: None })
+    );
+
+    // Initial summary falls back to "Edit text · receiving input"
+    let (line, suffix) = step.tool_step_semantic_summary(None).expect("semantic summary");
+    assert_eq!(line.to_plain_text(), "Edit text");
+    assert_eq!(suffix.as_deref(), Some(" · receiving input"));
+
+    // 2. Stream partial arguments: path arrives first while still unclosed JSON!
+    let partial_args = r#"{"path":"src/model/auth.rs","old_string":"let x = 1;""#;
+    if let crate::model::document::MessageKind::ToolStep {
+        arguments,
+        input_bytes,
+        ..
+    } = &mut step.kind
+    {
+        *arguments = partial_args.to_string();
+        *input_bytes = Some(partial_args.len());
+    }
+
+    // Semantic summary immediately projects the file path!
+    let (line, suffix) = step.tool_step_semantic_summary(None).expect("semantic summary");
+    assert_eq!(line.to_plain_text(), "Edit src/model/auth.rs");
+    assert_eq!(suffix.as_deref(), Some(" · receiving input (0 KB)"));
+
+    // Diff hunks can already be extracted before JSON finishes!
+    let hunks = crate::tools::diff_hunks_for("edit_text", partial_args);
+    assert_eq!(hunks.len(), 1);
+
+    // 3. Arguments complete and tool is dispatched (collapse_tool_call -> Executing phase)
+    let complete_args =
+        r#"{"path":"src/model/auth.rs","old_string":"let x = 1;","new_string":"let x = 2;"}"#;
+    assert!(step.collapse_tool_call("call_edit_1", complete_args));
+    match step.tool_execution_phase() {
+        Some(ToolExecutionPhase::Executing { .. }) => {}
+        other => panic!("expected Executing phase, got: {other:?}"),
+    }
+
+    let (line, suffix) = step.tool_step_semantic_summary(None).expect("semantic summary");
+    assert_eq!(line.to_plain_text(), "Edit src/model/auth.rs +1 -1");
+    assert_eq!(suffix.as_deref(), Some(" · applying"));
+
+    // 4. Tool finishes execution (Terminal phase)
+    assert!(step.finish_tool_step(
+        "call_edit_1",
+        "Updated auth",
+        nuo_wire::ToolOutput::Patch {
+            path: "src/model/auth.rs".into(),
+            op: nuo_wire::PatchOp::Edit,
+            old: "let x = 1;".into(),
+            new: "let x = 2;".into(),
+            start_line: 1,
+            warnings: Vec::new(),
+        },
+        120,
+    ));
+    assert_eq!(
+        step.tool_execution_phase(),
+        Some(ToolExecutionPhase::Terminal(ToolStepStatus::Ok))
+    );
+    let (line, suffix) = step.tool_step_semantic_summary(None).expect("semantic summary");
+    assert_eq!(line.to_plain_text(), "Edit src/model/auth.rs +1 -1");
+    assert_eq!(suffix.as_deref(), Some(" (120ms)"));
 }

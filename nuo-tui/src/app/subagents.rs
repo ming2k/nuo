@@ -338,7 +338,7 @@ impl App {
         self.messages.iter().any(|message| {
             message.is_subagent_task()
                 && message.tool_step_call_id() == Some(call_id)
-                && message.tool_step_status() == Some(crate::model::document::ToolStepStatus::Running)
+                && message.tool_step_status().is_some_and(|s| s.is_running())
         })
     }
 

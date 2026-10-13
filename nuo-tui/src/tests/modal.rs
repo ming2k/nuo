@@ -896,83 +896,120 @@ fn overlay_caret_owner_is_arbitrated_by_the_layer_stack() {
     assert_eq!(app.caret_owner(), CaretOwner::Composer);
 }
 
-/// `modal_scroll_field` is the single source of truth that every `Scroll*`
-/// action consults: it must resolve each scrollable modal to its own scroll
-/// offset (and the right follow-flag for list modals), and return `None` for
-/// the modals that don't scroll their own body. This is the event-loop half of
-/// "any modal should support scroll" — if a modal is missing here, a page key
-/// silently no-ops inside it.
+/// ADR-0047 [INV-SURFACE-06, INV-SURFACE-08]: DialogView entities autonomously own their
+/// scrolling via `handle_input`, resolving both standard lists and drill-down sub-layers
+/// (like `info_detail`) without leaking raw pointers through `modal_scroll_field`.
 #[test]
-fn modal_scroll_field_resolves_every_scrollable_modal() {
+fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
 
-    // Seed a few follow flags so we can assert the helper hands back the
-    // right one (and that mutating through it actually clears it).
-    app.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().follow = true;
-    app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().follow = true;
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().follow = true;
-    app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().follow = true;
-    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().follow = true;
-    app.question_modal_follow = true;
-
-    // List modals return a follow-flag; clearing it must hit the right field.
+    // 1. List dialogs (Queue): ScrollDown increments scroll and clears follow.
     app.open_dialog(crate::surfaces::DialogKind::Queue);
-    {
-        let (scroll, follow) = app.modal_scroll_field().expect("queue scrolls");
-        *scroll = 5;
-        if let Some(f) = follow {
-            *f = false;
-        }
+    app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().follow = true;
+    app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().scroll = 0;
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let outcome = ent.handle_input(&crate::input::InputAction::ScrollDown, &mut app, "");
+        assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
     }
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().scroll, 5, "queue scroll mutated through helper");
+    assert_eq!(
+        app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().scroll,
+        1
+    );
     assert!(
-        !app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().follow,
-        "queue follow cleared through helper"
+        !app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().follow
     );
 
-    app.open_dialog(crate::surfaces::DialogKind::Tools);
-    {
-        let (_, follow) = app.modal_scroll_field().expect("tools scrolls");
-        if let Some(f) = follow {
-            *f = false;
-        }
-    }
-    assert!(
-        !app.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().follow,
-        "tools follow cleared through the helper"
-    );
-
-    app.open_dialog(crate::surfaces::DialogKind::Sessions);
-    {
-        let (_, follow) = app.modal_scroll_field().expect("sessions scrolls");
-        assert!(follow.is_some(), "sessions exposes its own follow flag");
-    }
-
-    // Pure-content dialogs/scenes return a scroll ref but no follow flag.
+    // 2. Pure-scroll dialog (UsageStats): ScrollDown increments scroll.
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
-    let (s, f) = app.modal_scroll_field().expect("usage stats scrolls");
-    assert!(f.is_none(), "usage stats has no selection-follow flag");
-    *s = 7;
+    app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll = 5;
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let outcome = ent.handle_input(&crate::input::InputAction::ScrollDown, &mut app, "");
+        assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll,
+        6
+    );
 
-    app.open_dialog(crate::surfaces::DialogKind::Permissions);
-    let (s, f) = app.modal_scroll_field().expect("permissions scrolls");
-    assert!(f.is_none(), "permissions has no selection-follow flag");
-    *s = 7;
+    // 3. ThreadsDialog: in list view, scrolls list and clears follow.
+    app.open_dialog(crate::surfaces::DialogKind::Threads);
+    app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().follow = true;
+    app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().scroll = 2;
+    app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = false;
+    app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll = 0;
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let outcome = ent.handle_input(&crate::input::InputAction::ScrollDown, &mut app, "");
+        assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().scroll,
+        3
+    );
+    assert!(
+        !app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().follow
+    );
+    assert_eq!(
+        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll,
+        0
+    );
 
+    // 4. ThreadsDialog sub-view parity [INV-SURFACE-08]: when info_detail is active,
+    // scrolls info_scroll independently, leaving the main list scroll intact!
+    app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = true;
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let outcome = ent.handle_input(&crate::input::InputAction::ScrollDown, &mut app, "");
+        assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll,
+        1,
+        "info_scroll incremented"
+    );
+    assert_eq!(
+        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().scroll,
+        3,
+        "main list scroll untouched"
+    );
+
+    // 5. ConnectionsDialog sub-view parity [INV-SURFACE-08]: when info_detail is active,
+    // scrolls info_scroll independently.
+    app.open_dialog(crate::surfaces::DialogKind::Connections);
+    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail = true;
+    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll = 4;
+    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().scroll = 10;
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let outcome = ent.handle_input(&crate::input::InputAction::ScrollDown, &mut app, "");
+        assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll,
+        5
+    );
+    assert_eq!(
+        app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().scroll,
+        10
+    );
+
+    // 6. Under [INV-SURFACE-06], modal_scroll_field returns None for dialogs
+    // (since they do not leak pointers), but continues to serve scenes/sheets.
+    assert!(
+        app.modal_scroll_field().is_none(),
+        "dialogs do not use modal_scroll_field"
+    );
+
+    app.surfaces.dismiss_all_overlays();
     app.switch_scene(crate::surfaces::SceneKind::Settings);
-    let (s, f) = app.modal_scroll_field().expect("settings scrolls");
-    assert!(f.is_none(), "settings has no selection-follow flag");
+    let (s, f) = app.modal_scroll_field().expect("settings scene scrolls");
+    assert!(f.is_none());
     *s = 7;
+    assert_eq!(app.config_scroll, 7);
 
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll, 7);
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::PermissionsDialog>().scroll, 7);
-
-    // Thread and ModelEditor do not scroll their own body.
     app.reset_to_thread();
-    assert!(app.modal_scroll_field().is_none());
-
-    app.surfaces
-        .present_sheet(crate::surfaces::SheetKind::ModelEditor);
     assert!(app.modal_scroll_field().is_none());
 }
 

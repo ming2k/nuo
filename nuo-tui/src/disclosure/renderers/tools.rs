@@ -59,7 +59,7 @@ pub fn draw_tool_step(
     let status = msg
         .tool_step_status()
         .map(ToolStatus::from_status)
-        .unwrap_or(ToolStatus::Running);
+        .unwrap_or(ToolStatus::Executing);
     // Tool steps render flat on the app background (no band) — like
     // reasoning traces, only the optional content block carries a `code_bg`.
     let summary_bg = ctx.theme.surface();
@@ -185,7 +185,11 @@ pub fn draw_tool_step(
                 let has_output = output.as_deref().is_some_and(|s| !s.is_empty());
                 let is_command = name.as_str() == "execute_command";
                 let has_structured = structured.is_some();
-                if has_output || is_command || has_structured {
+                let is_diff = matches!(
+                    crate::tools::presenter_for(name).result_kind(),
+                    crate::tools::ResultKind::Diff
+                ) && !arguments.trim().is_empty();
+                if has_output || is_command || has_structured || is_diff {
                     draw_tool_result(
                         ctx,
                         mi,

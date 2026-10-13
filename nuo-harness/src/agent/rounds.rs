@@ -779,6 +779,7 @@ impl Agent {
                                         index,
                                         id: progress_id,
                                         bytes: total,
+                                        arguments: Some(call.arguments.clone()),
                                     });
                                 }
                             }

@@ -93,7 +93,11 @@ pub fn draw_history_panel(
     let activity_h = activity_height.min(input_rect.y);
     let area_top = input_rect.y.saturating_sub(activity_h);
     let room_above = area_top;
-    let row_count = ranked.len().max(1) as u16;
+    let row_count = if history.is_empty() || ranked.is_empty() {
+        2
+    } else {
+        (ranked.len() as u16).max(1)
+    };
     let desired_rows = row_count.min(HISTORY_PANEL_MAX_ROWS);
     // +1 header (title), +2 composer chrome (the full panel-bg top/bottom padding
     // rows the panel shares with the composer below it).

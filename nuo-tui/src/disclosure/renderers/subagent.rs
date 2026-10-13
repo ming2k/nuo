@@ -30,7 +30,7 @@ pub fn draw_subagent_inline_step(
     let status = msg
         .tool_step_status()
         .map(ToolStatus::from_status)
-        .unwrap_or(ToolStatus::Running);
+        .unwrap_or(ToolStatus::Executing);
 
     // `ctx.area` arrives already inset by `draw_transcript`, so no
     // re-clip is needed here.

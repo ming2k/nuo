@@ -72,6 +72,24 @@ pub enum DialogOutcome {
     SwitchTo(Box<dyn DialogView>),
 }
 
+impl PartialEq for DialogOutcome {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (DialogOutcome::Consumed, DialogOutcome::Consumed) => true,
+            (DialogOutcome::Unhandled, DialogOutcome::Unhandled) => true,
+            (DialogOutcome::Dismiss, DialogOutcome::Dismiss) => true,
+            _ => false,
+        }
+    }
+}
+
+impl DialogOutcome {
+    /// Whether the outcome consumed the input action.
+    pub fn is_consumed(&self) -> bool {
+        matches!(self, Self::Consumed)
+    }
+}
+
 /// The immutable environment injected into [`DialogView::render`]: server-fed
 /// model data (read-only) plus the per-frame layout/selection context. Dialogs
 /// draw from their own state plus these injected views — never from the
@@ -140,9 +158,6 @@ pub trait DialogView: std::fmt::Debug + Send + 'static {
     fn nav_index(&self) -> usize;
     /// Set the dialog's selection cursor.
     fn set_nav_index(&mut self, value: usize);
-    /// The dialog's scroll offset and (optional) follow flag, for wheel/page
-    /// routing.
-    fn nav_fields(&mut self) -> (&mut usize, Option<&mut bool>);
     /// Whether the in-dialog key-reference sub-layer is open.
     fn keys_open(&self) -> bool;
     /// Open or close the in-dialog key-reference sub-layer.
@@ -516,6 +531,9 @@ fn render_dialog(
                 .expect("kind");
             let input_rect = ctx.input_rect?;
             let ranked = app.history_rows();
+            if !ranked.is_empty() && d.index >= ranked.len() {
+                d.index = ranked.len().saturating_sub(1);
+            }
             crate::overlays::draw_history_panel(
                 frame,
                 crate::overlays::history::HistoryPanelProps {
@@ -585,11 +603,163 @@ fn render_dialog(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum ScrollDelta {
+    Lines(isize),
+    ToStart,
+    ToEnd,
+}
+
+fn apply_delta(scroll: &mut usize, delta: ScrollDelta) {
+    match delta {
+        ScrollDelta::Lines(d) if d < 0 => {
+            *scroll = scroll.saturating_sub((-d) as usize);
+        }
+        ScrollDelta::Lines(d) => {
+            *scroll = scroll.saturating_add(d as usize);
+        }
+        ScrollDelta::ToStart => {
+            *scroll = 0;
+        }
+        ScrollDelta::ToEnd => {
+            *scroll = usize::MAX;
+        }
+    }
+}
+
+fn scroll_delta(action: &InputAction, app: &crate::App) -> Option<ScrollDelta> {
+    let page_step = if app.modal_body_height > 0 {
+        app.modal_body_height.saturating_sub(1).max(1) as isize
+    } else {
+        app.view_height.saturating_sub(1).max(1) as isize
+    };
+    match action {
+        InputAction::ScrollUp => Some(ScrollDelta::Lines(-1)),
+        InputAction::ScrollDown => Some(ScrollDelta::Lines(1)),
+        InputAction::Wheel { up, .. } => Some(ScrollDelta::Lines(if *up { -1 } else { 1 })),
+        InputAction::ScrollPageUp => Some(ScrollDelta::Lines(-page_step)),
+        InputAction::ScrollPageDown => Some(ScrollDelta::Lines(page_step)),
+        InputAction::ScrollTop => Some(ScrollDelta::ToStart),
+        InputAction::ScrollBottom => Some(ScrollDelta::ToEnd),
+        _ => None,
+    }
+}
+
+fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> DialogOutcome {
+    if view.keys_open() {
+        apply_delta(view.keys_scroll_mut(), delta);
+        return DialogOutcome::Consumed;
+    }
+    match view.kind() {
+        DialogKind::Threads => {
+            let e = view.as_any_mut().downcast_mut::<ThreadsDialog>().expect("kind");
+            if e.info_detail {
+                apply_delta(&mut e.info_scroll, delta);
+            } else {
+                apply_delta(&mut e.scroll, delta);
+                e.follow = false;
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Connections => {
+            let e = view.as_any_mut().downcast_mut::<ConnectionsDialog>().expect("kind");
+            if e.info_detail {
+                apply_delta(&mut e.info_scroll, delta);
+            } else {
+                apply_delta(&mut e.scroll, delta);
+                e.follow = false;
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Tools => {
+            let e = view.as_any_mut().downcast_mut::<ToolsDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            e.follow = false;
+            DialogOutcome::Consumed
+        }
+        DialogKind::Mcp => {
+            let e = view.as_any_mut().downcast_mut::<McpDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            e.follow = false;
+            DialogOutcome::Consumed
+        }
+        DialogKind::Skills => {
+            let e = view.as_any_mut().downcast_mut::<SkillsDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            e.follow = false;
+            DialogOutcome::Consumed
+        }
+        DialogKind::Models => {
+            let e = view.as_any_mut().downcast_mut::<ModelsDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            e.follow = false;
+            DialogOutcome::Consumed
+        }
+        DialogKind::HistorySearch => {
+            let e = view.as_any_mut().downcast_mut::<HistorySearchDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            e.follow = false;
+            DialogOutcome::Consumed
+        }
+        DialogKind::Queue => {
+            let e = view.as_any_mut().downcast_mut::<QueueDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            e.follow = false;
+            DialogOutcome::Consumed
+        }
+        DialogKind::Asides => {
+            let e = view.as_any_mut().downcast_mut::<AsidesDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            e.follow = false;
+            DialogOutcome::Consumed
+        }
+        DialogKind::SessionTree => {
+            let e = view.as_any_mut().downcast_mut::<SessionTreeDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            e.follow = false;
+            DialogOutcome::Consumed
+        }
+        DialogKind::Quotas => {
+            let e = view.as_any_mut().downcast_mut::<QuotasDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            e.follow = false;
+            DialogOutcome::Consumed
+        }
+        DialogKind::Permissions => {
+            let e = view.as_any_mut().downcast_mut::<PermissionsDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            DialogOutcome::Consumed
+        }
+        DialogKind::UsageStats => {
+            let e = view.as_any_mut().downcast_mut::<UsageStatsDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            DialogOutcome::Consumed
+        }
+        DialogKind::SessionStats => {
+            let e = view.as_any_mut().downcast_mut::<SessionStatsDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            DialogOutcome::Consumed
+        }
+        DialogKind::SessionTrace => {
+            let e = view.as_any_mut().downcast_mut::<SessionTraceDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            DialogOutcome::Consumed
+        }
+        DialogKind::Switcher => {
+            let e = view.as_any_mut().downcast_mut::<SwitcherDialog>().expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            DialogOutcome::Consumed
+        }
+        DialogKind::PortShare => DialogOutcome::Consumed,
+    }
+}
+
 /// Handle a local navigation/scroll action for one dialog entity
 /// (`DialogView::handle_input`). `ModalUp`/`ModalDown` are the generic ↑/↓
-/// arrows; `SessionSelect` is the list-navigation family. Returns `Unhandled`
-/// for actions the entity does not own, so the event loop keeps dispatching
-/// semantic commands.
+/// arrows; `SessionSelect` is the list-navigation family; `Scroll*` and `Wheel`
+/// actions drive autonomous viewport and sub-view scrolling (`[INV-SURFACE-06]`,
+/// `[INV-SURFACE-08]`). Returns `Unhandled` for actions the entity does not
+/// own, so the event loop keeps dispatching semantic commands.
 #[allow(clippy::expect_used)]
 fn input_dialog(
     view: &mut dyn DialogView,
@@ -598,6 +768,26 @@ fn input_dialog(
     viewed_session_id: &str,
 ) -> DialogOutcome {
     use InputAction as A;
+
+    // Viewport scrolling and spatial wheel delegation (ADR-0047):
+    if let Some(delta) = scroll_delta(action, app) {
+        return handle_dialog_scroll(view, delta);
+    }
+    if let InputAction::DialogKeysScroll { delta } = action {
+        if view.keys_open() {
+            if *delta < 0 {
+                *view.keys_scroll_mut() = view
+                    .keys_scroll_mut()
+                    .saturating_sub((-delta) as usize);
+            } else {
+                *view.keys_scroll_mut() = view
+                    .keys_scroll_mut()
+                    .saturating_add(*delta as usize);
+            }
+            return DialogOutcome::Consumed;
+        }
+    }
+
     // `(forward, is_modal_arrow)`.
     let (forward, arrow) = match action {
         A::ModalUp => (false, true),
@@ -699,6 +889,14 @@ fn input_dialog(
         }
         DialogKind::Threads => {
             let e = view.as_any_mut().downcast_mut::<ThreadsDialog>().expect("kind");
+            if arrow && e.info_detail {
+                if forward {
+                    e.info_scroll = e.info_scroll.saturating_add(1);
+                } else {
+                    e.info_scroll = e.info_scroll.saturating_sub(1);
+                }
+                return DialogOutcome::Consumed;
+            }
             let count = crate::overlays::session::project_session_rows(
                 &app.sessions_overview,
                 Some(&e.expanded),
@@ -956,9 +1154,6 @@ macro_rules! dialog_entity {
             }
             fn set_nav_index(&mut self, value: usize) {
                 self.index = value;
-            }
-            fn nav_fields(&mut self) -> (&mut usize, Option<&mut bool>) {
-                (&mut self.scroll, Some(&mut self.follow))
             }
             fn keys_open(&self) -> bool {
                 self.keys_open

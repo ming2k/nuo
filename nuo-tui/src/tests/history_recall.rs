@@ -1207,6 +1207,31 @@ fn test_shift_delete_and_bare_delete_dispatch() {
         &mut 0,
     );
     assert_eq!(action, None);
+
+    // Ctrl+P / Ctrl+N navigate matches in history search
+    let action_p = resolve_modal_key(
+        Some(crate::surfaces::OverlaySurface::Dialog(
+            crate::surfaces::DialogKind::HistorySearch,
+        )),
+        crate::surfaces::SceneKind::Thread,
+        Key::CTRL_P,
+        &c,
+        &mut String::new(),
+        &mut 0,
+    );
+    assert_eq!(action_p, Some(crate::input::InputAction::ModalUp));
+
+    let action_n = resolve_modal_key(
+        Some(crate::surfaces::OverlaySurface::Dialog(
+            crate::surfaces::DialogKind::HistorySearch,
+        )),
+        crate::surfaces::SceneKind::Thread,
+        Key::CTRL_N,
+        &c,
+        &mut String::new(),
+        &mut 0,
+    );
+    assert_eq!(action_n, Some(crate::input::InputAction::ModalDown));
 }
 
 #[tokio::test]
@@ -1748,4 +1773,148 @@ fn adr0044_ghost_preview_rendering() {
     let text = buf.content.iter().map(|c| c.symbol()).collect::<String>();
     assert!(text.contains("multi-line"), "Buffer must contain ghost preview line 1");
     assert!(text.contains("ghost candidate"), "Buffer must contain ghost preview line 2");
+}
+
+#[tokio::test]
+async fn test_history_search_composer_pinned_to_bottom_with_multiline_candidate() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "session-a".to_string();
+
+    // Populate history with both single-line and long multi-line entries
+    let multiline_entry = (0..20)
+        .map(|i| format!("line {i} of long historical prompt"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    app.record_input_history("short entry".to_string(), Vec::new(), Vec::new());
+    app.record_input_history(multiline_entry, Vec::new(), Vec::new());
+
+    // 1. Render normal frame before opening history search (80 cols, 24 rows)
+    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    terminal.draw(|f| {
+        crate::event_loop::render_frame(&mut app, f, "session-a");
+    });
+    app.ui.commit();
+    let normal_composer_rect = app.ui.bounds(crate::ui::UiKey::Composer).expect("composer rect");
+    // Under normal empty/single-line input, composer is 4 rows high pinned at rows 19..23 (above 1-row model bar at row 23)
+    assert_eq!(normal_composer_rect.height, 4);
+    assert_eq!(normal_composer_rect.y, 19);
+
+    // 2. Open HistorySearch (simulating Ctrl+R)
+    app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::HistorySearch)
+    );
+
+    // 3. Render frame with multi-line candidate selected (index 0 is the newest, 20-line entry)
+    let mut terminal_hist = nuotc::TestTerminal::new(80, 24);
+    terminal_hist.draw(|f| {
+        crate::event_loop::render_frame(&mut app, f, "session-a");
+    });
+    app.ui.commit();
+    let hist_composer_rect = app.ui.bounds(crate::ui::UiKey::Composer).expect("composer rect in history search");
+
+    // CRITICAL: Composer position MUST NOT change or drift towards the vertical center!
+    // It must remain pinned to the bottom (y = 19, height = 4) rather than expanding to size.height / 2 (y = 11, height = 12).
+    assert_eq!(
+        hist_composer_rect.y, normal_composer_rect.y,
+        "Composer must maintain its position at the bottom (y={}) instead of drifting to vertical center (found y={})",
+        normal_composer_rect.y, hist_composer_rect.y
+    );
+    assert_eq!(
+        hist_composer_rect.height, normal_composer_rect.height,
+        "Composer height must remain based on live input (height={}) instead of inflating to candidate size (found height={})",
+        normal_composer_rect.height, hist_composer_rect.height
+    );
+
+    // 4. Navigate to the single-line candidate (index 1)
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 1;
+    let mut terminal_hist_short = nuotc::TestTerminal::new(80, 24);
+    terminal_hist_short.draw(|f| {
+        crate::event_loop::render_frame(&mut app, f, "session-a");
+    });
+    app.ui.commit();
+    let hist_short_composer_rect = app.ui.bounds(crate::ui::UiKey::Composer).expect("composer rect");
+
+    // Switching between long and short candidates must NEVER cause the composer to jump
+    assert_eq!(
+        hist_short_composer_rect.y, normal_composer_rect.y,
+        "Composer position must be completely stable when browsing history"
+    );
+    assert_eq!(
+        hist_short_composer_rect.height, normal_composer_rect.height,
+        "Composer height must be completely stable when browsing history"
+    );
+}
+
+#[tokio::test]
+async fn test_history_search_stashes_and_restores_attachments_with_empty_text() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "session-a".to_string();
+
+    // Draft with only staged images/pastes and empty text
+    app.input.clear();
+    let img = nuo_wire::ImagePart {
+        mime: "image/png".to_string(),
+        data: "abc".to_string(),
+    };
+    app.pending_images.push(img.clone());
+    app.pending_text_pastes.push("staged paste without text".to_string());
+
+    // 1. Open HistorySearch
+    app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
+    assert!(app.history_draft.is_empty());
+    assert_eq!(app.history_draft_images, vec![img.clone()]);
+    assert_eq!(app.history_draft_text_pastes, vec!["staged paste without text".to_string()]);
+    assert!(app.pending_images.is_empty(), "Pending attachments cleared for query typing");
+    assert!(app.pending_text_pastes.is_empty());
+
+    // 2. Type search query
+    app.input = "query".to_string();
+
+    // 3. Dismiss via Esc
+    assert!(app.dismiss_surface());
+
+    // 4. Staged attachments are 100% restored
+    assert_eq!(app.input, "");
+    assert_eq!(app.pending_images, vec![img]);
+    assert_eq!(app.pending_text_pastes, vec!["staged paste without text".to_string()]);
+}
+
+#[tokio::test]
+async fn test_history_search_empty_placeholder_visible_and_index_clamped() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "session-a".to_string();
+    app.record_input_history("cargo build".to_string(), Vec::new(), Vec::new());
+    app.record_input_history("cargo test".to_string(), Vec::new(), Vec::new());
+
+    app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
+
+    // Operator navigates down to index 1
+    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 1;
+
+    // Operator types a query with no matches
+    app.input = "nomatch_query".to_string();
+
+    // Render frame
+    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    terminal.draw(|f| {
+        crate::event_loop::render_frame(&mut app, f, "session-a");
+    });
+
+    let buffer = terminal.buffer();
+    let screen = (0..buffer.area().height)
+        .map(|y| {
+            (0..buffer.area().width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // The no matches placeholder must be visible
+    assert!(
+        screen.contains("no matches"),
+        "Screen must show visible empty state placeholder: {screen}"
+    );
 }

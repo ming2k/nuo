@@ -1580,6 +1580,17 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             app.set_dialog_keys(open);
         }
         input::InputAction::DialogKeysScroll { delta } => {
+            if let Some(mut ent) = app.surfaces.take_active_view() {
+                let outcome = ent.handle_input(
+                    &input::InputAction::DialogKeysScroll { delta },
+                    app,
+                    viewed_session_id,
+                );
+                app.surfaces.put_active_view(ent);
+                if outcome.is_consumed() {
+                    return ActionFlow::Handled;
+                }
+            }
             if let Some(scroll) = app.dialog_keys_scroll() {
                 if delta < 0 {
                     *scroll = scroll.saturating_sub((-delta) as usize);
@@ -1589,15 +1600,39 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::ScrollUp => {
+            if let Some(mut ent) = app.surfaces.take_active_view() {
+                let outcome =
+                    ent.handle_input(&input::InputAction::ScrollUp, app, viewed_session_id);
+                app.surfaces.put_active_view(ent);
+                if outcome.is_consumed() {
+                    return ActionFlow::Handled;
+                }
+            }
             scroll_tick(app, false);
         }
         input::InputAction::ScrollDown => {
+            if let Some(mut ent) = app.surfaces.take_active_view() {
+                let outcome =
+                    ent.handle_input(&input::InputAction::ScrollDown, app, viewed_session_id);
+                app.surfaces.put_active_view(ent);
+                if outcome.is_consumed() {
+                    return ActionFlow::Handled;
+                }
+            }
             scroll_tick(app, true);
         }
         input::InputAction::Wheel { up, x, y } => {
-            handle_wheel(app, up, x, y);
+            handle_wheel(app, up, x, y, viewed_session_id);
         }
         input::InputAction::ScrollPageUp => {
+            if let Some(mut ent) = app.surfaces.take_active_view() {
+                let outcome =
+                    ent.handle_input(&input::InputAction::ScrollPageUp, app, viewed_session_id);
+                app.surfaces.put_active_view(ent);
+                if outcome.is_consumed() {
+                    return ActionFlow::Handled;
+                }
+            }
             // Read the (Copy) page step up front so the subsequent
             // mutable borrow of the scroll field doesn't conflict.
             let step = modal_page_step(app);
@@ -1611,6 +1646,14 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::ScrollPageDown => {
+            if let Some(mut ent) = app.surfaces.take_active_view() {
+                let outcome =
+                    ent.handle_input(&input::InputAction::ScrollPageDown, app, viewed_session_id);
+                app.surfaces.put_active_view(ent);
+                if outcome.is_consumed() {
+                    return ActionFlow::Handled;
+                }
+            }
             // Read the (Copy) page step up front so the subsequent
             // mutable borrow of the scroll field doesn't conflict.
             let step = modal_page_step(app);
@@ -1624,6 +1667,14 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::ScrollTop => {
+            if let Some(mut ent) = app.surfaces.take_active_view() {
+                let outcome =
+                    ent.handle_input(&input::InputAction::ScrollTop, app, viewed_session_id);
+                app.surfaces.put_active_view(ent);
+                if outcome.is_consumed() {
+                    return ActionFlow::Handled;
+                }
+            }
             if let Some((scroll, follow)) = app.modal_scroll_field() {
                 if let Some(f) = follow {
                     *f = false;
@@ -1634,6 +1685,14 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::ScrollBottom => {
+            if let Some(mut ent) = app.surfaces.take_active_view() {
+                let outcome =
+                    ent.handle_input(&input::InputAction::ScrollBottom, app, viewed_session_id);
+                app.surfaces.put_active_view(ent);
+                if outcome.is_consumed() {
+                    return ActionFlow::Handled;
+                }
+            }
             // Modal scroll bounds are clamped by render_body each
             // frame, so a large number here just means "go to end".
             if let Some((scroll, follow)) = app.modal_scroll_field() {
@@ -2511,15 +2570,6 @@ pub(super) fn enter_panel(
         }
     }
 
-    if id == DialogKind::HistorySearch {
-        // [INV-HIST-03] Atomic draft stash on entering history search
-        if app.history_draft.is_empty() && !app.input.is_empty() {
-            app.history_draft = std::mem::take(&mut app.input);
-            app.history_draft_images = std::mem::take(&mut app.pending_images);
-            app.history_draft_text_pastes = std::mem::take(&mut app.pending_text_pastes);
-            app.cursor_position = 0;
-        }
-    }
     if id == DialogKind::Queue {
         // ADR-0197 M4: the editing-safety auto-pause is mirrored to the
         // server queue authority (resume on close, via `queue_exit_session`).
@@ -2657,10 +2707,22 @@ pub(super) fn enter_scene(
     let _ = runtime;
 }
 
-pub(crate) fn handle_wheel(app: &mut App, up: bool, x: u16, y: u16) {
+pub(crate) fn handle_wheel(app: &mut App, up: bool, x: u16, y: u16, viewed_session_id: &str) {
     use crate::ui::UiKey;
     match app.ui.scene().hit_test(x, y).copied() {
         Some(UiKey::Overlay(overlay)) if app.ui.contains(UiKey::Overlay(overlay), x, y) => {
+            if let Some(mut ent) = app.surfaces.take_active_view() {
+                let action = if up {
+                    input::InputAction::ScrollUp
+                } else {
+                    input::InputAction::ScrollDown
+                };
+                let outcome = ent.handle_input(&action, app, viewed_session_id);
+                app.surfaces.put_active_view(ent);
+                if outcome.is_consumed() {
+                    return;
+                }
+            }
             scroll_tick(app, !up);
         }
         Some(
@@ -2727,6 +2789,7 @@ pub(crate) fn handle_wheel(app: &mut App, up: bool, x: u16, y: u16) {
 #[cfg(test)]
 mod transcript_scroll_tests {
     use super::*;
+    use crate::surfaces::DialogView;
 
     fn scrollable_app() -> App {
         let mut app = crate::tests::new_app_for_relay_tests();
@@ -2789,17 +2852,17 @@ mod transcript_scroll_tests {
         app.permission_scroll = 2;
 
         // 1. Wheel over permission sheet (y=16) scrolls details down
-        handle_wheel(&mut app, false, 10, 16);
+        handle_wheel(&mut app, false, 10, 16, "");
         assert_eq!(app.permission_scroll, 3);
         assert_eq!(app.scroll, 100, "transcript scroll untouched");
 
         // 2. Wheel over permission sheet (y=16) scrolls details up
-        handle_wheel(&mut app, true, 10, 16);
+        handle_wheel(&mut app, true, 10, 16, "");
         assert_eq!(app.permission_scroll, 2);
         assert_eq!(app.scroll, 100, "transcript scroll untouched");
 
         // 3. Wheel above permission sheet (y=5) scrolls transcript
-        handle_wheel(&mut app, true, 10, 5);
+        handle_wheel(&mut app, true, 10, 5, "");
         assert_eq!(app.scroll, 96, "transcript scrolled up");
         assert_eq!(app.permission_scroll, 2, "permission scroll untouched");
     }
@@ -2819,7 +2882,7 @@ mod transcript_scroll_tests {
         app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll = 5;
 
         // 1. Wheel on backdrop (x=2, y=2) outside modal_rect: absorbed, neither modal nor transcript scrolls
-        handle_wheel(&mut app, false, 2, 2);
+        handle_wheel(&mut app, false, 2, 2, "");
         assert_eq!(
             app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll, 5,
             "modal scroll untouched on backdrop"
@@ -2827,12 +2890,89 @@ mod transcript_scroll_tests {
         assert_eq!(app.scroll, 100, "transcript scroll untouched on backdrop");
 
         // 2. Wheel inside modal (x=20, y=8): scrolls modal body
-        handle_wheel(&mut app, false, 20, 8);
+        handle_wheel(&mut app, false, 20, 8, "");
         assert_eq!(
             app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll, 6,
             "modal scrolled inside modal_rect"
         );
         assert_eq!(app.scroll, 100, "transcript scroll untouched");
+    }
+
+    #[test]
+    fn wheel_spatial_routing_under_dialog_sub_views_scrolls_info_detail() {
+        let mut app = scrollable_app();
+        app.open_dialog(crate::surfaces::DialogKind::Threads);
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui.mount(
+            crate::ui::UiKey::Overlay(crate::surfaces::OverlaySurface::Dialog(
+                crate::surfaces::DialogKind::Threads,
+            )),
+            nuotc::Rect::new(10, 5, 60, 10),
+        );
+        app.ui.commit();
+
+        let threads = app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>();
+        threads.scroll = 2;
+        threads.info_detail = true;
+        threads.info_scroll = 0;
+
+        // Wheel inside Threads dialog in info_detail mode:
+        // Must increment info_scroll and leave main list scroll untouched! [INV-SURFACE-08]
+        handle_wheel(&mut app, false, 20, 8, "");
+        assert_eq!(
+            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll,
+            1,
+            "info_detail scrolled down"
+        );
+        assert_eq!(
+            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().scroll,
+            2,
+            "main list scroll untouched"
+        );
+
+        handle_wheel(&mut app, true, 20, 8, "");
+        assert_eq!(
+            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll,
+            0,
+            "info_detail scrolled back up"
+        );
+        assert_eq!(
+            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().scroll,
+            2,
+            "main list scroll untouched"
+        );
+    }
+
+    #[test]
+    fn wheel_spatial_routing_under_dialog_keys_scrolls_keys_sublayer() {
+        let mut app = scrollable_app();
+        app.open_dialog(crate::surfaces::DialogKind::UsageStats);
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui.mount(
+            crate::ui::UiKey::Overlay(crate::surfaces::OverlaySurface::Dialog(
+                crate::surfaces::DialogKind::UsageStats,
+            )),
+            nuotc::Rect::new(10, 5, 60, 10),
+        );
+        app.ui.commit();
+
+        let stats = app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>();
+        stats.set_keys_open(true);
+        *stats.keys_scroll_mut() = 0;
+
+        // Wheel inside UsageStats while dialog_keys is open:
+        // Must increment keys_scroll on the dialog entity, not the body scroll!
+        handle_wheel(&mut app, false, 20, 8, "");
+        assert_eq!(
+            *app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().keys_scroll_mut(),
+            1,
+            "dialog keys sublayer scrolled down"
+        );
+        assert_eq!(
+            app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll,
+            0,
+            "main body scroll untouched"
+        );
     }
 
     #[tokio::test]
@@ -2851,7 +2991,7 @@ mod transcript_scroll_tests {
         let runtime = UiRuntime::minimal_for_test();
 
         // Wheel over menu cycles suggestions
-        handle_wheel(&mut app, false, 5, 8);
+        handle_wheel(&mut app, false, 5, 8, "");
         assert!(app.suggestion_index.is_some());
 
         // Click on completion item 0 accepts completion

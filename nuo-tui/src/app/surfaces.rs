@@ -259,19 +259,6 @@ impl App {
                 Some(&mut self.question_modal_follow),
             ));
         }
-        if let Some(id) = self.active_dialog() {
-            let v = self.surfaces.view_by_kind_mut(id)?;
-            let (scroll, follow) = v.nav_fields();
-            return match id {
-                DialogKind::Permissions
-                | DialogKind::UsageStats
-                | DialogKind::Quotas
-                | DialogKind::SessionStats
-                | DialogKind::SessionTrace
-                | DialogKind::Switcher => Some((scroll, None)),
-                _ => Some((scroll, follow)),
-            };
-        }
         if let Some(overlay) = self.surfaces.active_overlay() {
             match overlay {
                 OverlaySurface::Sheet(s) => match s {
@@ -398,7 +385,13 @@ impl App {
             self.deactivate_dialog(current);
         }
         if id == DialogKind::HistorySearch {
-            if self.history_draft.is_empty() && !self.input.is_empty() {
+            if self.history_draft.is_empty()
+                && self.history_draft_images.is_empty()
+                && self.history_draft_text_pastes.is_empty()
+                && (!self.input.is_empty()
+                    || !self.pending_images.is_empty()
+                    || !self.pending_text_pastes.is_empty())
+            {
                 self.history_draft = std::mem::take(&mut self.input);
                 self.history_draft_images = std::mem::take(&mut self.pending_images);
                 self.history_draft_text_pastes = std::mem::take(&mut self.pending_text_pastes);
@@ -473,15 +466,10 @@ impl App {
             self.resume_queue(&sid);
         }
         if id == DialogKind::HistorySearch {
-            if !self.history_draft.is_empty() {
-                self.input = std::mem::take(&mut self.history_draft);
-                self.pending_images = std::mem::take(&mut self.history_draft_images);
-                self.pending_text_pastes = std::mem::take(&mut self.history_draft_text_pastes);
-                self.set_cursor_end();
-            } else {
-                self.input.clear();
-                self.set_cursor(0);
-            }
+            self.input = std::mem::take(&mut self.history_draft);
+            self.pending_images = std::mem::take(&mut self.history_draft_images);
+            self.pending_text_pastes = std::mem::take(&mut self.history_draft_text_pastes);
+            self.set_cursor_end();
             self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 0;
             self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().scroll = 0;
         }

@@ -34,11 +34,15 @@ fn tool_step(
     if let MessageKind::ToolStep {
         output: out,
         expanded: exp,
+        status,
         ..
     } = &mut m.kind
     {
         *out = output.map(str::to_string);
         *exp = expanded;
+        if output.is_some() {
+            *status = crate::model::document::ToolStepStatus::Ok;
+        }
     }
     m
 }

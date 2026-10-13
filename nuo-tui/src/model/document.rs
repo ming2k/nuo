@@ -15,9 +15,11 @@ use unicode_width::UnicodeWidthStr;
 /// the renderer classifies it into a [`crate::tools::ToolStatus`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ToolStepStatus {
-    /// Still in flight (no terminal event observed yet).
+    /// Ingesting streaming arguments from model provider (pre-dispatch).
     #[default]
-    Running,
+    Ingesting,
+    /// Arguments complete, actively executing in local host runtime / sandbox.
+    Executing,
     /// Finished with a non-error output.
     Ok,
     /// Finished with an explicit error output.
@@ -38,7 +40,15 @@ pub enum ToolStepStatus {
 impl ToolStepStatus {
     /// Whether this state can still transition (i.e. the step is in flight).
     pub fn is_running(self) -> bool {
-        matches!(self, ToolStepStatus::Running)
+        matches!(self, ToolStepStatus::Ingesting | ToolStepStatus::Executing)
+    }
+
+    pub fn is_ingesting(self) -> bool {
+        matches!(self, ToolStepStatus::Ingesting)
+    }
+
+    pub fn is_executing(self) -> bool {
+        matches!(self, ToolStepStatus::Executing)
     }
 }
 
@@ -58,6 +68,8 @@ pub struct ToolInvocation {
     pub user_pinned: bool,
     pub duration_ms: Option<u64>,
     pub started_at: Option<std::time::Instant>,
+    /// ADR-0046: Wall-clock instant when arguments completed and local execution began.
+    pub execution_started_at: Option<std::time::Instant>,
     pub awaiting: bool,
     pub activity: Option<String>,
     /// ADR-0026: argument bytes received so far while the call's arguments
@@ -69,24 +81,42 @@ pub struct ToolInvocation {
     pub children: Vec<TranscriptMessage>,
 }
 
+/// Detailed execution phase of an autonomous tool slot (ADR-0046).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolExecutionPhase {
+    /// Ingesting streaming arguments from model provider.
+    Ingesting { bytes: Option<usize> },
+    /// Dispatched and actively executing in local host/sandbox runtime.
+    Executing { elapsed_ms: u64 },
+    /// Terminal outcome (succeeded, failed, cancelled, denied, interrupted).
+    Terminal(ToolStepStatus),
+}
+
 impl ToolInvocation {
     pub fn new(
         id: impl Into<String>,
         name: impl Into<String>,
         arguments: impl Into<String>,
     ) -> Self {
+        let id_str = id.into();
+        let (status, execution_started_at) = if id_str.is_empty() {
+            (ToolInvocationStatus::Ingesting, None)
+        } else {
+            (ToolInvocationStatus::Executing, Some(std::time::Instant::now()))
+        };
         Self {
-            id: id.into(),
+            id: id_str,
             name: name.into(),
             profile: None,
             arguments: arguments.into(),
             output: None,
             structured: None,
-            status: ToolInvocationStatus::Running,
+            status,
             expanded: false,
             user_pinned: false,
             duration_ms: None,
             started_at: Some(std::time::Instant::now()),
+            execution_started_at,
             awaiting: false,
             activity: None,
             input_bytes: None,
@@ -185,6 +215,9 @@ pub enum MessageKind {
         /// `Instant` is cheap to capture at construction time and is not
         /// serialized — session restore reconstructs finished steps without it.
         started_at: Option<std::time::Instant>,
+        /// ADR-0046: Wall-clock instant when arguments completed and local execution
+        /// began. `None` while arguments are still streaming (pre-dispatch).
+        execution_started_at: Option<std::time::Instant>,
         /// Set when this subagent surfaced a permission / user-input request that
         /// is still parked awaiting a human decision. The peek row reads it to
         /// show `awaiting approval` instead of the last tool activity, which
@@ -905,8 +938,10 @@ impl TranscriptMessage {
     /// ADR-0023: stamp the provider tool-call slot on a pre-dispatch step, the
     /// correlation key for the announce → collapse handshake.
     pub fn with_input_slot(mut self, slot: usize) -> Self {
-        if let MessageKind::ToolStep { input_slot, .. } = &mut self.kind {
+        if let MessageKind::ToolStep { input_slot, status, execution_started_at, .. } = &mut self.kind {
             *input_slot = Some(slot);
+            *status = ToolStepStatus::Ingesting;
+            *execution_started_at = None;
         }
         self
     }
@@ -952,8 +987,23 @@ impl TranscriptMessage {
         true
     }
 
+    /// ADR-0046: record streaming partial arguments for `call_id` (the step's own
+    /// dispatch id — empty while pre-dispatch). Returns whether the arguments changed.
+    pub fn set_tool_streaming_arguments(&mut self, call_id: &str, args: String) -> bool {
+        let MessageKind::ToolStep { id, arguments, .. } = &mut self.kind else {
+            return false;
+        };
+        if id != call_id || *arguments == args {
+            return false;
+        }
+        *arguments = args;
+        self.refresh_tool_step();
+        true
+    }
+
     /// ADR-0026: collapse a pre-dispatch step onto its dispatch `call_id` and complete arguments —
     /// re-key the id, record arguments, and clear the slot/byte pre-dispatch state in one step.
+    /// ADR-0046: transition from Ingesting to Executing phase by capturing `execution_started_at`.
     pub fn collapse_tool_call(
         &mut self,
         call_id: impl Into<String>,
@@ -966,6 +1016,8 @@ impl TranscriptMessage {
             arguments: step_arguments,
             input_slot,
             input_bytes,
+            status,
+            execution_started_at,
             ..
         } = &mut self.kind
         else {
@@ -976,18 +1028,23 @@ impl TranscriptMessage {
         *step_arguments = arguments;
         *input_slot = None;
         *input_bytes = None;
+        *status = ToolStepStatus::Executing;
+        *execution_started_at = Some(std::time::Instant::now());
         self.refresh_tool_step();
         was_pending
     }
 
     /// ADR-0026: collapse a pre-dispatch step onto its dispatch `call_id` —
     /// re-key the id and clear the slot/byte pre-dispatch state in one step.
+    /// ADR-0046: transition from Ingesting to Executing phase by capturing `execution_started_at`.
     pub fn rekey_tool_step(&mut self, call_id: impl Into<String>) -> bool {
         let call_id = call_id.into();
         let MessageKind::ToolStep {
             id,
             input_slot,
             input_bytes,
+            status,
+            execution_started_at,
             ..
         } = &mut self.kind
         else {
@@ -997,6 +1054,8 @@ impl TranscriptMessage {
         *id = call_id;
         *input_slot = None;
         *input_bytes = None;
+        *status = ToolStepStatus::Executing;
+        *execution_started_at = Some(std::time::Instant::now());
         self.refresh_tool_step();
         was_pending
     }
@@ -1057,23 +1116,30 @@ impl TranscriptMessage {
         name: impl Into<String>,
         arguments: impl Into<String>,
     ) -> Self {
+        let id_str = id.into();
+        let (status, execution_started_at) = if id_str.is_empty() {
+            (ToolStepStatus::Ingesting, None)
+        } else {
+            (ToolStepStatus::Executing, Some(std::time::Instant::now()))
+        };
         let mut message = Self {
             id: next_message_id(),
             role: Role::Tool,
             blocks: Vec::new(),
             raw: String::new(),
             kind: MessageKind::ToolStep {
-                id: id.into(),
+                id: id_str,
                 name: name.into(),
                 profile: None,
                 arguments: arguments.into(),
                 output: None,
                 structured: None,
-                status: ToolStepStatus::Running,
+                status,
                 expanded: false,
                 user_pinned: false,
                 duration_ms: None,
                 started_at: Some(std::time::Instant::now()),
+                execution_started_at,
                 awaiting: false,
                 activity: None,
                 input_bytes: None,
@@ -1982,7 +2048,7 @@ impl TranscriptMessage {
             let current = match children.last() {
                 Some(child)
                     if child.is_tool_step()
-                        && child.tool_step_status() == Some(ToolStepStatus::Running) =>
+                        && child.tool_step_status().is_some_and(|s| s.is_running()) =>
                 {
                     // A tool step still in flight — name the tool so the
                     // row says *what* is being done, not just that the
@@ -2596,10 +2662,19 @@ impl TranscriptMessage {
             (None, _) => String::new(),
         };
         Some(match status {
-            ToolStepStatus::Running => format!("{summary}{streaming}"),
-            ToolStepStatus::Ok => {
-                format!("{summary}{streaming} ({})", duration_text(*duration_ms))
+            ToolStepStatus::Ingesting => format!("{summary}{streaming}"),
+            ToolStepStatus::Executing => {
+                let verb = match name.as_str() {
+                    "edit_text" | "edit" | "edit_file" | "write_file" | "write" => "applying",
+                    "execute_command" => "running",
+                    _ => "executing",
+                };
+                format!("{summary} · {verb}")
             }
+            ToolStepStatus::Ok => match duration_ms {
+                Some(ms) => format!("{summary}{streaming} ({})", duration_text(Some(*ms))),
+                None => format!("{summary}{streaming}"),
+            },
             ToolStepStatus::Failed => {
                 format!("{summary}{streaming} (failed {})", duration_text(*duration_ms))
             }
@@ -2630,6 +2705,8 @@ impl TranscriptMessage {
             status,
             duration_ms,
             structured,
+            input_bytes,
+            input_slot: _,
             ..
         } = &self.kind
         else {
@@ -2658,8 +2735,22 @@ impl TranscriptMessage {
         let semantic_line =
             crate::tools::semantic_summary_for(name, effective_args, profile.as_deref(), workspace_root);
         let suffix = match status {
-            ToolStepStatus::Running => None,
-            ToolStepStatus::Ok => Some(format!(" ({})", duration_text(*duration_ms))),
+            ToolStepStatus::Ingesting => {
+                let s = match input_bytes {
+                    Some(bytes) => format!(" · receiving input ({} KB)", bytes / 1024),
+                    None => " · receiving input".to_string(),
+                };
+                Some(s)
+            }
+            ToolStepStatus::Executing => {
+                let verb = match name.as_str() {
+                    "edit_text" | "edit" | "edit_file" | "write_file" | "write" => "applying",
+                    "execute_command" => "running",
+                    _ => "executing",
+                };
+                Some(format!(" · {verb}"))
+            }
+            ToolStepStatus::Ok => duration_ms.map(|ms| format!(" ({})", duration_text(Some(ms)))),
             ToolStepStatus::Failed => Some(format!(" (failed {})", duration_text(*duration_ms))),
             ToolStepStatus::Denied => Some(format!(" (denied {})", duration_text(*duration_ms))),
             ToolStepStatus::Cancelled => {
@@ -2670,6 +2761,32 @@ impl TranscriptMessage {
             }
         };
         Some((semantic_line, suffix))
+    }
+
+    /// Detailed execution phase of this tool step (ADR-0046).
+    pub fn tool_execution_phase(&self) -> Option<ToolExecutionPhase> {
+        let MessageKind::ToolStep {
+            status,
+            input_bytes,
+            execution_started_at,
+            started_at,
+            ..
+        } = &self.kind else {
+            return None;
+        };
+        match status {
+            ToolStepStatus::Ingesting => Some(ToolExecutionPhase::Ingesting {
+                bytes: *input_bytes,
+            }),
+            ToolStepStatus::Executing => {
+                let elapsed_ms = execution_started_at
+                    .or(*started_at)
+                    .map(|t| t.elapsed().as_millis() as u64)
+                    .unwrap_or(0);
+                Some(ToolExecutionPhase::Executing { elapsed_ms })
+            }
+            terminal => Some(ToolExecutionPhase::Terminal(*terminal)),
+        }
     }
 
     /// Alias for [`Self::is_tool_step`].
@@ -2711,6 +2828,7 @@ impl TranscriptMessage {
             user_pinned,
             duration_ms,
             started_at,
+            execution_started_at,
             awaiting,
             activity,
             input_bytes,
@@ -2732,6 +2850,7 @@ impl TranscriptMessage {
             user_pinned: *user_pinned,
             duration_ms: *duration_ms,
             started_at: *started_at,
+            execution_started_at: *execution_started_at,
             awaiting: *awaiting,
             activity: activity.clone(),
             input_bytes: *input_bytes,
@@ -2753,10 +2872,11 @@ impl TranscriptMessage {
             user_pinned: _,
             duration_ms,
             started_at: _,
+            execution_started_at: _,
             awaiting: _,
             activity: _,
-            input_bytes: _,
-            input_slot: _,
+            input_bytes,
+            input_slot,
             children: _,
         } = &self.kind
         else {
@@ -2806,7 +2926,21 @@ impl TranscriptMessage {
             };
             let summary = crate::tools::summary_for(name, effective_args, profile.as_deref());
             let suffix = match status {
-                ToolStepStatus::Running => String::new(),
+                ToolStepStatus::Ingesting => {
+                    match (input_slot, input_bytes) {
+                        (Some(_), Some(bytes)) => format!(" · receiving input ({} KB)", bytes / 1024),
+                        (Some(_), None) => " · receiving input".to_string(),
+                        (None, _) => String::new(),
+                    }
+                }
+                ToolStepStatus::Executing => {
+                    let verb = match name.as_str() {
+                        "edit_text" | "edit" | "edit_file" | "write_file" | "write" => "applying",
+                        "execute_command" => "running",
+                        _ => "executing",
+                    };
+                    format!(" · {verb}")
+                }
                 ToolStepStatus::Ok => format!(" ({})", duration_text(*duration_ms)),
                 ToolStepStatus::Failed => format!(" (failed {})", duration_text(*duration_ms)),
                 ToolStepStatus::Denied => format!(" (denied {})", duration_text(*duration_ms)),
