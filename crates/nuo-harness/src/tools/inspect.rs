@@ -1,6 +1,6 @@
-//! The `inspect` tool: demand-paged offstream epistemic memory (ADR-0262).
+//! The `inspect` tool: demand-paged offstream epistemic memory and Claim-Check stub inspection (ADR-0057, ADR-0262).
 //!
-//! Exposes out-of-band context (subagent transcripts, pruned tool results, and
+//! Exposes out-of-band context (Claim-Check stubs, subagent transcripts, pruned tool results, and
 //! folded causal subgraphs) to the master model via a uniform, paginated interface.
 
 use std::sync::Arc;
@@ -12,9 +12,9 @@ use serde_json::{Value, json};
 use crate::offstream::OffstreamRegistry;
 use nuo_wire::{Tool, ToolOutput};
 
-const INSPECT_DESCRIPTION: &str = "Inspect offstream epistemic memory (ADR-0262, ADR-0285). \
-Retrieve detailed historical context that has exited the active model window: \
-subagent transcripts ('sub:<session_id>'), pruned tool results ('call:<tool_call_id>'), \
+const INSPECT_DESCRIPTION: &str = "Inspect offstream Claim-Check epistemic memory stubs (ADR-0057, ADR-0262, ADR-0285). \
+Retrieve detailed historical context and large tool outputs that have exited the active model window: \
+Claim-Check tool stubs ('call:<tool_call_id>'), subagent transcripts ('sub:<session_id>'), \
 folded compaction subgraphs ('fold:<compaction_node_id>'), or visual artifacts ('artifact:<blob_hash>'). \
 Supports automatic multimodal visual rehydration for pruned image observations. \
 Use action 'list' to see available artifacts, or 'read' to page through content.";

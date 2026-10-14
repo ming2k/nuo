@@ -1541,20 +1541,58 @@ impl Agent {
                 .with_subagent_meta(meta)
             }
             None => {
-                let formatted = format!("[{} result]:\n{}", call.name, text);
-                let message_content = if let ToolOutput::Shell {
-                    truncated: true, ..
+                if let ToolOutput::Shell {
+                    truncated: true,
+                    stdout,
+                    stderr,
+                    exit,
+                    ..
                 } = result
                 {
-                    // ADR-0264: If the shell command output was truncated, ensure the model message
-                    // contains the explicit call: handle so the model can inspect offstream immediately.
-                    format!(
-                        "{formatted}\n\n[Epistemic virtual memory: inspect full output with handle \"call:{call_id}\"]"
-                    )
+                    // ADR-0264, ADR-0057: Store full raw un-truncated shell output in CAS BlobStore
+                    // so the Claim-Check stub handle is guaranteed to be redeemable by inspect.
+                    let raw_full = nuo_tool::tool_output::shell_inner_text(stdout, stderr, *exit);
+                    let blob_dir = nuo_host::paths::get().blobs_dir();
+                    let blob_store = nuo_persistence::blobs::BlobStore::new(blob_dir);
+                    let content_blob_hash = blob_store.put(raw_full.as_bytes()).ok();
+
+                    let formatted = format!("[{} result]:\n{}", call.name, text);
+                    let message_content = format!(
+                        "{formatted}\n\n[Claim-Check Stub: inspect full output with handle \"call:{call_id}\"]"
+                    );
+                    let mut msg = Message::tool_result(call, message_content);
+                    msg.content_blob = content_blob_hash;
+                    msg
+                } else if text.len() > nuo_tool::tool_output::SHELL_MAX_OUTPUT_CHARS {
+                    // ADR-0057 [INV-CLAIM-01]: Universal Claim-Check gate. Any oversized tool output
+                    // (MCP, custom tool, search/read) is offloaded to CAS BlobStore and projected as a Stub.
+                    let blob_dir = nuo_host::paths::get().blobs_dir();
+                    let blob_store = nuo_persistence::blobs::BlobStore::new(blob_dir);
+                    let content_blob_hash = blob_store.put(text.as_bytes()).ok();
+
+                    let tokens = nuo_wire::tokenizer::count_tokens(&text);
+                    let head_len = nuo_tool::tool_output::SHELL_TRUNCATED_CHARS / 2;
+                    let tail_len = nuo_tool::tool_output::SHELL_TRUNCATED_CHARS / 2;
+                    let head_part: String = text.chars().take(head_len).collect();
+                    let tail_part: String = text
+                        .chars()
+                        .rev()
+                        .take(tail_len)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect();
+                    let stub_content = format!(
+                        "[{name} result]:\n[Output truncated: {tokens} tokens total]\n{head_part}\n\n⋯ [Claim-Check Stub: middle output omitted to protect context budget] ⋯\n\n{tail_part}\n\n[Claim-Check Stub: inspect full output with handle \"call:{call_id}\"]",
+                        name = call.name
+                    );
+                    let mut msg = Message::tool_result(call, stub_content);
+                    msg.content_blob = content_blob_hash;
+                    msg
                 } else {
-                    formatted
-                };
-                Message::tool_result(call, message_content)
+                    let formatted = format!("[{} result]:\n{}", call.name, text);
+                    Message::tool_result(call, formatted)
+                }
             }
         };
         messages.push(tool_message);

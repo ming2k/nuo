@@ -1,9 +1,9 @@
-version: "0.0.3"
+version: "0.0.4"
 
 # Remote Upstream & Protocol Distribution
 upstream:
   source: "https://github.com/ming2k/docgov"
-  ref: "v0.0.3"
+  ref: "v0.0.4"
 
 # Canonical Governance Documentation Mirror (for Agent Context)
 governance_docs:

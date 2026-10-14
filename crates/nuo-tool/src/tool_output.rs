@@ -43,12 +43,12 @@ pub enum ToolOutput {
     PermissionDenied { tool: String },
     /// A shell command execution. Carries stdout/stderr/exit separately so the
     /// UI never has to string-sniff for `Exit N` / `STDOUT:` / `STDERR:`
-    /// markers. `truncated` is a **size hint**: `true` means the composed
-    /// output crosses [`crate::tool_output::SHELL_MAX_OUTPUT_CHARS`] and text
-    /// consumers will cut it. The structured fields themselves are *not*
-    /// pre-cut — they carry the full output so a UI can render/paginate the
-    /// complete step; the hint just lets a text-based caller truncate without
-    /// recomputing the length.
+    /// markers. `truncated` is a **size hint and Claim-Check Stub trigger** (ADR-0057):
+    /// `true` means the composed output crosses [`crate::tool_output::SHELL_MAX_OUTPUT_CHARS`]
+    /// and text consumers will project it as a bounded Context Stub. The structured fields
+    /// themselves are *not* pre-cut — they carry the full output so a UI can render/paginate
+    /// the complete step and CAS BlobStore can retain the raw un-truncated bytes; the hint
+    /// lets a text-based caller stub without recomputing the length.
     ///
     /// `lines` is the **TUI-authoritative** view: stdout and stderr lines in
     /// their true interleaved arrival order, each tagged with its source
@@ -718,7 +718,7 @@ fn shell_to_text(stdout: &str, stderr: &str, exit: Option<i32>, truncated: bool)
         }
         let tail_part = &inner[tail_idx..];
         format!(
-            "[Output truncated: {tokens} tokens total]\n{}\n\n⋯ [middle output omitted to relieve context] ⋯\n\n{}\n\n[Output exceeded context budget — inspect offstream with `inspect` or filter output on retry]",
+            "[Output truncated: {tokens} tokens total]\n{}\n\n⋯ [Claim-Check Stub: middle output omitted to protect context budget] ⋯\n\n{}",
             head_part, tail_part
         )
     } else {
@@ -1103,9 +1103,9 @@ mod tests {
             text.starts_with("[Output truncated: 2250 tokens total]\n"),
             "got: {text:.80}"
         );
-        assert!(text.ends_with(
-            "[Output exceeded context budget — inspect offstream with `inspect` or filter output on retry]"
-        ));
+        assert!(
+            text.contains("⋯ [Claim-Check Stub: middle output omitted to protect context budget] ⋯")
+        );
     }
 
     #[test]

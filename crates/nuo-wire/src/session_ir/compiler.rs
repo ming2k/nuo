@@ -180,7 +180,7 @@ fn pass2_context_budgeting(
                 if msg.role == Role::Tool && msg.content.len() > max_tool_chars {
                     let call_id = msg.tool_call_id.as_deref().unwrap_or(node.id.as_str());
                     let truncated_text = format!(
-                        "{}...\n[Tool output truncated by Session IR compiler: {} bytes omitted]\n[Epistemic virtual memory: inspect full output with handle \"call:{call_id}\"]",
+                        "{}...\n[Tool output truncated by Session IR compiler: {} bytes omitted]\n[Claim-Check Stub: inspect full output with handle \"call:{call_id}\"]",
                         &msg.content[..max_tool_chars],
                         msg.content.len() - max_tool_chars
                     );
@@ -512,7 +512,7 @@ mod tests {
         );
         assert!(
             tool_msg.content.contains(
-                "[Epistemic virtual memory: inspect full output with handle \"call:t1\"]"
+                "[Claim-Check Stub: inspect full output with handle \"call:t1\"]"
             )
         );
 

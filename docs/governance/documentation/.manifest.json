@@ -2,15 +2,21 @@
   "schema": "docgov/manifest",
   "schema_version": 2,
   "name": "docgov",
-  "description": "Universal documentation governance: semantic coordinate tensor core with pluggable vertical domain entities.",
+  "description": "Universal documentation governance: multi-dimensional coordinate core with pluggable vertical domain entities.",
   "license": "MIT",
   "homepage": "https://github.com/ming2k/docgov",
-  "protocol_version": "0.0.3",
+  "protocol_version": "0.0.4",
   "protocol_history": [
+    {
+      "version": "0.0.4",
+      "date": "2026-03-31",
+      "status": "current",
+      "summary": "Protocol v0.0.4: Modernize specification core and profiles, eliminate pseudo-academic jargon, enforce in-place frontmatter lifecycles (abolishing physical archive moves), and unify invariant taxonomies under SSOT."
+    },
     {
       "version": "0.0.3",
       "date": "2026-03-31",
-      "status": "current",
+      "status": "superseded",
       "summary": "Protocol v0.0.3: Distributes pre-decision RFC governance architecture standard (RFC-0002), aligns core system invariant headers, and locks protocol assets."
     },
     {
@@ -32,91 +38,91 @@
       "role": "charter",
       "profile": "core",
       "editable": false,
-      "sha256": "187e855f8af69cf20e0980dac8809674162fd1e6cf1ed264725715a241308658"
+      "sha256": "fcea635cc7e05c17e345b785e05cf7115dfde79185d650e4b28309776cb46848"
     },
     "core/invariants.md": {
       "role": "constitution",
       "profile": "core",
       "editable": false,
-      "sha256": "c0e8ff6cc67f7b8bd0de72358114d938e5b64c7e04394a96e358926b4468afb0"
+      "sha256": "12e1ef68121aa8d7bfad5d7f6f779a2358c7eaa3ef9ca0c1c4af5facd8247332"
     },
     "core/style.md": {
       "role": "guide",
       "profile": "core",
       "editable": false,
-      "sha256": "71fabafd58a8c860f16a7a4c65bb31eb42f40c361bc26d597a7edde387552a90"
+      "sha256": "7b407e059ee170930fa84edf286839e41d98b6290f06320f444ae09b1db8e051"
     },
     "core/taxonomy.md": {
-      "role": "tensor",
+      "role": "taxonomy",
       "profile": "core",
       "editable": false,
-      "sha256": "ca9c6420f46666be1fb2fed0cddaf8065bf37372b7f38846536ccb46a7c5d846"
+      "sha256": "a5d5a0de1bb0b1ffef54234c8b88d9ea3a96a6811de1e1fecaf1182f9b6f2340"
     },
     "core/workflow.md": {
       "role": "lifecycle",
       "profile": "core",
       "editable": false,
-      "sha256": "05dff7d67612e89f6523a95490980a85e1cbf305134b5f05554f76024cbdea55"
+      "sha256": "c4c64d850c5649d85be1429b2f591cfebf745ddfe991004289d37bca00de737f"
     },
     "profiles/architecture/adr.md": {
       "role": "entity",
       "profile": "architecture",
       "editable": false,
-      "sha256": "d259e2a8bb45c15cafdda34368a5f8565687e57e4891f5aff830f8db38594171"
+      "sha256": "75dad06f416add20dbeb371bdcf8a4468e6dda966923973bfc4e0819a3957290"
     },
     "profiles/architecture/index.md": {
       "role": "charter",
       "profile": "architecture",
       "editable": false,
-      "sha256": "b80e78af89b5229a11a1df0e222268cec6211d1649a127075073782604d30d5d"
+      "sha256": "5dbedc56dec6c5f73f67b5fdc97574d4870678547a4857e9f294e79206f344f4"
     },
     "profiles/architecture/living-snapshot.md": {
       "role": "entity",
       "profile": "architecture",
       "editable": false,
-      "sha256": "e9bd0d62d56c3dff8fac7d2d3428b3751d492fd79e33f50f4ae3882251459a23"
+      "sha256": "6972f83228f2cad5604033afc2c5b732e30d242d7c42dc03ee935da30a87d065"
     },
     "profiles/architecture/rfc.md": {
       "role": "entity",
       "profile": "architecture",
       "editable": false,
-      "sha256": "15c4e9a2962b2e131032b845b4d2cb810331ac642e011b1e8096187d37dabd37"
+      "sha256": "39c2589d0738b4d636f2379bbeab92855c81886c9a4d88885963c4c1664b1ecf"
     },
     "profiles/operations/index.md": {
       "role": "charter",
       "profile": "operations",
       "editable": false,
-      "sha256": "64d0f0461cfc46d13599292c4e4dda7ff173c08fef0b90269971b072c3bd15d8"
+      "sha256": "2f88e9527f24f2904319d9fe6da66f52427412825c8480feb1592b23e1650fe6"
     },
     "profiles/operations/postmortem.md": {
       "role": "entity",
       "profile": "operations",
       "editable": false,
-      "sha256": "610c4339b7498cd292ffec85e82673aa903200fcfc4fd99a5628b2f696e9eaee"
+      "sha256": "6065a524af4c56e6ced6a2a9a11dec4028258685f08a8b38f46ae9a3291a8092"
     },
     "profiles/validation/acceptance.md": {
       "role": "entity",
       "profile": "validation",
       "editable": false,
-      "sha256": "1e78c51a2896ec7cd312014a5e4634e4c4a3fd7db8491445a39db21039e9d739"
+      "sha256": "93e0df11bfd071b9fcbb6353ac3196c05cd649abe1fc27b5a15e4f96eda46462"
     },
     "profiles/validation/index.md": {
       "role": "charter",
       "profile": "validation",
       "editable": false,
-      "sha256": "21b4022d31a697e05b0f667bd2ca5f94b8b6c688f3997a36ee95d3114829a95a"
+      "sha256": "338303d4ae545a26c31feffe9b0222b041725fbd584aff6efa3516d07f3e87ea"
     },
     "profiles/validation/testing.md": {
       "role": "entity",
       "profile": "validation",
       "editable": false,
-      "sha256": "1e6f2efcec81c9cfa4a2a9c36f05e666f32fddc4c5ed06ef3e97393275436cb6"
+      "sha256": "82392a70eb15292e3aaa073b638a3f36f70202ba6ce7516b7e698b7b49ffb1e5"
     },
     "default-config.yml": {
       "role": "template",
       "profile": "core",
       "editable": false,
-      "sha256": "5fe5fc365bc66575a45eda1a4fbee694f1f5a14fe5f0f29fa6cb3316b13b6275"
+      "sha256": "2fef4e841c2d8052be33d1f0f7f560ec6cfd06af5e53eeccc61a6600ae670a22"
     }
   }
 }

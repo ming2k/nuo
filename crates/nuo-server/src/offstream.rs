@@ -2,7 +2,7 @@
 //!
 //! Provides lock-free offstream readers for:
 //! - `sub:`: Subagent session transcripts and trajectories
-//! - `call:`: Pruned tool execution outputs restored from CAS BlobStore / SessionIR
+//! - `call:`: Claim-Check tool execution stubs restored from CAS BlobStore / SessionIR (ADR-0057)
 //! - `fold:`: Folded causal subgraphs behind compaction horizons
 
 use std::sync::Arc;
@@ -204,7 +204,7 @@ impl OffstreamSource for SubagentSource {
     }
 }
 
-/// Source for inspecting pruned tool outputs (`call:<tool_call_id>`).
+/// Source for inspecting Claim-Check tool output stubs (`call:<tool_call_id>`) (ADR-0057).
 pub struct PrunedToolSource {
     session_id: String,
     blob_store: BlobStore,
@@ -279,7 +279,7 @@ impl OffstreamSource for PrunedToolSource {
                 {
                     let content = entry.content.as_deref().unwrap_or("");
                     if (content.starts_with(nuo_wire::pressure::CLEARED_TOOL_PREFIX)
-                        || content.contains("[Epistemic virtual memory: inspect full output with handle")
+                        || content.contains("[Claim-Check Stub: inspect full output with handle")
                         || content.contains("[Output truncated:")
                         || payload.content_blob.is_some())
                         && seen_calls.insert(call_id.clone())
@@ -304,7 +304,7 @@ impl OffstreamSource for PrunedToolSource {
                 {
                     let content = &message.content;
                     if (content.starts_with(nuo_wire::pressure::CLEARED_TOOL_PREFIX)
-                        || content.contains("[Epistemic virtual memory: inspect full output with handle")
+                        || content.contains("[Claim-Check Stub: inspect full output with handle")
                         || content.contains("[Output truncated:")
                         || message.content_blob.is_some())
                         && seen_calls.insert(call_id.clone())

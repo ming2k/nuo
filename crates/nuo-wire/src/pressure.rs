@@ -832,7 +832,7 @@ fn truncate_middle(content: &str, call_id: Option<&str>) -> String {
     let dropped = total - head_tokens - tokenizer::count_tokens(&tail);
     if let Some(id) = call_id {
         format!(
-            "{head}\n[... {dropped}{ELIDED_MARKER} — inspect with handle \"call:{id}\"]\n{tail}"
+            "{head}\n[... {dropped}{ELIDED_MARKER} — Claim-Check Stub: inspect with handle \"call:{id}\"]\n{tail}"
         )
     } else {
         format!("{head}\n[... {dropped}{ELIDED_MARKER}\n{tail}")

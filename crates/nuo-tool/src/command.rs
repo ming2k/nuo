@@ -513,6 +513,26 @@ impl Tool for CommandTool {
             }
         }
 
+        // Apply Claim-Check Context Stub truncation if output exceeds threshold (ADR-0057)
+        let total_chars = stdout.len() + stderr.len();
+        if total_chars > crate::tool_output::SHELL_MAX_OUTPUT_CHARS {
+            let tokens = crate::tokenizer::count_tokens(&result);
+            let head_len = crate::tool_output::SHELL_TRUNCATED_CHARS / 2;
+            let tail_len = crate::tool_output::SHELL_TRUNCATED_CHARS / 2;
+            let head_part: String = result.chars().take(head_len).collect();
+            let tail_part: String = result
+                .chars()
+                .rev()
+                .take(tail_len)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            result = format!(
+                "[Output truncated: {tokens} tokens total]\n{head_part}\n\n⋯ [Claim-Check Stub: middle output omitted to protect context budget] ⋯\n\n{tail_part}\n\n[Claim-Check Stub: inspect full output with handle \"call:<tool_call_id>\"]"
+            );
+        }
+
         if output.status.success() {
             Ok(ToolOutput::success(result))
         } else {

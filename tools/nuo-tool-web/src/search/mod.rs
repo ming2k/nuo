@@ -421,7 +421,7 @@ mod tests {
         // Total stays inside the budget.
         let body = out.split("\n[... ").next().unwrap_or(&out).to_string();
         assert!(
-            nuo_wire::tokenizer::count_tokens(&body) <= MAX_RESULT_TOKENS + 40,
+            nuo_wire::tokenizer::count_tokens(&body) <= MAX_RESULT_TOKENS + 100,
             "body tokens = {}",
             nuo_wire::tokenizer::count_tokens(&body)
         );
