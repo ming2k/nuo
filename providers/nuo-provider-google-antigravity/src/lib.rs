@@ -614,12 +614,9 @@ impl GoogleProvider {
                 headers.insert("Authorization", bearer);
             }
 
-            headers.insert(
-                http::header::HeaderName::from_static("x-goog-api-client"),
-                http::header::HeaderValue::from_static(
-                    nuo_model_codec::client_identity::ANTIGRAVITY_API_CLIENT_HEADER,
-                ),
-            );
+            // Wire truth (live capture 2026-10-14): the shipped `agy` sends no
+            // `x-goog-api-client` (nor any other client-identity header) on
+            // Cloud Code calls — the four-header set above is the whole story.
 
             let project = auth
                 .extension::<nuo_model_codec::GoogleAuthMetadata>()

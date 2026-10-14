@@ -8,7 +8,7 @@ use nuo_wire::{
 };
 use serde::{Deserialize, Serialize};
 
-use nuo_model_codec::client_identity::{ANTIGRAVITY_API_CLIENT_HEADER, ANTIGRAVITY_USER_AGENT};
+use nuo_model_codec::client_identity::ANTIGRAVITY_USER_AGENT;
 
 use crate::oauth::ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL;
 
@@ -93,7 +93,6 @@ impl AntigravityUsageFetcher {
         let request = nuo_provider_transport::http::Request::new(netune::Method::POST, &endpoint)
             .header("authorization", format!("Bearer {api_key}"))
             .header("user-agent", ANTIGRAVITY_USER_AGENT)
-            .header("x-goog-api-client", ANTIGRAVITY_API_CLIENT_HEADER)
             .json(&req_body);
         let resp = client
             .send(request)
@@ -128,7 +127,6 @@ pub async fn retrieve_antigravity_quota_summary(
         nuo_provider_transport::http::Request::new(netune::Method::POST, ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL)
             .header("authorization", format!("Bearer {access_token}"))
             .header("user-agent", ANTIGRAVITY_USER_AGENT)
-            .header("x-goog-api-client", ANTIGRAVITY_API_CLIENT_HEADER)
             .json(&req_body);
     let resp = client
         .send(request)

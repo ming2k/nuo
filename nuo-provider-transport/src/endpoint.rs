@@ -390,12 +390,9 @@ mod tests {
         );
 
         let agy = ClientProfile::Antigravity;
-        assert!(
-            agy.headers()
-                .iter()
-                .any(|(k, v)| *k == "x-goog-api-client"
-                    && *v == nuo_model_codec::client_identity::ANTIGRAVITY_API_CLIENT_HEADER)
-        );
+        // Wire truth (live 2026-10-14): the shipped `agy` sends no
+        // client-identity headers on Cloud Code calls — the preset is empty.
+        assert!(agy.headers().is_empty());
 
         let opencode = ClientProfile::OpenCode;
         assert!(

@@ -242,15 +242,6 @@ pub fn antigravity_cli_user_agent(
     )
 }
 
-/// Google API client attribution header value sent by the Antigravity client.
-///
-/// Live note (2026-10-14): the real `agy` 1.3.5 sends **no** `x-goog-api-client`
-/// header at all, and the backend does not discriminate on it (differential
-/// probe: every `v1internal` verb returns `200` with and without it). nuo keeps
-/// stamping the header as harmless attribution parity with the older
-/// Google API client stack the profile originally mirrored.
-pub const ANTIGRAVITY_API_CLIENT_HEADER: &str = "gl-go/1.23.2 gdcl/0.1";
-
 /// Remote control proxy identification header: `X-Jetski-Via-Remote-Control`.
 pub const ANTIGRAVITY_REMOTE_CONTROL_VIA_HEADER: &str = "X-Jetski-Via-Remote-Control";
 
@@ -261,8 +252,13 @@ pub const ANTIGRAVITY_REMOTE_CONTROL_UA_HEADER: &str = "X-Jetski-Remote-Control-
 pub const ANTIGRAVITY_REMOTE_CONTROL_TRANSPORT_HEADER: &str = "X-Jetski-Remote-Control-Transport";
 
 /// Client identity headers used for Google Antigravity profile.
-pub const ANTIGRAVITY_CLIENT_HEADERS: &[(&str, &str)] =
-    &[("x-goog-api-client", ANTIGRAVITY_API_CLIENT_HEADER)];
+///
+/// Empty by wire truth: the shipped `agy` 1.3.5 sends **no** client-identity
+/// headers on any Cloud Code call — exactly four headers total
+/// (`Authorization`, `Content-Type`, `Accept-Encoding`, `User-Agent`; live
+/// capture 2026-10-14). The profile must not carry header markers the real
+/// client does not send.
+pub const ANTIGRAVITY_CLIENT_HEADERS: &[(&str, &str)] = &[];
 
 /// Antigravity client environment and session metadata (emulating agy internal `exa.codeium_common_pb.Metadata`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -526,7 +522,9 @@ impl ClientPreset {
                 headers: ANTIGRAVITY_CLIENT_HEADERS,
                 capabilities: ClientCapabilities {
                     coding_platform_compatible: true,
-                    has_client_headers: true,
+                    // Wire truth: the shipped client sends no
+                    // client-identity headers (live 2026-10-14).
+                    has_client_headers: false,
                 },
             },
         }
@@ -662,10 +660,6 @@ impl ClientProfile {
                 (
                     ANTIGRAVITY_REMOTE_CONTROL_TRANSPORT_HEADER.to_string(),
                     transport.into(),
-                ),
-                (
-                    "x-goog-api-client".to_string(),
-                    ANTIGRAVITY_API_CLIENT_HEADER.to_string(),
                 ),
             ],
         }
@@ -995,11 +989,9 @@ mod tests {
         );
 
         let agy = ClientProfile::Antigravity;
-        assert!(
-            agy.headers()
-                .iter()
-                .any(|(k, v)| *k == "x-goog-api-client" && *v == ANTIGRAVITY_API_CLIENT_HEADER)
-        );
+        // Wire truth (live capture 2026-10-14): the shipped `agy` sends no
+        // client-identity headers — the preset must stay empty.
+        assert!(agy.headers().is_empty());
 
         let cline = ClientProfile::Cline;
         assert!(
@@ -1104,11 +1096,9 @@ mod tests {
                 .any(|(k, v)| *k == ANTIGRAVITY_REMOTE_CONTROL_TRANSPORT_HEADER
                     && *v == "webchannel")
         );
-        assert!(
-            headers
-                .iter()
-                .any(|(k, v)| *k == "x-goog-api-client" && *v == ANTIGRAVITY_API_CLIENT_HEADER)
-        );
+        // No attribution header: the remote-control variant carries only the
+        // three Jetski proxy headers, nothing the real client never sends.
+        assert_eq!(headers.len(), 3);
     }
 
     /// The Cloud Code backend admits inference only from the `antigravity/cli/`
@@ -1191,18 +1181,22 @@ mod tests {
         );
     }
 
-    /// The emulated profile must not claim `x-goog-api-client` as an admission
-    /// gate: the real `agy` 1.3.5 never sends the header and the backend
-    /// ignores it (live differential probe, 2026-10-14). Freezing the value
-    /// keeps the attribution parity documented in
-    /// `docs/reference/antigravity.yml` from drifting silently.
+    /// The emulated profile must carry **no** headers the real `agy` never
+    /// sends: the shipped client's Cloud Code calls carry exactly four headers
+    /// (Authorization, Content-Type, Accept-Encoding, User-Agent) — no
+    /// `x-goog-api-client`, nothing else (live capture 2026-10-14). Freezing
+    /// the empty header set keeps marker-parity regressions out of the
+    /// profile; the probe verdict lives in
+    /// `docs/reference/antigravity.yml` `x-admission-band.headers`.
     #[test]
-    fn antigravity_api_client_header_is_attribution_only() {
-        // The header nuo stamps is the gl-go/gdcl attribution string.
-        assert_eq!(ANTIGRAVITY_API_CLIENT_HEADER, "gl-go/1.23.2 gdcl/0.1");
-        // It is the sole entry of the preset header set (parity surface).
-        assert_eq!(ANTIGRAVITY_CLIENT_HEADERS.len(), 1);
-        assert_eq!(ANTIGRAVITY_CLIENT_HEADERS[0].0, "x-goog-api-client");
+    fn antigravity_preset_carries_no_client_identity_headers() {
+        assert!(
+            ANTIGRAVITY_CLIENT_HEADERS.is_empty(),
+            "the Antigravity preset must not stamp headers the real agy never sends"
+        );
+        let profile = ClientProfile::Antigravity;
+        assert!(profile.headers().is_empty());
+        assert!(!profile.capabilities().has_client_headers);
     }
 
     /// A profile parsed from an older or foreign Antigravity User-Agent must

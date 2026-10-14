@@ -28,8 +28,12 @@ pub const ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL: &str =
 pub const ANTIGRAVITY_FETCH_AVAILABLE_MODELS_URL: &str =
     "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels";
 pub const GOOGLE_USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v3/userinfo";
-/// IDE platform enum the Cloud Code `ClientMetadata` accepts for a Linux x86_64
-/// client (ADR-0289).
+/// IDE platform enum the Cloud Code `ClientMetadata` proto accepts for a
+/// Linux x86_64 client. Enum values live in the binary's proto descriptor
+/// (`DARWIN_AMD64`, `DARWIN_ARM64`, `LINUX_AMD64`, `LINUX_ARM64`,
+/// `WINDOWS_AMD64`); the shipped CLI sends no `platform` field at all on its
+/// minimal `loadCodeAssist` body (live 2026-10-14), so this constant is a
+/// descriptor reference, not a wire fact.
 pub const ANTIGRAVITY_IDE_PLATFORM: &str = "LINUX_AMD64";
 
 /// Google UserInfo response.
@@ -66,7 +70,8 @@ pub async fn fetch_google_userinfo(
     }
 }
 
-/// POST a JSON body with the Antigravity headers.
+/// POST a JSON body with the Antigravity identity (User-Agent only — the real
+/// `agy` sends no client-identity headers beyond it, live 2026-10-14).
 async fn antigravity_post(
     client: &nuo_provider_transport::http::Http,
     url: &str,
@@ -80,10 +85,6 @@ async fn antigravity_post(
             "user-agent",
             nuo_model_codec::client_identity::ANTIGRAVITY_USER_AGENT,
         )
-        .header(
-            "x-goog-api-client",
-            nuo_model_codec::client_identity::ANTIGRAVITY_API_CLIENT_HEADER,
-        )
         .json(body);
     client
         .send(request)
@@ -96,13 +97,13 @@ pub async fn resolve_antigravity_project(
     client: &nuo_provider_transport::http::Http,
     access_token: &str,
 ) -> Result<String, AuthError> {
+    // Wire truth (live capture of `agy` 1.3.5, 2026-10-14): the shipped
+    // client sends the minimal metadata body — ideType only. The extended
+    // ideVersion/ideName/platform/pluginType block is also admitted, but the
+    // minimal form is what the profile mirrors.
     let load_body = serde_json::json!({
         "metadata": {
-            "ideType": "ANTIGRAVITY",
-            "ideVersion": nuo_model_codec::client_identity::ANTIGRAVITY_VERSION,
-            "ideName": nuo_model_codec::client_identity::ANTIGRAVITY_APP_NAME,
-            "platform": ANTIGRAVITY_IDE_PLATFORM,
-            "pluginType": "GEMINI"
+            "ideType": "ANTIGRAVITY"
         }
     });
 
@@ -142,16 +143,13 @@ pub async fn resolve_antigravity_project(
                     .and_then(|t| t.get("id").or(Some(t)))
                     .and_then(|id| id.as_str())
             })
-            .unwrap_or("g1-pro-tier");
+            .unwrap_or("free-tier");
 
+        // Same minimal metadata shape the shipped client sends (live 2026-10-14).
         let onboard_body = serde_json::json!({
             "tierId": tier_id,
             "metadata": {
-                "ideType": "ANTIGRAVITY",
-                "ideVersion": nuo_model_codec::client_identity::ANTIGRAVITY_VERSION,
-                "ideName": nuo_model_codec::client_identity::ANTIGRAVITY_APP_NAME,
-                "platform": ANTIGRAVITY_IDE_PLATFORM,
-                "pluginType": "GEMINI"
+                "ideType": "ANTIGRAVITY"
             }
         });
 

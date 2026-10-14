@@ -229,9 +229,11 @@ pub async fn fetch_remote_catalog(
             client.send(request).await.map_err(ModelListError::Http)?
         }
         CatalogShape::GoogleCloudCode => {
+            // Wire truth (live 2026-10-14): `fetchAvailableModels` takes
+            // exactly `{"project": "…"}` with only the auth headers — no
+            // `x-goog-api-client` (the shipped client never sends it).
             let mut request = nuo_provider_transport::http::Request::new(netune::Method::POST, &endpoint)
                 .header("user-agent", user_agent)
-                .header("x-goog-api-client", nuo_model_codec::client_identity::ANTIGRAVITY_API_CLIENT_HEADER)
                 .json(&serde_json::json!({ "project": "" }));
             if !req.api_key.expose_secret().trim().is_empty() {
                 request = request.header(

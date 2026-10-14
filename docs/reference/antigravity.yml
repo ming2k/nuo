@@ -92,15 +92,14 @@ info:
     cliBuildNumber: "998863838"
     clientKind: aidev_client
     authMethodConsumer: consumer
-    authMethodBusiness: business
     oauth:
-      authorizeUrl: https://accounts.google.com/o/oauth2/v2/auth
+      authorizeUrl: https://accounts.google.com/o/oauth2/auth
       tokenUrl: https://oauth2.googleapis.com/token
       deviceAuthorizationUrl: https://oauth2.googleapis.com/device/code
       loopbackRedirect: http://127.0.0.1:51121/oauth-callback
       cloudCodeClientId: 1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com
       cloudCodeClientSecret: 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
-      cliClientId: 884354919052-36trc1jjb3tguiac32ov6cod26c5blh.apps.googleusercontent.com
+      cliClientId: 884354919052-36trc1jjb3tguiac32ov6cod268c5blh.apps.googleusercontent.com
       cliClientSecret: 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
       scopes:
         - https://www.googleapis.com/auth/cloud-platform
@@ -109,13 +108,22 @@ info:
         - https://www.googleapis.com/auth/cclog
         - https://www.googleapis.com/auth/experimentsandconfigs
         - https://www.googleapis.com/auth/aicode
-        - openid
+      scopeNote: >-
+        Extracted from the binary's scope strings (live 2026-10-14); `openid`
+        does not appear in the CLI's scope strings and is NOT part of the
+        observed request set. First-party integrations that add `openid` are a
+        client-side extension, not wire truth.
     companionProject: aicode-consumers
-    consumerTierId: g1-pro-tier
+    defaultTierId: free-tier
     minAdmittedProductVersion: "1.2"
     userAgents:
       real135: antigravity/cli/1.3.5 (aidev_client; os_type=linux; arch=amd64; cl=998863838; auth_method=consumer)
       nuoEmulated: antigravity/cli/1.3.5 (aidev_client; os_type=linux; arch=amd64; cl=998863838; auth_method=consumer)
+    requestHeaders:
+      summary: >-
+        The shipped client sends exactly four headers on every Cloud Code call:
+        Authorization, Content-Type, Accept-Encoding, User-Agent. No
+        `x-goog-api-client`, no other client-identity marker (live 2026-10-14).
     otherHosts:
       aicode: https://aicode.googleapis.com
       businessAicode: businessaicode.googleapis.com
@@ -187,7 +195,7 @@ paths:
                 value:
                   metadata:
                     ideType: ANTIGRAVITY
-                    ideVersion: 1.2.12
+                    ideVersion: 1.3.5
                     ideName: antigravity
                     platform: LINUX_AMD64
                     pluginType: GEMINI
@@ -197,9 +205,15 @@ paths:
             Entitlement view. `cloudaicompanionProject` is the routing project
             for all subsequent calls (`aicode-consumers` for consumer
             accounts); it may also appear as `response.cloudaicompanionProject`
-            on the wrapped JSON form. Tier ids observed: `free-tier` (default,
-            `isDefault: true`), `standard-tier` (`userDefinedCloudaicompanionProject:
-            true`, `usesGcpTos: true`).
+            on the wrapped JSON form. Tier ids observed live: `free-tier`
+            (default, `isDefault: true`), `standard-tier`
+            (`userDefinedCloudaicompanionProject: true`, `usesGcpTos: true`).
+            Ineligibility reasons come from the descriptor's
+            `IneligibleTierReasonCodes` enum (INELIGIBLE_ACCOUNT,
+            UNKNOWN_LOCATION, UNSUPPORTED_LOCATION, RESTRICTED_NETWORK,
+            RESTRICTED_AGE, NON_USER_ACCOUNT, DASHER_USER, BYOID_USER,
+            RESTRICTED_DASHER_USER, VALIDATION_REQUIRED,
+            GOOGLE_TOS_NOT_SUPPORTED_BY_CLIENT, UNSUPPORTED_CLIENT).
           content:
             application/json:
               schema:
@@ -266,13 +280,9 @@ paths:
             examples:
               consumer:
                 value:
-                  tierId: g1-pro-tier
+                  tierId: free-tier
                   metadata:
                     ideType: ANTIGRAVITY
-                    ideVersion: 1.3.5
-                    ideName: antigravity
-                    platform: LINUX_AMD64
-                    pluginType: GEMINI
       responses:
         "200":
           description: >-
@@ -881,9 +891,9 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
-  /v1internal:fetchAvailableModelConfigs:
+  /v1internal:listModelConfigs:
     post:
-      operationId: fetchAvailableModelConfigs
+      operationId: listModelConfigs
       tags: [catalog]
       summary: Model-config enumeration (supplementary catalog lane)
       x-provenance: bundle
@@ -929,31 +939,76 @@ components:
     Metadata:
       type: object
       description: >-
-        Client metadata block. `ideType: "ANTIGRAVITY"` is the only value the
-        shipped CLI sends; the extended form (ideVersion/ideName/platform/
-        pluginType) is accepted and corresponds to the older Cloud Code clients.
+        Client metadata block (`ClientMetadata` proto, extracted from the
+        binary's descriptor, 2026-10-14). The shipped CLI sends the minimal
+        form — `ideType: "ANTIGRAVITY"` only.
       properties:
         ideType:
           type: string
-          enum: [ANTIGRAVITY]
+          enum:
+            - IDE_UNSPECIFIED
+            - VSCODE
+            - INTELLIJ
+            - VSCODE_CLOUD_WORKSTATION
+            - INTELLIJ_CLOUD_WORKSTATION
+            - CLOUD_SHELL
+            - CIDER
+            - CLOUD_RUN
+            - ANDROID_STUDIO
+            - ANTIGRAVITY
+            - JETSKI
+            - COLAB
+            - FIREBASE
+            - CHROME_DEVTOOLS
+            - GEMINI_CLI
         ideVersion:
           type: string
-        ideName:
+        pluginVersion:
           type: string
         platform:
           type: string
-          enum: [LINUX_AMD64, DARWIN_AMD64, WINDOWS_AMD64]
-          description: Enum values from the bundle's platform selector (LINUX_AMD64 observed).
+          enum:
+            - PLATFORM_UNSPECIFIED
+            - DARWIN_AMD64
+            - DARWIN_ARM64
+            - LINUX_AMD64
+            - LINUX_ARM64
+            - WINDOWS_AMD64
+          description: Proto descriptor enum; the shipped CLI omits this field on the minimal body.
+        updateChannel:
+          type: string
+        duetProject:
+          type: string
         pluginType:
           type: string
-          enum: [GEMINI]
+          enum:
+            - PLUGIN_UNSPECIFIED
+            - CLOUD_CODE
+            - GEMINI
+            - AIPLUGIN_INTELLIJ
+            - AIPLUGIN_STUDIO
+            - PANTHEON
+        ideName:
+          type: string
 
     LoadCodeAssistRequest:
       type: object
-      required: [metadata]
+      description: >-
+        Proto fields (descriptor, 2026-10-14): `cloudaicompanionProject`,
+        `metadata`, `mode`. The shipped CLI sends only `metadata` with the
+        minimal ideType.
       properties:
+        cloudaicompanionProject:
+          type: string
+          description: Optional project hint; consumer accounts omit it and receive `aicode-consumers`.
         metadata:
           $ref: "#/components/schemas/Metadata"
+        mode:
+          type: string
+          enum: [MODE_UNSPECIFIED, FULL_ELIGIBILITY_CHECK, HEALTH_CHECK]
+          description: >-
+            Request mode from the proto descriptor; the shipped CLI sends no
+            `mode` (server default).
 
     Tier:
       type: object
@@ -994,12 +1049,17 @@ components:
 
     OnboardUserRequest:
       type: object
-      required: [tierId, metadata]
+      description: >-
+        Proto fields (descriptor, 2026-10-14): `tierId`, `metadata`,
+        `cloudaicompanionProject`. The shipped CLI sends `tierId` + minimal
+        metadata.
       properties:
         tierId:
           type: string
         metadata:
           $ref: "#/components/schemas/Metadata"
+        cloudaicompanionProject:
+          type: string
 
     OnboardUserResponse:
       type: object
@@ -1412,7 +1472,7 @@ x-admission-band:
     verdict: admitted end-to-end on 2026-10-14 (every v1internal verb 200, inference green) — the exact combination nuo ships
   headers:
     - header: x-goog-api-client
-      verdict: not sent by the real CLI; ignored by the backend (harmless attribution)
+      verdict: not sent by the real CLI; ignored by the backend. Removed from the nuo profile (2026-10-14) — marker parity with a header the real client never sends is distinguishability debt, not fidelity.
   bodyShapes:
     - fact: loadCodeAssist minimal metadata body
-      verdict: admitted; the rich legacy metadata shape is also admitted
+      verdict: admitted; the rich legacy metadata shape is also admitted. nuo mirrors the minimal form.
