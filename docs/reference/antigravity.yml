@@ -115,7 +115,7 @@ info:
     minAdmittedProductVersion: "1.2"
     userAgents:
       real135: antigravity/cli/1.3.5 (aidev_client; os_type=linux; arch=amd64; cl=998863838; auth_method=consumer)
-      nuoEmulated: antigravity/cli/1.2.12 (aidev_client; os_type=linux; arch=amd64; cl=0; auth_method=consumer)
+      nuoEmulated: antigravity/cli/1.3.5 (aidev_client; os_type=linux; arch=amd64; cl=998863838; auth_method=consumer)
     otherHosts:
       aicode: https://aicode.googleapis.com
       businessAicode: businessaicode.googleapis.com
@@ -1392,16 +1392,24 @@ components:
             $ref: "#/components/schemas/ErrorBody"
 
 x-admission-band:
-  summary: Live differential probe results (2026-10-14, all endpoints 200 unless noted)
+  summary: >-
+    Live differential probe results (2026-10-14, all endpoints 200 unless
+    noted). Policy: the pin tracks the shipped client — the realistic
+    band-narrowing direction is the floor rising under an auto-updating wild
+    client population, which retires floor-hugging pins first, so the top of
+    the band is the max-headroom seat.
   userAgents:
     - value: antigravity/cli/1.3.5 (aidev_client; os_type=linux; arch=amd64; cl=998863838; auth_method=consumer)
-      verdict: admitted (the shipped client itself)
+      verdict: admitted (the shipped client itself — nuo's tracked profile)
     - value: antigravity/cli/1.2.12 (aidev_client; os_type=linux; arch=amd64; cl=0; auth_method=consumer)
-      verdict: admitted (Nuo's emulated identity; version and cl= are not discriminated)
+      verdict: admitted on this capture (nuo's former pin; retired — cl=0 exists in no wild cohort)
     - value: antigravity/cli/1.2.0 (aidev_client; os_type=linux; arch=amd64; cl=0; auth_method=consumer)
-      verdict: admitted (floor version still inside the band)
+      verdict: admitted on this capture (floor version still inside the band)
     - value: antigravity/1.2.12 (…) — no cli brand segment
       verdict: admitted on this capture (earlier backend generations 404'd this form; keep the brand)
+  fullCombination:
+    fact: tracked version 1.3.5 + real build cl=998863838 + x-goog-api-client header + rich loadCodeAssist metadata body
+    verdict: admitted end-to-end on 2026-10-14 (every v1internal verb 200, inference green) — the exact combination nuo ships
   headers:
     - header: x-goog-api-client
       verdict: not sent by the real CLI; ignored by the backend (harmless attribution)

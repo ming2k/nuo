@@ -126,7 +126,7 @@ pub struct OAuthConfig {
     pub extra_refresh_params: Vec<(Cow<'static, str>, Cow<'static, str>)>,
     /// Extra HTTP headers sent to token/device endpoints.
     pub extra_headers: Vec<(Cow<'static, str>, Cow<'static, str>)>,
-    /// Custom User-Agent header (e.g. "antigravity/cli/1.2.12 (aidev_client;
+    /// Custom User-Agent header (e.g. "antigravity/cli/1.3.5 (aidev_client;
     /// os_type=windows; arch=amd64; cl=0; auth_method=consumer)").
     pub user_agent: Option<Cow<'static, str>>,
     /// Whether this client registration accepts a localhost browser callback.
