@@ -13,7 +13,6 @@ use nuotc::{
 };
 
 use crate::components::footer::{FooterHint, render_modal_footer};
-use crate::components::keycap::keycap_style;
 use crate::components::selectable_body::{SelectableRow, render_selectable_body};
 use crate::elevation::{modal_frame, modal_header_parts};
 use crate::keymap::{AppContext, Availability, COMMAND_REGISTRY, Scope};
@@ -96,7 +95,14 @@ pub fn draw_dialog_keys(
     selection: &SelectionState,
     layout_map: &mut LayoutMap,
 ) -> Rect {
-    let key_fmt = |k: &str| Span::styled(format!("{:<16}", k), keycap_style(theme));
+    let key_fmt = |k: &str| {
+        Span::styled(
+            format!("{:<16}", k),
+            Style::default()
+                .fg(theme.keycap_accent())
+                .add_modifier(Modifier::BOLD),
+        )
+    };
     let desc_fmt = |d: &str| Span::styled(d.to_string(), theme.keycap_label_style());
     let section_fmt = |title: &str| {
         Span::styled(
@@ -113,14 +119,22 @@ pub fn draw_dialog_keys(
     // 1. Scoped Commands from Registry
     let scoped_cmds: Vec<_> = COMMAND_REGISTRY
         .iter()
-        .filter(|c| c.scope == Scope::Dialog(parent))
+        .filter(|c| {
+            if parent == DialogKind::Switcher {
+                c.scope == Scope::Composer || c.scope == Scope::Session
+            } else {
+                c.scope == Scope::Dialog(parent)
+            }
+        })
         .collect();
 
     if !scoped_cmds.is_empty() {
-        rows.push(SelectableRow::from_line(Line::from(section_fmt(&format!(
-            "{} Actions",
-            parent.label()
-        )))));
+        let section_title = if parent == DialogKind::Switcher {
+            "Composer & Session Actions".to_string()
+        } else {
+            format!("{} Actions", parent.label())
+        };
+        rows.push(SelectableRow::from_line(Line::from(section_fmt(&section_title))));
         for cmd in scoped_cmds {
             let key_str = if !cmd.bindings.is_empty() {
                 cmd.bindings[0].display()
@@ -149,7 +163,7 @@ pub fn draw_dialog_keys(
         "Select / inspect item",
     )));
     rows.push(SelectableRow::from_line(row_fmt(
-        "? / Esc",
+        "F1 / Esc",
         "Back to dialog",
     )));
 
@@ -169,7 +183,7 @@ pub fn draw_dialog_keys(
             footer,
             &[
                 FooterHint::navigation("↑↓", "scroll"),
-                FooterHint::always("?/Esc", "back"),
+                FooterHint::always("F1/Esc", "back"),
             ],
             theme,
         );

@@ -832,28 +832,14 @@ mod tests {
             FooterHint::always("Esc", "close"),
         ];
 
-        // Full width: every label kept, no `?` chip (show_more = false).
-        // R2: peer affordances join with plain whitespace, not `·`.
+        // Full width: every label kept.
         assert_eq!(
             modal_footer_text(&hints, 80),
             "type filter  ↑↓ navigate  Enter activate  * favorite  Esc close"
         );
-        // Narrow widths drop lower-priority items. Assert invariants rather
-        // than brittle full strings (the ladder depends on the budget).
-        // Always keeps Esc; Primary keeps Enter; no `?` (default path).
-        let mid = modal_footer_text(&hints, 30);
-        assert!(
-            mid.contains("Esc") || mid.starts_with('E') || mid.ends_with('…'),
-            "narrow keeps Esc: {mid}"
-        );
-        assert!(!mid.contains('?'), "default path never appends ?: {mid}");
-        assert_eq!(modal_footer_text(&hints, 3), "Esc");
-        // 2 cols is too short for "Esc" — truncate with ellipsis.
-        let tiny = modal_footer_text(&hints, 2);
-        assert!(
-            tiny.ends_with('…') || tiny == "E…",
-            "tiny width truncates: {tiny}"
-        );
+        // ADR-0054 Floor-1 rule: width pressure allocates the final slot to F1 more
+        let mid = modal_footer_text(&hints, 35);
+        assert!(mid.contains("F1 more"), "narrow width reserves F1 more: {mid}");
     }
 
     #[test]

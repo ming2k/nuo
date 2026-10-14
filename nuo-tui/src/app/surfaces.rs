@@ -443,7 +443,7 @@ impl App {
         first
     }
 
-    /// Persist current TUI presentation preferences into `$XDG_CONFIG_HOME/nuo/tui.toml`.
+    /// Persist current TUI presentation preferences into `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).
     pub fn save_tui_config(&self) {
         let mut cfg = crate::config::TuiConfig::load();
         cfg.color_scheme = self.color_scheme.clone();

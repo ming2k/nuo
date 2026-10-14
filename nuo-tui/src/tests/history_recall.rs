@@ -2134,3 +2134,79 @@ fn adr0051_draft_capsule_atomic_stashing_and_restoration() {
     assert!(app.draft_capsule.is_empty());
 }
 
+#[tokio::test]
+async fn test_history_search_up_down_arrow_navigation_through_event_loop() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "session-test".to_string();
+
+    // Populate multiple history entries
+    app.record_input_history("command 1".to_string(), Vec::new(), Vec::new());
+    app.record_input_history("command 2".to_string(), Vec::new(), Vec::new());
+    app.record_input_history("command 3".to_string(), Vec::new(), Vec::new());
+
+    // 1. Enter HistorySearch via OpenHistory
+    app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::HistorySearch)
+    );
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        0
+    );
+
+    // 2. Press Down arrow -> index advances to 1
+    let down_event = Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    crate::event_loop::process_event_for_test(&mut app, &down_event, "session-test").await;
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        1,
+        "Down arrow must advance candidate index to 1 without being reset to 0"
+    );
+
+    // 3. Press Down arrow again -> index advances to 2
+    crate::event_loop::process_event_for_test(&mut app, &down_event, "session-test").await;
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        2,
+        "Down arrow must advance candidate index to 2"
+    );
+
+    // 4. Press Up arrow -> index moves back to 1
+    let up_event = Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    crate::event_loop::process_event_for_test(&mut app, &up_event, "session-test").await;
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        1,
+        "Up arrow must move candidate index back to 1"
+    );
+
+    // 5. Typing query text resets selection index to 0
+    let type_event = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    crate::event_loop::process_event_for_test(&mut app, &type_event, "session-test").await;
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        0,
+        "Typing query text must reset candidate index to 0"
+    );
+    assert_eq!(app.input, "c");
+
+    // 6. Press Down arrow with filter active -> index advances to 1
+    crate::event_loop::process_event_for_test(&mut app, &down_event, "session-test").await;
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        1,
+        "Down arrow must advance index on filtered results"
+    );
+
+    // 7. Press Enter -> inserts selected candidate and closes history search
+    let enter_event = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    crate::event_loop::process_event_for_test(&mut app, &enter_event, "session-test").await;
+    assert_eq!(app.active_dialog(), None);
+    // Newest-first order: index 0 is "command 3", index 1 is "command 2", index 2 is "command 1"
+    assert_eq!(app.input, "command 2");
+    assert!(app.draft_capsule.is_empty(), "Draft capsule must be cleared on successful history insertion");
+}
+

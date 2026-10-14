@@ -1339,17 +1339,17 @@ mod dir_tests {
     }
 
     /// The unified `nuo` config directory holds one file per concern: the
-    /// server's `config.toml` and the TUI's sibling `tui.toml`.
+    /// server's `server.toml` and the TUI's sibling `terminal.toml` (ADR-0031).
     #[test]
-    fn tui_config_is_a_sibling_of_server_config() {
+    fn terminal_config_is_a_sibling_of_server_config() {
         let dirs = Dirs::resolve(&PathsOverride {
             config_dir: Some(PathBuf::from("/tmp/nc")),
             ..Default::default()
         });
-        assert_eq!(dirs.config_file(), PathBuf::from("/tmp/nc/nuo/config.toml"));
+        assert_eq!(dirs.server_config_file(), PathBuf::from("/tmp/nc/nuo/server.toml"));
         assert_eq!(
-            dirs.tui_config_file(),
-            PathBuf::from("/tmp/nc/nuo/tui.toml")
+            dirs.terminal_config_file(),
+            PathBuf::from("/tmp/nc/nuo/terminal.toml")
         );
     }
 }

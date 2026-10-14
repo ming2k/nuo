@@ -2560,9 +2560,15 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                     match row_for_index(app.config_detail_index) {
                         Some(ComponentRowId::Reasoning) => {
                             let next = !crate::config::reasoning_default_expanded(&app.tui_config);
-                            app.tui_config
-                                .default_expanded
-                                .insert(crate::config::THINKING_KEY.to_string(), next);
+                            if next {
+                                app.tui_config
+                                    .default_expanded
+                                    .insert(crate::config::THINKING_KEY.to_string(), true);
+                            } else {
+                                app.tui_config
+                                    .default_expanded
+                                    .remove(crate::config::THINKING_KEY);
+                            }
                             app.reasoning_default_expanded = next;
                             app.save_tui_config();
                         }

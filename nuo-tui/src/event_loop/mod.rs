@@ -537,10 +537,10 @@ pub async fn run_app_loop(
 }
 
 #[allow(clippy::too_many_arguments)] // Keeps event-loop resources borrowed without a second state bundle.
-async fn process_one_event(
+async fn process_one_event<W: io::Write>(
     event: &Event,
     app: &mut App,
-    terminal: &mut Terminal<std::io::Stdout>,
+    terminal: &mut Terminal<W>,
     runtime: &UiRuntime,
     session: &crate::SessionSource,
     viewed_session_id: &str,
@@ -680,6 +680,11 @@ async fn process_one_event(
             app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().query.text.len(),
             app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().query.cursor,
         ),
+    };
+    let history_query_before = if app.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch) {
+        Some(app.input.clone())
+    } else {
+        None
     };
     let composer_owned_before = app.caret_owner() == crate::CaretOwner::Composer;
     let current_scene = app.current_scene();
@@ -828,12 +833,15 @@ async fn process_one_event(
         || (composer_owned_before && event_rearms_composer_follow(event))
     {
         app.input_scroll_follow_cursor = true;
-        if app.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch) {
-            let d = &mut app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>();
-            d.index = 0;
-            d.scroll = 0;
-            d.follow = true;
-        }
+    }
+    if let Some(before) = history_query_before
+        && app.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch)
+        && before != app.input
+    {
+        let d = &mut app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>();
+        d.index = 0;
+        d.scroll = 0;
+        d.follow = true;
     }
 
     if matches!(
@@ -948,4 +956,37 @@ mod freeze_guard_tests {
             modifiers: KeyModifiers::NONE,
         })));
     }
+}
+
+#[cfg(test)]
+pub(crate) async fn process_event_for_test(
+    app: &mut App,
+    event: &Event,
+    viewed_session_id: &str,
+) {
+    let runtime = UiRuntime::minimal_for_test();
+    let session = crate::SessionSource::Remote {
+        session_id: viewed_session_id.to_string(),
+    };
+    let (copy_tx, _copy_rx) = tokio::sync::mpsc::unbounded_channel();
+    let copy_pending = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (paste_tx, _paste_rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut sgr_guard = input::SgrLeakGuard::default();
+    let mut input_redraw_pending = false;
+    let backend = nuotc::Backend::with_bce(Vec::new(), nuotc::backend::Bce::No);
+    let mut terminal = nuotc::Terminal::new(backend);
+    let _ = process_one_event(
+        event,
+        app,
+        &mut terminal,
+        &runtime,
+        &session,
+        viewed_session_id,
+        &copy_tx,
+        &copy_pending,
+        &paste_tx,
+        &mut sgr_guard,
+        &mut input_redraw_pending,
+    )
+    .await;
 }

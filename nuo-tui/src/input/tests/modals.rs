@@ -279,6 +279,94 @@ fn question_mark_in_dialog_browse_mode_toggles_dialog_keys() {
 }
 
 #[test]
+fn f1_in_dialog_toggles_dialog_keys() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+    let action = route_event(
+        Event::Key(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE)),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            overlay: Some(OverlaySurface::Dialog(DialogKind::Sessions)),
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::ToggleDialogKeys);
+}
+
+#[test]
+fn f1_when_dialog_keys_open_toggles_off() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+    let modal_keys = ModalKeys {
+        dialog_keys: true,
+        ..Default::default()
+    };
+    let action = route_event(
+        Event::Key(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE)),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            overlay: Some(OverlaySurface::Dialog(DialogKind::Sessions)),
+            ..Default::default()
+        },
+        &modal_keys,
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::ToggleDialogKeys);
+}
+
+#[test]
+fn f1_on_chat_surface_toggles_view_switcher() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+    let action = route_event(
+        Event::Key(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE)),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            overlay: None,
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::ViewSwitcherToggle);
+}
+
+#[test]
+fn alt_question_mark_silent_alias_toggles_dialog_keys() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+    let action = route_event(
+        Event::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::ALT)),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            overlay: Some(OverlaySurface::Dialog(DialogKind::Sessions)),
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::ToggleDialogKeys);
+}
+
+#[test]
 fn question_mark_when_dialog_keys_open_toggles_off() {
     let mut input = String::new();
     let mut cursor = 0;

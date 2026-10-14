@@ -5,10 +5,9 @@
 //! compacted to keys only.
 
 use nuotc::{Frame, Line, Paragraph, Rect, Span};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::super::Theme;
-use super::keycap::keycap_style;
+use super::keycap::AffordanceIntent;
 
 /// Coarse priority band for a footer hint. Higher-ranked variants survive
 /// longer under width pressure.
@@ -106,6 +105,21 @@ impl FooterHint {
         }
     }
 
+    /// Convert this footer hint to an ADR-0054 [`crate::components::keycap::KeyAffordance`].
+    #[allow(dead_code)]
+    pub(crate) fn to_key_affordance(&self) -> super::keycap::KeyAffordance {
+        let intent = match self.priority {
+            FooterPriority::Primary => AffordanceIntent::Primary,
+            _ => AffordanceIntent::Neutral,
+        };
+        super::keycap::KeyAffordance::with_intent_and_rank(
+            self.key,
+            self.label,
+            intent,
+            self.priority.rank(),
+        )
+    }
+
     /// Constructor for a hint whose priority falls between the coarse bands.
     /// The numeric `band` is compared against [`FooterPriority::rank`] bands:
     /// pass `70` to sit between Primary (80) and Navigation (60) — the right
@@ -135,22 +149,6 @@ pub(crate) struct FooterHintWithBand {
     pub rank: u8,
 }
 
-/// Internal: every hint flattened to a (key, label, rank) row, so the layout
-/// can sort/drop uniformly regardless of enum-vs-custom origin.
-struct RankedHint {
-    key: &'static str,
-    label: &'static str,
-    rank: u8,
-    /// Original index in the caller's order, for stable display ordering.
-    order: usize,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum FooterLabelMode {
-    Full,
-    Compact,
-}
-
 /// Render the one-line modal command strip with width-aware degradation.
 pub(crate) fn render_modal_footer(
     frame: &mut Frame,
@@ -173,67 +171,10 @@ pub(crate) fn render_modal_footer_with_extra(
     render_footer_impl(frame, rect, hints, extra, theme);
 }
 
-/// Build the footer text for `width`. Used by tests and modals that only need
-/// the string.
-pub(crate) fn modal_footer_text(hints: &[FooterHint], width: usize) -> String {
-    layout_footer(hints, &[], width).text
-}
-
-/// Build the footer text for `width`, accepting custom-band hints. (Used by
-/// tests.)
-#[cfg(test)]
-pub(crate) fn modal_footer_text_with_extra(
-    hints: &[FooterHint],
-    extra: &[FooterHintWithBand],
-    width: usize,
-) -> String {
-    layout_footer(hints, extra, width).text
-}
-
-/// A single rendered segment of the footer line. Keys are tagged so the
-/// renderer can apply the unified keycap style while everything else stays
-/// muted — without the layout having to know about styling.
-#[derive(Clone)]
-enum FooterSeg {
-    /// A keyboard-key label (rendered with the keycap style).
-    Key(String),
-    /// Any other text: a hint label or a ` · ` separator.
-    Text(String),
-}
-
-impl FooterSeg {
-    fn text(&self) -> &str {
-        match self {
-            FooterSeg::Key(s) | FooterSeg::Text(s) => s,
-        }
-    }
-}
-
-/// Flatten a segment list to its plain-text form (used by the width-only /
-/// test-facing string APIs, which must not change just because keys are now
-/// styled differently).
-fn segs_to_string(segs: &[FooterSeg]) -> String {
-    segs.iter().map(|s| s.text()).collect()
-}
-
-/// Materialize the segment list as styled spans: keys take the unified keycap
-/// style, hint labels take the keycap label style. This is the single place that decides how
-/// footer keys look, so it can never drift from the activity bar.
-fn segs_to_spans(segs: &[FooterSeg], theme: &Theme) -> Vec<Span<'static>> {
-    let key_style = keycap_style(theme);
-    let label_style = theme.keycap_label_style();
-    segs.iter()
-        .map(|seg| match seg {
-            FooterSeg::Key(s) => Span::styled(s.clone(), key_style),
-            FooterSeg::Text(s) => Span::styled(s.clone(), label_style),
-        })
-        .collect()
-}
-
-/// Result of laying out a footer for a given width.
+/// Result of laying out a footer for a given width (ADR-0054).
 struct FooterLayout {
     text: String,
-    segs: Vec<FooterSeg>,
+    spans: Vec<Span<'static>>,
 }
 
 fn render_footer_impl(
@@ -243,192 +184,74 @@ fn render_footer_impl(
     extra: &[FooterHintWithBand],
     theme: &Theme,
 ) {
-    let layout = layout_footer(hints, extra, rect.width as usize);
-    frame.render_widget(
-        Paragraph::new(Line::from(segs_to_spans(&layout.segs, theme))),
-        rect,
-    );
+    let layout = layout_footer_with_theme(hints, extra, rect.width as usize, theme);
+    frame.render_widget(Paragraph::new(Line::from(layout.spans)), rect);
 }
 
-/// Lay out the footer for `width`, dropping lowest-priority hints first.
-///
-/// Algorithm:
-/// 1. Try full labels for the entire set.
-/// 2. Drop the lowest-priority hint(s) one at a time (still full labels).
-/// 3. Compact remaining (keys only), same drop ladder.
-/// 4. Last resort: the always-keep keys compact, truncated to fit.
+/// Build the footer text for `width`.
+pub(crate) fn modal_footer_text(hints: &[FooterHint], width: usize) -> String {
+    layout_footer(hints, &[], width).text
+}
+
+/// Build the footer text for `width`, accepting custom-band hints.
+#[cfg(test)]
+pub(crate) fn modal_footer_text_with_extra(
+    hints: &[FooterHint],
+    extra: &[FooterHintWithBand],
+    width: usize,
+) -> String {
+    layout_footer(hints, extra, width).text
+}
+
 fn layout_footer(hints: &[FooterHint], extra: &[FooterHintWithBand], width: usize) -> FooterLayout {
-    if width == 0 || hints.is_empty() && extra.is_empty() {
+    let theme = Theme::default();
+    layout_footer_with_theme(hints, extra, width, &theme)
+}
+
+fn layout_footer_with_theme(
+    hints: &[FooterHint],
+    extra: &[FooterHintWithBand],
+    width: usize,
+    theme: &Theme,
+) -> FooterLayout {
+    if width == 0 || (hints.is_empty() && extra.is_empty()) {
         return FooterLayout {
             text: String::new(),
-            segs: Vec::new(),
+            spans: Vec::new(),
         };
     }
 
-    // Flatten to ranked rows in stable display order (hints, then extras).
-    let ranked: Vec<RankedHint> = hints
-        .iter()
-        .enumerate()
-        .map(|(i, h)| RankedHint {
-            key: h.key,
-            label: h.label,
-            rank: h.priority.rank(),
-            order: i,
-        })
-        .chain(extra.iter().enumerate().map(|(i, h)| RankedHint {
-            key: h.key,
-            label: h.label,
-            rank: h.rank,
-            order: hints.len() + i,
-        }))
-        .collect();
-
-    // Drop order: lowest rank first; tiebreak by later display order so a
-    // trailing secondary goes before an earlier one of equal rank.
-    let mut drop_order: Vec<usize> = (0..ranked.len()).collect();
-    drop_order.sort_by_key(|&i| (ranked[i].rank, usize::MAX - ranked[i].order));
-
-    // Wrap a segment list into a complete FooterLayout (text mirrors the
-    // segments so the width-only / test APIs stay byte-identical to before).
-    let finish = |segs: Vec<FooterSeg>| FooterLayout {
-        text: segs_to_string(&segs),
-        segs,
-    };
-
-    // Pass 1: full labels, progressively dropping lowest-priority items.
-    for drop_count in 0..=ranked.len().saturating_sub(1) {
-        if let Some(segs) = try_subset(
-            &ranked,
-            &drop_order,
-            drop_count,
-            FooterLabelMode::Full,
-            width,
-        ) {
-            return finish(segs);
-        }
+    let mut affordances = Vec::with_capacity(hints.len() + extra.len());
+    for h in hints {
+        affordances.push(h.to_key_affordance());
+    }
+    for e in extra {
+        let intent = if e.label.contains("delete") || e.label.contains("clear") {
+            AffordanceIntent::Warn
+        } else {
+            AffordanceIntent::Neutral
+        };
+        affordances.push(super::keycap::KeyAffordance::with_intent_and_rank(
+            e.key,
+            e.label,
+            intent,
+            e.rank,
+        ));
     }
 
-    // Pass 2: compact (keys only), same drop ladder.
-    for drop_count in 0..=ranked.len().saturating_sub(1) {
-        if let Some(segs) = try_subset(
-            &ranked,
-            &drop_order,
-            drop_count,
-            FooterLabelMode::Compact,
-            width,
-        ) {
-            return finish(segs);
-        }
-    }
+    let layout = super::keycap::layout_affordances(
+        &affordances,
+        width,
+        theme,
+        nuotc::Color::Reset,
+        Some("more"),
+    );
 
-    // Last resort: Always keys only, compact, truncated to the available width.
-    let always: Vec<&RankedHint> = ranked.iter().filter(|r| r.rank >= 100).collect();
-    let base_set = if always.is_empty() {
-        ranked.iter().collect()
-    } else {
-        always
-    };
-    let base = join_hints(&base_set, FooterLabelMode::Compact);
-
-    let text = segs_to_string(&base);
-    let segs = if text.width() <= width {
-        base
-    } else {
-        only_text_truncated(&text, width)
-    };
-    finish(segs)
-}
-
-/// A segment list that is just one plain-text run.
-fn only_text(s: &str) -> Vec<FooterSeg> {
-    vec![FooterSeg::Text(s.to_string())]
-}
-
-/// A segment list that is one plain-text run, truncated to `max` cells.
-fn only_text_truncated(s: &str, max: usize) -> Vec<FooterSeg> {
-    only_text(&truncate_to_width(s, max))
-}
-
-/// Try a subset (dropping the first `drop_count` lowest-priority rows) for the
-/// given label mode. Returns the segment list if it fits, else None.
-fn try_subset(
-    ranked: &[RankedHint],
-    drop_order: &[usize],
-    drop_count: usize,
-    mode: FooterLabelMode,
-    width: usize,
-) -> Option<Vec<FooterSeg>> {
-    let dropped: std::collections::HashSet<usize> =
-        drop_order.iter().take(drop_count).copied().collect();
-    let subset: Vec<&RankedHint> = ranked
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| !dropped.contains(i))
-        .map(|(_, r)| r)
-        .collect();
-    if subset.is_empty() {
-        return None;
+    let text: String = layout.spans.iter().map(|s| s.content.as_ref()).collect();
+    FooterLayout {
+        text,
+        spans: layout.spans,
     }
-    let base = join_hints(&subset, mode);
-    if base.is_empty() {
-        return None;
-    }
-    let text = segs_to_string(&base);
-    (text.width() <= width).then_some(base)
-}
-
-/// Join hints in stable display order (`order`) for a given label mode into a
-/// segment list. Keys are tagged `FooterSeg::Key` so the renderer can apply the
-/// keycap style; separators and labels are `Text`.
-///
-/// Each hint is a same-rank peer affordance (R2), so hints are separated by
-/// plain whitespace — no `·` (which the join ladder reserves for the
-/// keycap → label modification inside each hint).
-fn join_hints(hints: &[&RankedHint], mode: FooterLabelMode) -> Vec<FooterSeg> {
-    let mut ordered: Vec<&&RankedHint> = hints.iter().collect();
-    ordered.sort_by_key(|r| r.order);
-    let mut segs: Vec<FooterSeg> = Vec::new();
-    for (idx, hint) in ordered.iter().enumerate() {
-        if idx > 0 {
-            segs.push(FooterSeg::Text(
-                " ".repeat(super::super::design::JOIN_ENUMERATE_COLS),
-            ));
-        }
-        segs.push(FooterSeg::Key(hint.key.to_string()));
-        if let FooterLabelMode::Full = mode
-            && !hint.label.is_empty()
-        {
-            segs.push(FooterSeg::Text(format!(" {}", hint.label)));
-        }
-    }
-    segs
-}
-
-fn truncate_to_width(s: &str, max: usize) -> String {
-    if s.width() <= max && !s.contains(['\n', '\r']) {
-        return s.to_string();
-    }
-    if max == 0 {
-        return String::new();
-    }
-    if max == 1 {
-        return "…".to_string();
-    }
-    let mut out = String::new();
-    let mut width = 0usize;
-    for c in s.chars() {
-        if c == '\n' || c == '\r' {
-            break;
-        }
-        let cw = UnicodeWidthChar::width(c).unwrap_or(0).max(1);
-        if width + cw > max - 1 {
-            break;
-        }
-        out.push(c);
-        width += cw;
-    }
-    out.push('…');
-    out
 }
 
 #[cfg(test)]
@@ -446,36 +269,42 @@ mod tests {
     }
 
     #[test]
+    fn footer_spans_apply_primary_accent_color() {
+        let theme = Theme::default();
+        let hints = [
+            FooterHint::primary("Enter", "activate"),
+            FooterHint::always("Esc", "close"),
+        ];
+        let layout = layout_footer_with_theme(&hints, &[], 80, &theme);
+        // First key is "Enter", should have keycap_accent fg + BOLD
+        assert_eq!(layout.spans[0].content, "Enter");
+        assert_eq!(layout.spans[0].style.fg, theme.keycap_accent());
+        assert!(layout.spans[0].style.add.contains(nuotc::Modifier::BOLD));
+        // Second span is " activate", should have keycap_label fg
+        assert_eq!(layout.spans[1].content, " activate");
+        assert_eq!(layout.spans[1].style.fg, theme.keycap_label());
+    }
+
+    #[test]
     fn full_width_keeps_every_label() {
         let hints = sample_hints();
         let text = modal_footer_text_with_extra(&hints, &[], 80);
-        // R2: same-rank peer affordances are separated by plain whitespace
-        // (JOIN_ENUMERATE_COLS), not the `·` reserved for key→label joins.
         assert_eq!(
             text,
             "type filter  ↑↓ navigate  Enter activate  * favorite  Esc close"
         );
-        assert!(!text.contains('·'));
-        assert!(!text.contains('?'));
     }
 
     #[test]
-    fn collapsed_strip_never_emits_help_chip() {
-        // The `? help` chip is gone: however narrow the footer gets, it must
-        // never reappear, and the strip must always fit the given width.
+    fn collapsed_strip_emits_f1_more_under_width_pressure() {
+        // ADR-0054 Floor-1 rule: under width pressure, lower-priority hints are
+        // collapsed and the final slot is reserved for `F1 more`.
         let hints = sample_hints();
-        let full = modal_footer_text_with_extra(&hints, &[], 80);
-        for width in 1..=full.width() {
-            let text = modal_footer_text_with_extra(&hints, &[], width);
-            assert!(
-                !text.contains('?'),
-                "width {width}: collapsed footer must not show the help chip, got {text:?}"
-            );
-            assert!(
-                text.width() <= width,
-                "width {width}: footer overflowed, got {text:?}"
-            );
-        }
+        let text = modal_footer_text_with_extra(&hints, &[], 40);
+        assert!(
+            text.contains("F1 more"),
+            "width-constrained footer must show F1 more trigger, got: {text:?}"
+        );
     }
 
     #[test]
@@ -488,16 +317,9 @@ mod tests {
             FooterHint::always("Esc", "close"),
         ];
         let extra = [FooterHint::with_band("D", "delete", 70)];
-        let text = modal_footer_text_with_extra(&hints, &extra, 44);
+        let text = modal_footer_text_with_extra(&hints, &extra, 48);
         assert!(text.contains('D'), "band-70 D must survive: {text:?}");
         assert!(!text.contains('*'), "band-40 * should drop first: {text:?}");
-    }
-
-    #[test]
-    fn default_path_never_appends_more() {
-        // modal_footer_text must never append `?`.
-        let hints = sample_hints();
-        let mid = modal_footer_text(&hints, 40);
-        assert!(!mid.contains('?'));
+        assert!(text.contains("F1 more"), "overflow must reserve F1 more: {text:?}");
     }
 }

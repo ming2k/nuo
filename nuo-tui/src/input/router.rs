@@ -414,6 +414,16 @@ pub fn route_event(
                 }
             }
 
+            // Stage 5b: Modeless universal help reference F1 / Alt+? / Alt+/ (ADR-0054)
+            // On top-level chat surface, F1 toggles the Command Palette / Action Reference.
+            // When an overlay is active, F1 flows down to modal dispatch for in-dialog key guidance.
+            let is_help_trigger = physical_key.code == KeyCode::F(1)
+                || (key.modifiers.contains(KeyModifiers::ALT)
+                    && (key.code == KeyCode::Char('?') || key.code == KeyCode::Char('/')));
+            if is_help_trigger && dispatch.overlay.is_none() && !dispatch.pre_attach {
+                return InputAction::ViewSwitcherToggle;
+            }
+
             if dispatch.scene_blocked {
                 return InputAction::None;
             }

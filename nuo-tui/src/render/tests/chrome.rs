@@ -1376,6 +1376,7 @@ fn main_view_scene_row_carries_run_mode_flags() {
     let row0 = grid_row(&terminal, 0);
     assert!(row0.contains("menu C-x"), "client menu on row 0: {row0:?}");
     let row1 = grid_row(&terminal, 1);
+    assert!(row1.starts_with("  thread"), "untitled thread scene has thread placeholder: {row1:?}");
     assert!(row1.contains("UNATTENDED"), "unattended flag: {row1:?}");
     assert!(row1.contains("UNCONFINED"), "unconfined flag: {row1:?}");
     assert!(!row1.contains("menu C-x") && !row1.contains("C-x"), "namespace on row 0 not row 1: {row1:?}");

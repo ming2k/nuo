@@ -186,7 +186,7 @@ pub(crate) fn draw_view_header(
                         let truncated = truncate_to_width(title, 16);
                         format!("{}:{}", i + 1, truncated)
                     } else {
-                        format!("{}:#{}", i + 1, id_tail(id))
+                        format!("{}:thread#{}", i + 1, id_tail(id))
                     }
                 }
                 crate::surfaces::TabKind::Dashboard => format!("{}:dashboard", i + 1),
@@ -346,8 +346,10 @@ pub(crate) fn draw_view_header_hints(
         }
         (spans, width)
     } else {
-        // ADR-0050 [INV-HEAD-03]: In root thread view, eliminate redundant "thread" label.
-        // If an authentic title exists, the title leads the row; if not, no label is shown.
+        // ADR-0050 [INV-HEAD-03]: In root thread view, the leading title slot is anchor-stable:
+        // if an authentic title exists, it leads the row; otherwise "thread" stands in as a
+        // muted placeholder until replaced.
+        // Singleton tool scenes (dashboard, settings) display their scene label.
         if matches!(hints.kind, SceneKind::Thread) {
             (Vec::new(), 0)
         } else {
@@ -371,10 +373,18 @@ pub(crate) fn draw_view_header_hints(
     let ws_len = ws.map(|w| w.width() + 2).unwrap_or(0);
     let lead_pad = if lead_width > 0 { lead_width + 2 } else { 0 };
     let context_budget = text_width.saturating_sub(lead_pad + ws_len + right_width);
-    let context = hints
-        .context
-        .filter(|c| !c.is_empty())
-        .map(|c| truncate_to_width(c, context_budget));
+    let (context, is_placeholder) = if let Some(c) = hints.context.filter(|c| !c.is_empty()) {
+        (Some(truncate_to_width(c, context_budget)), false)
+    } else if matches!(hints.kind, SceneKind::Thread) && hints.breadcrumbs.map_or(true, |c| c.len() <= 1) {
+        let placeholder = truncate_to_width("thread", context_budget);
+        if placeholder.is_empty() {
+            (None, false)
+        } else {
+            (Some(placeholder), true)
+        }
+    } else {
+        (None, false)
+    };
 
     let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
     spans.extend(lead_spans);
@@ -386,7 +396,12 @@ pub(crate) fn draw_view_header_hints(
             left_width += 2;
         }
         let context_width = context.width();
-        spans.push(Span::styled(context, context_style));
+        let style = if is_placeholder {
+            fill.fg(theme.dim())
+        } else {
+            context_style
+        };
+        spans.push(Span::styled(context, style));
         left_width += context_width;
     }
 
@@ -568,8 +583,8 @@ mod tests {
             active_tab: 0,
         };
         let row = render_row1(80, head);
-        assert!(row.contains("1:#b3c4"), "{row}");
-        assert!(!row.contains("[1:#b3c4]"), "tabs must not use brackets: {row}");
+        assert!(row.contains("1:thread#b3c4"), "{row}");
+        assert!(!row.contains("[1:thread#b3c4]"), "tabs must not use brackets: {row}");
         assert!(row.contains("2:dashboard"), "{row}");
         assert!(!row.contains("~/projects/xx"), "workspace removed from client TabBar: {row}");
         assert!(row.contains("menu C-x"), "compact client menu on TabBar: {row}");
@@ -592,7 +607,7 @@ mod tests {
         };
         let row = render_row1(80, head);
         assert!(row.contains("1:Refactor DB"), "semantic title projected: {row}");
-        assert!(row.contains("2:#e7f8"), "untitled tab falls back to compact #tail: {row}");
+        assert!(row.contains("2:thread#e7f8"), "untitled tab falls back to placeholder thread#tail: {row}");
         assert!(row.contains("3:dashboard"), "{row}");
     }
 
@@ -697,7 +712,7 @@ mod tests {
         assert!(row.ends_with("  "), "right pad: {row:?}");
     }
 
-    /// Row 2 in root thread view leads directly with the authentic title and workspace path (ADR-0050 [INV-HEAD-03]).
+    /// Row 2 in root thread view leads with the authentic title when established, replacing the "thread" placeholder (ADR-0050 [INV-HEAD-03]).
     #[test]
     fn row2_names_the_scene_with_context_and_workspace() {
         let row = render_row2(
@@ -710,23 +725,39 @@ mod tests {
             },
         );
         assert!(row.starts_with("  Fix the retry loop"), "{row}");
-        assert!(!row.contains("thread"), "redundant thread label purged from root head: {row}");
+        assert!(!row.contains("thread"), "thread placeholder replaced by authentic title: {row}");
         assert!(row.contains("~/projects/xx"), "workspace present on scene head: {row}");
         assert!(!row.contains("Ctrl-x"), "namespace moved up to TabBar: {row}");
         assert!(!row.contains("Esc"), "Esc never advertises a scene exit: {row}");
     }
 
     #[test]
-    fn row2_thread_without_a_title_shows_the_workspace_or_clean_row() {
+    fn row2_thread_without_a_title_shows_thread_placeholder() {
         let row = render_row2(80, ViewHints {
             workspace: Some("~/projects/xx"),
             ..hints(SceneKind::Thread)
         });
-        assert!(row.starts_with("  ~/projects/xx"), "untitled thread leads with workspace: {row}");
-        assert!(!row.contains("thread"), "no thread label on untitled thread: {row}");
+        assert!(row.starts_with("  thread  ~/projects/xx"), "untitled thread has thread placeholder: {row}");
 
         let blank = render_row2(80, hints(SceneKind::Thread));
-        assert!(!blank.contains("thread"), "blank thread omits thread label: {blank}");
+        assert!(blank.starts_with("  thread"), "blank thread shows thread placeholder: {blank}");
+
+        let theme = Theme::default();
+        let cells = render_row2_cells(80, hints(SceneKind::Thread), &theme);
+        let t_cell = cells.iter().find(|c| c.symbol() == "t").expect("t cell");
+        assert_eq!(t_cell.fg, theme.dim(), "placeholder is rendered in dim tone");
+
+        let titled_cells = render_row2_cells(
+            80,
+            ViewHints {
+                kind: SceneKind::Thread,
+                context: Some("Fix the retry loop"),
+                ..hints(SceneKind::Thread)
+            },
+            &theme,
+        );
+        let f_cell = titled_cells.iter().find(|c| c.symbol() == "F").expect("F cell");
+        assert_eq!(f_cell.fg, theme.fg(), "authentic title is rendered in standard foreground");
     }
 
     #[test]
@@ -775,12 +806,12 @@ mod tests {
             assert!(row.starts_with(&format!("  {label}")), "{kind:?}: {row}");
         }
 
-        // ADR-0050 [INV-HEAD-03]: Thread scene does not render redundant "thread" label at root
+        // Thread scene: untitled renders "thread" placeholder in the title slot
         assert_eq!(SceneKind::Thread.scene_label(), "thread");
         let root_thread_empty = render_row2(80, hints(SceneKind::Thread));
-        assert!(!root_thread_empty.contains("thread"), "root thread has no 'thread' label: {root_thread_empty}");
+        assert!(root_thread_empty.starts_with("  thread"), "root thread shows 'thread' placeholder: {root_thread_empty}");
 
-        // Root thread with authentic title displays title directly
+        // Root thread with authentic title displays title directly, replacing "thread"
         let root_thread_with_title = render_row2(
             80,
             ViewHints {
@@ -857,11 +888,7 @@ mod tests {
         ] {
             assert!(hints(kind).has_content(), "{kind:?} stands up row 2");
             let row = render_row2(80, hints(kind));
-            if kind == SceneKind::Thread {
-                assert!(!row.contains("thread"), "root thread omits 'thread': {row}");
-            } else {
-                assert!(row.starts_with(&format!("  {}", kind.scene_label())), "{row}");
-            }
+            assert!(row.starts_with(&format!("  {}", kind.scene_label())), "{row}");
         }
     }
 

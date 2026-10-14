@@ -70,14 +70,13 @@ A thread's title is strictly an authentic entity property:
 
 Wire and persistence models (`SessionSummary`, `SessionOverview`, `MonitoredSession`) expose `pub title: Option<String>`. When a title is established or renamed, the server broadcasts updates, and the client updates its tab and scene models reactively.
 
-### 2. Clean Scene Head Band (`[INV-HEAD-03]`)
+### 2. Anchor-Stable Scene Head Band (`[INV-HEAD-03]`)
 
-Row 2 (Scene Context Head, [ADR-0024](0024-two-row-head-band-session-identity-and-scene-row.md), [ADR-0040](0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md)) is streamlined:
+Row 2 (Scene Context Head, [ADR-0024](0024-two-row-head-band-session-identity-and-scene-row.md), [ADR-0040](0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md)) is streamlined with slot-invariant anchor stability:
 - **Root Conversation View (`cursor == 0`, `breadcrumbs.len() <= 1`)**:
-  - The redundant `thread` label is completely eliminated.
-  - If an authentic title exists, the title leads the row (styled in bold heading tone).
-  - If no title exists, the bound workspace path leads the row directly.
-  - The right-hand persistent safety flags (`UNATTENDED`, `UNCONFINED`) remain anchored to the right edge.
+  - The leading title slot is anchor-stable: when an authentic title exists, the title leads the row (styled in heading tone); when untitled (fresh session awaiting AI distillation or explicit rename), `thread` stands in as a muted placeholder in the title slot.
+  - Once an authentic title is established, the title replaces `thread` in-place. This preserves slot consistency and eliminates visual layout shift (workspace path jumping horizontally).
+  - The bound workspace path follows the title slot, and right-hand persistent safety flags (`UNATTENDED`, `UNCONFINED`) remain anchored to the right edge.
 - **Hierarchical Drill-in View (`breadcrumbs.len() > 1`)**:
   - The `thread` identifier is preserved strictly as the root breadcrumb anchor (e.g. `< thread > subagent: explore > diff`), maintaining clear spatial orientation during deep task inspection ([ADR-0042](0042-client-viewport-routing-ownership-tab-history-and-scene-self-projection.md)).
 - **Peripheral Tool Scenes (`dashboard`, `settings`)**:
@@ -85,18 +84,18 @@ Row 2 (Scene Context Head, [ADR-0024](0024-two-row-head-band-session-identity-an
 
 ### 3. Semantic TabBar Projection (`[INV-TAB-08]`)
 
-Row 1 (Client TabBar) dynamically projects semantic titles:
-- When a thread tab possesses an authentic title, it renders `[<index>:<title>]` (e.g. `1: Refactor DB`, `2: Fix auth`), truncated cleanly with an ellipsis (`…`) if exceeding the maximum width budget (16 display columns).
-- When a thread tab has no authentic title (fresh session or awaiting AI distillation), it falls back to `[<index>:#<id_tail>]` (e.g. `1:#b3c4`), eradicating the verbose and cryptic `thread-` prefix entirely.
-- Upon receiving a title establishment event from the server, `SurfaceRouter::update_tab_title` updates the mounted tab title in real-time without restarting or redrawing transcripts.
+Row 1 (Client TabBar) dynamically projects semantic titles with typed placeholder fallback:
+- When a thread tab possesses an authentic title, it renders `[<index>:<title>]` (e.g. `1:Refactor DB`, `2:Fix auth`), truncated cleanly with an ellipsis (`…`) if exceeding the maximum width budget (16 display columns).
+- When a thread tab has no authentic title (fresh session or awaiting AI distillation), it renders `[<index>:thread#<id_tail>]` (e.g. `1:thread#b3c4`), combining explicit entity-kind identification (`thread`) with compact disambiguation (`#<id_tail>`) within the terminal tab budget.
+- Upon receiving a title establishment event from the server, `SurfaceRouter::update_tab_title` updates the mounted tab title in real-time, replacing `thread#<id_tail>` with the authentic title in-place without restarting or redrawing transcripts.
 
 ---
 
 ## Invariants & Behavioral Boundaries
 
 - **`[INV-TITLE-01]` Authentic Title Invariant**: A thread title MUST strictly reflect an authentic entity property (operator manual rename or detached AI titler distillation). The client MUST NOT synthesize or spoof a thread title by truncating raw user chat prompts or first-turn inputs.
-- **`[INV-HEAD-03]` Clean Root Scene Head**: In the root thread view (`history.cursor == 0`), the scene context head MUST NOT render a redundant `thread` label. If an authentic title exists, the title leads the row; if no title exists, the head displays ambient workspace metadata directly without pseudo-title fillers. The `thread` noun is reserved strictly as the root breadcrumb anchor during drill-in navigation (`breadcrumbs.len() > 1`).
-- **`[INV-TAB-08]` Semantic TabBar Projection**: Mounted thread tabs in the client TabBar MUST dynamically project the authentic thread title when present, bounded by reasonable width truncation. The compact `#<id_tail>` identifier is permitted strictly as an untitled fallback; cryptic `thread-xxxx` prefixes are purged from TabBar presentation.
+- **`[INV-HEAD-03]` Anchor-Stable Scene Head**: In the root thread view (`history.cursor == 0`), the scene context head MUST maintain an anchor-stable title slot. When untitled, `thread` stands in as a muted placeholder; once an authentic title is established, the title replaces `thread` in-place. The `thread` noun is also preserved as the root breadcrumb anchor during drill-in navigation (`breadcrumbs.len() > 1`).
+- **`[INV-TAB-08]` Semantic TabBar Projection**: Mounted thread tabs in the client TabBar MUST dynamically project the authentic thread title when present, bounded by reasonable width truncation. In the untitled initial state, tabs project `<index>:thread#<id_tail>` as a typed placeholder; once an authentic title is established, the title replaces `thread#<id_tail>` in-place. Full raw UUIDs MUST NOT be embedded unshortened into TabBar items to preserve horizontal terminal budget.
 
 ---
 
@@ -105,14 +104,14 @@ Row 1 (Client TabBar) dynamically projects semantic titles:
 ### 1. Spoofing Raw First-Turn Chat Prompts as Fallback Titles
 - *Why rejected*: Violates Authentic Title Invariant (`[INV-TITLE-01]`). Raw prompts are instructions or inquiries, not titles. Truncating strings like `Please examine the following diff and tell me why...` generates ugly, broken headlines that confuse operators and erode interface polish.
 
-### 2. Retaining Static `thread` Label on Row 2 at All Times
-- *Why rejected*: Violates Clean Root Scene Head (`[INV-HEAD-03]`). In the core conversational surface, writing `thread` next to the actual conversation is redundant visual clutter that wastes terminal columns. The operator already knows they are in an agent thread; chrome must prioritize content over self-labeling.
+### 2. Retaining Static `thread` Label on Row 2 Alongside Authentic Title
+- *Why rejected*: Violates Clean Scene Head. In the core conversational surface, writing `thread > My Title` once a title exists is redundant visual clutter that wastes terminal columns. The in-place replacement model replaces `thread` with the title rather than prepending it.
 
 ### 3. Permanently Static Hexadecimal Tab Labels (`thread-xxxx`)
 - *Why rejected*: Violates Semantic TabBar Projection (`[INV-TAB-08]`). Forces severe cognitive friction in multi-tab workflows. Operators cannot correlate `thread-b3c4` with specific tasks without switching through each tab.
 
-### 4. Retaining `thread-` Prefix in Untitled Tab Fallbacks
-- *Why rejected*: Violates Semantic TabBar Projection (`[INV-TAB-08]`). In Nuo's conversation viewport, repeating `thread-` wastes 7 columns per tab and produces visual clutter. Compact `#<id_tail>` provides clean disambiguation without legacy baggage.
+### 4. Embedding Unshortened 36-Character UUIDs in Tabs (`thread#0194eb82-...`)
+- *Why rejected*: Violates Terminal Width Economy (`[INV-TAB-08]`). A full UUID consumes 40+ columns per tab, causing two tabs to exhaust the TabBar budget and push off the `C-x menu` affordance on standard 80-120 column terminals. The compact `#<id_tail>` gives sufficient disambiguation while fitting cleanly inside the 16-column tab budget.
 
 ---
 
@@ -126,5 +125,5 @@ Row 1 (Client TabBar) dynamically projects semantic titles:
 
 ## Negative Consequences & Mitigation
 
-- Freshly created threads initially display `thread-<id_tail>` until an explicit title is given or the AI titler completes its asynchronous round.
+- Freshly created threads initially display `thread#<id_tail>` until an explicit title is given or the AI titler completes its asynchronous round.
 - *Mitigation*: The AI titler runs detached and typically completes within the first round, automatically upgrading the tab and scene head dynamically.

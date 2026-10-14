@@ -1146,7 +1146,8 @@ fn input_dialog(
                 .as_any_mut()
                 .downcast_mut::<HistorySearchDialog>()
                 .expect("kind");
-            e.index = rotate(e.index, count, forward);
+            let cur = e.index.min(count.saturating_sub(1));
+            e.index = rotate(cur, count, forward);
             e.follow = true;
             DialogOutcome::Consumed
         }

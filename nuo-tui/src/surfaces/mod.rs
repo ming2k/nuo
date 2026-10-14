@@ -405,7 +405,10 @@ impl ClientTab {
         let id_str = id.into();
         Self {
             kind: TabKind::Thread(id_str),
-            title: title.map(|t| t.into()).filter(|t| !t.trim().is_empty()),
+            title: title
+                .map(|t| t.into())
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty()),
             history: vec![SceneKind::Thread],
             cursor: 0,
         }
@@ -431,7 +434,7 @@ impl ClientTab {
 
     pub fn label(&self) -> &str {
         match &self.kind {
-            TabKind::Thread(_) => self.title.as_deref().unwrap_or(""),
+            TabKind::Thread(_) => self.title.as_deref().unwrap_or("thread"),
             TabKind::Dashboard => "Dashboard",
             TabKind::Settings => "Settings",
         }
@@ -622,10 +625,11 @@ impl SurfaceRouter {
     /// Dynamically update the authentic title of a thread tab (ADR-0050 [INV-TAB-08]).
     pub fn update_tab_title(&mut self, thread_id: &str, title: impl Into<String>) -> bool {
         let title_str = title.into();
-        let cleaned = if title_str.trim().is_empty() {
+        let trimmed = title_str.trim();
+        let cleaned = if trimmed.is_empty() {
             None
         } else {
-            Some(title_str)
+            Some(trimmed.to_string())
         };
         let mut updated = false;
         for tab in &mut self.tabs {
@@ -1419,5 +1423,28 @@ mod tests {
         assert_eq!(router.active_tab().unwrap().current_scene(), SceneKind::Subagent);
         assert_eq!(router.back_scene(), SceneKind::Aside);
         assert_eq!(router.active_scene(), SceneKind::Aside);
+    }
+
+    #[test]
+    fn test_tab_title_lifecycle_and_placeholder_update() {
+        let mut router = SurfaceRouter::new();
+        let idx = router.open_tab(ClientTab::thread("conv-42", None::<String>));
+        assert_eq!(idx, 0);
+
+        let tab = router.tabs().first().unwrap();
+        assert_eq!(tab.label(), "thread");
+        assert_eq!(tab.display_title(), None);
+
+        // Update with authentic title (with surrounding spaces to verify trimming)
+        assert!(router.update_tab_title("conv-42", "  Refactor Auth Engine  "));
+        let tab = router.tabs().first().unwrap();
+        assert_eq!(tab.label(), "Refactor Auth Engine");
+        assert_eq!(tab.display_title(), Some("Refactor Auth Engine"));
+
+        // Update with whitespace clears to None
+        assert!(router.update_tab_title("conv-42", "   "));
+        let tab = router.tabs().first().unwrap();
+        assert_eq!(tab.label(), "thread");
+        assert_eq!(tab.display_title(), None);
     }
 }

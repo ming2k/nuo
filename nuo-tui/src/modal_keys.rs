@@ -364,6 +364,16 @@ pub(crate) fn resolve_modal_key(
         _ => {}
     }
 
+    // F1 / Alt+? / Alt+/ toggles dialog keys overlay for any active dialog (ADR-0054)
+    if let Some(overlay) = overlay {
+        let is_f1 = key.code == KeyCode::F(1);
+        let is_alt_help = key.modifiers.contains(KeyModifiers::ALT)
+            && (key.code == KeyCode::Char('?') || key.code == KeyCode::Char('/'));
+        if (is_f1 || is_alt_help) && matches!(overlay, OverlaySurface::Dialog(_)) {
+            return Some(InputAction::ToggleDialogKeys);
+        }
+    }
+
     let KeyCode::Char(c) = key.code else {
         return None;
     };
@@ -565,15 +575,18 @@ fn resolve_config_key(c: char, keys: &ModalKeys) -> Option<InputAction> {
     None
 }
 
-/// Dialog key reference sub-view input routing.
+/// Dialog key reference sub-view input routing (ADR-0054 modeless help).
 fn resolve_dialog_keys_key(key: crate::keymap::Key) -> InputAction {
     match key.code {
-        KeyCode::Esc => InputAction::ToggleDialogKeys,
+        KeyCode::Esc | KeyCode::F(1) => InputAction::ToggleDialogKeys,
         KeyCode::Char('?')
             if !key
                 .modifiers
-                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER) =>
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER) =>
         {
+            InputAction::ToggleDialogKeys
+        }
+        KeyCode::Char('/') if key.modifiers.contains(KeyModifiers::ALT) => {
             InputAction::ToggleDialogKeys
         }
         KeyCode::Up => InputAction::DialogKeysScroll { delta: -1 },

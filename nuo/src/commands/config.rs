@@ -30,13 +30,14 @@ pub fn run(action: ConfigAction) -> Result<(), Box<dyn std::error::Error>> {
             if !terminal_path.exists() {
                 if tui_path.exists() {
                     std::fs::copy(&tui_path, &terminal_path)?;
+                    let _ = std::fs::remove_file(&tui_path);
                     println!(
                         "  ✓ Migrated {} -> {}",
                         tui_path.display(),
                         terminal_path.display()
                     );
                 } else {
-                    std::fs::write(&terminal_path, "[appearance]\ncolor_scheme = \"default\"\n")?;
+                    std::fs::write(&terminal_path, "color_scheme = \"default\"\n")?;
                     println!("  ✓ Created {}", terminal_path.display());
                 }
             }

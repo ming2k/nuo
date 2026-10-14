@@ -153,13 +153,12 @@ pub(crate) fn hint_row_parts(
 ) -> (Vec<Span<'static>>, Vec<Span<'static>>) {
     let key_style = keycap_style(theme).bg(bg);
     let hint_style = theme.keycap_label_style().bg(bg);
-    let verb_style = Style::default().bg(bg);
     let compact = density.compact();
     let tiny = matches!(density, ActionDensity::Tiny);
 
     // HistorySearch is a modal whose keys are owned by its own scheme
     // (`modal_keys::live_history_hints`, ADR-0172); this row renders exactly
-    // those chords with adaptive density.
+    // those chords with adaptive density and ADR-0054 visual grammar.
     if target == ComposeTarget::HistorySearch {
         let hints = live_history_hints();
         let mut left: Vec<Span<'static>> = Vec::new();
@@ -185,47 +184,47 @@ pub(crate) fn hint_row_parts(
             .filter(|h| h.side == HintSide::Action)
             .collect();
         let mut right: Vec<Span<'static>> = Vec::new();
+        let action_key_style = Style::default()
+            .fg(theme.keycap_accent())
+            .bg(bg)
+            .add_modifier(Modifier::BOLD);
         if compact || tiny {
             if let Some(last) = actions.last() {
-                right.push(Span::styled(last.display_key(), key_style));
-                right.push(Span::styled(
-                    format!(" {}", last.label),
-                    verb_style.fg(theme.brand()).add_modifier(Modifier::BOLD),
-                ));
+                right.push(Span::styled(last.display_key(), action_key_style));
+                right.push(Span::styled(format!(" {}", last.label), hint_style));
             }
         } else {
             for (i, h) in actions.iter().enumerate() {
                 if i > 0 {
                     right.push(Span::styled(" / ", hint_style));
                 }
-                right.push(Span::styled(h.display_key(), key_style));
+                right.push(Span::styled(h.display_key(), action_key_style));
             }
             if let Some(last) = actions.last() {
-                right.push(Span::styled(
-                    format!(" {}", last.label),
-                    verb_style.fg(theme.brand()).add_modifier(Modifier::BOLD),
-                ));
+                right.push(Span::styled(format!(" {}", last.label), hint_style));
             }
         }
         return (left, right);
     }
 
-    let (state, action_label_style) = match target {
-        ComposeTarget::Prompt => (HintState::Idle, hint_style),
-        ComposeTarget::Command => (HintState::Command, hint_style),
-        ComposeTarget::HistoryRecall => (HintState::Recall, hint_style),
-        ComposeTarget::Running(crate::app::ComposerSendMode::Steer) => (
-            HintState::Running(crate::app::ComposerSendMode::Steer),
-            verb_style.fg(theme.warn()),
-        ),
-        ComposeTarget::Running(crate::app::ComposerSendMode::FollowUp) => (
-            HintState::Running(crate::app::ComposerSendMode::FollowUp),
-            verb_style.fg(theme.info()),
-        ),
-        ComposeTarget::Completion { .. } => (
-            HintState::Completion,
-            verb_style.fg(theme.brand()).add_modifier(Modifier::BOLD),
-        ),
+    let action_key_style = match target {
+        ComposeTarget::Running(crate::app::ComposerSendMode::Steer) => {
+            Style::default().fg(theme.warn()).bg(bg).add_modifier(Modifier::BOLD)
+        }
+        ComposeTarget::Running(crate::app::ComposerSendMode::FollowUp) => {
+            Style::default().fg(theme.info()).bg(bg).add_modifier(Modifier::BOLD)
+        }
+        _ => Style::default()
+            .fg(theme.keycap_accent())
+            .bg(bg)
+            .add_modifier(Modifier::BOLD),
+    };
+    let state = match target {
+        ComposeTarget::Prompt => HintState::Idle,
+        ComposeTarget::Command => HintState::Command,
+        ComposeTarget::HistoryRecall => HintState::Recall,
+        ComposeTarget::Running(mode) => HintState::Running(mode),
+        ComposeTarget::Completion { .. } => HintState::Completion,
         ComposeTarget::HistorySearch => unreachable!(),
     };
     let hints = live_chat_hints(state, toggle_mode_key);
@@ -253,8 +252,8 @@ pub(crate) fn hint_row_parts(
     }
 
     // Right: action affordances. Multiple keys pair as `Tab / Enter`, with the
-    // verb label styled per state; the `command` and `retry` suffixes are
-    // presentation branding on top of the scheme's `send` chord.
+    // verb key styled per ADR-0054 (accent on key, subdued text on label); the
+    // `command` and `retry` suffixes are presentation branding.
     let mut right: Vec<Span<'static>> = Vec::new();
     let actions: Vec<&crate::keymap::LiveHint> = hints
         .iter()
@@ -264,20 +263,17 @@ pub(crate) fn hint_row_parts(
         if i > 0 {
             right.push(Span::styled(" / ", hint_style));
         }
-        right.push(Span::styled(h.display_key(), key_style));
+        right.push(Span::styled(h.display_key(), action_key_style));
     }
     if let Some(last) = actions.last() {
-        right.push(Span::styled(format!(" {}", last.label), action_label_style));
+        right.push(Span::styled(format!(" {}", last.label), hint_style));
     }
     if target == ComposeTarget::Command {
-        right.push(Span::styled(
-            " command",
-            verb_style.fg(theme.brand()).add_modifier(Modifier::BOLD),
-        ));
+        right.push(Span::styled(" command", hint_style));
     }
     if can_retry && target == ComposeTarget::Prompt {
         right.push(Span::styled("   ", hint_style));
-        right.push(Span::styled("/retry", key_style));
+        right.push(Span::styled("/retry", action_key_style));
         if !compact {
             right.push(Span::styled(" retry", hint_style));
         }
@@ -307,6 +303,13 @@ mod tests {
         );
         assert_eq!(text(&left), "", "idle row carries no nav chords (ADR-0173)");
         assert_eq!(text(&right), "Enter send");
+        // ADR-0054: "Enter" span must use theme.keycap_accent() and BOLD
+        assert_eq!(right[0].content, "Enter");
+        assert_eq!(right[0].style.fg, theme.keycap_accent());
+        assert!(right[0].style.add.contains(Modifier::BOLD));
+        // " send" span must use keycap_label()
+        assert_eq!(right[1].content, " send");
+        assert_eq!(right[1].style.fg, theme.keycap_label());
     }
 
     #[test]

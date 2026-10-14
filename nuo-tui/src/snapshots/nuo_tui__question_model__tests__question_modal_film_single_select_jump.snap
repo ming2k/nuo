@@ -1,5 +1,5 @@
 ---
-source: apps/terminal/crates/mutx/src/question_model.rs
+source: nuo-tui/src/question_model.rs
 expression: film
 ---
 === open (first row highlighted = selected) ===
@@ -17,7 +17,7 @@ expression: film
    [x] anyhow                                                 ▲
        Simple
 
-   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel
+   ↑↓ navigate  Enter submit  Esc cancel  F1 more
 
 === down → highlight 'thiserror' (selected, no marker) ===
 
@@ -34,7 +34,7 @@ expression: film
    [x] thiserror                                              ▲
        Structured
 
-   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel
+   ↑↓ navigate  Enter submit  Esc cancel  F1 more
 
 === '3' → jump to 'Other' (now the live selection) ===
 
@@ -51,4 +51,4 @@ expression: film
    [x] Other                                                  ▲
    › type your answer…
 
-   ↑↓ navigate  wheel/Pg scroll  Enter submit  Esc cancel
+   ↑↓ navigate  Enter submit  Esc cancel  F1 more

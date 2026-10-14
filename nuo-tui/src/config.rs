@@ -1,10 +1,10 @@
 //! TUI presentation configuration and state.
 //!
-//! Stored in the unified `nuo` namespace at `$XDG_CONFIG_HOME/nuo/tui.toml`
-//! — a sibling of the server's `config.toml`, not a field inside it — so the
+//! Stored in the unified `nuo` namespace at `$XDG_CONFIG_HOME/nuo/terminal.toml`
+//! — a sibling of the server's `server.toml`, not a field inside it — so the
 //! frontend's presentation state and the server's behavioural policy stay
 //! cleanly decoupled while both live under one application directory
-//! (ADR-0011).
+//! (ADR-0011, ADR-0031).
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -44,7 +44,7 @@ pub struct TuiConfig {
     #[serde(default = "default_true")]
     pub click_outside_dismiss: bool,
     pub expand_auto_scroll: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub default_expanded: HashMap<String, bool>,
     #[serde(default)]
     pub custom_color_scheme: ColorSchemeConfig,
@@ -54,7 +54,7 @@ pub struct TuiConfig {
     /// entries for the global layer (e.g. `interrupt = "ctrl+x"`), plus a
     /// `[keybindings.session]` sub-table for the full-screen-view verbs. See
     /// [`crate::keymap::parse_key`] for the chord syntax.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "KeybindingsConfig::is_empty")]
     pub keybindings: KeybindingsConfig,
 }
 
@@ -70,6 +70,12 @@ pub struct KeybindingsConfig {
     /// Surface verbs: `verb → chord spec` (step 9). Keys are the unqualified
     /// [`crate::keymap::SurfaceVerb`] names (`open_history`, `toggle_send_mode`, …).
     pub session: HashMap<String, String>,
+}
+
+impl KeybindingsConfig {
+    pub fn is_empty(&self) -> bool {
+        self.commands.is_empty() && self.session.is_empty()
+    }
 }
 
 pub type MutxConfig = TuiConfig;
@@ -100,9 +106,9 @@ impl TuiConfig {
     pub fn surface_key_overrides(&self) -> crate::keymap::SurfaceOverrides {
         crate::keymap::SurfaceOverrides::from_config(&self.keybindings.session)
     }
-    /// Load configuration from `$XDG_CONFIG_HOME/nuo/tui.toml`.
+    /// Load configuration from `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).
     pub fn load() -> Self {
-        Self::read_from(&nuo_host::paths::get().tui_config_file()).unwrap_or_default()
+        Self::read_from(&nuo_host::paths::get().terminal_config_file()).unwrap_or_default()
     }
 
     fn read_from(path: &Path) -> Option<Self> {
@@ -110,9 +116,9 @@ impl TuiConfig {
         toml::from_str::<TuiConfig>(&content).ok()
     }
 
-    /// Save the configuration to `$XDG_CONFIG_HOME/nuo/tui.toml`.
+    /// Save the configuration to `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let path = nuo_host::paths::get().tui_config_file();
+        let path = nuo_host::paths::get().terminal_config_file();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -145,20 +151,23 @@ pub fn reasoning_default_expanded(config: &TuiConfig) -> bool {
 
 /// Record a user's disclosure choice for one interactive tool component.
 ///
-/// Every name the component claims is written, so a step persisted under a
-/// legacy or alias spelling (`bash`, `write_todos`) honours the same choice as
-/// its canonical name. The fan-out is derived from the registry rather than
-/// hand-maintained, which is what previously let alias coverage drift
-/// (ADR-0020).
+/// If `expanded` equals the component's declared default, the override is pruned
+/// from `config.default_expanded` so the configuration stays minimal and clean.
+/// When it differs, every name the component claims is written so aliases
+/// honour the choice (ADR-0020).
 pub fn set_component_default_expanded(
     config: &mut TuiConfig,
     component: &crate::tools::ToolComponent,
     expanded: bool,
 ) {
     for name in component.names() {
-        config
-            .default_expanded
-            .insert(name.to_string(), expanded);
+        if expanded == component.default_expanded() {
+            config.default_expanded.remove(name);
+        } else {
+            config
+                .default_expanded
+                .insert(name.to_string(), expanded);
+        }
     }
 }
 
@@ -510,5 +519,38 @@ error = "#dc322f"
                 .iter()
                 .any(|t| t.id == "solarized-dark" && t.name == "Solarized Dark")
         );
+    }
+
+    #[test]
+    fn empty_default_expanded_is_not_serialized() {
+        let cfg = TuiConfig::default();
+        let serialized = toml::to_string_pretty(&cfg).expect("serializes");
+        assert!(
+            !serialized.contains("[default_expanded]"),
+            "empty default_expanded must not be serialized, got:\n{serialized}"
+        );
+        assert!(
+            !serialized.contains("[keybindings]"),
+            "empty keybindings must not be serialized, got:\n{serialized}"
+        );
+    }
+
+    #[test]
+    fn set_component_default_expanded_prunes_when_matching_default() {
+        let mut cfg = TuiConfig::default();
+        let comp = crate::tools::component_for("execute_command").expect("command component");
+        assert!(comp.default_expanded());
+
+        // Overriding to false inserts into map
+        set_component_default_expanded(&mut cfg, comp, false);
+        assert_eq!(cfg.default_expanded.get("execute_command"), Some(&false));
+
+        // Reverting to true (declared default) removes from map
+        set_component_default_expanded(&mut cfg, comp, true);
+        assert!(!cfg.default_expanded.contains_key("execute_command"));
+        assert!(cfg.default_expanded.is_empty());
+
+        // And tool_default_expanded still resolves to true via component fallback
+        assert!(tool_default_expanded(&cfg, "execute_command"));
     }
 }
