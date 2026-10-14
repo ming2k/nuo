@@ -151,22 +151,32 @@ pub const ANTIGRAVITY_JETSKI_BRAND_NAME: &str = "Jetski CLI";
 /// Cloud Code inference backend admits requests only from the `antigravity/cli/`
 /// product brand with a numeric version of at least
 /// [`ANTIGRAVITY_CLI_MIN_PRODUCT_VERSION`]. Verified live against
-/// `v1internal:generateContent` — see ADR-0289.
+/// `v1internal:generateContent` — see ADR-0289 and
+/// `docs/reference/antigravity.yml`.
+///
+/// Live re-verification 2026-10-14 (`agy` 1.3.5 under an intercepting proxy):
+/// the shipped client now reports `1.3.5 (cl=998863838)`, and a differential
+/// probe confirmed `1.2.12` / `1.2.0` with `cl=0` are still admitted (`200` on
+/// every `v1internal` verb). The pin is the oldest band value, not the newest
+/// observed version — bump only if the backend narrows its admission window.
 pub const ANTIGRAVITY_VERSION: &str = "1.2.12";
 
 /// Lowest Antigravity CLI version the Cloud Code backend routes to inference.
 ///
-/// Empirically derived (ADR-0289): the backend returns HTTP `404 NOT_FOUND` for
-/// `antigravity/cli/<v>` below `1.2`, and admits (`200`/`429`) at or above it.
-/// Pinning the emulated version at or above this floor keeps the request inside
-/// the admitted band even as Google advances the real client.
+/// Empirically derived (ADR-0289): the backend returned HTTP `404 NOT_FOUND`
+/// for `antigravity/cli/<v>` below `1.2`. Live re-verification 2026-10-14:
+/// `antigravity/cli/1.2.0` is admitted (`200` across all verbs), so the floor
+/// holds; the legacy brand-less `antigravity/<version>` form was also observed
+/// admitted on this capture, but the `cli` brand remains the safe invariant
+/// (the brandless form is what earlier generations rejected).
 pub const ANTIGRAVITY_CLI_MIN_PRODUCT_VERSION: &str = "1.2";
 
 /// Product brand segment the Cloud Code backend requires in the User-Agent.
 ///
 /// The current `agy` identifies as `antigravity/cli/…`; the older
-/// `antigravity/<version>` form (no brand segment) is now rejected with
-/// `404 NOT_FOUND` before inference routing.
+/// `antigravity/<version>` form (no brand segment) was rejected with
+/// `404 NOT_FOUND` before inference routing by earlier backend generations.
+/// Keep the brand: it is the component with proven rejection history.
 pub const ANTIGRAVITY_CLI_BRAND: &str = "cli";
 
 /// Google Antigravity client kind reported inside the User-Agent comment.
@@ -181,8 +191,10 @@ pub const ANTIGRAVITY_AUTH_METHOD_CONSUMER: &str = "consumer";
 /// Faithful to the identity the current `agy` CLI emits on every Cloud Code
 /// request: `antigravity/cli/<version> (<kind>; os_type=…; arch=…; cl=…;
 /// auth_method=…)`. The `cl=` build number is a build-internal counter the
-/// backend does not discriminate on (ADR-0289), so nuo carries a stable
-/// placeholder rather than tracking Google's build numbering.
+/// backend does not discriminate on (ADR-0289; re-verified live 2026-10-14 —
+/// the real 1.3.5 client sends `cl=998863838` while `cl=0` is equally
+/// admitted), so nuo carries a stable placeholder rather than tracking
+/// Google's build numbering.
 pub const ANTIGRAVITY_USER_AGENT: &str = "antigravity/cli/1.2.12 \
      (aidev_client; os_type=linux; arch=amd64; cl=0; auth_method=consumer)";
 
@@ -222,6 +234,12 @@ pub fn antigravity_cli_user_agent(
 }
 
 /// Google API client attribution header value sent by the Antigravity client.
+///
+/// Live note (2026-10-14): the real `agy` 1.3.5 sends **no** `x-goog-api-client`
+/// header at all, and the backend does not discriminate on it (differential
+/// probe: every `v1internal` verb returns `200` with and without it). nuo keeps
+/// stamping the header as harmless attribution parity with the older
+/// Google API client stack the profile originally mirrored.
 pub const ANTIGRAVITY_API_CLIENT_HEADER: &str = "gl-go/1.23.2 gdcl/0.1";
 
 /// Remote control proxy identification header: `X-Jetski-Via-Remote-Control`.
@@ -1085,9 +1103,11 @@ mod tests {
     }
 
     /// The Cloud Code backend admits inference only from the `antigravity/cli/`
-    /// brand with a numeric version at or above the pinned floor (ADR-0289).
-    /// This test freezes that wire identity so it cannot silently regress to the
-    /// rejected `antigravity/<version>` form.
+    /// brand with a numeric version at or above the pinned floor (ADR-0289,
+    /// re-verified live against `agy` 1.3.5 on 2026-10-14 — see
+    /// `docs/reference/antigravity.yml` `x-admission-band`). This test freezes
+    /// that wire identity so it cannot silently regress to the brand-less
+    /// `antigravity/<version>` form that earlier backend generations rejected.
     #[test]
     fn antigravity_user_agent_matches_cli_admitted_form() {
         assert_eq!(
@@ -1126,6 +1146,22 @@ mod tests {
              {ANTIGRAVITY_CLI_MIN_PRODUCT_VERSION}"
         );
 
+        // Live re-verification 2026-10-14 (`agy` 1.3.5, differential probe):
+        // the observed real client is 1.3.5 with build cl=998863838 while nuo
+        // pins 1.2.12 with cl=0 — both admitted. The pin must stay *within*
+        // the band, and the real client must not fall below it, otherwise the
+        // floor constant and this profile have drifted from upstream.
+        assert!(
+            floor <= pinned,
+            "admission floor exceeds the pinned version"
+        );
+        let real: Vec<u32> = "1.3.5".split('.').filter_map(|p| p.parse().ok()).collect();
+        assert!(
+            floor <= real,
+            "the live agy version dropped below the admission floor; \
+             the backend likely narrowed the band — re-probe docs/reference/antigravity.yml"
+        );
+
         // The builder reproduces the constant for the native platform triple.
         assert!(
             antigravity_user_agent(
@@ -1135,6 +1171,20 @@ mod tests {
             )
             .starts_with("antigravity/cli/1.2.12 (aidev_client;")
         );
+    }
+
+    /// The emulated profile must not claim `x-goog-api-client` as an admission
+    /// gate: the real `agy` 1.3.5 never sends the header and the backend
+    /// ignores it (live differential probe, 2026-10-14). Freezing the value
+    /// keeps the attribution parity documented in
+    /// `docs/reference/antigravity.yml` from drifting silently.
+    #[test]
+    fn antigravity_api_client_header_is_attribution_only() {
+        // The header nuo stamps is the gl-go/gdcl attribution string.
+        assert_eq!(ANTIGRAVITY_API_CLIENT_HEADER, "gl-go/1.23.2 gdcl/0.1");
+        // It is the sole entry of the preset header set (parity surface).
+        assert_eq!(ANTIGRAVITY_CLIENT_HEADERS.len(), 1);
+        assert_eq!(ANTIGRAVITY_CLIENT_HEADERS[0].0, "x-goog-api-client");
     }
 
     /// A profile parsed from an older or foreign Antigravity User-Agent must

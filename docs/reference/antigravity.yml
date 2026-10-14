@@ -1,0 +1,1410 @@
+# OpenAPI 3.1 reference for the Google Antigravity (Cloud Code) v1internal surface,
+# reverse engineered from Google Antigravity CLI (`agy`) 1.3.5
+# (/home/ming/.local/bin/agy, stripped Go ELF, 215 MB, build 998863838)
+# and live-verified on 2026-10-14 against a real consumer (Google One free-tier) account.
+#
+# Consumers: the implementer maintaining the `antigravity` client-identity profile in
+# Nuo (nuo-model-codec::client_identity) and the
+# providers/nuo-provider-google-antigravity crate. This file never encodes code
+# decisions — it states the contract exactly as the endpoint enforces it.
+#
+# Method note: `agy` was run under an intercepting HTTPS proxy with a locally
+# trusted CA, capturing every Cloud Code request/response of a real inference
+# turn; identity fields were then rewritten per-request (differential probing)
+# to establish which header values the backend discriminates on. Provenance for
+# each fact is stamped `x-provenance: live` (observed on the wire) or
+# `x-provenance: bundle` (extracted from the binary image).
+#
+# Vendor extensions used (x-…):
+#   x-provenance          live | bundle (how the fact was established)
+#   x-admission-band      backend-admitted client identity values (live differential probe)
+openapi: 3.1.0
+info:
+  title: Google Antigravity (Cloud Code) Internal API
+  version: 1.3.5
+  summary: >-
+    The Cloud Code companion surface behind the `agy` CLI: an OAuth2 (Google
+    Cloud Platform scope set) authenticated envelope that wraps Google-native
+    `GenerateContent` semantics inside a `v1internal` request shell keyed by a
+    zero-config companion project (`aicode-consumers`).
+  description: |
+    Base URLs (bundle + live):
+
+    | Environment | Base URL | Note |
+    | --- | --- | --- |
+    | Production (daily) | `https://daily-cloudcode-pa.googleapis.com` | what the shipped CLI uses |
+    | Production (stable) | `https://cloudcode-pa.googleapis.com` | same backend family; appears in the bundle and in `CLOUD_CODE_URL` docs |
+    | Preprod | `https://preprod-daily-cloudcode-pa.sandbox.googleapis.com` | bundle-only staging host |
+
+    The Cloud Code URL is overridable at runtime: `CLOUD_CODE_URL` env var
+    (`Overriding CloudCodeServerURL via CLOUD_CODE_URL environment variable`),
+    and the client may also rewrite it dynamically (`Dynamically updating
+    CloudCodeServerURL`). A user-supplied project switches the surface to
+    Vertex-AI semantics on `aiplatform.googleapis.com` (`rawPredict`,
+    `{$api_version}/models/{model}:generateContent`), outside the envelope
+    documented here.
+
+    Envelope semantics (the defining fact of this surface): every endpoint is a
+    `POST` to `/{host}/v1internal:{verb}` with a JSON body. The two inference
+    verbs wrap a standard Google `GenerateContentRequest` under a `"request"`
+    key and add companion-project routing fields at the top level. Responses
+    wrap the Google-native body under a `"response"` key and carry a
+    `"traceId"`. SSE streams (`?alt=sse`) emit `data:` frames of exactly that
+    wrapped shape — `data: {"response": {…GenerateContentResponse…},
+    "traceId": "…", "metadata": {}}`.
+
+    Companion project: consumer (personal Google One) accounts do not provision
+    a GCP project; `loadCodeAssist` returns the fixed companion project
+    `aicode-consumers`, which the CLI stamps into every subsequent call's
+    `"project"` field. Requests without a project are still served but are the
+    documented trigger for HTTP 429 `RESOURCE_EXHAUSTED` under load.
+
+    Auth: OAuth2 Authorization Code + PKCE (S256) through
+    `https://accounts.google.com/o/oauth2/v2/auth`, loopback redirect
+    `http://127.0.0.1:{port}/oauth-callback` (CLI-preferred port 51121, dynamic
+    fallback), tokens from `https://oauth2.googleapis.com/token` (form-encoded,
+    client credentials in the request body). Scopes: `cloud-platform`,
+    `userinfo.email`, `userinfo.profile`, `cclog`, `experimentsandconfigs`,
+    `aicode`, `openid`. `access_type=offline&prompt=consent`. Two client
+    identities exist in the bundle: the Cloud Code IDE pair and the standalone
+    CLI pair (see `x-cli-constants`).
+
+    Client identity (the admission gate): the backend routes inference only for
+    requests whose `User-Agent` carries the `antigravity/cli/` brand. The full
+    observed form is
+    `antigravity/cli/{version} (aidev_client; os_type={os}; arch={arch}; cl={build}; auth_method={method})`
+    — live capture of 1.3.5:
+    `antigravity/cli/1.3.5 (aidev_client; os_type=linux; arch=amd64; cl=998863838; auth_method=consumer)`.
+    Differential probing (live) established:
+    - `cl=` is **not** discriminated (`cl=0` and the real build number are both admitted).
+    - `auth_method=consumer` matches subscription accounts; `business` exists in
+      the bundle for enterprise surfaces.
+    - The `cli` brand segment is load-bearing: the legacy `antigravity/{version}`
+      form (no brand) was rejected with `404 NOT_FOUND` before inference routing
+      in earlier backend generations. As of this capture both branded and
+      unbranded forms reach inference, but the brand remains the safe invariant.
+    - `x-goog-api-client` (`gl-go/1.23.2 gdcl/0.1` in Nuo's emulation) is
+      **not** sent by the real CLI at all and is ignored by the backend; Nuo
+      keeps stamping it as harmless attribution parity.
+  x-provenance: live + bundle
+  x-cli-constants:
+    cliVersion: 1.3.5
+    cliBuildNumber: "998863838"
+    clientKind: aidev_client
+    authMethodConsumer: consumer
+    authMethodBusiness: business
+    oauth:
+      authorizeUrl: https://accounts.google.com/o/oauth2/v2/auth
+      tokenUrl: https://oauth2.googleapis.com/token
+      deviceAuthorizationUrl: https://oauth2.googleapis.com/device/code
+      loopbackRedirect: http://127.0.0.1:51121/oauth-callback
+      cloudCodeClientId: 1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com
+      cloudCodeClientSecret: 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
+      cliClientId: 884354919052-36trc1jjb3tguiac32ov6cod26c5blh.apps.googleusercontent.com
+      cliClientSecret: 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
+      scopes:
+        - https://www.googleapis.com/auth/cloud-platform
+        - https://www.googleapis.com/auth/userinfo.email
+        - https://www.googleapis.com/auth/userinfo.profile
+        - https://www.googleapis.com/auth/cclog
+        - https://www.googleapis.com/auth/experimentsandconfigs
+        - https://www.googleapis.com/auth/aicode
+        - openid
+    companionProject: aicode-consumers
+    consumerTierId: g1-pro-tier
+    minAdmittedProductVersion: "1.2"
+    userAgents:
+      real135: antigravity/cli/1.3.5 (aidev_client; os_type=linux; arch=amd64; cl=998863838; auth_method=consumer)
+      nuoEmulated: antigravity/cli/1.2.12 (aidev_client; os_type=linux; arch=amd64; cl=0; auth_method=consumer)
+    otherHosts:
+      aicode: https://aicode.googleapis.com
+      businessAicode: businessaicode.googleapis.com
+      preprod: https://preprod-daily-cloudcode-pa.sandbox.googleapis.com
+  license:
+    name: Internal reference
+    url: https://antigravity.google/docs/cli/reference
+
+externalDocs:
+  description: Antigravity CLI reference
+  url: https://antigravity.google/docs/cli/reference
+
+servers:
+  - url: https://daily-cloudcode-pa.googleapis.com
+    description: Production (daily ring; the shipped CLI default)
+  - url: https://cloudcode-pa.googleapis.com
+    description: Production (stable ring)
+  - url: https://preprod-daily-cloudcode-pa.sandbox.googleapis.com
+    description: Pre-production (bundle-only)
+
+security:
+  - OAuthBearer: []
+
+tags:
+  - name: account
+    description: Entitlement, onboarding, user info and settings.
+  - name: catalog
+    description: Live model catalog and experiment flags.
+  - name: inference
+    description: The v1internal GenerateContent envelope (SSE + unary).
+  - name: quota
+    description: Windowed usage meters.
+  - name: trajectory
+    description: Conversation-trajectory ACL surface.
+
+paths:
+  /v1internal:loadCodeAssist:
+    post:
+      operationId: loadCodeAssist
+      tags: [account]
+      summary: Entitlement probe — tier, allowed tiers and companion project
+      x-provenance: live
+      description: |
+        First call of every session (the CLI's "eligibility check"). Returns the
+        account's tier inventory and the companion project to route with.
+
+        The real 1.3.5 client sends the **minimal** body `{"metadata":
+        {"ideType": "ANTIGRAVITY"}}` — no ideVersion/ideName/platform/pluginType.
+        A richer metadata object (ideVersion, ideName, platform=LINUX_AMD64,
+        pluginType=GEMINI, as the older Cloud Code clients sent) is also
+        accepted (live probe: 200). The minimal form is the wire-truth.
+
+        `metadata.ideType` is the only field with observed effect; the response
+        is the same either way for a signed-in consumer account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoadCodeAssistRequest"
+            examples:
+              agy135:
+                summary: Exact body the shipped 1.3.5 CLI sends (x-provenance live)
+                value:
+                  metadata:
+                    ideType: ANTIGRAVITY
+              richLegacy:
+                summary: Older Cloud Code metadata shape (x-provenance live — also admitted)
+                value:
+                  metadata:
+                    ideType: ANTIGRAVITY
+                    ideVersion: 1.2.12
+                    ideName: antigravity
+                    platform: LINUX_AMD64
+                    pluginType: GEMINI
+      responses:
+        "200":
+          description: >-
+            Entitlement view. `cloudaicompanionProject` is the routing project
+            for all subsequent calls (`aicode-consumers` for consumer
+            accounts); it may also appear as `response.cloudaicompanionProject`
+            on the wrapped JSON form. Tier ids observed: `free-tier` (default,
+            `isDefault: true`), `standard-tier` (`userDefinedCloudaicompanionProject:
+            true`, `usesGcpTos: true`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoadCodeAssistResponse"
+              examples:
+                consumerFree:
+                  x-provenance: live
+                  value:
+                    allowedTiers:
+                      - id: free-tier
+                        name: Antigravity
+                        isDefault: true
+                        description: Gemini-powered code suggestions and chat in multiple IDEs
+                        privacyNotice:
+                          showNotice: true
+                          noticeText: >-
+                            This notice and our Privacy Policy -
+                            https://policies.google.com/privacy - describe how Gemini
+                            Code Assist for individuals handles your data.
+                      - id: standard-tier
+                        name: Antigravity
+                        description: Unlimited coding assistant with the most powerful Gemini models
+                        privacyNotice: {}
+                        userDefinedCloudaicompanionProject: true
+                        usesGcpTos: true
+                    cloudaicompanionProject: aicode-consumers
+                    currentTier:
+                      id: free-tier
+                      name: Antigravity
+                      isDefault: true
+                      description: Gemini-powered code suggestions and chat in multiple IDEs
+                      privacyNotice:
+                        showNotice: true
+                        noticeText: >-
+                          This notice and our Privacy Policy -
+                          https://policies.google.com/privacy - describe how Gemini
+                          Code Assist for individuals handles your data.
+                    allowedTiersNote: >-
+                      Field names are camelCase on this surface; older
+                      integrations also tolerate snake_case aliases
+                      (paid_tier / allowed_tiers / current_tier), which the
+                      first-party clients never send.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1internal:onboardUser:
+    post:
+      operationId: onboardUser
+      tags: [account]
+      summary: Provision the companion project for a tier
+      x-provenance: bundle
+      description: |
+        Used only when `loadCodeAssist` comes back without a
+        `cloudaicompanionProject` (first run of a new account). The client picks
+        a `tierId` (first allowed tier, else `g1-pro-tier`) and posts it with
+        the same metadata block. The response carries the newly provisioned
+        project; the client re-runs `loadCodeAssist` afterwards to confirm.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardUserRequest"
+            examples:
+              consumer:
+                value:
+                  tierId: g1-pro-tier
+                  metadata:
+                    ideType: ANTIGRAVITY
+                    ideVersion: 1.3.5
+                    ideName: antigravity
+                    platform: LINUX_AMD64
+                    pluginType: GEMINI
+      responses:
+        "200":
+          description: >-
+            Onboarded project descriptor. Project ids arrive either bare
+            (`aicode-consumers`), numeric, or `projects/`-prefixed; all three
+            forms are accepted downstream.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardUserResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1internal:fetchUserInfo:
+    post:
+      operationId: fetchUserInfo
+      tags: [account]
+      summary: Region code and per-project user settings
+      x-provenance: live
+      description: |
+        Called twice per session: once without a project (bootstrap) and once
+        with `{"project": "…"}` after the companion project is resolved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectRequest"
+            examples:
+              bootstrap:
+                value: {}
+              withProject:
+                value:
+                  project: aicode-consumers
+      responses:
+        "200":
+          description: Region and settings (both shapes observed live).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInfoResponse"
+              examples:
+                bootstrap:
+                  x-provenance: live
+                  value:
+                    regionCode: JP
+                    userSettings: {}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1internal:setUserSettings:
+    post:
+      operationId: setUserSettings
+      tags: [account]
+      summary: Persist per-user settings
+      x-provenance: bundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project:
+                  type: string
+                userSettings:
+                  type: object
+      responses:
+        "200":
+          description: Settings accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmptyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1internal:setCodeAssistGlobalUserSetting:
+    post:
+      operationId: setCodeAssistGlobalUserSetting
+      tags: [account]
+      summary: Global (cross-project) Code Assist setting write
+      x-provenance: bundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmptyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1internal:getCodeAssistGlobalUserSetting:
+    post:
+      operationId: getCodeAssistGlobalUserSetting
+      tags: [account]
+      summary: Global (cross-project) Code Assist setting read
+      x-provenance: bundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmptyResponse"
+      responses:
+        "200":
+          description: Current global settings object.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1internal:fetchAvailableModels:
+    post:
+      operationId: fetchAvailableModels
+      tags: [catalog]
+      summary: Live model catalog — the authoritative model list
+      x-provenance: live
+      description: |
+        Body is exactly `{"project": "…"}`. The response is the **live**
+        (Layer-2) catalog: agent model groups with display ordering, dedicated
+        per-lane model ids (command, commit-message, image-generation,
+        audio-transcription), the default agent model, per-model definitions
+        (`models.{id}`) carrying context/output limits, provider enum, effort
+        metadata and per-model experiment configs, plus the experiment id list
+        the account is enrolled in.
+
+        `defaultAgentModelId` observed 2026-10-14: `gemini-3.8-flash-high`.
+        The recommended agent group observed:
+        `gemini-3.8-flash-{high,medium,low}`, `claude-sonnet-4-6`,
+        `claude-opus-4-6-thinking`, `gpt-oss-120b-medium`,
+        `gemini-4-argon-disabled` (disabled flag suffix in the id). Lane models
+        observed: command `gemini-3-flash`, commit-message
+        `gemini-3.5-flash-lite`, image `gemini-3.1-flash-image`, audio
+        `models/proactive-observer-v10`.
+
+        Model definition notes (from the live catalog):
+        - `apiProvider` discriminates the upstream lane:
+          `API_PROVIDER_INTERNAL` (first-party Gemini),
+          `API_PROVIDER_ANTHROPIC_VERTEX` (Claude via Vertex).
+        - Third-party models carry `model: "MODEL_PLACEHOLDER_M*"` internal
+          enum names (M26 = claude-opus-4-6-thinking, M35 =
+          claude-sonnet-4-6, M318 = gemini-3.8-flash-high family) — these are
+          labels echoed in request `labels.model_enum`, not wire ids.
+        - `maxTokens` is the context ceiling (250000 for Claude entries),
+          `maxOutputTokens` the per-turn output cap (64000).
+        - `quotaInfo.remainingFraction` (0..1) rides each definition.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectRequest"
+            examples:
+              consumer:
+                x-provenance: live
+                value:
+                  project: aicode-consumers
+      responses:
+        "200":
+          description: Live catalog snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailableModelsResponse"
+              examples:
+                consumer20261014:
+                  x-provenance: live
+                  value:
+                    defaultAgentModelId: gemini-3.8-flash-high
+                    agentModelSorts:
+                      - displayName: Recommended
+                        groups:
+                          - modelIds:
+                              - gemini-3.8-flash-high
+                              - gemini-3.8-flash-medium
+                              - gemini-3.8-flash-low
+                              - claude-sonnet-4-6
+                              - claude-opus-4-6-thinking
+                              - gpt-oss-120b-medium
+                              - gemini-4-argon-disabled
+                    commandModelIds: [gemini-3-flash]
+                    commitMessageModelIds: [gemini-3.5-flash-lite]
+                    imageGenerationModelIds: [gemini-3.1-flash-image]
+                    audioTranscriptionModelIds: [models/proactive-observer-v10]
+                    models:
+                      claude-sonnet-4-6:
+                        apiProvider: API_PROVIDER_ANTHROPIC_VERTEX
+                        displayName: Claude Sonnet 4.6 (Thinking)
+                        model: MODEL_PLACEHOLDER_M35
+                        maxTokens: 250000
+                        maxOutputTokens: 64000
+                        quotaInfo:
+                          remainingFraction: 1
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1internal:listExperiments:
+    post:
+      operationId: listExperiments
+      tags: [catalog]
+      summary: Experiment enrollment ids for the account
+      x-provenance: live
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectRequest"
+            examples:
+              consumer:
+                x-provenance: live
+                value:
+                  project: aicode-consumers
+      responses:
+        "200":
+          description: >-
+            `{experimentIds: int64[]}` — the enrolled experiment set the CLI
+            evaluates locally (Mendel); ids are large ints serialized as JSON
+            numbers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListExperimentsResponse"
+              examples:
+                observed:
+                  x-provenance: live
+                  value:
+                    experimentIds: [106838234, 105979552]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1internal:fetchAdminControls:
+    post:
+      operationId: fetchAdminControls
+      tags: [catalog]
+      summary: Enterprise admin-control flags (empty for consumer accounts)
+      x-provenance: live
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectRequest"
+            examples:
+              consumer:
+                x-provenance: live
+                value:
+                  project: aicode-consumers
+      responses:
+        "200":
+          description: >-
+            Empty object when no enterprise controls apply (observed live: an
+            empty JSON object).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmptyResponse"
+              examples:
+                consumer:
+                  x-provenance: live
+                  value: {}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1internal:streamGenerateContent:
+    post:
+      operationId: streamGenerateContent
+      tags: [inference]
+      summary: The inference envelope (SSE)
+      x-provenance: live
+      description: |
+        The one inference endpoint the CLI drives. Always `POST`ed with
+        `?alt=sse`; the request uses chunked transfer encoding (no
+        Content-Length) and exactly four headers: `Authorization`,
+        `Content-Type: application/json`, `Accept-Encoding: gzip`,
+        `User-Agent`.
+
+        Envelope (all fields observed live, top level):
+        - `model` — the wire model id (e.g. `gemini-3.8-flash-high`,
+          `gemini-3.5-flash-lite` for the title-generation lane).
+        - `project` — companion project (`aicode-consumers`).
+        - `request` — a standard Google `GenerateContentRequest`.
+        - `requestId` — `checkpoint/{uuid-v4}` when the turn is a title/
+          checkpoint generation (`requestType: "checkpoint"`); absent on
+          main agent turns (sampled live).
+        - `requestType` — `"checkpoint"` on title/checkpoint lanes; absent on
+          main agent turns.
+        - `userAgent` — the string `"antigravity"` (brand echo, not the UA
+          header value).
+        - `sessionId` — numeric string id (negative int64 observed), constant
+          across the session's turns.
+
+        Inner `request` specifics observed live:
+        - `contents[].role` is `user`; parts are `{"text": …}`.
+        - `systemInstruction.role` is `"user"` (Google-native quirk), parts carry
+          the composed system prompt.
+        - `generationConfig.thinkingConfig`:
+          main agent turns send `{"includeThoughts": true, "thinkingBudget":
+          -1}` (auto budget); the title lane sends `{"includeThoughts": true,
+          "thinkingLevel": "LOW"}`; `maxOutputTokens: 65536` on main turns.
+        - `labels` — free-form string map on main turns (`cascade_id`,
+          `trajectory_id`, `root_cascade_id`, `request_id` (uuid + step
+          suffix), `last_step_index`, `model_enum`, `used_claude`,
+          `used_claude_conservative`, `used_non_gemini_model`).
+        - `sessionId` — repeated inside `request` as well as the envelope.
+
+        Response: SSE `data:` frames, each a wrapped GenerateContentResponse:
+        `{"response": {…}, "traceId": "{16 hex}", "metadata": {}}`. Frame
+        anatomy (live):
+        - `response.candidates[].content.role` = `"model"`.
+        - Text parts `{"text": "…"}`; thought parts carry `"thought": true`;
+          the terminal frame carries a base64 `thoughtSignature` on a
+          zero-length text part together with `finishReason: "STOP"`.
+        - `response.usageMetadata` — `promptTokenCount`,
+          `candidatesTokenCount`, `thoughtsTokenCount`, `totalTokenCount`
+          (cumulative per stream).
+        - `response.modelVersion` — the concrete serving version
+          (`gemini-3.8-flash-n` served the `gemini-3.8-flash-high` request;
+          `gemini-3.5-flash-lite` served itself).
+        - `response.responseId` — stable across the stream's frames.
+        - `traceId` — 16-hex chain-of-custody id, per stream.
+        - No `error` framing was observed on the happy path; in-band errors
+          surface as JSON `{"error": {…}}` bodies (Google gstatus shape) and
+          quota exhaustion as HTTP 429 `RESOURCE_EXHAUSTED` with the project
+          missing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StreamGenerateContentEnvelope"
+            examples:
+              mainAgentTurn:
+                x-provenance: live
+                value:
+                  model: gemini-3.8-flash-high
+                  project: aicode-consumers
+                  sessionId: "-3750763034362895579"
+                  request:
+                    contents:
+                      - role: user
+                        parts:
+                          - text: "Reply with exactly: CAPTURE-OK"
+                    systemInstruction:
+                      role: user
+                      parts:
+                        - text: "<identity>\nYou are Antigravity…"
+                    generationConfig:
+                      maxOutputTokens: 65536
+                      thinkingConfig:
+                        includeThoughts: true
+                        thinkingBudget: -1
+                    labels:
+                      cascade_id: 578c9e7d-6201-44c5-a4b4-77010e74f4f8
+                      root_cascade_id: 578c9e7d-6201-44c5-a4b4-77010e74f4f8
+                      trajectory_id: c22ce54f-a322-4062-bbe8-51427381db64
+                      request_id: c22ce54f-a322-4062-bbe8-51427381db64-0
+                      last_step_index: "0"
+                      model_enum: MODEL_PLACEHOLDER_M318
+                      used_claude: "false"
+                      used_claude_conservative: "false"
+                      used_non_gemini_model: "false"
+                    sessionId: "-3750763034362895579"
+              titleCheckpointTurn:
+                x-provenance: live
+                value:
+                  model: gemini-3.5-flash-lite
+                  project: aicode-consumers
+                  requestId: checkpoint/157846ba-e944-4f58-8ba1-01a56c06ff2c
+                  requestType: checkpoint
+                  userAgent: antigravity
+                  request:
+                    contents:
+                      - role: user
+                        parts:
+                          - text: "Reply with exactly: CAPTURE-OK"
+                    generationConfig:
+                      thinkingConfig:
+                        includeThoughts: true
+                        thinkingLevel: LOW
+                    sessionId: "-3750763034362895579"
+                    systemInstruction:
+                      role: user
+                      parts:
+                        - text: "You are a conversation title generator…"
+      responses:
+        "200":
+          description: >-
+            SSE stream of wrapped GenerateContentResponse frames (anatomy
+            above). `Content-Type: text/event-stream`,
+            `Content-Disposition: attachment`, chunked.
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/StreamFrame"
+              examples:
+                firstFrame:
+                  x-provenance: live
+                  value:
+                    response:
+                      candidates:
+                        - content:
+                            role: model
+                            parts:
+                              - text: CAPTURE-OK
+                      usageMetadata:
+                        promptTokenCount: 11820
+                        candidatesTokenCount: 3
+                        thoughtsTokenCount: 24
+                        totalTokenCount: 11847
+                      modelVersion: gemini-3.8-flash-n
+                      responseId: sgPPaqn5M9rXrfcP1POhMA
+                    traceId: "2069e2aa710b228f"
+                    metadata: {}
+                terminalFrame:
+                  x-provenance: live
+                  value:
+                    response:
+                      candidates:
+                        - content:
+                            role: model
+                            parts:
+                              - thoughtSignature: EmcKZQFpFH0TVnMvhEWlHv…
+                                text: ""
+                          finishReason: STOP
+                      usageMetadata:
+                        promptTokenCount: 11820
+                        candidatesTokenCount: 3
+                        totalTokenCount: 11847
+                      modelVersion: gemini-3.8-flash-n
+                      responseId: sgPPaqn5M9rXrfcP1POhMA
+                    traceId: "2069e2aa710b228f"
+                    metadata: {}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/ResourceExhausted"
+
+  /v1internal:generateContent:
+    post:
+      operationId: generateContent
+      tags: [inference]
+      summary: Unary (non-streaming) twin of the SSE envelope
+      x-provenance: bundle
+      description: |
+        Same envelope as `streamGenerateContent`, no `?alt=sse`, response is a
+        single wrapped GenerateContentResponse JSON body. The shipped CLI
+        prefers the streaming twin for agent turns; the unary verb exists in
+        the binary's RPC table for completion-style lanes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StreamGenerateContentEnvelope"
+      responses:
+        "200":
+          description: Wrapped response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreamFrame"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/ResourceExhausted"
+
+  /v1internal:retrieveUserQuotaSummary:
+    post:
+      operationId: retrieveUserQuotaSummary
+      tags: [quota]
+      summary: Windowed quota meters (weekly + 5-hour buckets per model group)
+      x-provenance: live
+      description: |
+        Body is exactly `{"project": "…"}`. Response groups models into shared
+        meters (observed live: "Gemini Models" and "Claude and GPT models"),
+        each with a `weekly` and a `5h` bucket. `remainingFraction` (0..1) is
+        the consumed-fraction complement; `resetTime` is the RFC3339 instant
+        the window fully refreshes. Quota is consumed proportionally to token
+        cost, not per-request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectRequest"
+            examples:
+              consumer:
+                x-provenance: live
+                value:
+                  project: aicode-consumers
+      responses:
+        "200":
+          description: Grouped bucket summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotaSummaryResponse"
+              examples:
+                consumer20261014:
+                  x-provenance: live
+                  value:
+                    description: >-
+                      Within each group, models share a weekly limit and a 5-hour
+                      limit. Quota is consumed proportionally to the cost of the
+                      tokens.
+                    groups:
+                      - displayName: Gemini Models
+                        description: "Models within this group: Gemini Flash, Gemini Pro"
+                        buckets:
+                          - bucketId: gemini-weekly
+                            displayName: Weekly Limit Remaining
+                            remainingFraction: 0.7044979
+                            resetTime: "2026-10-19T12:01:48Z"
+                            window: weekly
+                          - bucketId: gemini-5h
+                            displayName: Five Hour Limit Remaining
+                            remainingFraction: 0.99970174
+                            resetTime: "2026-10-14T09:20:18Z"
+                            window: 5h
+                      - displayName: Claude and GPT models
+                        description: "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS"
+                        buckets:
+                          - bucketId: 3p-weekly
+                            displayName: Weekly Limit Remaining
+                            remainingFraction: 1
+                            resetTime: "2026-10-21T04:23:10Z"
+                            window: weekly
+                          - bucketId: 3p-5h
+                            displayName: Five Hour Limit Remaining
+                            remainingFraction: 1
+                            resetTime: "2026-10-14T09:23:10Z"
+                            window: 5h
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1internal:retrieveUserQuota:
+    post:
+      operationId: retrieveUserQuota
+      tags: [quota]
+      summary: Legacy per-model quota rows (pre-summary surface)
+      x-provenance: bundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectRequest"
+      responses:
+        "200":
+          description: Per-model quota rows.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1internal:writeTrajectoryAcls:
+    post:
+      operationId: writeTrajectoryAcls
+      tags: [trajectory]
+      summary: Register a trajectory id before its first inference turn
+      x-provenance: live
+      description: >
+        Fired once per conversation with the trajectory UUID
+        (`{"trajectoryId": "…"}`) immediately before the main
+        `streamGenerateContent` turn; backends the server-side conversation
+        store's ACL row.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [trajectoryId]
+              properties:
+                trajectoryId:
+                  type: string
+                  format: uuid
+            examples:
+              observed:
+                x-provenance: live
+                value:
+                  trajectoryId: c22ce54f-a322-4062-bbe8-51427381db64
+      responses:
+        "200":
+          description: ACL written.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmptyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1internal:fetchAvailableModelConfigs:
+    post:
+      operationId: fetchAvailableModelConfigs
+      tags: [catalog]
+      summary: Model-config enumeration (supplementary catalog lane)
+      x-provenance: bundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectRequest"
+      responses:
+        "200":
+          description: Model-config rows.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    OAuthBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Google OAuth2 access token (ya29.…)
+      description: >-
+        Google-issued access token from the Antigravity OAuth clients; scopes
+        per `info.x-cli-constants.oauth.scopes`. Refreshed via
+        `oauth2.googleapis.com/token` with the paired client secret.
+
+  parameters:
+    AltSse:
+      name: alt
+      in: query
+      required: true
+      schema:
+        type: string
+        enum: [sse]
+      description: Required on the streaming verb; selects the SSE framing.
+
+  schemas:
+    Metadata:
+      type: object
+      description: >-
+        Client metadata block. `ideType: "ANTIGRAVITY"` is the only value the
+        shipped CLI sends; the extended form (ideVersion/ideName/platform/
+        pluginType) is accepted and corresponds to the older Cloud Code clients.
+      properties:
+        ideType:
+          type: string
+          enum: [ANTIGRAVITY]
+        ideVersion:
+          type: string
+        ideName:
+          type: string
+        platform:
+          type: string
+          enum: [LINUX_AMD64, DARWIN_AMD64, WINDOWS_AMD64]
+          description: Enum values from the bundle's platform selector (LINUX_AMD64 observed).
+        pluginType:
+          type: string
+          enum: [GEMINI]
+
+    LoadCodeAssistRequest:
+      type: object
+      required: [metadata]
+      properties:
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+
+    Tier:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Observed ids `free-tier`, `standard-tier`; `g1-pro-tier` used as the onboard default.
+        name:
+          type: string
+        description:
+          type: string
+        isDefault:
+          type: boolean
+        privacyNotice:
+          type: object
+          properties:
+            showNotice:
+              type: boolean
+            noticeText:
+              type: string
+        userDefinedCloudaicompanionProject:
+          type: boolean
+        usesGcpTos:
+          type: boolean
+
+    LoadCodeAssistResponse:
+      type: object
+      properties:
+        allowedTiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tier"
+        currentTier:
+          $ref: "#/components/schemas/Tier"
+        cloudaicompanionProject:
+          type: string
+          description: Companion project to route all subsequent calls with.
+
+    OnboardUserRequest:
+      type: object
+      required: [tierId, metadata]
+      properties:
+        tierId:
+          type: string
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+
+    OnboardUserResponse:
+      type: object
+      properties:
+        cloudaicompanionProject:
+          oneOf:
+            - type: string
+            - type: object
+              properties:
+                id:
+                  type: string
+                name:
+                  type: string
+                projectNumber:
+                  type: string
+          description: >-
+            Bare id, `projects/`-prefixed id, numeric id or a descriptor object;
+            all forms are observed by the first-party extraction logic.
+
+    ProjectRequest:
+      type: object
+      description: The minimal shared body of project-scoped non-inference verbs.
+      properties:
+        project:
+          type: string
+          description: Companion project (e.g. `aicode-consumers`); omitted on bootstrap calls.
+
+    UserInfoResponse:
+      type: object
+      properties:
+        regionCode:
+          type: string
+        userSettings:
+          type: object
+          additionalProperties: true
+
+    ListExperimentsResponse:
+      type: object
+      properties:
+        experimentIds:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    EmptyResponse:
+      type: object
+      additionalProperties: true
+
+    ModelQuotaInfo:
+      type: object
+      properties:
+        remainingFraction:
+          type: number
+          format: float
+
+    QuotaBucket:
+      type: object
+      description: One windowed meter (weekly / 5h) for a model group.
+      properties:
+        bucketId:
+          type: string
+          description: Observed ids `gemini-weekly`, `gemini-5h`, `3p-weekly`, `3p-5h`.
+        displayName:
+          type: string
+        description:
+          type: string
+        remainingFraction:
+          type: number
+          format: float
+          description: 0..1 remaining share of the window.
+        remainingAmount:
+          type: integer
+        resetTime:
+          type: string
+          format: date-time
+        window:
+          type: string
+          enum: [weekly, 5h]
+        disabled:
+          type: boolean
+
+    QuotaGroup:
+      type: object
+      properties:
+        displayName:
+          type: string
+          description: Observed groups "Gemini Models" and "Claude and GPT models".
+        description:
+          type: string
+        buckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuotaBucket"
+
+    QuotaSummaryResponse:
+      type: object
+      properties:
+        description:
+          type: string
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuotaGroup"
+        buckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuotaBucket"
+          description: Legacy flat rows; present on the pre-summary surface.
+
+    ModelDefinition:
+      type: object
+      description: Per-model catalog row (`models.{id}`).
+      properties:
+        model:
+          type: string
+          description: Internal enum name (`MODEL_PLACEHOLDER_M*`) echoed in request labels; third-party models only.
+        displayName:
+          type: string
+        apiProvider:
+          type: string
+          enum: [API_PROVIDER_INTERNAL, API_PROVIDER_ANTHROPIC_VERTEX]
+        modelProvider:
+          type: string
+        isInternal:
+          type: boolean
+        maxTokens:
+          type: integer
+          description: Context ceiling.
+        maxOutputTokens:
+          type: integer
+          description: Per-turn output cap.
+        promptTemplaterType:
+          type: string
+        toolFormatterType:
+          type: string
+        quotaInfo:
+          $ref: "#/components/schemas/ModelQuotaInfo"
+        supportsCumulativeContext:
+          type: boolean
+        requiresLeadInGeneration:
+          type: boolean
+        modelExperiments:
+          type: object
+          additionalProperties: true
+          description: Per-model Mendel experiment overrides (JSON strings).
+
+    AgentModelSort:
+      type: object
+      properties:
+        displayName:
+          type: string
+        groups:
+          type: array
+          items:
+            type: object
+            properties:
+              modelIds:
+                type: array
+                items:
+                  type: string
+
+    AvailableModelsResponse:
+      type: object
+      properties:
+        defaultAgentModelId:
+          type: string
+        agentModelSorts:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentModelSort"
+        commandModelIds:
+          type: array
+          items:
+            type: string
+        commitMessageModelIds:
+          type: array
+          items:
+            type: string
+        imageGenerationModelIds:
+          type: array
+          items:
+            type: string
+        audioTranscriptionModelIds:
+          type: array
+          items:
+            type: string
+        models:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ModelDefinition"
+        experimentIds:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    ThinkingConfig:
+      type: object
+      description: >-
+        Google thinking surface. Two admissible shapes observed live:
+        `{includeThoughts: true, thinkingBudget: -1}` (auto budget, main agent
+        turns) and `{includeThoughts: true, thinkingLevel: "LOW"}` (explicit
+        level, title lane). The whole object is omitted on downgrade when the
+        upstream refuses it.
+      properties:
+        includeThoughts:
+          type: boolean
+        thinkingBudget:
+          type: integer
+          description: "-1 = auto."
+        thinkingLevel:
+          type: string
+          enum: [LOW, MEDIUM, HIGH]
+
+    GenerateContentRequest:
+      type: object
+      description: Standard Google GenerateContentRequest (subset that the CLI exercises).
+      properties:
+        contents:
+          type: array
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+                enum: [user, model]
+              parts:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    text:
+                      type: string
+                    thought:
+                      type: boolean
+                    thoughtSignature:
+                      type: string
+                    inlineData:
+                      type: object
+                      properties:
+                        mimeType:
+                          type: string
+                        data:
+                          type: string
+        systemInstruction:
+          type: object
+          description: Role is `"user"` on this surface (Google-native quirk, observed live).
+          properties:
+            role:
+              type: string
+            parts:
+              type: array
+              items:
+                type: object
+                properties:
+                  text:
+                    type: string
+        generationConfig:
+          type: object
+          properties:
+            maxOutputTokens:
+              type: integer
+            thinkingConfig:
+              $ref: "#/components/schemas/ThinkingConfig"
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: >-
+            Free-form telemetry map (cascade/trajectory/request ids,
+            `model_enum`, `used_claude*`, `used_non_gemini_model`) on main
+            agent turns.
+        sessionId:
+          type: string
+          description: Numeric session id string, duplicated at envelope level.
+
+    StreamGenerateContentEnvelope:
+      type: object
+      required: [model, project, request]
+      properties:
+        model:
+          type: string
+          description: Wire model id (e.g. `gemini-3.8-flash-high`).
+        project:
+          type: string
+        request:
+          $ref: "#/components/schemas/GenerateContentRequest"
+        requestId:
+          type: string
+          description: "`checkpoint/{uuid-v4}` on title/checkpoint lanes."
+        requestType:
+          type: string
+          enum: [checkpoint]
+        userAgent:
+          type: string
+          description: Brand echo `"antigravity"` (not the UA header value); title lane only.
+        sessionId:
+          type: string
+
+    Candidate:
+      type: object
+      properties:
+        content:
+          type: object
+          properties:
+            role:
+              type: string
+            parts:
+              type: array
+              items:
+                type: object
+                properties:
+                  text:
+                    type: string
+                  thought:
+                    type: boolean
+                  thoughtSignature:
+                    type: string
+        finishReason:
+          type: string
+          enum: [STOP]
+
+    UsageMetadata:
+      type: object
+      properties:
+        promptTokenCount:
+          type: integer
+        candidatesTokenCount:
+          type: integer
+        thoughtsTokenCount:
+          type: integer
+        totalTokenCount:
+          type: integer
+
+    StreamFrame:
+      type: object
+      description: One SSE `data:` payload — the wrapped GenerateContentResponse.
+      properties:
+        response:
+          type: object
+          properties:
+            candidates:
+              type: array
+              items:
+                $ref: "#/components/schemas/Candidate"
+            usageMetadata:
+              $ref: "#/components/schemas/UsageMetadata"
+            modelVersion:
+              type: string
+              description: Concrete serving version, may differ from the requested id.
+            responseId:
+              type: string
+        traceId:
+          type: string
+          description: 16-hex per-stream chain-of-custody id.
+        metadata:
+          type: object
+          additionalProperties: true
+
+    ErrorBody:
+      type: object
+      description: Google gstatus error shape with an error object of code, message and status.
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
+            status:
+              type: string
+
+  responses:
+    Unauthorized:
+      description: Bearer rejected or expired (CLI force-refreshes and replays once on 401).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    ResourceExhausted:
+      description: >-
+        429 quota exhaustion; classically triggered when the `project` field is
+        missing (no `cloudaicompanionProject` routing) or a window bucket is
+        spent.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+
+x-admission-band:
+  summary: Live differential probe results (2026-10-14, all endpoints 200 unless noted)
+  userAgents:
+    - value: antigravity/cli/1.3.5 (aidev_client; os_type=linux; arch=amd64; cl=998863838; auth_method=consumer)
+      verdict: admitted (the shipped client itself)
+    - value: antigravity/cli/1.2.12 (aidev_client; os_type=linux; arch=amd64; cl=0; auth_method=consumer)
+      verdict: admitted (Nuo's emulated identity; version and cl= are not discriminated)
+    - value: antigravity/cli/1.2.0 (aidev_client; os_type=linux; arch=amd64; cl=0; auth_method=consumer)
+      verdict: admitted (floor version still inside the band)
+    - value: antigravity/1.2.12 (…) — no cli brand segment
+      verdict: admitted on this capture (earlier backend generations 404'd this form; keep the brand)
+  headers:
+    - header: x-goog-api-client
+      verdict: not sent by the real CLI; ignored by the backend (harmless attribution)
+  bodyShapes:
+    - fact: loadCodeAssist minimal metadata body
+      verdict: admitted; the rich legacy metadata shape is also admitted
