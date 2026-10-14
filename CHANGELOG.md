@@ -8,6 +8,15 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.20] - 2026-10-27
+
+### Changed
+
+- **Terminal configuration canonicalization and disclosure pruning (ADR-0031, ADR-0054).**
+  - Canonicalize presentation preferences to `$XDG_CONFIG_HOME/nuo/terminal.toml` and eliminate legacy `tui.toml` shims.
+  - Prune redundant tool expansion overrides when matching component defaults, and skip empty `[default_expanded]` tables in TOML serialization.
+  - Hermetically sandbox presentation persistence tests with `PathsOverride` to prevent host environment pollution.
+
 ## [0.0.19] - 2026-10-27
 
 ### Changed
