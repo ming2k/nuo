@@ -15,7 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo Presentation Working Group, Architecture Governance
 - Consulted: Presentation (`nuo-tui`), Input Engine (`input`), Surface Navigation (`surfaces`)
 - Informed: System Architects, Documentation Governance
-- Complements: [ADR-0020](0020-interactive-component-registry-single-source-of-truth.md), [ADR-0022](0022-minimum-terminal-geometry-and-frozen-input-contract.md), [ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md), [ADR-0040](0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md), [ADR-0051](0051-composer-canonical-quadrant-modality-atomic-draft-capsule-and-in-place-recall-topology.md), [ADR-0053](0053-capability-first-orthogonal-terminal-composition-and-autonomous-archetype-projection.md)
+- Complements: [ADR-0020](0020-interactive-component-registry-single-source-of-truth.md), [ADR-0022](0022-minimum-terminal-geometry-and-frozen-input-contract.md), [ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md), [ADR-0040](0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md), [ADR-0043](0043-thread-domain-nomenclature-unification-compact-tabbar-affordance-and-c-x-namespace-reorganization.md), [ADR-0051](0051-composer-canonical-quadrant-modality-atomic-draft-capsule-and-in-place-recall-topology.md), [ADR-0053](0053-capability-first-orthogonal-terminal-composition-and-autonomous-archetype-projection.md)
 
 ---
 

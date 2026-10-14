@@ -255,6 +255,8 @@ fn render_dialog(
                 d.index,
                 &mut d.scroll,
                 d.follow,
+                d.info_detail,
+                &mut d.info_scroll,
                 ctx.theme,
             ))
         }
@@ -673,8 +675,12 @@ fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> Dialog
         }
         DialogKind::Tools => {
             let e = view.as_any_mut().downcast_mut::<ToolsDialog>().expect("kind");
-            apply_delta(&mut e.scroll, delta);
-            e.follow = false;
+            if e.info_detail {
+                apply_delta(&mut e.info_scroll, delta);
+            } else {
+                apply_delta(&mut e.scroll, delta);
+                e.follow = false;
+            }
             DialogOutcome::Consumed
         }
         DialogKind::Mcp => {
@@ -861,11 +867,19 @@ fn handle_dialog_click(
         }
         DialogKind::Tools => {
             let e = view.as_any_mut().downcast_mut::<ToolsDialog>().expect("kind");
+            if e.info_detail {
+                return DialogOutcome::Consumed;
+            }
             let count = app.session_tools_len();
             let target_idx = e.scroll + visual_row;
             if target_idx < count {
+                let was_selected = e.index == target_idx;
                 e.index = target_idx;
                 e.follow = true;
+                if was_selected {
+                    e.info_detail = true;
+                    e.info_scroll = 0;
+                }
             }
             DialogOutcome::Consumed
         }
@@ -1060,24 +1074,39 @@ fn input_dialog(
     };
 
     match view.kind() {
-        DialogKind::Tools | DialogKind::Mcp | DialogKind::Skills => {
+        DialogKind::Tools => {
+            let e = view.as_any_mut().downcast_mut::<ToolsDialog>().expect("kind");
+            if e.info_detail {
+                if forward {
+                    e.info_scroll = e.info_scroll.saturating_add(1);
+                } else {
+                    e.info_scroll = e.info_scroll.saturating_sub(1);
+                }
+                return DialogOutcome::Consumed;
+            }
+            if arrow {
+                return DialogOutcome::Unhandled;
+            }
+            let count = app.session_tools_len();
+            if count == 0 {
+                return DialogOutcome::Unhandled;
+            }
+            e.index = rotate(e.index, count, forward);
+            e.follow = true;
+            DialogOutcome::Consumed
+        }
+        DialogKind::Mcp | DialogKind::Skills => {
             if arrow {
                 return DialogOutcome::Unhandled;
             }
             let count = match view.kind() {
                 DialogKind::Mcp => app.session_context.as_ref().map_or(0, |s| s.mcp.len()),
-                DialogKind::Skills => app.session_context.as_ref().map_or(0, |s| s.skills.len()),
-                _ => app.session_tools_len(),
+                _ => app.session_context.as_ref().map_or(0, |s| s.skills.len()),
             };
             if count == 0 {
                 return DialogOutcome::Unhandled;
             }
             match view.kind() {
-                DialogKind::Tools => {
-                    let e = view.as_any_mut().downcast_mut::<ToolsDialog>().expect("kind");
-                    e.index = rotate(e.index, count, forward);
-                    e.follow = true;
-                }
                 DialogKind::Mcp => {
                     let e = view.as_any_mut().downcast_mut::<McpDialog>().expect("kind");
                     e.index = rotate(e.index, count, forward);
@@ -1450,7 +1479,12 @@ macro_rules! dialog_entity {
     };
 }
 
-dialog_entity!(ToolsDialog, Tools, {});
+dialog_entity!(ToolsDialog, Tools, {
+    /// `true` while the tool-detail sub-view is open.
+    info_detail: bool = false,
+    /// Body scroll offset of the tool-detail sub-view.
+    info_scroll: usize = 0,
+});
 dialog_entity!(McpDialog, Mcp, {});
 
 dialog_entity!(SkillsDialog, Skills, {

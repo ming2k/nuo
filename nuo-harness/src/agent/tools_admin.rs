@@ -193,10 +193,10 @@ impl Agent {
 
     /// Structured view of every installed tool, for the session modal's Tools
     /// pane. `enabled` reflects the disabled mask; `source` classifies origin
-    /// (`builtin`, `subagent`, or the publisher-provided dynamic source id).
+    /// (`builtin` or the publisher-provided dynamic source id).
     pub fn snapshot_tools(&self) -> Vec<nuo_wire::ToolInfo> {
         // Classification delegates to the ToolManager's two-bucket authority
-        // for the builtin bucket (with subagent broken out for display); the
+        // for the builtin bucket; the
         // mcp bucket keeps the publisher-provided dynamic source id as its
         // label. The source label is display-only; dispatch treats both
         // buckets uniformly via name-clash priority (builtin > mcp).
@@ -208,12 +208,9 @@ impl Agent {
         let mut seen: HashSet<String> = HashSet::new();
         let mut sourced_tools: Vec<(String, Arc<dyn Tool>)> = Vec::new();
 
-        // 1. builtin (with subagent broken out), from the manager.
+        // 1. builtin, from the manager.
         for sourced in self.tool_manager.installed() {
             let label = match sourced.source {
-                crate::tool_manager::ToolSource::Builtin if sourced.tool.spawns_subagent() => {
-                    "subagent"
-                }
                 crate::tool_manager::ToolSource::Builtin => "builtin",
                 // Bucket 2 labels by dynamic source id — handled below.
                 crate::tool_manager::ToolSource::Mcp => continue,
@@ -234,15 +231,28 @@ impl Agent {
             .into_iter()
             .map(|(source, tool)| {
                 let name = tool.name();
+                let desc = tool.descriptor();
+                let params = serde_json::to_string_pretty(&desc.parameters_schema).ok();
+                let risk = match desc.risk {
+                    nuo_tool::RiskProfile::ReadOnly => "read_only",
+                    nuo_tool::RiskProfile::IdempotentMutation => "idempotent_mutation",
+                    nuo_tool::RiskProfile::Destructive => "destructive",
+                    nuo_tool::RiskProfile::NetworkAccess => "network_access",
+                    nuo_tool::RiskProfile::ArbitraryExecution => "arbitrary_execution",
+                };
                 nuo_wire::ToolInfo {
                     name: name.to_string(),
                     description: tool.description().to_string(),
                     enabled: !disabled.contains(name),
                     source,
+                    parameters: params,
+                    risk: Some(risk.to_string()),
+                    requires_user: desc.requires_user,
+                    requires_vision: desc.requires_vision,
                 }
             })
             .collect();
-        infos.sort_by(|a, b| a.source.cmp(&b.source).then_with(|| a.name.cmp(&b.name)));
+        infos.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         infos
     }
 

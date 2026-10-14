@@ -2292,3 +2292,122 @@ async fn session_trace_slash_and_drill_down_lifecycle() {
     assert!(app.dismiss_surface());
     assert_eq!(app.active_dialog(), None);
 }
+
+#[tokio::test]
+async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "test-session".to_string();
+    app.session_context = Some(nuo_wire::SessionContextSnapshot {
+        model: nuo_wire::ModelInfo::default(),
+        tools: vec![
+            nuo_wire::ToolInfo {
+                name: "read_text".to_string(),
+                description: "Read file".to_string(),
+                enabled: true,
+                source: "builtin".to_string(),
+                parameters: None,
+                risk: Some("read_only".to_string()),
+                requires_user: false,
+                requires_vision: false,
+            },
+            nuo_wire::ToolInfo {
+                name: "execute_command".to_string(),
+                description: "Run command".to_string(),
+                enabled: false,
+                source: "builtin".to_string(),
+                parameters: None,
+                risk: Some("arbitrary_execution".to_string()),
+                requires_user: true,
+                requires_vision: false,
+            },
+        ],
+        permissions: vec![],
+        skills: vec![],
+        mcp: vec![],
+    });
+
+    app.open_dialog(crate::surfaces::DialogKind::Tools);
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::Tools),
+        "Tools dialog opened"
+    );
+
+    // Initial state: Level 1 list, info_detail is false
+    assert!(!app.surfaces.dlg::<crate::surfaces::ToolsDialog>().info_detail);
+    assert_eq!(app.surfaces.dlg::<crate::surfaces::ToolsDialog>().index, 0);
+
+    let runtime = crate::event_loop::runtime::UiRuntime::minimal_for_test();
+
+    // Select second tool (execute_command)
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::SessionSelect { forward: true },
+        "test-session",
+    )
+    .await;
+    assert_eq!(app.surfaces.dlg::<crate::surfaces::ToolsDialog>().index, 1);
+
+    // Press Enter -> OpenToolDetail
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::OpenToolDetail,
+        "test-session",
+    )
+    .await;
+    assert!(
+        app.surfaces.dlg::<crate::surfaces::ToolsDialog>().info_detail,
+        "Drilled into Level 2 tool detail"
+    );
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::ToolsDialog>().info_scroll,
+        0
+    );
+
+    // Scrolling down in Level 2 adjusts info_scroll
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::SessionSelect { forward: true },
+        "test-session",
+    )
+    .await;
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::ToolsDialog>().info_scroll,
+        1,
+        "Up/Down in Level 2 scrolls info_scroll without changing tool index"
+    );
+    assert_eq!(app.surfaces.dlg::<crate::surfaces::ToolsDialog>().index, 1);
+
+    // Space toggles the tool in Level 2
+    let req = app.session_activate_request();
+    assert!(req.is_some(), "Space toggles tool being viewed");
+    if let Some(nuo_wire::AgentRequest::ToggleTool { name, enabled }) = req {
+        assert_eq!(name, "execute_command");
+        assert!(enabled, "execute_command was false, toggle enables it");
+    }
+
+    // Esc from Level 2 pops back to Level 1
+    assert!(app.pop_sublayer(), "pop_sublayer pops Level 2 detail");
+    assert!(
+        !app.surfaces.dlg::<crate::surfaces::ToolsDialog>().info_detail,
+        "Returned to Level 1 list"
+    );
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::Tools),
+        "Tools modal remains active"
+    );
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::ToolsDialog>().index,
+        1,
+        "Tool selection preserved"
+    );
+
+    // Esc from Level 1 closes modal
+    assert!(!app.pop_sublayer(), "No sublayer left in Level 1");
+    assert!(app.dismiss_surface());
+    assert_eq!(app.active_dialog(), None);
+}

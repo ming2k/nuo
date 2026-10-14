@@ -634,6 +634,7 @@ async fn process_one_event<W: io::Write>(
     let host_prompting = app.host_prompting;
     let session_info_detail = app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail;
     let connection_info_detail = app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail;
+    let tools_info_detail = app.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().info_detail;
 
     let modal_cmd_history: Option<String> = if matches!(event, Event::Key(k) if k.code == crossterm::event::KeyCode::Enter)
         && app.surfaces.active_overlay().is_none()
@@ -715,6 +716,7 @@ async fn process_one_event<W: io::Write>(
             config_focus: app.config_focus,
             session_info_detail,
             connection_info_detail,
+            tools_info_detail,
             host_prompting,
             dialog_keys: app.dialog_keys(),
         };

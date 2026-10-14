@@ -1991,6 +1991,14 @@ pub struct ToolInfo {
     pub description: String,
     pub enabled: bool,
     pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk: Option<String>,
+    #[serde(default)]
+    pub requires_user: bool,
+    #[serde(default)]
+    pub requires_vision: bool,
 }
 
 /// One cached "always allow" permission rule, shown in the modal's Permissions

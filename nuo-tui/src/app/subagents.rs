@@ -543,29 +543,4 @@ impl App {
         }
         self.reset_view_state();
     }
-
-    /// Number of selectable rows in the Tools modal — the tool list, the
-    /// only interactive surface. Used to clamp the Up/Down selection cursor.
-    pub fn session_tools_len(&self) -> usize {
-        self.session_context
-            .as_ref()
-            .map(|s| s.tools.len())
-            .unwrap_or(0)
-    }
-
-    /// Build the mutation request implied by toggling the selected tool in the
-    /// Tools modal, or `None` when there is no snapshot or the selection
-    /// is out of range. The harness applies it and replies with a fresh
-    /// snapshot that re-renders the modal.
-    pub fn session_activate_request(&self) -> Option<AgentRequest> {
-        let tool = self
-            .session_context
-            .as_ref()?
-            .tools
-            .get(self.active_index())?;
-        Some(AgentRequest::ToggleTool {
-            name: tool.name.clone(),
-            enabled: !tool.enabled,
-        })
-    }
 }

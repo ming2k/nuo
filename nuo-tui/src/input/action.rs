@@ -48,6 +48,8 @@ pub enum InputAction {
     ProviderPickerActivate,
     /// Drill into the connection detail sub-view for the highlighted connection row in Connections modal.
     OpenConnectionDetail,
+    /// Drill into the tool detail sub-view for the highlighted tool in Tools modal.
+    OpenToolDetail,
     /// Open the connection detail modal directly for the active connection (via click or Ctrl+N).
     OpenActiveConnectionDetail,
     /// Toggle expansion of the served models list in the connection detail modal.

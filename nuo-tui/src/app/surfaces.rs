@@ -89,6 +89,29 @@ impl App {
         self.set_active_index(next);
     }
 
+    /// Number of selectable rows in the Tools modal.
+    pub fn session_tools_len(&self) -> usize {
+        self.session_context
+            .as_ref()
+            .map(|s| s.tools.len())
+            .unwrap_or(0)
+    }
+
+    /// Build the mutation request implied by toggling the selected tool in the
+    /// Tools modal, or `None` when there is no snapshot or the selection
+    /// is out of range.
+    pub fn session_activate_request(&self) -> Option<nuo_wire::AgentRequest> {
+        let tool = self
+            .session_context
+            .as_ref()?
+            .tools
+            .get(self.active_index())?;
+        Some(nuo_wire::AgentRequest::ToggleTool {
+            name: tool.name.clone(),
+            enabled: !tool.enabled,
+        })
+    }
+
     /// Whether the topmost model/provider picker is in search mode.
     pub(crate) fn picker_search(&self) -> bool {
         match self.top_dialog() {
@@ -385,6 +408,8 @@ impl App {
                 && (self.host_prompting || self.host_preview.is_some()))
             && !(active_dialog == Some(DialogKind::Threads)
                 && self.surfaces.dlg::<crate::surfaces::ThreadsDialog>().info_detail)
+            && !(active_dialog == Some(DialogKind::Tools)
+                && self.surfaces.dlg::<crate::surfaces::ToolsDialog>().info_detail)
             && !(active_dialog == Some(DialogKind::SessionTrace)
                 && (self.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().detail
                     || self.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().turn.is_some()))
@@ -411,6 +436,8 @@ impl App {
         self.session_detail = None;
         self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = false;
         self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll = 0;
+        self.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().info_detail = false;
+        self.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().info_scroll = 0;
         self.session_history_backfill_cursor = 0;
     }
 
@@ -478,6 +505,10 @@ impl App {
     /// dismissal hook runs in `SurfaceRouter::pop_overlay`.
     pub(crate) fn deactivate_dialog(&mut self, id: DialogKind) {
         self.set_dialog_keys(false);
+        if id == DialogKind::Tools {
+            self.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().info_detail = false;
+            self.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().info_scroll = 0;
+        }
         if id == DialogKind::Threads {
             self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().loading = false;
             self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = false;
@@ -719,6 +750,11 @@ impl App {
                     self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = false;
                     self.session_detail = None;
                     self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll = 0;
+                    return true;
+                }
+                DialogKind::Tools if self.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().info_detail => {
+                    self.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().info_detail = false;
+                    self.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().info_scroll = 0;
                     return true;
                 }
                 DialogKind::Connections if self.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail => {

@@ -56,6 +56,9 @@ pub struct ModalKeys {
     /// the list-only keys (delete `D`, preset `a`, custom `c`) are inert — the sub-view
     /// is a read-only read-out.
     pub connection_info_detail: bool,
+    /// While the tools modal is drilled into its detail sub-view (Enter),
+    /// list-only keys are inert.
+    pub tools_info_detail: bool,
     /// Whether the `/host` dashboard's inline prompt is open (`p` prompt or
     /// `n` new session). While true, printable keys edit the prompt text and
     /// Enter submits it. Mirrors `App::host_prompting`.
@@ -175,9 +178,12 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Dialog(DialogKind::Threads) => {
                         InputAction::OpenSelectedSession
                     }
+                    OverlaySurface::Dialog(DialogKind::Tools) if !keys.tools_info_detail => {
+                        InputAction::OpenToolDetail
+                    }
+                    OverlaySurface::Dialog(DialogKind::Tools) => return None,
                     OverlaySurface::Dialog(
-                        DialogKind::Tools
-                        | DialogKind::Mcp
+                        DialogKind::Mcp
                         | DialogKind::Permissions
                         | DialogKind::SessionTree
                         | DialogKind::UsageStats,
@@ -862,6 +868,29 @@ mod tests {
         assert_eq!(
             resolve_dialog(DialogKind::Connections, crate::keymap::Key::ENTER, &c),
             Some(InputAction::ToggleConnectionModelsExpanded)
+        );
+    }
+
+    #[test]
+    fn tools_modal_enter_and_space() {
+        let list_keys = keys(|_| {});
+        assert_eq!(
+            resolve_dialog(DialogKind::Tools, crate::keymap::Key::ENTER, &list_keys),
+            Some(InputAction::OpenToolDetail)
+        );
+        assert_eq!(
+            resolve_dialog(DialogKind::Tools, key(' '), &list_keys),
+            Some(InputAction::SessionActivate)
+        );
+
+        let detail_keys = keys(|k| k.tools_info_detail = true);
+        assert_eq!(
+            resolve_dialog(DialogKind::Tools, crate::keymap::Key::ENTER, &detail_keys),
+            None
+        );
+        assert_eq!(
+            resolve_dialog(DialogKind::Tools, key(' '), &detail_keys),
+            Some(InputAction::SessionActivate)
         );
     }
 

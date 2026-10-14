@@ -145,21 +145,23 @@ pub(crate) fn draw_which_key_overlay(
         ),
     ]));
     for (key, desc, is_primary) in &items {
-        let key_span = Span::styled(
-            key.to_string(),
-            theme.keycap_style().bg(bg),
-        );
+        let key_fg = if *is_primary {
+            theme.keycap_accent()
+        } else {
+            theme.keycap_fg()
+        };
+        let key_style = Style::default()
+            .fg(key_fg)
+            .bg(bg)
+            .add_modifier(nuotc::Modifier::BOLD);
+        let key_span = Span::styled(key.to_string(), key_style);
         let gap = match key.len() {
             1 => "   ",
             2 => "  ",
             3 => " ",
             _ => " ",
         };
-        let desc_style = if *is_primary {
-            fill.fg(theme.fg())
-        } else {
-            fill.fg(theme.dim())
-        };
+        let desc_style = theme.keycap_label_style().bg(bg);
         lines.push(Line::from(vec![
             Span::styled(pad.clone(), fill),
             key_span,

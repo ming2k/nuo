@@ -5,8 +5,8 @@ use nuotc::{Frame, Rect};
 use super::super::Theme;
 use super::super::design::MODAL_INNER_H_PADDING;
 use super::super::primitives::{
-    ContentModalSpec, content_modal_area, content_modal_probe, modal_chrome_rows, modal_frame,
-    modal_header, render_modal_footer_with_extra,
+    ContentModalSpec, HeaderPart, content_modal_area, content_modal_probe, modal_chrome_rows,
+    modal_frame, modal_header, modal_header_parts, render_modal_footer_with_extra,
 };
 use super::footer::{FooterHint, FooterHintWithBand};
 use super::scroll::ScrollBody;
@@ -17,11 +17,16 @@ pub(crate) enum ModalPageSize {
 
 pub(crate) enum ModalHeader<'a> {
     Title(&'a str),
+    Parts(&'a [HeaderPart<'a>]),
 }
 
 impl<'a> ModalHeader<'a> {
     pub(crate) fn title(title: &'a str) -> Self {
         Self::Title(title)
+    }
+
+    pub(crate) fn parts(parts: &'a [HeaderPart<'a>]) -> Self {
+        Self::Parts(parts)
     }
 }
 
@@ -54,6 +59,9 @@ pub(crate) fn draw_modal_page(frame: &mut Frame, page: ModalPage<'_>, theme: &Th
     match page.header {
         ModalHeader::Title(title) => {
             modal_header(frame, f.header, title, theme);
+        }
+        ModalHeader::Parts(parts) => {
+            modal_header_parts(frame, f.header, parts, theme);
         }
     }
     page.body.render(frame, f.body, theme);

@@ -801,18 +801,32 @@ fn draw_composer_impl(
             };
             let pos_w = position_label.as_ref().map(|s| str_len(s) + 3).unwrap_or(0);
 
-            spans.extend(left_spans);
-
             let prefix_w = COMPOSER_PROMPT_PREFIX_COLS;
             let target_right_w = right_w + pos_w;
             let available = full_w.saturating_sub(COMPOSER_RIGHT_PAD_COLS);
             let needed = prefix_w + left_w + target_right_w;
 
-            if available > needed {
+            if available >= needed {
+                spans.extend(left_spans);
                 let gap = available - needed;
                 spans.push(Span::styled(" ".repeat(gap), Style::default().bg(panel_bg)));
             } else {
-                spans.push(Span::styled("   ", Style::default().bg(panel_bg)));
+                // Width constrained: apply Floor-1 rule (ADR-0054 [INV-AFFORDANCE-02]).
+                // If left hints overflow the available budget, collapse them to `F1 more`
+                // to guarantee non-destructive discovery without layout clipping.
+                let space_for_left = available.saturating_sub(prefix_w + target_right_w + 3);
+                let overflow_affordance = crate::components::keycap::KeyAffordance::new("F1", "more");
+                let overflow_w = overflow_affordance.width();
+                if space_for_left >= overflow_w {
+                    let [k, l] = overflow_affordance.render_spans(theme, panel_bg);
+                    spans.push(k);
+                    spans.push(l);
+                    let gap = space_for_left - overflow_w + 3;
+                    spans.push(Span::styled(" ".repeat(gap), Style::default().bg(panel_bg)));
+                } else {
+                    let gap = available.saturating_sub(prefix_w + target_right_w);
+                    spans.push(Span::styled(" ".repeat(gap), Style::default().bg(panel_bg)));
+                }
             }
 
             if let Some(pos) = position_label

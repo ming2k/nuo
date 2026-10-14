@@ -1294,6 +1294,14 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 });
             }
         }
+        input::InputAction::OpenToolDetail => {
+            let count = app.session_tools_len();
+            if count > 0 {
+                let tools = app.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>();
+                tools.info_detail = true;
+                tools.info_scroll = 0;
+            }
+        }
         input::InputAction::OpenActiveConnectionDetail => {
             open_active_connection_detail(app, runtime, viewed_session_id);
         }
