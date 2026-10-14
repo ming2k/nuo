@@ -255,8 +255,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             if !app.follow_bottom {
                 app.scroll_settle_pending = true;
             }
-            use crossterm::event::EnableMouseCapture;
-            let _ = crossterm::execute!(std::io::stdout(), EnableMouseCapture);
+            if app.profile.supports_mouse {
+                let _ = crossterm::execute!(std::io::stdout(), crate::mouse_mode::EnableButtonMouse);
+            }
             sgr_guard.reset();
         }
         input::InputAction::Quit => {

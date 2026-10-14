@@ -135,7 +135,7 @@ pub(super) fn draw_components_detail(
         // Appearance panel): an *enabled* row highlights its label text, and the
         // hover/cursor band paints the whole row. The row is dressed by the
         // shared palette-derived band when the pointer rests on it or the
-        // keyboard cursor owns it (ADR-0180); the band is `Reset` on monochrome,
+        // keyboard cursor owns it (ADR-0053); the band is `Reset` on monochrome,
         // where the text cue carries the state.
         let banded = is_hover || (is_cursor && focused);
         let band = if banded {

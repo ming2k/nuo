@@ -1,4 +1,4 @@
-//! The declarative visual elevation and structural framing system (ADR-0181).
+//! The declarative visual elevation and structural framing system (ADR-0053).
 //!
 //! # Architecture
 //!
@@ -22,7 +22,7 @@ use nuotc::{
 use crate::design::{MODAL_INNER_H_PADDING, MODAL_INNER_V_PADDING};
 use crate::render::Theme;
 
-/// Semantic hierarchy level of a visual surface (ADR-0181).
+/// Semantic hierarchy level of a visual surface (ADR-0053).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ElevationLevel {
     /// Base application background (lowest level).
@@ -36,7 +36,7 @@ pub enum ElevationLevel {
     Overlay,
 }
 
-/// Declarative elevation container managing background and framing per archetype (ADR-0181).
+/// Declarative elevation container managing background and framing per archetype (ADR-0053).
 pub struct ElevationContainer {
     level: ElevationLevel,
     focused: bool,
@@ -136,7 +136,7 @@ impl ElevationContainer {
 }
 
 /// An elevated panel container: under `Chromatic`, a borderless panel with a single left bar;
-/// under `Structured` (Monochrome/Linux VT), an explicit full ASCII/Unicode bounding box (ADR-0181).
+/// under `Structured` (Monochrome/Linux VT), an explicit full ASCII/Unicode bounding box (ADR-0053).
 pub(crate) fn panel_block(theme: &Theme, bar_color: Color, bg: Color) -> RtBlock<'static> {
     match theme.elevation {
         nuotc::ElevationArchetype::Structured => RtBlock::default()
@@ -225,7 +225,7 @@ pub(crate) fn modal_header_parts(
 /// Every centered modal goes through this so the panel style lives in one
 /// place: under Chromatic archetype, a borderless solid-bg panel with
 /// `MODAL_INNER_H_PADDING`/`MODAL_INNER_V_PADDING` inner padding; under Structured
-/// and Hybrid archetypes, an explicit standard border plus padding (ADR-0181).
+/// and Hybrid archetypes, an explicit standard border plus padding (ADR-0053).
 /// Then a vertical split into optional `header` (1 row) / `body` (flex) / optional
 /// 1-row gap + `footer` (1 row). The caller renders its own header / body /
 /// footer content into the returned rects.

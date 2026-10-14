@@ -1,14 +1,16 @@
 //! Raw-mode / alternate-screen lifecycle: initialization, graceful cleanup, signal-guard.
 
 use crossterm::event::{
-    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    DisableBracketedPaste, EnableBracketedPaste, KeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
     supports_keyboard_enhancement,
 };
 use crossterm::{cursor, execute};
+
+use crate::mouse_mode::{DisableButtonMouse, EnableButtonMouse};
 
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,7 +26,8 @@ pub(super) fn enter_terminal(profile: &nuotc::TerminalProfile) -> io::Result<()>
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
 
-    if profile.supports_mouse && execute!(stdout, EnableMouseCapture).is_ok() {
+    // Button-event (Mode 1002) + SGR-1006 mouse tracking [INV-SURFACE-09]
+    if profile.supports_mouse && execute!(stdout, EnableButtonMouse).is_ok() {
         MOUSE_CAPTURE_ENABLED.store(true, Ordering::Relaxed);
     }
 
@@ -36,9 +39,8 @@ pub(super) fn enter_terminal(profile: &nuotc::TerminalProfile) -> io::Result<()>
 
     // Progressive keyboard enhancement (Kitty keyboard protocol) allows modifier-bearing
     // keys (e.g. Ctrl+M vs Enter) to be disambiguated.
-    // Query capability first so modern Windows Terminal/ConPTY and Linux/macOS
-    // terminals receive exact protocol compliance without unsupported errors.
-    if profile.supports_truecolor()
+    // Query protocol capability directly without conflating keyboard protocol with color depth (ADR-0053).
+    if !profile.is_monochrome()
         && supports_keyboard_enhancement().unwrap_or(false)
         && execute!(
             stdout,
@@ -70,7 +72,7 @@ pub(super) fn restore_terminal() {
     let _ = execute!(stdout, LeaveAlternateScreen);
 
     if MOUSE_CAPTURE_ENABLED.swap(false, Ordering::Relaxed) {
-        let _ = execute!(stdout, DisableMouseCapture);
+        let _ = execute!(stdout, DisableButtonMouse);
     }
 
     let _ = execute!(stdout, cursor::Show);

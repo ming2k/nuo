@@ -34,7 +34,7 @@ use super::design::{MODAL_INNER_V_PADDING, SCROLLBAR_GAP};
 pub(crate) use super::keymap::keyvocab;
 pub(crate) use crate::elevation::*;
 
-/// 2-tier responsive layout breakpoint for TUI views (ADR-0097 evolution, ADR-0181 capability pipeline).
+/// 2-tier responsive layout breakpoint for TUI views (ADR-0097 evolution, ADR-0053 capability pipeline).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutTier {
     /// Wide display (>= 90 columns): dual-pane side-by-side (Master-Detail).
@@ -47,7 +47,7 @@ impl LayoutTier {
     /// Threshold width in columns where dual-pane layout makes sense.
     pub const WIDE_THRESHOLD: u16 = 90;
 
-    /// Resolve the layout tier from effective usable width after archetype spatial deduction (ADR-0181).
+    /// Resolve the layout tier from effective usable width after archetype spatial deduction (ADR-0053).
     pub fn from_effective_width(effective_width: u16) -> Self {
         if effective_width >= Self::WIDE_THRESHOLD {
             Self::Wide
@@ -56,7 +56,7 @@ impl LayoutTier {
         }
     }
 
-    /// Resolve the layout tier given raw rect and elevation archetype (ADR-0181).
+    /// Resolve the layout tier given raw rect and elevation archetype (ADR-0053).
     /// Deducts archetype spatial cost (borders, structural margins) before evaluating breakpoint.
     pub fn from_rect(rect: Rect, archetype: nuotc::ElevationArchetype) -> Self {
         let inner = archetype.inner_bounds(rect);

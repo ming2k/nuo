@@ -665,7 +665,7 @@ pub fn draw_custom_provider_editor(
         } else {
             Style::default().fg(theme.muted())
         };
-        let marker = if focused { " › " } else { "   " };
+        let marker = "   ";
         Span::styled(format!("{marker}{label:<LABEL_W$}"), style)
     };
     let value_style = |focused: bool| {

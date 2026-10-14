@@ -23,7 +23,7 @@ pub use web::{build_websearch_provider_dropdown, build_websearch_reader_dropdown
 
 use nuo_wire::ColorSchemeConfig;
 use nuotc::{
-    Block as RtBlock, Clear, Constraint, Direction, Frame, Layout, Line, Modifier, Paragraph, Rect,
+    Block as RtBlock, Clear, Color, Constraint, Direction, Frame, Layout, Line, Modifier, Paragraph, Rect,
     Span, Style, Wrap,
 };
 
@@ -354,13 +354,21 @@ fn draw_categories_pane(
     let is_focused = props.focus == ConfigFocus::Categories;
 
     let selected_line = Some(props.category_index * 2);
+    let nav_width = area.width as usize;
 
     for (i, cat) in ConfigCategory::ALL.iter().enumerate() {
         let is_selected = i == props.category_index;
+        let banded = is_selected && is_focused;
+        let band = if banded {
+            props.theme.row_hover_band(&[])
+        } else {
+            Color::Reset
+        };
 
-        let mut style = if is_selected && is_focused {
+        let mut style = if banded {
             Style::default()
-                .fg(props.theme.brand())
+                .bg(band)
+                .fg(props.theme.band_text(band, props.theme.brand()))
                 .add_modifier(Modifier::BOLD)
         } else if is_selected {
             Style::default()
@@ -369,11 +377,20 @@ fn draw_categories_pane(
         } else {
             Style::default().fg(props.theme.muted())
         };
-        if is_selected && props.theme.elevation.is_structured() {
+        if banded && props.theme.elevation.is_structured() {
             style = style.add_modifier(Modifier::REVERSE);
         }
 
-        lines.push(Line::from(vec![Span::styled(cat.title(), style)]));
+        let mut spans = vec![Span::styled(cat.title(), style)];
+        let used = unicode_width::UnicodeWidthStr::width(cat.title());
+        if banded && nav_width > used {
+            spans.push(Span::styled(" ".repeat(nav_width - used), Style::default().bg(band)));
+        }
+        let mut line = Line::from(spans);
+        if banded {
+            line = line.style(Style::default().bg(band));
+        }
+        lines.push(line);
         lines.push(Line::from(""));
     }
 

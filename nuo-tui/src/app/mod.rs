@@ -1087,7 +1087,7 @@ pub struct App {
     pub provider_picker: ProviderPickerSnapshot,
     /// Theme.
     pub theme: Theme,
-    /// Terminal capability profile (ADR-0180).
+    /// Terminal capability profile (ADR-0053).
     pub profile: nuotc::TerminalProfile,
     /// User-supplied ASCII logo lines loaded at startup from
     /// `$XDG_CONFIG_HOME/nuo/logo.txt` (clamped to the empty-state bounding

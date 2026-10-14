@@ -67,7 +67,7 @@ faithful `ls` parity therefore has to start at the tool.
 - **No invented type on degraded input.** A restored session, or a payload that
   predates the class tags, must degrade to plain paths rather than have the
   renderer fabricate a directory/file/exec distinction it cannot see.
-- **Terminal-capability honesty (ADR-0180 via [ADR-0022](0022-minimum-terminal-geometry-and-frozen-input-contract.md)).** A 16-color console
+- **Terminal-capability honesty ([ADR-0053](0053-capability-first-orthogonal-terminal-composition-and-autonomous-archetype-projection.md) via [ADR-0022](0022-minimum-terminal-geometry-and-frozen-input-contract.md)).** A 16-color console
   has no RGB ladder, and monochrome must emit no hue at all; the `ls` hues must
   collapse to named ANSI slots and to the reset content tone respectively, never
   leak a truecolor the terminal cannot render.

@@ -8,6 +8,7 @@ use nuotc::{
 };
 use unicode_width::UnicodeWidthStr;
 
+use crate::components::list::row_style;
 use crate::components::selectable_body::{SelectableRow, render_selectable_body};
 use crate::fuzzy::fuzzy_match;
 use crate::keymap::{AppContext, Availability, COMMAND_REGISTRY, CommandId, DangerLevel};
@@ -318,21 +319,25 @@ pub(crate) fn draw_command_palette(
         for (i, entry) in entries.iter().enumerate() {
             let is_sel = i == selected_index;
             let avail = matches!(entry.availability, Availability::Available);
+            let style = row_style(is_sel, theme);
 
-            let gutter = if is_sel { "▶ " } else { "  " };
+            let gutter = "  ";
             let gutter_style = if is_sel {
-                Style::default()
-                    .fg(theme.brand())
-                    .add_modifier(Modifier::BOLD)
+                Style::default().bg(style.bg).fg(style.dim)
             } else {
                 Style::default().fg(theme.muted())
             };
 
             let label_style = if !avail {
-                Style::default().fg(theme.muted())
+                if is_sel {
+                    Style::default().bg(style.bg).fg(style.dim)
+                } else {
+                    Style::default().fg(theme.muted())
+                }
             } else if is_sel {
                 Style::default()
-                    .fg(Color::White)
+                    .bg(style.bg)
+                    .fg(style.fg)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(theme.fg())
@@ -344,16 +349,22 @@ pub(crate) fn draw_command_palette(
             ];
 
             if entry.danger == DangerLevel::Dangerous {
-                left_spans.push(Span::raw(" "));
+                left_spans.push(Span::styled(" ", Style::default().bg(if is_sel { style.bg } else { Color::Reset })));
                 left_spans.push(Span::styled(
                     "[DANGER]",
                     Style::default()
-                        .fg(theme.err())
+                        .bg(if is_sel { style.bg } else { Color::Reset })
+                        .fg(if is_sel { style.fg } else { theme.err() })
                         .add_modifier(Modifier::BOLD),
                 ));
             } else if entry.danger == DangerLevel::Cautious {
-                left_spans.push(Span::raw(" "));
-                left_spans.push(Span::styled("[CAUTION]", Style::default().fg(theme.warn())));
+                left_spans.push(Span::styled(" ", Style::default().bg(if is_sel { style.bg } else { Color::Reset })));
+                left_spans.push(Span::styled(
+                    "[CAUTION]",
+                    Style::default()
+                        .bg(if is_sel { style.bg } else { Color::Reset })
+                        .fg(if is_sel { style.fg } else { theme.warn() }),
+                ));
             }
 
             let right_text = match entry.availability {
@@ -362,9 +373,13 @@ pub(crate) fn draw_command_palette(
             };
 
             let right_style = if !avail {
-                Style::default().fg(theme.muted())
+                if is_sel {
+                    Style::default().bg(style.bg).fg(style.dim)
+                } else {
+                    Style::default().fg(theme.muted())
+                }
             } else if is_sel {
-                Style::default().fg(theme.brand())
+                Style::default().bg(style.bg).fg(style.dim)
             } else {
                 Style::default().fg(theme.muted())
             };
@@ -372,15 +387,27 @@ pub(crate) fn draw_command_palette(
             let left_w: usize = left_spans.iter().map(|s| s.content.width()).sum();
             let right_w = right_text.width();
 
-            let row_line = if body_w >= left_w + right_w + 3 {
-                let gap = body_w - left_w - right_w - 2;
+            let row_line = if body_w >= left_w + right_w + 2 {
+                let gap = body_w - left_w - right_w;
                 let mut spans = left_spans;
-                spans.push(Span::raw(" ".repeat(gap)));
+                spans.push(Span::styled(" ".repeat(gap), Style::default().bg(if is_sel { style.bg } else { Color::Reset })));
                 spans.push(Span::styled(right_text, right_style));
                 Line::from(spans)
             } else {
-                Line::from(left_spans)
+                let mut spans = left_spans;
+                let pad = body_w.saturating_sub(left_w);
+                if pad > 0 {
+                    spans.push(Span::styled(" ".repeat(pad), Style::default().bg(if is_sel { style.bg } else { Color::Reset })));
+                }
+                Line::from(spans)
             };
+
+            let mut row_line = row_line;
+            if is_sel && theme.elevation.is_structured() {
+                for span in &mut row_line.spans {
+                    span.style = span.style.add_modifier(Modifier::REVERSE);
+                }
+            }
 
             rows.push(SelectableRow::from_line(row_line));
         }
@@ -518,5 +545,44 @@ mod tests {
         assert!(!entries.iter().any(|e| e.label.contains("Insert Newline")));
         assert!(!entries.iter().any(|e| e.label.contains("Reconnect MCP")));
         assert!(!entries.iter().any(|e| e.label.contains("Toggle Tool")));
+    }
+
+    #[test]
+    fn palette_selected_row_renders_without_pointer_symbol() {
+        let catalog = sample_catalog();
+        let ctx = AppContext::default();
+        let entries = filter_palette_commands("", &catalog, &[], &ctx);
+        let theme = Theme::default();
+        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut scroll = 0;
+        let selection = SelectionState::default();
+        let mut layout_map = LayoutMap::default();
+
+        terminal.draw(|f| {
+            draw_command_palette(
+                f,
+                CommandPaletteProps {
+                    query: "",
+                    entries: &entries,
+                    selected_index: 0,
+                    scroll: &mut scroll,
+                    show_caret: false,
+                },
+                &theme,
+                &selection,
+                &mut layout_map,
+            );
+        });
+
+        let content: String = terminal
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(
+            !content.contains('▶'),
+            "palette rows must not contain '▶' pointer glyph: {content}"
+        );
     }
 }

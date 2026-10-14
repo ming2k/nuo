@@ -493,15 +493,20 @@ fn draw_dock(
                 height: 1,
             };
             let is_selected = idx == selected;
+            let is_current = entry.row.id == current_session_id;
             if is_selected {
                 frame.render_widget(Clear, cell);
                 let style = theme.selection_style(true);
+                frame.render_widget(RtBlock::default().style(style), cell);
+            } else if is_current {
+                frame.render_widget(Clear, cell);
+                let style = Style::default().bg(theme.panel());
                 frame.render_widget(RtBlock::default().style(style), cell);
             }
             let line = dock_card_line(
                 entry,
                 cell.width as usize,
-                entry.row.id == current_session_id,
+                is_current,
                 is_selected,
                 now,
                 theme,
@@ -537,14 +542,13 @@ const DOCK_COLUMN_W: usize = 36;
 fn dock_card_line(
     entry: &DockEntry<'_>,
     cell_width: usize,
-    is_current: bool,
+    _is_current: bool,
     is_selected: bool,
     now: u64,
     theme: &Theme,
 ) -> Line<'static> {
     let row = entry.row;
     let seq = format!("#{}", entry.seq);
-    let marker = if is_current { "▶" } else { " " };
     let uptime = format_uptime(now.saturating_sub(row.created_at));
     let status = dock_status_label(row.status);
     // The name is the card's identity: bold it under selection, plain
@@ -578,7 +582,7 @@ fn dock_card_line(
     let name = truncate_display(&entry.workspace, name_budget);
 
     let spans = vec![
-        Span::styled(format!("{marker} "), Style::default().fg(theme.brand())),
+        Span::styled("  ", Style::default().fg(theme.brand())),
         Span::styled(format!("{seq:<5}"), Style::default().fg(theme.brand())),
         Span::styled(
             format_padded(&name, name_budget),
@@ -1614,6 +1618,11 @@ mod tests {
         assert!(text.contains("nuo"), "{text}");
         assert!(text.contains("2h14m"), "{text}");
         assert!(text.contains("running"), "{text}");
+        assert!(!text.contains('▶'), "dock card must not contain '▶': {text}");
+
+        let cur_line = dock_card_line(&entries[0], 60, true, false, now, &theme);
+        let cur_text: String = cur_line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(!cur_text.contains('▶'), "current dock card must not contain '▶': {cur_text}");
     }
 
     #[test]

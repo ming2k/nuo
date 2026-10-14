@@ -38,6 +38,7 @@ pub mod headless;
 pub mod input;
 pub mod interaction;
 pub mod keymap;
+pub mod mouse_mode;
 pub mod phase;
 mod pre_attach;
 pub mod question_model;
@@ -416,7 +417,7 @@ pub async fn run_tui(
         token_ledger,
         startup_overlay,
     } = config;
-    // Setup terminal with adaptive capability profile (ADR-0180)
+    // Setup terminal with adaptive capability profile (ADR-0053)
     let profile = nuotc::TerminalProfile::detect();
     terminal::enter_terminal(&profile)?;
     let stdout = io::stdout();

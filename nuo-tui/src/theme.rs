@@ -229,9 +229,9 @@ pub struct Theme {
     pub keycap_label_fg: Color,
     pub keycap_accent_fg: Color,
     pub keycap_warn_fg: Color,
-    /// Typography and glyph set (ADR-0180).
+    /// Typography and glyph set (ADR-0053).
     pub glyphs: nuotc::GlyphSet,
-    /// Visual elevation archetype governing container framing and spatial insets (ADR-0181).
+    /// Visual elevation archetype governing container framing and spatial insets (ADR-0053).
     pub elevation: nuotc::ElevationArchetype,
 }
 
@@ -298,7 +298,7 @@ impl Default for Theme {
 /// names, so the palette can be retuned in one place. The fields stay `pub`
 /// for `Theme::default()` construction; new rendering code should prefer these.
 impl Theme {
-    /// High-contrast 16-color ANSI theme for ECMA-48 terminals and Linux virtual console (ADR-0180).
+    /// High-contrast 16-color ANSI theme for ECMA-48 terminals and Linux virtual console (ADR-0053).
     pub fn ansi16() -> Self {
         Self {
             user_fg: Color::White,
@@ -353,7 +353,7 @@ impl Theme {
         }
     }
 
-    /// High-contrast monochrome theme for DEC VT100, physical serial lines, and getty sessions (ADR-0180).
+    /// High-contrast monochrome theme for DEC VT100, physical serial lines, and getty sessions (ADR-0053).
     /// All colors resolve to [`Color::Reset`] to prevent color escapes, with visual
     /// hierarchy expressed strictly through reverse video, underline, and borders.
     pub fn monochrome() -> Self {
@@ -906,7 +906,7 @@ impl Theme {
         self.selected_bg
     }
 
-    /// Style for a selectable item/row given its selected state (ADR-0180, ADR-0181).
+    /// Style for a selectable item/row given its selected state (ADR-0053).
     /// - Under `Structured` (Monochrome/VT100/Linux VT): applies DEC VT100 `Modifier::REVERSE` so the
     ///   selected/focused item is unmistakably visible without relying on background colors.
     /// - Under `Hybrid`: applies standard 16-color highlight and bold.
@@ -928,7 +928,7 @@ impl Theme {
     }
 
     /// The background band for a *hovered* (or keyboard-cursor) selectable row
-    /// (ADR-0180/ADR-0181). Derived from the active palette — never a fixed
+    /// (ADR-0053). Derived from the active palette — never a fixed
     /// gray literal — so the band is a family member of the scheme it dresses.
     ///
     /// `swatches` are the preview colors the row itself advertises (the
@@ -985,7 +985,7 @@ impl Theme {
         }
     }
 
-    /// Style for an interactive element with focus (ADR-0180, ADR-0181).
+    /// Style for an interactive element with focus (ADR-0053).
     pub fn focus_style(&self, focused: bool) -> Style {
         if !focused {
             return Style::default();
@@ -1750,7 +1750,7 @@ hover_bg = "#282828"
         let custom = ColorSchemeConfig::default();
         for scheme in &COLOR_SCHEMES {
             if scheme.id == "ansi16" || scheme.id == "monochrome" {
-                // ADR-0180: Console/Monochrome profiles anchor backgrounds to Reset
+                // ADR-0053: Console/Monochrome profiles anchor backgrounds to Reset
                 // and establish distinction via borders/reverse video rather than RGB luminance.
                 continue;
             }
@@ -1797,7 +1797,7 @@ hover_bg = "#282828"
         let custom = ColorSchemeConfig::default();
         for scheme in &COLOR_SCHEMES {
             if scheme.id == "ansi16" || scheme.id == "monochrome" {
-                // ADR-0180: Console/Monochrome profiles anchor backgrounds to Reset
+                // ADR-0053: Console/Monochrome profiles anchor backgrounds to Reset
                 // and establish distinction via borders/reverse video rather than RGB luminance.
                 continue;
             }

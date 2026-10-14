@@ -1,4 +1,4 @@
-//! End-to-end integration tests for ADR-0181: Capability-First Visual Archetypes,
+//! End-to-end integration tests for ADR-0053: Capability-First Visual Archetypes,
 //! Structural Elevation, and Responsive Layout Pipeline.
 
 use nuotc::{ElevationArchetype, Frame, Grid, Modifier, Rect, SpatialCost, TerminalProfile};

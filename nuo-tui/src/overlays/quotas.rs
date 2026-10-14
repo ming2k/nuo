@@ -5,9 +5,11 @@
 //! - L2: Expanded detail with progress bars (Enter to toggle)
 
 use nuo_wire::{ConnectionQuotaEntry, ConnectionUsageState, ProviderQuotaData, ProviderQuotaSnapshot, QuotaWindowKind};
-use nuotc::{Frame, Line, Modifier, Span, Style};
+use nuotc::{Color, Frame, Line, Modifier, Span, Style};
+use unicode_width::UnicodeWidthStr;
 
 use super::common::placeholder;
+use crate::components::options::{ChoiceTone, choice_style};
 use crate::components::selectable_body::{SelectableRow, render_selectable_body};
 use crate::design::MODAL_INNER_H_PADDING;
 use crate::model::layout::LayoutMap;
@@ -89,7 +91,7 @@ fn quotas_body_l1(
     snapshot: &ProviderQuotaSnapshot,
     selected_index: usize,
     expanded_index: Option<usize>,
-    _body_width: usize,
+    body_width: usize,
     theme: &Theme,
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
@@ -106,7 +108,7 @@ fn quotas_body_l1(
         let is_expanded = expanded_index == Some(idx);
 
         // L1: Compact summary line
-        let summary = compact_summary(entry, is_selected, theme);
+        let summary = compact_summary(entry, is_selected, body_width, theme);
         lines.push(summary);
 
         // L2: Expanded detail (progress bars, meta info)
@@ -122,30 +124,56 @@ fn quotas_body_l1(
 fn compact_summary(
     entry: &ConnectionQuotaEntry,
     is_selected: bool,
+    body_width: usize,
     theme: &Theme,
 ) -> Line<'static> {
-    let prefix = if is_selected { "▶ " } else { "  " };
+    let prefix = "  ";
+    let style = choice_style(ChoiceTone::Filled, is_selected, theme);
 
     // Connection name
-    let active_tag = if entry.is_default { " *" } else { "" };
+    let active_tag = if entry.is_default { " [default]" } else { "" };
     let name_style = if is_selected {
-        Style::default().fg(theme.fg()).add_modifier(Modifier::BOLD)
+        Style::default()
+            .bg(style.bg)
+            .fg(style.fg)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(theme.fg())
     };
 
     // Provider
-    let provider_style = Style::default().fg(theme.muted());
+    let provider_style = if is_selected {
+        Style::default().bg(style.bg).fg(style.dim)
+    } else {
+        Style::default().fg(theme.muted())
+    };
 
     // Quota summary in brackets
-    let quota_summary = build_quota_summary(entry, theme);
+    let mut quota_summary = build_quota_summary(entry, theme);
+    if is_selected {
+        quota_summary.style = quota_summary.style.bg(style.bg);
+    }
 
-    Line::from(vec![
+    let mut spans = vec![
         Span::styled(format!("{}{}{active_tag}", prefix, entry.name), name_style),
         Span::styled(format!(" {}", entry.provider), provider_style),
-        Span::raw(" "),
+        Span::styled(" ", Style::default().bg(if is_selected { style.bg } else { Color::Reset })),
         quota_summary,
-    ])
+    ];
+
+    let used_w: usize = spans.iter().map(|s| s.content.width()).sum();
+    let pad = body_width.saturating_sub(used_w);
+    if pad > 0 {
+        spans.push(Span::styled(" ".repeat(pad), Style::default().bg(if is_selected { style.bg } else { Color::Reset })));
+    }
+
+    let mut line = Line::from(spans);
+    if is_selected && theme.elevation.is_structured() {
+        for s in &mut line.spans {
+            s.style = s.style.add_modifier(Modifier::REVERSE);
+        }
+    }
+    line
 }
 
 /// Build the quota summary string: `[92%/5h 99%/week]` or error state
@@ -303,10 +331,16 @@ mod tests {
             earliest_reset_ms: None,
         };
 
-        let line = compact_summary(&entry, false, &theme);
+        let line = compact_summary(&entry, false, 80, &theme);
         let s = line_to_string(&line);
         assert!(s.contains("antigravity-1"));
         assert!(s.contains("google-antigravity"));
+        assert!(!s.contains('▶'));
+
+        // Selected line must also not contain '▶'
+        let sel_line = compact_summary(&entry, true, 80, &theme);
+        let sel_s = line_to_string(&sel_line);
+        assert!(!sel_s.contains('▶'));
     }
 
     #[test]
@@ -325,10 +359,11 @@ mod tests {
             earliest_reset_ms: None,
         };
 
-        let line = compact_summary(&entry, false, &theme);
+        let line = compact_summary(&entry, false, 80, &theme);
         let s = line_to_string(&line);
         assert!(s.contains("antigravity-2"));
         assert!(s.contains("err"));
+        assert!(!s.contains('▶'));
     }
 
     #[test]

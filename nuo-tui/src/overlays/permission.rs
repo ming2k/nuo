@@ -687,8 +687,7 @@ fn render_question_option(
     // A checkbox marker (`[x]`/`[ ]`) is shown for EVERY question row —
     // single-select included. That gives single-select rows a stable
     // selection affordance: `[x]` marks the currently-chosen option, `[ ]`
-    // the rest, and the `›` cursor rides alongside (painted by the marker
-    // when highlighted) so the user's current position and their committed
+    // the rest, so the user's current position and their committed
     // choice stay visually distinct in both modes.
     ChoiceOptionRow {
         label,

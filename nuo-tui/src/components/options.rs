@@ -9,11 +9,9 @@
 //!   tone (background + contrast foreground). Used by centered modal lists
 //!   (config, tools, mcp, sessions, …). This is what [`super::list::row_style`]
 //!   delegates to.
-//! - [`ChoiceTone::Flat`]: no background; the cursor is a leading `›` marker
-//!   plus brand-colored bold text. Used where a quiet, inline look is wanted
-//!   (provider/model picker, suggestion dropdowns, preset chooser, the
-//!   question modal). Flat is the *default* because it composes with
-//!   multi-row wrapped descriptions without painting behind them.
+//! - [`ChoiceTone::Flat`]: quiet inline tone without row background fill;
+//!   highlighted text uses brand tone and bold. Used where a quiet look is wanted.
+//!   Flat composes cleanly with multi-row wrapped descriptions without painting behind them.
 //!
 //! Multi-select semantics layer on top: a checkbox marker `[x]`/`[ ]` (in the
 //! [`ChoiceMarker`]) is independent of the cursor, so a row can be "checked
@@ -29,9 +27,9 @@ use super::super::text_layout::wrap_text;
 /// Visual treatment of the cursor on a selectable row.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum ChoiceTone {
-    /// No row background; the cursor is a leading `›` plus brand-colored bold
-    /// text. Composes cleanly with multi-line wrapped descriptions and stays
-    /// quiet in dense surfaces. The default.
+    /// Quiet inline tone without row background fill; highlighted text uses
+    /// brand tone and bold. Composes cleanly with multi-line wrapped
+    /// descriptions and stays quiet in dense surfaces.
     #[default]
     Flat,
     /// The whole row is filled with the brand tone (brand background, contrast
@@ -45,8 +43,7 @@ pub(crate) enum ChoiceTone {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum ChoiceMarker {
     /// No marker at all — single-select where the highlight *is* the selection
-    /// (e.g. the question modal's single-select mode), or a flat-tone row whose
-    /// `›` cursor is painted inline by its own builder.
+    /// (e.g. the question modal's single-select mode).
     #[default]
     None,
     /// A checkbox `[x]`/`[ ]` reflecting `selected`.
@@ -195,9 +192,18 @@ impl<'a> ChoiceOptionRow<'a> {
         // the label text (labels start at column 0, aligned with the
         // question/header text above).
         let marker_glyph = style.marker_glyph(self.marker, self.selected);
-        let marker_style = style.marker_style(self.marker, self.selected, self.highlighted, theme);
+        let is_filled = self.highlighted && self.tone == ChoiceTone::Filled;
+        let mut marker_style = style.marker_style(self.marker, self.selected, self.highlighted, theme);
+        if is_filled {
+            marker_style = marker_style.bg(style.bg).fg(style.fg);
+        }
 
-        let text_style = if self.highlighted {
+        let text_style = if is_filled {
+            Style::default()
+                .bg(style.bg)
+                .fg(style.fg)
+                .add_modifier(Modifier::BOLD)
+        } else if self.highlighted {
             Style::default().fg(style.fg).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(style.fg)
@@ -218,7 +224,11 @@ impl<'a> ChoiceOptionRow<'a> {
         );
 
         if let Some(desc) = self.description {
-            let desc_style = Style::default().fg(style.dim);
+            let desc_style = if is_filled {
+                Style::default().bg(style.bg).fg(style.dim)
+            } else {
+                Style::default().fg(style.dim)
+            };
             // Description indents under the label (same marker width) so it
             // reads as the row's second line, aligned with the label text.
             let desc_indent = " ".repeat(first_prefix.width());
@@ -254,25 +264,45 @@ fn push_wrapped_styled_with_prefix_style(
         .max(1);
     let wrapped = wrap_text(text, wrap_width);
     if wrapped.is_empty() {
-        lines.push(Line::from(vec![Span::styled(
+        let mut spans = vec![Span::styled(
             first_prefix.to_string(),
             first_prefix_style,
-        )]));
+        )];
+        if text_style.bg != Color::Reset {
+            let used: usize = spans.iter().map(|s| s.content.width()).sum();
+            if body_width > used {
+                spans.push(Span::styled(" ".repeat(body_width - used), Style::default().bg(text_style.bg)));
+            }
+        }
+        lines.push(Line::from(spans));
         return;
     }
 
+    let cont_prefix_style = if text_style.bg != Color::Reset {
+        Style::default().bg(text_style.bg)
+    } else {
+        Style::default()
+    };
+
     for (idx, wrapped_line) in wrapped.into_iter().enumerate() {
-        if idx == 0 {
-            lines.push(Line::from(vec![
+        let mut spans = if idx == 0 {
+            vec![
                 Span::styled(first_prefix.to_string(), first_prefix_style),
                 Span::styled(wrapped_line.text, text_style),
-            ]));
+            ]
         } else {
-            lines.push(Line::from(vec![
-                Span::styled(continuation_prefix.to_string(), Style::default()),
+            vec![
+                Span::styled(continuation_prefix.to_string(), cont_prefix_style),
                 Span::styled(wrapped_line.text, text_style),
-            ]));
+            ]
+        };
+        if text_style.bg != Color::Reset {
+            let used: usize = spans.iter().map(|s| s.content.width()).sum();
+            if body_width > used {
+                spans.push(Span::styled(" ".repeat(body_width - used), Style::default().bg(text_style.bg)));
+            }
         }
+        lines.push(Line::from(spans));
     }
 }
 
@@ -297,15 +327,28 @@ pub(crate) fn push_wrapped_styled(
         return;
     }
 
+    let prefix_style = if style.bg != Color::Reset {
+        Style::default().bg(style.bg)
+    } else {
+        Style::default()
+    };
+
     for (idx, wrapped_line) in wrapped.into_iter().enumerate() {
         let prefix = if idx == 0 {
             first_prefix
         } else {
             continuation_prefix
         };
-        lines.push(Line::from(vec![
-            Span::styled(prefix.to_string(), Style::default()),
+        let mut spans = vec![
+            Span::styled(prefix.to_string(), prefix_style),
             Span::styled(wrapped_line.text, style),
-        ]));
+        ];
+        if style.bg != Color::Reset {
+            let used: usize = spans.iter().map(|s| s.content.width()).sum();
+            if body_width > used {
+                spans.push(Span::styled(" ".repeat(body_width - used), Style::default().bg(style.bg)));
+            }
+        }
+        lines.push(Line::from(spans));
     }
 }
