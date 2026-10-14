@@ -8,6 +8,16 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.18] - 2026-10-27
+
+### Added
+
+- **Capability-first orthogonal terminal composition and autonomous archetype projection (ADR-0053).**
+  - **Orthogonal Capability Honesty (`[INV-TERM-01]`)**: Replaces brittle emulator brand heuristics with standards-based orthogonal capability dimensions (color depth, sync updates, mouse protocols, charset encoding).
+  - **Two-Phase Archetype Projection (`[INV-TERM-02]`)**: Maps detected capabilities into autonomous elevation archetypes (`RichTrueColor`, `ANSI256`, `ANSI16`, `Monochrome`) and unifies surface elevation containers across presentation views.
+  - **Autonomous Zero-Config Adaptation (`[INV-TERM-03]`)**: Automatically tunes visual presentation and theme contrast according to the terminal capability ceiling without manual user configuration.
+  - **Spatial Cost Accounting (`[INV-TERM-04]`)**: Accounts for explicit spatial margins and border constraints in responsive layout breakpoints for structured framing on degraded terminal profiles.
+
 ## [0.0.17] - 2026-10-24
 
 ### Added
