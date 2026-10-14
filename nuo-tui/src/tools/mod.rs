@@ -371,7 +371,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
             ("update_todo", &meta::TodoPresenter),
             ("todo_update", &meta::TodoPresenter),
         ],
-        expanded_by_default: false,
+        expanded_by_default: true,
     },
     ToolComponent {
         id: "subagent",

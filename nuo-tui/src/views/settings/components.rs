@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn declared_defaults_open_only_the_action_components() {
         let config = crate::config::TuiConfig::default();
-        for name in ["edit_text", "write_file", "execute_command"] {
+        for name in ["edit_text", "write_file", "execute_command", "todo"] {
             assert!(
                 crate::config::tool_default_expanded(&config, name),
                 "{name} must open by default"
@@ -311,7 +311,7 @@ mod tests {
         }
         for component in TOOL_COMPONENTS {
             for name in component.names() {
-                let expected = matches!(component.id, "command" | "diff");
+                let expected = matches!(component.id, "command" | "diff" | "todo");
                 assert_eq!(
                     crate::config::tool_default_expanded(&config, name),
                     expected,

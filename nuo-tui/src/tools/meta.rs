@@ -57,13 +57,10 @@ impl ToolPresenter for TodoPresenter {
         ResultKind::Checklist
     }
 
-    /// Collapsed by default (ADR-0020's declaration rule): a checklist is a
-    /// reference the user consults on demand, and the collapsed summary
-    /// already reports progress ("Todo: \"Step 2\" (1/3 done)"), so an open
-    /// body would repeat the same information across every update.
-    /// `[tui.default_expanded] todo = true` opens it.
+    /// Expanded by default: task checklists and progress status updates
+    /// are immediately visible so the operator can track plan execution.
     fn default_expanded(&self) -> bool {
-        false
+        true
     }
 }
 
@@ -101,8 +98,8 @@ mod tests {
         let presenter = TodoPresenter;
         assert_eq!(presenter.result_kind(), ResultKind::Checklist);
         assert!(
-            !presenter.default_expanded(),
-            "a checklist collapses by default; the summary already carries progress"
+            presenter.default_expanded(),
+            "a checklist expands by default so tasks and steps are immediately visible"
         );
 
         let args = json!({

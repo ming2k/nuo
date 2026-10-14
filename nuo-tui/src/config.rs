@@ -290,8 +290,9 @@ mod tests {
         assert!(tool_default_expanded(&cfg, "edit_text"));
         assert!(tool_default_expanded(&cfg, "write_file"));
         assert!(tool_default_expanded(&cfg, "execute_command"));
+        assert!(tool_default_expanded(&cfg, "todo"));
+        assert!(tool_default_expanded(&cfg, "write_todos"));
         assert!(!tool_default_expanded(&cfg, "read_text"));
-        assert!(!tool_default_expanded(&cfg, "todo"));
         // Undeclared (dynamic / MCP) tools are never open by default.
         assert!(!tool_default_expanded(&cfg, "mcp__foo__bar"));
     }
