@@ -8,6 +8,12 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.19] - 2026-10-27
+
+### Changed
+
+- Maintenance release and workspace dependency synchronization.
+
 ## [0.0.18] - 2026-10-27
 
 ### Added
