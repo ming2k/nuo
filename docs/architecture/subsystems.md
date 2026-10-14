@@ -1,7 +1,7 @@
 # Subsystem Architecture: Nuo System Blueprint
 
 - Status: Living Blueprint
-- Last Updated: 2026-10-08
+- Last Updated: 2026-10-28
 - Scope: workspace/topology, architecture/subsystems, substrate/tools, microkernel/topology, terminal/nuotc
 - Maintainers: Nuo Architecture Working Group
 
@@ -11,29 +11,36 @@
 
 Nuo (傩) is a self-contained AI session server, semantic terminal, and web host system. The project name derives from the Chinese Pinyin for 傩 (*Nuó*)—traditionally a ritual for expelling perils and disasters, later regarded as a ceremony for communing with the divine. According to traditional Nuo customs, the priest dons a Nuo mask (傩面) to convey intent according to the image and persona embodied by the mask. Nuo draws its core inspiration from this: using an execution harness to employ different identities to communicate with intelligence.
 
-It is organized as a flat Cargo workspace containing 14 specialized crates arranged across three distinct tiers:
+It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/0055-hierarchical-workspace-topology-and-component-namespace.md)) containing specialized crates arranged across four distinct tiers:
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        Applications & Frontends                        │
-│   nuo (Server Host & CLI)    nuox (Semantic TUI)    web (SvelteKit)   │
+│                   Application Entry Point (Root)                       │
+│   nuo (Unified Executable: CLI, TUI Launcher, Server Daemon)           │
 └───────────────────┬────────────────────────────────┬───────────────────┘
                     │                                │
                     ▼                                ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│                      Subsystems & Host Harness                         │
-│   nuo-client (SDK & Wire)  nuo-harness (Execution & Policy Harness)    │
-│   nuo-host (PAL & Sandbox) nuo-persistence (SQLite Store & Memory)     │
-│   nuo-providers (Catalog)                                              │
+│               Component Libraries (crates/nuo-*)                       │
+│   crates/nuo-wire              crates/nuo-acp                          │
+│   crates/nuo-server            crates/nuo-tui                          │
+│   crates/nuo-client            crates/nuo-agent                        │
+│   crates/nuo-host              crates/nuo-persistence                  │
+│   crates/nuo-harness           crates/nuo-mcp                          │
+│   crates/nuo-oauth             crates/nuo-provider                     │
+│   crates/nuo-provider-transportcrates/nuo-model-codec                  │
+│   crates/nuo-tool              crates/nuo-tool-derive                  │
+│   crates/nuo-code                                                      │
 └───────────────────┬────────────────────────────────┬───────────────────┘
                     │                                │
-                    ▼                                ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                       Substrates & Protocols                           │
-│   acp (Coordination Protocol)       nuo-agent (Cognitive Loop)         │
-│   nuo-tool & nuo-tool-derive        nuo-model-codec (Dialects & SSE)   │
-│   nuo-mcp (MCP Transport)           nuotc (Retained Terminal Canvas)   │
-└────────────────────────────────────────────────────────────────────────┘
+         ┌──────────┴──────────┐          ┌──────────┴──────────┐
+         ▼                     ▼          ▼                     ▼
+┌────────────────────────────────┐      ┌────────────────────────────────┐
+│   Model Extensions (providers/)│      │   Tool Extensions (tools/)     │
+│   nuo-provider-anthropic       │      │   nuo-tool-fs                  │
+│   nuo-provider-openai          │      │   nuo-tool-exec                │
+│   ... (17 provider adapters)   │      │   nuo-tool-web, nuo-tool-ast   │
+└────────────────────────────────┘      └────────────────────────────────┘
 ```
 
 ---
@@ -44,7 +51,7 @@ It is organized as a flat Cargo workspace containing 14 specialized crates arran
 - **`nuo-wire`**: Canonical wire contracts — byte-level envelopes (`WireEnvelope`), control verbs (`ControlRequest`), streaming deltas (`StreamDelta`), barrier interception frames, and the shared zero-I/O domain contracts (capability traits, conversation/tool-output types, context-pressure model, events). Consolidated from the former `nuo-contracts` crate (ADR-0001).
 - **`nuo-acp`** (*Agent Coordination Protocol*): Defines canonical inter-agent communication, addressing (`agent://`, `acp://`), tamper-evident HMAC signature envelopes, mailboxes, and multi-party channels. Optional feature-gated capability on `nuo-server`.
 - **`nuo-agent`**: Implements the autonomous cognitive loop (think → act → observe), session turns, channel notification policies, two-tier context hygiene, and token compaction.
-- **`nuo-tool` & **`nuo-tool-derive`**: Zero-runtime tool contracts defining schema, hazard risk profiles (`RiskProfile`), execution scopes (`ToolScope`), and cancellation tokens. `nuo-tool-derive` provides compile-time derive macros for JSON schemas.
+- **`nuo-tool` & **`nuo-tool-derive`**: Zero-runtime tool contracts defining schema, hazard risk profiles (`RiskProfile`), execution scopes (`ToolScope`), cancellation tokens, and the zero-dependency class-based token estimator ([ADR-0056](../adr/0056-zero-dependency-class-based-token-estimator.md)). `nuo-tool-derive` provides compile-time derive macros for JSON schemas.
 - **`nuo-provider`**: Canonical leaf model provider specification defining core inference (`Provider`), catalog discovery (`CatalogDiscovery`), quota tracking (`QuotaTracker`), and pluggable `ProviderRegistry` (ADR-0015). Zero runtime and zero heavy persistence dependencies.
 - **`nuo-model-codec`**: Multi-vendor wire protocol serialization (OpenAI, Anthropic, Google Gemini, DeepSeek) and SSE stream demuxing. Completely decoupled from agent cognitive loops.
 - **`nuo-oauth`**: Canonical RFC 7636 (PKCE), RFC 8628 (Device Authorization), token refresh, and OAuth engine for model provider credentials (ADR-0027).

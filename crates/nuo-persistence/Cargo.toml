@@ -30,7 +30,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-nuo-host = { path = "../nuo-host", features = ["test-path-override"] }
+nuo-host = { workspace = true, features = ["test-path-override"] }
 
 [features]
 test-path-override = ["nuo-host/test-path-override"]

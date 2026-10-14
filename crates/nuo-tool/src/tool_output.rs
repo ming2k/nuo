@@ -1098,9 +1098,9 @@ mod tests {
             detached_job_id: None,
         };
         let text = o.to_text();
-        // 9000 'a's ≈ 1125 cl100k tokens; the notice reports tokens (ADR-0120).
+        // 9000 'a's ≈ 2250 tokens in the class-based estimator; the notice reports tokens.
         assert!(
-            text.starts_with("[Output truncated: 1125 tokens total]\n"),
+            text.starts_with("[Output truncated: 2250 tokens total]\n"),
             "got: {text:.80}"
         );
         assert!(text.ends_with(

@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group
 - Consulted: Core Contributors, Runtime & Tooling Teams
 - Informed: System Architects
+- Amended by: [ADR-0055](0055-hierarchical-workspace-topology-and-component-namespace.md) (accepted) — supersedes §1's flat workspace topology with the hierarchical `nuo` application + `crates/` component library namespace and root cleanliness invariants.
 
 ---
 
