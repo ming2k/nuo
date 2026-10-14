@@ -8,7 +8,16 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
-## [0.0.20] - 2026-10-27
+## [0.0.21] - 2026-10-28
+
+### Added
+
+- **Tool Output Claim-Check Mechanism and Context Stub Topology (ADR-0057).**
+  - **Zero Context Blowup Guarantee (`[INV-CLAIM-01]`)**: Universal Claim-Check gate offloading oversized tool executions to CAS BlobStore while projecting bounded Context Stubs with head/tail anchors into model context.
+  - **In-Flight StreamGuard Defense**: Real-time online stream bounds (200 lines / 16 KB) halting runaway or continuous streaming processes early to prevent context and memory flooding.
+  - **Non-UTF-8 Binary-Safe Pipe Ingestion**: Lossless byte-level stream ingestion preventing premature aborts on raw profiling or debugging dumps.
+  - **Clean Process Harvesting**: Guaranteed process reaping (`wait` following `kill`) preventing zombie process leaks.
+
 
 ### Changed
 
