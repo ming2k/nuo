@@ -288,26 +288,34 @@ pub const GOOGLE_ANTIGRAVITY_CLI_CLIENT_SECRET: &str =
     concat!("GOCSPX-", "9YQWpF7RWDC0QTdj-YxKMwR0ZtsX");
 
 /// Google Antigravity (Cloud Code Companion) preset.
+///
+/// OAuth wire facts are binary-extracted (2026-10-14): authorize endpoint is
+/// the non-versioned `/o/oauth2/auth`, scopes are the six cloud-platform
+/// family scopes, and the CLI sends none of `openid` /
+/// `access_type=offline` / `prompt=consent` / `include_granted_scopes`.
+/// Nuo keeps `access_type=offline&prompt=consent` (a refresh token is
+/// required for a long-lived desktop credential and Google grants one only
+/// on the first consent) and the loopback listener with a dynamic port —
+/// these are nuo login-mechanics choices on top of the shared endpoint, not
+/// claims about the `agy` wire; everything else mirrors the binary.
 pub fn antigravity_preset() -> OAuthConfig {
     OAuthConfig {
         provider_id: Cow::Borrowed("google-antigravity"),
         client_id: Cow::Borrowed(GOOGLE_ANTIGRAVITY_CLOUD_CODE_CLIENT_ID),
         client_secret: Some(Cow::Borrowed(GOOGLE_ANTIGRAVITY_CLOUD_CODE_CLIENT_SECRET)),
         client_auth_method: ClientAuthMethod::RequestBody,
-        authorize_url: Cow::Borrowed("https://accounts.google.com/o/oauth2/v2/auth"),
+        authorize_url: Cow::Borrowed("https://accounts.google.com/o/oauth2/auth"),
         token_url: Cow::Borrowed("https://oauth2.googleapis.com/token"),
         device_authorization_url: Cow::Borrowed("https://oauth2.googleapis.com/device/code"),
         grant_type_device: Cow::Borrowed("urn:ietf:params:oauth:grant-type:device_code"),
         scope: Cow::Borrowed(
-            "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs https://www.googleapis.com/auth/aicode openid",
+            "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs https://www.googleapis.com/auth/aicode",
         ),
         extra_authorize_params: vec![
+            // Refresh-token guarantee for a long-lived desktop credential.
+            // `include_granted_scopes` was dropped: the CLI never sends it.
             (Cow::Borrowed("access_type"), Cow::Borrowed("offline")),
             (Cow::Borrowed("prompt"), Cow::Borrowed("consent")),
-            (
-                Cow::Borrowed("include_granted_scopes"),
-                Cow::Borrowed("true"),
-            ),
         ],
         extra_token_params: Vec::new(),
         extra_refresh_params: Vec::new(),
@@ -317,9 +325,12 @@ pub fn antigravity_preset() -> OAuthConfig {
         )),
         browser_login: true,
         default_login_method: LoginMethod::Browser,
+        // Loopback listener with an ephemeral port: the CLI completes the
+        // flow on the web host (antigravity.google/oauth-callback) and polls;
+        // no preferred port exists in the binary (51121 was a nuo invention).
         oauth_host: Cow::Borrowed("127.0.0.1"),
-        oauth_port: 51121,
-        port_mode: PortMode::PreferredOrDynamic(51121),
+        oauth_port: 0,
+        port_mode: PortMode::PreferredOrDynamic(0),
         oauth_path: Cow::Borrowed("/oauth-callback"),
         redirect_host: Cow::Borrowed("127.0.0.1"),
         custom_redirect_uri: None,
@@ -504,5 +515,33 @@ mod tests {
         let cfg = antigravity_preset();
         assert!(cfg.scope.contains("https://www.googleapis.com/auth/aicode"));
         assert!(cfg.scope.contains("https://www.googleapis.com/auth/cloud-platform"));
+    }
+
+    /// OAuth wire-fact freeze (binary-extracted 2026-10-14, see
+    /// `docs/reference/antigravity.yml`): the authorize endpoint is the
+    /// non-versioned `/o/oauth2/auth`, the scope set carries no `openid`,
+    /// `include_granted_scopes` is never sent, and no preferred loopback
+    /// port exists (51121 was a nuo invention).
+    #[test]
+    fn antigravity_oauth_preset_matches_binary_wire_facts() {
+        let cfg = antigravity_preset();
+        assert_eq!(
+            cfg.authorize_url, "https://accounts.google.com/o/oauth2/auth",
+            "the binary carries /o/oauth2/auth, not the /v2/ variant"
+        );
+        assert!(
+            !cfg.scope.contains("openid"),
+            "`openid` appears nowhere in the CLI's scope strings"
+        );
+        assert!(
+            !cfg.extra_authorize_params
+                .iter()
+                .any(|(k, _)| k == "include_granted_scopes"),
+            "the CLI never sends include_granted_scopes"
+        );
+        assert_eq!(
+            cfg.oauth_port, 0,
+            "no preferred loopback port is compiled into the CLI"
+        );
     }
 }

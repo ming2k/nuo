@@ -59,15 +59,28 @@ info:
     `"project"` field. Requests without a project are still served but are the
     documented trigger for HTTP 429 `RESOURCE_EXHAUSTED` under load.
 
-    Auth: OAuth2 Authorization Code + PKCE (S256) through
-    `https://accounts.google.com/o/oauth2/v2/auth`, loopback redirect
-    `http://127.0.0.1:{port}/oauth-callback` (CLI-preferred port 51121, dynamic
-    fallback), tokens from `https://oauth2.googleapis.com/token` (form-encoded,
-    client credentials in the request body). Scopes: `cloud-platform`,
+    Auth (wire truth, binary + live 2026-10-14): OAuth2 Authorization Code +
+    PKCE (S256). Authorize endpoint `https://accounts.google.com/o/oauth2/auth`
+    (exact string in the binary; the `/v2/` variant appears nowhere). The CLI's
+    login surface is **web-hosted, not loopback**: the flow completes at
+    `https://antigravity.google/oauth-callback` (the CLI prints a sign-in link
+    for the user — "Share this sign-in link with the user" — and polls for the
+    result; success page `https://antigravity.google/auth-success?app=…`). The
+    binary contains a generic loopback callback builder
+    (`http://localhost:%d/auth/callback`) from its auth stack, but no fixed
+    preferred port exists (the constant 51121 appears nowhere; it was a nuo
+    invention from the Cloud Code IDE preset). Token exchange at
+    `https://oauth2.googleapis.com/token`; the standard
+    `urn:ietf:params:oauth:grant-type:device_code` grant is also present in the
+    auth stack. Scopes extracted from the binary: `cloud-platform`,
     `userinfo.email`, `userinfo.profile`, `cclog`, `experimentsandconfigs`,
-    `aicode`, `openid`. `access_type=offline&prompt=consent`. Two client
-    identities exist in the bundle: the Cloud Code IDE pair and the standalone
-    CLI pair (see `x-cli-constants`).
+    `aicode` (plus `offline_access` and drive.* scopes used by auxiliary
+    lanes). `openid` / `access_type=offline` / `prompt=consent` /
+    `include_granted_scopes` appear **nowhere** in the CLI's OAuth parameter
+    strings — first-party integrations that send them are client-side
+    extensions, not wire truth. Two client identities exist in the bundle:
+    the Cloud Code IDE pair and the standalone CLI pair (see
+    `x-cli-constants`).
 
     Client identity (the admission gate): the backend routes inference only for
     requests whose `User-Agent` carries the `antigravity/cli/` brand. The full
@@ -83,9 +96,10 @@ info:
       form (no brand) was rejected with `404 NOT_FOUND` before inference routing
       in earlier backend generations. As of this capture both branded and
       unbranded forms reach inference, but the brand remains the safe invariant.
-    - `x-goog-api-client` (`gl-go/1.23.2 gdcl/0.1` in Nuo's emulation) is
-      **not** sent by the real CLI at all and is ignored by the backend; Nuo
-      keeps stamping it as harmless attribution parity.
+    - `x-goog-api-client` (`gl-go/1.23.2 gdcl/0.1`) is **not** sent by the
+      real CLI at all and is ignored by the backend. Nuo no longer stamps it —
+      marker parity with a header the real client never sends is
+      distinguishability debt, not fidelity.
   x-provenance: live + bundle
   x-cli-constants:
     cliVersion: 1.3.5
@@ -96,7 +110,14 @@ info:
       authorizeUrl: https://accounts.google.com/o/oauth2/auth
       tokenUrl: https://oauth2.googleapis.com/token
       deviceAuthorizationUrl: https://oauth2.googleapis.com/device/code
-      loopbackRedirect: http://127.0.0.1:51121/oauth-callback
+      redirectUris:
+        - https://antigravity.google/oauth-callback
+      redirectNote: >-
+        Web-hosted completion (antigravity.google), not a loopback redirect:
+        the CLI prints the sign-in link and polls for the result. No preferred
+        port is compiled in (the constant 51121 appears nowhere in the binary;
+        it was a nuo invention).
+      clientMetadataUrl: https://antigravity.google/oauth/client-metadata.json
       cloudCodeClientId: 1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com
       cloudCodeClientSecret: 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
       cliClientId: 884354919052-36trc1jjb3tguiac32ov6cod268c5blh.apps.googleusercontent.com
@@ -109,10 +130,11 @@ info:
         - https://www.googleapis.com/auth/experimentsandconfigs
         - https://www.googleapis.com/auth/aicode
       scopeNote: >-
-        Extracted from the binary's scope strings (live 2026-10-14); `openid`
-        does not appear in the CLI's scope strings and is NOT part of the
-        observed request set. First-party integrations that add `openid` are a
-        client-side extension, not wire truth.
+        Extracted from the binary's scope strings (live 2026-10-14); `openid`,
+        `access_type=offline`, `prompt=consent` and `include_granted_scopes`
+        appear nowhere in the CLI's OAuth parameter strings and are NOT part
+        of the observed request set. First-party integrations that send them
+        are client-side extensions, not wire truth.
     companionProject: aicode-consumers
     defaultTierId: free-tier
     minAdmittedProductVersion: "1.2"
@@ -268,7 +290,8 @@ paths:
       description: |
         Used only when `loadCodeAssist` comes back without a
         `cloudaicompanionProject` (first run of a new account). The client picks
-        a `tierId` (first allowed tier, else `g1-pro-tier`) and posts it with
+        a `tierId` (the first allowed tier from the `loadCodeAssist` response —
+        `free-tier` for consumer accounts) and posts it with
         the same metadata block. The response carries the newly provisioned
         project; the client re-runs `loadCodeAssist` afterwards to confirm.
       requestBody:
@@ -1015,7 +1038,7 @@ components:
       properties:
         id:
           type: string
-          description: Observed ids `free-tier`, `standard-tier`; `g1-pro-tier` used as the onboard default.
+          description: Observed ids `free-tier`, `standard-tier`.
         name:
           type: string
         description:
