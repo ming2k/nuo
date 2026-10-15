@@ -60,7 +60,7 @@ use super::Theme;
 pub(crate) mod renderers;
 mod state;
 pub use renderers::{
-    StickyStep, draw_command_result, draw_compacted_card, draw_reasoning_trace,
-    draw_sticky_summary_if_needed, draw_subagent_inline_step, draw_tool_step,
+    StickyAnchor, draw_command_result, draw_compacted_card, draw_reasoning_trace,
+    draw_sticky_anchor_if_needed, draw_subagent_inline_step, draw_tool_step,
 };
 pub use state::{Disclosure, Interaction, summary_text_color};

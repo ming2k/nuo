@@ -401,18 +401,14 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
             },
         );
     });
-    // Row 1 is Client TabBar; Row 2 is Thread Governance (THREAD); Row 3 is Scene Head (settings) (ADR-0060).
+    // Row 1 is Client TabBar; Row 2 is SceneBar (settings) (ADR-0062).
     assert!(grid_row(&terminal, 0).contains("C-x menu"));
-    assert!(grid_row(&terminal, 1).contains("THREAD"));
-    assert!(!grid_row(&terminal, 1).contains("⚙"));
-    assert!(!grid_row(&terminal, 1).contains("Appearance"));
-    let scene_row = grid_row(&terminal, 2);
-    assert!(scene_row.contains("settings"), "scene name on row 3: {scene_row:?}");
+    let scene_row = grid_row(&terminal, 1);
+    assert!(scene_row.contains("settings"), "scene name on row 1: {scene_row:?}");
     assert!(
         scene_row.contains("Main › Settings"),
-        "Row 3 must show the view stack breadcrumbs: {scene_row:?}"
+        "Row 1 must show the view stack breadcrumbs: {scene_row:?}"
     );
-    assert!(!grid_row(&terminal, 3).contains("◐"));
 
     terminal.draw(|frame| {
         draw_settings_view(
@@ -436,7 +432,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
             },
         );
     });
-    assert!(grid_row(&terminal, 1).contains("THREAD"));
+    assert!(grid_row(&terminal, 1).contains("settings"));
 }
 
 /// The Settings center has no bottom footer band and no per-pane prose header:
@@ -975,7 +971,7 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
                     height_cache: None,
                 },
             );
-            footer_anchor_y = footer_stack::rect_of(&rendered.footer, FooterRowId::Activity)
+            footer_anchor_y = footer_stack::rect_of(&rendered.footer, FooterRowId::ActivityStrip)
                 .map(|rect| rect.y)
                 .unwrap_or(rendered.input_rect.y);
             transcript_height = rendered.view_height;
@@ -1306,27 +1302,27 @@ fn main_view_shows_the_thread_scene_row() {
         "client top bar offers the C-x menu namespace: {row0:?}"
     );
     let row1 = grid_row(&terminal, 1);
-    assert!(row1.contains("THREAD"), "thread governance on row 1: {row1:?}");
+    assert!(row1.contains("THREAD"), "scene bar carries thread identity on row 1: {row1:?}");
     assert!(
-        row1.contains("~/projects/xx"),
-        "workspace belongs to thread governance row: {row1:?}"
+        row1.contains("Fix the retry loop"),
+        "scene bar carries authentic task title on row 1: {row1:?}"
     );
     let row2 = grid_row(&terminal, 2);
     assert!(
-        row2.starts_with("  Fix the retry loop"),
-        "root thread head leads with authentic title: {row2:?}"
+        row2.contains("~/projects/xx"),
+        "workspace belongs to thread context row: {row2:?}"
     );
     assert!(
         !row2.contains("thread"),
-        "root thread omits redundant 'thread' label: {row2:?}"
+        "thread context row omits redundant 'thread' label: {row2:?}"
     );
     assert!(
         !row2.contains("C-x menu") && !row2.contains("C-x"),
-        "scene row no longer carries C-x: {row2:?}"
+        "context row does not carry C-x: {row2:?}"
     );
 }
 
-/// ADR-0060: the run-mode flags ride the thread governance row's right edge.
+/// ADR-0062: the run-mode flags ride the thread context row's right edge.
 #[test]
 fn main_view_thread_governance_row_carries_run_mode_flags() {
     let head = ThreadHead {
@@ -1355,11 +1351,12 @@ fn main_view_thread_governance_row_carries_run_mode_flags() {
     let row0 = grid_row(&terminal, 0);
     assert!(row0.contains("C-x menu"), "client menu on row 0: {row0:?}");
     let row1 = grid_row(&terminal, 1);
-    assert!(row1.contains("THREAD"), "thread governance on row 1: {row1:?}");
-    assert!(row1.contains("UNATTENDED"), "unattended flag: {row1:?}");
-    assert!(row1.contains("UNCONFINED"), "unconfined flag: {row1:?}");
+    assert!(row1.contains("THREAD"), "scene bar carries thread identity on row 1: {row1:?}");
     let row2 = grid_row(&terminal, 2);
-    assert!(!row2.contains("thread"), "untitled thread has NO dummy thread placeholder: {row2:?}");
+    assert!(row2.contains("[DEVELOPER]"), "role badge on context row 2: {row2:?}");
+    assert!(row2.contains("~/projects/xx"), "workspace on context row 2: {row2:?}");
+    assert!(row2.contains("UNATTENDED"), "unattended flag on context row: {row2:?}");
+    assert!(row2.contains("UNCONFINED"), "unconfined flag on context row: {row2:?}");
     assert!(!row2.contains("Esc"), "no interrupt pair: {row2:?}");
     assert!(!row2.contains("F1"), "no global help pair: {row2:?}");
 }
@@ -1720,7 +1717,7 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
 /// places the row at all, so no code path draws a healthy banner.
 #[test]
 fn persistence_health_banner_renders_state_and_detail() {
-    use crate::render::draw_persistence_health_bar;
+    use crate::chrome::draw_persistence_health_bar;
     let theme = Theme::default();
 
     let render = |health: &nuo_wire::monitor::PersistenceHealth, width: u16| {

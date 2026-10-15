@@ -17,6 +17,6 @@ pub(crate) use base::RenderCtx;
 pub use command::draw_command_result;
 pub use compacted::draw_compacted_card;
 pub use reasoning::draw_reasoning_trace;
-pub use sticky::{StickyStep, draw_sticky_summary_if_needed};
+pub use sticky::{StickyAnchor, draw_sticky_anchor_if_needed};
 pub use subagent::draw_subagent_inline_step;
 pub use tools::draw_tool_step;

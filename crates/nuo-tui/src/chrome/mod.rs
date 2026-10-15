@@ -27,6 +27,7 @@ pub use model_bar::{
     CONTEXT_USAGE_CRIT_THRESHOLD, CONTEXT_USAGE_WARN_THRESHOLD, ModelBarProps, ModelBarRects,
     draw_model_bar, format_token_count,
 };
+#[allow(unused_imports)]
 pub use persistence_health::draw_persistence_health_bar;
 pub use queue_bar::{QueueBarProps, QueueItemProps, draw_queue_bar};
 #[allow(unused_imports)]

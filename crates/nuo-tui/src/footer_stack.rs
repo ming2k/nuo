@@ -48,16 +48,10 @@ pub(crate) enum FooterRowId {
     /// (`FOOTER_TOP_GAP_ROWS`). Never interactive; in the registry only so
     /// the stack's geometry is complete in one place.
     TopGap,
-    /// The durability-health banner (ADR-0196 D4). Present only while the
-    /// server's persistence writer is degraded; cleared by `Healthy`.
-    PersistenceHealth,
-    /// The ambient outbox summary (`QUEUE n · preview · keys`). Click →
-    /// Queue modal.
-    Queue,
-    /// The background tasks status bar (ADR-0212). Shows running/settled tasks.
-    Tasks,
-    /// The transient live-status bar (breathing dot + status + elapsed).
-    Activity,
+    /// The consolidated dynamic activity strip above composer (ADR-0062 [INV-FOOTER-02]).
+    /// Strictly bounded to at most 1 row. Aggregates queued follow-ups,
+    /// background tasks, and active round status.
+    ActivityStrip,
     /// The composer (input box). Not click-routed through the registry —
     /// its rect is consumed directly for caret/IME positioning and the
     /// permission sheet's anchor — but kept in the id set so the stack can
@@ -65,8 +59,7 @@ pub(crate) enum FooterRowId {
     Composer,
     /// The model bar (context usage, stream rate, model identity). Its
     /// context-meter segment has its own finer hit rect recorded by
-    /// `draw_model_bar`. The Enter-action keys and the `as:` target row live
-    /// inside the composer row above, not here.
+    /// `draw_model_bar`.
     ModelBar,
 }
 
@@ -158,11 +151,7 @@ mod tests {
                 height: 1,
             },
             FooterRow {
-                id: FooterRowId::Queue,
-                height: 1,
-            },
-            FooterRow {
-                id: FooterRowId::Activity,
+                id: FooterRowId::ActivityStrip,
                 height: 1,
             },
             FooterRow {
@@ -184,15 +173,14 @@ mod tests {
     fn places_rows_flush_in_draw_order() {
         let rows = full_stack();
         let placed = place(AREA, &rows);
-        assert_eq!(measure(&rows), 1 + 1 + 1 + 3 + 1);
+        assert_eq!(measure(&rows), 1 + 1 + 3 + 1);
         let rects: Vec<(FooterRowId, Rect)> = placed.rows.clone();
-        assert_eq!(rects.len(), 5);
+        assert_eq!(rects.len(), 4);
         let expect = [
             (FooterRowId::TopGap, 10),
-            (FooterRowId::Queue, 11),
-            (FooterRowId::Activity, 12),
-            (FooterRowId::Composer, 13),
-            (FooterRowId::ModelBar, 16),
+            (FooterRowId::ActivityStrip, 11),
+            (FooterRowId::Composer, 12),
+            (FooterRowId::ModelBar, 15),
         ];
         for (idx, (id, y)) in expect.iter().enumerate() {
             assert_eq!(rects[idx].0, *id, "row {idx} id");
@@ -201,23 +189,20 @@ mod tests {
             assert_eq!(rects[idx].1.width, 76, "row {idx} shares the band width");
         }
         // Heights match each row's declared height.
-        assert_eq!(rects[3].1.height, 3, "composer height");
-        assert_eq!(rects[4].1.y, 16, "model bar directly below the composer");
+        assert_eq!(rects[2].1.height, 3, "composer height");
+        assert_eq!(rects[3].1.y, 15, "model bar directly below the composer");
     }
 
     /// A hidden row (height 0) keeps its slot but places nothing; the rows
-    /// below slide up by exactly its height. This is the property the old
-    /// hand-rolled offsets had to maintain by re-adding the same heights.
+    /// below slide up by exactly its height.
     #[test]
     fn hidden_row_collapses_and_rows_below_slide_up() {
         let mut rows = full_stack();
-        rows[1].height = 0; // hide Queue
-        rows[2].height = 0; // hide Activity
+        rows[1].height = 0; // hide ActivityStrip
         let placed = place(AREA, &rows);
         assert_eq!(measure(&rows), 1 + 3 + 1);
         assert_eq!(placed.rows.len(), 3);
-        assert!(rect_of(&placed, FooterRowId::Queue).is_none());
-        assert!(rect_of(&placed, FooterRowId::Activity).is_none());
+        assert!(rect_of(&placed, FooterRowId::ActivityStrip).is_none());
         assert_eq!(rect_of(&placed, FooterRowId::Composer).unwrap().y, 11);
     }
 
@@ -227,7 +212,7 @@ mod tests {
     #[test]
     fn reports_full_demand_even_when_the_band_clamps() {
         let rows = full_stack();
-        assert_eq!(measure(&rows), 7);
+        assert_eq!(measure(&rows), 6);
         let tiny = Rect::new(0, 10, 80, 2);
         let placed = place(tiny, &rows);
         // Only what fits places; nothing paints past the band's bottom.
@@ -251,7 +236,7 @@ mod tests {
     fn degenerate_band_does_not_panic() {
         let rows = full_stack();
         let placed = place(Rect::new(0, 10, 80, 0), &rows);
-        assert_eq!(measure(&rows), 7);
+        assert_eq!(measure(&rows), 6);
         assert!(placed.rows.is_empty());
     }
 

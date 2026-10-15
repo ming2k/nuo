@@ -10,7 +10,7 @@ use super::base::{RenderCtx, nonempty_wrapped};
 use super::payloads::{
     draw_blank_rows, draw_semantic_step_summary, draw_step_summary, draw_tool_result,
 };
-use super::sticky::StickyStep;
+use super::sticky::StickyAnchor;
 use crate::message_body::draw_message_body;
 use crate::model::document::TranscriptMessage;
 use crate::model::selection::{CellDragInfo, SelectionState};
@@ -29,7 +29,7 @@ pub fn draw_tool_step(
     selection: &SelectionState,
     cell_selection: Option<&CellDragInfo>,
     diff_cache: &mut DiffCache,
-    sticky_steps: &mut Vec<StickyStep>,
+    sticky_anchors: &mut Vec<StickyAnchor>,
     hovered: bool,
     focused: bool,
 ) {
@@ -252,7 +252,7 @@ pub fn draw_tool_step(
     }
 
     if expanded {
-        sticky_steps.push(StickyStep {
+        sticky_anchors.push(StickyAnchor {
             message_idx: mi,
             summary: summary.to_string(),
             color: status_color,

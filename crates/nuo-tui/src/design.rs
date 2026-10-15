@@ -158,10 +158,9 @@ pub(crate) const MODEL_BAR_GAP_MIN: usize = 2;
 /// between the identity group and the context-usage segment.
 pub(crate) const MODEL_BAR_MODEL_GAP: usize = 1;
 
-/// Activity bar: the transient liveness row (breathing-dot indicator + live
-/// status label + elapsed timer) shown directly above the input box while a
-/// round is active. Collapses to 0 when idle. Drawn by `draw_activity_bar`.
-pub(crate) const ACTIVITY_BAR_ROWS: u16 = 1;
+/// ActivityStrip: the consolidated single-row strip (ADR-0062 [INV-FOOTER-02])
+/// shown directly above Composer while a round, queue items, or tasks are active.
+pub(crate) const ACTIVITY_STRIP_ROWS: u16 = 1;
 /// Minimum gap between a footer bar's left content and its right-pinned
 /// keycap legend (e.g. the queue bar's `Ctrl+Q expand`). Deliberately wider than the
 /// 2-col inter-cluster
@@ -189,6 +188,7 @@ pub(crate) const JOIN_BREADCRUMB: &str = " › ";
 /// affordances, so the hint bar no longer needs to embed outbox counts.
 /// Rendered on the plain surface (no raised tint, no glyph) so it stays
 /// quiet, matching the todo bar above it.
+#[allow(dead_code)]
 pub(crate) const QUEUE_BAR_ROWS: u16 = 1;
 
 /// Blank rows inserted at the start of the transcript message stream
@@ -207,10 +207,10 @@ pub(crate) const STREAM_BOTTOM_GAP_ROWS: usize = 1;
 pub(crate) const FOOTER_TOP_GAP_ROWS: u16 = 0;
 /// Maximum height of the head band shown at the top of every transcript
 /// page — Main (thread), Subagent, Dashboard, and Settings all share this
-/// single chrome slot. Under ADR-0060 it is structured across three sovereign tiers:
-/// - Tier 1: Client Global TabBar (`draw_view_header`)
-/// - Tier 2: Thread Identity & Governance Band (`draw_thread_governance_header`)
-/// - Tier 3: Scene Head & Navigation Stack (`draw_view_header_hints`)
+/// single chrome slot. Under ADR-0062 it is structured across a polymorphic hierarchy:
+/// - Tier 1: Client Global TabBar (`draw_tab_bar`)
+/// - Tier 2: Polymorphic SceneBar (`draw_scene_bar`)
+/// - Tier 3: Sovereign ThreadContextBar (`draw_thread_context_bar`, 0 rows on non-thread scenes)
 pub(crate) const PAGE_HEADER_ROWS: u16 = 3;
 
 /// Horizontal inset applied to the footer area containing status/composer/hints.

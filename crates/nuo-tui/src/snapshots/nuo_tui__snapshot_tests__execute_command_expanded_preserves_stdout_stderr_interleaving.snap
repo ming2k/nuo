@@ -1,5 +1,5 @@
 ---
-source: apps/terminal/crates/mutx/src/snapshot_tests.rs
+source: crates/nuo-tui/src/snapshot_tests.rs
 expression: "render_grid(&m, 80, 40)"
 ---
 - Run cargo (0ms)
@@ -7,7 +7,6 @@ expression: "render_grid(&m, 80, 40)"
   Compiling a
   warning: b
   Compiling c
-  exit 0
 
 backgrounds:
 A=#070808  B=#111312  .=reset
@@ -16,4 +15,3 @@ A=#070808  B=#111312  .=reset
 2: B80
 3: B80
 4: B80
-5: B80

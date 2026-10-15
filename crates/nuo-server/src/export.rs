@@ -377,6 +377,49 @@ fn parse_shell_output(output: &str) -> (String, Vec<String>) {
         return ("status: Completed · exit 0".to_string(), Vec::new());
     }
 
+    // New format (ADR-0063): authentic chronological lines with tail exit/interruption status.
+    let mut raw_lines: Vec<&str> = trimmed.lines().collect();
+
+    // Check for optional harness interruption note at the tail
+    let mut harness_interrupted = false;
+    if let Some(last) = raw_lines.last() {
+        if last.starts_with("[killed by harness:") {
+            harness_interrupted = true;
+            raw_lines.pop();
+        }
+    }
+
+    // Check for trailing exit code (e.g. `exit 101`)
+    if let Some(last) = raw_lines.last() {
+        let trimmed_last = last.trim();
+        if let Some(code_str) = trimmed_last.strip_prefix("exit ") {
+            if let Ok(code) = code_str.trim().parse::<i32>() {
+                raw_lines.pop();
+                let status = if code == 0 {
+                    "status: Completed · exit 0".to_string()
+                } else {
+                    format!("status: Failed · exit {code}")
+                };
+                let lines = raw_lines
+                    .into_iter()
+                    .filter(|l| !l.is_empty())
+                    .map(|l| l.to_string())
+                    .collect();
+                return (status, lines);
+            }
+        }
+    }
+
+    if harness_interrupted {
+        let lines = raw_lines
+            .into_iter()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.to_string())
+            .collect();
+        return ("status: Failed · killed by harness".to_string(), lines);
+    }
+
+    // Legacy format fallback: `Exit {}\nSTDOUT:\n...\nSTDERR:\n...`
     if let Some(rest) = trimmed.strip_prefix("Exit ")
         && let Some((exit_code_str, streams)) = rest.split_once('\n')
     {
@@ -594,7 +637,7 @@ mod tests {
             assistant_with_call("", call),
             tool_result(
                 "execute_command",
-                "Exit 101\nSTDOUT:\ntest failed\nSTDERR:\nassertion failed",
+                "test failed\nassertion failed\nexit 101",
             ),
         ];
         let out = format_export_markdown(

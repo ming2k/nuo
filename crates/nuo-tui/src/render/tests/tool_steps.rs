@@ -266,27 +266,17 @@ fn subagent_step_and_view_render_without_panicking() {
             .map(|cell| cell.symbol())
             .collect()
     };
-    // Row 1 is the Client TabBar (ADR-0060), carrying client C-x menu on the right.
+    // Row 1 is the Client TabBar (ADR-0062), carrying client C-x menu on the right.
     let tab_row = row_text(0);
     assert!(
         tab_row.contains("C-x menu"),
         "the client row offers the namespace pair: {tab_row:?}"
     );
-    // Row 2 is the Thread Governance Band (ADR-0060): THREAD, id, workspace.
-    let gov_row = row_text(1);
-    assert!(
-        gov_row.contains("THREAD"),
-        "thread identity on row 2: {gov_row:?}"
-    );
-    assert!(
-        gov_row.contains("~/projects/nuo"),
-        "workspace attached to governance row: {gov_row:?}"
-    );
-    // Row 3 is the scene row: the scene name, then the task's `[ROLE] label (i/n)` context.
-    let scene_row = row_text(2);
+    // Row 2 is the Polymorphic SceneBar (ADR-0062): scene name + context.
+    let scene_row = row_text(1);
     assert!(
         scene_row.trim_start().starts_with("subagent"),
-        "scene name leads row 3: {scene_row:?}"
+        "scene name leads row 2: {scene_row:?}"
     );
     assert!(
         scene_row.contains("[EXPLORE] the codebase (1/2)"),
@@ -597,8 +587,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
     // shared inset, status_y after the top gap, then each row's y is the
     // cumulative sum of the rows above it.
     let footer_h = crate::design::FOOTER_TOP_GAP_ROWS
-            + crate::design::QUEUE_BAR_ROWS
-            + crate::design::ACTIVITY_BAR_ROWS
+            + crate::design::ACTIVITY_STRIP_ROWS
             + rendered.input_rect.height // composer
             + crate::design::MODEL_BAR_ROWS;
     // The terminal is 30 rows; the head is absent here, so the footer
@@ -610,14 +599,9 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
 
     let expect = |y: u16, h: u16| nuotc::Rect::new(footer_x, y, footer_w, h);
     assert_eq!(
-        footer_stack::rect_of(&rendered.footer, FooterRowId::Queue),
-        Some(expect(status_y, QUEUE_BAR_ROWS)),
-        "queue bar rect"
-    );
-    assert_eq!(
-        footer_stack::rect_of(&rendered.footer, FooterRowId::Activity),
-        Some(expect(status_y + QUEUE_BAR_ROWS, ACTIVITY_BAR_ROWS)),
-        "activity bar rect"
+        footer_stack::rect_of(&rendered.footer, FooterRowId::ActivityStrip),
+        Some(expect(status_y, 1)),
+        "consolidated activity strip rect"
     );
     assert_eq!(
         Some(rendered.input_rect),
@@ -626,27 +610,24 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
     );
     assert_eq!(
         rendered.input_rect,
-        expect(
-            status_y + QUEUE_BAR_ROWS + ACTIVITY_BAR_ROWS,
-            rendered.input_rect.height
-        ),
-        "composer rect matches the legacy offset"
+        expect(status_y + 1, rendered.input_rect.height),
+        "composer rect sits immediately below the 1-row activity strip"
     );
     assert_eq!(
         Some(rendered.hint_rect),
         footer_stack::rect_of(&rendered.footer, FooterRowId::ModelBar),
-        "hint bar rect appears in the registry exactly as returned"
+        "model bar rect appears in the registry exactly as returned"
     );
     assert_eq!(
         rendered.hint_rect,
         expect(
-            status_y + QUEUE_BAR_ROWS + ACTIVITY_BAR_ROWS + rendered.input_rect.height,
+            status_y + 1 + rendered.input_rect.height,
             MODEL_BAR_ROWS
         ),
-        "hint bar rect matches the legacy offset"
+        "model bar rect sits directly below composer"
     );
-    // The registry contains the four interactive rows (TopGap is 0-height and omitted).
-    assert_eq!(rendered.footer.rows.len(), 4, "registry completeness");
+    // The registry contains the three interactive rows (TopGap is 0-height and omitted).
+    assert_eq!(rendered.footer.rows.len(), 3, "registry completeness");
     assert_eq!(
         footer_stack::rect_of(&rendered.footer, FooterRowId::TopGap),
         None,
@@ -680,16 +661,14 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
         "client row carries namespace pair: {row0:?}"
     );
     let row1 = grid_row(&terminal, 1);
-    assert!(row1.contains("THREAD"), "thread governance on row 1: {row1:?}");
-    let row2 = grid_row(&terminal, 2);
-    assert!(row2.starts_with("  subagent"), "scene name leads: {row2:?}");
+    assert!(row1.starts_with("  subagent"), "scene name leads row 1: {row1:?}");
     assert!(
-        row2.contains("[EXPLORE] inspect the renderer (1/2)"),
-        "task context follows: {row2:?}"
+        row1.contains("[EXPLORE] inspect the renderer (1/2)"),
+        "task context follows on row 1: {row1:?}"
     );
     assert!(
-        !row2.contains("C-x menu") && !row2.contains("C-x"),
-        "scene row no longer carries namespace pair: {row2:?}"
+        !row1.contains("C-x menu") && !row1.contains("C-x"),
+        "scene row does not carry namespace pair: {row1:?}"
     );
 }
 

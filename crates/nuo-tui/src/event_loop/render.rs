@@ -433,10 +433,7 @@ fn compose_frame(
     for (key, rect) in &transcript_render.footer.rows {
         let key = match key {
             render::FooterRowId::TopGap => continue,
-            render::FooterRowId::PersistenceHealth => continue,
-            render::FooterRowId::Queue => UiKey::Queue,
-            render::FooterRowId::Tasks => continue,
-            render::FooterRowId::Activity => UiKey::Activity,
+            render::FooterRowId::ActivityStrip => UiKey::Activity,
             render::FooterRowId::Composer => UiKey::Composer,
             render::FooterRowId::ModelBar => UiKey::ModelBar,
         };
@@ -890,7 +887,7 @@ fn compose_frame(
                         app.startup_overlay == crate::StartupOverlay::SessionsPicker;
                     let activity_height = render::footer_rect(
                         &transcript_render.footer,
-                        render::FooterRowId::Activity,
+                        render::FooterRowId::ActivityStrip,
                     )
                     .map_or(0, |r| r.height);
                     let rect = {

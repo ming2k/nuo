@@ -212,8 +212,8 @@ pub fn draw_dashboard(
     let full = frame.area();
     let area = viewport_rect(frame);
     let tier = LayoutTier::from_rect(area, theme.elevation);
-    /// The shared head band's height: three-tier spatial header (ADR-0060).
-    const BAND_ROWS: u16 = 3;
+    /// The shared head band's height: polymorphic scene header (ADR-0062).
+    const BAND_ROWS: u16 = 2;
     let body = Rect {
         y: area.y.saturating_add(BAND_ROWS),
         height: area.height.saturating_sub(BAND_ROWS),
@@ -226,7 +226,7 @@ pub fn draw_dashboard(
     // Two-tier responsive layout (ADR-0097 §3 evolution):
     // - Wide (width >= 90): Dual-pane side-by-side (Sessions list left, Cognitive Dossier + Console right).
     // - Compact (width < 90): Vertical stack (head band, Sessions dock top, Cognitive Dossier + Console bottom, footer).
-    let (header_rect, gov_rect, hints_rect, dock_rect, console_rect, footer_rect, card_columns) =
+    let (header_rect, scene_rect, dock_rect, console_rect, footer_rect, card_columns) =
         if tier.is_wide() {
             let v_chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -253,7 +253,6 @@ pub fn draw_dashboard(
             (
                 Rect::new(full.x, full.y, full.width, 1),
                 Rect::new(full.x, full.y.saturating_add(1), full.width, 1),
-                Rect::new(full.x, full.y.saturating_add(2), full.width, 1),
                 dock,
                 console,
                 footer,
@@ -280,7 +279,6 @@ pub fn draw_dashboard(
             (
                 Rect::new(full.x, full.y, full.width, 1),
                 Rect::new(full.x, full.y.saturating_add(1), full.width, 1),
-                Rect::new(full.x, full.y.saturating_add(2), full.width, 1),
                 dock,
                 console,
                 footer,
@@ -289,20 +287,18 @@ pub fn draw_dashboard(
         };
 
     // The head band, drawn by the shared renderer so the dashboard is
-    // chrome-identical to every other scene (ADR-0060). Row 1 is
-    // the client TabBar; row 2 is thread governance; row 3 names the scene (`dashboard`)
-    // and carries the live fleet summary as its context.
+    // chrome-identical to every other scene (ADR-0062). Row 1 is
+    // the client TabBar; row 2 is the Polymorphic SceneBar (`dashboard` + fleet summary).
     let tab_rects = if let Some(head) = thread_head.as_ref() {
-        let rects = crate::render::draw_view_header(frame, header_rect, head, theme);
-        crate::render::draw_thread_governance_header(frame, gov_rect, head, theme);
-        rects
+        crate::render::draw_tab_bar(frame, header_rect, head, theme)
     } else {
         Vec::new()
     };
     let (summary, needs_attention) = header_content(rows);
-    crate::render::draw_view_header_hints(
+    crate::render::draw_scene_bar(
         frame,
-        hints_rect,
+        scene_rect,
+        None,
         &crate::render::ViewHints {
             kind: crate::surfaces::SceneKind::Dashboard,
             context: Some(summary.trim_end()),
@@ -359,8 +355,8 @@ pub fn draw_dashboard(
 /// The dashboard's scene-row context: the fleet summary the shared head band
 /// renders after the `dashboard` scene name.
 ///
-/// The rows themselves are drawn by [`crate::render::draw_view_header`] and
-/// [`crate::render::draw_view_header_hints`] — the same band every other scene
+/// The rows themselves are drawn by [`crate::render::draw_tab_bar`] and
+/// [`crate::render::draw_scene_bar`] — the same band every other scene
 /// uses (ADR-0024: one head, one scene row). This function only
 /// computes the dashboard's own context string and its attention flag.
 fn header_content(rows: &[MonitoredSession]) -> (String, bool) {

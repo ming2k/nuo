@@ -2167,28 +2167,28 @@ fn termination_footer(
     match term {
         T::Exited => None,
         T::IdleBlocked => Some((
-            "[process killed]   idle timeout detected".to_string(),
+            "idle timeout detected".to_string(),
             warn_style,
         )),
         T::InteractiveBlocked => Some((
-            "[process blocked]  interactive prompt detected".to_string(),
+            "interactive prompt detected".to_string(),
             warn_style,
         )),
         T::InputUnanswered => Some((
-            "[process killed]   unanswered input prompt".to_string(),
+            "unanswered input prompt".to_string(),
             warn_style,
         )),
         T::Timeout => Some((
-            "[process killed]   overall timeout reached".to_string(),
+            "timed out".to_string(),
             warn_style,
         )),
-        T::Cancelled => Some(("[process killed]   cancelled by operator".to_string(), err_style)),
+        T::Cancelled => Some(("cancelled".to_string(), err_style)),
         T::StreamGuard => Some((
-            "[process killed]   runaway stream detected".to_string(),
+            "stream cap reached".to_string(),
             warn_style,
         )),
         T::Detached => Some((
-            "[process detached] adopted by background fabric".to_string(),
+            "detached to background".to_string(),
             warn_style,
         )),
     }
@@ -2252,64 +2252,57 @@ pub(crate) fn draw_command_content(
         }
     }
 
-    if let Some(nuo_wire::ToolOutput::Shell {
-        stdout,
-        stderr,
-        lines,
-        exit,
-        truncated,
-        termination,
-        detached_job_id: None,
-        ..
-    }) = structured
-    {
-        // Materialize the output stream once, then emit it through the folding
-        // emitter: a head of leading context, a `⋯ N lines hidden` row for the
-        // verbose middle, and a tail of trailing context. Only output goes
-        // through the fold — the exit / truncated / termination footers below
-        // stay outside it, so the trailing "events" are always visible even for
-        // a huge log. Short output (≤ HEAD + TAIL + 1 lines) renders verbatim;
-        // `emit_command_lines_folded` is a no-op on an empty stream.
-        let mut byte_offset = 0usize;
-        let output_rows = command_structured_lines(lines, stdout, stderr, base);
-        if !output_rows.is_empty() {
-            byte_offset = emit_command_lines_folded(
-                ctx,
-                mi,
-                block_idx,
-                indent,
-                wrap_w,
-                pad,
-                sel_range,
-                &output_rows,
-                byte_offset,
-            );
+    let (output_rows, exit, termination, is_truncated) = match structured {
+        Some(nuo_wire::ToolOutput::Shell {
+            stdout,
+            stderr,
+            lines,
+            exit,
+            truncated,
+            termination,
+            detached_job_id: None,
+            ..
+        }) => {
+            let rows = command_structured_lines(lines, stdout, stderr, base);
+            (rows, *exit, *termination, *truncated)
         }
-        if *truncated {
-            byte_offset = emit_command_lines(
-                ctx,
-                mi,
-                block_idx,
-                indent,
-                wrap_w,
-                pad,
-                sel_range,
-                "[stream truncated] output cap reached",
-                marker_style,
-                byte_offset,
-            );
-        }
-        // Exit-code footer: always painted when the code is known, so an
-        // expanded step closes with a diagnostic fact even on success
-        // ("did it actually exit 0?"). A clean `exit 0` is dimmed to stay
-        // quiet; any non-zero code keeps the loud warn marker.
-        if let Some(code) = exit {
+        _ => parse_unstructured_shell_content(content, base),
+    };
+
+    let mut byte_offset = 0usize;
+    if !output_rows.is_empty() {
+        byte_offset = emit_command_lines_folded(
+            ctx,
+            mi,
+            block_idx,
+            indent,
+            wrap_w,
+            pad,
+            sel_range,
+            &output_rows,
+            byte_offset,
+        );
+    }
+
+    if is_truncated {
+        byte_offset = emit_command_lines(
+            ctx,
+            mi,
+            block_idx,
+            indent,
+            wrap_w,
+            pad,
+            sel_range,
+            "[stream truncated] output cap reached",
+            marker_style,
+            byte_offset,
+        );
+    }
+
+    // Exit status footer: only non-zero exits paint a distinct marker
+    if let Some(code) = exit {
+        if code != 0 {
             let m = format!("exit {}", code);
-            let style = if *code == 0 {
-                Style::default().bg(result_bg).fg(ctx.theme.dim())
-            } else {
-                marker_style
-            };
             let _ = emit_command_lines(
                 ctx,
                 mi,
@@ -2319,72 +2312,15 @@ pub(crate) fn draw_command_content(
                 pad,
                 sel_range,
                 &m,
-                style,
+                marker_style,
                 byte_offset,
             );
         }
-
-        // Themed termination footer (L6)
-        // Every non-trivial termination renders a themed footer so the user
-        // and the model see *why* the command ended, not just that it did.
-        // A healthy `Exited` run is silent here (its exit code is above);
-        // every other variant paints a coloured marker + a
-        // remediation hint. All colors flow through the shared theme tokens,
-        // reusing the block-level design contract (diff tokens, warn/err)
-        // so the footer reads as part of the same surface language.
-        if let Some(footer) = termination_footer(*termination, ctx.theme) {
-            let (text, style) = footer;
-            let _ = emit_command_lines(
-                ctx,
-                mi,
-                block_idx,
-                indent,
-                wrap_w,
-                pad,
-                sel_range,
-                &text,
-                style,
-                byte_offset,
-            );
-        }
-        return;
     }
 
-    // Legacy fallback for non-Shell results (e.g. restored sessions whose
-    // structured payload was not persisted): render the composed `content`
-    // string, highlighting the conventional section markers. This path does
-    // *not* middle-fold: the legacy `content` string inlines its markers
-    // (`Exit N`, `STDOUT:`, `[Output truncated` …) at arbitrary positions, so a
-    // head/tail window could hide a trailing event marker. Restored sessions
-    // are also the rare case — the live structured `Shell` path is what every
-    // fresh bash call takes, and it folds above. Folding here is low value and
-    // high risk, so the full content is rendered verbatim.
-    let content = content.trim_end_matches(&['\r', '\n'][..]);
-    if content.is_empty() {
-        return;
-    }
-    let mut logical_lines: Vec<(usize, &str)> = Vec::new();
-    let mut offset = 0usize;
-    for line in content.split('\n') {
-        logical_lines.push((offset, line));
-        offset += line.len() + 1;
-    }
-    for (line_start_byte, logical_line) in logical_lines.iter() {
-        let trimmed = logical_line.trim_end();
-        let is_marker = trimmed.starts_with("Exit ")
-            || trimmed == "STDOUT:"
-            || trimmed == "STDERR:"
-            || trimmed.starts_with("(success, stderr):")
-            || trimmed.starts_with("[Output truncated")
-            || trimmed.starts_with("[output truncated")
-            || trimmed.starts_with("[stream truncated")
-            || trimmed.starts_with("[process killed")
-            || trimmed.starts_with("[process blocked")
-            || trimmed.starts_with("[process detached")
-            || trimmed.starts_with("[Output was large")
-            || trimmed.starts_with("[killed by harness")
-            || trimmed.starts_with("[not executed");
-        let style = if is_marker { marker_style } else { base };
+    // Termination footer (ADR-0063: crisp, emoji-free industrial diagnostics)
+    if let Some(footer) = termination_footer(termination, ctx.theme) {
+        let (text, style) = footer;
         let _ = emit_command_lines(
             ctx,
             mi,
@@ -2393,11 +2329,103 @@ pub(crate) fn draw_command_content(
             wrap_w,
             pad,
             sel_range,
-            logical_line,
+            &text,
             style,
-            *line_start_byte,
+            byte_offset,
         );
     }
+}
+
+/// Parse/normalize unstructured shell content into clean terminal output rows,
+/// optional exit status, and termination reason (ADR-0063).
+/// Eliminates in-band marker pollution (`Exit -1`, `STDOUT:`, `STDERR:`, and verbose harness prose).
+fn parse_unstructured_shell_content(
+    content: &str,
+    base: Style,
+) -> (
+    Vec<(String, Style)>,
+    Option<i32>,
+    nuo_wire::tool_output::ShellTermination,
+    bool,
+) {
+    use nuo_wire::tool_output::ShellTermination;
+    let mut rows: Vec<(String, Style)> = Vec::new();
+    let mut exit_code: Option<i32> = None;
+    let mut termination = ShellTermination::Exited;
+    let mut truncated = false;
+
+    let trimmed_content = content.trim_end_matches(&['\r', '\n'][..]);
+    for raw_line in trimmed_content.lines() {
+        let trimmed = raw_line.trim_end();
+        let trimmed_leading = trimmed.trim_start();
+
+        // 1. Strip artificial stream section headers
+        if trimmed_leading == "STDOUT:"
+            || trimmed_leading == "STDERR:"
+            || trimmed_leading.starts_with("(success, stderr):")
+        {
+            continue;
+        }
+
+        // 2. Strip truncation markers
+        if trimmed_leading.starts_with("[Output truncated")
+            || trimmed_leading.starts_with("[output truncated")
+            || trimmed_leading.starts_with("[stream truncated")
+            || trimmed_leading.starts_with("⋯ [Claim-Check Stub:")
+            || trimmed_leading.starts_with("[Output was large")
+        {
+            truncated = true;
+            continue;
+        }
+
+        // 3. Strip verbose harness prose and extract termination enum
+        if trimmed_leading.starts_with("[killed by harness:")
+            || trimmed_leading.starts_with("[process killed]")
+        {
+            if trimmed_leading.contains("timeout") || trimmed_leading.contains("wall-clock") {
+                termination = ShellTermination::Timeout;
+            } else if trimmed_leading.contains("stream") || trimmed_leading.contains("budget") {
+                termination = ShellTermination::StreamGuard;
+            } else if trimmed_leading.contains("cancel") {
+                termination = ShellTermination::Cancelled;
+            } else if trimmed_leading.contains("idle") {
+                termination = ShellTermination::IdleBlocked;
+            } else {
+                termination = ShellTermination::Timeout;
+            }
+            continue;
+        }
+
+        if trimmed_leading.starts_with("[process blocked]")
+            || trimmed_leading.starts_with("[killed by harness: interactive")
+        {
+            termination = ShellTermination::InteractiveBlocked;
+            continue;
+        }
+
+        if trimmed_leading.starts_with("[process detached]") {
+            termination = ShellTermination::Detached;
+            continue;
+        }
+
+        // 4. Extract exit codes (ignore fake Exit -1)
+        if let Some(code_str) = trimmed_leading
+            .strip_prefix("Exit ")
+            .or_else(|| trimmed_leading.strip_prefix("exit "))
+        {
+            if let Ok(code) = code_str.trim().parse::<i32>() {
+                if code != -1 {
+                    exit_code = Some(code);
+                }
+                continue;
+            }
+        }
+
+        // 5. Authentic user log row
+        rows.push((raw_line.to_string(), base));
+    }
+
+    (rows, exit_code, termination, truncated)
 }
 
 /// Emit a (possibly multi-line) bash body section at `indent`, wrapping to
@@ -3490,7 +3518,7 @@ mod tests {
         let footer = termination_footer(ShellTermination::StreamGuard, &theme);
         assert!(footer.is_some());
         let (text, style) = footer.unwrap();
-        assert_eq!(text, "[process killed]   runaway stream detected");
+        assert_eq!(text, "stream cap reached");
         assert_eq!(style.fg, theme.warn());
     }
 

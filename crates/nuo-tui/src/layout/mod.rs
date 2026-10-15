@@ -37,7 +37,7 @@ use crate::model::layout::{InteractiveTarget, LayoutMap};
 use crate::model::selection::{CellDragInfo, SelectionState};
 
 use super::HeightCache;
-use super::disclosure::StickyStep;
+use super::disclosure::StickyAnchor;
 use super::theme::Theme;
 use crate::design::{
     MESSAGE_GAP_ROWS, STREAM_BOTTOM_GAP_ROWS, STREAM_TOP_GAP_ROWS, TURN_HEADER_BODY_GAP_ROWS,
@@ -475,7 +475,7 @@ pub struct Stream<'a, 'f> {
     pub content_lines: usize,
 
     // accumulators consumed by `draw_transcript` after the layout returns
-    pub sticky_steps: Vec<StickyStep>,
+    pub sticky_anchors: Vec<StickyAnchor>,
 }
 
 impl<'a, 'f> Stream<'a, 'f> {
@@ -584,7 +584,7 @@ impl<'a, 'f> Stream<'a, 'f> {
                 self.selection,
                 self.cell_selection,
                 &mut self.height_cache.diff_cache,
-                &mut self.sticky_steps,
+                &mut self.sticky_anchors,
                 hovered,
                 focused_tool,
             );
@@ -607,7 +607,7 @@ impl<'a, 'f> Stream<'a, 'f> {
                 mi,
                 self.selection,
                 self.cell_selection,
-                &mut self.sticky_steps,
+                &mut self.sticky_anchors,
                 hovered,
                 focused_reasoning,
             );
@@ -769,7 +769,7 @@ impl<'a, 'f> Stream<'a, 'f> {
 }
 
 /// A transcript layout strategy. Implementations walk `messages` via the
-/// [`Stream`] helpers and return, leaving `content_lines` / `sticky_steps` /
+/// [`Stream`] helpers and return, leaving `content_lines` / `sticky_anchors` /
 /// `last_shown_attribution` populated for `draw_transcript`'s post-processing.
 pub trait TranscriptLayout {
     fn run(&mut self, stream: &mut Stream<'_, '_>);

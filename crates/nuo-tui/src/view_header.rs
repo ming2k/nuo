@@ -1,28 +1,29 @@
-//! Three-tier spatial head band for every scene (ADR-0060).
+//! Polymorphic spatial header topology for every scene (ADR-0060, ADR-0062).
 //!
-//! The head band is the fixed, always-present chrome pinned to the terminal's
-//! top edge. Under ADR-0060 it is structured across three sovereign tiers
-//! (`PAGE_HEADER_ROWS = 3`), eliminating horizontal budget collisions and
-//! enforcing strict domain stratification:
+//! The head band is the sovereign chrome pinned to the terminal's top edge.
+//! Under ADR-0062 it is structured across a polymorphic hierarchy:
 //!
-//! - **Row 1 — Client Global TabBar (`draw_view_header`).**
+//! - **Tier 1 — Client Global TabBar (`draw_tab_bar`).**
 //!   Fixed height: 1 row. Owned by the Client container. Projects open tabs
 //!   with clean semantic titles (e.g. `Refactor DB`, `dashboard`, `settings`)
 //!   or compact untitled fallbacks (`thread#b3c4`), strictly omitting ordinal
 //!   prefixes (`1:`) [INV-TAB-09]. Carries the standing `C-x menu` client affordance
 //!   on the right edge.
 //!
-//! - **Row 2 — Thread Identity & Governance Band (`draw_thread_governance_header`).**
-//!   Fixed height: 1 row. Owned by the active thread. Displays the ambient
-//!   thread identity (`THREAD <id_tail>`, `[ROLE]` badge, tilde-shortened
-//!   workspace path) on the left, and persistent safety execution posture
-//!   flags (`UNATTENDED`, `UNCONFINED`) on the right edge [INV-HEAD-04, INV-THREAD-02].
+//! - **Tier 2 — Polymorphic SceneBar (`draw_scene_bar`).**
+//!   Fixed height: 1 row. Owned by the active scene view [INV-SCENE-02]. Displays
+//!   the primary task identity on the left:
+//!   - For `Thread`: `THREAD <id_tail>` + authentic task title (with vestigial
+//!     dummy `thread` placeholders eliminated when untitled [INV-SCENE-01]).
+//!   - For Non-Thread (`Dashboard`, `Settings`): scene label + domain summary context.
+//!   On the right: right-aligned drill-in navigation stack / breadcrumbs
+//!   (`‹ thread › subagent #1 › diff`) with back affordance (`‹ `).
 //!
-//! - **Row 3 — Scene Head & Navigation Stack (`draw_view_header_hints`).**
-//!   Fixed height: 1 row. Owned by the active scene view. Displays primary
-//!   authentic task title or domain scene context on the left (with the vestigial
-//!   `thread` placeholder eliminated for untitled threads [INV-SCENE-01]), and
-//!   right-aligned drill-in navigation stack / breadcrumbs (`< thread > subagent #1 > diff`).
+//! - **Tier 3 — Sovereign ThreadContextBar (`draw_thread_context_bar`).**
+//!   Height: 1 row on Thread viewports; **0 rows on non-thread scenes** (`Dashboard`, `Settings`)
+//!   [INV-HEAD-05]. Displays thread execution boundaries on the left:
+//!   `[ROLE]` badge and tilde-shortened workspace path; persistent safety posture
+//!   flags (`UNATTENDED`, `UNCONFINED`) on the right edge.
 
 use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -36,11 +37,10 @@ pub(crate) type ViewKind = crate::surfaces::SceneKind;
 /// Maximum display width allocated to individual tab titles before truncation.
 pub(crate) const MAX_TAB_TITLE_WIDTH: usize = 20;
 
-/// Row-3 (scene) context for every scene (ADR-0060).
+/// Scene context for header presentation (ADR-0060, ADR-0062).
 ///
 /// Focuses purely on viewport context: authentic task title or domain summary
 /// on the left, and navigation stack / drill-in breadcrumbs on the right.
-/// Thread governance (workspace, role, safety flags) is hosted on Row 2.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ViewHints<'a> {
     /// Which scene the row describes — decides the leading scene label.
@@ -73,7 +73,7 @@ impl<'a> ViewHints<'a> {
     }
 }
 
-/// Canonical thread identity & governance state for header presentation (ADR-0043, ADR-0060 [INV-THREAD-02]).
+/// Canonical thread identity & governance state for header presentation (ADR-0043, ADR-0060, ADR-0062 [INV-THREAD-02]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ThreadHead<'a> {
     /// The thread's persistent id (full string). Only its last four
@@ -114,12 +114,12 @@ impl<'a> ThreadHead<'a> {
     }
 }
 
-/// Draw Tier 1: Client Global TabBar (ADR-0039, ADR-0040, ADR-0060 [INV-TAB-09]).
+/// Draw Tier 1: Client Global TabBar (ADR-0039, ADR-0040, ADR-0060 [INV-TAB-09], ADR-0062).
 ///
 /// Projects open tabs with clean semantic titles without ordinal prefixes (`1:`),
 /// with the client command namespace (`C-x menu`) anchored to the right edge.
 /// Returns bounding rects for mouse click hit-testing.
-pub(crate) fn draw_view_header(
+pub(crate) fn draw_tab_bar(
     frame: &mut Frame,
     rect: Rect,
     head: &ThreadHead<'_>,
@@ -130,7 +130,7 @@ pub(crate) fn draw_view_header(
         return Vec::new();
     }
 
-    let bg = theme.raised();
+    let bg = theme.tabbar_bg();
     let fill = Style::default().bg(bg);
     let pad = TRANSCRIPT_H_INSET as usize;
     let text_width = full_width.saturating_sub(2 * pad);
@@ -198,138 +198,60 @@ pub(crate) fn draw_view_header(
             }
 
             spans.push(Span::styled(text, tab_style));
-            current_x = current_x.saturating_add(tab_w as u16);
             used_tab_w += tab_w;
+            current_x = current_x.saturating_add(tab_w as u16);
 
-            if separator_w > 0 {
+            if i + 1 < tabs.len() && used_tab_w + separator_w <= available_for_tabs {
                 spans.push(Span::styled(" ", fill));
-                current_x = current_x.saturating_add(1);
-                used_tab_w += 1;
+                used_tab_w += separator_w;
+                current_x = current_x.saturating_add(separator_w as u16);
             }
         }
 
         let gap = text_width.saturating_sub(used_tab_w + right_width);
         spans.push(Span::styled(" ".repeat(gap), fill));
-        let [key_span, label_span] = affordance.render_tabbar_spans(theme, bg);
-        spans.push(key_span);
-        spans.push(label_span);
+
+        // Right-aligned C-x affordance
+        spans.extend(affordance.render_tabbar_spans(theme, bg));
         spans.push(Span::styled(" ".repeat(pad), fill));
+
         frame.render_widget(Paragraph::new(Line::from(spans)), rect);
         return tab_rects;
     }
 
-    // Fallback brand header when no tabs are mounted
-    let brand_style = fill.fg(theme.brand()).add_modifier(Modifier::BOLD);
-    const BRAND: &str = "nuo";
-    let brand_width = BRAND.width();
-    let gap = text_width.saturating_sub(brand_width + right_width);
+    // Fallback: Brand mark + C-x affordance
+    let brand = "nuo";
+    let left_w = brand.width();
+    let gap = text_width.saturating_sub(left_w + right_width);
 
-    let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
-    spans.push(Span::styled(BRAND, brand_style));
-    spans.push(Span::styled(" ".repeat(gap), fill));
-    let [key_span, label_span] = affordance.render_tabbar_spans(theme, bg);
-    spans.push(key_span);
-    spans.push(label_span);
+    let mut spans = vec![
+        Span::styled(" ".repeat(pad), fill),
+        Span::styled(
+            brand,
+            fill.fg(theme.brand()).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" ".repeat(gap), fill),
+    ];
+
+    spans.extend(affordance.render_tabbar_spans(theme, bg));
     spans.push(Span::styled(" ".repeat(pad), fill));
 
     frame.render_widget(Paragraph::new(Line::from(spans)), rect);
     Vec::new()
 }
 
-/// Draw Tier 2: Thread Identity & Governance Band (ADR-0043 [INV-THREAD-02], ADR-0060 [INV-HEAD-04]).
+/// Draw Tier 2: Polymorphic SceneBar (ADR-0062 [INV-HEAD-05], [INV-SCENE-02]).
 ///
-/// Anchors thread execution boundaries: thread id tail, staffing `[ROLE]` badge,
-/// and bound workspace path on the left; persistent safety posture flags
-/// (`UNATTENDED`, `UNCONFINED`) on the right.
-pub(crate) fn draw_thread_governance_header(
+/// Universal to all scenes.
+/// - Left side: Scene identity and authentic task title (`THREAD <id_tail>  <title>`
+///   for thread; `<scene_label>  <context>` for dashboard / settings).
+///   If untitled, the title slot remains empty without layout shift.
+/// - Right side: Drill-in navigation stack / breadcrumbs (`< thread > subagent #1 > diff`)
+///   with back affordance (`< `).
+pub(crate) fn draw_scene_bar(
     frame: &mut Frame,
     rect: Rect,
-    head: &ThreadHead<'_>,
-    theme: &Theme,
-) {
-    let full_width = rect.width as usize;
-    if full_width < STEP_MIN_WIDTH || rect.height == 0 {
-        return;
-    }
-
-    let bg = theme.raised();
-    let fill = Style::default().bg(bg);
-    let pad = TRANSCRIPT_H_INSET as usize;
-    let text_width = full_width.saturating_sub(2 * pad);
-
-    let title_style = fill.fg(theme.heading()).add_modifier(Modifier::BOLD);
-    let tag_style = fill.fg(theme.dim());
-    let badge_style = fill.fg(theme.brand()).add_modifier(Modifier::BOLD);
-    let ws_style = fill.fg(theme.dim());
-    let flag_style = fill.fg(theme.warn()).add_modifier(Modifier::BOLD);
-
-    let tag = id_tail(head.thread_id);
-    let badge = head
-        .role
-        .map(|r| format!("[{}]", r.to_uppercase()))
-        .unwrap_or_default();
-
-    // Right-aligned persistent safety execution posture flags
-    let mut flags = String::new();
-    if head.unattended {
-        flags.push_str("UNATTENDED ");
-    }
-    if !head.confined {
-        flags.push_str("UNCONFINED ");
-    }
-    let flags_width = flags.width();
-
-    const TITLE: &str = "THREAD ";
-    let title_w = TITLE.width();
-    let tag_w = if tag.is_empty() { 0 } else { tag.width() + 1 };
-    let badge_w = if badge.is_empty() { 0 } else { badge.width() + 1 };
-    let base_left_w = title_w + tag_w + badge_w;
-
-    // Remaining budget for workspace path
-    let ws_budget = text_width.saturating_sub(base_left_w + flags_width + 1);
-    let truncated_ws = if !head.workspace.is_empty() {
-        truncate_to_width(head.workspace, ws_budget)
-    } else {
-        String::new()
-    };
-    let ws_w = if truncated_ws.is_empty() {
-        0
-    } else {
-        truncated_ws.width() + 1
-    };
-
-    let total_left_w = base_left_w + ws_w;
-    let gap = text_width.saturating_sub(total_left_w + flags_width);
-
-    let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
-    spans.push(Span::styled(TITLE, title_style));
-    if !tag.is_empty() {
-        spans.push(Span::styled(format!("{tag} "), tag_style));
-    }
-    if !badge.is_empty() {
-        spans.push(Span::styled(format!("{badge} "), badge_style));
-    }
-    if !truncated_ws.is_empty() {
-        spans.push(Span::styled(format!("{truncated_ws} "), ws_style));
-    }
-    spans.push(Span::styled(" ".repeat(gap), fill));
-    if !flags.is_empty() {
-        spans.push(Span::styled(flags, flag_style));
-    }
-    spans.push(Span::styled(" ".repeat(pad), fill));
-
-    frame.render_widget(Paragraph::new(Line::from(spans)), rect);
-}
-
-/// Draw Tier 3: Scene Head & Navigation Stack (ADR-0060 [INV-HEAD-04], [INV-SCENE-01]).
-///
-/// Left side projects the primary authentic task title or domain scene context.
-/// On root conversation view, dummy `thread` placeholders are eliminated.
-/// Right side projects the drill-in navigation stack / breadcrumb trail
-/// (`< thread > subagent #1 > diff`) when stack depth exceeds 1.
-pub(crate) fn draw_view_header_hints(
-    frame: &mut Frame,
-    rect: Rect,
+    thread_id: Option<&str>,
     hints: &ViewHints<'_>,
     theme: &Theme,
 ) {
@@ -337,8 +259,10 @@ pub(crate) fn draw_view_header_hints(
         return;
     }
 
-    let bg = theme.raised();
+    let bg = theme.scenebar_bg();
     let fill = Style::default().bg(bg);
+    let title_style = fill.fg(theme.heading()).add_modifier(Modifier::BOLD);
+    let tag_style = fill.fg(theme.dim());
     let label_style = fill.fg(theme.brand()).add_modifier(Modifier::BOLD);
     let context_style = if hints.context_warn {
         fill.fg(theme.warn()).add_modifier(Modifier::BOLD)
@@ -376,40 +300,62 @@ pub(crate) fn draw_view_header_hints(
         (Vec::new(), 0)
     };
 
-    // Left side: Scene Title or Domain Label + Context
-    // Under ADR-0060 [INV-SCENE-01]:
-    // - Thread scene: authentic title if present; if untitled, NO placeholder "thread".
-    // - Non-thread scene (Dashboard, Settings, Subagent without breadcrumbs): scene_label + context.
-    let (lead_label, context_str) = match hints.kind {
-        SceneKind::Thread => (None, hints.context),
-        other => {
-            if hints.breadcrumbs.map_or(true, |c| c.len() <= 1) {
-                (Some(other.scene_label()), hints.context)
-            } else {
-                (None, hints.context)
-            }
-        }
-    };
-
+    // Left side:
+    // If Thread scene (or thread_id is provided):
+    //   "THREAD " + "<id_tail> " + (optional title)
+    // If Non-thread scene:
+    //   scene_label + (optional context)
     let mut left_spans = Vec::new();
     let mut left_width = 0usize;
 
-    if let Some(lbl) = lead_label {
-        left_spans.push(Span::styled(lbl, label_style));
-        left_width += lbl.width();
-    }
+    if hints.kind == SceneKind::Thread {
+        const TITLE: &str = "THREAD ";
+        left_spans.push(Span::styled(TITLE, title_style));
+        left_width += TITLE.width();
 
-    if let Some(ctx) = context_str.filter(|c| !c.is_empty()) {
-        let sep_w = if left_width > 0 { 2 } else { 0 };
-        let budget = text_width.saturating_sub(left_width + sep_w + right_width);
-        let truncated = truncate_to_width(ctx, budget);
-        if !truncated.is_empty() {
-            if left_width > 0 {
-                left_spans.push(Span::styled("  ", fill));
-                left_width += 2;
+        if let Some(id) = thread_id {
+            let tag = id_tail(id);
+            if !tag.is_empty() {
+                left_spans.push(Span::styled(tag.to_string(), tag_style));
+                left_width += tag.width();
             }
-            left_width += truncated.width();
-            left_spans.push(Span::styled(truncated, context_style));
+        }
+
+        if let Some(ctx) = hints.context.filter(|c| !c.is_empty()) {
+            let sep_w = 2;
+            let budget = text_width.saturating_sub(left_width + sep_w + right_width);
+            let truncated = truncate_to_width(ctx, budget);
+            if !truncated.is_empty() {
+                let w = truncated.width();
+                left_spans.push(Span::styled("  ", fill));
+                left_spans.push(Span::styled(truncated, title_style));
+                left_width += 2 + w;
+            }
+        }
+    } else {
+        let lead_label = if hints.breadcrumbs.map_or(true, |c| c.len() <= 1) {
+            Some(hints.kind.scene_label())
+        } else {
+            None
+        };
+
+        if let Some(lbl) = lead_label {
+            left_spans.push(Span::styled(lbl, label_style));
+            left_width += lbl.width();
+        }
+
+        if let Some(ctx) = hints.context.filter(|c| !c.is_empty()) {
+            let sep_w = if left_width > 0 { 2 } else { 0 };
+            let budget = text_width.saturating_sub(left_width + sep_w + right_width);
+            let truncated = truncate_to_width(ctx, budget);
+            if !truncated.is_empty() {
+                if left_width > 0 {
+                    left_spans.push(Span::styled("  ", fill));
+                    left_width += 2;
+                }
+                left_width += truncated.width();
+                left_spans.push(Span::styled(truncated, context_style));
+            }
         }
     }
 
@@ -418,6 +364,80 @@ pub(crate) fn draw_view_header_hints(
     spans.extend(left_spans);
     spans.push(Span::styled(" ".repeat(gap), fill));
     spans.extend(right_spans);
+    spans.push(Span::styled(" ".repeat(pad), fill));
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), rect);
+}
+
+/// Draw Tier 3: Sovereign ThreadContextBar (ADR-0062 [INV-HEAD-05]).
+///
+/// Only rendered on thread-backed viewports (0 rows on non-thread scenes).
+/// - Left side: staffing `[ROLE]` badge and bound `workspace` path.
+/// - Right side: persistent safety execution posture flags (`UNATTENDED`, `UNCONFINED`).
+pub(crate) fn draw_thread_context_bar(
+    frame: &mut Frame,
+    rect: Rect,
+    head: &ThreadHead<'_>,
+    theme: &Theme,
+) {
+    let full_width = rect.width as usize;
+    if full_width < STEP_MIN_WIDTH || rect.height == 0 {
+        return;
+    }
+
+    let bg = theme.contextbar_bg();
+    let fill = Style::default().bg(bg);
+    let pad = TRANSCRIPT_H_INSET as usize;
+    let text_width = full_width.saturating_sub(2 * pad);
+
+    let badge_style = fill.fg(theme.brand()).add_modifier(Modifier::BOLD);
+    let ws_style = fill.fg(theme.dim());
+    let flag_style = fill.fg(theme.warn()).add_modifier(Modifier::BOLD);
+
+    let badge = head
+        .role
+        .map(|r| format!("[{}]", r.to_uppercase()))
+        .unwrap_or_default();
+
+    // Right-aligned persistent safety execution posture flags
+    let mut flags = String::new();
+    if head.unattended {
+        flags.push_str("UNATTENDED ");
+    }
+    if !head.confined {
+        flags.push_str("UNCONFINED ");
+    }
+    let flags_width = flags.width();
+
+    let badge_w = if badge.is_empty() { 0 } else { badge.width() + 1 };
+
+    // Remaining budget for workspace path
+    let ws_budget = text_width.saturating_sub(badge_w + flags_width + 1);
+    let truncated_ws = if !head.workspace.is_empty() {
+        truncate_to_width(head.workspace, ws_budget)
+    } else {
+        String::new()
+    };
+    let ws_w = if truncated_ws.is_empty() {
+        0
+    } else {
+        truncated_ws.width() + 1
+    };
+
+    let total_left_w = badge_w + ws_w;
+    let gap = text_width.saturating_sub(total_left_w + flags_width);
+
+    let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
+    if !badge.is_empty() {
+        spans.push(Span::styled(format!("{badge} "), badge_style));
+    }
+    if !truncated_ws.is_empty() {
+        spans.push(Span::styled(format!("{truncated_ws} "), ws_style));
+    }
+    spans.push(Span::styled(" ".repeat(gap), fill));
+    if !flags.is_empty() {
+        spans.push(Span::styled(flags, flag_style));
+    }
     spans.push(Span::styled(" ".repeat(pad), fill));
 
     frame.render_widget(Paragraph::new(Line::from(spans)), rect);
@@ -448,18 +468,19 @@ fn truncate_to_width(s: &str, max_width: usize) -> String {
     if max_width == 1 {
         return "…".to_string();
     }
-    let target = max_width.saturating_sub(1);
+    let budget = max_width.saturating_sub(1);
+    let mut out = String::new();
     let mut current_width = 0;
-    let mut end_byte = 0;
-    for (idx, ch) in s.char_indices() {
-        let ch_w = ch.width().unwrap_or(0);
-        if current_width + ch_w > target {
+    for ch in s.chars() {
+        let ch_width = ch.width().unwrap_or(0);
+        if current_width + ch_width > budget {
             break;
         }
-        current_width += ch_w;
-        end_byte = idx + ch.len_utf8();
+        out.push(ch);
+        current_width += ch_width;
     }
-    format!("{}…", &s[..end_byte])
+    out.push('…');
+    out
 }
 
 #[cfg(test)]
@@ -478,41 +499,42 @@ mod tests {
     ) -> Vec<nuotc::Cell> {
         let mut terminal = nuotc::TestTerminal::new(width, 1);
         terminal.draw(|frame| {
-            draw_view_header(frame, frame.area(), &head, theme);
+            draw_tab_bar(frame, frame.area(), &head, theme);
         });
         terminal.buffer().content.clone()
     }
 
-    fn render_row2(width: u16, head: ThreadHead<'_>) -> String {
-        let cells = render_row2_cells(width, head, &Theme::default());
+    fn render_row2(width: u16, thread_id: Option<&str>, hints: ViewHints<'_>) -> String {
+        let cells = render_row2_cells(width, thread_id, hints, &Theme::default());
         cells.iter().map(|c| c.symbol()).collect()
     }
 
     fn render_row2_cells(
+        width: u16,
+        thread_id: Option<&str>,
+        hints: ViewHints<'_>,
+        theme: &Theme,
+    ) -> Vec<nuotc::Cell> {
+        let mut terminal = nuotc::TestTerminal::new(width, 1);
+        terminal.draw(|frame| {
+            draw_scene_bar(frame, frame.area(), thread_id, &hints, theme);
+        });
+        terminal.buffer().content.clone()
+    }
+
+    fn render_row3(width: u16, head: ThreadHead<'_>) -> String {
+        let cells = render_row3_cells(width, head, &Theme::default());
+        cells.iter().map(|c| c.symbol()).collect()
+    }
+
+    fn render_row3_cells(
         width: u16,
         head: ThreadHead<'_>,
         theme: &Theme,
     ) -> Vec<nuotc::Cell> {
         let mut terminal = nuotc::TestTerminal::new(width, 1);
         terminal.draw(|frame| {
-            draw_thread_governance_header(frame, frame.area(), &head, theme);
-        });
-        terminal.buffer().content.clone()
-    }
-
-    fn render_row3(width: u16, hints: ViewHints<'_>) -> String {
-        let cells = render_row3_cells(width, hints, &Theme::default());
-        cells.iter().map(|c| c.symbol()).collect()
-    }
-
-    fn render_row3_cells(
-        width: u16,
-        hints: ViewHints<'_>,
-        theme: &Theme,
-    ) -> Vec<nuotc::Cell> {
-        let mut terminal = nuotc::TestTerminal::new(width, 1);
-        terminal.draw(|frame| {
-            draw_view_header_hints(frame, frame.area(), &hints, theme);
+            draw_thread_context_bar(frame, frame.area(), &head, theme);
         });
         terminal.buffer().content.clone()
     }
@@ -587,7 +609,7 @@ mod tests {
         let theme = Theme::default();
         let mut tab_rects = Vec::new();
         terminal.draw(|frame| {
-            tab_rects = draw_view_header(frame, frame.area(), &head, &theme);
+            tab_rects = draw_tab_bar(frame, frame.area(), &head, &theme);
         });
         assert_eq!(tab_rects.len(), 3);
         assert_eq!(tab_rects[0].0, 0);
@@ -607,125 +629,41 @@ mod tests {
     }
 
     #[test]
-    fn row2_renders_thread_governance_and_workspace() {
-        let head = ThreadHead {
-            thread_id: "sess-01a2b3c4",
-            workspace: "~/projects/xx",
-            role: Some("developer"),
-            tabs: None,
-            active_tab: 0,
-            unattended: true,
-            confined: false,
-        };
-        let row = render_row2(80, head);
-        assert!(row.starts_with("  THREAD b3c4 [DEVELOPER] ~/projects/xx"), "{row}");
-        assert!(row.contains("UNATTENDED"), "unattended flag: {row}");
-        assert!(row.contains("UNCONFINED"), "unconfined flag: {row}");
-    }
-
-    #[test]
-    fn row2_workspace_free_hides_workspace_and_shows_role_badge() {
-        let head = ThreadHead {
-            thread_id: "sess-01a2b3c4",
-            workspace: "",
-            role: Some("philosophist"),
-            tabs: None,
-            active_tab: 0,
-            unattended: false,
-            confined: true,
-        };
-        let row = render_row2(80, head);
-        assert!(row.starts_with("  THREAD b3c4 [PHILOSOPHIST]"), "{row}");
-        assert!(!row.contains("~/"), "{row}");
-    }
-
-    #[test]
-    fn row2_shows_custom_user_role_badge() {
-        let head = ThreadHead {
-            thread_id: "sess-01a2b3c4",
-            workspace: "~/projects/xx",
-            role: Some("security-auditor"),
-            tabs: None,
-            active_tab: 0,
-            unattended: false,
-            confined: true,
-        };
-        let row = render_row2(80, head);
-        assert!(row.starts_with("  THREAD b3c4 [SECURITY-AUDITOR]"), "{row}");
-    }
-
-    #[test]
-    fn row2_shows_thread_id_tail() {
-        let head = ThreadHead {
-            thread_id: "thread-7c405d7e",
-            workspace: "~/projects/xx",
-            role: None,
-            tabs: None,
-            active_tab: 0,
-            unattended: false,
-            confined: true,
-        };
-        let row = render_row2(80, head);
-        assert!(row.contains("5d7e"), "{row}");
-    }
-
-    #[test]
-    fn row2_band_paints_the_full_row_width() {
-        let theme = Theme::default();
-        let head = ThreadHead::new("sess-01a2b3c4", "~/projects/xx", Some("developer"), false, true);
-        let mut terminal = nuotc::TestTerminal::new(60, 1);
-        terminal.draw(|frame| {
-            draw_thread_governance_header(frame, frame.area(), &head, &theme);
-        });
-        for cell in &terminal.buffer().content {
-            assert_eq!(cell.bg, theme.raised());
-        }
-        let row: String = terminal
-            .buffer()
-            .content
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect();
-        assert!(row.starts_with("  "), "left pad: {row:?}");
-        assert!(row.ends_with("  "), "right pad: {row:?}");
-    }
-
-    #[test]
-    fn row3_root_thread_with_title_shows_title_directly() {
-        let row = render_row3(
+    fn row2_renders_thread_identity_and_task_title() {
+        let row = render_row2(
             80,
+            Some("sess-01a2b3c4"),
             ViewHints {
                 kind: SceneKind::Thread,
                 context: Some("Fix the retry loop"),
                 ..hints(SceneKind::Thread)
             },
         );
-        assert!(row.starts_with("  Fix the retry loop"), "{row}");
-        assert!(!row.contains("thread"), "redundant thread label eliminated: {row}");
+        assert!(row.starts_with("  THREAD b3c4  Fix the retry loop"), "{row}");
     }
 
     #[test]
-    fn row3_root_thread_untitled_has_no_thread_placeholder() {
-        let row = render_row3(80, hints(SceneKind::Thread));
-        assert!(!row.contains("thread"), "untitled thread has NO dummy placeholder: {row}");
-        assert_eq!(row.trim(), "", "clean empty row when untitled");
+    fn row2_renders_untitled_thread_without_placeholder() {
+        let row = render_row2(80, Some("sess-01a2b3c4"), hints(SceneKind::Thread));
+        assert!(row.starts_with("  THREAD b3c4"), "{row}");
+        assert!(!row.contains("thread#"), "clean thread identifier without redundant label: {row}");
     }
 
     #[test]
-    fn row3_scene_labels_for_tool_scenes() {
+    fn row2_renders_non_thread_scene_labels() {
         for (kind, label) in [
             (SceneKind::Subagent, "subagent"),
             (SceneKind::Settings, "settings"),
             (SceneKind::Dashboard, "dashboard"),
         ] {
             assert_eq!(kind.scene_label(), label);
-            let row = render_row3(80, hints(kind));
+            let row = render_row2(80, None, hints(kind));
             assert!(row.starts_with(&format!("  {label}")), "{kind:?}: {row}");
         }
     }
 
     #[test]
-    fn row3_context_tone_escalates_when_flagged() {
+    fn row2_context_tone_escalates_when_flagged() {
         let theme = Theme::default();
         let first_fg = |cells: &[nuotc::Cell], needle: &str| {
             let idx = cells
@@ -734,16 +672,18 @@ mod tests {
                 .expect("needle present");
             cells[idx].fg
         };
-        let quiet = render_row3_cells(
+        let quiet = render_row2_cells(
             80,
+            None,
             ViewHints {
                 context: Some("main running"),
                 ..hints(SceneKind::Dashboard)
             },
             &theme,
         );
-        let urgent = render_row3_cells(
+        let urgent = render_row2_cells(
             80,
+            None,
             ViewHints {
                 context: Some("needs approval"),
                 context_warn: true,
@@ -760,10 +700,11 @@ mod tests {
     }
 
     #[test]
-    fn row3_renders_right_aligned_drill_in_stack() {
+    fn row2_renders_right_aligned_drill_in_stack() {
         let crumbs = [SceneKind::Thread, SceneKind::Subagent];
-        let row = render_row3(
+        let row = render_row2(
             80,
+            None,
             ViewHints {
                 kind: SceneKind::Subagent,
                 context: Some("[EXPLORE] inspect codebase"),
@@ -776,21 +717,109 @@ mod tests {
         assert!(row.contains("[EXPLORE] inspect codebase"), "shows scene context: {row}");
         assert!(row.contains("< "), "shows back affordance: {row}");
         assert!(row.contains("thread > subagent"), "shows breadcrumb trail: {row}");
-        // Context on the left, stack on the right
         let ctx_pos = row.find("[EXPLORE]").unwrap();
         let stack_pos = row.find("< thread").unwrap();
         assert!(ctx_pos < stack_pos, "context left, stack right: {row}");
     }
 
     #[test]
-    fn row3_band_paints_the_full_row_width() {
+    fn row2_band_paints_the_full_row_width() {
         let theme = Theme::default();
         let mut terminal = nuotc::TestTerminal::new(60, 1);
         terminal.draw(|frame| {
-            draw_view_header_hints(frame, frame.area(), &hints(SceneKind::Settings), &theme);
+            draw_scene_bar(frame, frame.area(), None, &hints(SceneKind::Settings), &theme);
         });
         for cell in &terminal.buffer().content {
-            assert_eq!(cell.bg, theme.raised());
+            assert_eq!(cell.bg, theme.scenebar_bg());
         }
+    }
+
+    #[test]
+    fn row3_renders_thread_context_role_and_workspace() {
+        let head = ThreadHead {
+            thread_id: "sess-01a2b3c4",
+            workspace: "~/projects/xx",
+            role: Some("developer"),
+            tabs: None,
+            active_tab: 0,
+            unattended: true,
+            confined: false,
+        };
+        let row = render_row3(80, head);
+        assert!(row.starts_with("  [DEVELOPER] ~/projects/xx"), "{row}");
+        assert!(row.contains("UNATTENDED"), "unattended flag: {row}");
+        assert!(row.contains("UNCONFINED"), "unconfined flag: {row}");
+    }
+
+    #[test]
+    fn row3_workspace_free_hides_workspace_and_shows_role_badge() {
+        let head = ThreadHead {
+            thread_id: "sess-01a2b3c4",
+            workspace: "",
+            role: Some("philosophist"),
+            tabs: None,
+            active_tab: 0,
+            unattended: false,
+            confined: true,
+        };
+        let row = render_row3(80, head);
+        assert!(row.starts_with("  [PHILOSOPHIST]"), "{row}");
+        assert!(!row.contains("~/"), "{row}");
+    }
+
+    #[test]
+    fn row3_shows_custom_user_role_badge() {
+        let head = ThreadHead {
+            thread_id: "sess-01a2b3c4",
+            workspace: "~/projects/xx",
+            role: Some("security-auditor"),
+            tabs: None,
+            active_tab: 0,
+            unattended: false,
+            confined: true,
+        };
+        let row = render_row3(80, head);
+        assert!(row.starts_with("  [SECURITY-AUDITOR]"), "{row}");
+    }
+
+    #[test]
+    fn row3_band_paints_the_full_row_width() {
+        let theme = Theme::default();
+        let head = ThreadHead::new("sess-01a2b3c4", "~/projects/xx", Some("developer"), false, true);
+        let mut terminal = nuotc::TestTerminal::new(60, 1);
+        terminal.draw(|frame| {
+            draw_thread_context_bar(frame, frame.area(), &head, &theme);
+        });
+        for cell in &terminal.buffer().content {
+            assert_eq!(cell.bg, theme.contextbar_bg());
+        }
+        let row: String = terminal
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(row.starts_with("  "), "left pad: {row:?}");
+        assert!(row.ends_with("  "), "right pad: {row:?}");
+    }
+
+    #[test]
+    fn header_tiers_exhibit_distinct_micro_elevation_ladder() {
+        let theme = Theme::default();
+        assert_ne!(
+            theme.tabbar_bg(),
+            theme.scenebar_bg(),
+            "tier 1 tabbar background must differ from tier 2 scenebar"
+        );
+        assert_ne!(
+            theme.scenebar_bg(),
+            theme.contextbar_bg(),
+            "tier 2 scenebar background must differ from tier 3 contextbar"
+        );
+        assert_ne!(
+            theme.tabbar_bg(),
+            theme.contextbar_bg(),
+            "tier 1 tabbar background must differ from tier 3 contextbar"
+        );
     }
 }

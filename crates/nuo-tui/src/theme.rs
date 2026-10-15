@@ -843,6 +843,36 @@ impl Theme {
     pub fn raised(&self) -> Color {
         self.element_bg
     }
+    /// Tier 1: Client Global TabBar background (ADR-0062).
+    /// Subtly recessed below SceneBar (~2.8% luminance offset in dark mode),
+    /// acting as a calm window shell that elevates active tab pills.
+    pub fn tabbar_bg(&self) -> Color {
+        match (self.app_bg, self.text) {
+            (Color::Rgb(..), Color::Rgb(..)) => {
+                let light = luminance(self.app_bg) > 150.0;
+                mix(self.app_bg, self.text, if light { 0.02 } else { 0.028 })
+            }
+            _ => self.element_bg,
+        }
+    }
+    /// Tier 2: Polymorphic SceneBar background (ADR-0062).
+    /// The primary focal plane of the top chrome (~5% luminance offset),
+    /// drawing immediate attention to the active task identity and drill-in stack.
+    pub fn scenebar_bg(&self) -> Color {
+        self.element_bg
+    }
+    /// Tier 3: Sovereign ThreadContextBar background (ADR-0062).
+    /// Subordinate execution boundaries and posture (~4% luminance offset),
+    /// gently transitioning down toward the main content surface.
+    pub fn contextbar_bg(&self) -> Color {
+        match (self.app_bg, self.text) {
+            (Color::Rgb(..), Color::Rgb(..)) => {
+                let light = luminance(self.app_bg) > 150.0;
+                mix(self.app_bg, self.text, if light { 0.028 } else { 0.04 })
+            }
+            _ => self.element_bg,
+        }
+    }
     /// Modal / sheet surface.
     pub fn panel(&self) -> Color {
         self.panel_bg

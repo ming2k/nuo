@@ -9,7 +9,7 @@ use super::super::{Disclosure, Interaction, summary_text_color};
 use super::base::{
     MARKER_COLLAPSED, MARKER_EXPANDED, RenderCtx, advance_plain_blank_rows, truncate_to_width,
 };
-use super::sticky::StickyStep;
+use super::sticky::StickyAnchor;
 use crate::message_body::draw_message_body;
 use crate::model::document::{Block, Inline, TranscriptMessage};
 use crate::model::layout::{BlockRegion, REASONING_BLOCK_IDX};
@@ -30,7 +30,7 @@ pub fn draw_reasoning_trace(
     mi: usize,
     selection: &SelectionState,
     cell_selection: Option<&CellDragInfo>,
-    sticky_steps: &mut Vec<StickyStep>,
+    sticky_anchors: &mut Vec<StickyAnchor>,
     hovered: bool,
     focused: bool,
 ) {
@@ -164,7 +164,7 @@ pub fn draw_reasoning_trace(
     }
 
     if expanded {
-        sticky_steps.push(StickyStep {
+        sticky_anchors.push(StickyAnchor {
             message_idx: mi,
             summary: summary.to_string(),
             color: ctx.theme.muted(),

@@ -10,6 +10,7 @@ use crate::render::Theme;
 /// Draw the single-row durability-health banner. `state` is the degraded
 /// state (`Recovering` / `Down`); a healthy writer renders no banner at all,
 /// so the caller must not place the row.
+#[allow(dead_code)]
 pub fn draw_persistence_health_bar(
     frame: &mut Frame,
     rect: Rect,

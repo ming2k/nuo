@@ -30,8 +30,7 @@ use nuotc::{
 use crate::primitives::{ElevationContainer, SCROLL_EDGE_MARGIN, draw_scrollbar, resolve_scroll};
 use crate::render::Theme;
 use crate::view_header::{
-    ThreadHead, ViewHints, ViewKind, draw_thread_governance_header, draw_view_header,
-    draw_view_header_hints,
+    ThreadHead, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar,
 };
 /// Width of the left navigation pane (its outer rect, before inner padding).
 const NAV_WIDTH: u16 = 22;
@@ -221,29 +220,25 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1), // Tier 1: Client TabBar
-            Constraint::Length(1), // Tier 2: Thread Governance Band
-            Constraint::Length(1), // Tier 3: Scene Head
+            Constraint::Length(1), // Tier 2: Polymorphic SceneBar
             Constraint::Min(6),    // Settings body
         ])
         .split(area);
 
     let header_rect = vertical_chunks[0];
-    let gov_rect = vertical_chunks[1];
-    let subhead_rect = vertical_chunks[2];
-    let body_rect = vertical_chunks[3];
+    let scene_rect = vertical_chunks[1];
+    let body_rect = vertical_chunks[2];
 
     let category = ConfigCategory::from_index(props.category_index);
 
-    // 1. Tier 1 & Tier 2: TabBar and Thread Governance (ADR-0060)
+    // 1. Tier 1: TabBar (ADR-0062)
     let tab_rects = if let Some(head) = props.thread_head.as_ref() {
-        let rects = draw_view_header(frame, header_rect, head, props.theme);
-        draw_thread_governance_header(frame, gov_rect, head, props.theme);
-        rects
+        draw_tab_bar(frame, header_rect, head, props.theme)
     } else {
         Vec::new()
     };
 
-    // 2. Tier 3: Scene row: the `settings` scene name and category breadcrumb context
+    // 2. Tier 2: Polymorphic SceneBar (ADR-0062)
     let view_hints = ViewHints {
         kind: ViewKind::Settings,
         context: props.breadcrumbs.map(str::trim),
@@ -252,7 +247,7 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         can_back: false,
         can_forward: false,
     };
-    draw_view_header_hints(frame, subhead_rect, &view_hints, props.theme);
+    draw_scene_bar(frame, scene_rect, None, &view_hints, props.theme);
 
     // 3. Center Body. The two panes each carry a 1-row / 2-column inner padding,
     // and the two panes are colour-differentiated from each other: the left nav

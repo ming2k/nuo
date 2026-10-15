@@ -4,7 +4,6 @@
 //! ([`draw_transcript`] / [`TranscriptProps`]); it also re-exports the drawing
 //! surface (chrome, composer, overlays, theme, …) the shell consumes.
 
-pub use crate::chrome::draw_persistence_health_bar;
 pub use crate::chrome::{ActivityBarProps, draw_activity_bar};
 pub use crate::chrome::{
     ModelBarProps, QueueBarProps, QueueItemProps, TasksBarProps, draw_completion_menu,
@@ -17,16 +16,16 @@ pub use crate::composer::{
 // Design tokens are re-exported crate-visibility so the drawing leaves that
 // used to reach them via the old `paint` parent's namespace still resolve.
 pub(crate) use crate::design::{
-    ACTIVITY_BAR_ROWS, BASH_FOLD_HEAD_ROWS, BASH_FOLD_TAIL_ROWS, CODE_BAND_GUTTER_GAP,
+    ACTIVITY_STRIP_ROWS, BASH_FOLD_HEAD_ROWS, BASH_FOLD_TAIL_ROWS, CODE_BAND_GUTTER_GAP,
     CODE_BAND_GUTTER_MIN_WIDTH, COMPOSER_MAX_HEIGHT_DIVISOR, COMPOSER_MIN_HEIGHT,
     COMPOSER_PROMPT_PREFIX_COLS, COMPOSER_RIGHT_PAD_COLS, COMPOSER_VERTICAL_CHROME_ROWS,
     FOOTER_H_INSET, FOOTER_TOP_GAP_ROWS, MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS, MODEL_BAR_ROWS,
-    PAGE_HEADER_ROWS, QUEUE_BAR_ROWS, REASONING_TRACE_BLOCK_GAP_ROWS,
+    PAGE_HEADER_ROWS, REASONING_TRACE_BLOCK_GAP_ROWS,
     REASONING_TRACE_BODY_TOP_GAP_ROWS, STEP_MIN_WIDTH, TOOL_STEP_BODY_INDENT_COLS,
     TOOL_STEP_BODY_TOP_GAP_ROWS, TOOL_STEP_CHILDREN_GAP_ROWS, TRANSCRIPT_BODY_LEADING_INDENT,
     TRANSCRIPT_H_INSET,
 };
-use crate::disclosure::{StickyStep, draw_sticky_summary_if_needed};
+use crate::disclosure::{StickyAnchor, draw_sticky_anchor_if_needed};
 /// Which guidance copy the empty-state hero shows beneath the logo (ADR-0057).
 /// Re-exported so the app shell selects the variant and the renderer paints it.
 pub use crate::empty_state::EmptyStateGuidance;
@@ -52,8 +51,7 @@ pub use crate::theme::{COLOR_SCHEMES, Theme};
 use crate::view_header;
 #[allow(unused_imports)]
 pub(crate) use crate::view_header::{
-    ThreadHead, ViewHints, ViewKind, draw_thread_governance_header, draw_view_header,
-    draw_view_header_hints,
+    ThreadHead, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar, draw_thread_context_bar,
 };
 #[allow(unused_imports)]
 pub use crate::views::settings::*;
@@ -87,7 +85,7 @@ use nuo_wire::{PermissionRequest, UserQuestionRequest};
 /// longer clip or hand-pad their own gutter; they trust the rect they
 /// receive. The view header is *not* inset here — it spans the terminal's
 /// full width and re-applies the inset as text padding inside
-/// `draw_view_header`.
+/// `draw_tab_bar`.
 pub(crate) fn transcript_band_rect(area: Rect) -> Rect {
     Rect::new(
         area.x + TRANSCRIPT_H_INSET,
@@ -206,6 +204,7 @@ pub struct TranscriptProps<'a> {
     /// (and not `Healthy`), the footer stack reserves a retained one-row
     /// banner between the transcript gap and the queue bar; `Healthy` /
     /// `None` place nothing.
+    #[allow(dead_code)]
     pub persistence_health: Option<&'a nuo_wire::monitor::PersistenceHealth>,
     /// When set, the view is zoomed into a subagent task: `messages` is the
     /// focused task's child stream. The head band's scene row names the scene
@@ -697,7 +696,7 @@ pub fn draw_transcript(
         chrome_hidden,
         queue_bar,
         tasks_bar,
-        persistence_health,
+        persistence_health: _,
         subagent_bar,
         page_hints,
         thread_head,
@@ -746,21 +745,26 @@ pub fn draw_transcript(
         };
     }
 
-    // The head band is a fixed three-row stack (ADR-0060):
-    // - row 1 is the Client Global TabBar (`draw_view_header`)
-    // - row 2 is the Thread Governance Band (`draw_thread_governance_header`)
-    // - row 3 is the Scene Head & Navigation Stack (`draw_view_header_hints`)
+    // The head band is a polymorphic three-tier structure (ADR-0062):
+    // - row 1 is the Client Global TabBar (`draw_tab_bar`)
+    // - row 2 is the Polymorphic SceneBar (`draw_scene_bar`)
+    // - row 3 is the sovereign ThreadContextBar (`draw_thread_context_bar`, thread-only)
     let page_hints_view = page_hints;
 
     // The band occupies the top rows of the terminal directly — it is a sibling
     // of the transcript, not content inside it, so it replaces the viewport's
     // top margin rather than nesting under it.
     let tab_rows = u16::from(thread_head.is_some());
-    let gov_rows = u16::from(thread_head.is_some());
-    let hints_rows = u16::from(page_hints_view.is_some());
-    let (tab_rect, gov_rect, hints_rect, viewport) = if tab_rows + gov_rows + hints_rows > 0 {
+    let scene_rows = u16::from(page_hints_view.is_some());
+    let context_rows = u16::from(
+        thread_head.is_some()
+            && page_hints_view
+                .as_ref()
+                .map_or(false, |h| h.kind == crate::surfaces::SceneKind::Thread),
+    );
+    let (tab_rect, scene_rect, context_rect, viewport) = if tab_rows + scene_rows + context_rows > 0 {
         debug_assert!(
-            tab_rows + gov_rows + hints_rows <= PAGE_HEADER_ROWS,
+            tab_rows + scene_rows + context_rows <= PAGE_HEADER_ROWS,
             "the head band is at most {PAGE_HEADER_ROWS} rows"
         );
         let full = frame.area();
@@ -768,15 +772,15 @@ pub fn draw_transcript(
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(tab_rows),
-                Constraint::Length(gov_rows),
-                Constraint::Length(hints_rows),
+                Constraint::Length(scene_rows),
+                Constraint::Length(context_rows),
                 Constraint::Min(0),
             ])
             .split(full);
         (
             (tab_rows > 0).then_some(sub[0]),
-            (gov_rows > 0).then_some(sub[1]),
-            (hints_rows > 0).then_some(sub[2]),
+            (scene_rows > 0).then_some(sub[1]),
+            (context_rows > 0).then_some(sub[2]),
             // The remaining area keeps the bottom viewport margin (0) but
             // drops the top one (the head owns those rows now).
             Rect::new(
@@ -814,33 +818,17 @@ pub fn draw_transcript(
         && !in_subagent
         && (awaiting_permission || (!activity.is_empty() && activity != "idle"));
     // The activity bar is purely transient now: it shows only while a round is
-    // active and hides when idle, so the row returns to the transcript (the
-    // persistent task-list summary has its own bar above).
+    // active and hides when idle, so the row returns to the transcript.
     let activity_row_needed = activity_active;
-    let activity_height: u16 = if activity_row_needed {
-        ACTIVITY_BAR_ROWS
-    } else {
-        0
-    };
 
-    // The todo bar leads the footer stack and surfaces the live task list —
-    // The queue bar surfaces pending outbox messages. It is hidden while the
-    // viewed session's queue is empty (the common idle case) so an ordinary
-    // session reclaims the row; it appears the moment a message is staged
-    // and stays up until the outbox drains, so the user always has a glanceable
-    // surface while there is pending work.
+    // Consolidated single-row activity strip (ADR-0062 [INV-FOOTER-02]):
+    // Strictly bounded to at most 1 row above Composer. Appears if any activity,
+    // pending queue items, or active background tasks exist.
     let queue_row_needed = !chrome_hidden && !in_subagent && !queue_bar.items.is_empty();
-    let queue_height: u16 = if queue_row_needed { QUEUE_BAR_ROWS } else { 0 };
-    // ADR-0212: Background tasks status bar reserves a row while tasks are active or recently settled.
     let tasks_row_needed =
         !chrome_hidden && !in_subagent && tasks_bar.tasks.iter().any(|t| !t.dismissed);
-    let tasks_height: u16 = if tasks_row_needed { 1 } else { 0 };
-    // The durability-health banner (ADR-0196 D4) reserves a row only while
-    // the writer is actually degraded; a healthy writer costs nothing.
-    let persistence_health_row_needed = !chrome_hidden
-        && !in_subagent
-        && persistence_health.is_some_and(|health| !health.is_healthy());
-    let persistence_health_height: u16 = if persistence_health_row_needed { 1 } else { 0 };
+    let activity_strip_needed = activity_row_needed || queue_row_needed || tasks_row_needed;
+    let activity_strip_height: u16 = if activity_strip_needed { ACTIVITY_STRIP_ROWS } else { 0 };
 
     // The input box grows with its content: the typed text wraps onto new
     // lines and the box expands to fit, up to roughly half the terminal so the
@@ -866,18 +854,8 @@ pub fn draw_transcript(
     } else {
         MODEL_BAR_ROWS
     };
-    // The composer/hint gap is 0 and the activity/composer gap is 0: the
-    // hint bar sits flush against the composer's bottom edge and the activity
-    // bar flush against the composer's top edge (each side's panel-bg padding
-    // row is the separation). These zero-gap tokens are therefore structural:
-    // adjacent rows in the footer stack are flush by construction, and no gap
-    // row is ever placed. The tokens stay in `design.rs` as the recorded
-    // decision, asserted by the layout tests.
-    // The footer stack is declared once, in draw order — the single-pass
-    // placer derives both the band's total height (for the layout split) and
-    // each row's rect, so the height arithmetic can no longer exist in two
-    // copies that drift. Order, top → bottom: gap, queue bar, tasks bar,
-    // activity bar, input box, hint bar.
+    // The footer stack is declared once, in draw order (ADR-0062).
+    // Order, top → bottom: top gap, consolidated activity strip, input box, hint bar.
     let footer_rows: Vec<FooterRow> = if chrome_hidden || in_subagent {
         Vec::new()
     } else {
@@ -887,20 +865,8 @@ pub fn draw_transcript(
                 height: FOOTER_TOP_GAP_ROWS,
             },
             FooterRow {
-                id: FooterRowId::PersistenceHealth,
-                height: persistence_health_height,
-            },
-            FooterRow {
-                id: FooterRowId::Queue,
-                height: queue_height,
-            },
-            FooterRow {
-                id: FooterRowId::Tasks,
-                height: tasks_height,
-            },
-            FooterRow {
-                id: FooterRowId::Activity,
-                height: activity_height,
+                id: FooterRowId::ActivityStrip,
+                height: activity_strip_height,
             },
             FooterRow {
                 id: FooterRowId::Composer,
@@ -922,18 +888,19 @@ pub fn draw_transcript(
         .split(size);
 
     // 1. Head band — drawn at the very top of the terminal, before the
-    // transcript (ADR-0060).
-    // Row 1 carries the Client TabBar; row 2 the thread governance; row 3 the scene head & stack.
+    // transcript (ADR-0062).
+    // Row 1 carries the Client TabBar; row 2 the SceneBar; row 3 the sovereign ThreadContextBar.
     let tab_rects = if let (Some(head), Some(rect)) = (thread_head.as_ref(), tab_rect) {
-        draw_view_header(frame, rect, head, theme)
+        draw_tab_bar(frame, rect, head, theme)
     } else {
         Vec::new()
     };
-    if let (Some(head), Some(rect)) = (thread_head.as_ref(), gov_rect) {
-        draw_thread_governance_header(frame, rect, head, theme);
+    if let (Some(hints), Some(rect)) = (page_hints_view.as_ref(), scene_rect) {
+        let thread_id = thread_head.as_ref().map(|h| h.thread_id);
+        draw_scene_bar(frame, rect, thread_id, hints, theme);
     }
-    if let (Some(hints), Some(rect)) = (page_hints_view.as_ref(), hints_rect) {
-        draw_view_header_hints(frame, rect, hints, theme);
+    if let (Some(head), Some(rect)) = (thread_head.as_ref(), context_rect) {
+        draw_thread_context_bar(frame, rect, head, theme);
     }
 
     // 2. Transcript History — the transcript area is the whole `chunks[0]`
@@ -957,8 +924,8 @@ pub fn draw_transcript(
     let mut message_start = 0usize;
     let mut message_end = messages.len();
     let mut virtual_total_lines = None;
-    // Expanded steps collected during the pass, for the sticky pinned header.
-    let mut sticky_steps: Vec<StickyStep> = Vec::new();
+    // Expanded disclosure cards collected during the pass, for the sticky anchor.
+    let mut sticky_anchors: Vec<StickyAnchor> = Vec::new();
 
     // Empty-state replacement (ADR-0033): when the session has no messages and
     // no subagent/side view is open, the transcript is replaced by a centered
@@ -1051,14 +1018,14 @@ pub fn draw_transcript(
             current_y: band.y,
             skip_rows,
             content_lines,
-            sticky_steps,
+            sticky_anchors,
         };
         layout.build().run(&mut stream);
         // Recover the loop state the post-processing below needs.
         // (`skip_rows` and `current_y` are loop-internal and are not read
         // after the layout returns, so they are not recovered.)
         content_lines = stream.content_lines;
-        sticky_steps = stream.sticky_steps;
+        sticky_anchors = stream.sticky_anchors;
         // Publish the anchor outputs: the captured top-of-viewport identity is
         // stored for the next resize; a resolved lookup is handed to the app
         // loop, which re-anchors `App::scroll` before the frame commits.
@@ -1106,52 +1073,34 @@ pub fn draw_transcript(
     // hand-derived `footer_x`/`footer_w` remains.
     let placed_footer = footer_stack::place(chunks[1], &footer_rows);
 
-    // The durability-health banner (ADR-0196 D4) leads the visible chrome:
-    // a degraded writer must be seen before anything else in the footer.
-    if let Some((rect, state)) =
-        footer_stack::rect_of(&placed_footer, FooterRowId::PersistenceHealth)
-            .filter(|_| persistence_health_row_needed)
-            .zip(persistence_health)
-    {
-        draw_persistence_health_bar(frame, rect, state, theme);
-    }
-
-    // The persistent queue bar leads the footer stack below the top gap. It is a
-    // stable one-row outbox summary so pending messages never have to be
-    // inferred from the hint bar. The whole bar is the click target that
-    // expands the full Queue modal.
-    footer_stack::rect_of(&placed_footer, FooterRowId::Queue)
-        .filter(|_| queue_row_needed)
-        .map(|rect| draw_queue_bar(frame, rect, queue_bar, theme));
-
-    // ADR-0212: Draw the background tasks status bar.
-    footer_stack::rect_of(&placed_footer, FooterRowId::Tasks)
-        .filter(|_| tasks_row_needed)
-        .map(|rect| draw_tasks_bar(frame, rect, tasks_bar, theme));
-
-    // The transient activity bar sits directly above the input box so the live
-    // "what the agent is doing right now" status reads as part of the composer
-    // cluster rather than floating above the ambient meta bars. It stays up for
-    // the entire active round lifecycle (queued → responding → tool work →
-    // finalizing), including the streaming phase, and hides only when idle.
-    // Keeping it up during "responding" avoids a layout shift at the stream
-    // boundary and sustains the breathing-dot liveness anchor (ADR-0008)
-    // through the longest phase.
-    footer_stack::rect_of(&placed_footer, FooterRowId::Activity)
-        .filter(|_| activity_row_needed)
+    // The consolidated activity strip (ADR-0062 [INV-FOOTER-02]) sits directly above
+    // the input box, strictly bounded to at most 1 row. It projects the active round
+    // status or queued/tasks indicators.
+    footer_stack::rect_of(&placed_footer, FooterRowId::ActivityStrip)
+        .filter(|_| activity_strip_needed)
         .and_then(|rect| {
-            draw_activity_bar(
-                frame,
-                rect,
-                round_started_at,
-                ActivityBarProps {
-                    status: activity,
-                    backoff_clause,
-                    awaiting_permission,
-                },
-                spinner_phase,
-                theme,
-            )
+            if activity_row_needed {
+                draw_activity_bar(
+                    frame,
+                    rect,
+                    round_started_at,
+                    ActivityBarProps {
+                        status: activity,
+                        backoff_clause,
+                        awaiting_permission,
+                    },
+                    spinner_phase,
+                    theme,
+                )
+            } else if queue_row_needed {
+                draw_queue_bar(frame, rect, queue_bar, theme);
+                None
+            } else if tasks_row_needed {
+                draw_tasks_bar(frame, rect, tasks_bar, theme);
+                None
+            } else {
+                None
+            }
         });
 
     // The input box sits flush directly below the activity bar — the
@@ -1172,7 +1121,7 @@ pub fn draw_transcript(
     // Sticky pinned summary: if an expanded step's body covers the top of the
     // viewport (its summary is scrolled out of view), pin its summary to the
     // line directly under the HUD bar so the user can always collapse it.
-    let sticky_info = draw_sticky_summary_if_needed(frame, band, &sticky_steps, scroll, theme);
+    let sticky_info = draw_sticky_anchor_if_needed(frame, band, &sticky_anchors, scroll, theme);
 
     TranscriptRender {
         input_rect,

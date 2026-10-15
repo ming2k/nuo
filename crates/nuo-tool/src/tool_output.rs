@@ -514,14 +514,18 @@ impl ToolOutput {
                 command: _,
                 stdout,
                 stderr,
+                lines,
                 exit,
                 truncated,
                 termination,
                 ..
             } => {
-                let mut text = shell_to_text(stdout, stderr, *exit, *truncated);
+                let mut text = shell_body_to_text(lines, stdout, stderr, *exit, *truncated);
                 if let Some(note) = termination_model_note(*termination) {
-                    text.push_str("\n\n");
+                    if !text.is_empty() && !text.ends_with('\n') {
+                        text.push('\n');
+                    }
+                    text.push('\n');
                     text.push_str(note);
                 }
                 text
@@ -659,30 +663,58 @@ impl From<String> for ToolOutput {
 /// ADR-0008; re-exported here for existing call sites.
 pub use crate::stream::ToolStream;
 
-/// Compose the non-truncated bash-tool display string from structured fields
-/// (mirrors `ExecuteCommandTool::call`). Pub(crate) so the command tool can compute the
-/// pre-truncation length to decide its `truncated` flag without duplicating
-/// the format logic.
-pub fn shell_inner_text(stdout: &str, stderr: &str, exit: Option<i32>) -> String {
-    if exit == Some(0) {
-        if stdout.is_empty() && !stderr.is_empty() {
-            format!("(success, stderr):\n{}", stderr)
-        } else {
-            stdout.to_string()
-        }
+/// Compose the clean non-truncated bash-tool display string from structured fields.
+/// Preserves authentic chronological interleaving without phantom `STDOUT:`/`STDERR:`
+/// labels or premature `Exit` headers (ADR-0063).
+pub fn compose_shell_body(
+    lines: &[crate::stream::ShellLine],
+    stdout: &str,
+    stderr: &str,
+    exit: Option<i32>,
+) -> String {
+    let mut body = if !lines.is_empty() {
+        lines
+            .iter()
+            .map(|l| l.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
     } else {
-        format!(
-            "Exit {}\nSTDOUT:\n{}\nSTDERR:\n{}",
-            exit.unwrap_or(-1),
-            stdout,
-            stderr
-        )
+        let mut out = String::new();
+        let has_stdout = !stdout.is_empty();
+        let has_stderr = !stderr.is_empty();
+
+        if has_stdout {
+            out.push_str(stdout);
+        }
+        if has_stderr {
+            if has_stdout && !out.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str(stderr);
+        }
+        out
+    };
+
+    if let Some(code) = exit {
+        if code != 0 {
+            if !body.is_empty() && !body.ends_with('\n') {
+                body.push('\n');
+            }
+            body.push_str(&format!("exit {code}"));
+        }
     }
+
+    body
+}
+
+/// Legacy/flat wrapper for [`compose_shell_body`] without interleaved lines.
+pub fn shell_inner_text(stdout: &str, stderr: &str, exit: Option<i32>) -> String {
+    compose_shell_body(&[], stdout, stderr, exit)
 }
 
 /// The composed shell output is "large" once it crosses this many bytes. Both
 /// the producer (`ExecuteCommandTool`, which pre-computes the `truncated` hint from the
-/// same length) and the consumer (`shell_to_text`, which performs the actual
+/// same length) and the consumer (`shell_body_to_text`, which performs the actual
 /// cut for text-based callers) read this single source of truth so the two
 /// cannot drift apart.
 pub const SHELL_MAX_OUTPUT_CHARS: usize = 8000;
@@ -695,17 +727,15 @@ pub const SHELL_TRUNCATED_CHARS: usize = 4000;
 /// them — keeping the wrapper's column math in sync with the grid.
 pub const TAB_WIDTH: usize = 8;
 
-/// Reconstruct the legacy bash-tool display string from structured fields.
-/// Mirrors `ExecuteCommandTool::call` byte-for-byte so migrating to [`ToolOutput::Shell`]
-/// changes nothing for text-based consumers. The truncation policy
-/// ([`SHELL_MAX_OUTPUT_CHARS`] threshold, [`SHELL_TRUNCATED_CHARS`] cut) lives
-/// here as the back-compat bridge; structured consumers read the raw fields
-/// directly and bypass this. The truncation *notice* reports **tokens**
-/// (ADR-0120) — the context-window cost of what was dropped — while the
-/// threshold/cut stay byte-based (they bound resident payload, a byte
-/// concern).
-fn shell_to_text(stdout: &str, stderr: &str, exit: Option<i32>, truncated: bool) -> String {
-    let inner = shell_inner_text(stdout, stderr, exit);
+/// Reconstruct the text representation from structured shell output.
+fn shell_body_to_text(
+    lines: &[crate::stream::ShellLine],
+    stdout: &str,
+    stderr: &str,
+    exit: Option<i32>,
+    truncated: bool,
+) -> String {
+    let inner = compose_shell_body(lines, stdout, stderr, exit);
     if truncated || inner.len() > SHELL_MAX_OUTPUT_CHARS {
         let tokens = crate::tokenizer::count_tokens(&inner);
         let head_bytes = SHELL_TRUNCATED_CHARS / 2;
@@ -734,43 +764,26 @@ fn shell_to_text(stdout: &str, stderr: &str, exit: Option<i32>, truncated: bool)
 pub fn termination_model_note(termination: ShellTermination) -> Option<&'static str> {
     match termination {
         ShellTermination::Exited => None,
-        ShellTermination::IdleBlocked => Some(
-            "[killed by harness: no output for the idle budget — the command may \
-             still have been working (a compiling build, or output buffered by a \
-             pipe like `… | tail`) or waiting for stdin input you cannot answer. \
-             If it may finish, retry with a larger `timeout`; if it prompts for \
-             input, retry non-interactively (e.g. `yes | …`, `--passphrase-file`, \
-             SUDO_ASKPASS) instead of repeating the same command.]",
-        ),
-        ShellTermination::InteractiveBlocked => Some(
-            "[killed by harness: command entered an interactive wait state (blocked with \
-             zero CPU activity and no output) in a non-interactive environment. \
-             Interactive prompts and editors are disabled. Supply all required \
-             messages, confirmations, or flags non-interactively in the command line.]",
-        ),
-        ShellTermination::InputUnanswered => Some(
-            "[killed by harness: the command was waiting for interactive input and no \
-             answer was supplied. Retry non-interactively (e.g. `yes | …`, \
-             `--passphrase-file`, `--batch`, SUDO_ASKPASS) or provide every required \
-             input up front.]",
-        ),
-        ShellTermination::Timeout => Some(
-            "[killed by harness: wall-clock timeout reached — the command was \
-             still producing output. Retry with a larger `timeout`, or split the \
-             work into smaller steps.]",
-        ),
-        ShellTermination::Cancelled => {
-            Some("[killed by harness: cancelled by an operator interrupt.]")
+        ShellTermination::IdleBlocked => {
+            Some("[killed by harness: idle timeout detected]")
         }
-        ShellTermination::StreamGuard => Some(
-            "[killed by harness: stream budget reached — the command produced continuous \
-             streaming output without self-terminating. Commands must be \
-             finite. If you need an instantaneous snapshot, bound the command (e.g. `timeout 2s <cmd>`, \
-             `<cmd> | head -n 30`, or one-shot flags like `top -b -n 1`). Long-running servers \
-             must be executed by the operator outside the agent loop.]",
-        ),
+        ShellTermination::InteractiveBlocked => {
+            Some("[killed by harness: interactive prompt detected in non-interactive environment]")
+        }
+        ShellTermination::InputUnanswered => {
+            Some("[killed by harness: unanswered input prompt]")
+        }
+        ShellTermination::Timeout => {
+            Some("[killed by harness: timeout reached]")
+        }
+        ShellTermination::Cancelled => {
+            Some("[killed by harness: cancelled by operator]")
+        }
+        ShellTermination::StreamGuard => {
+            Some("[killed by harness: stream budget reached]")
+        }
         ShellTermination::Detached => {
-            Some("[legacy: detached job state. Commands must be finite.]")
+            Some("[detached job: adopted by background runner]")
         }
     }
 }
@@ -986,15 +999,15 @@ mod tests {
         assert_eq!(exited.to_text(), "hi\n");
 
         // A harness kill states the fact and the remedy; the model must be
-        // able to distinguish it from a genuine `Exit -1` failure.
+        // able to distinguish it from a genuine process exit.
         for (term, needle) in [
             (
                 ShellTermination::IdleBlocked,
-                "[killed by harness: no output",
+                "[killed by harness: idle timeout",
             ),
             (
                 ShellTermination::Timeout,
-                "[killed by harness: wall-clock timeout reached",
+                "[killed by harness: timeout reached",
             ),
             (ShellTermination::Cancelled, "[killed by harness: cancelled"),
             (
@@ -1038,49 +1051,49 @@ mod tests {
     }
 
     #[test]
-    fn shell_success_stderr_only_uses_success_stderr_marker() {
+    fn shell_success_stderr_only_emits_clean_stderr() {
         let o = ToolOutput::Shell {
             command: "x".into(),
             stdout: "".into(),
-            stderr: "warn".into(),
+            stderr: "warn\n".into(),
             lines: Vec::new(),
             exit: Some(0),
             truncated: false,
             termination: ShellTermination::Exited,
             detached_job_id: None,
         };
-        assert_eq!(o.to_text(), "(success, stderr):\nwarn");
+        assert_eq!(o.to_text(), "warn\n");
     }
 
     #[test]
-    fn shell_failure_formats_exit_stdout_stderr() {
+    fn shell_failure_formats_body_with_exit_footer() {
         let o = ToolOutput::Shell {
             command: "false".into(),
-            stdout: "out".into(),
-            stderr: "err".into(),
+            stdout: "out\n".into(),
+            stderr: "err\n".into(),
             lines: Vec::new(),
             exit: Some(1),
             truncated: false,
             termination: ShellTermination::Exited,
             detached_job_id: None,
         };
-        assert_eq!(o.to_text(), "Exit 1\nSTDOUT:\nout\nSTDERR:\nerr");
+        assert_eq!(o.to_text(), "out\nerr\nexit 1");
         assert!(o.is_error());
     }
 
     #[test]
-    fn shell_signal_uses_neg1() {
+    fn shell_signal_does_not_fake_neg1() {
         let o = ToolOutput::Shell {
             command: "x".into(),
             stdout: "".into(),
-            stderr: "killed".into(),
+            stderr: "killed\n".into(),
             lines: Vec::new(),
             exit: None,
             truncated: false,
             termination: ShellTermination::Exited,
             detached_job_id: None,
         };
-        assert_eq!(o.to_text(), "Exit -1\nSTDOUT:\n\nSTDERR:\nkilled");
+        assert_eq!(o.to_text(), "killed\n");
         assert!(o.is_error());
     }
 
