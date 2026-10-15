@@ -8,7 +8,22 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
-## [0.0.22] - 2026-10-29
+## [0.0.23] - 2026-10-30
+
+### Added
+
+- **Gemini 4 Argon and Gemini 3.1 Flash Lite Model Support**:
+  - Registered `gemini-4-argon` and `gemini-3.1-flash-lite` across model codec, provider specs, and catalog discovery.
+  - Wire protocol alignment for Google Gemini API handling `thought: true` boolean flags in response parts.
+  - Active running thread visual indicator (`[RUNNING]`) rendered in the session picker overlay.
+  - Sovereign thread projection and client tab attach when selecting sessions from the session modal.
+- **Pure Thread Topology, Headless Unified Entry, and Persistence Modularization (ADR-0061)**:
+  - Headless one-shot execution via top-level prompt and `--headless` flags, retiring legacy `run`.
+  - Consolidated thread management under pure `nuo thread` CLI topology and retired vestigial subcommands.
+  - Modularized `DatabaseEngine` in `nuo-persistence` into clean domain-specific modules.
+- **Canonical Thread Persistence Schema and Spatial Header Topology (ADR-0059, ADR-0060)**:
+  - Canonical thread persistence schema and zero-legacy clean break (`[INV-PERSIST-01]`, `[INV-PERSIST-02]`).
+  - Three-tier spatial header topology, governance band, and clean tab stack (`[INV-HEADER-01]`).
 
 ### Added
 
