@@ -8,6 +8,23 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.24] - 2026-11-04
+
+### Added
+
+- **Orthogonal Agent Tool Surface, Meta-Tool Pruning, and Mutation Topology (ADR-0064)**:
+  - Pruned meta-tools and stepwise exploration tools (`ask_user`, `todo`, `list_dir`) from developer role capability sets to eliminate turn inflation and stepwise browsing loops.
+  - Hardened `write_file` tool parameters and descriptions requiring complete file content and strictly forbidding placeholder truncation comments.
+  - Reinforced `edit_text` as the exclusive primitive for surgical source code modifications.
+  - Shifted directory inspection guidance exclusively to pattern-based `find_files` and content-based `search_text`.
+- **Consolidated Activity Strip, Scene History Navigation, and Diátaxis Documentation Suite**:
+  - Integrated header activity strip providing unified real-time feedback for active tool runs, subagent delegations, and model states.
+  - Scene history navigation support in interactive terminal sessions.
+  - Complete Diátaxis documentation suite restructuring across tutorials, how-to guides, reference specifications, and architectural explanations.
+- **Polymorphic Scenebar Projection and Bifurcated Shell Tool Presentation (ADR-0062, ADR-0063)**:
+  - Polymorphic scenebar projection dynamically adapting to session context, multi-thread execution, and telemetry feeds.
+  - Bifurcated shell tool execution model cleanly separating interactive foreground actions from background streaming processes.
+
 ## [0.0.23] - 2026-10-30
 
 ### Added
