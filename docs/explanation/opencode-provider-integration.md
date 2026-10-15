@@ -22,7 +22,7 @@ They are separate providers because the endpoint family and model universe diffe
 
 The **Console** surface routes itself from its catalog: the account-scoped `/console/api/config` catalog advertises both the served models *and* their routing — a per-model `provider.{npm,api}` override selects the wire protocol and inference root. The live catalog is therefore authoritative for both, and the compiled `MODELS` table is only a seed.
 
-The two **Zen** surfaces expose a public `/zen/v1/models` catalog and route per model by wire format (`route_for_model`); the instance default is the OpenAI chat-completions surface.
+The two **Zen** surfaces expose a public catalog (`/zen/go/v1/models` for the plan/Go relay, `/zen/v1/models` for the Zen relay) and route per model by wire format (`route_for_model`); the instance default is the OpenAI chat-completions surface.
 
 ---
 

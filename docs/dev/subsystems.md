@@ -39,7 +39,7 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 │   Model Extensions (providers/)│      │   Tool Extensions (tools/)     │
 │   nuo-provider-anthropic       │      │   nuo-tool-fs                  │
 │   nuo-provider-openai          │      │   nuo-tool-exec                │
-│   ... (17 provider adapters)   │      │   nuo-tool-web, nuo-tool-ast   │
+│   ... (16 provider crates)     │      │   nuo-tool-web, nuo-tool-ast   │
 └────────────────────────────────┘      └────────────────────────────────┘
 ```
 
@@ -60,7 +60,7 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 - **`nuotc`**: Retained-mode 2D terminal canvas, differential rendering pipeline, and Flexbox layout solver. Free of AI domain vocabulary.
 
 ### 2.2 Applications & Interface Engines
-- **`nuo`**: The unified CLI application executable (ADR-0005). Dispatches interactive TUI (default), headless pipeline (`-p`), and server service (`serve`).
+- **`nuo`**: The unified CLI application executable (ADR-0005). Dispatches the interactive TUI (default), the headless pipeline (`--headless` / `-p`), and the session server (`nuo server start`, ADR-0061).
 - **`nuo-tui`**: High-performance semantic terminal presentation engine built on `nuotc`. Library-only view crate consumed by `nuo`.
 - **`nuo-client`**: Standalone client SDK providing discovery, connection management, event streaming, and command completion over IPC/WebSocket.
 

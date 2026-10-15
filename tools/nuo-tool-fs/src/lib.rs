@@ -177,9 +177,11 @@ impl Tool for ReadTextTool {
 /// Typed parameters for [`WriteFileTool`].
 #[derive(Debug, Clone, Deserialize, ToolSchema)]
 pub struct WriteFileArgs {
-    #[tool(desc = "Path to the file to create or overwrite; relative paths use the workspace root")]
+    #[tool(desc = "Path to the file to create or overwrite relative to the workspace root")]
     pub path: String,
-    #[tool(desc = "The complete file content to write")]
+    #[tool(
+        desc = "The complete, unabridged content of the file. Never use placeholders like '// ... existing code'"
+    )]
     pub content: String,
 }
 
@@ -201,7 +203,7 @@ impl Tool for WriteFileTool {
     }
 
     fn description(&self) -> &str {
-        "Creates a new file or completely overwrites an existing file with the given content."
+        "Creates a new file or fully overwrites an entire file. PREFER edit_text for modifying existing files to prevent accidental truncation or loss of unchanged code."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -262,9 +264,9 @@ impl Tool for WriteFileTool {
 /// Typed parameters for [`EditTextTool`].
 #[derive(Debug, Clone, Deserialize, ToolSchema)]
 pub struct EditTextArgs {
-    #[tool(desc = "Path to the text file to modify; relative paths use the workspace root")]
+    #[tool(desc = "Path to an existing file relative to the workspace root")]
     pub path: String,
-    #[tool(desc = "The exact verbatim text to replace; must match uniquely in the file")]
+    #[tool(desc = "The exact verbatim text block to replace. Must be unique within the file")]
     pub old_string: String,
     #[tool(desc = "The replacement text to insert in place of old_string")]
     pub new_string: String,
@@ -288,7 +290,7 @@ impl Tool for EditTextTool {
     }
 
     fn description(&self) -> &str {
-        "Replace an exact, unique block of text (old_string) with new_string in a text file. old_string must match exactly one location."
+        "Performs exact string replacement in an existing file. old_string must match exactly one location (include surrounding lines as anchors if needed to ensure uniqueness). NEVER use this to create new files."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -850,7 +852,6 @@ pub fn create_fs_tools(ctx: Arc<SystemToolContext>) -> Vec<Arc<dyn Tool>> {
         Arc::new(ReadTextTool::new(ctx.clone())),
         Arc::new(WriteFileTool::new(ctx.clone())),
         Arc::new(EditTextTool::new(ctx.clone())),
-        Arc::new(ListDirTool::new(ctx.clone())),
         Arc::new(FindFilesTool::new(ctx.clone())),
         Arc::new(SearchTextTool::new(ctx)),
     ]

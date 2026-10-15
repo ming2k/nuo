@@ -120,7 +120,7 @@ impl AgentRoleProfile {
              Strictly observe non-interactive CLI discipline: never launch blocking interactive prompts or pagers (e.g. use non-interactive \
              flags like `-o BatchMode=yes` for ssh, non-interactive flags for package managers, and `--no-pager` for systemctl/journalctl). \
              Inspect system and service state before mutating configurations, maintain backups before modifying critical configs, \
-             verify results post-action, and proactively seek confirmation via `ask_user` before executing high-risk, destructive, \
+             verify results post-action, and proactively seek confirmation directly with the user before executing high-risk, destructive, \
              or potentially connectivity-breaking operations.",
         );
         Self::with_identity("ops", identity).with_tools(MainAgentRole::Ops.tool_selection())
@@ -444,14 +444,11 @@ impl MainAgentRole {
         BuiltinTool::ReadText,
         BuiltinTool::EditText,
         BuiltinTool::WriteFile,
-        BuiltinTool::ListDir,
         BuiltinTool::FindFiles,
         BuiltinTool::SearchText,
         BuiltinTool::ReadUrl,
         BuiltinTool::SearchWeb,
         BuiltinTool::ReadImage,
-        BuiltinTool::AskUser,
-        BuiltinTool::Todo,
         BuiltinTool::SpawnAgent,
         BuiltinTool::RecallMemory,
     ];
@@ -460,7 +457,6 @@ impl MainAgentRole {
     pub const PHILOSOPHIST_TOOLS: &'static [BuiltinTool] = &[
         BuiltinTool::ReadUrl,
         BuiltinTool::SearchWeb,
-        BuiltinTool::AskUser,
         BuiltinTool::RecallMemory,
     ];
 
@@ -470,14 +466,11 @@ impl MainAgentRole {
         BuiltinTool::ReadText,
         BuiltinTool::EditText,
         BuiltinTool::WriteFile,
-        BuiltinTool::ListDir,
         BuiltinTool::FindFiles,
         BuiltinTool::SearchText,
         BuiltinTool::ReadUrl,
         BuiltinTool::SearchWeb,
         BuiltinTool::ReadImage,
-        BuiltinTool::AskUser,
-        BuiltinTool::Todo,
         BuiltinTool::SpawnAgent,
     ];
 }
@@ -761,7 +754,7 @@ mod tests {
         assert!(!names.contains("read_text"));
         assert!(names.contains("read_url"));
         assert!(names.contains("search_web"));
-        assert!(names.contains("ask_user"));
+        assert!(!names.contains("ask_user"));
         assert!(names.contains("recall_memory"));
     }
 
@@ -806,7 +799,9 @@ mod tests {
         let ops_manifest = SessionRoleManifest::ops();
         assert_eq!(ops_manifest.role_id, "ops");
         assert!(ops_manifest.builtin_tools().contains(&BuiltinTool::ExecuteCommand));
-        assert!(ops_manifest.builtin_tools().contains(&BuiltinTool::AskUser));
+        assert!(!ops_manifest.builtin_tools().contains(&BuiltinTool::AskUser));
+        assert!(!ops_manifest.builtin_tools().contains(&BuiltinTool::Todo));
+        assert!(!ops_manifest.builtin_tools().contains(&BuiltinTool::ListDir));
         assert!(!ops_manifest.builtin_tools().contains(&BuiltinTool::CodeQuery));
         assert!(ops_manifest.identity.preamble().starts_with("Role: ops."));
 
@@ -841,13 +836,13 @@ mod tests {
         assert!(names.contains(BuiltinTool::ReadText.as_str()));
         assert!(names.contains(BuiltinTool::EditText.as_str()));
         assert!(names.contains(BuiltinTool::WriteFile.as_str()));
-        assert!(names.contains(BuiltinTool::ListDir.as_str()));
+        assert!(!names.contains(BuiltinTool::ListDir.as_str()));
         assert!(names.contains(BuiltinTool::FindFiles.as_str()));
         assert!(names.contains(BuiltinTool::SearchText.as_str()));
         assert!(names.contains(BuiltinTool::ReadUrl.as_str()));
         assert!(names.contains(BuiltinTool::SearchWeb.as_str()));
-        assert!(names.contains(BuiltinTool::AskUser.as_str()));
-        assert!(names.contains(BuiltinTool::Todo.as_str()));
+        assert!(!names.contains(BuiltinTool::AskUser.as_str()));
+        assert!(!names.contains(BuiltinTool::Todo.as_str()));
         assert!(names.contains(BuiltinTool::SpawnAgent.as_str()));
 
         // AST code parsing and philosophical memory dialogue are excluded:

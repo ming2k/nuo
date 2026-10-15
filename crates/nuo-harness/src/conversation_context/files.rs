@@ -33,7 +33,7 @@
 //!
 //! Rejections are surfaced as a single hidden envelope (one per file) so the
 //! model learns *why* the file was not loaded and can recover (switch to
-//! `list_dir`, ask the user, etc.) instead of looping on the same path.
+//! `find_files`, ask the user, etc.) instead of looping on the same path.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -250,7 +250,7 @@ fn load_sandboxed(root: &Path, raw: &str) -> Result<Loaded, String> {
 
     if canonical.is_dir() {
         return Err(format!(
-            "'{}' is a directory — use `list_dir` to inspect its contents",
+            "'{}' is a directory — use `find_files` to inspect its contents",
             path_display(root, &canonical)
         ));
     }

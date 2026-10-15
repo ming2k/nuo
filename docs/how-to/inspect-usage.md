@@ -30,11 +30,14 @@ For a latency waterfall of the current session's turns, use `/trace`.
 
 ## 3. Provider Allowances
 
-Provider quota (sliding-window allowances, credit balances, and account pools) is surfaced through the provider connection scene and ambient indicators rather than a standalone read command:
+Provider quota (sliding-window allowances, credit balances, and account pools) has its own dashboard, separate from usage accounting:
 
 ```text
-/connections
+/quotas
+/quotas <provider>
 ```
+
+Pass a provider id to scope the dashboard (for example `/quotas google-antigravity`). Provider connections themselves are managed from `/connections`.
 
 Quota and usage are deliberately separate domains: quota reflects provider-enforced allowances, while usage reflects Nuo-side accounting.
 

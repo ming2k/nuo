@@ -20,28 +20,28 @@ All modals are drawn through one frame: `modal_frame` in `crates/nuo-tui/src/ele
 
 ## 2. Modal Sizing Presets
 
-Fixed-size modals (`FixedModalSpec`, in columns × rows):
+Fixed-size modals (`FixedModalSpec(width_percent, height_percent)`):
 
-| Preset | Size |
-| :--- | :--- |
-| `PROVIDER` | 76 × 80 |
-| `SESSIONS` | 82 × 78 |
+| Preset | width % | height % |
+| :--- | :--- | :--- |
+| `PROVIDER` | 76 | 80 |
+| `SESSIONS` | 82 | 78 |
 
-Content-sized modals (`ContentModalSpec`, min-cols / min-rows / max-cols):
+Content-sized modals (`ContentModalSpec(width_percent, min_rows, max_viewport_percent)`):
 
-| Preset | Size |
-| :--- | :--- |
-| `TOOLS` | 64 / 11 / 84 |
-| `MCP` | 64 / 9 / 84 |
-| `QUEUE` | 66 / 9 / 84 |
-| `SESSION_STATS` | 72 / 11 / 80 |
-| `SESSION_TRACE` | 80 / 11 / 92 |
-| `USAGE_STATS` | 76 / 12 / 86 |
-| `MODEL_EDITOR` | 66 / 6 / 60 |
-| `OAUTH_PENDING` | 76 / 7 / 80 |
-| `CUSTOM_PROVIDER` | 72 / 8 / 80 |
-| `PERMISSIONS` | 72 / 7 / 80 |
-| `SKILLS` | 72 / 7 / 80 |
+| Preset | width % | min rows | max viewport % |
+| :--- | :--- | :--- | :--- |
+| `TOOLS` | 64 | 11 | 84 |
+| `MCP` | 64 | 9 | 84 |
+| `QUEUE` | 66 | 9 | 84 |
+| `SESSION_STATS` | 72 | 11 | 80 |
+| `SESSION_TRACE` | 80 | 11 | 92 |
+| `USAGE_STATS` | 76 | 12 | 86 |
+| `MODEL_EDITOR` | 66 | 6 | 60 |
+| `OAUTH_PENDING` | 76 | 7 | 80 |
+| `CUSTOM_PROVIDER` | 72 | 8 | 80 |
+| `PERMISSIONS` | 72 | 7 | 80 |
+| `SKILLS` | 72 | 7 | 80 |
 
 ---
 

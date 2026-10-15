@@ -183,7 +183,6 @@ impl SubAgentProfile {
 pub const SKILL_TOOLS: &[BuiltinTool] = &[
     BuiltinTool::ReadText,
     BuiltinTool::FindFiles,
-    BuiltinTool::ListDir,
     BuiltinTool::SearchText,
 ];
 
@@ -194,7 +193,6 @@ pub const READ_ONLY_TOOLS: &[BuiltinTool] = &[
     BuiltinTool::ReadText,
     BuiltinTool::ReadImage,
     BuiltinTool::FindFiles,
-    BuiltinTool::ListDir,
     BuiltinTool::SearchText,
     BuiltinTool::CodeQuery,
     BuiltinTool::ReadUrl,
@@ -214,7 +212,6 @@ pub const DEBUG_TOOLS: &[BuiltinTool] = &[
     BuiltinTool::ReadText,
     BuiltinTool::ReadImage,
     BuiltinTool::FindFiles,
-    BuiltinTool::ListDir,
     BuiltinTool::SearchText,
     BuiltinTool::CodeQuery,
     BuiltinTool::ReadUrl,
@@ -460,6 +457,12 @@ mod tests {
                 .tool_policy
                 .admits(&make("execute_command"))
         );
+        // Stepwise directory wandering is pruned (ADR-0064).
+        assert!(
+            !SubAgentProfile::EXPLORE
+                .tool_policy
+                .admits(&make("list_dir"))
+        );
     }
 
     #[test]
@@ -613,6 +616,7 @@ mod tests {
                 .admits(&make("write_file"))
         );
         assert!(!SubAgentProfile::DEBUG.tool_policy.admits(&make("todo")));
+        assert!(!SubAgentProfile::DEBUG.tool_policy.admits(&make("list_dir")));
 
         assert!(
             !SubAgentProfile::DEBUG

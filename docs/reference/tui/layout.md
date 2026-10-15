@@ -11,26 +11,26 @@ This page is the review anchor cited by `crates/nuo-tui/src/footer_stack.rs` (th
 The full-frame entry point is `render::draw_transcript` (`crates/nuo-tui/src/render/mod.rs`). The viewport is composed top-to-bottom from three sovereign zones: the **head band**, the **content body**, and the **footer stack**.
 
 ```text
-┌──────────────────────────────────────────────────────────────────────┐
-│ [Refactor DB]  [Fix Auth]  [dashboard]                       C-x menu│  ◄ 1  TabBar
-├──────────────────────────────────────────────────────────────────────┤
-│ THREAD b3c4  Fix retry logic in auth loop      ‹ thread › subagent(2)│  ◄ 2  SceneBar
-├──────────────────────────────────────────────────────────────────────┤
-│ [DEVELOPER] ~/projects/nuo                     UNATTENDED  UNCONFINED│  ◄ 3  ThreadContextBar
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│          ▾ tool:search_text "query" (completed, 12 matches)          │  ◄ 4  StickyAnchor
-│                                                                      │
-│                     Polymorphic Content Viewport                     │  ◄ 5  Content Body
-│              (thread transcript · dashboard · settings)              │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│ [2 Queued]  ✻ Responding (DeepSeek V3)              Esc Esc Interrupt│  ◄ 6  ActivityStrip
-├──────────────────────────────────────────────────────────────────────┤
-│ > What is the next step in the refactor?                             │  ◄ 7  Composer
-├──────────────────────────────────────────────────────────────────────┤
-│ ↵ Send · ⌥↵ Newline                 deepseek-chat @deepseek 4.2k (7%)│  ◄ 8  ModelBar
-└──────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│[Refactor DB]  [Fix Auth]  [dashboard]                      C-x menu│   ◄ 1  TabBar
+├────────────────────────────────────────────────────────────────────┤
+│THREAD b3c4  Fix retry logic in auth loop     ‹ thread › subagent(2)│   ◄ 2  SceneBar
+├────────────────────────────────────────────────────────────────────┤
+│[DEVELOPER] ~/projects/nuo                    UNATTENDED  UNCONFINED│   ◄ 3  ThreadContextBar
+├────────────────────────────────────────────────────────────────────┤
+│                                                                    │
+│              ▾ tool:search_text "query" (12 matches)               │   ◄ 4  StickyAnchor
+│                                                                    │
+│                    Polymorphic Content Viewport                    │   ◄ 5  Content Body
+│             (thread transcript · dashboard · settings)             │
+│                                                                    │
+├────────────────────────────────────────────────────────────────────┤
+│[2 queued]  ● responding  [12s]                    Esc Esc interrupt│   ◄ 6  ActivityStrip
+├────────────────────────────────────────────────────────────────────┤
+│› What is the next step in the refactor?                            │   ◄ 7  Composer
+├────────────────────────────────────────────────────────────────────┤
+│20.2k (8%)                               deepseek-chat max @deepseek│   ◄ 8  ModelBar
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 | # | Band | Rows | Module | Identifier |
@@ -71,7 +71,7 @@ The footer is a **declarative** stack: the caller lists rows `(id, height)` in d
 | `TopGap` | `FOOTER_TOP_GAP_ROWS = 0` | Persistent separator between transcript and chrome |
 | `ActivityStrip` | `ACTIVITY_STRIP_ROWS = 1` (or 0) | Consolidated status: queued follow-ups, background tasks, active round |
 | `Composer` | adaptive, `COMPOSER_MIN_HEIGHT = 4` | The input box |
-| `ModelBar` | `MODEL_BAR_ROWS = 1` (or 0) | Context usage, stream rate, model identity |
+| `ModelBar` | `MODEL_BAR_ROWS = 1` (or 0) | Context usage meter + model identity |
 
 The rows place flush by construction: the zero-gap tokens (`FOOTER_TOP_GAP_ROWS`, `ACTIVITY_COMPOSER_GAP_ROWS`, `COMPOSER_HINT_GAP_ROWS`, all `0`) mean no gap row is ever inserted between adjacent chrome rows. This flush-ness is the contract asserted by `crates/nuo-tui/src/footer_stack.rs`.
 

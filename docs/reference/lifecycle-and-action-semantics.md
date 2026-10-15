@@ -69,64 +69,6 @@ Operations tailored to specific session and coordinator domains:
 
 ## 4. TUI Spatial Layout and Chrome Hierarchy
 
-Under [ADR-0040](../adr/0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md), [ADR-0043](../adr/0043-thread-domain-nomenclature-unification-compact-tabbar-affordance-and-c-x-namespace-reorganization.md), [ADR-0060](../adr/0060-three-tier-spatial-header-topology-governance-band-and-clean-tab-stack.md), and [ADR-0062](../adr/0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md), the terminal viewport is structured into three sovereign vertical zones: the Polymorphic Top Chrome (2 rows for non-thread scenes, 3 rows for thread scenes), the Polymorphic Content Body (with transient `StickyAnchor`), and the Bounded Bottom Chrome.
+The terminal viewport is structured into three sovereign vertical zones: the Polymorphic Top Chrome (the TabBar / SceneBar / ThreadContextBar tiers), the Polymorphic Content Body (with transient `StickyAnchor`), and the Bounded Bottom Chrome (the ActivityStrip / Composer / ModelBar footer stack), per [ADR-0040](../adr/0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md), [ADR-0043](../adr/0043-thread-domain-nomenclature-unification-compact-tabbar-affordance-and-c-x-namespace-reorganization.md), [ADR-0060](../adr/0060-three-tier-spatial-header-topology-governance-band-and-clean-tab-stack.md), and [ADR-0062](../adr/0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md).
 
-For the authoritative token values, band heights, modal sizing, and input pipeline, consult the dedicated [Terminal UI Reference](tui/index.md).
-
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│ [Refactor DB]  [Fix Auth]  [dashboard]                        C-x menu │ ◄ Tier 1: TabBar (Client Domain, Always Present)
-├────────────────────────────────────────────────────────────────────────┤
-│ THREAD b3c4  Fix retry logic in auth loop      ‹ thread › subagent(2) │ ◄ Tier 2: SceneBar (Scene Domain, Polymorphic)
-├────────────────────────────────────────────────────────────────────────┤
-│ [DEVELOPER] ~/projects/nuo                      UNATTENDED UNCONFINED │ ◄ Tier 3: ThreadContextBar (Thread Domain Only)
-├────────────────────────────────────────────────────────────────────────┤
-│ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│
-│ ▾ tool:search_text "query" (completed, 12 matches)                     │ ◄ StickyAnchor (Dynamic Context Anchor on scroll)
-│ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│
-│                                                                        │
-│                 Polymorphic Content Viewport                           │
-│                                                                        │
-│   - Thread Scene: Live Transcript (Streaming Prose, Tools, Diff)       │
-│   - Dashboard Scene: Cluster Overview & Background Service Ledger      │
-│   - Settings Scene: Domain Configuration Matrix & Provider Editor      │
-│                                                                        │
-├────────────────────────────────────────────────────────────────────────┤
-│ [2 Queued]  ✻ Responding (DeepSeek V3) ...          Esc Esc Interrupt  │ ◄ ActivityStrip (Consolidated, Max 1 row)
-├────────────────────────────────────────────────────────────────────────┤
-│ > What is the next step in the refactor?                               │ ◄ Composer (Adaptive)
-├────────────────────────────────────────────────────────────────────────┤
-│ ↵ Send · ⌥↵ Newline                 deepseek/deepseek-chat 4.2k/64k 🟢 │ ◄ ModelBar (Fixed 1 row)
-└────────────────────────────────────────────────────────────────────────┘
-```
-
-### Top Chrome: Polymorphic Header Stack (`[INV-HEAD-05]`, `[INV-SCENE-02]`)
-
-1. **Tier 1: `TabBar` (Client Domain, Always Present)**:
-   - Fixed height: 1 row. Owned by the Client container.
-   - Projects open tabs with clean semantic titles (e.g. `Refactor DB`, `dashboard`, `settings`) or compact untitled fallbacks (`thread#b3c4`), strictly omitting ordinal numeric prefixes (`1:`).
-   - Carries the standing `C-x menu` global client affordance on the right edge.
-2. **Tier 2: `SceneBar` (Scene Domain, Universal & Polymorphic)**:
-   - Fixed height: 1 row. Universal to all scene types.
-   - Left side: Scene identity and primary authentic task title (`THREAD <id_tail> <title>` for thread; `DASHBOARD <summary>` for dashboard; `SETTINGS <section>` for settings; zero placeholder string on untitled threads).
-   - Right side: Right-aligned drill-in navigation stack / breadcrumb trail (`‹ thread › subagent #1 › diff`) with back affordance (`‹`).
-3. **Tier 3: `ThreadContextBar` (Thread Domain, Sovereign & Conditional)**:
-   - Height: 1 row on Thread viewports; **0 rows on non-thread viewports** (`Dashboard`, `Settings`).
-   - Left side: `[ROLE]` badge (brand tone) + tilde-shortened `workspace` path.
-   - Right side: Persistent safety execution posture flags (`UNATTENDED`, `UNCONFINED`) styled in warning tone.
-
-### Content Zone: Polymorphic Content & Scrolled Disclosure Anchors
-
-- **Polymorphic Content Surface**: Full-bleed body hosting the active scene (live transcript stream, cluster telemetry cards, or configuration editor).
-- **StickyAnchor (`[INV-DISCLOSE-01]`)**: When transcript content scrolls past the top edge, active/expanded disclosure summaries (tools, diffs, searches, or reasoning blocks) pin dynamically directly under the top chrome as a contextual anchor and collapse handle.
-
-### Bottom Chrome: Bounded Footer Stack (`[INV-FOOTER-02]`)
-
-1. **ActivityStrip (Consolidated, Max 1 Row)**:
-   - Single-row dynamic strip placed immediately above `Composer`.
-   - Left: Staged follow-up indicators (`[2 Queued]`) and background worker badges (`[1 Task]`).
-   - Center/Left: Live agent execution phase (`✻ Responding (DeepSeek V3)...`, `● Thinking...`, `Awaiting confirmation`).
-   - Right: Global cancellation affordance (`Esc Esc Interrupt`).
-   - Collapses to 0 rows when harness is idle and outbox/tasks are empty.
-2. **Composer**: Auto-wrapping multi-line input box for natural language instructions and slash commands.
-3. **ModelBar**: Pinning flush to the composer bottom edge, displaying contextual key affordances (`↵ Send · ⌥↵ Newline`), active model identifier, reasoning effort, instance suffix, context window budget tokens/percent, and network connection status. Storage durability degradation is signaled via status indicators and transient alerts rather than occupying an independent layout row.
+The authoritative band composition, ASCII layout, row heights, design tokens, modal sizing, and input pipeline live in the dedicated [Terminal UI Reference](tui/index.md).

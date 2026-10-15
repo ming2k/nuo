@@ -28,7 +28,7 @@ requested/parked ──► replied | cancelled
 - **reply** — settle exactly once from a wire-originated (human) reply.
 - **cancel** — settle everything still parked (turn aborted, session end, interrupt), recording the kind so metrics can tell a user cancel from a teardown cancel.
 
-A single broker (`nuo_agent::human_broker`) owns all three so the rule is enforced once.
+A single broker (`nuo_harness::human_broker`) owns all three so the rule is enforced once.
 
 ---
 
@@ -66,6 +66,8 @@ When a session is autonomous and a question arrives:
 | :--- | :--- |
 | `FailClosed` | Refuse: the tool returns an "unavailable" result and the model resolves the ambiguity itself. The default — a missing human is an error, not an opinion. |
 | `RecommendedLabeled` | Answer with each question's first option (the schema's "recommended" convention), labeled `[answered by policy, not by user]`. |
+
+The policy governs `ask_user` questions only. Permission requests and interactive stdin never take the `RecommendedLabeled` branch: a permission fails closed (a missing human cannot grant authority), and an interactive command runs with closed stdin exactly as if the operator had dismissed the panel.
 
 ---
 

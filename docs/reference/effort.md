@@ -99,5 +99,7 @@ Specific family ladders are constants in `nuo_provider::effort_ladders`:
 | `GLM_5` | `low`/`high`/`xhigh`/`max` |
 | `GEMINI_LEVEL` (3.x) | `minimal`/`low`/`medium`/`high` |
 | `GEMINI_BUDGET` (2.5) | `minimal`/`low`/`medium`/`high`/`max` |
+| `QWEN_MIXED` (QianwenAI) | `none`/`low`/`medium`/`high`/`xhigh`/`max` |
+| `DEEPSEEK_V4_PLAN` (QianwenAI) | `low`/`medium`/`high`/`xhigh`/`max` |
 
-DeepSeek rejects integer efforts upstream (HTTP 400); it accepts only the `low`/`high`/`max` presets.
+Notes on the DeepSeek rungs: the DeepSeek platform and its OpenAI-compatible relays accept only the `low`/`high`/`max` presets (integer efforts are rejected upstream with HTTP 400). On the QianwenAI Token Plan surface, `none` is a first-class rung (the endpoint answers with zero reasoning content — the thinking off switch), while its DeepSeek V4 Pro snapshots reject `none` and `minimal` outright, so "reasoning off" is inexpressible there.

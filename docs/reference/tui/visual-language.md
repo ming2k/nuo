@@ -21,7 +21,7 @@ Each semantic relationship has exactly one join form. There is no free mixing of
 | Relationship | Form | Token / symbol | Example |
 | :--- | :--- | :--- | :--- |
 | Atomic values | ordinary spaces | — | `os_type=linux arch=amd64` |
-| Peer enumeration (same rank) | two-column gap, no glyph | `JOIN_ENUMERATE_COLS = 2` | `[2 Queued]  ✻ Responding` |
+| Peer enumeration (same rank) | two-column gap, no glyph | `JOIN_ENUMERATE_COLS = 2` | `> turn 3  glm-5.3 xhigh  14:22` (turn band) |
 | Secondary → measure | parentheses | — | `4.2k (7%)` |
 | Cause / reason | em dash | — | `locked — provider refuses this account` |
 | Hierarchy (container › member) | breadcrumb | `JOIN_BREADCRUMB = " › "` | `round 3 › turn 2` |

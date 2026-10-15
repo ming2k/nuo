@@ -151,6 +151,10 @@ fn registry_collects_all_self_registered_tools() {
         resolved_names.contains(nuo_wire::BuiltinTool::ExecuteCommand.as_str()),
         "developer role failed to resolve execute_command from collected toolset"
     );
+    // ADR-0064: pruned tools must never resolve for developer role
+    assert!(!resolved_names.contains(nuo_wire::BuiltinTool::ListDir.as_str()));
+    assert!(!resolved_names.contains(nuo_wire::BuiltinTool::AskUser.as_str()));
+    assert!(!resolved_names.contains(nuo_wire::BuiltinTool::Todo.as_str()));
 }
 
 #[async_trait]

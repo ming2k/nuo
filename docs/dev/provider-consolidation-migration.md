@@ -302,7 +302,7 @@ These are comments/docs, not compile errors, but they become **false statements*
   `providers/nuo-provider-commandcode-plan/src/usage.rs:8`,
   `providers/nuo-provider-qoder/src/lib.rs:503`
 - Remove `nuo-provider-adapters/README.md`; its subsystem prose is already mirrored in
-  `docs/architecture/subsystems.md`.
+  `docs/dev/subsystems.md`.
 
 ## 11. Governance sync (same commit)
 
