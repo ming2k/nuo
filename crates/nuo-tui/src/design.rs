@@ -206,7 +206,7 @@ pub(crate) const STREAM_BOTTOM_GAP_ROWS: usize = 1;
 /// via [`STREAM_TOP_GAP_ROWS`] and [`STREAM_BOTTOM_GAP_ROWS`].
 pub(crate) const FOOTER_TOP_GAP_ROWS: u16 = 0;
 /// Maximum height of the head band shown at the top of every transcript
-/// page — Main (session identity + workspace), `/btw`, Subagent, Dashboard, and
+/// page — Main (session identity + workspace), Subagent, Dashboard, and
 /// Settings all share this single chrome slot. Row 1 is always the ambient
 /// **session identity**; row 2 is the **scene row** — the scene the user
 /// stands in, named plainly, with its context and the session's run-mode flags

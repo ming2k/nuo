@@ -198,41 +198,6 @@ fn escape_never_exits_subagent_view() {
 /// ADR-0298 §2 / ADR-0103 §2: Esc in an aside interrupts the aside's round and
 /// never leaves the view; `Ctrl+C` is the detach gesture.
 #[test]
-fn escape_in_side_view_never_exits_side_view() {
-    let mut input = String::new();
-    assert_eq!(
-        key_in_side_view(KeyCode::Esc, &mut input),
-        InputAction::None
-    );
-}
-
-#[test]
-fn escape_in_btw_modal_closes_the_modal() {
-    let mut input = String::new();
-    let mut cursor = 0;
-    let mut drag = SelectionDrag::default();
-    let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
-            KeyCode::Esc,
-            KeyModifiers::NONE,
-        )),
-        &mut input,
-        &mut cursor,
-        Dispatch {
-            overlay: Some(crate::surfaces::OverlaySurface::Dialog(
-                crate::surfaces::DialogKind::Asides,
-            )),
-            ..Default::default()
-        },
-        &ModalKeys::default(),
-        &SheetKeys::default(),
-        &SceneKeys::default(),
-        &mut drag,
-    );
-    assert_eq!(action, InputAction::CloseModal);
-}
-
-#[test]
 fn bracket_keys_cycle_siblings_only_when_typing_is_empty() {
     let mut input = String::new();
     assert_eq!(

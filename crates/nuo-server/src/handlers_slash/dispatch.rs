@@ -49,7 +49,6 @@ pub async fn dispatch(cmd: String, env: SlashEnv<'_>) {
         Some(BuiltinCmd::Trace) => commands::trace(env, name, args, &parts).await,
         Some(BuiltinCmd::Usage) => commands::usage(env, name, args, &parts).await,
         Some(BuiltinCmd::Quotas) => commands::quota(env, name, args, &parts).await,
-        Some(BuiltinCmd::Btw) => commands::btw(env, &cmd, name, args, &parts).await,
         Some(BuiltinCmd::Compact) => commands::compact(env, name, args, &parts).await,
         Some(BuiltinCmd::Jobs) => commands::jobs(env, name, args, &parts).await,
         Some(BuiltinCmd::Init) => commands::init(env, name, args, &parts).await,

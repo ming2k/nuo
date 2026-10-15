@@ -30,14 +30,13 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use nuo_harness::{Agent, RoundLifecycle};
-use nuo_wire::{AgentRequest, AgentResponse, Provider, Tool};
+use nuo_wire::{AgentRequest, AgentResponse, Provider};
 use nuo_persistence::{config::Config, connection_usage::ConnectionUsage, session::SessionStore};
 use nuo_harness::skills::SkillRegistry;
 
-use tokio::sync::{RwLock as AsyncRwLock, mpsc};
+use tokio::sync::mpsc;
 
 use crate::UiBridge;
-use crate::side::SideRegistry;
 use crate::startup::SessionStart;
 
 /// The slice of the dispatcher context an extension slash command may touch.
@@ -65,8 +64,6 @@ pub struct SlashContext<'a> {
     /// Primary round lifecycle: begin/supersede/cancel rounds, replacing the
     /// old token-slot + generation-counter pair.
     pub lifecycle: &'a Arc<RoundLifecycle>,
-    pub side: &'a Arc<AsyncRwLock<SideRegistry>>,
-    pub base_tools: &'a Arc<Vec<Arc<dyn Tool>>>,
     pub provider_holder: &'a Arc<RwLock<Arc<dyn Provider>>>,
     pub provider_usage: &'a mut ConnectionUsage,
     pub skills_registry: &'a Arc<SkillRegistry>,

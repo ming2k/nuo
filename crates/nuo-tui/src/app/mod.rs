@@ -15,7 +15,7 @@ use std::sync::atomic::AtomicBool;
 use tokio::sync::mpsc;
 
 use nuo_wire::{
-    AgentRequest, ConnectionAuth, ImagePart, LoopStatus, ParentStatus, PermissionRequest,
+    AgentRequest, ConnectionAuth, ImagePart, LoopStatus, PermissionRequest,
     ProviderPickerSnapshot, SessionOverview, UserQuestionRequest,
 };
 
@@ -322,52 +322,15 @@ pub struct App {
     /// O(1) streaming-delta target for `messages` (id, index); reset on
     /// wholesale replacement (ADR-0187).
 
-    /// Side-thread transcript (ADR-0017). Populated only while a `/btw`
-    /// side session is live; per-turn events tagged with the side `session_id`
-    /// route here instead of into `messages`.
-    pub side_messages: Vec<TranscriptMessage>,
-    /// Companion to `messages_version` for the side buffer.
-
-    /// O(1) streaming-delta target for `side_messages`; reset on wholesale
-    /// replacement (ADR-0187).
-
     /// Per-message laid-out height cache (Stage 2). Lets the transcript renderer
     /// skip re-wrapping off-screen messages, making per-frame layout O(visible)
-    /// instead of O(transcript). Cleared whenever the transcript changes (a
-    /// `messages_version` / `side_messages_version` bump) so a cached height is
-    /// only ever read while the message's content is unchanged.
+    /// instead of O(transcript). Cleared whenever the transcript changes
+    /// so a cached height is only ever read while the message's content is unchanged.
     pub layout_height_cache: crate::render::HeightCache,
-    /// True while the user is composing into the `/btw` aside view
-    /// (ADR-0017/0103). Drives [`App::focused_messages`] to swap the viewed
-    /// transcript to [`App::side_messages`] and reserves the aside header.
-    pub in_side_view: bool,
-    /// Active side `session_id`, learned from `AgentResponse::SideViewOpened`.
-    /// The response listener routes a `Turn { session_id, .. }` event into the
-    /// side buffer when this matches, and into the primary buffer otherwise.
-    pub side_session_id: Option<String>,
-    /// Coarse primary-session status, mirrored from
-    /// `AgentResponse::ParentStatus` for the side banner.
-    pub parent_status: ParentStatus,
-    /// Live `/btw` asides list (ADR-0103), mirrored from
-    /// `AgentResponse::BtwList`. Drives the asides modal and the main view's
-    /// header aside count. Kept even while inside an aside view so jumping
-    /// back never needs a round trip.
-    pub btw_list: Vec<nuo_wire::BtwAsideSummary>,
     /// Per-session chrome (activity text, responding flag, round/turn
     /// counters) for every session this client has observed, keyed by
-    /// `session_id` — the primary **and** every live aside. A view renders
-    /// from its own session's entry (see [`App::viewed_chrome`]), so an
-    /// aside view never inherits the primary's activity bar and the primary
-    /// never shows an aside's: chrome is view-scoped, not global (the
-    /// pre-scoped fields below remain the *primary's* entry and the source
-    /// of truth for the main view).
+    /// `session_id`.
     pub session_chrome: std::collections::HashMap<String, SessionChrome>,
-    /// The primary's chrome, saved when entering an aside view and restored
-    /// on exit. Entering swaps the *displayed* chrome to the aside's own
-    /// [`SessionChrome`] entry; exiting restores the primary's exactly as it
-    /// was (a running primary round keeps its activity bar, elapsed timer,
-    /// and counters across the aside detour).
-    pub saved_primary_chrome: Option<SessionChrome>,
     pub scroll: u16,
     /// Whether the view follows the newest content (auto-scroll to bottom).
     pub follow_bottom: bool,

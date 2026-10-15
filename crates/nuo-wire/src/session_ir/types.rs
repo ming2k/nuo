@@ -80,6 +80,78 @@ impl SessionIR {
         }
     }
 
+    /// Fork the session IR into a child branch at a specific leaf node and round counter (ADR-0058).
+    pub fn fork_at_leaf(
+        &self,
+        new_session_id: impl Into<String>,
+        target_leaf: &str,
+        round_counter: u64,
+    ) -> Self {
+        let sid = new_session_id.into();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let mut child_state = self.state.clone();
+        child_state.active_leaf = Some(target_leaf.to_string());
+        if let Some(timeline) = child_state.timelines.get_mut(&child_state.active_timeline) {
+            timeline.head_node = Some(target_leaf.to_string());
+            timeline.updated_at_s = now;
+        }
+        child_state.round_counter = round_counter;
+        child_state.pending_notifications.clear();
+        Self {
+            session_id: sid,
+            parent_session_id: Some(self.session_id.clone()),
+            created_at_s: now,
+            updated_at_s: now,
+            history: self.history.clone(),
+            state: child_state,
+            policy: self.policy.clone(),
+        }
+    }
+
+    /// Locate the leaf causal node ID at the conclusion of the specified round (1-indexed).
+    pub fn find_round_leaf(&self, target_round: u64) -> Option<&str> {
+        if target_round == 0 {
+            return None;
+        }
+        let branch = self.resolve_active_branch();
+        if branch.is_empty() {
+            return None;
+        }
+        let mut current_round = 0u64;
+        let mut last_node_of_target: Option<&str> = None;
+        for node in &branch {
+            let is_user_msg = match &node.payload {
+                NodePayload::Message { message } => message.role == Role::User,
+                _ => false,
+            };
+            if is_user_msg {
+                current_round += 1;
+                if current_round > target_round {
+                    break;
+                }
+            }
+            if current_round == target_round {
+                last_node_of_target = Some(&node.id);
+            }
+        }
+        last_node_of_target
+    }
+
+    /// Count the total completed or in-progress rounds in the active branch.
+    pub fn total_rounds(&self) -> u64 {
+        let branch = self.resolve_active_branch();
+        branch
+            .iter()
+            .filter(|node| match &node.payload {
+                NodePayload::Message { message } => message.role == Role::User,
+                _ => false,
+            })
+            .count() as u64
+    }
+
     /// Append a dialogue message node to the active branch.
     pub fn append_message(
         &mut self,

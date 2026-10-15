@@ -1624,13 +1624,6 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // chip-or-inline logic as Ctrl+V without an async hop.
             clipboard_ops::apply_clipboard_paste(app, clipboard::ClipboardRead::Text(text));
         }
-        input::InputAction::InterruptSide => {
-            // Esc inside an aside view (ADR-0103 §2): interrupt the viewed
-            // aside's round with the same armed press-twice contract as the
-            // main view's Esc interrupt. Never leaves the view, never closes
-            // the aside.
-            handle_esc_interrupt_with_runtime(app, runtime, commands::InterruptTarget::Aside).await;
-        }
         input::InputAction::InterruptSubagent => {
             // Esc inside the Subagent scene (ADR-0205): interrupt only the
             // viewed child, with the same armed press-twice contract. It never
@@ -1641,18 +1634,6 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 commands::InterruptTarget::Subagent,
             )
             .await;
-        }
-        input::InputAction::OpenBtwList => {
-            // F5 / `/btw list` (ADR-0103 §5): ask the harness for a fresh
-            // list and pop the modal once the rows land. The open signal is
-            // consumed by the loop's sync stage, so a slow harness reply
-            // simply opens with the last known rows and refreshes in place.
-            enter_panel(
-                app,
-                crate::surfaces::DialogKind::Asides,
-                runtime,
-                viewed_session_id,
-            );
         }
         input::InputAction::ViewSwitcherFilter { ch } => {
             if app.active_dialog() == Some(DialogKind::Switcher) {
@@ -1747,7 +1728,6 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             };
             let entries = crate::overlays::command_palette::filter_palette_commands(
                 &app.surfaces.dlg_mut::<crate::surfaces::SwitcherDialog>().query.text,
-                &app.command_catalog,
                 &app.recent_commands,
                 &app_ctx,
             );
@@ -1766,57 +1746,12 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 }
 
                 app.pop_transient_surface();
-                match entry.action.clone() {
-                    crate::overlays::command_palette::PaletteAction::Client(cmd_id) => {
-                        return execute_command_by_id(app, ctx, cmd_id).await;
-                    }
-                    crate::overlays::command_palette::PaletteAction::Harness {
-                        slash,
-                        requires_args,
-                    } => {
-                        if requires_args {
-                            app.reset_to_thread();
-                            app.input = format!("{} ", slash);
-                            app.set_cursor_end();
-                            app.completion_dismissed = false;
-                            app.suggestion_index = None;
-                            return ActionFlow::Handled;
-                        } else {
-                            return commands::handle_send_slash(app, runtime, session, slash).await;
-                        }
-                    }
-                }
+                return execute_command_by_id(app, ctx, entry.id).await;
             }
         }
         input::InputAction::ViewCloseSelected => {
             if app.active_dialog() != Some(DialogKind::Switcher) {
                 return ActionFlow::Handled;
-            }
-        }
-        input::InputAction::BtwFocusSelected => {
-            // Asides modal Enter (ADR-0103 §5): jump back into the selected
-            // aside. The harness replies with `SideViewOpened` carrying the
-            // full transcript back-fill; the modal closes on arrival.
-            if let Some(row) = app.btw_list.get(app.active_index()) {
-                let side_id = row.id.clone();
-                app.dismiss_active_dialog();
-                app.send_intent(AgentRequest::FocusSide { side_id });
-            }
-        }
-        input::InputAction::BtwCloseSelected => {
-            // Asides modal `D` (ADR-0103 §5): close + discard the selected
-            // aside (cancel its round, drop it from the list, delete its
-            // session files). The modal stays open on the refreshed list.
-            if let Some(row) = app.btw_list.get(app.active_index()) {
-                let side_id = row.id.clone();
-                app.send_intent(AgentRequest::CloseSide { side_id });
-                // Optimistically drop the row so the selection does not
-                // point at a stale entry before the fresh list lands; clamp
-                // the cursor in case the last row was removed.
-                app.btw_list.remove(app.active_index());
-                if app.active_index() >= app.btw_list.len() {
-                    app.set_active_index(app.btw_list.len().saturating_sub(1));
-                }
             }
         }
         input::InputAction::PrevSibling => {
@@ -2418,7 +2353,6 @@ pub(super) fn enter_panel(
                 None
             }
         }
-        DialogKind::Asides => Some(AgentRequest::QueryBtwList),
         DialogKind::Threads => Some(AgentRequest::QuerySessionsOverview),
         DialogKind::SessionTree => Some(AgentRequest::QuerySessionTree),
         _ => None,
@@ -2499,7 +2433,7 @@ pub(super) fn enter_scene(
             app.host_kill_confirm_id = None;
             None
         }
-        SceneKind::Thread | SceneKind::Subagent | SceneKind::Aside => None,
+        SceneKind::Thread | SceneKind::Subagent => None,
     };
     if let Some(request) = request
         && !app.send_intent(request)
@@ -3514,6 +3448,16 @@ async fn execute_command_by_id(
         CommandId::OpenActiveConnectionDetail => {
             open_active_connection_detail(app, runtime, viewed_session_id);
         }
+        CommandId::OpenPortShare => {
+            if app.active_dialog() == Some(crate::surfaces::DialogKind::PortShare) {
+                app.dismiss_surface();
+            } else {
+                app.surfaces.dlg_mut::<crate::surfaces::PortShareDialog>().begin();
+                app.surfaces.dlg_mut::<crate::surfaces::PortShareDialog>().loading = true;
+                app.open_dialog(crate::surfaces::DialogKind::PortShare);
+                app.send_intent(nuo_wire::AgentRequest::QueryServerEndpoints);
+            }
+        }
         CommandId::OpenTools => {
             enter_panel(
                 app,
@@ -3570,13 +3514,8 @@ async fn execute_command_by_id(
                 viewed_session_id,
             );
         }
-        CommandId::OpenBtw => {
-            enter_panel(
-                app,
-                crate::surfaces::DialogKind::Asides,
-                runtime,
-                viewed_session_id,
-            );
+        CommandId::ForkThread => {
+            app.send_intent(nuo_wire::AgentRequest::SlashCommand("/fork".to_string()));
         }
         CommandId::OpenSessions => {
             enter_panel(

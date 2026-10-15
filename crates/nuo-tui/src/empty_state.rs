@@ -12,7 +12,7 @@
 //! session, so the user lands in a familiar composer immediately.
 //!
 //! Beneath the logo the hero carries a **capability carousel** (ADR-0104): one
-//! durable capability hint at a time (`/btw`, `Ctrl-r`, `@` mentions,
+//! durable capability hint at a time (`/fork`, `Ctrl-r`, `@` mentions,
 //! …) rotating on a wall-clock cadence, one line at a time (no position
 //! indicator — the copy is self-explaining) and nothing else — the static
 //! "type a message" tagline is retired, since the carousel's own first page
@@ -104,8 +104,8 @@ pub(crate) fn carousel_pages() -> Vec<CarouselPage> {
             ],
         },
         CarouselPage {
-            lead: "Start a background aside with ",
-            tokens: vec![Tok::Key("/btw")],
+            lead: "Branch thread into a new tab with ",
+            tokens: vec![Tok::Key("/fork")],
         },
         CarouselPage {
             lead: "Recall past prompts with ",
@@ -121,7 +121,7 @@ pub(crate) fn carousel_pages() -> Vec<CarouselPage> {
         },
         CarouselPage {
             lead: "Open the command palette with ",
-            tokens: vec![Tok::Key(crate::keymap::Key::CTRL_L.display())],
+            tokens: vec![Tok::Key("C-x p")],
         },
         CarouselPage {
             lead: "Jump between sessions with ",

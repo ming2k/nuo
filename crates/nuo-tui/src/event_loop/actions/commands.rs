@@ -85,11 +85,7 @@ pub(super) async fn handle_send_chat(
                         .with_sent_at_ms(sent_at_ms)
                         .with_insert_id(id.clone())
                         .queued();
-                    if !app.in_side_view {
-                        app.messages.push(entry);
-                    } else {
-                        app.side_messages.push(entry);
-                    }
+                    app.messages.push(entry);
                     app.layout_height_cache.clear();
                     app.transcript_changed_pending = true;
                     app.send_intent(AgentRequest::Steer {
@@ -153,13 +149,11 @@ pub(super) async fn handle_send_chat(
             // so the model never receives a phantom
             // `[Image #N …]` it cannot see.
             let expanded = composer_attachments::strip_orphan_image_chips(&expanded, images.len());
-            if !app.in_side_view {
-                runtime.is_responding.store(true, Ordering::SeqCst);
-                // A new dispatch opens a new attempt window: `Queued` is not
-                // the transport-wait phase, so this also retires any setback
-                // clause left over from an earlier round (ADR-0235).
-                app.set_phase(Some(crate::phase::Phase::Queued));
-            }
+            runtime.is_responding.store(true, Ordering::SeqCst);
+            // A new dispatch opens a new attempt window: `Queued` is not
+            // the transport-wait phase, so this also retires any setback
+            // clause left over from an earlier round (ADR-0235).
+            app.set_phase(Some(crate::phase::Phase::Queued));
             app.running_sessions.insert(viewed_session_id.to_string());
             let sent_at_ms = now_epoch_ms();
             let target_round = app.round_count.saturating_add(1);
@@ -167,11 +161,7 @@ pub(super) async fn handle_send_chat(
                 .with_sent_at_ms(sent_at_ms)
                 .with_round(target_round)
                 .sending();
-            if !app.in_side_view {
-                app.messages.push(sent);
-            } else {
-                app.side_messages.push(sent);
-            }
+            app.messages.push(sent);
             app.layout_height_cache.clear();
             app.transcript_changed_pending = true;
             app.record_input_history(text.clone(), images.clone(), text_pastes.clone());
@@ -392,16 +382,6 @@ pub(crate) fn handle_ctrl_c(
         // visual foreground, so Ctrl+C closes it first (the sheet beneath
         // keeps its pending decision) — mirroring the Esc arms.
         super::modals::handle_close_modal(app, viewed_session_id);
-    } else if app.in_side_view {
-        // `/btw` aside view: Ctrl+C detaches back to the primary
-        // transcript (ADR-0103 §2) — the aside keeps running, so
-        // this is the "get me out" gesture, matching the shell/REPL
-        // muscle memory. Slotted after modal-close so an open
-        // overlay still wins. The composer draft is deliberately
-        // preserved (it belongs to the aside's next turn, not to a
-        // quit intent).
-        app.exit_side_view();
-        app.send_intent(AgentRequest::ExitSideView);
     } else if !app.input.is_empty()
         || app.history_index.is_some()
         || !app.pending_images.is_empty()
@@ -448,44 +428,27 @@ pub(crate) fn handle_ctrl_c(
 pub(crate) enum InterruptTarget {
     /// The primary session's running round. The Conversation scene's Esc.
     Primary,
-    /// The `/btw` aside view's running round (ADR-0103 §2), addressed by
-    /// `App::side_session_id`. Never closes the aside.
-    Aside,
     /// One subagent spawned by the session, addressed by its parent tool-call
     /// id (ADR-0205). The Subagent scene's Esc: it stops only the viewed child
     /// and leaves the enclosing primary round and every sibling running.
     Subagent,
 }
 
-/// Loop stage (input dispatch): the shared `Interrupt` / `InterruptSide` /
-/// `InterruptSubagent` arm of the action match. All three views run the same
-/// press-twice contract — the first Esc arms a wall-clock [`App::ESC_ARM_WINDOW`]
-/// confirmation window (the "Esc again interrupts" toast), a second press inside
-/// it interrupts. `target` routes the request at the scene the user stands in,
-/// so the chord never crosses a scene boundary (ADR-0205).
+/// Loop stage (input dispatch): the shared `Interrupt` / `InterruptSubagent` arm of the action match.
 pub(crate) fn handle_esc_interrupt(app: &mut App, target: InterruptTarget) -> bool {
     if !app.esc_press() {
         return false;
     }
     match target {
         InterruptTarget::Subagent => {
-            // Scene-scoped: stop only the viewed subagent. The request carries
-            // its parent tool-call id and is routed by the driver into that one
-            // child — the primary round and its siblings are untouched, so
-            // (unlike the primary/aside paths) there is nothing to flip at the
-            // session level and no prompt row to cancel here: the child's own
-            // `SubagentEvent`s repaint the nested view.
             if let Some(call_id) = app.focused_subagent_call_id().map(str::to_owned) {
                 app.send_intent(AgentRequest::InterruptSubagent { call_id });
             }
             return true;
         }
-        InterruptTarget::Primary | InterruptTarget::Aside => {}
+        InterruptTarget::Primary => {}
     }
-    let side = matches!(target, InterruptTarget::Aside);
-    let target_session_id = if side {
-        app.side_session_id.clone()
-    } else if !app.current_session_id.is_empty() {
+    let target_session_id = if !app.current_session_id.is_empty() {
         Some(app.current_session_id.clone())
     } else {
         None
@@ -506,13 +469,7 @@ pub(crate) fn handle_esc_interrupt(app: &mut App, target: InterruptTarget) -> bo
         }
         msg.cancel_prompt();
     }
-    if side {
-        if let Some(side_id) = target_session_id {
-            app.send_intent(AgentRequest::InterruptSide { side_id });
-        }
-    } else {
-        app.send_intent(AgentRequest::Interrupt);
-    }
+    app.send_intent(AgentRequest::Interrupt);
     true
 }
 
@@ -536,11 +493,7 @@ pub(crate) async fn handle_esc_interrupt_with_runtime(
     // The round is being stopped: no request is in flight any more, so the
     // transport-setback clause goes with the phase (ADR-0235).
     app.set_phase(None);
-    let msgs = if matches!(target, InterruptTarget::Aside) {
-        &mut app.side_messages
-    } else {
-        &mut app.messages
-    };
+    let msgs = &mut app.messages;
     if let Some(m) = msgs.iter_mut().rev().find(|m| {
         m.role == Role::User
             && (m.is_sending() || (m.delivery == DeliveryStatus::Delivered && m.round.is_none()))

@@ -1195,35 +1195,6 @@ fn resolve_scroll_follows_selection_and_clamps_to_max_scroll() {
     assert_eq!(start, 90, "out-of-range scroll clamps to max_scroll");
 }
 
-/// Leaving the aside view (Ctrl+C detach, `SideViewSignal::Closed`) must
-/// drop any armed Esc confirmation: it targets the aside's round, and a
-/// carried arm could fire the *primary's* interrupt on the next Esc.
-#[test]
-fn leaving_side_view_drops_the_armed_esc_confirmation() {
-    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.side_session_id = Some("aside-1".to_string());
-    app.in_side_view = true;
-    app.current_session_id = "aside-1".to_string();
-    app.running_sessions.insert("aside-1".to_string());
-
-    assert!(!app.esc_press(), "the first Esc inside the aside arms");
-    assert!(app.esc_armed());
-
-    // Detach: exit_side_view itself runs inside on_viewed_session_changed,
-    // which owns the disarm.
-    app.exit_side_view();
-    assert!(
-        !app.esc_armed(),
-        "detaching drops the aside's armed confirmation"
-    );
-
-    // And re-entering a view always starts unarmed.
-    app.enter_side_view("aside-1".to_string());
-    assert!(!app.esc_armed());
-    assert!(!app.esc_press());
-    assert!(app.esc_armed(), "a fresh arm works inside the view");
-}
-
 /// The disclosure-toggle scroll settle: expanding a step must latch
 /// `scroll_settle_pending` so the event loop stages its next frame (measure
 /// the new height) before painting the toggle's target scroll offset. That
@@ -1359,123 +1330,6 @@ fn adopt_caret_head_and_tail_break_selection() {
     assert!(!app.adopt_caret_from_input_selection(SelectionEdge::Head));
 }
 
-// View-scoped chrome for `/btw` aside views (ADR-0103 fix): an aside view must
-// render its own session's activity bar, never inherit the primary's, and the
-// primary's chrome must survive the aside detour untouched.
-
-#[test]
-fn aside_view_does_not_inherit_the_primary_activity_bar() {
-    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    // The primary is mid-round with live chrome.
-    app.phase = Some(crate::phase::Phase::Answering);
-    app.round_started_at = Some(std::time::Instant::now());
-    app.round_count = 7;
-    app.current_turn = 3;
-
-    // Open a brand-new aside: no chrome entry exists yet, so the view must
-    // show a fresh idle surface — not the primary's streaming bar.
-    app.enter_side_view("side-1".to_string());
-    assert!(app.in_side_view);
-    assert!(
-        app.viewed_chrome().phase.is_none(),
-        "a new aside starts idle, not 'responding'"
-    );
-    assert_eq!(
-        app.viewed_chrome().round_count,
-        0,
-        "a new aside carries no round counter"
-    );
-    assert!(
-        app.viewed_chrome().round_started_at.is_none(),
-        "a new aside has no elapsed timer"
-    );
-
-    // The primary's chrome is parked, not destroyed.
-    let parked = app.saved_primary_chrome.as_ref().expect("primary parked");
-    assert_eq!(parked.phase, Some(crate::phase::Phase::Answering));
-    assert_eq!(parked.round_count, 7);
-    assert_eq!(parked.current_turn, 3);
-    assert!(parked.round_started_at.is_some());
-}
-
-#[test]
-fn exiting_an_aside_restores_the_primary_chrome_exactly() {
-    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.phase = Some(crate::phase::Phase::Tool(crate::phase::ToolVerb::Running));
-    let started = std::time::Instant::now();
-    app.round_started_at = Some(started);
-    app.round_count = 12;
-    app.current_turn = 2;
-
-    app.enter_side_view("side-9".to_string());
-    // While inside the aside, its own events land in its chrome entry only.
-    app.session_chrome.insert(
-        "side-9".to_string(),
-        crate::app::SessionChrome {
-            phase: Some(crate::phase::Phase::Reasoning),
-            responding: true,
-            round_count: 1,
-            current_turn: 1,
-            round_started_at: Some(std::time::Instant::now()),
-            can_retry: false,
-            last_turn_performance: None,
-            transport_setback: None,
-        },
-    );
-    // Re-entering (focus jump) must swap the aside's own chrome in.
-    app.enter_side_view("side-9".to_string());
-    assert!(matches!(
-        app.viewed_chrome().phase,
-        Some(crate::phase::Phase::Reasoning)
-    ));
-    assert_eq!(app.viewed_chrome().round_count, 1);
-
-    // Leaving restores the primary's parked chrome bit-for-bit: the primary
-    // round that kept streaming in the background shows its own bar again.
-    app.exit_side_view();
-    assert!(!app.in_side_view);
-    let chrome = app.viewed_chrome();
-    assert_eq!(
-        chrome.phase,
-        Some(crate::phase::Phase::Tool(crate::phase::ToolVerb::Running))
-    );
-    assert_eq!(chrome.round_count, 12);
-    assert_eq!(chrome.current_turn, 2);
-    assert!(chrome.round_started_at.is_some());
-}
-
-#[test]
-fn reentering_a_running_aside_shows_its_own_chrome() {
-    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    // The primary is idle.
-    app.phase = None;
-    app.round_started_at = None;
-
-    // A background aside is streaming (its listener-maintained entry).
-    app.session_chrome.insert(
-        "side-2".to_string(),
-        crate::app::SessionChrome {
-            phase: Some(crate::phase::Phase::Answering),
-            responding: true,
-            round_count: 2,
-            current_turn: 1,
-            round_started_at: Some(std::time::Instant::now()),
-            can_retry: false,
-            last_turn_performance: None,
-            transport_setback: None,
-        },
-    );
-    app.enter_side_view("side-2".to_string());
-    let chrome = app.viewed_chrome();
-    assert_eq!(chrome.phase, Some(crate::phase::Phase::Answering));
-    assert!(chrome.responding);
-    assert_eq!(chrome.round_count, 2);
-    assert!(
-        chrome.round_started_at.is_some(),
-        "the aside's elapsed timer is its own"
-    );
-}
-
 #[test]
 fn config_view_reopen_keeps_pane_and_category() {
     // Settings is a full-screen scene (ADR-0141) whose fields persist
@@ -1529,7 +1383,6 @@ fn esc_never_leaves_a_scene_anywhere_in_the_dispatch() {
         SceneKind::Dashboard,
         SceneKind::Settings,
         SceneKind::Subagent,
-        SceneKind::Aside,
     ] {
         let (mut app, _tmp) = app_in_tempdir(&[], &[]);
         app.switch_scene(scene);

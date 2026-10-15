@@ -28,7 +28,7 @@ mod dialogs;
 
 #[allow(unused_imports)]
 pub use dialogs::{
-    AsidesDialog, ConnectionsDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs, HistorySearchDialog,
+    ConnectionsDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs, HistorySearchDialog,
     McpDialog, ModelsDialog, PermissionsDialog, QueueDialog, QuotasDialog, SessionTreeDialog, SessionsDialog,
     SessionStatsDialog, SessionTraceDialog, SkillsDialog, SwitcherDialog, PortShareDialog, ThreadsDialog, ToolsDialog, UsageStatsDialog,
 };
@@ -45,8 +45,6 @@ pub enum SceneKind {
     Settings,
     /// Deep-dive inspection into a spawned subagent's execution stream.
     Subagent,
-    /// An aside's transcript (`/btw`).
-    Aside,
 }
 
 impl SceneKind {
@@ -57,7 +55,6 @@ impl SceneKind {
             Self::Dashboard => "Session dashboard",
             Self::Settings => "Settings",
             Self::Subagent => "Subagent",
-            Self::Aside => "Aside",
         }
     }
 
@@ -68,7 +65,6 @@ impl SceneKind {
             Self::Dashboard => "/dashboard",
             Self::Settings => "/config  /settings",
             Self::Subagent => "zoom a subagent task",
-            Self::Aside => "focus an aside",
         }
     }
 
@@ -79,7 +75,6 @@ impl SceneKind {
             Self::Dashboard => "dashboard",
             Self::Settings => "settings",
             Self::Subagent => "subagent",
-            Self::Aside => "aside",
         }
     }
 
@@ -100,7 +95,6 @@ pub enum DialogKind {
     Quotas,
     SessionStats,
     SessionTrace,
-    Asides,
     Models,
     Connections,
     HistorySearch,
@@ -117,7 +111,7 @@ impl DialogKind {
     pub const Sessions: DialogKind = DialogKind::Threads;
 
     /// Every dialog id that appears in the switcher's reference/discovery list.
-    pub const ALL: [DialogKind; 16] = [
+    pub const ALL: [DialogKind; 15] = [
         DialogKind::Tools,
         DialogKind::Mcp,
         DialogKind::Skills,
@@ -126,7 +120,6 @@ impl DialogKind {
         DialogKind::Quotas,
         DialogKind::SessionStats,
         DialogKind::SessionTrace,
-        DialogKind::Asides,
         DialogKind::Models,
         DialogKind::Connections,
         DialogKind::HistorySearch,
@@ -147,7 +140,6 @@ impl DialogKind {
             DialogKind::Quotas => "Provider quotas",
             DialogKind::SessionStats => "Session stats",
             DialogKind::SessionTrace => "Session trace",
-            DialogKind::Asides => "Asides (/btw)",
             DialogKind::Models => "Switch model",
             DialogKind::Connections => "Connections",
             DialogKind::HistorySearch => "History",
@@ -170,15 +162,14 @@ impl DialogKind {
             DialogKind::Quotas => "/quotas",
             DialogKind::SessionStats => "/stats",
             DialogKind::SessionTrace => "/trace",
-            DialogKind::Asides => "/btw",
             DialogKind::Models => "/models",
             DialogKind::Connections => "/connections",
             DialogKind::HistorySearch => "Ctrl-r",
             DialogKind::Queue => "/queue",
             DialogKind::Threads => "/threads",
             DialogKind::SessionTree => "/tree",
-            DialogKind::Switcher => "C-x b",
-            DialogKind::PortShare => "C-x p",
+            DialogKind::Switcher => "C-x p",
+            DialogKind::PortShare => "/port",
         }
     }
 
@@ -198,7 +189,6 @@ impl DialogKind {
             // Session: bound to the ambient session; unwound on session change.
             DialogKind::SessionStats
             | DialogKind::SessionTrace
-            | DialogKind::Asides
             | DialogKind::SessionTree
             | DialogKind::Tools
             | DialogKind::Mcp
@@ -1181,7 +1171,6 @@ mod tests {
         for id in [
             DialogKind::SessionStats,
             DialogKind::SessionTrace,
-            DialogKind::Asides,
             DialogKind::SessionTree,
             DialogKind::Tools,
             DialogKind::Mcp,
@@ -1401,17 +1390,17 @@ mod tests {
         assert!(router.tabs[0].can_back());
         assert_eq!(router.tabs[0].breadcrumbs(), &[SceneKind::Thread, SceneKind::Subagent]);
 
-        // Push Aside on Tab 0
-        router.tabs[0].push_scene(SceneKind::Aside);
-        assert_eq!(router.tabs[0].current_scene(), SceneKind::Aside);
+        // Push Settings on Tab 0
+        router.tabs[0].push_scene(SceneKind::Settings);
+        assert_eq!(router.tabs[0].current_scene(), SceneKind::Settings);
 
         // History back on Tab 0
         assert_eq!(router.tabs[0].back(), Some(SceneKind::Subagent));
         assert_eq!(router.tabs[0].current_scene(), SceneKind::Subagent);
 
         // History forward on Tab 0
-        assert_eq!(router.tabs[0].forward(), Some(SceneKind::Aside));
-        assert_eq!(router.tabs[0].current_scene(), SceneKind::Aside);
+        assert_eq!(router.tabs[0].forward(), Some(SceneKind::Settings));
+        assert_eq!(router.tabs[0].current_scene(), SceneKind::Settings);
 
         // Verify Tab 1 (Dashboard) is completely isolated from Tab 0's history
         assert_eq!(router.tabs[1].current_scene(), SceneKind::Dashboard);
@@ -1421,8 +1410,8 @@ mod tests {
         router.switch_scene(SceneKind::Subagent);
         assert_eq!(router.active_scene(), SceneKind::Subagent);
         assert_eq!(router.active_tab().unwrap().current_scene(), SceneKind::Subagent);
-        assert_eq!(router.back_scene(), SceneKind::Aside);
-        assert_eq!(router.active_scene(), SceneKind::Aside);
+        assert_eq!(router.back_scene(), SceneKind::Settings);
+        assert_eq!(router.active_scene(), SceneKind::Settings);
     }
 
     #[test]

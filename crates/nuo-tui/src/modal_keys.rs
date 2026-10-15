@@ -94,7 +94,7 @@ pub fn modal_claims_composer_line(
     match overlay {
         None => matches!(
             scene,
-            SceneKind::Thread | SceneKind::Subagent | SceneKind::Aside
+            SceneKind::Thread | SceneKind::Subagent
         ),
         Some(OverlaySurface::Sheet(SheetKind::ModelEditor)) => true,
         Some(OverlaySurface::Dialog(DialogKind::Models | DialogKind::Connections)) => {
@@ -191,7 +191,6 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Dialog(DialogKind::Quotas) => InputAction::QuotasToggleDetail,
                     OverlaySurface::Dialog(DialogKind::Skills) => InputAction::SkillsToggleDetail,
                     OverlaySurface::Dialog(DialogKind::Queue) => InputAction::RecallQueuedSelected,
-                    OverlaySurface::Dialog(DialogKind::Asides) => InputAction::BtwFocusSelected,
                     OverlaySurface::Dialog(DialogKind::SessionTrace) => {
                         InputAction::TraceInspectDetail
                     }
@@ -224,7 +223,6 @@ pub(crate) fn resolve_modal_key(
                         | DialogKind::Mcp
                         | DialogKind::Skills
                         | DialogKind::Queue
-                        | DialogKind::Asides
                         | DialogKind::Quotas,
                     ) => InputAction::SessionSelect { forward: false },
                     OverlaySurface::Sheet(SheetKind::ProviderPreset) => {
@@ -265,7 +263,6 @@ pub(crate) fn resolve_modal_key(
                         | DialogKind::Mcp
                         | DialogKind::Skills
                         | DialogKind::Queue
-                        | DialogKind::Asides
                         | DialogKind::Quotas,
                     ) => InputAction::SessionSelect { forward: true },
                     OverlaySurface::Sheet(SheetKind::ProviderPreset) => {
@@ -463,9 +460,6 @@ pub(crate) fn resolve_modal_key(
                 'J' => Some(InputAction::QueueMoveItem { delta: 1 }),
                 _ => None,
             },
-            OverlaySurface::Dialog(DialogKind::Asides) if c == 'D' => {
-                Some(InputAction::BtwCloseSelected)
-            }
             OverlaySurface::Sheet(SheetKind::ModelEditor) => resolve_model_editor_key(c, keys),
             _ => None,
         }

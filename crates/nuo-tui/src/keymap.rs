@@ -641,6 +641,7 @@ pub enum CommandId {
     OpenModels,
     OpenConnections,
     OpenActiveConnectionDetail,
+    OpenPortShare,
     OpenTools,
     OpenMcp,
     OpenSkills,
@@ -648,7 +649,7 @@ pub enum CommandId {
     OpenUsage,
     OpenQuotas,
     OpenTree,
-    OpenBtw,
+    ForkThread,
     OpenSessions,
 
     // Management & Actions
@@ -702,11 +703,6 @@ pub enum CommandId {
 
     // Dialog Actions: Skills
     SkillsToggleDetail,
-
-    // Dialog Actions: Asides
-    AsideFocus,
-    AsideClose,
-    AsideRefresh,
 
     // Dialog Actions: History Search
     HistorySearchInsert,
@@ -1159,6 +1155,19 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         description: "Open the active provider connection detail sheet",
     },
     CommandSpec {
+        id: CommandId::OpenPortShare,
+        label: "Port & Remote Sharing",
+        hint: "/port",
+        category: CommandCategory::Navigate,
+        scope: Scope::Global,
+        bindings: &[],
+        slash: Some("/port"),
+        availability: avail_always,
+        disclosure: DisclosurePriority::L2Palette,
+        danger: DangerLevel::Safe,
+        description: "Inspect, enable, or disable server TCP port and remote access",
+    },
+    CommandSpec {
         id: CommandId::OpenTools,
         label: "Tools",
         hint: "/tools",
@@ -1250,17 +1259,17 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         description: "View DAG tree of session rounds and turns",
     },
     CommandSpec {
-        id: CommandId::OpenBtw,
-        label: "Asides (/btw)",
-        hint: "/btw",
-        category: CommandCategory::Navigate,
-        scope: Scope::Global,
+        id: CommandId::ForkThread,
+        label: "Fork Thread",
+        hint: "/fork",
+        category: CommandCategory::Session,
+        scope: Scope::Session,
         bindings: &[],
-        slash: Some("/btw"),
+        slash: Some("/fork"),
         availability: avail_session,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "List background aside threads",
+        description: "Fork current thread into a new sovereign tab (ADR-0058)",
     },
     CommandSpec {
         id: CommandId::OpenSessions,
@@ -1701,46 +1710,6 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         danger: DangerLevel::Safe,
         description: "Expand or collapse skill documentation",
     },
-    // Dialog Actions: Asides
-    CommandSpec {
-        id: CommandId::AsideFocus,
-        label: "Focus Aside",
-        hint: "Enter",
-        category: CommandCategory::Actions,
-        scope: Scope::Dialog(DialogKind::Asides),
-        bindings: &[Key::ENTER],
-        slash: None,
-        availability: avail_always,
-        disclosure: DisclosurePriority::L0Footer,
-        danger: DangerLevel::Safe,
-        description: "Open and focus highlighted aside thread",
-    },
-    CommandSpec {
-        id: CommandId::AsideClose,
-        label: "Close Aside",
-        hint: "Shift-d",
-        category: CommandCategory::Actions,
-        scope: Scope::Dialog(DialogKind::Asides),
-        bindings: &[Key::plain('D')],
-        slash: None,
-        availability: avail_always,
-        disclosure: DisclosurePriority::L0Footer,
-        danger: DangerLevel::Dangerous,
-        description: "Close highlighted aside thread",
-    },
-    CommandSpec {
-        id: CommandId::AsideRefresh,
-        label: "Refresh Asides",
-        hint: "F5",
-        category: CommandCategory::Actions,
-        scope: Scope::Dialog(DialogKind::Asides),
-        bindings: &[Key::F5],
-        slash: None,
-        availability: avail_always,
-        disclosure: DisclosurePriority::L1FocusRegion,
-        danger: DangerLevel::Safe,
-        description: "Reload active aside threads list",
-    },
     // Dialog Actions: History Search
     CommandSpec {
         id: CommandId::HistorySearchInsert,
@@ -1879,10 +1848,8 @@ pub mod scene_namespace {
     /// One scene-lifecycle verb reachable as `C-x <stroke>`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum SceneVerb {
-        /// Open (or close) the Command Palette / surface switcher (`C-x b`).
+        /// Open (or close) the Command Palette / surface switcher (`C-x p`).
         Switcher,
-        /// Open the Port & Network Sharing Palette (`C-x p`, ADR-0045).
-        PortShare,
         /// Navigate directly to the server session orchestrator dashboard (`/dashboard`).
         Dashboard,
         /// Open application and appearance settings (`/settings`, `C-x ,`, ADR-0043).
@@ -1900,7 +1867,6 @@ pub mod scene_namespace {
         /// slice; the router resolves against it. One list, two consumers.
         pub const ALL: &'static [SceneVerb] = &[
             SceneVerb::Switcher,
-            SceneVerb::PortShare,
             SceneVerb::Dashboard,
             SceneVerb::Settings,
             SceneVerb::Threads,
@@ -1914,20 +1880,11 @@ pub mod scene_namespace {
         /// card advertises.
         pub const fn strokes(self) -> &'static [Key] {
             match self {
-                // `b` (buffer/switch — the Emacs `C-x b` muscle memory for "switch what I'm looking at").
-                SceneVerb::Switcher => &[
-                    Key {
-                        modifiers: KeyModifiers::NONE,
-                        code: KeyCode::Char('b'),
-                    },
-                ],
-                // `p` (port & network sharing palette, ADR-0045).
-                SceneVerb::PortShare => &[
-                    Key {
-                        modifiers: KeyModifiers::NONE,
-                        code: KeyCode::Char('p'),
-                    },
-                ],
+                // `p` (command palette canonical entry, ADR-0023).
+                SceneVerb::Switcher => &[Key {
+                    modifiers: KeyModifiers::NONE,
+                    code: KeyCode::Char('p'),
+                }],
                 // `d` (dashboard — opens server session orchestrator dashboard).
                 SceneVerb::Dashboard => &[Key {
                     modifiers: KeyModifiers::NONE,
@@ -1977,7 +1934,6 @@ pub mod scene_namespace {
         pub const fn label(self) -> &'static str {
             match self {
                 SceneVerb::Switcher => "command palette",
-                SceneVerb::PortShare => "port & sharing",
                 SceneVerb::Dashboard => "dashboard",
                 SceneVerb::Settings => "settings",
                 SceneVerb::Threads => "threads",
@@ -2128,6 +2084,9 @@ pub fn command_id_from_name(name: &str) -> Option<CommandId> {
         | "connection_detail"
         | "active_connection_detail"
         | "active-connection-detail" => CommandId::OpenActiveConnectionDetail,
+        "port" | "port_share" | "port-share" | "open_port_share" | "open-port-share" | "share" => {
+            CommandId::OpenPortShare
+        }
         _ => return None,
     })
 }
@@ -2430,10 +2389,7 @@ pub fn commands_for_palette(ctx: &AppContext) -> Vec<(&'static CommandSpec, Avai
     COMMAND_REGISTRY
         .iter()
         .filter(|cmd| {
-            if let Scope::Dialog(dialog) = cmd.scope {
-                return ctx.active_dialog == Some(dialog);
-            }
-            cmd.disclosure >= DisclosurePriority::L2Palette || cmd.scope == Scope::Global
+            cmd.scope == Scope::Global && cmd.disclosure == DisclosurePriority::L2Palette
         })
         .map(|cmd| (cmd, (cmd.availability)(ctx)))
         .collect()

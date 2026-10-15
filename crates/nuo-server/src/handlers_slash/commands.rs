@@ -5,8 +5,6 @@
 //! (rustc does not reuse stack slots across a 1700-line state machine), which
 //! overflowed the server's 2 MiB Tokio worker stack on every slash command.
 
-use std::sync::Arc;
-
 use super::SlashEnv;
 use super::record::{
     record_ack, record_command, record_command_with_duration, record_error, record_invocation,
@@ -15,7 +13,6 @@ use super::security_ops::{TrustRoute, reload_trusted_assets, trust_route};
 use super::session_ops::{
     fork_current_session, restore_session_runtime, start_fresh_session,
     supersede_for_session_switch, switch_or_start_session_with_role,
-    teardown_sides_for_session_switch,
 };
 use super::session_route::{
     SessionRoute, parse_confinement_arg, parse_unattended_arg, session_route,
@@ -23,10 +20,7 @@ use super::session_route::{
 use crate::agent_setup::active_context_window;
 use crate::project::init_nuo_config;
 use crate::session_view::{build_sessions_overview, short_session_id};
-use crate::side::{
-    SideEnv, SideSession, publish_btw_list, refuse_if_no_provider, spawn_parent_status_watcher,
-    start_active_turn,
-};
+use crate::handlers_chat::refuse_if_no_provider;
 use crate::slash_handler::SlashContext;
 use crate::startup::BuiltinCmd;
 
@@ -448,7 +442,6 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
         resp_tx,
         session,
         lifecycle,
-        side,
         provider_for_task,
         ref mut provider_usage,
         ..
@@ -478,7 +471,6 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
             // fields are still read for the rest of the match.
             let provider_usage = &mut *env.provider_usage;
             let mut fresh_env = SlashEnv {
-                side: env.side,
                 session: env.session,
                 config: env.config,
                 agent: env.agent,
@@ -490,10 +482,8 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
                 workspace_security: env.workspace_security,
                 shared_additional_roots: env.shared_additional_roots,
                 shared_confinement: env.shared_confinement,
-                base_tools_for_side: env.base_tools_for_side,
                 skills_registry: env.skills_registry,
                 req_tx_for_commands: env.req_tx_for_commands,
-                project_root_for_side: env.project_root_for_side,
                 startup: env.startup,
                 ui: env.ui,
                 extra_commands: env.extra_commands,
@@ -503,7 +493,7 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
             start_fresh_session(&mut fresh_env, name, args).await;
         }
         SessionRoute::Fork => {
-            fork_current_session(lifecycle, agent, session, side, resp_tx, name, args).await;
+            fork_current_session(session, resp_tx, name, args).await;
         }
         SessionRoute::Status => {
             record_error(
@@ -523,7 +513,6 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
             // picker (the old "resume most recent" guess is gone).
             Some(id) => {
                 supersede_for_session_switch(lifecycle, agent, resp_tx).await;
-                teardown_sides_for_session_switch(side, resp_tx).await;
                 match session.open(id).await {
                     Ok(()) => {
                         // Full restore of the session-scoped runtime the
@@ -602,14 +591,11 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
 
 pub(crate) async fn fork(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
     let SlashEnv {
-        agent,
         resp_tx,
         session,
-        lifecycle,
-        side,
         ..
     } = env;
-    fork_current_session(lifecycle, agent, session, side, resp_tx, name, args).await;
+    fork_current_session(session, resp_tx, name, args).await;
 }
 
 pub(crate) async fn tree(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
@@ -727,122 +713,7 @@ pub(crate) async fn quota(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&
     .await;
 }
 
-pub(crate) async fn btw(env: SlashEnv<'_>, cmd: &str, name: &str, args: &str, _parts: &[&str]) {
-    let SlashEnv {
-        config,
-        agent,
-        resp_tx,
-        session,
-        lifecycle,
-        side,
-        base_tools_for_side,
-        provider_for_task,
-        skills_registry,
-        project_root_for_side,
-        ..
-    } = env;
-    // `/btw` grammar (ADR-0103 §4):
-    //   `/btw`        — open a NEW aside view (no round yet);
-    //   `/btw <text>` — open a new aside and auto-send <text> as its
-    //                   first turn;
-    //   `/btw list`   — open the asides modal (same as F5).
-    //
-    // Opening forks the primary into a self-contained side file,
-    // builds a fresh aside `Agent` + store, and switches the view.
-    // The primary round keeps running untouched — unlike
-    // `/session open`, we deliberately do NOT bump the generation
-    // counter, reject permissions, or cancel the primary token.
-    // Existing asides stay live in the registry: each `/btw` creates
-    // an additional aside (ADR-0103 lifts ADR-0017's single slot).
-    let rest = cmd.strip_prefix("/btw").unwrap_or("").trim();
-    if rest == "list" {
-        record_invocation(session, name, args).await;
-        publish_btw_list(side, resp_tx).await;
-        return;
-    }
-    let prompt = rest;
-    let side_session = match SideSession::build(
-        session,
-        base_tools_for_side,
-        provider_for_task,
-        Arc::unwrap_or_clone((*skills_registry).clone()),
-        project_root_for_side,
-        agent.identity().clone(),
-        agent.workspace_security_handle(),
-    )
-    .await
-    {
-        Ok(s) => s,
-        Err(error) => {
-            record_error(session, resp_tx, name, args, error).await;
-            return;
-        }
-    };
-    let side_id = side_session.id.clone();
-    if let Some(ledger) = agent.token_ledger() {
-        side_session.agent.install_token_ledger(ledger.clone());
-        ledger.restore_session(&side_id, side_session.store.request_usage_records().await);
-    }
-    let side_context = side_session
-        .agent
-        .estimate_next_request_tokens(&side_session.store.model_window().await)
-        .total_tokens;
-    let _ = resp_tx.send(round_response(
-        &side_id,
-        RoundEvent::ContextTokens(nuo_wire::ContextTokenSnapshot::new(
-            side_context,
-            nuo_wire::ContextTokenSource::Projection,
-        )),
-    ));
-    // Register + make it the active view, then tell the TUI to enter
-    // the aside view — `SideViewOpened` carries the aside's full
-    // transcript (inherited parent context included, ADR-0103 §6)
-    // and lands before the first aside round starts streaming.
-    let side_for_titler = Arc::clone(side);
-    let resp_tx_for_titler = (*resp_tx).clone();
-    side_session
-        .agent
-        .set_title_established(std::sync::Arc::new(move |_title| {
-            let side_registry = Arc::clone(&side_for_titler);
-            let resp_tx = resp_tx_for_titler.clone();
-            Box::pin(async move {
-                publish_btw_list(&side_registry, &resp_tx).await;
-            }) as futures::future::BoxFuture<'static, ()>
-        }));
 
-    side.write().await.open(side_session);
-    crate::handlers_session::emit_side_view_opened(side, session, resp_tx, &side_id).await;
-    publish_btw_list(side, resp_tx).await;
-    record_invocation(session, name, args).await;
-    // Stream coarse primary-status updates to the aside banner while
-    // any aside is live. The watcher spans the whole registry and
-    // self-terminates when the last aside closes; spawning a second
-    // one while the first is still alive is harmless (both emit only
-    // on change and dedupe through the shared last-value cell on the
-    // TUI side).
-    spawn_parent_status_watcher((*side).clone(), (*lifecycle).clone(), (*resp_tx).clone());
-    if !prompt.is_empty() {
-        start_active_turn(
-            SideEnv {
-                side,
-                agent,
-                primary_session: session,
-                primary_lifecycle: lifecycle,
-                tx: resp_tx,
-                config,
-            },
-            RoundInput {
-                prompt: prompt.to_string(),
-                hidden: false,
-                display_prompt: None,
-                sent_at_ms: None,
-                images: Vec::new(),
-                driver: nuo_harness::orchestration::RoundDriver::Fresh,
-            },
-        )
-        .await;
-    }
-}
 
 pub(crate) async fn compact(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
     let SlashEnv {
@@ -1102,9 +973,10 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
         resp_tx,
         session,
         skills_registry,
-        project_root_for_side,
         ..
     } = env;
+    let ws_opt = session.workspace();
+    let project_root = ws_opt.as_ref().map(|w| w.root.as_path());
     let route = match trust_route(name, parts) {
         Ok(route) => route,
         Err(error) => {
@@ -1112,7 +984,7 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
             return;
         }
     };
-    let Some(project_root_for_side) = project_root_for_side else {
+    let Some(project_root) = project_root else {
         match route {
             TrustRoute::GrantAll | TrustRoute::Grant(TrustDomain::UserAssets) => {
                 let user_granted = crate::handlers_slash::security_ops::trust_user_assets();
@@ -1182,7 +1054,7 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
     };
     match route {
         TrustRoute::Status => {
-            let mut snapshot = workspace_security.snapshot(project_root_for_side);
+            let mut snapshot = workspace_security.snapshot(project_root);
             snapshot.user_assets = crate::handlers_slash::security_ops::compute_user_assets_trust();
             agent.set_workspace_security(snapshot.clone());
             let message = format!(
@@ -1229,7 +1101,7 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
             let mut granted = if ws_domains.is_empty() {
                 Vec::new()
             } else {
-                match workspace_security.trust_domains(project_root_for_side, &ws_domains) {
+                match workspace_security.trust_domains(project_root, &ws_domains) {
                     Ok(granted) => granted,
                     Err(error) => {
                         record_error(session, resp_tx, name, args, error).await;
@@ -1244,7 +1116,7 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
                 agent,
                 mcp_runtime,
                 workspace_security,
-                project_root_for_side,
+                project_root,
                 skills_registry,
                 shared_additional_roots,
             )
@@ -1288,7 +1160,7 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
             record_command(session, resp_tx, name, args, CommandResult::Text(message)).await;
         }
         TrustRoute::Revoke => {
-            let revoked = match workspace_security.revoke_workspace(project_root_for_side) {
+            let revoked = match workspace_security.revoke_workspace(project_root) {
                 Ok(revoked) => revoked,
                 Err(error) => {
                     record_error(session, resp_tx, name, args, error).await;
@@ -1299,7 +1171,7 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
                 agent,
                 mcp_runtime,
                 workspace_security,
-                project_root_for_side,
+                project_root,
                 skills_registry,
                 shared_additional_roots,
             )
@@ -1525,7 +1397,6 @@ pub(crate) async fn retry(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&
         resp_tx,
         session,
         lifecycle,
-        side,
         ..
     } = env;
     if lifecycle.is_running().await {
@@ -1578,12 +1449,11 @@ pub(crate) async fn retry(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&
         return;
     }
     record_invocation(session, name, args).await;
-    start_active_turn(
-        SideEnv {
-            side,
+    crate::handlers_chat::start_turn(
+        crate::handlers_chat::ChatEnv {
             agent,
-            primary_session: session,
-            primary_lifecycle: lifecycle,
+            session,
+            lifecycle,
             tx: resp_tx,
             config,
         },
@@ -1647,13 +1517,10 @@ pub(crate) async fn user_command(
         resp_tx,
         session,
         lifecycle,
-        side,
-        base_tools_for_side,
         provider_for_task,
         ref mut provider_usage,
         skills_registry,
         req_tx_for_commands,
-        project_root_for_side,
         startup,
         ui,
         extra_commands,
@@ -1672,13 +1539,11 @@ pub(crate) async fn user_command(
             resp_tx,
             session,
             lifecycle,
-            side,
-            base_tools: base_tools_for_side,
             provider_holder: provider_for_task,
             provider_usage,
             skills_registry,
             req_tx: req_tx_for_commands,
-            project_root: project_root_for_side,
+            project_root: None,
             startup,
             ui,
         };

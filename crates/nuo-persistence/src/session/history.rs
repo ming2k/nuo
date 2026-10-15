@@ -26,6 +26,17 @@ pub struct CommitTurn<'a> {
     pub expected_revision: Option<u64>,
 }
 
+/// Target temporal boundary for a granular session fork (ADR-0058).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ForkTarget {
+    /// Fork at current settled head (latest turn).
+    Head,
+    /// Fork at conclusion of round R (1-indexed).
+    Round(u64),
+    /// Fork after turn T of round R (1-indexed round, 0-indexed turn).
+    Turn { round: u64, turn: u32 },
+}
+
 impl<'a> CommitTurn<'a> {
     pub fn new(messages: &'a [Message]) -> Self {
         Self {
@@ -575,10 +586,14 @@ impl SessionStore {
             .await
     }
 
-    /// Fork the current session: write its state to a new child and
-    /// repoint this store at the child in SQLite. Returns `(child_id, parent_id)`.
-    pub async fn fork(&self) -> Result<(String, String), String> {
-        let (parent_id, child, fork_child_id, child_path) = {
+    /// Fork the current session at a specific temporal boundary (ADR-0058)
+    /// into a sovereign child session WITHOUT mutating or repointing this store.
+    /// Returns `(child_id, parent_id, target_round, title)`.
+    pub async fn fork_at(
+        &self,
+        target: ForkTarget,
+    ) -> Result<(String, String, Option<u64>, Option<String>), String> {
+        let (parent_id, child, fork_child_id, target_round, child_title, cutoff_entry_id) = {
             let state = self.state.lock().await;
             if state.data.transcript.entries.is_empty() {
                 return Err("Cannot fork an empty session.".to_string());
@@ -586,8 +601,66 @@ impl SessionStore {
             let parent_id = state.data.id.clone();
             let now = unix_timestamp();
 
-            // Build the child snapshot from the parent's current state. Entries
-            // are shared by identity; the child merely gains its own memberships.
+            let entries = &state.data.transcript.entries;
+            let (cutoff, target_round) = match target {
+                ForkTarget::Head => (entries.len(), state.data.round_counter),
+                ForkTarget::Round(r) => {
+                    if r == 0 {
+                        return Err("Cannot fork at round 0.".to_string());
+                    }
+                    let mut current_round = 0u64;
+                    let mut cutoff_idx = None;
+                    for (i, entry) in entries.iter().enumerate() {
+                        let is_user_msg = entry.role == Some(nuo_wire::Role::User) && !entry.hidden;
+                        if is_user_msg {
+                            current_round += 1;
+                            if current_round > r {
+                                cutoff_idx = Some(i);
+                                break;
+                            }
+                        }
+                    }
+                    if current_round < r {
+                        return Err(format!(
+                            "Cannot fork at round {r}: session only has {current_round} round(s)."
+                        ));
+                    }
+                    let cutoff = cutoff_idx.unwrap_or(entries.len());
+                    (cutoff, r)
+                }
+                ForkTarget::Turn { round: r, turn: t } => {
+                    if r == 0 {
+                        return Err("Cannot fork at round 0.".to_string());
+                    }
+                    let mut current_round = 0u64;
+                    let mut round_start = None;
+                    let mut next_round_start = None;
+                    for (i, entry) in entries.iter().enumerate() {
+                        let is_user_msg = entry.role == Some(nuo_wire::Role::User) && !entry.hidden;
+                        if is_user_msg {
+                            current_round += 1;
+                            if current_round == r && round_start.is_none() {
+                                round_start = Some(i);
+                            } else if current_round > r {
+                                next_round_start = Some(i);
+                                break;
+                            }
+                        }
+                    }
+                    let start = match round_start {
+                        Some(s) => s,
+                        None => {
+                            return Err(format!(
+                                "Cannot fork at round {r}: session only has {current_round} round(s)."
+                            ));
+                        }
+                    };
+                    let max_end = next_round_start.unwrap_or(entries.len());
+                    let cutoff = (start + (t as usize) + 1).min(max_end);
+                    (cutoff, r)
+                }
+            };
+
             let mut child = state.data.clone();
             let fork_child_id = uuid::Uuid::new_v4().to_string();
             child.id = fork_child_id.clone();
@@ -595,114 +668,86 @@ impl SessionStore {
             child.fork_kind = nuo_wire::SessionForkKind::Fork;
             child.created_at = now;
             child.updated_at = now;
+            child.round_counter = target_round;
+            let title = state
+                .data
+                .title
+                .as_ref()
+                .map(|t| format!("{t} (fork)"))
+                .or_else(|| Some("fork".to_string()));
+            child.title = title.clone();
             child.request_usage_records.clear();
 
-            let child_path = self.sessions_dir.join(format!("{fork_child_id}.json"));
-            (parent_id, child, fork_child_id, child_path)
+            // Slice transcript entries
+            child.transcript.entries = entries[..cutoff].to_vec();
+            if let Some(last) = child.transcript.entries.last() {
+                child.transcript.min_next_seq = last.seq + 1;
+            }
+            let min_next = child.transcript.min_next_seq;
+            child.transcript.directives.retain(|d| d.seq < min_next);
+
+            let cutoff_entry_id = child.transcript.entries.last().map(|e| e.id.clone());
+            (
+                parent_id,
+                child,
+                fork_child_id,
+                Some(target_round),
+                title,
+                cutoff_entry_id,
+            )
         };
+
         // Blocking I/O stays outside the session lock.
         persist_to(&self.writer, &child, &self.blob_store)?;
 
-        let mut state = self.state.lock().await;
-        // Repoint this store at the child; the parent state is already current.
-        state.path = child_path;
-        state.data = child;
-        *self.workspace.write().unwrap_or_else(|e| e.into_inner()) = state.data.workspace.clone();
-        *self.role.write().unwrap_or_else(|e| e.into_inner()) = state.data.role.clone();
-        state.invalidate_projection_cache();
-        state.defer_persist = false;
-        drop(state);
-
-        // Fork canonical SessionIR into SQLite (ADR-0241/ADR-0249)
+        // Fork canonical SessionIR into SQLite (ADR-0241/ADR-0249/ADR-0058)
         let parent_ir = self.session_ir().await;
         let parent_delta = parent_ir.drain_delta(0);
         let _ = self.writer.save_session_delta(parent_delta).await;
-        let child_ir = parent_ir.fork(&fork_child_id);
-        let delta = child_ir.drain_delta(0);
-        self.writer.save_session_delta(delta).await.map_err(|e| e.to_string())?;
 
-        Ok((fork_child_id, parent_id))
-    }
-
-    /// Fork the current session into a **self-contained side session** without
-    /// disturbing this store's active pointer (ADR-0017). Returns `(side_id, parent_id)`.
-    pub async fn fork_to_side(&self) -> Result<(String, String), String> {
-        let (parent_id, side, side_id) = {
-            let state = self.state.lock().await;
-            if state.data.transcript.entries.is_empty() {
-                return Err("Cannot fork an empty session.".to_string());
-            }
-            let parent_id = state.data.id.clone();
-            let now = unix_timestamp();
-
-            let mut side = state.data.clone();
-            let side_id = uuid::Uuid::new_v4().to_string();
-            side.id = side_id.clone();
-            side.parent_id = Some(parent_id.clone());
-            side.fork_kind = nuo_wire::SessionForkKind::Aside;
-            side.title = None;
-            side.created_at = now;
-            side.updated_at = now;
-            side.request_usage_records.clear();
-            (parent_id, side, side_id)
+        let child_ir = if let Some(round) = target_round
+            && let Some(leaf_id) = parent_ir.find_round_leaf(round)
+        {
+            parent_ir.fork_at_leaf(&fork_child_id, leaf_id, round)
+        } else if let Some(ref entry_id) = cutoff_entry_id
+            && parent_ir.history.nodes.contains_key(entry_id)
+        {
+            parent_ir.fork_at_leaf(&fork_child_id, entry_id, target_round.unwrap_or(0))
+        } else {
+            let mut ir = parent_ir.fork(&fork_child_id);
+            ir.state.round_counter = target_round.unwrap_or(0);
+            ir
         };
-        // Blocking I/O stays outside the session lock.
-        persist_to(&self.writer, &side, &self.blob_store)?;
-
-        // Fork canonical SessionIR into SQLite (ADR-0241/ADR-0249)
-        let parent_ir = self.session_ir().await;
-        let parent_delta = parent_ir.drain_delta(0);
-        let _ = self.writer.save_session_delta(parent_delta).await;
-        let side_ir = parent_ir.fork(&side_id);
-        let delta = side_ir.drain_delta(0);
+        let delta = child_ir.drain_delta(0);
         self.writer
             .save_session_delta(delta)
             .await
-            .map_err(|e| format!("failed to persist forked SessionDelta to canonical storage: {e}"))?;
+            .map_err(|e| e.to_string())?;
 
-        Ok((side_id, parent_id))
+        Ok((fork_child_id, parent_id, target_round, child_title))
     }
 
-    /// Construct a live [`SessionStore`] pinned to a side session.
-    pub async fn open_side(&self, side_id: &str) -> Result<SessionStore, String> {
-        let side_path = self.sessions_dir.join(format!("{side_id}.json"));
-        let db_path = self.db_path.clone();
-        let workspace = self
-            .workspace
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
-        let role = self.role.read().unwrap_or_else(|e| e.into_inner()).clone();
-        let blob_store = BlobStore::new(self.blob_store.root().to_path_buf());
-        let reader = self.writer.reader().map_err(|e| e.to_string())?;
-        let data = if let Some(data) = reader
-            .load_session_full(side_id)
-            .map_err(|e| e.to_string())?
+    /// Fork the current session: write its state to a new child and
+    /// repoint this store at the child in SQLite. Returns `(child_id, parent_id)`.
+    pub async fn fork(&self) -> Result<(String, String), String> {
+        let (fork_child_id, parent_id, _, _) = self.fork_at(ForkTarget::Head).await?;
+        let child_path = self.sessions_dir.join(format!("{fork_child_id}.json"));
+
+        let mut state = self.state.lock().await;
+        if let Ok(reader) = self.writer.reader()
+            && let Ok(Some(child_data)) = reader.load_session_full(&fork_child_id)
         {
-            data
-        } else if side_path.exists() {
-            load_or_seed(
-                Some(&reader),
-                Some(&self.writer),
-                side_id,
-                &blob_store,
-                workspace.as_ref(),
-                role.as_deref(),
-                Some(&side_path),
-            )
-        } else {
-            return Err(format!("Side session '{side_id}' was not found."));
-        };
-        Ok(SessionStore {
-            workspace: std::sync::RwLock::new(workspace),
-            role: std::sync::RwLock::new(role),
-            sessions_dir: self.sessions_dir.clone(),
-            db_path,
-            blob_store,
-            writer: self.writer.clone(),
-            state: Mutex::new(SessionState::new(side_path, data, false)),
-            persist_gate: Mutex::new(()),
-        })
+            state.path = child_path;
+            state.data = child_data;
+            *self.workspace.write().unwrap_or_else(|e| e.into_inner()) =
+                state.data.workspace.clone();
+            *self.role.write().unwrap_or_else(|e| e.into_inner()) = state.data.role.clone();
+            state.invalidate_projection_cache();
+            state.defer_persist = false;
+        }
+        drop(state);
+
+        Ok((fork_child_id, parent_id))
     }
 
     /// Read the full DAG session tree.

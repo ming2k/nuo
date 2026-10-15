@@ -1,16 +1,16 @@
 ---
 id: ADR-0017
 title: "Concurrent Aside Execution Substrate and Isolated Round Routing (/btw)"
-status: accepted
+status: superseded
 date: 2026-10-04
 scope: server/nuo-server, runtime/aside, comm/routing, protocol/wire
-superseded_by: null
+superseded_by: ADR-0058
 negative_knowledge: true
 ---
 
-# 0017. Concurrent Aside Execution Substrate and Isolated Round Routing (/btw)
+# 0017. Concurrent Aside Execution Substrate and Isolated Round Routing (/btw) (Superseded by ADR-0058)
 
-- Status: Accepted
+- Status: Superseded by [ADR-0058](0058-granular-causal-session-forking-sovereign-tab-projection-and-aside-retirement.md)
 - Date: 2026-10-04
 - Deciders: Nuo Architecture Working Group
 - Consulted: Server, Harness, Protocol, and TUI maintainers

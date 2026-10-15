@@ -337,7 +337,6 @@ pub fn route_event(
                 return match SceneVerb::from_second_stroke(physical_key) {
                     Some(SceneVerb::Leave) => InputAction::CloseScene,
                     Some(SceneVerb::Switcher) => InputAction::ViewSwitcherToggle,
-                    Some(SceneVerb::PortShare) => InputAction::OpenPortPalette,
                     Some(SceneVerb::Threads) => InputAction::OpenSessions,
                     Some(SceneVerb::Dashboard) => InputAction::NavigateDashboard,
                     Some(SceneVerb::Settings) => InputAction::NavigateSettings,
@@ -567,22 +566,6 @@ pub fn route_event(
                         ))
                     {
                         InputAction::QueueToggleBlock
-                    } else {
-                        InputAction::None
-                    }
-                }
-
-                // F5 is a declared global binding (registry → OpenBtwList).
-                // Inside the asides modal itself it re-queries the list (a
-                // refresh) rather than toggling the modal closed; inside any
-                // other modal it is a no-op.
-                KeyCode::F(5) => {
-                    if dispatch.overlay
-                        == Some(crate::surfaces::OverlaySurface::Dialog(
-                            crate::surfaces::DialogKind::Asides,
-                        ))
-                    {
-                        InputAction::OpenBtwList
                     } else {
                         InputAction::None
                     }

@@ -43,9 +43,9 @@ use nuo_persistence::{
 };
 
 /// Wrap a session-scoped [`RoundEvent`] in the [`AgentResponse::Round`]
-/// envelope (ADR-0017). Every round-scoped emitter routes through this so the
+/// envelope. Every round-scoped emitter routes through this so the
 /// session id is attached uniformly, letting the TUI key transcript buffers
-/// by `session_id` and dispatch primary vs `/btw` side events correctly.
+/// by `session_id` correctly.
 pub fn round_response(session_id: &str, event: RoundEvent) -> AgentResponse {
     AgentResponse::Round {
         session_id: session_id.to_string(),
@@ -636,8 +636,8 @@ pub struct RoundContext {
     pub tx: mpsc::UnboundedSender<AgentResponse>,
     pub token: CancellationToken,
     pub session: Arc<SessionStore>,
-    /// Session id this round belongs to (ADR-0017). Tags every emitted
-    /// [`RoundEvent`] so the TUI routes primary vs `/btw` side events correctly.
+    /// Session id this round belongs to. Tags every emitted
+    /// [`RoundEvent`].
     pub session_id: String,
     pub projection: ContextProjectionSettings,
     pub retry_max_attempts: usize,
@@ -719,8 +719,8 @@ pub struct InteractiveRoundContext {
     pub tx: mpsc::UnboundedSender<AgentResponse>,
     pub lifecycle: Arc<RoundLifecycle>,
     pub session: Arc<SessionStore>,
-    /// Session id this round belongs to (ADR-0017). Tags every emitted
-    /// [`RoundEvent`] so the TUI routes primary vs `/btw` side events correctly.
+    /// Session id this round belongs to. Tags every emitted
+    /// [`RoundEvent`].
     pub session_id: String,
     pub projection: ContextProjectionSettings,
     pub retry_max_attempts: usize,
@@ -793,7 +793,7 @@ pub async fn start_interactive_round(context: InteractiveRoundContext, input: Ro
         // terminal event → lifecycle.finish → Idle) must run even when the
         // round body panics. Before this wrapper, a panic skipped all of it:
         // `RoundLifecycle::is_running()` stayed true forever (monitor rows
-        // and `/btw` banners stuck on "Running") and parked user-input
+        // stuck on "Running") and parked user-input
         // requests were never resolved. The panic is converted into an
         // ordinary `HarnessError::Other` so the existing error mapping emits
         // a visible `RoundEvent::Error` instead of silence.
@@ -1078,8 +1078,7 @@ pub async fn execute_round(
     let mut round_history = if let Some(point) = resumed_point.as_ref() {
         // `/retry` (ADR-0128): re-seed the round's history from the durable
         // checkpoint the stopped round left behind. The window may have moved
-        // since (a compaction, a `/btw` aside sharing the store — none apply
-        // to a parked round, but the clamp keeps the invariant anyway), so
+        // since (a compaction sharing the store), so
         // the watermark is a *cap*: never re-send content the stopped round
         // never committed (a partially streamed response was already
         // discarded with `StreamDiscard` before the point was armed).

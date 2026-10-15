@@ -6,16 +6,14 @@
 //! so the body reads exactly as it did inline.
 
 use nuo_harness::Agent;
-use crate::session_driver::send_harness_state_for_session;
-use nuo_wire::{AgentResponse, LoopStatus};
+use nuo_wire::AgentResponse;
 use crate::mcp::McpRuntime;
 use nuo_persistence::{config::Config, session::SessionStore};
 use nuo_harness::skills::SkillRegistry;
 use std::sync::Arc;
-use tokio::sync::{RwLock as AsyncRwLock, mpsc};
+use tokio::sync::mpsc;
 
 use crate::session_view::{build_session_context, build_sessions_overview};
-use crate::side::SideRegistry;
 
 /// `AgentRequest::DeleteSession` — delete by id (or short-id prefix) and push
 /// a fresh sessions-overview snapshot, or surface the storage error.
@@ -278,129 +276,6 @@ pub async fn reconnect_mcp_server(
         config,
     );
     let _ = resp_tx.send(AgentResponse::SessionContext(snapshot));
-}
-
-/// `AgentRequest::ExitSideView` — detach from the `/btw` aside view and return
-/// to the primary transcript (ADR-0103 §1). Non-destructive by default: the
-/// aside's in-flight round is left alone and its session stays registered so
-/// it can be re-entered later (the asides list shows it). The one carve-out
-/// is the pristine rule (§4): an aside that never started a round has no user
-/// content of its own, so it is dropped from the registry **and** its session
-/// files are deleted — an opened-then-abandoned `/btw` never litters.
-pub async fn detach_side_view(
-    side: &Arc<AsyncRwLock<SideRegistry>>,
-    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
-) {
-    let _detached_id = side.write().await.detach();
-    crate::side::publish_btw_list(side, resp_tx).await;
-    let _ = resp_tx.send(AgentResponse::SideViewClosed);
-}
-
-/// `AgentRequest::FocusSide` — jump the view into a live aside (ADR-0103 §5).
-/// Re-opens it if needed, makes it the composer target, and emits
-/// `SideViewOpened` carrying the aside's full persisted transcript so the
-/// frontend rebuilds its side buffer (inherited parent context included —
-/// ADR-0103 §6).
-pub async fn focus_side(
-    side: &Arc<AsyncRwLock<SideRegistry>>,
-    primary_session: &Arc<SessionStore>,
-    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
-    side_id: String,
-) {
-    let focused = side.write().await.focus(&side_id);
-    if !focused {
-        let _ = resp_tx.send(AgentResponse::Error(
-            "That aside is no longer open.".to_string(),
-        ));
-        return;
-    }
-    emit_side_view_opened(side, primary_session, resp_tx, &side_id).await;
-}
-
-/// Build and send the `SideViewOpened` event for a registered aside: routing
-/// keys plus the one-shot transcript back-fill (§6). Shared by `/btw` (new
-/// aside) and `focus_side` (re-entry).
-pub async fn emit_side_view_opened(
-    side: &Arc<AsyncRwLock<SideRegistry>>,
-    primary_session: &Arc<SessionStore>,
-    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
-    side_id: &str,
-) {
-    let handle = side.read().await.handle(side_id);
-    let Some(s) = handle else {
-        return;
-    };
-    let messages = s.store.full_transcript().await;
-    let commands = s.store.commands().await;
-    let round_interrupts = s.store.round_interrupts().await;
-    let retry_resolutions = s.store.retry_resolutions().await;
-    let primary_id = primary_session.id().await;
-    let _ = resp_tx.send(AgentResponse::SideViewOpened {
-        side_id: s.id.clone(),
-        primary_id,
-        messages,
-        commands,
-        round_interrupts,
-        retry_resolutions,
-    });
-}
-
-/// `AgentRequest::InterruptSide` — interrupt the in-flight round of one aside
-/// (ADR-0103 §2). Esc inside an aside view resolves here; interrupting an
-/// aside never closes it. Mirrors the primary interrupt's eager idle flip so
-/// the aside's own activity surfaces collapse immediately, without touching
-/// the primary's lifecycle.
-pub async fn interrupt_side(
-    side: &Arc<AsyncRwLock<SideRegistry>>,
-    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
-    side_id: String,
-) {
-    let target = side.read().await.handle(&side_id);
-    let Some(s) = target else {
-        return;
-    };
-    // Park the user-interrupt reason before cancelling so the aside round's
-    // tail labels its own unwind (C11) — Esc Esc inside an aside view.
-    s.lifecycle
-        .record_interrupt(nuo_wire::RoundInterruptReason::User);
-    s.agent.reject_pending_permissions();
-    s.agent.reject_pending_user_questions();
-    s.agent.reject_pending_inputs();
-    // Session-scoped PermissionsCleared + eager idle snapshot, exactly like
-    // the primary's `interrupt` — but scoped to the aside's session id so the
-    // primary chrome is untouched.
-    let _ = resp_tx.send(AgentResponse::PermissionsCleared);
-    send_harness_state_for_session(resp_tx, &s.id, &s.agent, &s.store, LoopStatus::Idle).await;
-    s.lifecycle.cancel_current().await;
-}
-
-/// `AgentRequest::CloseSide` — close one aside for real (ADR-0103 §5, the
-/// asides modal's `D` action): cancel any in-flight round, drop the registry
-/// entry, and delete the aside's session files so it disappears from the
-/// asides list and `/sessions`. If the closed aside was the focused view, the
-/// harness also emits `SideViewClosed`.
-pub async fn close_side(
-    side: &Arc<AsyncRwLock<SideRegistry>>,
-    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
-    side_id: String,
-) {
-    let was_active = side.read().await.active().is_some_and(|s| s.id == side_id);
-    if let Some(s) = side.write().await.remove(&side_id) {
-        // The aside's files are deleted right below, so the record itself is
-        // moot; parking the reason still labels the unwind if the tail races
-        // the removal (C11).
-        s.lifecycle
-            .record_interrupt(nuo_wire::RoundInterruptReason::Superseded);
-        s.agent.reject_pending_permissions();
-        s.agent.reject_pending_user_questions();
-        s.agent.reject_pending_inputs();
-        s.lifecycle.cancel_current().await;
-        let _ = s.store.delete(&s.id).await;
-    }
-    crate::side::publish_btw_list(side, resp_tx).await;
-    if was_active {
-        let _ = resp_tx.send(AgentResponse::SideViewClosed);
-    }
 }
 
 #[cfg(test)]

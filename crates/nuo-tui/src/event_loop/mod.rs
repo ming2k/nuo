@@ -15,7 +15,7 @@ pub(crate) use actions::{effective_reasoning_effort, modal_page_step};
 pub(crate) use mutations::{AppMutation, Buffer, CompletionSignal, TranscriptEdit};
 #[cfg(test)]
 pub(crate) use render::render_frame;
-pub(crate) use runtime::{SideViewSignal, UiRuntime, now_epoch_ms};
+pub(crate) use runtime::{UiRuntime, now_epoch_ms};
 #[cfg(test)]
 pub(crate) use transcript::focused_messages_mut;
 #[allow(unused_imports)]
@@ -313,7 +313,7 @@ pub async fn run_app_loop(
         }
 
         let empty_state_showing =
-            app.focused_messages().is_empty() && app.focus_stack.is_empty() && !app.in_side_view;
+            app.focused_messages().is_empty() && app.focus_stack.is_empty();
         if empty_state_showing {
             let current_carousel_index =
                 crate::empty_state::carousel_page_for(app.carousel_epoch.elapsed().as_millis());

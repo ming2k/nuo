@@ -517,13 +517,11 @@ pub enum InputAction {
         x: u16,
         y: u16,
     },
-    /// Open the `/btw` asides list modal (ADR-0103 §5). Mapped from F5.
-    OpenBtwList,
-    /// Open the global view quick switcher (ADR-0139, `C-x b`). A transient
+    /// Open the global view quick switcher / Command Palette (`C-x p` / `C-x b`). A transient
     /// chooser over every browse surface: open views first in MRU order,
     /// then the rest as discovery. Esc closes it with nothing changed.
     ViewSwitcherToggle,
-    /// Open the Port & Network Sharing Palette (`C-x p`, ADR-0045).
+    /// Open the Port & Network Sharing Palette (`/port`, or via Command Palette).
     OpenPortPalette,
     /// Toggle the TCP listener in the Port & Network Sharing Palette.
     TogglePortListener,
@@ -544,14 +542,6 @@ pub enum InputAction {
     /// Explicitly close the selected retained view and discard its UI state.
     /// Delete never removes the underlying session or backend resource.
     ViewCloseSelected,
-    /// Jump into the aside highlighted in the asides modal (ADR-0103 §5).
-    BtwFocusSelected,
-    /// Close + discard the aside highlighted in the asides modal
-    /// (`D`, ADR-0103 §5).
-    BtwCloseSelected,
-    /// Interrupt the viewed aside's in-flight round (Esc inside an aside
-    /// view, ADR-0103 §2). Interrupting never closes the aside.
-    InterruptSide,
     /// Interrupt the viewed subagent's in-flight round (Esc inside the Subagent
     /// scene, ADR-0205). Scene-scoped: it stops only the focused child and never
     /// the enclosing primary round or a sibling subagent. The target is the top

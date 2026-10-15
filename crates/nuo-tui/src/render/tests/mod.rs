@@ -41,7 +41,6 @@ fn render_full_view(
                 tasks_bar: Default::default(),
                 persistence_health: None,
                 subagent_bar: None,
-                side_banner: None,
                 page_hints: hints,
                 session_head: Some(SessionHead {
                     session_id: "sess-01a2b3c4",

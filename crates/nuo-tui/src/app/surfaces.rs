@@ -162,7 +162,6 @@ impl App {
                 DialogKind::HistorySearch => self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().follow = follow,
                 DialogKind::SessionTree => self.surfaces.dlg_mut::<crate::surfaces::SessionTreeDialog>().follow = follow,
                 DialogKind::Queue => self.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().follow = follow,
-                DialogKind::Asides => self.surfaces.dlg_mut::<crate::surfaces::AsidesDialog>().follow = follow,
                 DialogKind::Permissions
                 | DialogKind::UsageStats
                 | DialogKind::Quotas
@@ -431,8 +430,6 @@ impl App {
         let incoming = self.current_session_id.clone();
         self.surfaces.dialogs.switch_session(&incoming);
         self.focus_stack.clear();
-        self.in_side_view = false;
-        self.side_session_id = None;
         self.session_detail = None;
         self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = false;
         self.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll = 0;
@@ -497,7 +494,7 @@ impl App {
             SceneKind::Settings => {
                 self.config_dropdown = None;
             }
-            SceneKind::Thread | SceneKind::Subagent | SceneKind::Aside => {}
+            SceneKind::Thread | SceneKind::Subagent => {}
         }
     }
 
@@ -566,11 +563,6 @@ impl App {
             self.focus_stack.clear();
             self.reset_view_state();
         }
-        if leaving == SceneKind::Aside {
-            self.in_side_view = false;
-            self.side_session_id = None;
-            self.reset_view_state();
-        }
         self.deactivate_scene(leaving);
         true
     }
@@ -580,12 +572,6 @@ impl App {
     pub(crate) fn close_scene(&mut self) -> bool {
         self.scene_namespace_armed = false;
         match self.current_scene() {
-            SceneKind::Aside => {
-                self.exit_side_view();
-                self.arm_esc(None);
-                self.send_intent(nuo_wire::AgentRequest::ExitSideView);
-                true
-            }
             SceneKind::Subagent => {
                 if self.exit_subagent() {
                     true
@@ -794,12 +780,6 @@ impl App {
     }
 
     pub fn viewed_chrome(&self) -> SessionChrome {
-        if self.in_side_view
-            && let Some(side_id) = self.side_session_id.as_deref()
-            && let Some(chrome) = self.session_chrome.get(side_id)
-        {
-            return chrome.clone();
-        }
         SessionChrome {
             phase: self.phase.clone(),
             responding: self.round_started_at.is_some() || self.phase.is_some(),
@@ -846,15 +826,7 @@ impl App {
         self.set_phase(None);
         self.round_started_at = None;
         self.loop_status = nuo_wire::LoopStatus::Idle;
-        if self.in_side_view {
-            if let Some(side_id) = self.side_session_id.as_deref()
-                && let Some(chrome) = self.session_chrome.get_mut(side_id)
-            {
-                chrome.responding = false;
-                chrome.set_phase(None);
-                chrome.round_started_at = None;
-            }
-        } else if let Some(chrome) = self.session_chrome.get_mut(&self.current_session_id) {
+        if let Some(chrome) = self.session_chrome.get_mut(&self.current_session_id) {
             chrome.responding = false;
             chrome.set_phase(None);
             chrome.round_started_at = None;

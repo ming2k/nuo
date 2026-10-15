@@ -67,11 +67,6 @@ fn dialog_keys_area(frame: &Frame, parent: DialogKind, desired_content_rows: u16
             let desired = desired_content_rows + modal_chrome_rows(spec.modal_spec());
             content_modal_area(frame, spec, desired)
         }
-        DialogKind::Asides => {
-            let spec = ContentModalSpec::BTW;
-            let desired = desired_content_rows + modal_chrome_rows(spec.modal_spec());
-            content_modal_area(frame, spec, desired)
-        }
         DialogKind::Queue => {
             let spec = ContentModalSpec::QUEUE;
             let desired = desired_content_rows + modal_chrome_rows(spec.modal_spec());

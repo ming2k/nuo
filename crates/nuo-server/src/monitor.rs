@@ -10,7 +10,7 @@
 //! The tracker is deliberately *derived state, not protocol state*: the round
 //! lifecycle itself stays binary (ADR-0078) — `Idle`/`Running` here are a
 //! display badge, and the `Needs*` states are overlays on a still-running
-//! round, exactly like the single-session `ParentStatus` (ADR-0017).
+//! round.
 
 use nuo_wire::{AgentResponse, MonitoredSession, RoundEvent, SessionStatus};
 

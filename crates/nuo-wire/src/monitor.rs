@@ -243,9 +243,8 @@ pub struct MonitoredSession {
     /// badged beneath — the main line is always exactly one.
     #[serde(default)]
     pub parent_id: Option<String>,
-    /// How this session came to exist: trunk root, `/fork` branch, or
-    /// `/btw` aside. Defaults to `Trunk` for producers that predate the
-    /// field.
+    /// How this session came to exist: trunk root or `/fork` branch (ADR-0058).
+    /// Defaults to `Trunk` for producers that predate the field.
     #[serde(default)]
     pub fork_kind: SessionForkKind,
     /// Structured digest (intent + history checklist), if
@@ -284,8 +283,7 @@ impl MonitoredSession {
 }
 
 /// Display-level lifecycle status of a hosted session, derived from its
-/// response stream. This is the multi-session analogue of the single-session
-/// [`ParentStatus`](crate::ParentStatus) badge (ADR-0017): a coarse,
+/// response stream: a coarse,
 /// panel-facing classification, not the protocol state — the round lifecycle
 /// itself stays binary (`RoundLifecycle`, ADR-0078).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

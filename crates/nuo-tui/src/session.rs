@@ -274,27 +274,6 @@ pub(crate) fn resolve_subagent_key(
     resolve_chat_surface_key(key, keys, input, cursor_position)
 }
 
-/// The Side scene's own scheme (ADR-0205): the aside is a normal transcript +
-/// composer, and every key is the full chat scheme. Leaving the aside is
-/// `Ctrl+C` (ADR-0103 §2) or the `C-x` scene namespace (ADR-0298); `Esc`
-/// keeps only its interrupt meaning (armed twice, like the primary).
-pub(crate) fn resolve_side_key(
-    key: crate::keymap::Key,
-    keys: &SceneKeys,
-    input: &mut String,
-    cursor_position: &mut usize,
-) -> Option<InputAction> {
-    // Esc in an aside interrupts the viewed aside's round (ADR-0103 §2) once a
-    // completion and step/browse focus are clear. It never leaves the view:
-    // `Esc` is the universal interrupt, not a scene exit. Routed through the
-    // shared `resolve_esc` ladder so the priority order (dismiss completion →
-    // clear focus → interrupt) can never drift from the Conversation's.
-    if key.code == KeyCode::Esc {
-        return resolve_esc(keys, keys.is_responding, InputAction::InterruptSide);
-    }
-    resolve_chat_surface_key(key, keys, input, cursor_position)
-}
-
 /// Route a key to the full-screen scene's own scheme (ADR-0205). Dashboard and
 /// Settings do not own keyboard state yet and return `None`, so the router
 /// falls through to the shared affordance library.
@@ -312,7 +291,6 @@ pub(crate) fn resolve_scene_key(
         crate::surfaces::SceneKind::Subagent => {
             resolve_subagent_key(key, keys, input, cursor_position)
         }
-        crate::surfaces::SceneKind::Aside => resolve_side_key(key, keys, input, cursor_position),
         _ => None,
     }
 }
@@ -383,6 +361,7 @@ fn resolve_enter(
             "/trace" => InputAction::OpenSessionTrace,
             "/mcp" => InputAction::OpenMcp,
             "/skills" => InputAction::OpenSkills,
+            "/port" | "/ports" | "/share" => InputAction::OpenPortPalette,
             "/exit" => InputAction::Quit,
             _ => InputAction::SendSlash(text),
         };
@@ -539,7 +518,6 @@ mod tests {
         FocusedTarget,
         Completion,
         Subagent,
-        Side,
     }
 
     /// A mode-appropriate chat-surface scene-keys bundle for direct resolver
@@ -555,7 +533,7 @@ mod tests {
                 c.suggestion_count = 3;
                 c.suggestion_index = Some(1);
             }
-            Mode::Subagent | Mode::Side => {}
+            Mode::Subagent => {}
         }
         tune(&mut c);
         c
@@ -566,7 +544,6 @@ mod tests {
     fn scene_of(mode: Mode) -> SceneKind {
         match mode {
             Mode::Subagent => SceneKind::Subagent,
-            Mode::Side => SceneKind::Aside,
             _ => SceneKind::Thread,
         }
     }
@@ -640,7 +617,6 @@ mod tests {
         // `is_responding`, the subagent the viewed child's
         // `focused_subagent_running` — never the primary's `is_responding`.
         for (mode, expected) in [
-            (Mode::Side, InputAction::InterruptSide),
             (Mode::Subagent, InputAction::InterruptSubagent),
         ] {
             let mut c = ctx(mode, |c| {
@@ -1169,46 +1145,7 @@ mod tests {
             "focused step absorbs `[` and does not bounce"
         );
 
-        // Side: Esc interrupts a running aside round and never returns to the
-        // main session (ADR-0103 §2 — `Ctrl+C` detaches).
-        assert_eq!(
-            resolve_scene_key(
-                SceneKind::Aside,
-                Key::ESC,
-                &ctx(Mode::Side, |_| {}),
-                &mut String::new(),
-                &mut 0
-            ),
-            None,
-            "an idle aside has no Esc arm"
-        );
-        assert_eq!(
-            resolve_scene_key(
-                SceneKind::Aside,
-                Key::ESC,
-                &ctx(Mode::Side, |c| c.is_responding = true),
-                &mut String::new(),
-                &mut 0
-            ),
-            Some(InputAction::InterruptSide),
-            "a running aside's Esc is its interrupt"
-        );
-        assert_eq!(
-            resolve_scene_key(
-                SceneKind::Aside,
-                Key::ESC,
-                &ctx(Mode::Side, |c| {
-                    c.completion_kind = crate::completion::CompletionKind::Slash;
-                    c.completion_dismissed = false;
-                }),
-                &mut String::new(),
-                &mut 0
-            ),
-            Some(InputAction::CloseCompletion),
-            "side Esc dismisses a completion first"
-        );
-
-        // The Thread scene never emits the subagent/side exits.
+        // The Thread scene never emits the subagent exits.
         let c = ctx(Mode::FocusedTarget, |_| {});
         let action = resolve_scene_key(
             SceneKind::Thread,

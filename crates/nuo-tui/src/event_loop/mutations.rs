@@ -27,7 +27,6 @@ use nuo_wire::{
 };
 
 use crate::app::{OauthAddSignal, ProviderRetryState};
-use crate::event_loop::runtime::SideViewSignal;
 use crate::model::document::{NoticeSeverity, TranscriptMessage};
 use crate::phase::Phase;
 use crate::pre_attach::PreAttachSignal;
@@ -47,8 +46,6 @@ pub(crate) struct CompletionSignal {
 pub(crate) enum Buffer {
     /// The primary thread.
     Primary,
-    /// The focused `/btw` aside's buffer (ADR-0103).
-    Side,
 }
 
 /// One semantic edit of a transcript document. The applier executes these
@@ -274,6 +271,12 @@ pub(crate) enum AppMutation {
     HarnessConfined(bool),
     ClearSwitchingSession,
     LiveSession(String),
+    SessionForked {
+        child_id: String,
+        _parent_id: String,
+        target_round: Option<u64>,
+        title: Option<String>,
+    },
 
     // Activity / phase / counters.
     SetPhase(Option<Phase>),
@@ -343,9 +346,6 @@ pub(crate) enum AppMutation {
         paused: bool,
     },
     // Views / panels / modal data.
-    ParentStatus(nuo_wire::ParentStatus),
-    SideView(SideViewSignal),
-    BtwList(Vec<nuo_wire::BtwAsideSummary>),
     /// The server's persisted prompt input history (the server is the SSOT;
     /// the TUI never opens the database itself).
     InputHistory(Vec<nuo_wire::HistoryEntry>),

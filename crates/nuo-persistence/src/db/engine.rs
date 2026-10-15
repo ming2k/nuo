@@ -254,7 +254,6 @@ impl DatabaseEngine {
         let fork_str = match data.fork_kind {
             nuo_wire::SessionForkKind::Trunk => "trunk",
             nuo_wire::SessionForkKind::Fork => "fork",
-            nuo_wire::SessionForkKind::Aside => "aside",
             nuo_wire::SessionForkKind::Subagent => "subagent",
         };
         let digest_str = data
@@ -947,8 +946,7 @@ impl DatabaseEngine {
             id,
             parent_id,
             fork_kind: match fork_kind.as_str() {
-                "fork" => nuo_wire::SessionForkKind::Fork,
-                "aside" => nuo_wire::SessionForkKind::Aside,
+                "fork" | "aside" => nuo_wire::SessionForkKind::Fork,
                 "subagent" => nuo_wire::SessionForkKind::Subagent,
                 _ => nuo_wire::SessionForkKind::Trunk,
             },

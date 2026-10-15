@@ -234,9 +234,6 @@ impl ContentModalSpec {
     pub const TOOLS: Self = Self::new(64, 11, 84);
     pub const MCP: Self = Self::new(64, 9, 84);
     pub const QUEUE: Self = Self::new(66, 9, 84);
-    /// The `/btw` asides list (ADR-0103 §5). One row per live aside; sized
-    /// like the queue overview it mirrors (list + footer legend).
-    pub const BTW: Self = Self::new(66, 9, 84);
     /// Session Stats inspector (context window utilization, token accounting).
     pub const SESSION_STATS: Self = Self::new(72, 11, 80);
     /// Session Trace inspector (hierarchical rounds -> turns -> attempt waterfall).

@@ -571,10 +571,7 @@ fn dock_card_line(
     // plain name (the main line needs no badge: there is exactly one).
     let lineage = match row.fork_kind {
         nuo_wire::SessionForkKind::Trunk => String::new(),
-        nuo_wire::SessionForkKind::Aside => "⑂aside ".to_string(),
         nuo_wire::SessionForkKind::Fork => "⑂fork ".to_string(),
-        // Subagent sessions never surface in the dashboard (filtered at the
-        // listing layer), but the pattern must stay exhaustive.
         nuo_wire::SessionForkKind::Subagent => String::new(),
     };
     let lineage_w = lineage.chars().count();
@@ -1644,13 +1641,13 @@ mod tests {
             "a trunk carries no lineage badge: {text}"
         );
 
-        let mut aside = row("a", 2, "/work/main", SessionStatus::Running);
-        aside.parent_id = Some("t".into());
-        aside.fork_kind = nuo_wire::SessionForkKind::Aside;
-        let entries = dock_entries(std::slice::from_ref(&aside));
+        let mut fork = row("a", 2, "/work/main", SessionStatus::Running);
+        fork.parent_id = Some("t".into());
+        fork.fork_kind = nuo_wire::SessionForkKind::Fork;
+        let entries = dock_entries(std::slice::from_ref(&fork));
         let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("⑂aside"), "an aside branch is badged: {text}");
+        assert!(text.contains("⑂fork"), "a fork branch is badged: {text}");
 
         let mut fork = row("f", 3, "/work/main", SessionStatus::Idle);
         fork.parent_id = Some("t".into());

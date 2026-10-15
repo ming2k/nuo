@@ -2,9 +2,8 @@
 //!
 //! Lives in the application layer (`nuo`), NOT in `nuo-server`.
 //! The server layer stays application-neutral — a future sibling binary
-//! brings its own identity/role. The server's `/btw` side
-//! session reuses the primary agent's identity via `Agent::identity()`,
-//! so it never asks the server to name a product.
+//! brings its own identity/role. Forked sessions reuse the parent agent's
+//! identity via `Agent::identity()`, so it never asks the server to name a product.
 //!
 //! ## Why the shipped agent has no self-description
 //!

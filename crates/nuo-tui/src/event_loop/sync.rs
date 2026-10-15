@@ -185,27 +185,10 @@ pub(crate) async fn sync_transcripts_and_session(
     app: &mut App,
     runtime: &UiRuntime,
 ) -> (bool, String) {
-    let side_view_transitioned = std::mem::take(&mut app.view_transitioned);
     let transcript_changed = std::mem::take(&mut app.transcript_changed_pending);
-    let side_transcript_changed = std::mem::take(&mut app.side_transcript_changed_pending);
+    let displayed_transcript_changed = transcript_changed;
 
-    let displayed_transcript_changed =
-        crate::event_loop::transcript::displayed_transcript_did_change(
-            app.in_side_view,
-            transcript_changed,
-            side_transcript_changed,
-            side_view_transitioned,
-        );
-
-    let primary_session_id = app.live_session_id.clone();
-    let viewed_session_id = if app.in_side_view {
-        app.side_session_id
-            .as_deref()
-            .unwrap_or(primary_session_id.as_str())
-    } else {
-        primary_session_id.as_str()
-    }
-    .to_string();
+    let viewed_session_id = app.live_session_id.clone();
 
     if app.current_session_id != viewed_session_id {
         app.current_session_id = viewed_session_id.clone();
@@ -214,17 +197,9 @@ pub(crate) async fn sync_transcripts_and_session(
     }
 
     let backfill_from = app.session_history_backfill_cursor;
-    let viewed_len = if app.in_side_view {
-        app.side_messages.len()
-    } else {
-        app.messages.len()
-    };
+    let viewed_len = app.messages.len();
     if backfill_from < viewed_len {
-        let tail: Vec<(String, bool, u64)> = if app.in_side_view {
-            user_prompt_tail(&app.side_messages[backfill_from..])
-        } else {
-            user_prompt_tail(&app.messages[backfill_from..])
-        };
+        let tail: Vec<(String, bool, u64)> = user_prompt_tail(&app.messages[backfill_from..]);
         app.session_history_backfill_cursor = viewed_len;
         app.backfill_session_history(&tail, now_epoch_ms());
     }

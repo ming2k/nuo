@@ -12,14 +12,13 @@ use nuo_wire::Role;
 
 use crate::app::App;
 use crate::event_loop::mutations::{AppMutation, Buffer, ChromeEdit, TranscriptEdit};
-use crate::event_loop::runtime::{SideViewSignal, UiRuntime};
+use crate::event_loop::runtime::UiRuntime;
 use crate::model::document::{MessageKind, TranscriptMessage};
 use crate::phase::Phase;
 
 fn buffer_messages(app: &mut App, buffer: Buffer) -> &mut Vec<TranscriptMessage> {
     match buffer {
         Buffer::Primary => &mut app.messages,
-        Buffer::Side => &mut app.side_messages,
     }
 }
 
@@ -123,6 +122,19 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
         AppMutation::LiveSession(session_id) => {
             app.live_session_id = session_id;
+            true
+        }
+        AppMutation::SessionForked {
+            child_id,
+            target_round,
+            title,
+            ..
+        } => {
+            let label = title.or_else(|| target_round.map(|r| format!("fork@r{r}")));
+            let tab = crate::surfaces::ClientTab::thread(&child_id, label);
+            app.surfaces.open_tab(tab);
+            app.switch_to_target = Some(child_id);
+            app.should_quit.store(true, std::sync::atomic::Ordering::SeqCst);
             true
         }
 
@@ -229,11 +241,6 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             }) {
                 let msg = app.messages.remove(pos);
                 text_to_restore = Some(msg.raw);
-            } else if let Some(pos) = app.side_messages.iter().rposition(|m| {
-                m.insert_id.as_deref() == Some(input_id.as_str()) && m.role == Role::User
-            }) {
-                let msg = app.side_messages.remove(pos);
-                text_to_restore = Some(msg.raw);
             }
             if let Some(text) = text_to_restore
                 && app.live_session_id == session_id
@@ -310,26 +317,6 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             true
         }
 
-        AppMutation::ParentStatus(status) => {
-            app.parent_status = status;
-            true
-        }
-        AppMutation::SideView(signal) => match signal {
-            SideViewSignal::Opened { side_id, .. } => {
-                app.enter_side_view(side_id);
-                app.view_transitioned = true;
-                true
-            }
-            SideViewSignal::Closed => {
-                app.exit_side_view();
-                app.view_transitioned = true;
-                true
-            }
-        },
-        AppMutation::BtwList(rows) => {
-            app.btw_list = rows;
-            true
-        }
         AppMutation::InputHistory(rows) => {
             app.input_history = if app.input_history_record_commands {
                 rows
@@ -971,7 +958,6 @@ fn apply_transcript(app: &mut App, buffer: Buffer, edit: TranscriptEdit) -> bool
     if changed {
         match buffer {
             Buffer::Primary => app.transcript_changed_pending = true,
-            Buffer::Side => app.side_transcript_changed_pending = true,
         }
     }
     changed

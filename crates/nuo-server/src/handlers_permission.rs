@@ -11,9 +11,7 @@ use nuo_harness::{Agent, RoundLifecycle, SubagentRegistry};
 use nuo_wire::{AgentResponse, LoopStatus, PermissionDecision};
 use nuo_persistence::session::SessionStore;
 use std::sync::Arc;
-use tokio::sync::{RwLock as AsyncRwLock, mpsc};
-
-use crate::side::SideRegistry;
+use tokio::sync::mpsc;
 
 /// `AgentRequest::Interrupt` — reject every pending permission, question, and
 /// interactive-input waiter; flip the harness to idle eagerly (before the
@@ -87,39 +85,21 @@ pub fn interrupt_subagent(subagent_registry: &Arc<SubagentRegistry>, call_id: &s
 
 /// `AgentRequest::PermissionReply` — full-duplex routing (ADR-0029): a reply
 /// tagged with a `parent_call_id` targets a subagent's parked oneshot via the
-/// registry handle; `None` keeps the legacy top-level (/btw side) path. A late
-/// reply after the child finished finds no handle and falls through to the
-/// "no longer pending" error.
+/// registry handle; `None` targets the active thread agent.
 pub async fn reply(
     agent: &Agent,
     subagent_registry: &Arc<SubagentRegistry>,
-    side: &Arc<AsyncRwLock<SideRegistry>>,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     request_id: String,
     decision: PermissionDecision,
     parent_call_id: Option<String>,
 ) {
-    // Three-level routing, mirroring `reply_question` / `reply_input`: a
-    // `parent_call_id` targets a subagent; otherwise the primary, then a
-    // `/btw` side agent. (The side fallback was missing here — a side
-    // agent's permission banner reply used to fall through to "no longer
-    // pending" and park forever. ADR-0141 makes all three reply handlers
-    // uniform.)
     let resolved = if let Some(parent) = &parent_call_id {
         subagent_registry
             .get(parent)
             .is_some_and(|handle| handle.reply_permission(&request_id, decision))
-    } else if agent.reply_permission(&request_id, decision) {
-        true
     } else {
-        let mut routed = false;
-        for s in side.read().await.iter() {
-            if s.agent.reply_permission(&request_id, decision) {
-                routed = true;
-                break;
-            }
-        }
-        routed
+        agent.reply_permission(&request_id, decision)
     };
     if !resolved {
         let _ = resp_tx.send(AgentResponse::Error(
@@ -128,24 +108,21 @@ pub async fn reply(
     }
 }
 
-/// Bundled reply environment: the agent, subagent registry, side registry,
+/// Bundled reply environment: the agent, subagent registry,
 /// and response channel shared by the permission/question/input reply
 /// handlers. Request-specific fields stay positional.
 pub(crate) struct ReplyEnv<'a> {
     pub agent: &'a Agent,
     pub subagent_registry: &'a Arc<SubagentRegistry>,
-    pub side: &'a Arc<AsyncRwLock<SideRegistry>>,
     pub resp_tx: &'a mpsc::UnboundedSender<AgentResponse>,
 }
 
 /// `AgentRequest::UserQuestionReply` — mirror the permission arm: a
-/// `parent_call_id` targets the subagent; otherwise try the primary, then a
-/// `/btw` side agent (ADR-0017).
+/// `parent_call_id` targets the subagent; otherwise the active thread agent.
 pub(crate) async fn reply_question(
     ReplyEnv {
         agent,
         subagent_registry,
-        side,
         resp_tx,
     }: ReplyEnv<'_>,
     request_id: String,
@@ -156,17 +133,8 @@ pub(crate) async fn reply_question(
         subagent_registry
             .get(parent)
             .is_some_and(|handle| handle.reply_user_question(&request_id, answers.clone()))
-    } else if agent.reply_user_question(&request_id, answers.clone()) {
-        true
     } else {
-        let mut routed = false;
-        for s in side.read().await.iter() {
-            if s.agent.reply_user_question(&request_id, answers.clone()) {
-                routed = true;
-                break;
-            }
-        }
-        routed
+        agent.reply_user_question(&request_id, answers.clone())
     };
     if !resolved {
         let _ = resp_tx.send(AgentResponse::Error(
@@ -176,13 +144,11 @@ pub(crate) async fn reply_question(
 }
 
 /// `AgentRequest::InputReply` (L3.5 β) — mirrors [`reply_question`]: a
-/// `parent_call_id` targets the subagent; otherwise try the primary, then a
-/// `/btw` side agent.
+/// `parent_call_id` targets the subagent; otherwise the active thread agent.
 pub(crate) async fn reply_input(
     ReplyEnv {
         agent,
         subagent_registry,
-        side,
         resp_tx,
     }: ReplyEnv<'_>,
     request_id: String,
@@ -193,17 +159,8 @@ pub(crate) async fn reply_input(
         subagent_registry
             .get(parent)
             .is_some_and(|handle| handle.reply_input(&request_id, text.clone()))
-    } else if agent.reply_input(&request_id, text.clone()) {
-        true
     } else {
-        let mut routed = false;
-        for s in side.read().await.iter() {
-            if s.agent.reply_input(&request_id, text.clone()) {
-                routed = true;
-                break;
-            }
-        }
-        routed
+        agent.reply_input(&request_id, text.clone())
     };
     if !resolved {
         let _ = resp_tx.send(AgentResponse::Error(

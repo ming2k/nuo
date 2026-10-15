@@ -72,7 +72,7 @@ pub struct SessionData {
     pub(crate) id: String,
     pub(crate) parent_id: Option<String>,
     /// How this session came to exist relative to its lineage: a root trunk,
-    /// an explicit `/fork` branch, or a `/btw` aside forked off the trunk.
+    /// or an explicit `/fork` branch (ADR-0058).
     #[serde(default)]
     pub(crate) fork_kind: nuo_wire::SessionForkKind,
     pub(crate) created_at: u64,
@@ -449,8 +449,8 @@ pub struct SessionSummary {
     /// Authentic AI/manual thread title, when established (ADR-0050).
     pub title: Option<String>,
     pub parent_id: Option<String>,
-    /// How this session came to exist: trunk root, explicit `/fork`
-    /// branch, or `/btw` aside. Drives the dashboard's lineage grouping.
+    /// How this session came to exist: trunk root, or explicit `/fork`
+    /// branch (ADR-0058). Drives the dashboard's lineage grouping.
     pub fork_kind: nuo_wire::SessionForkKind,
     pub message_count: usize,
     pub updated_at: u64,
@@ -526,6 +526,7 @@ pub struct SessionStore {
     /// `reset` / `fork` / `open` targets live here, so the store never writes
     /// outside it.
     sessions_dir: PathBuf,
+    #[allow(dead_code)]
     pub(crate) db_path: PathBuf,
     blob_store: BlobStore,
     pub(crate) writer: crate::db::PersistenceHandle,
@@ -1334,7 +1335,7 @@ pub async fn run_doctor(project_root: Option<&std::path::Path>) -> Result<(), St
 mod fields;
 mod history;
 
-pub use history::CommitTurn;
+pub use history::{CommitTurn, ForkTarget};
 #[cfg(test)]
 pub(crate) use history::rebuild_transcript_from_messages as rebuild_for_test;
 mod store;

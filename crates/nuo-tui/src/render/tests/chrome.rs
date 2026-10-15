@@ -63,7 +63,6 @@ fn redesigned_components_render_without_panicking() {
                         tasks_bar: Default::default(),
                         persistence_health: None,
                         subagent_bar: None,
-                        side_banner: None,
                         page_hints: None,
                     session_head: None,
                                         round_started_at: None,
@@ -981,7 +980,6 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
                     tasks_bar: Default::default(),
                     persistence_health: None,
                     subagent_bar: None,
-                    side_banner: None,
                     page_hints: None,
                     session_head: None,
                     round_started_at: None,
@@ -1050,7 +1048,6 @@ fn too_small_terminal_shows_notice_and_zeroed_render() {
                 tasks_bar: Default::default(),
                 persistence_health: None,
                 subagent_bar: None,
-                side_banner: None,
                 page_hints: None,
                 session_head: None,
                 round_started_at: None,
@@ -1147,7 +1144,6 @@ fn empty_session_renders_empty_state_with_nonzero_height() {
                 tasks_bar: Default::default(),
                 persistence_health: None,
                 subagent_bar: None,
-                side_banner: None,
                 page_hints: None,
                 session_head: None,
                 round_started_at: None,
@@ -1212,7 +1208,6 @@ fn nonempty_session_does_not_render_empty_state() {
                 tasks_bar: Default::default(),
                 persistence_health: None,
                 subagent_bar: None,
-                side_banner: None,
                 page_hints: None,
                 session_head: None,
                 round_started_at: None,
@@ -1282,7 +1277,6 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
                 tasks_bar: Default::default(),
                 persistence_health: None,
                 subagent_bar: None,
-                side_banner: None,
                 page_hints: None,
                 session_head: None,
                 round_started_at: None,
@@ -1416,7 +1410,6 @@ fn empty_state_tour_renders_the_current_carousel_page() {
                 tasks_bar: Default::default(),
                 persistence_health: None,
                 subagent_bar: None,
-                side_banner: None,
                 page_hints: None,
                 session_head: None,
                 round_started_at: None,
@@ -1443,8 +1436,8 @@ fn empty_state_tour_renders_the_current_carousel_page() {
         !joined.contains("Type a message below to begin."),
         "no static tagline: {joined}"
     );
-    // Page 2 of the tour is the /btw page.
-    assert!(joined.contains("/btw"), "page 2 visible: {joined}");
+    // Page 2 of the tour is the /fork page (ADR-0058).
+    assert!(joined.contains("/fork"), "page 2 visible: {joined}");
     // No dot indicator row (ADR-0104): the carousel is a single line and
     // the rotation is self-explaining.
     assert!(!joined.contains('●'), "no dot indicator anywhere: {joined}");
@@ -1487,7 +1480,6 @@ fn h1_underline_clamps_to_text_extent() {
                 tasks_bar: Default::default(),
                 persistence_health: None,
                 subagent_bar: None,
-                side_banner: None,
                 page_hints: None,
                 session_head: None,
                 round_started_at: None,
@@ -1576,7 +1568,6 @@ fn h1_underline_emits_wide_glyph_in_underlined_run() {
                 tasks_bar: Default::default(),
                 persistence_health: None,
                 subagent_bar: None,
-                side_banner: None,
                 page_hints: None,
                 session_head: None,
                 round_started_at: None,
@@ -1660,7 +1651,6 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
                 tasks_bar: Default::default(),
                 persistence_health: None,
                 subagent_bar: None,
-                side_banner: None,
                 page_hints: None,
                 session_head: None,
                 round_started_at: None,

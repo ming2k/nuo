@@ -12,11 +12,11 @@
 //! making its ownership boundary explicit.
 
 use crate::handlers_slash::SlashEnv;
-use crate::side::{SideEnv, resolve_turn_target};
+use crate::handlers_chat::ChatEnv;
 use crate::catalog;
 use nuo_harness::orchestration::round_response;
 use nuo_harness::{Agent, RoundLifecycle, SubagentRegistry};
-use nuo_wire::{AgentRequest, AgentResponse, LoopStatus, Provider, Tool};
+use nuo_wire::{AgentRequest, AgentResponse, LoopStatus, Provider};
 use crate::mcp::McpRuntime;
 use nuo_persistence::{session::SessionStore, workspace_security::WorkspaceSecurityStore};
 use nuo_harness::skills::SkillRegistry;
@@ -94,7 +94,7 @@ pub async fn compact_round_history(
 
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use tokio::sync::{RwLock as AsyncRwLock, mpsc};
+use tokio::sync::mpsc;
 
 use crate::UiBridge;
 use crate::session_view::{build_sessions_overview, provider_key_status};
@@ -259,13 +259,7 @@ pub struct SessionDriver {
     /// Primary round lifecycle: at most one active round, superseded by the
     /// next begin (replaces the old token-slot + generation-counter pair).
     pub lifecycle: Arc<RoundLifecycle>,
-    /// Live `/btw` aside registry (ADR-0017, multi-slot per ADR-0103).
-    pub side: Arc<AsyncRwLock<crate::side::SideRegistry>>,
-    /// Cached base toolset snapshot for side-session construction
-    /// (`base_tools_for_side`).
-    pub base_tools: Arc<Vec<Arc<dyn Tool>>>,
-    /// Workspace root for side-session pinning; `None` for a workspace-free
-    /// scope (ADR-0220).
+    /// Workspace root of the session.
     pub project_root: Option<PathBuf>,
     /// Startup mode of the session.
     pub startup: SessionStart,
@@ -322,8 +316,6 @@ impl SessionDriver {
             shared_confinement,
             command_catalog,
             lifecycle,
-            side,
-            base_tools: base_tools_for_side,
             project_root: project_root_for_side,
             startup,
             open_picker_on_start,
@@ -647,9 +639,8 @@ impl SessionDriver {
                     // A round the operator interrupted parks its queue — the
                     // user said stop; auto-firing more prompts after an Esc is
                     // never the intent. Ctrl+P / a fresh send re-arms it.
-                    if let Some(target) =
-                        resolve_turn_target(&side, &agent, &session, &lifecycle, &wake_target).await
-                        && target.lifecycle.was_interrupted()
+                    if session.id().await == wake_target
+                        && lifecycle.was_interrupted()
                     {
                         followup_queue.set_paused(&wake_target, true);
                         crate::handlers_chat::emit_queue_snapshot(
@@ -671,15 +662,10 @@ impl SessionDriver {
                         seen
                     };
                     for target_id in targets {
-                        let Some(_item) = (followup_queue.has_items_for(&target_id)).then_some(())
-                        else {
+                        if !followup_queue.has_items_for(&target_id) {
                             continue;
-                        };
-                        let Some(target) =
-                            resolve_turn_target(&side, &agent, &session, &lifecycle, &target_id)
-                                .await
-                        else {
-                            // Target gone (aside closed): drop its items.
+                        }
+                        if session.id().await != target_id {
                             followup_queue.clear(&target_id);
                             crate::handlers_chat::emit_queue_snapshot(
                                 &resp_tx,
@@ -687,8 +673,8 @@ impl SessionDriver {
                                 &target_id,
                             );
                             continue;
-                        };
-                        if target.lifecycle.is_running().await
+                        }
+                        if lifecycle.is_running().await
                             || followup_queue.is_paused(&target_id)
                         {
                             continue;
@@ -696,11 +682,10 @@ impl SessionDriver {
                         if let Some(message) = followup_queue.dequeue_front(&target_id) {
                             let config = shared_config.read().await;
                             crate::handlers_chat::start_queued_follow_up(
-                                SideEnv {
-                                    side: &side,
+                                ChatEnv {
                                     agent: &agent,
-                                    primary_session: &session,
-                                    primary_lifecycle: &lifecycle,
+                                    session: &session,
+                                    lifecycle: &lifecycle,
                                     tx: &resp_tx,
                                     config: &config,
                                 },
@@ -711,16 +696,11 @@ impl SessionDriver {
                             .await;
                             // Watch this round's boundary so the *next* queued
                             // item ships when it ends.
-                            if let Some(target) =
-                                resolve_turn_target(&side, &agent, &session, &lifecycle, &target_id)
-                                    .await
-                            {
-                                crate::handlers_chat::spawn_boundary_watcher(
-                                    target.lifecycle.clone(),
-                                    followup_wake_tx.clone(),
-                                    target_id.clone(),
-                                );
-                            }
+                            crate::handlers_chat::spawn_boundary_watcher(
+                                lifecycle.clone(),
+                                followup_wake_tx.clone(),
+                                target_id.clone(),
+                            );
                         }
                     }
                     continue;
@@ -763,7 +743,6 @@ impl SessionDriver {
                     crate::handlers_permission::reply(
                         &agent,
                         &subagent_registry,
-                        &side,
                         &resp_tx,
                         request_id,
                         decision,
@@ -780,7 +759,6 @@ impl SessionDriver {
                         crate::handlers_permission::ReplyEnv {
                             agent: &agent,
                             subagent_registry: &subagent_registry,
-                            side: &side,
                             resp_tx: &resp_tx,
                         },
                         request_id,
@@ -798,7 +776,6 @@ impl SessionDriver {
                         crate::handlers_permission::ReplyEnv {
                             agent: &agent,
                             subagent_registry: &subagent_registry,
-                            side: &side,
                             resp_tx: &resp_tx,
                         },
                         request_id,
@@ -1257,13 +1234,10 @@ impl SessionDriver {
                             resp_tx: &resp_tx,
                             session: &session,
                             lifecycle: &lifecycle,
-                            side: &side,
-                            base_tools_for_side: &base_tools_for_side,
                             provider_for_task: &provider_for_task,
                             provider_usage: &mut provider_usage,
                             skills_registry: &skills_registry,
                             req_tx_for_commands: &req_tx_for_commands,
-                            project_root_for_side: project_root_for_side.as_deref(),
                             startup: &startup,
                             ui: &*ui,
                             extra_commands: &extra_commands,
@@ -1436,11 +1410,10 @@ impl SessionDriver {
                     sent_at_ms,
                 } => {
                     crate::handlers_chat::chat(
-                        SideEnv {
-                            side: &side,
+                        ChatEnv {
                             agent: &agent,
-                            primary_session: &session,
-                            primary_lifecycle: &lifecycle,
+                            session: &session,
+                            lifecycle: &lifecycle,
                             tx: &resp_tx,
                             config: &config,
                         },
@@ -1455,7 +1428,7 @@ impl SessionDriver {
                     message,
                 } => {
                     crate::handlers_chat::steer(
-                        &side, &agent, &session, &resp_tx, session_id, message,
+                        &agent, &session, &resp_tx, session_id, message,
                     )
                     .await;
                 }
@@ -1464,7 +1437,7 @@ impl SessionDriver {
                     input_id,
                 } => {
                     crate::handlers_chat::cancel_steer(
-                        &side, &agent, &session, &resp_tx, session_id, input_id,
+                        &agent, &session, &resp_tx, session_id, input_id,
                     )
                     .await;
                 }
@@ -1473,11 +1446,10 @@ impl SessionDriver {
                     message,
                 } => {
                     crate::handlers_chat::follow_up(
-                        SideEnv {
-                            side: &side,
+                        ChatEnv {
                             agent: &agent,
-                            primary_session: &session,
-                            primary_lifecycle: &lifecycle,
+                            session: &session,
+                            lifecycle: &lifecycle,
                             tx: &resp_tx,
                             config: &config,
                         },
@@ -1493,14 +1465,7 @@ impl SessionDriver {
                     input_id,
                 } => {
                     crate::handlers_chat::queue_remove(
-                        SideEnv {
-                            tx: &resp_tx,
-                            side: &side,
-                            agent: &agent,
-                            primary_session: &session,
-                            primary_lifecycle: &lifecycle,
-                            config: &config,
-                        },
+                        &resp_tx,
                         &mut followup_queue,
                         session_id,
                         input_id,
@@ -1509,14 +1474,7 @@ impl SessionDriver {
                 }
                 AgentRequest::QueueClear { session_id } => {
                     crate::handlers_chat::queue_clear(
-                        SideEnv {
-                            tx: &resp_tx,
-                            side: &side,
-                            agent: &agent,
-                            primary_session: &session,
-                            primary_lifecycle: &lifecycle,
-                            config: &config,
-                        },
+                        &resp_tx,
                         &mut followup_queue,
                         session_id,
                     )
@@ -1528,14 +1486,7 @@ impl SessionDriver {
                     delta,
                 } => {
                     crate::handlers_chat::queue_reorder(
-                        SideEnv {
-                            tx: &resp_tx,
-                            side: &side,
-                            agent: &agent,
-                            primary_session: &session,
-                            primary_lifecycle: &lifecycle,
-                            config: &config,
-                        },
+                        &resp_tx,
                         &mut followup_queue,
                         session_id,
                         input_id,
@@ -1545,34 +1496,12 @@ impl SessionDriver {
                 }
                 AgentRequest::QueuePaused { session_id, paused } => {
                     crate::handlers_chat::queue_paused(
-                        SideEnv {
-                            tx: &resp_tx,
-                            side: &side,
-                            agent: &agent,
-                            primary_session: &session,
-                            primary_lifecycle: &lifecycle,
-                            config: &config,
-                        },
+                        &resp_tx,
                         &mut followup_queue,
                         session_id,
                         paused,
                     )
                     .await;
-                }
-                AgentRequest::ExitSideView => {
-                    crate::handlers_session::detach_side_view(&side, &resp_tx).await;
-                }
-                AgentRequest::FocusSide { side_id } => {
-                    crate::handlers_session::focus_side(&side, &session, &resp_tx, side_id).await;
-                }
-                AgentRequest::InterruptSide { side_id } => {
-                    crate::handlers_session::interrupt_side(&side, &resp_tx, side_id).await;
-                }
-                AgentRequest::CloseSide { side_id } => {
-                    crate::handlers_session::close_side(&side, &resp_tx, side_id).await;
-                }
-                AgentRequest::QueryBtwList => {
-                    crate::side::publish_btw_list(&side, &resp_tx).await;
                 }
                 AgentRequest::QueryInputHistory => {
                     crate::handlers_history::query_input_history(&resp_tx);
@@ -1963,20 +1892,9 @@ mod tests {
             text: "y".to_string(),
             parent_call_id: None,
         }));
-        assert!(!round_owned_request(&AgentRequest::ExitSideView));
-        assert!(!round_owned_request(&AgentRequest::FocusSide {
-            side_id: "s".to_string()
-        }));
-        assert!(!round_owned_request(&AgentRequest::InterruptSide {
-            side_id: "s".to_string()
-        }));
         assert!(!round_owned_request(&AgentRequest::InterruptSubagent {
             call_id: "call_1".to_string()
         }));
-        assert!(!round_owned_request(&AgentRequest::CloseSide {
-            side_id: "s".to_string()
-        }));
-        assert!(!round_owned_request(&AgentRequest::QueryBtwList));
         assert!(!round_owned_request(&AgentRequest::UpdateTuiLayout(
             "default".to_string()
         )));

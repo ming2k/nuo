@@ -362,7 +362,7 @@ pub(crate) fn draw_view_header_hints(
     // Only thread-scoped scenes display a bound workspace path.
     let show_workspace = matches!(
         hints.kind,
-        SceneKind::Thread | SceneKind::Subagent | SceneKind::Aside
+        SceneKind::Thread | SceneKind::Subagent
     );
     let ws = if show_workspace {
         hints.workspace.filter(|w| !w.is_empty())
@@ -475,33 +475,6 @@ fn id_tail(id: &str) -> String {
     let chars: Vec<char> = trimmed.chars().collect();
     let take = chars.len().min(4);
     chars[chars.len() - take..].iter().collect()
-}
-
-/// The aside scene's row-2 context: the coarse primary-session status, phrased
-/// as a short clause after the scene label (ADR-0024), e.g.
-/// `aside  main running`. The attention states carry the `⚠` marker the caller
-/// pairs with [`ViewHints::context_warn`].
-pub(crate) fn parent_status_context(parent: nuo_wire::ParentStatus) -> &'static str {
-    match parent {
-        nuo_wire::ParentStatus::Idle => "main idle",
-        nuo_wire::ParentStatus::Running => "main running",
-        nuo_wire::ParentStatus::NeedsApproval => "⚠ main approval needed",
-        nuo_wire::ParentStatus::NeedsInput => "⚠ main input needed",
-        nuo_wire::ParentStatus::Failed => "⚠ main failed",
-        nuo_wire::ParentStatus::Interrupted => "⚠ main interrupted",
-    }
-}
-
-/// Whether a parent status is an attention state (approval / input / failure /
-/// interruption) that should escalate the aside's context to the warning tone.
-pub(crate) fn parent_status_needs_attention(parent: nuo_wire::ParentStatus) -> bool {
-    matches!(
-        parent,
-        nuo_wire::ParentStatus::NeedsApproval
-            | nuo_wire::ParentStatus::NeedsInput
-            | nuo_wire::ParentStatus::Failed
-            | nuo_wire::ParentStatus::Interrupted
-    )
 }
 
 #[cfg(test)]
@@ -796,7 +769,6 @@ mod tests {
     #[test]
     fn row2_scene_labels_are_per_scene() {
         for (kind, label) in [
-            (SceneKind::Aside, "aside"),
             (SceneKind::Subagent, "subagent"),
             (SceneKind::Settings, "settings"),
             (SceneKind::Dashboard, "dashboard"),
@@ -881,7 +853,6 @@ mod tests {
     fn row2_stands_up_on_every_scene() {
         for kind in [
             SceneKind::Thread,
-            SceneKind::Aside,
             SceneKind::Subagent,
             SceneKind::Settings,
             SceneKind::Dashboard,
@@ -902,22 +873,6 @@ mod tests {
         for cell in &terminal.buffer().content {
             assert_eq!(cell.bg, theme.raised());
         }
-    }
-
-    #[test]
-    fn parent_status_context_marks_attention_states() {
-        assert_eq!(
-            parent_status_context(nuo_wire::ParentStatus::Running),
-            "main running"
-        );
-        assert_eq!(
-            parent_status_context(nuo_wire::ParentStatus::NeedsApproval),
-            "⚠ main approval needed"
-        );
-        assert!(!parent_status_needs_attention(nuo_wire::ParentStatus::Idle));
-        assert!(!parent_status_needs_attention(nuo_wire::ParentStatus::Running));
-        assert!(parent_status_needs_attention(nuo_wire::ParentStatus::NeedsApproval));
-        assert!(parent_status_needs_attention(nuo_wire::ParentStatus::Failed));
     }
 
     #[test]

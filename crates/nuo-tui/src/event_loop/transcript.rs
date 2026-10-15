@@ -3,21 +3,6 @@
 use crate::model::document::TranscriptMessage;
 use crate::model::selection::{CellDragInfo, SelectionState, get_selected_text};
 
-/// Whether the transcript slice painted this frame changed shape.
-pub(crate) fn displayed_transcript_did_change(
-    in_side_view: bool,
-    primary_changed: bool,
-    side_changed: bool,
-    view_transitioned: bool,
-) -> bool {
-    view_transitioned
-        || if in_side_view {
-            side_changed
-        } else {
-            primary_changed
-        }
-}
-
 /// Resolve a mutable reference to a message by semantic index.
 pub(crate) fn resolve_focused_mut<'a>(
     messages: &'a mut [TranscriptMessage],

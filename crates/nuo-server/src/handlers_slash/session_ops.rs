@@ -1,11 +1,10 @@
 //! Session lifecycle, creation, resumption, branching, and runtime teardown operations.
 
 use std::sync::Arc;
-use tokio::sync::{RwLock as AsyncRwLock, mpsc};
+use tokio::sync::mpsc;
 
 use super::SlashEnv;
 use super::record::{record_command, record_error};
-use crate::side::{SideRegistry, publish_btw_list};
 use nuo_harness::Agent;
 use nuo_harness::RoundLifecycle;
 use crate::session_driver::send_harness_state_for_session;
@@ -39,35 +38,8 @@ pub(crate) fn apply_additional_roots(
     handle.store(resolved);
 }
 
-pub async fn teardown_sides_for_session_switch(
-    side: &Arc<AsyncRwLock<SideRegistry>>,
-    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
-) {
-    let ids: Vec<String> = side.read().await.iter().map(|s| s.id.clone()).collect();
-    if ids.is_empty() {
-        return;
-    }
-    let was_active = side.read().await.active().is_some();
-    for id in ids {
-        if let Some(s) = side.write().await.remove(&id) {
-            s.lifecycle
-                .record_interrupt(nuo_wire::RoundInterruptReason::Superseded);
-            s.agent.reject_pending_permissions();
-            s.agent.reject_pending_user_questions();
-            s.agent.reject_pending_inputs();
-            s.lifecycle.cancel_current().await;
-            let _ = s.store.delete(&s.id).await;
-        }
-    }
-    publish_btw_list(side, resp_tx).await;
-    if was_active {
-        let _ = resp_tx.send(AgentResponse::SideViewClosed);
-    }
-}
-
 pub(crate) async fn start_fresh_session(env: &mut SlashEnv<'_>, name: &str, args: &str) {
-    let (side, session, config, agent, lifecycle, resp_tx, provider_for_task, shared_confinement) = (
-        env.side,
+    let (session, config, agent, lifecycle, resp_tx, provider_for_task, shared_confinement) = (
         env.session,
         env.config,
         env.agent,
@@ -78,7 +50,6 @@ pub(crate) async fn start_fresh_session(env: &mut SlashEnv<'_>, name: &str, args
     );
     let provider_usage = &mut *env.provider_usage;
     supersede_for_session_switch(lifecycle, agent, resp_tx).await;
-    teardown_sides_for_session_switch(side, resp_tx).await;
     agent.clear_todos();
     match session.reset().await {
         Ok(id) => {
@@ -165,7 +136,6 @@ pub(crate) async fn switch_or_start_session_with_role(
     if let Some(target_id) = latest_existing_id.filter(|id| id != &active_id) {
         // Resume existing session for this role
         let (
-            side,
             session,
             config,
             agent,
@@ -175,7 +145,6 @@ pub(crate) async fn switch_or_start_session_with_role(
             shared_confinement,
             workspace_security,
         ) = (
-            env.side,
             env.session,
             env.config,
             env.agent,
@@ -187,7 +156,6 @@ pub(crate) async fn switch_or_start_session_with_role(
         );
         let provider_usage = &mut *env.provider_usage;
         supersede_for_session_switch(lifecycle, agent, resp_tx).await;
-        teardown_sides_for_session_switch(side, resp_tx).await;
         agent.clear_todos();
 
         if let Some(switched) = agent.apply_role(role_id) {
@@ -283,7 +251,6 @@ pub(crate) async fn start_fresh_session_with_role(
     args: &str,
 ) {
     let (
-        side,
         session,
         config,
         agent,
@@ -293,7 +260,6 @@ pub(crate) async fn start_fresh_session_with_role(
         shared_confinement,
         workspace_security,
     ) = (
-        env.side,
         env.session,
         env.config,
         env.agent,
@@ -305,7 +271,6 @@ pub(crate) async fn start_fresh_session_with_role(
     );
     let provider_usage = &mut *env.provider_usage;
     supersede_for_session_switch(lifecycle, agent, resp_tx).await;
-    teardown_sides_for_session_switch(side, resp_tx).await;
     agent.clear_todos();
 
     let switched = match agent.apply_role(role_id) {
@@ -529,36 +494,69 @@ pub(crate) async fn restore_session_runtime(
     .await;
 }
 
+pub(crate) fn parse_fork_target(args: &str) -> Result<nuo_persistence::ForkTarget, String> {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return Ok(nuo_persistence::ForkTarget::Head);
+    }
+    let s = trimmed
+        .strip_prefix('r')
+        .or_else(|| trimmed.strip_prefix('R'))
+        .unwrap_or(trimmed);
+    if let Some((r_str, t_str)) = s.split_once('.') {
+        let round = r_str
+            .parse::<u64>()
+            .map_err(|_| format!("Invalid round number in target '{trimmed}'"))?;
+        let turn = t_str
+            .parse::<u32>()
+            .map_err(|_| format!("Invalid turn number in target '{trimmed}'"))?;
+        Ok(nuo_persistence::ForkTarget::Turn { round, turn })
+    } else if let Ok(round) = s.parse::<u64>() {
+        Ok(nuo_persistence::ForkTarget::Round(round))
+    } else {
+        Err(format!(
+            "Invalid fork target '{trimmed}'. Expected: /fork, /fork <round>, or /fork <round>.<turn>."
+        ))
+    }
+}
+
 pub(crate) async fn fork_current_session(
-    lifecycle: &Arc<RoundLifecycle>,
-    agent: &Agent,
     session: &Arc<SessionStore>,
-    side: &Arc<AsyncRwLock<SideRegistry>>,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     name: &str,
     args: &str,
 ) {
-    supersede_for_session_switch(lifecycle, agent, resp_tx).await;
-    teardown_sides_for_session_switch(side, resp_tx).await;
-    match session.fork().await {
-        Ok((id, parent_id)) => {
-            agent.restore_round_count(session.round_counter().await);
+    let target = match parse_fork_target(args) {
+        Ok(t) => t,
+        Err(err) => {
+            record_error(session, resp_tx, name, args, err).await;
+            return;
+        }
+    };
+
+    match session.fork_at(target).await {
+        Ok((id, parent_id, target_round, title)) => {
+            let round_desc = match target_round {
+                Some(r) => format!("at round {r}"),
+                None => "at head".to_string(),
+            };
             record_command(
                 session,
                 resp_tx,
                 name,
                 args,
-                CommandResult::Text(format!("Forked session {} from {}.", id, parent_id)),
+                CommandResult::Text(format!(
+                    "Forked child thread {} from {} ({round_desc}). Opening new sovereign tab...",
+                    id, parent_id
+                )),
             )
             .await;
-            send_harness_state_for_session(
-                resp_tx,
-                &session.id().await,
-                agent,
-                session,
-                LoopStatus::Idle,
-            )
-            .await;
+            let _ = resp_tx.send(AgentResponse::SessionForked {
+                child_id: id,
+                parent_id,
+                target_round,
+                title,
+            });
         }
         Err(error) => {
             record_error(session, resp_tx, name, args, error).await;

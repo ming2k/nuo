@@ -238,16 +238,6 @@ fn compose_frame(
     // show a contextual first-row header; otherwise render the
     // root thread.
     let view_messages = app.focused_messages();
-    // `/btw` aside scene context (ADR-0017, ADR-0024): shown only while
-    // the aside view is active. Subagent zoom and the aside view are mutually
-    // exclusive, so the two modes never coexist.
-    let side_banner = app.in_side_view.then_some(app.parent_status);
-    // The viewed session's run state, consumed by the overlay/palette
-    // availability filters. The Subagent scene's own activity advertising is
-    // suppressed entirely (`in_subagent` below), and its Esc interrupt is
-    // resolved scene-scoped in `session::resolve_subagent_key`, so this stays
-    // the *viewed session's* state — an overlay opened over the zoom still
-    // reflects the (primary) round a palette `Interrupt Task` would stop.
     let viewed_running = app.running_sessions.contains(viewed_session_id);
     let subagent_bar = app.focus_stack.last().and_then(|current| {
         let tasks: Vec<&TranscriptMessage> = app
@@ -265,10 +255,6 @@ fn compose_frame(
             total: tasks.len(),
         })
     });
-    // The scene row (ADR-0024): the scene the user stands in, named plainly,
-    // followed by the scene's own context. Subagent outranks the aside view in
-    // this resolution (they are mutually exclusive in the app; keeping a
-    // deterministic precedence guards a malformed caller).
     let (scene_kind, scene_context, scene_context_warn): (crate::surfaces::SceneKind, Option<String>, bool) =
         if let Some(bar) = subagent_bar.as_ref() {
             let role = bar
@@ -287,12 +273,6 @@ fn compose_frame(
                 format!("{role} {}{count}", bar.label)
             };
             (crate::surfaces::SceneKind::Subagent, Some(context), false)
-        } else if let Some(parent) = side_banner {
-            (
-                crate::surfaces::SceneKind::Aside,
-                Some(render::parent_status_context(parent).to_string()),
-                render::parent_status_needs_attention(parent),
-            )
         } else {
             (
                 crate::surfaces::SceneKind::Thread,
@@ -313,7 +293,7 @@ fn compose_frame(
         confined: app.confined,
         workspace: if matches!(
             scene_kind,
-            crate::surfaces::SceneKind::Thread | crate::surfaces::SceneKind::Subagent | crate::surfaces::SceneKind::Aside
+            crate::surfaces::SceneKind::Thread | crate::surfaces::SceneKind::Subagent
         ) && !app.current_workspace.is_empty()
         {
             Some(&app.current_workspace)
@@ -424,7 +404,6 @@ fn compose_frame(
                 },
                 persistence_health: app.persistence_health.as_ref(),
                 subagent_bar,
-                side_banner,
                 // ADR-0205: a head legend advertises scene chords, which are
                 // suspended the moment an overlay takes the keyboard
                 // foreground — so the row is withheld rather than left
@@ -1129,9 +1108,7 @@ fn compose_frame(
                 Some(rects.area)
             }
             SceneKind::Settings => {
-                let breadcrumbs_str = if app.in_side_view {
-                    "Main › Aside › Settings"
-                } else if app.in_subagent_view() {
+                let breadcrumbs_str = if app.in_subagent_view() {
                     "Main › Subagent › Settings"
                 } else {
                     "Main › Settings"
@@ -1200,7 +1177,7 @@ fn compose_frame(
                 }
                 Some(rects.area)
             }
-            SceneKind::Thread | SceneKind::Subagent | SceneKind::Aside => None,
+            SceneKind::Thread | SceneKind::Subagent => None,
         }
     };
 

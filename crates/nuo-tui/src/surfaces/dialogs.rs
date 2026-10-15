@@ -190,7 +190,6 @@ pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
         DialogKind::Tools | DialogKind::SessionTree => ContentModalSpec::TOOLS.modal_spec(),
         DialogKind::Mcp => ContentModalSpec::MCP.modal_spec(),
         DialogKind::Queue => ContentModalSpec::QUEUE.modal_spec(),
-        DialogKind::Asides => ContentModalSpec::BTW.modal_spec(),
         DialogKind::SessionStats => ContentModalSpec::SESSION_STATS.modal_spec(),
         DialogKind::SessionTrace => ContentModalSpec::SESSION_TRACE.modal_spec(),
         DialogKind::UsageStats | DialogKind::Quotas => ContentModalSpec::USAGE_STATS.modal_spec(),
@@ -409,28 +408,6 @@ fn render_dialog(
                 ctx.theme,
             ))
         }
-        DialogKind::Asides => {
-            let d = view.as_any_mut().downcast_mut::<AsidesDialog>().expect("kind");
-            let running: Vec<bool> = app
-                .btw_list
-                .iter()
-                .map(|row| app.running_sessions.contains(row.id.as_str()))
-                .collect();
-            Some(crate::overlays::draw_btw_modal(
-                frame,
-                crate::render::BtwModalProps {
-                    asides: &app.btw_list,
-                    running: &running,
-                    active_id: app.side_session_id.as_deref(),
-                },
-                d.index,
-                &mut d.scroll,
-                d.follow,
-                ctx.theme,
-                ctx.selection,
-                ctx.layout_map,
-            ))
-        }
         DialogKind::Threads => {
             let d = view.as_any_mut().downcast_mut::<ThreadsDialog>().expect("kind");
             let projected_count = crate::overlays::session::project_session_rows(
@@ -567,7 +544,6 @@ fn render_dialog(
             };
             let entries = crate::overlays::command_palette::filter_palette_commands(
                 &d.query.text,
-                &app.command_catalog,
                 &app.recent_commands,
                 &app_ctx,
             );
@@ -709,12 +685,6 @@ fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> Dialog
         }
         DialogKind::Queue => {
             let e = view.as_any_mut().downcast_mut::<QueueDialog>().expect("kind");
-            apply_delta(&mut e.scroll, delta);
-            e.follow = false;
-            DialogOutcome::Consumed
-        }
-        DialogKind::Asides => {
-            let e = view.as_any_mut().downcast_mut::<AsidesDialog>().expect("kind");
             apply_delta(&mut e.scroll, delta);
             e.follow = false;
             DialogOutcome::Consumed
@@ -994,7 +964,6 @@ fn handle_dialog_click(
             };
             let entries = crate::overlays::command_palette::filter_palette_commands(
                 &e.query.text,
-                &app.command_catalog,
                 &app.recent_commands,
                 &app_ctx,
             );
@@ -1321,30 +1290,10 @@ fn input_dialog(
             }
             DialogOutcome::Consumed
         }
-        DialogKind::Asides => {
-            let e = view.as_any_mut().downcast_mut::<AsidesDialog>().expect("kind");
-            if arrow {
-                if forward {
-                    e.scroll = e.scroll.saturating_add(1);
-                } else {
-                    e.scroll = e.scroll.saturating_sub(1);
-                }
-                e.follow = false;
-            } else {
-                let count = app.btw_list.len();
-                if count == 0 {
-                    return DialogOutcome::Unhandled;
-                }
-                e.index = rotate(e.index, count, forward);
-                e.follow = true;
-            }
-            DialogOutcome::Consumed
-        }
         DialogKind::Switcher => {
             let e = view.as_any_mut().downcast_mut::<SwitcherDialog>().expect("kind");
             let count = crate::overlays::command_palette::filter_palette_commands(
                 &e.query.text,
-                &app.command_catalog,
                 &app.recent_commands,
                 &switcher_app_ctx(app),
             )
@@ -1510,7 +1459,6 @@ dialog_entity!(SessionTraceDialog, SessionTrace, {
     turn_cursor: usize = 0,
 });
 
-dialog_entity!(AsidesDialog, Asides, {});
 dialog_entity!(QueueDialog, Queue, {});
 
 dialog_entity!(ModelsDialog, Models, {
@@ -1599,7 +1547,6 @@ pub struct SessionSnapshot {
     pub permissions: PermissionsDialog,
     pub session_stats: SessionStatsDialog,
     pub session_trace: SessionTraceDialog,
-    pub asides: AsidesDialog,
     pub queue: QueueDialog,
     pub session_tree: SessionTreeDialog,
 }
@@ -1619,7 +1566,6 @@ pub struct Dialogs {
     pub quotas: QuotasDialog,
     pub session_stats: SessionStatsDialog,
     pub session_trace: SessionTraceDialog,
-    pub asides: AsidesDialog,
     pub models: ModelsDialog,
     pub connections: ConnectionsDialog,
     pub history_search: HistorySearchDialog,
@@ -1677,7 +1623,6 @@ impl Dialogs {
             permissions: self.permissions.clone(),
             session_stats: self.session_stats.clone(),
             session_trace: self.session_trace.clone(),
-            asides: self.asides.clone(),
             queue: self.queue.clone(),
             session_tree: self.session_tree.clone(),
         }
@@ -1690,7 +1635,6 @@ impl Dialogs {
         self.permissions = snapshot.permissions;
         self.session_stats = snapshot.session_stats;
         self.session_trace = snapshot.session_trace;
-        self.asides = snapshot.asides;
         self.queue = snapshot.queue;
         self.session_tree = snapshot.session_tree;
     }
@@ -1708,7 +1652,6 @@ impl Dialogs {
             DialogKind::Quotas => &self.quotas,
             DialogKind::SessionStats => &self.session_stats,
             DialogKind::SessionTrace => &self.session_trace,
-            DialogKind::Asides => &self.asides,
             DialogKind::Models => &self.models,
             DialogKind::Connections => &self.connections,
             DialogKind::HistorySearch => &self.history_search,
@@ -1731,7 +1674,6 @@ impl Dialogs {
             DialogKind::Quotas => &mut self.quotas,
             DialogKind::SessionStats => &mut self.session_stats,
             DialogKind::SessionTrace => &mut self.session_trace,
-            DialogKind::Asides => &mut self.asides,
             DialogKind::Models => &mut self.models,
             DialogKind::Connections => &mut self.connections,
             DialogKind::HistorySearch => &mut self.history_search,
@@ -1761,7 +1703,6 @@ impl Dialogs {
             DialogKind::Quotas => Box::new(std::mem::take(&mut self.quotas)),
             DialogKind::SessionStats => Box::new(std::mem::take(&mut self.session_stats)),
             DialogKind::SessionTrace => Box::new(std::mem::take(&mut self.session_trace)),
-            DialogKind::Asides => Box::new(std::mem::take(&mut self.asides)),
             DialogKind::Models => Box::new(std::mem::take(&mut self.models)),
             DialogKind::Connections => Box::new(std::mem::take(&mut self.connections)),
             DialogKind::HistorySearch => Box::new(std::mem::take(&mut self.history_search)),
@@ -1799,9 +1740,6 @@ impl Dialogs {
                 self.session_trace =
                     *view.into_any().downcast::<SessionTraceDialog>().expect("kind")
             }
-            DialogKind::Asides => {
-                self.asides = *view.into_any().downcast::<AsidesDialog>().expect("kind")
-            }
             DialogKind::Models => self.models = *view.into_any().downcast::<ModelsDialog>().expect("kind"),
             DialogKind::Connections => {
                 self.connections = *view.into_any().downcast::<ConnectionsDialog>().expect("kind")
@@ -1837,7 +1775,6 @@ impl Dialogs {
             DialogKind::Quotas => self.quotas.index,
             DialogKind::SessionStats => self.session_stats.index,
             DialogKind::SessionTrace => self.session_trace.index,
-            DialogKind::Asides => self.asides.index,
             DialogKind::Models => self.models.index,
             DialogKind::Connections => self.connections.index,
             DialogKind::HistorySearch => self.history_search.index,
@@ -1860,7 +1797,6 @@ impl Dialogs {
             DialogKind::Quotas => self.quotas.index = value,
             DialogKind::SessionStats => self.session_stats.index = value,
             DialogKind::SessionTrace => self.session_trace.index = value,
-            DialogKind::Asides => self.asides.index = value,
             DialogKind::Models => self.models.index = value,
             DialogKind::Connections => self.connections.index = value,
             DialogKind::HistorySearch => self.history_search.index = value,
@@ -1883,7 +1819,6 @@ impl Dialogs {
             DialogKind::Quotas => self.quotas.follow,
             DialogKind::SessionStats => self.session_stats.follow,
             DialogKind::SessionTrace => self.session_trace.follow,
-            DialogKind::Asides => self.asides.follow,
             DialogKind::Models => self.models.follow,
             DialogKind::Connections => self.connections.follow,
             DialogKind::HistorySearch => self.history_search.follow,
@@ -1906,7 +1841,6 @@ impl Dialogs {
             DialogKind::Quotas => self.quotas.keys_open,
             DialogKind::SessionStats => self.session_stats.keys_open,
             DialogKind::SessionTrace => self.session_trace.keys_open,
-            DialogKind::Asides => self.asides.keys_open,
             DialogKind::Models => self.models.keys_open,
             DialogKind::Connections => self.connections.keys_open,
             DialogKind::HistorySearch => self.history_search.keys_open,
@@ -1930,7 +1864,6 @@ impl Dialogs {
             DialogKind::Quotas => self.quotas.keys_open = open,
             DialogKind::SessionStats => self.session_stats.keys_open = open,
             DialogKind::SessionTrace => self.session_trace.keys_open = open,
-            DialogKind::Asides => self.asides.keys_open = open,
             DialogKind::Models => self.models.keys_open = open,
             DialogKind::Connections => self.connections.keys_open = open,
             DialogKind::HistorySearch => self.history_search.keys_open = open,
@@ -1956,7 +1889,6 @@ impl Dialogs {
             DialogKind::Quotas => &mut self.quotas.keys_scroll,
             DialogKind::SessionStats => &mut self.session_stats.keys_scroll,
             DialogKind::SessionTrace => &mut self.session_trace.keys_scroll,
-            DialogKind::Asides => &mut self.asides.keys_scroll,
             DialogKind::Models => &mut self.models.keys_scroll,
             DialogKind::Connections => &mut self.connections.keys_scroll,
             DialogKind::HistorySearch => &mut self.history_search.keys_scroll,

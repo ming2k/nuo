@@ -238,56 +238,46 @@ fn an_ended_round_retires_the_clause() {
     );
 }
 
-/// A background `/btw` aside backing off against a rate-limited upstream is its
-/// own session's business: the primary view's bar stays clean (the bug the
-/// session-scoped chrome exists for), while the countdown keeps ticking for the
-/// aside itself.
+/// A background thread backing off against a rate-limited upstream is its
+/// own session's business: the viewed thread's bar stays clean,
+/// while the countdown keeps ticking for the background thread.
 #[test]
-fn an_asides_setback_never_reaches_the_primary_bar() {
+fn a_background_thread_setback_never_reaches_the_viewed_thread_bar() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::event_loop::UiRuntime::minimal_for_test();
     app.current_session_id = "primary".to_string();
 
-    publish_setback(&mut app, &runtime, "side-1", true, 2);
+    publish_setback(&mut app, &runtime, "thread-2", true, 2);
 
     assert!(
         app.viewed_chrome().transport_setback.is_none(),
-        "the primary view must not inherit a background aside's countdown"
+        "the viewed thread must not inherit a background thread's countdown"
     );
     assert!(
         app.has_live_transport_setback(),
-        "…but the aside's countdown still needs frames to tick"
+        "…but the background thread's countdown still needs frames to tick"
     );
-
-    // Inside the aside, the clause is the aside's own.
-    app.enter_side_view("side-1".to_string());
-    assert!(app.viewed_chrome().transport_setback.is_some());
-
-    // Leaving restores the primary's clean bar — with nothing parked to
-    // resurrect, because the clause is not a displayed-mirror slot.
-    app.exit_side_view();
-    assert!(app.viewed_chrome().transport_setback.is_none());
 }
 
-/// The aside's own phase progress retires its clause through the chrome path.
+/// The background thread's own phase progress retires its clause through the chrome path.
 #[test]
-fn an_asides_phase_progress_retires_its_own_clause() {
+fn a_background_thread_phase_progress_retires_its_own_clause() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::event_loop::UiRuntime::minimal_for_test();
     app.current_session_id = "primary".to_string();
 
-    publish_setback(&mut app, &runtime, "side-1", true, 2);
+    publish_setback(&mut app, &runtime, "thread-2", true, 2);
     assert!(app.has_live_transport_setback());
 
     chrome_edit(
         &mut app,
         &runtime,
-        "side-1",
+        "thread-2",
         crate::event_loop::mutations::ChromeEdit::StreamStarted,
     );
 
     assert!(
         !app.has_live_transport_setback(),
-        "the aside's stream started, so its setback is over"
+        "the thread's stream started, so its setback is over"
     );
 }

@@ -340,7 +340,7 @@ impl Agent {
     /// identity is now live-mutable behind a lock (so `/master` can switch
     /// personas); callers that need a stable view across an await should take
     /// the snapshot once. Lets an embedding reuse the primary's identity (e.g.
-    /// a `/btw` side session) instead of recomposing it.
+    /// a forked session) instead of recomposing it.
     pub fn identity(&self) -> AgentIdentity {
         self.identity
             .read()

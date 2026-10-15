@@ -53,7 +53,6 @@ use crate::view_header;
 #[allow(unused_imports)]
 pub(crate) use crate::view_header::{
     SessionHead, ViewHints, ViewKind, draw_view_header, draw_view_header_hints,
-    parent_status_context, parent_status_needs_attention,
 };
 #[allow(unused_imports)]
 pub use crate::views::settings::*;
@@ -211,10 +210,6 @@ pub struct TranscriptProps<'a> {
     /// focused task's child stream. The head band's scene row names the scene
     /// `subagent` and carries the task's `[ROLE] label (i/n)` context (ADR-0024).
     pub subagent_bar: Option<SubagentBarInfo>,
-    /// When set, the view is inside a `/btw` aside (ADR-0017): the head
-    /// band's scene row names the scene `aside` and carries the coarse
-    /// primary-session status as its context (`main running`, …).
-    pub side_banner: Option<nuo_wire::ParentStatus>,
     /// The head band's **scene row** (ADR-0024): the scene the user stands in,
     /// its context, and the session's run-mode flags + the `C-x menu` namespace
     /// pair. `None` suppresses the row entirely (non-app contexts).
@@ -703,7 +698,6 @@ pub fn draw_transcript(
         tasks_bar,
         persistence_health,
         subagent_bar,
-        side_banner,
         page_hints,
         session_head,
         round_started_at,
@@ -978,7 +972,7 @@ pub fn draw_transcript(
     // scroll, selection, or attribution, so the whole message-rendering
     // pipeline (loop, badges, sticky pinning) is skipped. The footer below
     // renders exactly as in a live session.
-    let show_empty_state = messages.is_empty() && subagent_bar.is_none() && side_banner.is_none();
+    let show_empty_state = messages.is_empty() && subagent_bar.is_none();
 
     if show_empty_state {
         // Account for the hero so the app loop does not treat the session as a

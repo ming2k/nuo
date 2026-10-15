@@ -44,11 +44,6 @@ pub(crate) fn now_epoch_ms() -> u64 {
         .unwrap_or_default()
 }
 
-pub(crate) enum SideViewSignal {
-    Opened { side_id: String },
-    Closed,
-}
-
 pub struct UiRuntime {
     pub dirty: Arc<AtomicBool>,
     pub dirty_notify: Arc<tokio::sync::Notify>,

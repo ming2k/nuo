@@ -596,7 +596,7 @@ fn pickers_never_borrow_the_composer_line() {
 fn switcher_rows_filter_and_gate_by_availability() {
     let mut store = crate::surfaces::SurfaceStore::new();
     store.open(crate::surfaces::DialogKind::UsageStats);
-    store.open(crate::surfaces::DialogKind::Asides);
+    store.open(crate::surfaces::DialogKind::Tools);
 
     // "mcp" matches the MCP label (with a session present).
     let rows = store.switcher_rows_filtered(
@@ -636,7 +636,7 @@ fn switcher_rows_filter_and_gate_by_availability() {
         rows.iter().all(|r| !matches!(
             r,
             crate::surfaces::SwitcherTarget::Dialog(
-                crate::surfaces::DialogKind::Asides | crate::surfaces::DialogKind::Tools
+                crate::surfaces::DialogKind::Tools
             )
         )),
         "session-scoped dialogs are gated out with no session"

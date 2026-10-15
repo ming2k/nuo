@@ -830,7 +830,6 @@ fn render_transcript_frame(
                 tasks_bar: Default::default(),
                 persistence_health: None,
                 subagent_bar: None,
-                side_banner: None,
                 page_hints: None,
                 session_head: None,
                 round_started_at: None,

@@ -3,8 +3,8 @@
 //!
 //! This type consolidates the cancellation-token slot + generation-counter
 //! protocol that used to be threaded through the transport layer as two
-//! separate `Arc`s and re-implemented at four call sites (interactive round,
-//! pursuit, `!` shell command, `/btw` side session). The protocol itself is
+//! separate `Arc`s and re-implemented at call sites (interactive round,
+//! pursuit, `!` shell command). The protocol itself is
 //! deliberately binary — no active round, or an active round identified by a
 //! generation; display-level nuance ("running" vs. "pursue" vs.
 //! awaiting-permission) lives outside it, in
@@ -38,7 +38,7 @@ use tokio_util::sync::CancellationToken;
 
 /// At-most-one-active-round protocol for one session.
 ///
-/// Cloned into an `Arc` by the owning session (primary or `/btw` side) and
+/// Cloned into an `Arc` by the owning session and
 /// shared by every driver that can start or stop a round.
 #[derive(Debug, Default)]
 pub struct RoundLifecycle {
@@ -226,8 +226,7 @@ impl RoundLifecycle {
         crate::sync::poison_lock(&self.interrupt_reason).take()
     }
 
-    /// Coarse activity signal for watchers (e.g. the `/btw` parent-status
-    /// banner): a live, uncancelled token means a round is running.
+    /// Coarse activity signal for watchers: a live, uncancelled token means a round is running.
     pub async fn is_running(&self) -> bool {
         matches!(
             self.token_slot.read().await.as_ref(),
@@ -236,9 +235,8 @@ impl RoundLifecycle {
     }
 
     /// Synchronous best-effort variant of [`Self::is_running`] for render-side
-    /// summaries (e.g. the `/btw` asides list's `running` flag, ADR-0103).
-    /// Uses `try_read`: when the lock is momentarily contended the answer is
-    /// `false`, which a 400 ms-later refresh corrects — these are display
+    /// summaries. Uses `try_read`: when the lock is momentarily contended the answer is
+    /// `false`, which a later refresh corrects — these are display
     /// hints, not protocol state.
     pub fn is_running_blocking(&self) -> bool {
         match self.token_slot.try_read() {

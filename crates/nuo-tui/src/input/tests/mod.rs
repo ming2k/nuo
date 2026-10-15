@@ -94,34 +94,6 @@ fn key_in_view(code: KeyCode, in_subagent_view: bool, input: &mut String) -> Inp
     })
 }
 
-fn key_in_side_view_with(
-    code: KeyCode,
-    input: &mut String,
-    tune: impl FnOnce(&mut Dispatch),
-) -> InputAction {
-    let mut cursor = input.chars().count();
-    let mut drag = SelectionDrag::default();
-    let mut dispatch = Dispatch {
-        scene: crate::surfaces::SceneKind::Aside,
-        ..Default::default()
-    };
-    tune(&mut dispatch);
-    route_event(
-        Event::Key(crossterm::event::KeyEvent::new(code, KeyModifiers::NONE)),
-        input,
-        &mut cursor,
-        dispatch,
-        &ModalKeys::default(),
-        &SheetKeys::default(),
-        &SceneKeys::default(),
-        &mut drag,
-    )
-}
-
-fn key_in_side_view(code: KeyCode, input: &mut String) -> InputAction {
-    key_in_side_view_with(code, input, |_| {})
-}
-
 fn key_in_view_with(
     code: KeyCode,
     input: &mut String,
@@ -181,7 +153,6 @@ pub(crate) enum SurfaceFixture {
     Skills,
     Tools,
     Mcp,
-    Btw,
     ProviderPreset,
     CustomProvider,
     OauthPending,
@@ -242,10 +213,6 @@ impl SurfaceFixture {
             ),
             Self::Mcp => (
                 Some(OverlaySurface::Dialog(DialogKind::Mcp)),
-                SceneKind::Thread,
-            ),
-            Self::Btw => (
-                Some(OverlaySurface::Dialog(DialogKind::Asides)),
                 SceneKind::Thread,
             ),
             Self::Permissions => (

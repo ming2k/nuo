@@ -12,7 +12,6 @@
 //! - [`toast`] — copy / armed-action notice bubbles
 //! - [`common`] — shared helpers (time formatting, truncation, caret, glyphs)
 
-pub mod btw;
 pub mod command_palette;
 pub mod common;
 pub mod dashboard;
@@ -49,9 +48,6 @@ pub use dashboard::{
 pub use dashboard::DashboardRects;
 pub use history::draw_history_panel;
 pub use port::draw_port_modal;
-// The old centered `/host` modal (`host.rs`) was superseded by the full-screen
-// `dashboard` surface and removed; `/host` now opens the dashboard.
-pub use btw::{BtwModalProps, draw_btw_modal};
 pub(crate) use command_palette::draw_command_palette;
 pub use dialog_keys::draw_dialog_keys;
 pub use mcp::draw_mcp_modal;

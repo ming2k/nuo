@@ -342,13 +342,9 @@ impl App {
         })
     }
 
-    /// The message slice currently in view: the `/btw` side transcript when
-    /// the side view is active (ADR-0017), the focused subagent task's child
+    /// The message slice currently in view: the focused subagent task's child
     /// messages when zoomed, or the root thread otherwise.
     pub fn focused_messages(&self) -> &[TranscriptMessage] {
-        if self.in_side_view {
-            return &self.side_messages;
-        }
         let Some(frame) = self.focus_stack.last() else {
             return &self.messages;
         };
@@ -402,113 +398,6 @@ impl App {
         } else {
             false
         }
-    }
-
-    /// Enter the `/btw` aside view (ADR-0017, ADR-0103). The side transcript
-    /// ([`App::side_messages`]) becomes the viewed stream and the aside page
-    /// header reports the primary session's coarse status. The buffer itself
-    /// was already back-filled from `SideViewOpened`'s payload by the
-    /// listener (ADR-0103 §6), so entering never clears it. Reuses the
-    /// subagent zoom's `reset_view_state` so the swap feels identical to
-    /// focusing a task step.
-    pub fn enter_side_view(&mut self, side_id: String) {
-        self.side_session_id = Some(side_id.clone());
-        // The surface is the router's `SceneKind::Aside` (ADR-0205); the
-        // flag below remains as cheap payload for the input context and
-        // tests.
-        self.in_side_view = true;
-        if self.current_scene() != crate::surfaces::SceneKind::Aside {
-            self.surfaces
-                .switch_scene(crate::surfaces::SceneKind::Aside);
-        }
-        self.parent_status = ParentStatus::Idle;
-        // An armed Esc confirmation is view-scoped: entering the aside must
-        // not inherit the primary's arm (a second Esc here would otherwise
-        // fire the *aside's* interrupt off a confirmation aimed at the
-        // primary's round).
-        self.esc_armed_until = None;
-        // View-scoped chrome (the aside-view activity-bar fix): snapshot the
-        // primary's live chrome, then swap the displayed chrome to the
-        // aside's own `SessionChrome` entry. A primary round still streaming
-        // in the background keeps its activity text, elapsed timer, and
-        // counters parked in `saved_primary_chrome`; the aside view shows
-        // only the aside's state — typically idle on entry ("new aside, no
-        // round"), or streaming if re-entering a running aside.
-        //
-        // The snapshot is taken only when none is parked: jumping between
-        // asides (A → B, or re-entering A) must not re-snapshot, because the
-        // displayed chrome at that moment is the *previous aside's* —
-        // overwriting would silently destroy the primary's parked state.
-        if self.saved_primary_chrome.is_none() {
-            self.saved_primary_chrome = Some(SessionChrome {
-                phase: self.phase.clone(),
-                responding: self.round_started_at.is_some() || self.phase.is_some(),
-                round_count: self.round_count,
-                current_turn: self.current_turn,
-                round_started_at: self.round_started_at,
-                can_retry: self.loop_status.is_idle() && self.harness_retry_pending,
-                last_turn_performance: self
-                    .session_chrome
-                    .get(&self.current_session_id)
-                    .and_then(|chrome| chrome.last_turn_performance),
-                // Deliberately empty: the primary's setback clause is *not* a
-                // displayed-mirror slot. It stays in `App::provider_retry`
-                // (the primary's own, `viewed_chrome`'s primary branch reads
-                // it there), so leaving the aside view has nothing to restore
-                // and entering one cannot clobber it (ADR-0235).
-                transport_setback: None,
-            });
-        }
-        if let Some(chrome) = self.session_chrome.get(&side_id).cloned() {
-            self.apply_chrome(&chrome);
-        } else {
-            // First entry: the aside has no chrome history yet — a fresh,
-            // idle surface. Clearing rather than inheriting is the point.
-            //
-            // Written straight into the displayed mirror rather than through
-            // `set_phase`: the primary's setback clause is not part of what a
-            // view swap displays (ADR-0235), so a fresh aside showing an idle
-            // bar must not retire the primary's live countdown.
-            self.phase = None;
-            self.round_started_at = None;
-            self.round_count = 0;
-            self.current_turn = 0;
-        }
-        self.reset_view_state();
-    }
-
-    /// Leave the `/btw` aside view and return to the primary transcript
-    /// (ADR-0103). Detach is non-destructive: the aside keeps running and its
-    /// buffer is **retained** (clipped out of view), so re-entering shows the
-    /// full history without a refetch. The aside session stays live on the
-    /// harness side until explicitly closed.
-    pub fn exit_side_view(&mut self) {
-        // Restore the primary's parked chrome (the aside-view activity-bar
-        // fix): whatever the primary was doing when the user entered the
-        // aside — idle, or a round still streaming in the background — its
-        // activity bar, elapsed timer, and counters come back exactly as
-        // they were. Without this, exiting into a running primary would show
-        // the aside's (or a cleared) bar until the next primary event.
-        if let Some(primary) = self.saved_primary_chrome.take() {
-            self.apply_chrome(&primary);
-        } else {
-            // No snapshot exists only in a legacy in-process state that
-            // predates the snapshot write; clear to a neutral surface and
-            // let the next frame's per-session bookkeeping rebuild it.
-            self.set_phase(None);
-            self.round_started_at = None;
-        }
-        self.in_side_view = false;
-        self.side_session_id = None;
-        if self.current_scene() == crate::surfaces::SceneKind::Aside {
-            self.surfaces.reset_to_thread();
-        }
-        // Dropping any armed Esc confirmation is part of leaving: the arm
-        // targeted the aside's round, and a carried arm would fire the
-        // *primary's* interrupt on the next Esc. Covers the Ctrl+C detach
-        // and the `SideViewSignal::Closed` backstop alike.
-        self.esc_armed_until = None;
-        self.reset_view_state();
     }
 
     /// Cycle to the previous (`dir < 0`) or next (`dir > 0`) sibling subagent

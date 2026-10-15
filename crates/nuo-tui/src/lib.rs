@@ -108,7 +108,7 @@ pub(crate) use completion::CompletionKind;
 pub(crate) use providers::{CustomField, PROVIDER_PRESETS, provider_label_for};
 
 use nuo_wire::{
-    AgentRequest, AgentResponse, LoopStatus, Message, ParentStatus, ProviderPickerSnapshot, Role,
+    AgentRequest, AgentResponse, LoopStatus, Message, ProviderPickerSnapshot, Role,
     RoundEvent,
 };
 use nuotc::{Backend, Terminal};
@@ -394,6 +394,7 @@ pub struct TuiLaunchConfig {
     pub session: SessionSource,
     pub token_ledger: Option<Arc<nuo_wire::TokenSourceLedger>>,
     pub startup_overlay: StartupOverlay,
+    pub initial_tabs: Option<Vec<crate::surfaces::ClientTab>>,
 }
 
 pub async fn run_tui(
@@ -416,6 +417,7 @@ pub async fn run_tui(
         session,
         token_ledger,
         startup_overlay,
+        initial_tabs,
     } = config;
     // Setup terminal with adaptive capability profile (ADR-0053)
     let profile = nuotc::TerminalProfile::detect();
@@ -576,16 +578,7 @@ pub async fn run_tui(
     {
         let mutations = mutations.clone();
         tokio::spawn(async move {
-            // Listener-local side routing keys (ADR-0017, widened by ADR-0103):
-            // every live aside's `session_id`, learned from `SideViewOpened` and
-            // `BtwList`. A *set* (not a single id) so a background aside keeps
-            // streaming into the side buffer after the user detaches from its
-            // view.
-            let mut listener_side_ids: std::collections::HashSet<String> =
-                std::collections::HashSet::new();
-            // Per-session `(round, turn)` position. The primary and `/btw` side
-            // sessions can stream concurrently, so a single global counter
-            // cannot reliably stamp transcript components for semantic spacing.
+            // Per-session `(round, turn)` position.
             let mut positions_by_session = HashMap::<String, (u64, u64)>::new();
             // ADR-0026: per-session announced-but-unclaimed provider slots, in
             // announcement order. The translator stamps the step's `input_slot`;
@@ -692,12 +685,8 @@ pub async fn run_tui(
                     // user-question requests stay global so their modals surface
                     // regardless of which view is focused.
                     AgentResponse::Round { session_id, event } => {
-                        let routes_to_side = listener_side_ids.contains(session_id.as_str());
-                        let buffer = if routes_to_side {
-                            event_loop::mutations::Buffer::Side
-                        } else {
-                            event_loop::mutations::Buffer::Primary
-                        };
+                        let routes_to_side = false;
+                        let buffer = event_loop::mutations::Buffer::Primary;
                         macro_rules! transcript {
                             ($edit:expr) => {
                                 mutations
@@ -1669,57 +1658,6 @@ pub async fn run_tui(
                             }
                         } // end inner `match event`
                     }
-                    AgentResponse::ParentStatus(status) => {
-                        // ADR-0017: primary-session status for the `/btw` side banner.
-                        mutations.send(M::ParentStatus(status)).await;
-                    }
-                    AgentResponse::SideViewOpened {
-                        side_id,
-                        messages,
-                        commands,
-                        round_interrupts,
-                        ..
-                    } => {
-                        // ADR-0017 + ADR-0103 §6: enter the aside view; back-fill
-                        // the side buffer from the event's transcript payload.
-                        listener_side_ids.insert(side_id.clone());
-                        let mut rebuilt =
-                            transcript_messages_from_core(messages, &tui_config_clone);
-                        rebuilt =
-                            merge_command_rows(rebuilt, transcript_commands_from_ledger(commands));
-                        rebuilt = merge_round_interrupt_rows(
-                            rebuilt,
-                            transcript_interrupts_from_records(round_interrupts),
-                        );
-                        mutations
-                            .send(M::Transcript {
-                                buffer: event_loop::mutations::Buffer::Side,
-                                edit: event_loop::mutations::TranscriptEdit::ReplaceAll {
-                                    messages: rebuilt,
-                                },
-                            })
-                            .await;
-                        mutations
-                            .send(M::SideView(event_loop::SideViewSignal::Opened { side_id }))
-                            .await;
-                    }
-                    AgentResponse::SideViewClosed => {
-                        // ADR-0103: leave the aside view. The routing keys are
-                        // NOT dropped — background asides keep streaming; only
-                        // the view flips.
-                        mutations
-                            .send(M::SideView(event_loop::SideViewSignal::Closed))
-                            .await;
-                    }
-                    AgentResponse::BtwList(rows) => {
-                        // ADR-0103 §5: the asides list is also the routing-truth
-                        // source: ids absent from it stop routing to the side buffer.
-                        listener_side_ids.retain(|id| rows.iter().any(|row| &row.id == id));
-                        for row in rows.iter() {
-                            listener_side_ids.insert(row.id.clone());
-                        }
-                        mutations.send(M::BtwList(rows)).await;
-                    }
                     AgentResponse::InputHistory(rows) => {
                         mutations.send(M::InputHistory(rows)).await;
                     }
@@ -1831,6 +1769,21 @@ pub async fn run_tui(
                     }
                     AgentResponse::OpenTreePanel => {
                         mutations.send(M::OpenTreePanel).await;
+                    }
+                    AgentResponse::SessionForked {
+                        child_id,
+                        parent_id,
+                        target_round,
+                        title,
+                    } => {
+                        mutations
+                            .send(M::SessionForked {
+                                child_id,
+                                _parent_id: parent_id,
+                                target_round,
+                                title,
+                            })
+                            .await;
                     }
                     AgentResponse::SessionDetail(detail) => {
                         mutations.send(M::SessionDetail(detail)).await;
@@ -2107,14 +2060,8 @@ pub async fn run_tui(
         recent_commands: Vec::new(),
         input: String::new(),
         messages: restored,
-        side_messages: Vec::new(),
         layout_height_cache: Default::default(),
-        in_side_view: false,
-        side_session_id: None,
-        parent_status: ParentStatus::Idle,
-        btw_list: Vec::new(),
         session_chrome: std::collections::HashMap::new(),
-        saved_primary_chrome: None,
         session_tree: nuo_wire::SessionTree::default(),
         scroll: 0,
         follow_bottom: true,
@@ -2344,15 +2291,34 @@ pub async fn run_tui(
         background_tasks: Vec::new(),
     };
 
-    // Mount initial thread tab on startup (ADR-0039 [INV-TAB-02], ADR-0050 [INV-TITLE-01])
-    app.surfaces.open_tab(crate::surfaces::ClientTab::thread(
-        &live_session_init,
-        None::<String>,
-    ));
-    if matches!(startup_overlay, StartupOverlay::Dashboard) {
-        app.surfaces.open_tab(crate::surfaces::ClientTab::dashboard());
-    } else if matches!(startup_overlay, StartupOverlay::Settings { .. }) {
-        app.surfaces.open_tab(crate::surfaces::ClientTab::settings());
+    // Mount tabs: restore preserved tabs if re-attaching, or mount initial thread tab (ADR-0039, ADR-0058)
+    if let Some(tabs) = initial_tabs {
+        for tab in tabs {
+            app.surfaces.open_tab(tab);
+        }
+        if let Some(pos) = app
+            .surfaces
+            .tabs()
+            .iter()
+            .position(|t| t.thread_id() == Some(live_session_init.as_str()))
+        {
+            app.surfaces.select_tab(pos);
+        } else {
+            app.surfaces.open_tab(crate::surfaces::ClientTab::thread(
+                &live_session_init,
+                None::<String>,
+            ));
+        }
+    } else {
+        app.surfaces.open_tab(crate::surfaces::ClientTab::thread(
+            &live_session_init,
+            None::<String>,
+        ));
+        if matches!(startup_overlay, StartupOverlay::Dashboard) {
+            app.surfaces.open_tab(crate::surfaces::ClientTab::dashboard());
+        } else if matches!(startup_overlay, StartupOverlay::Settings { .. }) {
+            app.surfaces.open_tab(crate::surfaces::ClientTab::settings());
+        }
     }
 
     if startup_overlay == StartupOverlay::SessionsPicker {
@@ -2392,9 +2358,11 @@ pub async fn run_tui(
     }
 
     let switch = app.switch_to_target.take();
+    let tabs = Some(app.surfaces.tabs().to_vec());
     Ok(TuiOutcome {
         history: app.input_history,
         switch_to: switch,
+        tabs,
     })
 }
 
@@ -2404,6 +2372,7 @@ pub async fn run_tui(
 pub struct TuiOutcome {
     pub history: Vec<nuo_wire::HistoryEntry>,
     pub switch_to: Option<String>,
+    pub tabs: Option<Vec<crate::surfaces::ClientTab>>,
 }
 
 pub async fn start_tui(

@@ -1,4 +1,4 @@
-//! Port & Network Sharing modal (`C-x p`, ADR-0045).
+//! Port & Network Sharing modal (via Command Palette or `/port`).
 //!
 //! Provides an ephemeral, non-destructive palette to inspect, hot-plug, or
 //! disable server TCP listeners without interrupting ongoing prompts or

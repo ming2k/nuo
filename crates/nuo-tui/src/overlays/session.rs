@@ -98,8 +98,7 @@ pub fn project_session_rows<'a>(
     let all_ids: std::collections::HashSet<&str> = sessions.iter().map(|s| s.id.as_str()).collect();
 
     for s in sessions {
-        let is_branch = s.fork_kind == SessionForkKind::Aside
-            || (s.parent_id.is_some() && s.fork_kind != SessionForkKind::Trunk);
+        let is_branch = s.parent_id.is_some() && s.fork_kind != SessionForkKind::Trunk;
         if is_branch
             && let Some(ref pid) = s.parent_id
             && all_ids.contains(pid.as_str())
@@ -579,7 +578,7 @@ mod tests {
             message_count: 2,
             active: false,
             parent_id: Some("s1".into()),
-            fork_kind: SessionForkKind::Aside,
+            fork_kind: SessionForkKind::Fork,
             digest: None,
         };
         let s3 = SessionOverview {
@@ -668,7 +667,7 @@ mod tests {
             message_count: 2,
             active: false,
             parent_id: Some("s1".into()),
-            fork_kind: SessionForkKind::Aside,
+            fork_kind: SessionForkKind::Fork,
             digest: None,
         };
         let sessions = vec![s1, s2];

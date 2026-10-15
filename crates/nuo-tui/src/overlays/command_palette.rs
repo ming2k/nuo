@@ -11,7 +11,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::components::list::row_style;
 use crate::components::selectable_body::{SelectableRow, render_selectable_body};
 use crate::fuzzy::fuzzy_match;
-use crate::keymap::{AppContext, Availability, COMMAND_REGISTRY, CommandId, DangerLevel};
+use crate::keymap::{AppContext, Availability, CommandId, DangerLevel};
 use crate::model::layout::LayoutMap;
 use crate::model::selection::SelectionState;
 use crate::primitives::{
@@ -19,16 +19,10 @@ use crate::primitives::{
 };
 use crate::render::Theme;
 
-/// Target action for a command palette entry.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PaletteAction {
-    Client(CommandId),
-    Harness { slash: String, requires_args: bool },
-}
-
 /// One selectable entry in the Command Palette list.
 #[derive(Debug, Clone)]
 pub(crate) struct PaletteEntry {
+    pub id: CommandId,
     pub label: String,
     pub hint: String,
     pub slash: Option<String>,
@@ -38,57 +32,11 @@ pub(crate) struct PaletteEntry {
     #[allow(dead_code)]
     pub is_recent: bool,
     pub score: i64,
-    pub action: PaletteAction,
 }
 
-fn humanize_command_name(name: &str) -> String {
-    match name.trim() {
-        "/compact" => "Compact Conversation".to_string(),
-        "/new" => "New Session".to_string(),
-        "/unattended" => "Unattended Mode".to_string(),
-        "/auto" => "Unattended Mode (alias)".to_string(),
-        "/autopilot" => "Unattended Mode (alias)".to_string(),
-        "/delegate" => "Unattended Mode (legacy alias)".to_string(),
-        "/yolo" => "Unattended Mode (legacy alias)".to_string(),
-        "/unconfine" => "Workspace Confinement".to_string(),
-        "/unconfined" => "Workspace Confinement".to_string(),
-        "/jail" => "Workspace Confinement (legacy alias)".to_string(),
-        "/role" => "Agent Role".to_string(),
-        "/search" => "Search Session History".to_string(),
-        "/fork" => "Fork Session".to_string(),
-        "/diff" => "Workspace Diff".to_string(),
-        "/undo" => "Undo Turn".to_string(),
-        "/jobs" => "Background Jobs".to_string(),
-        "/init" => "Initialize Project Config".to_string(),
-        "/trust" => "Trust Project Assets".to_string(),
-        "/untrust" => "Revoke Asset Trust".to_string(),
-        "/export" => "Export Conversation".to_string(),
-        "/debug" => "Debug Tracing".to_string(),
-        "/retry" => "Retry Request".to_string(),
-        other => {
-            let bare = other.trim_start_matches('/');
-            let mut words = Vec::new();
-            for word in bare.split(['-', '_']) {
-                if let Some(first) = word.chars().next() {
-                    let mut s = String::new();
-                    s.extend(first.to_uppercase());
-                    s.push_str(&word[first.len_utf8()..]);
-                    words.push(s);
-                }
-            }
-            if words.is_empty() {
-                other.to_string()
-            } else {
-                words.join(" ")
-            }
-        }
-    }
-}
-
-/// Filter and rank commands for display in the Command Palette.
+/// Filter and rank client-level commands for display in the Command Palette.
 pub(crate) fn filter_palette_commands(
     query: &str,
-    catalog: &nuo_wire::CommandCatalog,
     recent: &[String],
     ctx: &AppContext,
 ) -> Vec<PaletteEntry> {
@@ -96,14 +44,14 @@ pub(crate) fn filter_palette_commands(
 
     let mut entries = Vec::new();
 
-    // 1. Client-side navigation and app commands from COMMAND_REGISTRY
-    for spec in COMMAND_REGISTRY {
-        let avail = (spec.availability)(ctx);
+    // Client-side global actions and dialog navigation derived from commands_for_palette
+    for (spec, avail) in crate::keymap::commands_for_palette(ctx) {
         let is_recent = recent
             .iter()
             .any(|r| r == spec.label || spec.slash.is_some_and(|s| s == r));
 
         let entry = PaletteEntry {
+            id: spec.id,
             label: spec.label.to_string(),
             hint: spec.hint.to_string(),
             slash: spec.slash.map(|s| s.to_string()),
@@ -112,7 +60,6 @@ pub(crate) fn filter_palette_commands(
             availability: avail,
             is_recent,
             score: if is_recent { 1000 } else { 0 },
-            action: PaletteAction::Client(spec.id),
         };
 
         if clean_query.is_empty() {
@@ -124,71 +71,6 @@ pub(crate) fn filter_palette_commands(
                 entry.hint,
                 entry.slash.as_deref().unwrap_or(""),
                 entry.description
-            );
-            if let Some(m) = fuzzy_match(&match_target, clean_query) {
-                let mut scored_entry = entry;
-                scored_entry.score += m.score;
-                entries.push(scored_entry);
-            }
-        }
-    }
-
-    // 2. Harness commands from catalog
-    for cmd in &catalog.commands {
-        // Skip commands that already have a dedicated client UI entry
-        if COMMAND_REGISTRY
-            .iter()
-            .any(|s| s.slash == Some(cmd.name.as_str()))
-        {
-            continue;
-        }
-
-        let is_recent = recent
-            .iter()
-            .any(|r| r == &cmd.name || r == cmd.name.trim_start_matches('/'));
-        let can_run_bare =
-            cmd.usage.is_empty() || cmd.usage.iter().any(|u| u.trim() == cmd.name.trim());
-        let requires_args = !can_run_bare;
-
-        let avail = if ctx.has_overlay {
-            Availability::Unavailable("overlay active")
-        } else {
-            Availability::Available
-        };
-
-        let danger = match cmd.name.as_str() {
-            "/new" | "/undo" | "/untrust" => DangerLevel::Cautious,
-            _ => DangerLevel::Safe,
-        };
-
-        let human_label = humanize_command_name(&cmd.name);
-
-        let entry = PaletteEntry {
-            label: human_label,
-            hint: cmd.name.clone(),
-            slash: Some(cmd.name.clone()),
-            description: cmd.summary.clone(),
-            danger,
-            availability: avail,
-            is_recent,
-            score: if is_recent { 1000 } else { 0 },
-            action: PaletteAction::Harness {
-                slash: cmd.name.clone(),
-                requires_args,
-            },
-        };
-
-        if clean_query.is_empty() {
-            entries.push(entry);
-        } else {
-            let keywords = cmd.intent_keywords.join(" ");
-            let match_target = format!(
-                "{} {} {} {} {}",
-                entry.label,
-                entry.hint,
-                entry.slash.as_deref().unwrap_or(""),
-                entry.description,
-                keywords
             );
             if let Some(m) = fuzzy_match(&match_target, clean_query) {
                 let mut scored_entry = entry;
@@ -440,102 +322,85 @@ pub(crate) fn draw_command_palette(
 mod tests {
     use super::*;
 
-    fn sample_catalog() -> nuo_wire::CommandCatalog {
-        nuo_client::command_catalog(&[("/custom-check".into(), "Custom health check".into())])
-    }
-
     #[test]
-    fn command_palette_includes_both_client_and_harness_commands() {
-        let catalog = sample_catalog();
+    fn command_palette_includes_client_commands() {
         let ctx = AppContext::default();
-        let entries = filter_palette_commands("", &catalog, &[], &ctx);
+        let entries = filter_palette_commands("", &[], &ctx);
 
-        // Client command present
+        // Client commands present
         assert!(
             entries
                 .iter()
-                .any(|e| matches!(e.action, PaletteAction::Client(CommandId::OpenModels)))
+                .any(|e| e.id == CommandId::OpenModels)
         );
         assert!(
             entries
                 .iter()
-                .any(|e| matches!(e.action, PaletteAction::Client(CommandId::NavigateSettings)))
+                .any(|e| e.id == CommandId::NavigateSettings)
         );
-
-        // Harness commands present
         assert!(
             entries
                 .iter()
-                .any(|e| e.slash.as_deref() == Some("/compact"))
+                .any(|e| e.id == CommandId::OpenConnections)
         );
-        assert!(entries.iter().any(|e| e.slash.as_deref() == Some("/undo")));
         assert!(
             entries
                 .iter()
-                .any(|e| e.slash.as_deref() == Some("/custom-check"))
+                .any(|e| e.id == CommandId::OpenPortShare)
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.id == CommandId::NavigateDashboard)
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.id == CommandId::Quit)
         );
     }
 
     #[test]
-    fn no_duplicate_between_client_registry_and_catalog() {
-        let catalog = sample_catalog();
+    fn command_palette_excludes_scene_and_harness_commands() {
         let ctx = AppContext::default();
-        let entries = filter_palette_commands("", &catalog, &[], &ctx);
+        let entries = filter_palette_commands("", &[], &ctx);
 
-        // /models is in COMMAND_REGISTRY as Client(OpenModels)
-        let model_entries: Vec<_> = entries
-            .iter()
-            .filter(|e| e.slash.as_deref() == Some("/models"))
-            .collect();
-        assert_eq!(
-            model_entries.len(),
-            1,
-            "There must be exactly one /models entry in the palette"
-        );
-        assert!(matches!(
-            model_entries[0].action,
-            PaletteAction::Client(CommandId::OpenModels)
-        ));
+        // Harness commands must NOT be in client command palette
+        assert!(!entries.iter().any(|e| e.slash.as_deref() == Some("/compact")));
+        assert!(!entries.iter().any(|e| e.slash.as_deref() == Some("/undo")));
+        assert!(!entries.iter().any(|e| e.slash.as_deref() == Some("/fork")));
+        assert!(!entries.iter().any(|e| e.slash.as_deref() == Some("/diff")));
+
+        // Scene-internal composer controls must NOT be in palette
+        assert!(!entries.iter().any(|e| e.label == "Send Prompt"));
+        assert!(!entries.iter().any(|e| e.label == "Queue Follow-Up"));
+
+        // Dialog-scoped internal shortcuts must NOT be in palette
+        assert!(!entries.iter().any(|e| e.label.contains("Block Model")));
+        assert!(!entries.iter().any(|e| e.label.contains("Edit Connection")));
     }
 
     #[test]
-    fn harness_command_args_requirement_is_detected() {
-        let catalog = sample_catalog();
-        let ctx = AppContext::default();
-        let entries = filter_palette_commands("", &catalog, &[], &ctx);
-
-        let compact = entries
-            .iter()
-            .find(|e| e.slash.as_deref() == Some("/compact"))
-            .unwrap();
-        assert!(matches!(
-            compact.action,
-            PaletteAction::Harness {
-                requires_args: false,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn fuzzy_search_filters_and_scores_catalog_and_client_commands() {
-        let catalog = sample_catalog();
+    fn fuzzy_search_filters_and_scores_client_commands() {
         let ctx = AppContext::default();
 
-        let compact_matches = filter_palette_commands("compact", &catalog, &[], &ctx);
-        assert!(!compact_matches.is_empty());
-        assert_eq!(compact_matches[0].slash.as_deref(), Some("/compact"));
+        let port_matches = filter_palette_commands("port", &[], &ctx);
+        assert!(!port_matches.is_empty());
+        assert!(port_matches.iter().any(|e| e.id == CommandId::OpenPortShare));
 
-        let custom_matches = filter_palette_commands("custom-check", &catalog, &[], &ctx);
-        assert!(!custom_matches.is_empty());
-        assert_eq!(custom_matches[0].slash.as_deref(), Some("/custom-check"));
+        let model_matches = filter_palette_commands("model", &[], &ctx);
+        assert!(!model_matches.is_empty());
+        assert!(model_matches.iter().any(|e| e.id == CommandId::OpenModels));
+
+        let conn_matches = filter_palette_commands("connections", &[], &ctx);
+        assert!(!conn_matches.is_empty());
+        assert!(conn_matches.iter().any(|e| e.id == CommandId::OpenConnections));
     }
 
     #[test]
     fn dead_commands_are_purged_from_palette() {
-        let catalog = sample_catalog();
         let ctx = AppContext::default();
-        let entries = filter_palette_commands("", &catalog, &[], &ctx);
+        let entries = filter_palette_commands("", &[], &ctx);
 
         assert!(
             !entries
@@ -549,9 +414,8 @@ mod tests {
 
     #[test]
     fn palette_selected_row_renders_without_pointer_symbol() {
-        let catalog = sample_catalog();
         let ctx = AppContext::default();
-        let entries = filter_palette_commands("", &catalog, &[], &ctx);
+        let entries = filter_palette_commands("", &[], &ctx);
         let theme = Theme::default();
         let mut terminal = nuotc::TestTerminal::new(80, 24);
         let mut scroll = 0;

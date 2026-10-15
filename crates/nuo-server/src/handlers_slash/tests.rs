@@ -87,6 +87,19 @@ mod session_route_tests {
             "error should steer away from the retired command: {err}"
         );
     }
+
+    #[test]
+    fn fork_target_parsing_granular() {
+        use super::super::session_ops::parse_fork_target;
+        assert_eq!(parse_fork_target("").unwrap(), nuo_persistence::ForkTarget::Head);
+        assert_eq!(parse_fork_target("  ").unwrap(), nuo_persistence::ForkTarget::Head);
+        assert_eq!(parse_fork_target("2").unwrap(), nuo_persistence::ForkTarget::Round(2));
+        assert_eq!(parse_fork_target("r3").unwrap(), nuo_persistence::ForkTarget::Round(3));
+        assert_eq!(parse_fork_target("R4").unwrap(), nuo_persistence::ForkTarget::Round(4));
+        assert_eq!(parse_fork_target("2.1").unwrap(), nuo_persistence::ForkTarget::Turn { round: 2, turn: 1 });
+        assert_eq!(parse_fork_target("r2.0").unwrap(), nuo_persistence::ForkTarget::Turn { round: 2, turn: 0 });
+        assert!(parse_fork_target("xyz").is_err());
+    }
 }
 
 #[cfg(test)]

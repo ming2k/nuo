@@ -40,7 +40,7 @@ use crate::{SessionDriver, UiBridge};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
-use tokio::sync::{RwLock as AsyncRwLock, mpsc};
+use tokio::sync::mpsc;
 
 /// Everything a frontend binary must supply to assemble a session harness.
 ///
@@ -507,11 +507,6 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // MCP tools are discovered after Agent construction and published through
     // its connector-neutral dynamic-tool sink. The MCP runtime owns protocol
     // and connection state; the agent owns advertisement and dispatch.
-    // Snapshot of the shared toolset (built-in default variants) before the
-    // `SubagentTool` is layered on. A `/btw` side session (ADR-0017) rebuilds
-    // its `Agent` from this same snapshot — minus its own `SubagentTool` and
-    // without inheriting the master's session-scoped connector sources.
-    let base_tools: Arc<Vec<Arc<dyn nuo_wire::Tool>>> = Arc::new(toolset.default_view());
     // SubagentTool gets the static capability set (excluding itself) so spawned
     // subagents cannot recurse and inherit the live provider. Dynamic connector
     // sources are master-only unless a future policy explicitly delegates
@@ -892,17 +887,6 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // next begin (replaces the old token-slot + generation-counter pair).
     let lifecycle = Arc::new(RoundLifecycle::new());
     let req_tx_for_commands = req_tx.clone();
-    // `/btw` aside state (ADR-0017, lifted to a multi-slot registry by
-    // ADR-0103). The primary round machinery is left exactly as-is; the
-    // registry peers it with any number of live asides + an explicit
-    // "which aside is the composer targeting" pointer that routes `Chat` to
-    // whichever session the user is currently composing into. Leaving an
-    // aside view detaches non-destructively — the aside keeps running.
-    let side: Arc<AsyncRwLock<crate::side::SideRegistry>> =
-        Arc::new(AsyncRwLock::new(crate::side::SideRegistry::new()));
-    let base_tools_for_side = base_tools.clone();
-    let project_root_for_side = workspace_root.clone();
-
     // Initial values for the frontend
     let initial_provider_name = catalog::default_provider_id(&config).to_string();
     let initial_model_name =
@@ -948,9 +932,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         shared_confinement: shared_confinement.clone(),
         command_catalog: command_catalog.clone(),
         lifecycle,
-        side,
-        base_tools: base_tools_for_side,
-        project_root: project_root_for_side,
+        project_root: workspace_root.clone(),
         startup,
         open_picker_on_start,
         ui,

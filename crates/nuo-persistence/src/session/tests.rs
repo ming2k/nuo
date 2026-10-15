@@ -551,21 +551,44 @@ async fn fork_shares_entries_and_diverges() {
 }
 
 #[tokio::test]
-async fn fork_to_side_keeps_active_pointer() {
-    let store = store("side").await;
+async fn fork_at_round_slices_transcript_and_preserves_parent() {
+    let dir = temp_dir("fork_at_round");
+    let path = dir.join("session.json");
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let store = SessionStore::for_path(path.clone());
     store
-        .replace_messages(vec![user("aside seed")])
+        .replace_messages(vec![
+            user("round 1 user"),
+            assistant("round 1 assistant"),
+            user("round 2 user"),
+            assistant("round 2 assistant"),
+        ])
         .await
         .unwrap();
-    let (side_id, _) = store.fork_to_side().await.unwrap();
-    assert_eq!(store.model_window().await.len(), 1);
-    let side = store.open_side(&side_id).await.unwrap();
-    assert_eq!(side.model_window().await.len(), 1);
 
-    let parent_ir = store.session_ir().await;
-    let side_ir = side.session_ir().await;
-    assert_eq!(side_ir.history.nodes.len(), parent_ir.history.nodes.len());
-    assert_eq!(side_ir.parent_session_id, Some(store.id().await));
+    let parent_id_before = store.id().await;
+    let (child_id, parent_id, target_round, _title) = store
+        .fork_at(ForkTarget::Round(1))
+        .await
+        .unwrap();
+
+    // Sovereign invariant [INV-FORK-04]: parent pointer stays untouched!
+    assert_eq!(store.id().await, parent_id_before);
+    assert_eq!(parent_id, parent_id_before);
+    assert_eq!(target_round, Some(1));
+    assert_ne!(child_id, parent_id);
+
+    // Parent still has all 4 messages
+    assert_eq!(store.model_window().await.len(), 4);
+
+    // Child only has Round 1 (2 messages)
+    let child = SessionStore::for_path(dir.join(format!("{child_id}.json")));
+    let child_window = child.model_window().await;
+    assert_eq!(child_window.len(), 2);
+    assert_eq!(child_window[0].content, "round 1 user");
+    assert_eq!(child_window[1].content, "round 1 assistant");
+    assert_eq!(child.round_counter().await, 1);
 }
 
 // ---------------------------------------------------------------

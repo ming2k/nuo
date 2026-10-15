@@ -132,7 +132,7 @@ pub enum AgentRequest {
         /// this is the parent tool-call id the request was nested under. The
         /// harness looks up the live child's `crate::SubagentHandle` in the
         /// task registry by this id and resolves its parked oneshot directly.
-        /// `None` means the request came from the top-level (or `/btw` side)
+        /// `None` means the request came from the top-level
         /// agent and is resolved on `context.agent` as before.
         parent_call_id: Option<String>,
     },
@@ -429,43 +429,6 @@ pub enum AgentRequest {
     ReconnectMcpServer {
         name: String,
     },
-    /// Detach from the `/btw` aside view and return to the primary transcript
-    /// (ADR-0103). The aside **keeps running**: its in-flight round is left
-    /// alone and its session stays registered so it can be re-entered via
-    /// [`AgentRequest::FocusSide`] or the asides list. The harness emits
-    /// [`AgentResponse::SideViewClosed`]. Sent by the TUI when the user
-    /// presses `Ctrl+C` inside an aside view. A pristine aside (no round ever
-    /// started) is discarded outright instead of lingering in the list.
-    ExitSideView,
-    /// Jump the view into a live `/btw` aside (ADR-0103): open it if it was
-    /// closed, make the composer target it, and emit
-    /// [`AgentResponse::SideViewOpened`] with the aside's full transcript so
-    /// the frontend rebuilds its side buffer (the inherited parent context
-    /// included). Sent when the user re-enters an aside from the asides list.
-    FocusSide {
-        side_id: String,
-    },
-    /// Interrupt the in-flight round of one `/btw` aside (ADR-0103). Esc
-    /// inside an aside view resolves to this — interrupting an aside never
-    /// closes it. The aside's round unwinds with its own `[Interrupted]`
-    /// cleanup, mirroring [`AgentRequest::Interrupt`] for the primary.
-    InterruptSide {
-        side_id: String,
-    },
-    /// Close one `/btw` aside for real: cancel any in-flight round, drop the
-    /// registry entry, **and delete its session files** (ADR-0103 §4). The
-    /// aside disappears from the asides list and `/sessions`. If the aside
-    /// was the focused view, the harness also emits
-    /// [`AgentResponse::SideViewClosed`]. Sent by the asides modal's `D`
-    /// action.
-    CloseSide {
-        side_id: String,
-    },
-    /// Request the `/btw` asides list (ADR-0103). The harness replies with
-    /// [`AgentResponse::BtwList`]. Sent when the asides modal opens or is
-    /// refreshed, and by the event loop to keep the header's aside count
-    /// truthful.
-    QueryBtwList,
     /// Update the transcript layout preference.
     /// The harness writes the new value to `config.toml`'s `[tui]
     /// transcript_layout` and replies with [`AgentResponse::TuiLayoutUpdated`]
@@ -607,11 +570,9 @@ pub struct QueuedMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AgentResponse {
-    /// A per-round event tagged with the session it belongs to (ADR-0017). The
+    /// A per-round event tagged with the session it belongs to. The
     /// TUI keys its transcript buffers by `session_id` and routes `event` to
-    /// the matching one, so a primary round and a live `/btw` side round can
-    /// stream concurrently over the single harness↔TUI channel without
-    /// clobbering each other's transcript.
+    /// the matching one without clobbering each other's transcript.
     ///
     /// Global (non-session-scoped) responses — command replies, modal
     /// snapshots, provider switches — stay as dedicated top-level variants so
@@ -631,49 +592,6 @@ pub enum AgentResponse {
         cursor: usize,
         items: Vec<crate::ComposerCompletion>,
     },
-    /// Coarse status of the primary session, surfaced to a side view's banner
-    /// while the user is inside a `/btw`. Emitted by the session registry's
-    /// parent-status watcher; the primary round is deliberately left running, so
-    /// this is how the user learns the main session hit an approval/input wall.
-    ParentStatus(ParentStatus),
-    /// The user entered a `/btw` aside view (ADR-0017, extended by ADR-0103).
-    /// The TUI records `side_id` as the routing key for per-round events and
-    /// rebuilds its side transcript buffer from `messages` + `commands` — the
-    /// aside's full persisted transcript at open time, inherited parent
-    /// context included — so the viewed pixels match the model's actual
-    /// context window. Emitted by the harness on `/btw` (new aside) and on
-    /// [`AgentRequest::FocusSide`] (re-entry).
-    SideViewOpened {
-        side_id: String,
-        primary_id: String,
-        /// The aside's persisted transcript at open time. One-shot back-fill:
-        /// after this, per-round `Round` events stream into the same buffer.
-        #[serde(default)]
-        messages: Vec<Message>,
-        /// Command-ledger rows for the aside (ADR-0091), same as
-        /// [`AgentResponse::ConversationReplaced`].
-        #[serde(default)]
-        commands: Vec<crate::command::CommandRecord>,
-        /// Round-interrupt records for the aside (C11), same as
-        /// [`AgentResponse::ConversationReplaced`].
-        #[serde(default)]
-        round_interrupts: Vec<RoundInterrupt>,
-        /// Retry-resolution records for the aside, same as
-        /// [`AgentResponse::ConversationReplaced`].
-        #[serde(default)]
-        retry_resolutions: Vec<crate::RetryResolution>,
-    },
-    /// The user left the `/btw` aside view (ADR-0103). The TUI returns to the
-    /// primary transcript. Detach is non-destructive by default: the aside
-    /// keeps running unless it was pristine (no round ever started), in which
-    /// case it was discarded. Emitted by the harness in reply to
-    /// [`AgentRequest::ExitSideView`] / [`AgentRequest::CloseSide`].
-    SideViewClosed,
-    /// The `/btw` asides list (ADR-0103), newest first. Drives the asides
-    /// modal (`F5` / `/btw list`) and the main view's header aside count.
-    /// Pushed on every list mutation (open, detach-with-discard, close) and
-    /// in reply to [`AgentRequest::QueryBtwList`].
-    BtwList(Vec<BtwAsideSummary>),
     /// The persisted prompt input history, in stored order — reply to
     /// [`AgentRequest::QueryInputHistory`].
     InputHistory(Vec<crate::HistoryEntry>),
@@ -747,6 +665,15 @@ pub enum AgentResponse {
     },
     /// Presentation signal for `/tree`.
     OpenTreePanel,
+    /// A session was forked into a new child thread (ADR-0058).
+    /// Sent to the client so it mounts a new sovereign `ClientTab::Thread`
+    /// and switches to the child session.
+    SessionForked {
+        child_id: String,
+        parent_id: String,
+        target_round: Option<u64>,
+        title: Option<String>,
+    },
     /// Reply to [`AgentRequest::QuerySessionDetail`]: full detail for one
     /// session (complete last prompt, title, timestamps). Consumed by the
     /// session-info sub-view.
@@ -811,10 +738,9 @@ pub enum AgentResponse {
 
 
 /// Session-scoped events emitted while a user round runs, carried under an
-/// [`AgentResponse::Round`] envelope (ADR-0017). Splitting these off
+/// [`AgentResponse::Round`] envelope. Splitting these off
 /// `AgentResponse` makes "which session does this belong to" a first-class
-/// question: every event — whether from the primary or a `/btw` side — arrives
-/// tagged with its `session_id`, and global/command responses stay top-level.
+/// question: every event arrives tagged with its `session_id`, and global/command responses stay top-level.
 /// Origin of the current model-context token count shown by frontends.
 ///
 /// This describes the AI-visible request context, never the durable session or
@@ -916,9 +842,8 @@ impl RoundInterrupt {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RoundInterruptReason {
-    /// The user explicitly stopped the round: double-Esc in the primary
-    /// view, Esc Esc inside a `/btw` aside, or the equivalent control-plane
-    /// `Interrupt` request. Interrupt semantics documentation calls this
+    /// The user explicitly stopped the round: double-Esc in the thread
+    /// view, or the equivalent control-plane `Interrupt` request. Interrupt semantics documentation calls this
     /// the plain "interrupt" path — the round unwinds and emits its own
     /// cleanup because the generation is not bumped.
     User,
@@ -1340,42 +1265,12 @@ pub enum RoundEvent {
     BackgroundJobCompleted(crate::job::BackgroundJobOutcome),
 }
 
-/// Coarse status of the primary session, reported to a `/btw` side view's
-/// banner (ADR-0017). This is the codex `SideParentStatus` equivalent: the
-/// whole reason the parent round is left running instead of cancelled is so the
-/// user can see the main session hit an approval or input wall and jump back.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ParentStatus {
-    Idle,
-    Running,
-    NeedsApproval,
-    NeedsInput,
-    Failed,
-    Interrupted,
-}
-
-/// One row of the `/btw` asides list (ADR-0103): a live aside conversation
-/// forked from the primary session. Rows are ordered newest-first (most
-/// recently opened or re-entered first) by the harness.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BtwAsideSummary {
-    /// The aside's session id — the same key per-round `Round` events carry.
-    pub id: String,
-    /// Short label: the aside's first user prompt when it has one, else a
-    /// neutral placeholder. Already truncated for one-line display.
-    pub title: String,
-    /// Whether the aside has an in-flight round right now.
-    pub running: bool,
-    /// Epoch seconds of the aside's last activity (creation or last write).
-    pub updated_at: u64,
-}
-
 /// Coarse, display-level status of a session's round lifecycle, mirrored to
 /// the TUI activity bar. This is a badge, not the protocol state: the round
 /// lifecycle itself (`RoundLifecycle` in nuo-agent) is binary — no active
 /// round, or an active round identified by a generation.
 /// Awaiting-permission / awaiting-input are overlays derived from the
-/// parked-request tables (see [`ParentStatus`]), not values here: they carry
+/// parked-request tables, not values here: they carry
 /// no lifecycle meaning (interrupt behaves identically) and there is no
 /// user-level pause/resume for them to describe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1460,7 +1355,7 @@ pub struct SessionOverview {
     pub message_count: usize,
     pub active: bool,
     /// The session this one was forked from, when it is a branch rather
-    /// than a trunk (`/fork`, `/btw` aside). `None` for a trunk session
+    /// than a trunk (`/fork`). `None` for a trunk session
     /// (`/new` or the very first session). Lineage is what the dashboard
     /// groups by: one trunk row per conversation, its branches nested
     /// beneath — there is always exactly one *main* line, the trunk the
@@ -1468,9 +1363,8 @@ pub struct SessionOverview {
     #[serde(default)]
     pub parent_id: Option<String>,
     /// How this session came to exist, so the dashboard can badge rows
-    /// without string-matching ids: `fork` (an explicit `/fork` branch that
-    /// *replaced* the active pointer), `aside` (a `/btw` background
-    /// conversation forked off the trunk), or `trunk` (no parent).
+    /// without string-matching ids: `fork` (an explicit `/fork` branch),
+    /// or `trunk` (no parent).
     #[serde(default)]
     pub fork_kind: SessionForkKind,
     /// Structured digest (intent + history checklist), if
@@ -1488,8 +1382,6 @@ pub enum SessionForkKind {
     Trunk,
     /// An explicit `/fork` branch (the active pointer moved here).
     Fork,
-    /// A `/btw` aside: forked from the trunk, running alongside it.
-    Aside,
     /// A subagent run's own durable session (ADR-0186 §6): spawned by a
     /// subagent tool call in a parent session, never surfaced in the picker.
     Subagent,

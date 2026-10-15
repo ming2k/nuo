@@ -99,7 +99,6 @@ pub mod session_driver;
 pub mod skills_host;
 pub mod session_view;
 pub mod shutdown;
-pub mod side;
 pub mod slash_handler;
 pub mod startup;
 pub mod task_fault_tolerance;

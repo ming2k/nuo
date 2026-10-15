@@ -302,10 +302,14 @@ define_builtin_commands! {
         category: Session,
     },
     Fork = "/fork" : {
-        summary: "Fork thread into a child thread",
-        usage: ["/fork"],
-        examples: [("/fork", "Branch current thread into a child thread")],
-        intent_keywords: ["fork", "branch", "clone", "duplicate", "split", "copy-thread"],
+        summary: "Fork thread into a child thread (ADR-0058: round/turn granular)",
+        usage: ["/fork", "/fork <round>", "/fork <round>.<turn>"],
+        examples: [
+            ("/fork", "Branch current thread into a new child thread tab"),
+            ("/fork 2", "Branch from conclusion of Round 2 into a new tab"),
+            ("/fork 2.1", "Branch after Turn 1 of Round 2 into a new tab"),
+        ],
+        intent_keywords: ["fork", "branch", "clone", "duplicate", "split", "copy-thread", "aside", "side"],
         category: Session,
     },
     Tree = "/tree" : {
@@ -356,16 +360,6 @@ define_builtin_commands! {
         examples: [("/quotas", "Open provider quota dashboard"), ("/quotas google-antigravity", "Inspect Google Antigravity quotas")],
         intent_keywords: ["quota", "quotas", "allowance", "capacity", "antigravity", "limits", "balance"],
         category: System,
-    },
-    Btw = "/btw" : {
-        summary: "Open a background side thread (aside)",
-        usage: ["/btw", "/btw <prompt>", "/btw list"],
-        examples: [("/btw explain this regex", "Ask a quick side question"), ("/btw list", "Open active asides list modal")],
-        intent_keywords: ["btw", "aside", "side", "subtask", "parallel", "quick", "note", "by-the-way"],
-        category: Session,
-        subcommands: [
-            ("list", "Open the active asides modal"),
-        ],
     },
     Jobs = "/jobs" : {
         summary: "Inspect and manage background processes and sub-subagents",

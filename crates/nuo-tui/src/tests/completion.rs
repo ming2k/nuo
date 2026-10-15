@@ -1101,43 +1101,8 @@ fn esc_interrupt_window_is_wall_clock_not_frame_counted() {
 /// running round was disarmed on the very next frame because the primary
 /// sat idle, which read as "the first press did nothing / the toast
 /// flashed and disappeared".
-#[test]
-fn esc_interrupt_window_survives_idle_primary_while_aside_runs() {
-    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-
-    // Simulate the aside view: the viewed session runs, the primary
-    // (global `is_responding`) does not.
-    app.side_session_id = Some("aside-1".to_string());
-    app.in_side_view = true;
-    app.current_session_id = "aside-1".to_string();
-    app.running_sessions.insert("aside-1".to_string());
-
-    assert!(!app.esc_press(), "the first Esc inside the aside arms");
-    assert!(app.esc_armed());
-
-    // Repeated frame ticks must keep the window open: the viewed aside is
-    // still running even though the primary-only global flag is false.
-    for _ in 0..50 {
-        app.tick_esc_arm();
-    }
-    assert!(
-        app.esc_armed(),
-        "the window must survive while the viewed aside's round runs"
-    );
-
-    // The moment the viewed session's round ends, the toast must go: there
-    // is nothing left to interrupt.
-    app.running_sessions.remove("aside-1");
-    app.tick_esc_arm();
-    assert!(
-        !app.esc_armed(),
-        "the window expires once the viewed session has nothing to interrupt"
-    );
-}
-
 /// The second Esc inside the window fires the interrupt and disarms; the
-/// request targets the viewed session (main view → `Interrupt`, aside view
-/// → `InterruptSide`), and a third press re-arms rather than re-firing.
+/// request targets the viewed session (`Interrupt`), and a third press re-arms rather than re-firing.
 #[test]
 fn esc_interrupt_fires_on_second_press_and_rearms_after() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
@@ -1166,17 +1131,6 @@ fn esc_interrupt_fires_on_second_press_and_rearms_after() {
         rx.try_recv().is_err(),
         "a third press must not send another interrupt"
     );
-
-    // Aside view: the fire targets the *aside* (`InterruptSide`), and only
-    // while the aside view is actually open.
-    app.side_session_id = Some("aside-1".to_string());
-    app.in_side_view = true;
-    super::event_loop::handle_esc_interrupt(&mut app, super::event_loop::InterruptTarget::Aside); // arm
-    super::event_loop::handle_esc_interrupt(&mut app, super::event_loop::InterruptTarget::Aside); // fire
-    assert!(matches!(
-        rx.try_recv(),
-        Ok(AgentRequest::InterruptSide { .. })
-    ));
 }
 
 /// The Esc interrupt is **scene-scoped** (ADR-0205): `Esc Esc` inside the
