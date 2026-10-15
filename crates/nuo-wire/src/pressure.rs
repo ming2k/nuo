@@ -203,13 +203,13 @@ pub fn estimate_tokens_weighted(messages: &[Message], weights: &MessageTokenWeig
     tokens.max(1) as usize
 }
 
-// NOTE: the provider-reported-usage path (ADR-0019/0023 "layered token
-// accounting", `effective_pressure_tokens` / `USAGE_TRUST_FLOOR`) was removed
-// as dead code: the `Provider` trait never surfaces usage, so the function had
-// no production caller and only advertised a capability that does not exist.
-// Pressure is computed purely from `estimate_tokens`. Revive a usage-preferring
-// policy here once a provider actually reports `prompt_tokens`. See the deferral
-// note in docs/adr/0023-relevance-aware-tiered-pruning-and-layered-token-accounting.md.
+// NOTE: the provider-reported-usage path (ADR-0019 "layered token accounting",
+// `effective_pressure_tokens` / `USAGE_TRUST_FLOOR`) was removed as dead code:
+// the `Provider` trait never surfaces usage, so the function had no production
+// caller and only advertised a capability that does not exist. Pressure is
+// computed purely from `estimate_tokens`. Revive a usage-preferring policy here
+// once a provider actually reports `prompt_tokens`. See the deferral note in
+// docs/adr/0019-token-pressure-measurement-and-budget-accounting.md.
 
 pub(crate) fn message_bytes(message: &Message) -> usize {
     let own = message.content.len()

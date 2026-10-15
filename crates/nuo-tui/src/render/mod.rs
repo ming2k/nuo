@@ -4,10 +4,10 @@
 //! ([`draw_transcript`] / [`TranscriptProps`]); it also re-exports the drawing
 //! surface (chrome, composer, overlays, theme, …) the shell consumes.
 
-pub use crate::chrome::{ActivityBarProps, draw_activity_bar};
+pub use crate::chrome::{ActivityStripProps, draw_activity_strip};
 pub use crate::chrome::{
-    ModelBarProps, QueueBarProps, QueueItemProps, TasksBarProps, draw_completion_menu,
-    draw_model_bar, draw_queue_bar, draw_tasks_bar,
+    ModelBarProps, QueueBarProps, QueueItemProps, TasksBarProps,
+    draw_completion_menu, draw_model_bar,
 };
 pub use crate::composer::{
     ComposerDrawOptions, INPUT_MSG_IDX, draw_composer, draw_composer_highlighted,
@@ -200,12 +200,6 @@ pub struct TranscriptProps<'a> {
     pub queue_bar: QueueBarProps<'a>,
     /// The background tasks status bar (ADR-0212).
     pub tasks_bar: TasksBarProps<'a>,
-    /// The server's persistence-writer degradation (ADR-0196 D4). While set
-    /// (and not `Healthy`), the footer stack reserves a retained one-row
-    /// banner between the transcript gap and the queue bar; `Healthy` /
-    /// `None` place nothing.
-    #[allow(dead_code)]
-    pub persistence_health: Option<&'a nuo_wire::monitor::PersistenceHealth>,
     /// When set, the view is zoomed into a subagent task: `messages` is the
     /// focused task's child stream. The head band's scene row names the scene
     /// `subagent` and carries the task's `[ROLE] label (i/n)` context (ADR-0024).
@@ -696,7 +690,6 @@ pub fn draw_transcript(
         chrome_hidden,
         queue_bar,
         tasks_bar,
-        persistence_health: _,
         subagent_bar,
         page_hints,
         thread_head,
@@ -1075,32 +1068,34 @@ pub fn draw_transcript(
 
     // The consolidated activity strip (ADR-0062 [INV-FOOTER-02]) sits directly above
     // the input box, strictly bounded to at most 1 row. It projects the active round
-    // status or queued/tasks indicators.
+    // status and/or queued/tasks indicators in a single unified strip.
     footer_stack::rect_of(&placed_footer, FooterRowId::ActivityStrip)
         .filter(|_| activity_strip_needed)
         .and_then(|rect| {
-            if activity_row_needed {
-                draw_activity_bar(
-                    frame,
-                    rect,
-                    round_started_at,
-                    ActivityBarProps {
-                        status: activity,
-                        backoff_clause,
-                        awaiting_permission,
+            draw_activity_strip(
+                frame,
+                rect,
+                round_started_at,
+                ActivityStripProps {
+                    status: activity,
+                    backoff_clause,
+                    awaiting_permission,
+                    queued_count: if queue_row_needed { queue_bar.items.len() } else { 0 },
+                    queued_preview: queue_bar.items.first().map(|i| i.text.as_str()),
+                    tasks_count: if tasks_row_needed {
+                        tasks_bar.tasks.iter().filter(|t| !t.dismissed).count()
+                    } else {
+                        0
                     },
-                    spinner_phase,
-                    theme,
-                )
-            } else if queue_row_needed {
-                draw_queue_bar(frame, rect, queue_bar, theme);
-                None
-            } else if tasks_row_needed {
-                draw_tasks_bar(frame, rect, tasks_bar, theme);
-                None
-            } else {
-                None
-            }
+                    tasks_preview: tasks_bar
+                        .tasks
+                        .iter()
+                        .find(|t| !t.dismissed)
+                        .map(|t| t.label.as_str()),
+                },
+                spinner_phase,
+                theme,
+            )
         });
 
     // The input box sits flush directly below the activity bar — the

@@ -60,7 +60,6 @@ fn render_full_view_with_head(
                     expand_key: Some(crate::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
-                persistence_health: None,
                 subagent_bar: None,
                 page_hints: hints,
                 thread_head: head,

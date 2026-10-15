@@ -25,37 +25,24 @@ use crate::keymap::scene_namespace::SceneVerb;
 /// What the leave verb does when a foreground dialog is up: dismiss it.
 /// Nothing navigates between Scenes on this path.
 pub(crate) const CLOSE_OVERLAY_LABEL: &str = "close overlay";
-/// What the leave verb does when a Scene other than the home Conversation is
-/// current: leave it (detach from an aside, pop the task zoom, or return from
-/// the dashboard / settings, or close active tab).
-pub(crate) const CLOSE_SCENE_LABEL: &str = "close tab";
-/// What the leave verb does at the bare home scene: the chord still resolves
-/// (it disarms the namespace) but it has nothing to act on. The card says so
-/// rather than promising an exit that will not happen (ADR-0238).
-pub(crate) const HOME_SCENE_LABEL: &str = "home already";
+/// What the leave verb does when closing active tab.
+pub(crate) const CLOSE_TAB_LABEL: &str = "close tab";
 
 /// Resolve what the namespace's leave row should say for the current surface
 /// stack. A **dialog** is checked first because it is the visual foreground and
-/// is exactly what the chord dismisses. A **sheet** is deliberately transparent
-/// to the namespace: it carries a pending decision and owns its own keys
-/// (ADR-0173 §3), so the chord leaves the scene beneath it and the card says so.
-pub(crate) fn close_label_for(has_dialog: bool, leaves_a_scene: bool) -> &'static str {
+/// is exactly what the chord dismisses.
+pub(crate) fn close_label_for(has_dialog: bool) -> &'static str {
     if has_dialog {
         CLOSE_OVERLAY_LABEL
-    } else if leaves_a_scene {
-        CLOSE_SCENE_LABEL
     } else {
-        HOME_SCENE_LABEL
+        CLOSE_TAB_LABEL
     }
 }
 
 /// Render the floating namespace guide while the `Ctrl+X` namespace is armed.
 ///
 /// `close_label` is the *resolved* description of what the leave verb does in
-/// the current state — the caller owns that verdict because only it knows the
-/// surface stack (a dialog dismisses, a scene leaves, the home scene has
-/// nothing to act on). Passing the label rather than a boolean keeps the card
-/// from promising an exit the dispatcher will not perform (ADR-0238).
+/// the current state (a dialog dismisses, or the active tab closes).
 pub(crate) fn draw_which_key_overlay(
     frame: &mut Frame,
     theme: &Theme,
@@ -79,9 +66,7 @@ pub(crate) fn draw_which_key_overlay(
                 SceneVerb::Leave => close_label,
                 other => other.label(),
             };
-            // Bold/primary only while the verb would actually do something.
-            let primary = verb != SceneVerb::Leave || close_label != HOME_SCENE_LABEL;
-            (verb.advertised_stroke_display().to_string(), label, primary)
+            (verb.advertised_stroke_display().to_string(), label, true)
         })
         .collect();
     // The cancel floor. `Esc` is listed because it is the universal escape and
@@ -183,7 +168,7 @@ mod tests {
         let theme = Theme::default();
         let mut terminal = nuotc::TestTerminal::new(80, 24);
         terminal.draw(|f| {
-            draw_which_key_overlay(f, &theme, true, CLOSE_SCENE_LABEL, f.area());
+            draw_which_key_overlay(f, &theme, true, CLOSE_TAB_LABEL, f.area());
         });
         let content: String = terminal
             .buffer()
@@ -209,7 +194,7 @@ mod tests {
         assert_eq!(theme.elevation, nuotc::ElevationArchetype::Chromatic);
         let mut terminal = nuotc::TestTerminal::new(80, 24);
         terminal.draw(|f| {
-            draw_which_key_overlay(f, &theme, true, CLOSE_SCENE_LABEL, f.area());
+            draw_which_key_overlay(f, &theme, true, CLOSE_TAB_LABEL, f.area());
         });
         let content: String = terminal
             .buffer()
@@ -239,7 +224,7 @@ mod tests {
         let mono = Theme::monochrome();
         let mut mono_term = nuotc::TestTerminal::new(80, 24);
         mono_term.draw(|f| {
-            draw_which_key_overlay(f, &mono, true, CLOSE_SCENE_LABEL, f.area());
+            draw_which_key_overlay(f, &mono, true, CLOSE_TAB_LABEL, f.area());
         });
         let mono_content: String = mono_term
             .buffer()
@@ -253,15 +238,16 @@ mod tests {
         );
     }
 
-    /// ADR-0238: the card spells the resolved action. At the bare home scene
-    /// the chord has nothing to act on, so the card says that instead of
-    /// promising an exit the dispatcher will not perform.
+    /// The card spells the resolved action: close overlay when dialog is up, close tab otherwise.
     #[test]
-    fn which_key_overlay_never_promises_an_exit_the_home_scene_lacks() {
+    fn which_key_overlay_resolves_overlay_vs_tab_label() {
+        assert_eq!(close_label_for(true), CLOSE_OVERLAY_LABEL);
+        assert_eq!(close_label_for(false), CLOSE_TAB_LABEL);
+
         let theme = Theme::default();
         let mut terminal = nuotc::TestTerminal::new(80, 24);
         terminal.draw(|f| {
-            draw_which_key_overlay(f, &theme, true, HOME_SCENE_LABEL, f.area());
+            draw_which_key_overlay(f, &theme, true, CLOSE_OVERLAY_LABEL, f.area());
         });
         let content: String = terminal
             .buffer()
@@ -269,11 +255,7 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect();
-        assert!(content.contains("home already"), "{content}");
-        assert!(
-            !content.contains("close tab") && !content.contains("close overlay"),
-            "no exit is promised at the home scene: {content}"
-        );
+        assert!(content.contains("close overlay"), "{content}");
     }
 
     #[test]
@@ -281,7 +263,7 @@ mod tests {
         let theme = Theme::default();
         let mut terminal = nuotc::TestTerminal::new(80, 24);
         terminal.draw(|f| {
-            draw_which_key_overlay(f, &theme, false, CLOSE_SCENE_LABEL, f.area());
+            draw_which_key_overlay(f, &theme, false, CLOSE_TAB_LABEL, f.area());
         });
         let content: String = terminal
             .buffer()
@@ -302,7 +284,7 @@ mod tests {
         let theme = Theme::default();
         let mut terminal = nuotc::TestTerminal::new(80, 24);
         terminal.draw(|f| {
-            draw_which_key_overlay(f, &theme, true, CLOSE_SCENE_LABEL, f.area());
+            draw_which_key_overlay(f, &theme, true, CLOSE_TAB_LABEL, f.area());
         });
         let content: String = terminal
             .buffer()
@@ -320,7 +302,7 @@ mod tests {
             // The leave verb's label is caller-supplied; the rest come from the
             // table itself.
             let label = match verb {
-                SceneVerb::Leave => CLOSE_SCENE_LABEL,
+                SceneVerb::Leave => CLOSE_TAB_LABEL,
                 other => other.label(),
             };
             assert!(

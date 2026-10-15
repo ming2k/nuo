@@ -295,6 +295,11 @@ pub(crate) fn draw_scene_bar(
                 w += crumb_str.width() + 3;
             }
         }
+        if hints.can_forward {
+            let fwd_arrow = " >";
+            spans.push(Span::styled(fwd_arrow, fill.fg(theme.dim())));
+            w += fwd_arrow.width();
+        }
         (spans, w)
     } else {
         (Vec::new(), 0)
@@ -720,6 +725,21 @@ mod tests {
         let ctx_pos = row.find("[EXPLORE]").unwrap();
         let stack_pos = row.find("< thread").unwrap();
         assert!(ctx_pos < stack_pos, "context left, stack right: {row}");
+
+        // With can_forward = true
+        let row_fwd = render_row2(
+            80,
+            None,
+            ViewHints {
+                kind: SceneKind::Subagent,
+                context: Some("[EXPLORE] inspect codebase"),
+                context_warn: false,
+                breadcrumbs: Some(&crumbs),
+                can_back: true,
+                can_forward: true,
+            },
+        );
+        assert!(row_fwd.contains("subagent >"), "shows forward affordance: {row_fwd}");
     }
 
     #[test]

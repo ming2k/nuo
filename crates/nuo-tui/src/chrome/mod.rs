@@ -4,6 +4,7 @@
 //! rate, model identity).
 
 pub mod activity_bar;
+pub mod activity_strip;
 pub mod common;
 pub mod completion_menu;
 pub mod model_bar;
@@ -16,6 +17,7 @@ mod tests;
 
 #[allow(unused_imports)]
 pub use activity_bar::{ActivityBarProps, draw_activity_bar};
+pub use activity_strip::{ActivityStripProps, draw_activity_strip};
 #[allow(unused_imports)]
 pub use common::{
     Liveness, SPINNER_PHASES, breathing_color, classify_liveness, dot_color, format_elapsed,
@@ -29,6 +31,7 @@ pub use model_bar::{
 };
 #[allow(unused_imports)]
 pub use persistence_health::draw_persistence_health_bar;
+#[allow(unused_imports)]
 pub use queue_bar::{QueueBarProps, QueueItemProps, draw_queue_bar};
 #[allow(unused_imports)]
 pub use tasks_bar::{BackgroundTaskItem, TasksBarProps, draw_tasks_bar};

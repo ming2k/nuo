@@ -9,6 +9,7 @@ use crate::components::keycap::keycap_warn_span;
 use crate::keymap::Key;
 use crate::render::Theme;
 
+#[allow(dead_code)]
 pub struct ActivityBarProps<'a> {
     /// Root agent label (the typed phase's text).
     pub status: &'a str,
@@ -19,6 +20,7 @@ pub struct ActivityBarProps<'a> {
     pub awaiting_permission: bool,
 }
 
+#[allow(dead_code)]
 pub fn draw_activity_bar(
     frame: &mut Frame,
     rect: Rect,

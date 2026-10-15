@@ -1452,22 +1452,16 @@ mod tests {
                 .collect()
         };
 
-        // Row 1: the client TabBar / brand and namespace pair (ADR-0060).
+        // Row 1: the client TabBar / brand and namespace pair (ADR-0060, ADR-0062).
         let tabbar = row_text(0);
         assert!(
             tabbar.contains("C-x menu"),
             "row 1 advertises the scene namespace: {tabbar:?}"
         );
 
-        // Row 2: the thread governance band (ADR-0060).
-        let gov = row_text(1);
-        assert!(gov.contains("THREAD"), "thread identity on row 2: {gov:?}");
-        assert!(gov.contains("b3c4"), "id tail on row 2: {gov:?}");
-        assert!(gov.contains("UNATTENDED"), "run-mode flag on row 2: {gov:?}");
-
-        // Row 3: the scene name, the fleet summary context.
-        let scene = row_text(2);
-        assert!(scene.contains("dashboard"), "scene name on row 3: {scene:?}");
+        // Row 2: the polymorphic SceneBar (ADR-0062).
+        let scene = row_text(1);
+        assert!(scene.contains("dashboard"), "scene name on row 2: {scene:?}");
         assert!(scene.contains("1 session(s)"), "fleet summary context: {scene:?}");
         assert!(scene.contains("1 running"), "running count: {scene:?}");
         assert!(

@@ -190,23 +190,23 @@ fn escape_never_exits_subagent_view() {
     // The zoom has no exit chord of its own: leaving is the C-x namespace.
     assert_ne!(
         key_in_view(KeyCode::Char('q'), true, &mut input),
-        InputAction::CloseScene,
-        "`q` is never a scene exit"
+        InputAction::CloseTab,
+        "`q` never closes the tab"
     );
 }
 
 /// ADR-0298 §2 / ADR-0103 §2: Esc in an aside interrupts the aside's round and
 /// never leaves the view; `Ctrl+C` is the detach gesture.
 #[test]
-fn bracket_keys_cycle_siblings_only_when_typing_is_empty() {
+fn bracket_keys_navigate_scene_history_only_when_typing_is_empty() {
     let mut input = String::new();
     assert_eq!(
         key_in_view(KeyCode::Char('['), true, &mut input),
-        InputAction::PrevSibling
+        InputAction::TabHistoryBack
     );
     assert_eq!(
         key_in_view(KeyCode::Char(']'), true, &mut input),
-        InputAction::NextSibling
+        InputAction::TabHistoryForward
     );
 
     let mut typing = "x".to_string();

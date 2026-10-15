@@ -399,37 +399,4 @@ impl App {
             false
         }
     }
-
-    /// Cycle to the previous (`dir < 0`) or next (`dir > 0`) sibling subagent
-    /// task at the current focus level. No-op when not in a subagent view or
-    /// when there are no siblings.
-    pub fn cycle_sibling(&mut self, dir: i8) {
-        let Some(current) = self.focus_stack.last() else {
-            return;
-        };
-        let current_id = current.call_id.clone();
-        let task_ids: Vec<String> = self
-            .messages
-            .iter()
-            .filter_map(|message| {
-                if message.is_subagent_task() {
-                    message.tool_step_call_id().map(String::from)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let Some(idx) = task_ids.iter().position(|id| *id == current_id) else {
-            return;
-        };
-        if task_ids.len() < 2 {
-            return;
-        }
-        let n = task_ids.len() as isize;
-        let next = ((idx as isize + dir as isize).rem_euclid(n)) as usize;
-        if let Some(frame) = self.focus_stack.last_mut() {
-            frame.call_id = task_ids[next].clone();
-        }
-        self.reset_view_state();
-    }
 }

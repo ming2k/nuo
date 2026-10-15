@@ -392,7 +392,6 @@ fn compose_frame(
                 tasks_bar: render::TasksBarProps {
                     tasks: &app.background_tasks,
                 },
-                persistence_health: app.persistence_health.as_ref(),
                 subagent_bar,
                 // ADR-0205: a head legend advertises scene chords, which are
                 // suspended the moment an overlay takes the keyboard
@@ -1226,7 +1225,6 @@ fn compose_frame(
     // rather than a fixed promise (ADR-0238).
     let close_label = crate::components::which_key::close_label_for(
         app.active_dialog().is_some(),
-        app.current_scene() != crate::surfaces::SceneKind::Thread,
     );
     crate::components::which_key::draw_which_key_overlay(
         f,

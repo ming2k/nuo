@@ -26,6 +26,7 @@ pub struct TasksBarProps<'a> {
 }
 
 /// Draw the single-row background tasks status bar.
+#[allow(dead_code)]
 pub fn draw_tasks_bar(
     frame: &mut Frame,
     rect: Rect,

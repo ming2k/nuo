@@ -1897,11 +1897,11 @@ async fn closing_dashboard_scene_closes_singleton_tab() {
     assert_eq!(app.surfaces.active_tab_index(), 1);
     assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Dashboard);
 
-    // 2. Dispatch CloseScene (C-x w / C-x k)
+    // 2. Dispatch CloseTab (C-x w / C-x k)
     let flow = crate::event_loop::actions::dispatch_action_for_test(
         &mut app,
         &runtime,
-        crate::input::InputAction::CloseScene,
+        crate::input::InputAction::CloseTab,
         "s1",
     )
     .await;
@@ -1926,7 +1926,7 @@ async fn closing_sole_dashboard_tab_detaches_client() {
     let flow = crate::event_loop::actions::dispatch_action_for_test(
         &mut app,
         &runtime,
-        crate::input::InputAction::CloseScene,
+        crate::input::InputAction::CloseTab,
         "s1",
     )
     .await;
@@ -2351,4 +2351,79 @@ async fn open_selected_session_switches_to_another_thread_via_client_tab_and_run
     // Runner attach queued
     assert_eq!(app.switch_to_target, Some(target_sid.to_string()));
     assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn test_subagent_bracket_and_q_scene_history_navigation() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    app.open_tab(crate::surfaces::ClientTab::thread("conv-1", None::<String>));
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
+
+    // Enter subagent
+    app.enter_subagent("call_child_1".to_string());
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Subagent);
+    assert!(app.in_subagent_view());
+
+    // Back in scene history via TabHistoryBack (emitted by `[` or `q`)
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::TabHistoryBack,
+        "conv-1",
+    )
+    .await;
+
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
+    assert!(!app.in_subagent_view());
+
+    // Forward in scene history via TabHistoryForward (emitted by `]`)
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::TabHistoryForward,
+        "conv-1",
+    )
+    .await;
+
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Subagent);
+}
+
+#[tokio::test]
+async fn test_close_tab_accurately_closes_tab_on_thread_and_subagent() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    app.open_tab(crate::surfaces::ClientTab::thread("conv-1", None::<String>));
+    app.open_tab(crate::surfaces::ClientTab::thread("conv-2", None::<String>));
+    assert_eq!(app.surfaces.tabs().len(), 2);
+    assert_eq!(app.surfaces.active_tab_index(), 1);
+
+    // Enter subagent in Tab 1
+    app.enter_subagent("call_sub_2".to_string());
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Subagent);
+
+    // C-x w dispatches CloseTab: closes Tab 1 entirely, does not just pop subagent
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::CloseTab,
+        "conv-2",
+    )
+    .await;
+
+    assert_eq!(app.surfaces.tabs().len(), 1);
+    assert_eq!(app.surfaces.active_tab_index(), 0);
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
+
+    // Close remaining Tab 0
+    let flow = crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::CloseTab,
+        "conv-1",
+    )
+    .await;
+
+    assert_eq!(flow, crate::event_loop::actions::ActionFlow::Exit);
+    assert!(app.surfaces.tabs().is_empty());
 }

@@ -828,7 +828,6 @@ fn render_transcript_frame(
                     expand_key: Some(crate::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
-                persistence_health: None,
                 subagent_bar: None,
                 page_hints: None,
                 thread_head: None,

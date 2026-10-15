@@ -238,7 +238,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // Initialize Agent logic. The provider is resolved through the model
     // catalog (`build_provider_for`), the single source of truth for the
     // env-var-then-config resolution rules shared with runtime switching. See
-    // `docs/adr/0002-model-channel-abstraction.md`.
+    // `docs/adr/0015-dependency-inversion-architecture-for-model-providers.md`.
 
     // ADR-0116: the pre-0018 per-project exclusive lock is gone — the
     // unified server owns every session and the CLI flag was dead (parsed,

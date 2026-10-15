@@ -666,7 +666,7 @@ fn scene_namespace_second_strokes_resolve_through_the_verb_table() {
     for stroke in strokes_of() {
         let verb = SceneVerb::from_stroke(stroke).expect("declared stroke resolves");
         let expected = match verb {
-            SceneVerb::Leave => InputAction::CloseScene,
+            SceneVerb::Leave => InputAction::CloseTab,
             SceneVerb::Switcher => InputAction::ViewSwitcherToggle,
             SceneVerb::Threads => InputAction::OpenSessions,
             SceneVerb::Dashboard => InputAction::NavigateDashboard,

@@ -134,13 +134,26 @@ pub(crate) fn resolve_modal_key(
                 KeyCode::Char('y') | KeyCode::Char('c') => {
                     return Some(InputAction::CopyPortConnectInfo);
                 }
-                KeyCode::Esc => return Some(InputAction::CloseScene),
+                KeyCode::Esc => return Some(InputAction::CloseModal),
                 _ => return None,
             },
             _ => {}
         }
     } else if scene == SceneKind::Dashboard && keys.host_prompting {
         return Some(resolve_host_prompt_key(key, input, cursor_position));
+    }
+
+    // Bracket keys (`[` / `]`) navigate active tab's scene stack when no text editing is in flight.
+    if overlay.is_none()
+        && (scene == SceneKind::Dashboard && !keys.host_prompting
+            || scene == SceneKind::Settings)
+        && key.modifiers.is_empty()
+    {
+        match key.code {
+            KeyCode::Char('[') => return Some(InputAction::TabHistoryBack),
+            KeyCode::Char(']') => return Some(InputAction::TabHistoryForward),
+            _ => {}
+        }
     }
 
     if keys.dialog_keys && matches!(overlay, Some(OverlaySurface::Dialog(_))) {
@@ -1039,5 +1052,46 @@ mod tests {
         // ↑/↓ list walking and Esc-close stay in the shared affordance layer.
         assert_eq!(resolve_dialog(DialogKind::Switcher, Key::UP, &c), None);
         assert_eq!(resolve_dialog(DialogKind::Switcher, Key::ESC, &c), None);
+    }
+
+    #[test]
+    fn brackets_navigate_scene_history_in_dashboard_and_settings() {
+        use crate::keymap::Key;
+        let c = keys(|_| {});
+        let bracket_left = Key {
+            modifiers: KeyModifiers::NONE,
+            code: KeyCode::Char('['),
+        };
+        let bracket_right = Key {
+            modifiers: KeyModifiers::NONE,
+            code: KeyCode::Char(']'),
+        };
+
+        // In Dashboard without prompt:
+        assert_eq!(
+            resolve_scene(SceneKind::Dashboard, bracket_left, &c),
+            Some(InputAction::TabHistoryBack)
+        );
+        assert_eq!(
+            resolve_scene(SceneKind::Dashboard, bracket_right, &c),
+            Some(InputAction::TabHistoryForward)
+        );
+
+        // In Settings:
+        assert_eq!(
+            resolve_scene(SceneKind::Settings, bracket_left, &c),
+            Some(InputAction::TabHistoryBack)
+        );
+        assert_eq!(
+            resolve_scene(SceneKind::Settings, bracket_right, &c),
+            Some(InputAction::TabHistoryForward)
+        );
+
+        // With host prompting active in Dashboard, `[` is fed to prompt input:
+        let prompting_keys = keys(|k| k.host_prompting = true);
+        assert_ne!(
+            resolve_scene(SceneKind::Dashboard, bracket_left, &prompting_keys),
+            Some(InputAction::TabHistoryBack)
+        );
     }
 }

@@ -48,7 +48,7 @@ These actions govern the client's local tab container and apply uniformly across
 | Action | Shortcuts / Slash | Semantics | Side Effects |
 | :--- | :--- | :--- | :--- |
 | **`OpenTab`** | `Ctrl+T`, `C-x d`, `C-x ,`, `/new` | Mounts a new tab or focuses an existing singleton tab. | Client-local; requests data stream from Server. |
-| **`CloseTab`** | `Ctrl+W`, `/close` | Closes the active tab view (**pure Detach**). | If closed tab was a thread, it continues in Autonomous Mode. Closing last tab exits client process cleanly. |
+| **`CloseTab`** | `C-x w`, `Alt+W`, `/close` | Closes the active tab view (**pure Detach**). | If closed tab was a thread, it continues in Autonomous Mode. Closing last tab exits client process cleanly. |
 | **`FocusTab`** | `Alt+1` .. `Alt+9` | Jumps directly to tab at ordinal index. | Repoints Layer 3 content projection instantly. |
 | **`NextTab`** / **`PrevTab`** | `Ctrl+Tab`, `Ctrl+Shift+Tab` | Sequentially cycles through mounted tabs. | Re-anchors viewport. |
 
@@ -70,6 +70,8 @@ Operations tailored to specific session and coordinator domains:
 ## 4. TUI Spatial Layout and Chrome Hierarchy
 
 Under [ADR-0040](../adr/0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md), [ADR-0043](../adr/0043-thread-domain-nomenclature-unification-compact-tabbar-affordance-and-c-x-namespace-reorganization.md), [ADR-0060](../adr/0060-three-tier-spatial-header-topology-governance-band-and-clean-tab-stack.md), and [ADR-0062](../adr/0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md), the terminal viewport is structured into three sovereign vertical zones: the Polymorphic Top Chrome (2 rows for non-thread scenes, 3 rows for thread scenes), the Polymorphic Content Body (with transient `StickyAnchor`), and the Bounded Bottom Chrome.
+
+For the authoritative token values, band heights, modal sizing, and input pipeline, consult the dedicated [Terminal UI Reference](tui/index.md).
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐

@@ -184,7 +184,7 @@ Each step is independently verifiable; the sequence is ordered so that no step l
 9. **Resolve the dead abstractions** (`ProviderDescriptor`, `ProviderRegistry`, `builtin_provider_metadata`): wire each to a real consumer or delete it. No third state.
 10. **Repoint every reference and delete the crate**: the reference set is dominated by **Rust paths**, not manifests — `nuo-server/src/handlers_provider.rs` alone holds ~20 `nuo_provider_adapters::` sites, plus `credentials_host.rs`, `session_driver.rs`, `nuo-harness`/`nuo-server` catalog tests, and the `nuo-tui` test `extern crate`. Enumerate with `rg -l 'nuo-provider-adapters|nuo_provider_adapters' --glob '!target/**'`, not a `--glob '*.toml'` search. Then delete `nuo-provider-adapters`.
 11. **Doc sweep**: comments and docs that name the retired crate become false — including a **panic message** in `nuo-provider/src/factory.rs:46` and `nuo-provider/README.md`.
-12. **Governance sync, same change**: update `docs/architecture/subsystems.md` §2.3 and ADR-0015 (mark its `providers/` migration executed); run `docgov check` and the full suite.
+12. **Governance sync, same change**: update `docs/dev/subsystems.md` §2.3 and ADR-0015 (mark its `providers/` migration executed); run `docgov check` and the full suite.
 
 Execution detail for each step — including the per-file relocation map for tests/examples and the
 per-step verification gates — is in [`docs/dev/provider-consolidation-migration.md`](../dev/provider-consolidation-migration.md).

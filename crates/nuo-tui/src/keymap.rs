@@ -2250,9 +2250,10 @@ pub enum SurfaceVerb {
     /// Jump the focused step's scroll to the thread edges (`Home`/`End`).
     ScrollTop,
     ScrollBottom,
-    /// Subagent-zoom sibling navigation (`[` / `]`).
-    PrevSibling,
-    NextSibling,
+    /// Subagent/scene navigation back (`[` / `Alt+Left`).
+    SceneHistoryBack,
+    /// Subagent/scene navigation forward (`]` / `Alt+Right`).
+    SceneHistoryForward,
 }
 
 impl SurfaceVerb {
@@ -2269,11 +2270,11 @@ impl SurfaceVerb {
             SurfaceVerb::ClearFocusedTarget => Key::ESC,
             SurfaceVerb::ScrollTop => Key::HOME,
             SurfaceVerb::ScrollBottom => Key::END,
-            SurfaceVerb::PrevSibling => Key {
+            SurfaceVerb::SceneHistoryBack => Key {
                 modifiers: KeyModifiers::NONE,
                 code: KeyCode::Char('['),
             },
-            SurfaceVerb::NextSibling => Key {
+            SurfaceVerb::SceneHistoryForward => Key {
                 modifiers: KeyModifiers::NONE,
                 code: KeyCode::Char(']'),
             },
@@ -2294,8 +2295,8 @@ impl SurfaceVerb {
             SurfaceVerb::ClearFocusedTarget => "clear_focus",
             SurfaceVerb::ScrollTop => "scroll_top",
             SurfaceVerb::ScrollBottom => "scroll_bottom",
-            SurfaceVerb::PrevSibling => "prev_sibling",
-            SurfaceVerb::NextSibling => "next_sibling",
+            SurfaceVerb::SceneHistoryBack => "scene_back",
+            SurfaceVerb::SceneHistoryForward => "scene_forward",
         }
     }
 
@@ -2316,8 +2317,8 @@ impl SurfaceVerb {
         SurfaceVerb::ClearFocusedTarget,
         SurfaceVerb::ScrollTop,
         SurfaceVerb::ScrollBottom,
-        SurfaceVerb::PrevSibling,
-        SurfaceVerb::NextSibling,
+        SurfaceVerb::SceneHistoryBack,
+        SurfaceVerb::SceneHistoryForward,
     ];
 }
 

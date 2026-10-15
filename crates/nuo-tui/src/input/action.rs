@@ -553,10 +553,6 @@ pub enum InputAction {
     DialogKeysScroll {
         delta: i8,
     },
-    /// Move to the previous sibling subagent task.
-    PrevSibling,
-    /// Move to the next sibling subagent task.
-    NextSibling,
     /// Arm the `Ctrl+X` scene namespace, awaiting its second stroke. The router
     /// emits this for the opening stroke; re-arming is idempotent.
     SetSceneNamespaceArmed(bool),
@@ -565,12 +561,10 @@ pub enum InputAction {
     CancelSceneNamespace,
     /// Step back one level inside the active Scene — a dropdown, a drill-in
     /// pane, the dashboard's preview or inline prompt. Esc on a scene produces
-    /// this (ADR-0298 §2). It never leaves the Scene: a Scene's own exit is
-    /// [`InputAction::CloseScene`] (`C-x w` / `C-x k`), never the universal
+    /// this (ADR-0298 §2). It never leaves the Scene: tab closure is
+    /// [`InputAction::CloseTab`] (`C-x w` / `C-x k`), never the universal
     /// dismiss chord (ADR-0205 `[INV-TUI-CLEAN-02]`).
     SceneBack,
-    /// Explicitly close/exit the active scene or dialog (e.g. via `C-x w`).
-    CloseScene,
     /// Navigate directly to the server session orchestrator dashboard scene (`C-x d`).
     NavigateDashboard,
     /// Navigate directly to the application settings workspace scene (`C-x ,`, ADR-0043).

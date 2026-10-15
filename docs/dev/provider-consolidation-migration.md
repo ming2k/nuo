@@ -306,7 +306,7 @@ These are comments/docs, not compile errors, but they become **false statements*
 
 ## 11. Governance sync (same commit)
 
-- `docs/architecture/subsystems.md` §2.3: remove the "pending retirement" marker; the ADR-0027
+- `docs/dev/subsystems.md` §2.3: remove the "pending retirement" marker; the ADR-0027
   registry row flips to Accepted.
 - Flip ADR-0027 `status: draft` → `accepted`; update `docs/adr/index.md`.
 - `cargo test --workspace && docgov check`

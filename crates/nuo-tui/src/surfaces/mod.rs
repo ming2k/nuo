@@ -689,6 +689,8 @@ impl SurfaceRouter {
     fn sync_scene_to_active_tab(&mut self) {
         if let Some(tab) = self.tabs.get(self.active_tab) {
             self.scene = tab.current_scene();
+        } else {
+            self.scene = SceneKind::Thread;
         }
     }
 

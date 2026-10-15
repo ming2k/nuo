@@ -799,7 +799,7 @@ fn ctrl_c_at_startup_picker_quits_instead_of_dropping_to_empty_session() {
 /// thread, so leaving the screen must quit the whole TUI — the
 /// dashboard is the app while it is open. These tests lock the exits:
 ///
-/// 1. The scene-exit verb (`C-x w` / `C-x k` / `q` → `CloseScene`) quits
+/// 1. The scene-exit verb (`C-x w` / `C-x k` / `q` → `CloseTab`) quits
 ///    immediately when it would otherwise demote the dashboard to a carrier
 ///    thread the user never asked for. **Esc is not an exit** — it only
 ///    unwinds scene-local sub-layers (ADR-0298 §2).

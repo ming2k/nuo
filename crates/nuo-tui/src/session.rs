@@ -237,8 +237,8 @@ pub(crate) fn resolve_chat_surface_key(
 }
 
 /// The Subagent scene's own scheme (ADR-0205): the zoom owns its exit (`q`)
-/// and sibling navigation (`[`/`]`, a remappable `session.prev_sibling` /
-/// `session.next_sibling` verb), its **scene-scoped** `Esc` interrupt, and
+/// and scene history navigation (`[`/`]`, a remappable `session.scene_back` /
+/// `session.scene_forward` verb, or `q` when idle), its **scene-scoped** `Esc` interrupt, and
 /// delegates every other key to the shared chat core for step-focus walking.
 pub(crate) fn resolve_subagent_key(
     key: crate::keymap::Key,
@@ -248,14 +248,20 @@ pub(crate) fn resolve_subagent_key(
 ) -> Option<InputAction> {
     use crate::keymap::SurfaceVerb;
     let ov = &keys.surface_overrides;
-    // Sibling navigation rides the verb's effective chord only while no text
-    // is composed and no step is focused (a focused step bounces the key to
-    // the composer).
-    if ov.matches(key, SurfaceVerb::PrevSibling) && !keys.focused_target && input.is_empty() {
-        return Some(InputAction::PrevSibling);
+    // Scene stack navigation: `[` / `]` or `q` step back/forward in active tab's scene history
+    // when composer is empty and no step is focused.
+    if (ov.matches(key, SurfaceVerb::SceneHistoryBack)
+        || (key.code == KeyCode::Char('q') && key.modifiers.is_empty()))
+        && !keys.focused_target
+        && input.is_empty()
+    {
+        return Some(InputAction::TabHistoryBack);
     }
-    if ov.matches(key, SurfaceVerb::NextSibling) && !keys.focused_target && input.is_empty() {
-        return Some(InputAction::NextSibling);
+    if ov.matches(key, SurfaceVerb::SceneHistoryForward)
+        && !keys.focused_target
+        && input.is_empty()
+    {
+        return Some(InputAction::TabHistoryForward);
     }
     // Esc in the Subagent scene interrupts the *viewed child* (ADR-0205 scene
     // scope) once a completion and step/browse focus are clear — never the
@@ -975,7 +981,7 @@ mod tests {
         let mut map = std::collections::HashMap::new();
         map.insert("open_history".to_string(), "ctrl+shift+r".to_string());
         map.insert("toggle_send_mode".to_string(), "ctrl+t".to_string());
-        map.insert("prev_sibling".to_string(), "alt+[".to_string());
+        map.insert("scene_back".to_string(), "alt+[".to_string());
         let ov = SurfaceOverrides::from_config(&map);
         let c = ctx(Mode::Idle, |c| c.surface_overrides = ov.clone());
 
@@ -1017,7 +1023,7 @@ mod tests {
             "toggle_send_mode on a remapped chord must still require a running round"
         );
 
-        // Subagent sibling nav follows the remapped chord, same guards.
+        // Subagent scene back follows the remapped chord, same guards.
         let rc = ctx(Mode::Subagent, |c| c.surface_overrides = ov);
         assert_eq!(
             resolve_scene_key(
@@ -1027,7 +1033,7 @@ mod tests {
                 &mut String::new(),
                 &mut 0
             ),
-            Some(InputAction::PrevSibling)
+            Some(InputAction::TabHistoryBack)
         );
         assert_eq!(
             resolve_scene_key(
@@ -1038,7 +1044,7 @@ mod tests {
                 &mut 0
             ),
             None,
-            "the canonical `[` must go inactive once prev_sibling is remapped"
+            "the canonical `[` must go inactive once scene_back is remapped"
         );
     }
 
@@ -1070,8 +1076,8 @@ mod tests {
                 &mut String::new(),
                 &mut 0
             ),
-            None,
-            "the zoom has no scene-exit chord of its own"
+            Some(InputAction::TabHistoryBack),
+            "`q` in idle subagent view steps back to parent thread"
         );
         assert_eq!(
             resolve_scene_key(
@@ -1117,7 +1123,7 @@ mod tests {
             Some(InputAction::InterruptSubagent),
             "a running viewed child owns Esc as the scene-scoped interrupt"
         );
-        // `[` / `]` walk siblings while the composer is empty and no step is
+        // `[` / `]` walk scene history while the composer is empty and no step is
         // focused; a focused step bounces the key to the composer instead.
         let bracket = Key {
             modifiers: KeyModifiers::NONE,
@@ -1131,7 +1137,22 @@ mod tests {
                 &mut String::new(),
                 &mut 0
             ),
-            Some(InputAction::PrevSibling)
+            Some(InputAction::TabHistoryBack)
+        );
+        let q_key = Key {
+            modifiers: KeyModifiers::NONE,
+            code: KeyCode::Char('q'),
+        };
+        assert_eq!(
+            resolve_scene_key(
+                SceneKind::Subagent,
+                q_key,
+                &ctx(Mode::Subagent, |_| {}),
+                &mut String::new(),
+                &mut 0
+            ),
+            Some(InputAction::TabHistoryBack),
+            "idle `q` in subagent steps back to parent thread"
         );
         assert_eq!(
             resolve_scene_key(
@@ -1154,7 +1175,7 @@ mod tests {
             &mut String::new(),
             &mut 0,
         );
-        assert_ne!(action, Some(InputAction::CloseScene));
+        assert_ne!(action, Some(InputAction::CloseTab));
     }
 
     /// ADR-0192: Esc while the inline ↑/↓ pointer sits on a history row

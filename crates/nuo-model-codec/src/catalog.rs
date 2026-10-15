@@ -14,7 +14,8 @@
 //! lives in the loader, not here, so the same types serve both built-in
 //! presets and future user-defined entries.
 //!
-//! See `docs/adr/0002-model-channel-abstraction.md` for the design.
+//! See `docs/adr/0015-dependency-inversion-architecture-for-model-providers.md`
+//! for the design (service surface / channel as the first-class provider unit).
 
 use std::fmt;
 

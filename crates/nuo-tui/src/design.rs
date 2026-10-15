@@ -168,6 +168,7 @@ pub(crate) const ACTIVITY_STRIP_ROWS: u16 = 1;
 /// prose, so it needs real visual distance from the content — especially when
 /// content truncates to fill the row, where a small gap would let a `…` butt
 /// directly against a keycap.
+#[allow(dead_code)]
 pub(crate) const BAR_LEGEND_GAP_MIN: usize = 6;
 
 // Semantic joins (see docs/reference/tui/visual-language.md)

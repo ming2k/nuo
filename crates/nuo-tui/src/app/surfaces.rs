@@ -290,6 +290,10 @@ impl App {
             for s in sheets {
                 self.on_sheet_dismissed(s);
             }
+            if leaving == SceneKind::Subagent {
+                self.focus_stack.clear();
+                self.reset_view_state();
+            }
             self.deactivate_scene(leaving);
             self.surfaces.unwind_scene(leaving);
         }
@@ -567,39 +571,14 @@ impl App {
         true
     }
 
-    /// Actively leave the current Scene: the `C-x` scene namespace's exit and
-    /// each scene's own `q`.
+    /// Actively leave the current surface: close active tab, or leave scene if no tabs exist.
     pub(crate) fn close_scene(&mut self) -> bool {
         self.scene_namespace_armed = false;
-        match self.current_scene() {
-            SceneKind::Subagent => {
-                if self.exit_subagent() {
-                    true
-                } else {
-                    self.leave_scene()
-                }
-            }
-            SceneKind::Dashboard | SceneKind::Settings => {
-                let active_idx = self.surfaces.active_tab_index();
-                if let Some(tab) = self.surfaces.tabs().get(active_idx) {
-                    if !tab.can_back() {
-                        self.close_tab(active_idx);
-                        return true;
-                    } else {
-                        let leaving = self.current_scene();
-                        let sheets = self.surfaces.take_sheets();
-                        for s in sheets {
-                            self.on_sheet_dismissed(s);
-                        }
-                        self.deactivate_scene(leaving);
-                        self.surfaces.unwind_scene(leaving);
-                        self.surfaces.tab_history_back();
-                        return true;
-                    }
-                }
-                self.leave_scene()
-            }
-            SceneKind::Thread => false,
+        let active_idx = self.surfaces.active_tab_index();
+        if self.surfaces.tabs().get(active_idx).is_some() {
+            self.close_tab(active_idx).is_some()
+        } else {
+            self.leave_scene()
         }
     }
 

@@ -335,7 +335,7 @@ pub fn route_event(
                     return InputAction::SetSceneNamespaceArmed(true);
                 }
                 return match SceneVerb::from_second_stroke(physical_key) {
-                    Some(SceneVerb::Leave) => InputAction::CloseScene,
+                    Some(SceneVerb::Leave) => InputAction::CloseTab,
                     Some(SceneVerb::Switcher) => InputAction::ViewSwitcherToggle,
                     Some(SceneVerb::Threads) => InputAction::OpenSessions,
                     Some(SceneVerb::Dashboard) => InputAction::NavigateDashboard,

@@ -28,6 +28,7 @@ pub struct QueueBarProps<'a> {
 }
 
 /// How much of the queue bar's keycap legend survives under width pressure.
+#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LegendDensity {
     /// Key + label: `Ctrl-q expand`.
@@ -39,6 +40,7 @@ enum LegendDensity {
 }
 
 /// Draw the persistent single-row queue/outbox summary bar.
+#[allow(dead_code)]
 pub fn draw_queue_bar(
     frame: &mut Frame,
     rect: Rect,

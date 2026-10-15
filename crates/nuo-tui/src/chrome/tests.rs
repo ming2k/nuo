@@ -244,6 +244,89 @@ fn format_token_count_uses_si_suffixes() {
 }
 
 #[test]
+fn activity_strip_renders_consolidated_queued_badge_and_active_status() {
+    let theme = Theme::default();
+    let mut terminal = nuotc::TestTerminal::new(80, 1);
+    terminal.draw(|f| {
+        draw_activity_strip(
+            f,
+            f.area(),
+            None,
+            ActivityStripProps {
+                status: "responding",
+                backoff_clause: None,
+                awaiting_permission: false,
+                queued_count: 2,
+                queued_preview: Some("Check edge cases"),
+                tasks_count: 1,
+                tasks_preview: Some("indexer"),
+            },
+            0,
+            &theme,
+        );
+    });
+    let text: String = terminal.buffer().content.iter().map(|c| c.symbol()).collect();
+    assert!(text.contains("[2 queued]"), "must show queued badge: {text:?}");
+    assert!(text.contains("[1 task]"), "must show tasks badge: {text:?}");
+    assert!(text.contains("responding"), "must show active status: {text:?}");
+    assert!(text.contains("interrupt"), "must show interrupt affordance: {text:?}");
+}
+
+#[test]
+fn activity_strip_renders_idle_queued_preview() {
+    let theme = Theme::default();
+    let mut terminal = nuotc::TestTerminal::new(80, 1);
+    terminal.draw(|f| {
+        draw_activity_strip(
+            f,
+            f.area(),
+            None,
+            ActivityStripProps {
+                status: "",
+                backoff_clause: None,
+                awaiting_permission: false,
+                queued_count: 1,
+                queued_preview: Some("Check edge cases"),
+                tasks_count: 0,
+                tasks_preview: None,
+            },
+            0,
+            &theme,
+        );
+    });
+    let text: String = terminal.buffer().content.iter().map(|c| c.symbol()).collect();
+    assert!(text.contains("[1 queued]"), "shows badge: {text:?}");
+    assert!(text.contains("Follow-up: \"Check edge cases\""), "shows preview: {text:?}");
+    assert!(text.contains("C-x"), "shows C-x chord: {text:?}");
+}
+
+#[test]
+fn activity_strip_returns_none_when_all_idle() {
+    let theme = Theme::default();
+    let mut terminal = nuotc::TestTerminal::new(80, 1);
+    let mut res = None;
+    terminal.draw(|f| {
+        res = draw_activity_strip(
+            f,
+            f.area(),
+            None,
+            ActivityStripProps {
+                status: "",
+                backoff_clause: None,
+                awaiting_permission: false,
+                queued_count: 0,
+                queued_preview: None,
+                tasks_count: 0,
+                tasks_preview: None,
+            },
+            0,
+            &theme,
+        );
+    });
+    assert!(res.is_none(), "idle strip must return None");
+}
+
+#[test]
 fn context_usage_spans_render_used_and_percentage() {
     let theme = Theme::default();
     let spans = context_usage_spans(20_200, 256_000, &theme, theme.panel());

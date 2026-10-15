@@ -127,4 +127,4 @@ Chosen option: **"Option 1"**, because content identity is the only signal that 
 
 - Implementation: `nuo-client` (detection, drift predicate, idle probe, self-heal), `nuo-server` (record publication at boot), `nuo-host` (`image_digest_len` / `current_exe_digest_len`), `nuo` (`nuo status --diagnostic` rendering).
 - Related ADRs: [ADR-0005](0005-unified-binary-and-concentric-runtime-architecture.md) (unified binary coordinator and lifecycle separation).
-- Related docs: [Release & Versioning](../../dev/release-and-versioning.md).
+- Related docs: [Release & Versioning](../dev/release-and-versioning.md).

@@ -48,11 +48,12 @@ cargo build --release -p nuo
 # Launch interactive TUI (auto-starts/attaches to server)
 ./target/release/nuo
 
-# Resume an existing thread
-./target/release/nuo -r
+# Open the interactive thread picker, or resume a thread by id
+./target/release/nuo -t
+./target/release/nuo -t <thread_id>
 
 # Run a headless one-shot prompt
-./target/release/nuo run "Explain the Nuo project structure"
+./target/release/nuo --headless -p "Explain the Nuo project structure"
 ```
 
 ---
@@ -62,23 +63,29 @@ cargo build --release -p nuo
 | Command | Description |
 | :--- | :--- |
 | `nuo` | Open interactive terminal interface (default) |
-| `nuo -r` / `nuo <thread_id>` | Resume recent or specified thread in interactive TUI |
-| `nuo run "<prompt>"` / `nuo -p` | Execute headless one-shot agent task and stream result |
-| `nuo status [--watch]` | Check system health, hosted threads, and active endpoints |
-| `nuo server start [--fg]` | Start the session server (detached background, or `--fg` for foreground) |
+| `nuo -t [thread_id]` | Open the interactive thread picker, or attach to a thread by id |
+| `nuo --resume` | Resume the most recent matching thread |
+| `nuo --headless -p "<prompt>"` | Execute a headless one-shot agent task and stream the result |
+| `nuo status [--watch\|--json\|--all\|--diagnostic]` | Check health, hosted threads, endpoint discovery, and providers |
+| `nuo server start [--fg] [--port <n>]` | Start the session server (detached background, or `--fg` for foreground) |
 | `nuo server stop` | Gracefully drain and stop the session server |
 | `nuo server reload` | Soft reload configuration and MCP/skills |
 | `nuo server restart` | Restart or replace the session server instance |
+| `nuo server status` | Show session server status and active sessions |
 | `nuo server token` | Display current bearer authentication token |
 | `nuo thread ls` | List hosted threads and state |
+| `nuo thread open [id]` | Open the interactive thread picker or attach by id |
 | `nuo thread rm <id>` | Terminate a hosted thread |
-| `nuo config <ls\|get\|set>` | Inspect or modify configuration |
-| `nuo mcp ls` | List configured MCP servers and probe status |
-| `nuo skill ls` | List discovered skills |
+| `nuo completions <shell>` | Print a shell completion script (bash, zsh, fish) |
 
 ---
 
 ## Documentation
 
-- **[Subsystem Architecture](docs/architecture/subsystems.md)**: Workspace topology, crate boundaries, and architectural invariants.
-- **[Architectural Decision Records (ADR)](docs/adr/index.md)**: Design decisions, trade-offs, and evolutionary history.
+- **[Getting Started](docs/tutorials/getting-started.md)**: build the workspace and run your first agent turn.
+- **[How-To Guides](docs/how-to/index.md)**: connect a provider, manage threads, and inspect usage.
+- **[Architecture Overview](docs/explanation/architecture-overview.md)**: entity tiers, crate topology, and design rationale.
+- **[Reference](docs/reference/lifecycle-and-action-semantics.md)**: lifecycle and action semantics.
+- **[Terminal UI Reference](docs/reference/tui/index.md)**: viewport layout, visual language, modals, and input pipeline.
+- **[Subsystem Architecture](docs/dev/subsystems.md)**: workspace topology, crate boundaries, and architectural invariants.
+- **[Architectural Decision Records (ADR)](docs/adr/index.md)**: design decisions, trade-offs, and evolutionary history.

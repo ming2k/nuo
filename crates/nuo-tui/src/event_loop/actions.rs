@@ -324,11 +324,15 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::CloseTab => {
-            let active_idx = app.surfaces.active_tab_index();
-            app.close_tab(active_idx);
-            if app.surfaces.tabs().is_empty() {
-                tracing::info!(reason = "close_last_tab", "client detaching");
-                return ActionFlow::Exit;
+            if app.active_dialog().is_some() {
+                app.dismiss_surface();
+            } else if !modals::quit_standalone_scene_at_startup(app) {
+                let active_idx = app.surfaces.active_tab_index();
+                app.close_tab(active_idx);
+                if app.surfaces.tabs().is_empty() {
+                    tracing::info!(reason = "close_last_tab", "client detaching");
+                    return ActionFlow::Exit;
+                }
             }
         }
         input::InputAction::TabHistoryBack => {
@@ -1326,25 +1330,6 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::CloseModal => {
             modals::handle_close_modal(app, viewed_session_id);
         }
-        input::InputAction::CloseScene => {
-            // An overlay floating above the scene is the visual foreground, so
-            // it is dismissed first; the scene itself is left on the next
-            // press (ADR-0298 §1). Leaving a *standalone* scene (a startup
-            // `nuo dashboard` / `nuo settings` with no requested
-            // thread) is a program exit instead: there is no
-            // thread to return to. The leader arm itself is cleared by
-            // the shared pre-dispatch reset, so neither branch repeats it.
-            if app.active_dialog().is_some() {
-                app.dismiss_surface();
-            } else if !modals::quit_standalone_scene_at_startup(app) {
-                let had_tabs = !app.surfaces.tabs().is_empty();
-                app.close_scene();
-                if had_tabs && app.surfaces.tabs().is_empty() {
-                    tracing::info!(reason = "close_last_tab", "client detaching");
-                    return ActionFlow::Exit;
-                }
-            }
-        }
         input::InputAction::SceneBack => {
             app.scene_back();
         }
@@ -1766,12 +1751,6 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             if app.active_dialog() != Some(DialogKind::Switcher) {
                 return ActionFlow::Handled;
             }
-        }
-        input::InputAction::PrevSibling => {
-            app.cycle_sibling(-1);
-        }
-        input::InputAction::NextSibling => {
-            app.cycle_sibling(1);
         }
         input::InputAction::InsertChar(c) => {
             // Already handled by route_event mutating app.input

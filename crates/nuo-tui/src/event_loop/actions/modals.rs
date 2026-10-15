@@ -449,8 +449,8 @@ pub(super) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
 /// dismiss. **Overlay-scoped**: every branch below closes, backs out of, or
 /// quits *from* an overlay. No branch leaves a Scene (ADR-0205
 /// `[INV-TUI-CLEAN-02]`): Esc over a Scene's own chrome produces
-/// [`InputAction::SceneBack`] instead, and a Scene's exit is
-/// [`InputAction::CloseScene`] (`C-x w` / `C-x k`, ADR-0298 §1).
+/// [`InputAction::SceneBack`] instead, and tab closure is
+/// [`InputAction::CloseTab`] (`C-x w` / `C-x k`, ADR-0043).
 pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
     // Sub-page back-out is checked FIRST (deepest level wins),
     // so Esc from a drill-in always returns to its parent view
