@@ -55,16 +55,26 @@ pub(crate) fn parse_text_tool_call(text: &str) -> Option<ToolCall> {
     parse_called_tool_fallback(text)
 }
 
-/// Parse fallback text formatted as `[Called tool <name> with arguments: <json>]`
-/// or `[Called tool `name` with arguments: <json>]`.
+/// Parse fallback text formatted as `[Called tool <name> with arguments: <json>]`,
+/// `[Executed tool "<name>" with arguments: <json>]`, or `[Called tool `name` with arguments: <json>]`.
 fn parse_called_tool_fallback(text: &str) -> Option<ToolCall> {
-    let prefix = "[Called tool ";
-    let idx = text.find(prefix)?;
-    let rest = &text[idx + prefix.len()..];
+    let prefixes = ["[Called tool ", "[Executed tool "];
+    let mut found = None;
+    for prefix in prefixes {
+        if let Some(idx) = text.find(prefix) {
+            found = Some((idx, prefix.len()));
+            break;
+        }
+    }
+    let (idx, prefix_len) = found?;
+    let rest = &text[idx + prefix_len..];
     let rest = rest.trim_start();
     let (tool_name, rest) = if let Some(stripped) = rest.strip_prefix('`') {
         let end_backtick = stripped.find('`')?;
         (&stripped[..end_backtick], &stripped[end_backtick + 1..])
+    } else if let Some(stripped) = rest.strip_prefix('"') {
+        let end_quote = stripped.find('"')?;
+        (&stripped[..end_quote], &stripped[end_quote + 1..])
     } else {
         let end_space = rest.find(' ')?;
         (&rest[..end_space], &rest[end_space..])
@@ -250,5 +260,14 @@ mod tests {
         let call2 = parse_text_tool_call(text2).expect("should parse backtick quoted called tool");
         assert_eq!(call2.name, "todo");
         assert_eq!(call2.arguments, r#"{"items": []}"#);
+
+        let text3 = r#"[Executed tool "read_text" with arguments: {"limit": 120, "path": "docs/adr/0046.md"}]"#;
+        let call3 = parse_text_tool_call(text3).expect("should parse executed tool with double quotes");
+        assert_eq!(call3.name, "read_text");
+        assert_eq!(call3.arguments, r#"{"limit": 120, "path": "docs/adr/0046.md"}"#);
+
+        // Incomplete / truncated arguments must NOT parse as a fallback tool call
+        let text4 = r#"[Executed tool "read_text" with arguments: {"limit":120,"offset":1,"path": "docs/adr/018"#;
+        assert!(parse_text_tool_call(text4).is_none());
     }
 }

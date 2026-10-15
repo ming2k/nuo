@@ -3049,22 +3049,35 @@ fn sanitize_text(text: &str) -> std::borrow::Cow<'_, str> {
 /// suitable for compact rendering in the tool step body.
 ///
 /// String values are shown unquoted; other JSON types keep their native
-/// representation. Non-JSON input falls back to a single pair.
+/// representation. Incomplete or malformed JSON never falls back to raw syntax dumping (ADR-0026, ADR-0046).
 pub fn parse_arguments_kv(arguments: &str) -> Vec<(String, String)> {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(arguments) else {
-        return vec![("raw".to_string(), arguments.trim().to_string())];
-    };
-    let Some(object) = value.as_object() else {
-        return vec![("value".to_string(), arguments.trim().to_string())];
-    };
-    object
-        .iter()
+    let trimmed = arguments.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    if let Ok(serde_json::Value::Object(object)) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        return object
+            .into_iter()
+            .map(|(key, val)| {
+                let display = match val {
+                    serde_json::Value::String(s) => s,
+                    _ => val.to_string(),
+                };
+                (key, display)
+            })
+            .collect();
+    }
+    // Resilient streaming projection (ADR-0046): extract only closed, valid key-value pairs.
+    // Unclosed, broken syntax is never leaked as a raw string into the view layer.
+    let streaming = crate::tools::parse_streaming_arguments(trimmed);
+    streaming
+        .into_iter()
         .map(|(key, val)| {
             let display = match val {
-                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::String(s) => s,
                 _ => val.to_string(),
             };
-            (key.clone(), display)
+            (key, display)
         })
         .collect()
 }

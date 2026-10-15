@@ -335,19 +335,29 @@ fn assistant_parts(
                 part["thoughtSignature"] = json!(signature);
                 parts.push(part);
             } else {
-                // ADR-0297: Unsigned tool call lacking a valid Google thought signature
+                // ADR-0297 / ADR-0046: Unsigned tool call lacking a valid Google thought signature
                 // (e.g. from Claude/GPT or foreign completion format). Emitting an unsigned
                 // `functionCall` triggers Google HTTP 400 INVALID_ARGUMENT. Degrade to
                 // objective natural language dialogue fact to preserve causal truth
                 // while strictly honoring Google's cryptographic validation boundary.
-                let args_str = if call.arguments.trim().is_empty() {
-                    "{}"
+                let parsed = if call.arguments.trim().is_empty() {
+                    Some(json!({}))
                 } else {
-                    call.arguments.trim()
+                    serde_json::from_str::<Value>(call.arguments.trim()).ok()
                 };
-                parts.push(json!({
-                    "text": format!("[Executed tool \"{}\" with arguments: {}]", call.name, args_str)
-                }));
+
+                if let Some(valid_json) = parsed {
+                    let canonical_args =
+                        serde_json::to_string(&valid_json).unwrap_or_else(|_| "{}".to_string());
+                    parts.push(json!({
+                        "text": format!("[Executed tool \"{}\" with arguments: {}]", call.name, canonical_args)
+                    }));
+                } else {
+                    // Incomplete or truncated arguments from interrupted streams must never leak raw syntax debris
+                    parts.push(json!({
+                        "text": format!("[Aborted tool \"{}\" (incomplete arguments)]", call.name)
+                    }));
+                }
             }
         }
     }
@@ -359,19 +369,23 @@ fn assistant_parts(
 
 fn sanitize_assistant_content(text: &str) -> String {
     let trimmed = text.trim();
-    if trimmed.starts_with("[Called tool ") && trimmed.ends_with(']') {
-        return String::new();
+    for marker in &["[Called tool ", "[Executed tool ", "[Aborted tool "] {
+        if trimmed.starts_with(marker) && trimmed.ends_with(']') {
+            return String::new();
+        }
     }
     let mut result = text.to_string();
-    while let Some(start) = result.find("[Called tool ") {
-        if let Some(end) = result[start..].find(']') {
-            let candidate = &result[start..=start + end];
-            if candidate.contains("with arguments:") {
-                result.replace_range(start..=start + end, "");
-                continue;
+    for marker in &["[Called tool ", "[Executed tool ", "[Aborted tool "] {
+        while let Some(start) = result.find(marker) {
+            if let Some(end) = result[start..].find(']') {
+                let candidate = &result[start..=start + end];
+                if candidate.contains("with arguments:") || candidate.contains("incomplete arguments") {
+                    result.replace_range(start..=start + end, "");
+                    continue;
+                }
             }
+            break;
         }
-        break;
     }
     result.trim().to_string()
 }
@@ -1113,6 +1127,37 @@ mod tests {
         );
         assert!(user_parts[0].get("functionResponse").is_none());
         assert_eq!(user_parts[1]["text"], "proceed");
+    }
+
+    #[test]
+    fn degrades_incomplete_truncated_unsigned_tool_call_without_syntax_leaks() {
+        let broken_call = nuo_model_codec::ToolCall {
+            id: "call_broken".to_string(),
+            name: "read_text".to_string(),
+            arguments: r#"{"limit":120,"offset":1,"path": "docs/adr/018"#.to_string(),
+        };
+        let body = body(
+            vec![
+                Message::new(Role::User, "read file"),
+                Message {
+                    tool_calls: Some(vec![broken_call.clone()]),
+                    provider_meta: None,
+                    ..Message::new(Role::Assistant, "Inspecting path")
+                },
+                Message::tool_result(&broken_call, "Operation aborted"),
+            ],
+            test_body_input(None, false, None),
+        );
+
+        let model_parts = body["contents"][1]["parts"].as_array().unwrap();
+        assert_eq!(model_parts.len(), 2);
+        assert_eq!(model_parts[0]["text"], "Inspecting path");
+        // Incomplete / truncated arguments must not leak raw syntax debris
+        assert_eq!(
+            model_parts[1]["text"],
+            r#"[Aborted tool "read_text" (incomplete arguments)]"#
+        );
+        assert!(model_parts[1].get("functionCall").is_none());
     }
 
     #[test]

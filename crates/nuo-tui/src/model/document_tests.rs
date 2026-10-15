@@ -1530,3 +1530,29 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
     assert_eq!(line.to_plain_text(), "Edit src/model/auth.rs +1 -1");
     assert_eq!(suffix.as_deref(), Some(" (120ms)"));
 }
+
+#[test]
+fn parse_arguments_kv_never_dumps_raw_syntax_on_incomplete_json() {
+    use super::parse_arguments_kv;
+
+    // Completely broken / empty input
+    assert!(parse_arguments_kv("").is_empty());
+    assert!(parse_arguments_kv("   ").is_empty());
+    assert!(parse_arguments_kv("not json at all").is_empty());
+
+    // Incomplete streaming input (ADR-0046): extracts valid closed fields without leaking raw syntax
+    let stream = r#"{"limit":120,"offset":1,"path": "docs/adr/018"#;
+    let kv = parse_arguments_kv(stream);
+    assert!(!kv.iter().any(|(k, _)| k == "raw" || k == "value"));
+    // Valid closed fields were safely extracted
+    assert_eq!(
+        kv.iter().find(|(k, _)| k == "limit").map(|(_, v)| v.as_str()),
+        Some("120")
+    );
+    assert_eq!(
+        kv.iter().find(|(k, _)| k == "offset").map(|(_, v)| v.as_str()),
+        Some("1")
+    );
+    // Unclosed "path" field was not leaked with broken syntax
+    assert!(kv.iter().all(|(k, _)| k != "path" || !k.contains("docs/adr/018")));
+}

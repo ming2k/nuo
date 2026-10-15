@@ -188,7 +188,8 @@ pub fn draw_tool_step(
                 let is_diff = matches!(
                     crate::tools::presenter_for(name).result_kind(),
                     crate::tools::ResultKind::Diff
-                ) && !arguments.trim().is_empty();
+                ) && !msg.tool_step_status().is_some_and(|s| s.is_ingesting())
+                    && !arguments.trim().is_empty();
                 if has_output || is_command || has_structured || is_diff {
                     draw_tool_result(
                         ctx,

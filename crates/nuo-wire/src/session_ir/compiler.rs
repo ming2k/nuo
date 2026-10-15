@@ -399,16 +399,27 @@ fn lower_messages_for_google(messages: Vec<Message>) -> Vec<Message> {
                             // ADR-0297: Unsigned / cross-provider tool call.
                             // Google Gemini strictly requires thought_signature on every functionCall part.
                             // Convert this unsigned call into an objective dialogue fact.
-                            let args_str = if call.arguments.trim().is_empty() {
-                                "{}"
+                            let parsed = if call.arguments.trim().is_empty() {
+                                Some(serde_json::json!({}))
                             } else {
-                                call.arguments.trim()
+                                serde_json::from_str::<serde_json::Value>(call.arguments.trim()).ok()
                             };
+
                             degraded_call_names.insert(call.id.clone(), call.name.clone());
-                            degraded_call_prose.push(format!(
-                                "[Executed tool \"{}\" with arguments: {}]",
-                                call.name, args_str
-                            ));
+                            if let Some(valid_json) = parsed {
+                                let canonical_args = serde_json::to_string(&valid_json).unwrap_or_else(|_| "{}".to_string());
+                                degraded_call_prose.push(format!(
+                                    "[Executed tool \"{}\" with arguments: {}]",
+                                    call.name, canonical_args
+                                ));
+                            } else {
+                                // Incomplete or malformed JSON arguments:
+                                // A truncated stream must never leak unparsed syntax into dialogue facts (ADR-0026, ADR-0046).
+                                degraded_call_prose.push(format!(
+                                    "[Aborted tool \"{}\" (incomplete arguments)]",
+                                    call.name
+                                ));
+                            }
                         }
                     }
 
@@ -612,5 +623,35 @@ mod tests {
         // Gemini tool message: retains native Tool role and tool_call_id
         assert_eq!(messages[4].role, Role::Tool);
         assert_eq!(messages[4].tool_call_id.as_deref(), Some("call_gemini_1"));
+    }
+
+    #[test]
+    fn test_lower_messages_for_google_aborted_incomplete_tool_calls() {
+        use crate::message::ToolCall;
+
+        let mut ir = SessionIR::new("session_trunc", SessionPolicy::default(), 1000);
+        ir.append_message("u1", 1_000_000, Message::new(Role::User, "read something"));
+
+        // Truncated tool call from broken stream (invalid JSON)
+        let broken_call = ToolCall::new(
+            "call_broken",
+            "read_text",
+            r#"{"limit":120,"offset":1,"path": "docs/adr/018"#,
+        );
+        let mut broken_msg = Message::new(Role::Assistant, "");
+        broken_msg.tool_calls = Some(vec![broken_call]);
+        ir.append_message("a1", 1_001_000, broken_msg);
+
+        let options = CompilerOptions {
+            target_protocol: Some(crate::WireProtocol::GoogleGemini),
+            ..Default::default()
+        };
+        let artifact = compile_session_request(&ir, options).expect("compilation should succeed");
+        let messages = &artifact.request.messages;
+
+        assert_eq!(messages[1].role, Role::Assistant);
+        // Ensure no unclosed JSON syntax or raw parameter string leaked
+        assert!(!messages[1].content.contains(r#"{"limit":120"#));
+        assert!(messages[1].content.contains(r#"[Aborted tool "read_text" (incomplete arguments)]"#));
     }
 }
