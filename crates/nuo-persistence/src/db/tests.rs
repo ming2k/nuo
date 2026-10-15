@@ -47,26 +47,13 @@ fn interim_v5_stamp_is_repaired_to_final_schema() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     assert_eq!(version, CURRENT_DB_VERSION);
-    let columns = sessions_columns(&conn).unwrap();
-    assert!(!columns.contains("scheduled_jobs"));
-    assert!(!columns.contains("title_manual"));
-    for (name, _) in SESSIONS_WORKING_STATE_COLUMNS {
-        // Migration 8 retires the usage column into its own ledger table.
-        if *name == "request_usage_records" {
-            assert!(
-                !columns.contains(*name),
-                "{name} must have moved to the usage ledger table"
-            );
-            continue;
-        }
-        assert!(columns.contains(*name), "missing column {name}");
-    }
-    // The repaired row survives and the working-state upsert path works.
-    conn.execute(
-        "UPDATE sessions SET round_counter = 2, unattended = 1 WHERE id = 's1'",
-        [],
-    )
-    .unwrap();
+    assert!(table_exists(&conn, "threads").unwrap());
+    assert!(table_exists(&conn, "thread_policies").unwrap());
+    assert!(!table_exists(&conn, "sessions").unwrap());
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM threads WHERE id = 's1'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 1);
 }
 
 /// Databases already at the final version-5 schema (no interim stamp) pass
@@ -655,12 +642,20 @@ fn blob_gc_reclaims_only_blobs_absent_from_the_reference_ledger() {
     let referenced = blob_store.put(b"referenced body").unwrap();
     let orphan = blob_store.put(b"orphan body").unwrap();
     engine
-            .conn
-            .execute(
-                "INSERT INTO sessions (id, parent_id, fork_kind, title, created_at_s, updated_at_s, workspace_root, persona, msg_count, last_user_prompt, digest) VALUES ('s1', NULL, 'trunk', NULL, 1, 1, '/tmp', NULL, 0, NULL, NULL)",
-                [],
-            )
-            .unwrap();
+        .upsert_session(&SessionRecord {
+            id: "s1".into(),
+            parent_id: None,
+            fork_kind: "trunk".into(),
+            title: None,
+            created_at_s: 1,
+            updated_at_s: 1,
+            workspace_root: Some("/tmp".into()),
+            persona: None,
+            msg_count: 0,
+            last_user_prompt: None,
+            digest: None,
+        })
+        .unwrap();
     engine
         .conn
         .execute(
@@ -772,7 +767,7 @@ fn row_checksum_detects_working_state_corruption_on_load() {
     engine
         .conn
         .execute(
-            "UPDATE sessions SET round_counter = 99 WHERE id = ?1",
+            "UPDATE threads SET round_counter = 99 WHERE id = ?1",
             params![data.id],
         )
         .unwrap();
@@ -791,12 +786,20 @@ fn row_checksum_detects_working_state_corruption_on_load() {
 fn working_state_round_trips_through_the_session_row() {
     let engine = DatabaseEngine::open_in_memory().unwrap();
     engine
-            .conn
-            .execute(
-                "INSERT INTO sessions (id, parent_id, fork_kind, title, created_at_s, updated_at_s, workspace_root, persona, msg_count, last_user_prompt, digest) VALUES ('s1', NULL, 'trunk', 'T', 1, 1, '/tmp', NULL, 0, NULL, NULL)",
-                [],
-            )
-            .unwrap();
+        .upsert_session(&SessionRecord {
+            id: "s1".into(),
+            parent_id: None,
+            fork_kind: "trunk".into(),
+            title: Some("T".into()),
+            created_at_s: 1,
+            updated_at_s: 1,
+            workspace_root: Some("/tmp".into()),
+            persona: None,
+            msg_count: 0,
+            last_user_prompt: None,
+            digest: None,
+        })
+        .unwrap();
     let sessions = engine.list_sessions(None).unwrap();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].title.as_deref(), Some("T"));
@@ -809,8 +812,16 @@ fn test_v16_to_v17_clean_break_migration() {
     // 1. Insert a legacy session row with old columns (tree, commands, round_interrupts)
     engine
         .conn
-        .execute(
+        .execute_batch(
             r#"
+            INSERT OR IGNORE INTO threads (id, created_at_ms, updated_at_ms) VALUES ('legacy-s1', 100000, 200000);
+            CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY, parent_id TEXT, fork_kind TEXT, title TEXT, created_at_s INTEGER, updated_at_s INTEGER,
+                workspace_root TEXT, additional_roots TEXT, persona TEXT, msg_count INTEGER, last_user_prompt TEXT,
+                digest TEXT, digest_anchor INTEGER, tree TEXT, transcript_generation TEXT, provider_connection TEXT,
+                round_counter INTEGER, unattended INTEGER, disabled_tools TEXT, commands TEXT, round_interrupts TEXT,
+                retry_resolutions TEXT, retry_pending TEXT, checksum INTEGER, schema_version INTEGER
+            );
             INSERT INTO sessions (
                 id, parent_id, fork_kind, title, created_at_s, updated_at_s,
                 workspace_root, additional_roots, persona, msg_count, last_user_prompt,
@@ -825,7 +836,6 @@ fn test_v16_to_v17_clean_break_migration() {
                 '[]', NULL, 1234, 16
             );
             "#,
-            [],
         )
         .unwrap();
 

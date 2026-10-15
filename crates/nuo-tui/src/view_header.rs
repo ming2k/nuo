@@ -1,61 +1,57 @@
-//! Two-row head band for every scene.
+//! Three-tier spatial head band for every scene (ADR-0060).
 //!
 //! The head band is the fixed, always-present chrome pinned to the terminal's
-//! top edge. It is **two rows by default** (ADR-0024) and each row has one
-//! job:
+//! top edge. Under ADR-0060 it is structured across three sovereign tiers
+//! (`PAGE_HEADER_ROWS = 3`), eliminating horizontal budget collisions and
+//! enforcing strict domain stratification:
 //!
-//! - **Row 1 — session identity.** The ambient *session* facts that never
-//!   change while the user navigates scenes: the `SESSION` identity, the
-//!   session's persistent-id tail, the staffing `[ROLE]` badge, and the bound
-//!   workspace. Every scene (Thread, Dashboard, Settings, Subagent zoom,
-//!   aside) draws this same row, so the session the client is attached to is
-//!   never hidden by the scene beneath it.
-//! - **Row 2 — scene + context + run-mode status.** The *scene* the user is
-//!   standing in, named plainly (`thread`, `dashboard`, `settings`,
-//!   `subagent`, `aside`), then the scene's context on the left — for the
-//!   thread that is the chat's title, for a subagent its task label, for
-//!   an aside the primary's status. The right edge carries the session's
-//!   persistent run-mode flags (`UNATTENDED`, `UNCONFINED`) followed by the
-//!   standing `C-x menu` namespace pair — the single entry point for the
-//!   Command Palette / surface switcher (ADR-0023 `[INV-HINT-01]`).
+//! - **Row 1 — Client Global TabBar (`draw_view_header`).**
+//!   Fixed height: 1 row. Owned by the Client container. Projects open tabs
+//!   with clean semantic titles (e.g. `Refactor DB`, `dashboard`, `settings`)
+//!   or compact untitled fallbacks (`thread#b3c4`), strictly omitting ordinal
+//!   prefixes (`1:`) [INV-TAB-09]. Carries the standing `C-x menu` client affordance
+//!   on the right edge.
 //!
-//! Esc is never the advertised exit: it does not close Scenes, so the legend points at the namespace that does. Keeping this outside disclosure rendering also leaves one
-//! clear extension point for future focused scenes.
+//! - **Row 2 — Thread Identity & Governance Band (`draw_thread_governance_header`).**
+//!   Fixed height: 1 row. Owned by the active thread. Displays the ambient
+//!   thread identity (`THREAD <id_tail>`, `[ROLE]` badge, tilde-shortened
+//!   workspace path) on the left, and persistent safety execution posture
+//!   flags (`UNATTENDED`, `UNCONFINED`) on the right edge [INV-HEAD-04, INV-THREAD-02].
+//!
+//! - **Row 3 — Scene Head & Navigation Stack (`draw_view_header_hints`).**
+//!   Fixed height: 1 row. Owned by the active scene view. Displays primary
+//!   authentic task title or domain scene context on the left (with the vestigial
+//!   `thread` placeholder eliminated for untitled threads [INV-SCENE-01]), and
+//!   right-aligned drill-in navigation stack / breadcrumbs (`< thread > subagent #1 > diff`).
 
 use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+use crate::surfaces::SceneKind;
 use super::{STEP_MIN_WIDTH, TRANSCRIPT_H_INSET, Theme};
 
-/// Row-2 (scene) context for every scene. One struct because the row's
-/// *shape* is shared across scenes (ADR-0024): a leading scene label — the
-/// scene the user is standing in, named plainly — then the scene's own
-/// context on the left, and the session's persistent run-mode flags on the right.
-/// For thread-scoped scenes (Thread, Subagent, Aside), the bound
-/// workspace path is also displayed here rather than on the client-level TabBar.
+/// Canonical scene identifier alias for header presentation (ADR-0042).
+pub(crate) type ViewKind = crate::surfaces::SceneKind;
+
+/// Maximum display width allocated to individual tab titles before truncation.
+pub(crate) const MAX_TAB_TITLE_WIDTH: usize = 20;
+
+/// Row-3 (scene) context for every scene (ADR-0060).
+///
+/// Focuses purely on viewport context: authentic task title or domain summary
+/// on the left, and navigation stack / drill-in breadcrumbs on the right.
+/// Thread governance (workspace, role, safety flags) is hosted on Row 2.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ViewHints<'a> {
     /// Which scene the row describes — decides the leading scene label.
     pub kind: ViewKind,
-    /// Scene context shown after the label: the thread's chat title, an
-    /// aside's parent status, a subagent's `[ROLE] label (i/n)`, the
-    /// dashboard's fleet summary, or the settings breadcrumb. `None` renders
-    /// the label alone.
+    /// Scene context shown: the thread's authentic chat title, a subagent's
+    /// task label, the dashboard's fleet summary, or the settings breadcrumb.
     pub context: Option<&'a str>,
     /// `true` while the context is an attention state (e.g. the dashboard has
-    /// a session needing approval), which escalates it to the warning tone.
+    /// a session needing approval), escalating it to the warning tone.
     pub context_warn: bool,
-    /// `true` while the session runs unattended (`--unattended` /
-    /// `/unattended on`). Rendered as a warning-toned `UNATTENDED` flag on the
-    /// right — the session's persistent run-mode flag.
-    pub unattended: bool,
-    /// `false` while the session's workspace filesystem confinement is off
-    /// (`/confinement off`). Rendered as a warning-toned `UNCONFINED` flag.
-    pub confined: bool,
-    /// Tilde-shortened workspace path bound to the active thread. Displayed
-    /// only on thread-scoped scenes.
-    pub workspace: Option<&'a str>,
-    /// Optional breadcrumbs from the active tab's history stack (ADR-0040, ADR-0042).
+    /// Optional breadcrumbs from the active tab's history stack (ADR-0040, ADR-0042, ADR-0060).
     pub breadcrumbs: Option<&'a [crate::surfaces::SceneKind]>,
     /// Whether back navigation is available in the active tab.
     pub can_back: bool,
@@ -70,107 +66,80 @@ impl<'a> ViewHints<'a> {
             kind,
             context: None,
             context_warn: false,
-            unattended: false,
-            confined: true,
-            workspace: None,
             breadcrumbs: None,
             can_back: false,
             can_forward: false,
         }
     }
-
-    /// Row 2 always has content (ADR-0024): the scene label and the `C-x menu`
-    /// namespace pair stand up on every scene, so the head band is always two
-    /// rows. Retained as a method so callers keep one place to ask the band's
-    /// row inventory.
-    pub(crate) fn has_content(&self) -> bool {
-        true
-    }
 }
 
-use crate::surfaces::SceneKind;
-
-/// Canonical scene identifier alias for header presentation (ADR-0042).
-pub(crate) type ViewKind = SceneKind;
-
-/// Row-1 content: the ambient session identity. Uniform across **every**
-/// scene (ADR-0024) — the head band's top row always describes the session the
-/// client is attached to, never the scene beneath it. The scene the user
-/// stands in is named by row 2 ([`ViewHints`]).
+/// Canonical thread identity & governance state for header presentation (ADR-0043, ADR-0060 [INV-THREAD-02]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct SessionHead<'a> {
-    /// The session's persistent id (full string). Only its last four
+pub(crate) struct ThreadHead<'a> {
+    /// The thread's persistent id (full string). Only its last four
     /// characters are shown, dimmed, as a disambiguating tag.
-    pub session_id: &'a str,
+    pub thread_id: &'a str,
     /// Tilde-shortened workspace path (e.g. `~/projects/xx`), or empty when unbound.
     pub workspace: &'a str,
-    /// Active staffing role for this session (ADR-0244).
+    /// Active staffing role for this thread (ADR-0244).
     pub role: Option<&'a str>,
-    /// When switching to another session, holds the target session id.
-    pub switching_target: Option<&'a str>,
-    /// Client-owned tabs mounted in this viewport (ADR-0039).
+    /// Client-owned tabs mounted in this viewport (ADR-0039, ADR-0060).
     pub tabs: Option<&'a [crate::surfaces::ClientTab]>,
     /// Active tab index within `tabs`.
     pub active_tab: usize,
+    /// `true` while the thread runs unattended (`--unattended` / `/unattended on`).
+    pub unattended: bool,
+    /// `false` while workspace filesystem confinement is off (`/confinement off`).
+    pub confined: bool,
 }
 
 #[allow(dead_code)]
-impl<'a> SessionHead<'a> {
-    pub fn simple(session_id: &'a str, workspace: &'a str, role: Option<&'a str>) -> Self {
+impl<'a> ThreadHead<'a> {
+    pub fn new(
+        thread_id: &'a str,
+        workspace: &'a str,
+        role: Option<&'a str>,
+        unattended: bool,
+        confined: bool,
+    ) -> Self {
         Self {
-            session_id,
+            thread_id,
             workspace,
             role,
-            switching_target: None,
             tabs: None,
             active_tab: 0,
+            unattended,
+            confined,
         }
     }
 }
 
-/// Draw the head band's first row: the **session identity**, uniform on every
-/// scene (ADR-0024). `SESSION` + the persistent-id tail (dimmed) + the `[ROLE]`
-/// badge (brand) + the tilde-shortened workspace, or, while a session switch is
-/// loading, the target id. The scene the user stands in is named on row 2
-/// ([`draw_view_header_hints`]), so this row never changes as the user moves
-/// between scenes.
+/// Draw Tier 1: Client Global TabBar (ADR-0039, ADR-0040, ADR-0060 [INV-TAB-09]).
 ///
-/// The band's background spans the rect's full width — the head is top-level
-/// chrome pinned to the terminal's top edge, so its `raised` surface reaches
-/// both edges. The *text* keeps the shared [`TRANSCRIPT_H_INSET`] horizontal
-/// inset (rendered as pad spans) so it stays aligned with the transcript band
-/// below.
+/// Projects open tabs with clean semantic titles without ordinal prefixes (`1:`),
+/// with the client command namespace (`C-x menu`) anchored to the right edge.
+/// Returns bounding rects for mouse click hit-testing.
 pub(crate) fn draw_view_header(
     frame: &mut Frame,
     rect: Rect,
-    head: &SessionHead<'_>,
+    head: &ThreadHead<'_>,
     theme: &Theme,
 ) -> Vec<(usize, Rect)> {
     let full_width = rect.width as usize;
-    if full_width < STEP_MIN_WIDTH {
+    if full_width < STEP_MIN_WIDTH || rect.height == 0 {
         return Vec::new();
     }
-
-    let tag = if let Some(target) = head.switching_target {
-        format!("{} (loading…)", target)
-    } else {
-        id_tail(head.session_id)
-    };
-    let badge = head
-        .role
-        .map(|r| format!("[{}]", r.to_uppercase()))
-        .unwrap_or_default();
 
     let bg = theme.raised();
     let fill = Style::default().bg(bg);
     let pad = TRANSCRIPT_H_INSET as usize;
     let text_width = full_width.saturating_sub(2 * pad);
 
-    // C-x affordance belongs to the client-level TabBar / Header (ADR-0039, ADR-0040, ADR-0043 [INV-UI-02])
+    // C-x affordance belongs to the client-level TabBar / Header (ADR-0043 [INV-UI-02])
     let affordance = crate::components::keycap::KeyAffordance::tabbar_menu(SCENE_NAMESPACE_LABEL);
     let right_width = affordance.width();
 
-    // Tab workspace rendering (ADR-0039 [INV-TAB-01], ADR-0040 [INV-UI-01])
+    // Tab workspace rendering (ADR-0039 [INV-TAB-01], ADR-0040 [INV-UI-01], ADR-0060 [INV-TAB-09])
     if let Some(tabs) = head.tabs.filter(|t| !t.is_empty()) {
         let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
         let mut tab_rects = Vec::with_capacity(tabs.len());
@@ -183,14 +152,14 @@ pub(crate) fn draw_view_header(
             let label = match &tab.kind {
                 crate::surfaces::TabKind::Thread(id) => {
                     if let Some(title) = tab.display_title() {
-                        let truncated = truncate_to_width(title, 16);
-                        format!("{}:{}", i + 1, truncated)
+                        let truncated = truncate_to_width(title, MAX_TAB_TITLE_WIDTH);
+                        truncated.to_string()
                     } else {
-                        format!("{}:thread#{}", i + 1, id_tail(id))
+                        format!("thread#{}", id_tail(id))
                     }
                 }
-                crate::surfaces::TabKind::Dashboard => format!("{}:dashboard", i + 1),
-                crate::surfaces::TabKind::Settings => format!("{}:settings", i + 1),
+                crate::surfaces::TabKind::Dashboard => "dashboard".to_string(),
+                crate::surfaces::TabKind::Settings => "settings".to_string(),
             };
 
             let text = format!(" {label} ");
@@ -249,29 +218,14 @@ pub(crate) fn draw_view_header(
         return tab_rects;
     }
 
-    let title_style = fill.fg(theme.heading()).add_modifier(Modifier::BOLD);
-    let tag_style = fill.fg(theme.dim());
-    let badge_style = fill.fg(theme.brand()).add_modifier(Modifier::BOLD);
-
-    const TITLE: &str = "SESSION ";
-    let title_width = TITLE.width();
-    let tag_width = if tag.is_empty() { 0 } else { tag.width() + 1 };
-    let badge_width = if badge.is_empty() {
-        0
-    } else {
-        badge.width() + 1
-    };
-    let left_width = title_width + tag_width + badge_width;
-    let gap = text_width.saturating_sub(left_width + right_width);
+    // Fallback brand header when no tabs are mounted
+    let brand_style = fill.fg(theme.brand()).add_modifier(Modifier::BOLD);
+    const BRAND: &str = "nuo";
+    let brand_width = BRAND.width();
+    let gap = text_width.saturating_sub(brand_width + right_width);
 
     let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
-    spans.push(Span::styled(TITLE, title_style));
-    if !tag.is_empty() {
-        spans.push(Span::styled(format!("{tag} "), tag_style));
-    }
-    if !badge.is_empty() {
-        spans.push(Span::styled(format!("{badge} "), badge_style));
-    }
+    spans.push(Span::styled(BRAND, brand_style));
     spans.push(Span::styled(" ".repeat(gap), fill));
     let [key_span, label_span] = affordance.render_tabbar_spans(theme, bg);
     spans.push(key_span);
@@ -282,10 +236,97 @@ pub(crate) fn draw_view_header(
     Vec::new()
 }
 
-/// Draw the header band's scene row (ADR-0024, ADR-0040). It names the scene
-/// the user is standing in, its context, and (for thread-type scenes)
-/// the workspace path. The right side carries the session's persistent run-mode
-/// flags (`UNATTENDED`, `UNCONFINED`).
+/// Draw Tier 2: Thread Identity & Governance Band (ADR-0043 [INV-THREAD-02], ADR-0060 [INV-HEAD-04]).
+///
+/// Anchors thread execution boundaries: thread id tail, staffing `[ROLE]` badge,
+/// and bound workspace path on the left; persistent safety posture flags
+/// (`UNATTENDED`, `UNCONFINED`) on the right.
+pub(crate) fn draw_thread_governance_header(
+    frame: &mut Frame,
+    rect: Rect,
+    head: &ThreadHead<'_>,
+    theme: &Theme,
+) {
+    let full_width = rect.width as usize;
+    if full_width < STEP_MIN_WIDTH || rect.height == 0 {
+        return;
+    }
+
+    let bg = theme.raised();
+    let fill = Style::default().bg(bg);
+    let pad = TRANSCRIPT_H_INSET as usize;
+    let text_width = full_width.saturating_sub(2 * pad);
+
+    let title_style = fill.fg(theme.heading()).add_modifier(Modifier::BOLD);
+    let tag_style = fill.fg(theme.dim());
+    let badge_style = fill.fg(theme.brand()).add_modifier(Modifier::BOLD);
+    let ws_style = fill.fg(theme.dim());
+    let flag_style = fill.fg(theme.warn()).add_modifier(Modifier::BOLD);
+
+    let tag = id_tail(head.thread_id);
+    let badge = head
+        .role
+        .map(|r| format!("[{}]", r.to_uppercase()))
+        .unwrap_or_default();
+
+    // Right-aligned persistent safety execution posture flags
+    let mut flags = String::new();
+    if head.unattended {
+        flags.push_str("UNATTENDED ");
+    }
+    if !head.confined {
+        flags.push_str("UNCONFINED ");
+    }
+    let flags_width = flags.width();
+
+    const TITLE: &str = "THREAD ";
+    let title_w = TITLE.width();
+    let tag_w = if tag.is_empty() { 0 } else { tag.width() + 1 };
+    let badge_w = if badge.is_empty() { 0 } else { badge.width() + 1 };
+    let base_left_w = title_w + tag_w + badge_w;
+
+    // Remaining budget for workspace path
+    let ws_budget = text_width.saturating_sub(base_left_w + flags_width + 1);
+    let truncated_ws = if !head.workspace.is_empty() {
+        truncate_to_width(head.workspace, ws_budget)
+    } else {
+        String::new()
+    };
+    let ws_w = if truncated_ws.is_empty() {
+        0
+    } else {
+        truncated_ws.width() + 1
+    };
+
+    let total_left_w = base_left_w + ws_w;
+    let gap = text_width.saturating_sub(total_left_w + flags_width);
+
+    let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
+    spans.push(Span::styled(TITLE, title_style));
+    if !tag.is_empty() {
+        spans.push(Span::styled(format!("{tag} "), tag_style));
+    }
+    if !badge.is_empty() {
+        spans.push(Span::styled(format!("{badge} "), badge_style));
+    }
+    if !truncated_ws.is_empty() {
+        spans.push(Span::styled(format!("{truncated_ws} "), ws_style));
+    }
+    spans.push(Span::styled(" ".repeat(gap), fill));
+    if !flags.is_empty() {
+        spans.push(Span::styled(flags, flag_style));
+    }
+    spans.push(Span::styled(" ".repeat(pad), fill));
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), rect);
+}
+
+/// Draw Tier 3: Scene Head & Navigation Stack (ADR-0060 [INV-HEAD-04], [INV-SCENE-01]).
+///
+/// Left side projects the primary authentic task title or domain scene context.
+/// On root conversation view, dummy `thread` placeholders are eliminated.
+/// Right side projects the drill-in navigation stack / breadcrumb trail
+/// (`< thread > subagent #1 > diff`) when stack depth exceeds 1.
 pub(crate) fn draw_view_header_hints(
     frame: &mut Frame,
     rect: Rect,
@@ -304,191 +345,137 @@ pub(crate) fn draw_view_header_hints(
     } else {
         fill.fg(theme.fg())
     };
-    let workspace_style = fill.fg(theme.dim());
-    let flag_style = fill.fg(theme.warn()).add_modifier(Modifier::BOLD);
 
     let width = rect.width as usize;
     let pad = TRANSCRIPT_H_INSET as usize;
     let text_width = width.saturating_sub(2 * pad);
 
-    // The right side: the session's persistent run-mode flags.
-    // Note: C-x menu is elevated to Row 1 (Client TabBar) as a client-scoped shortcut.
-    let mut flags = String::new();
-    if hints.unattended {
-        flags.push_str("UNATTENDED ");
-    }
-    if !hints.confined {
-        flags.push_str("UNCONFINED ");
-    }
-    let flags_width = flags.width();
-    let right_width = flags_width;
-
-    // The left side: the scene label or breadcrumbs, then the scene's context, and (for thread-scoped scenes) the workspace path.
-    let (lead_spans, lead_width) = if let Some(crumbs) = hints.breadcrumbs.filter(|c| c.len() > 1) {
+    // Right side: Navigation stack / breadcrumbs (when drill-in depth > 1)
+    let (right_spans, right_width) = if let Some(crumbs) = hints.breadcrumbs.filter(|c| c.len() > 1) {
         let mut spans = Vec::new();
-        let mut width = 0usize;
+        let mut w = 0usize;
         if hints.can_back {
             let back_arrow = "< ";
             spans.push(Span::styled(back_arrow, fill.fg(theme.dim())));
-            width += back_arrow.width();
+            w += back_arrow.width();
         }
         for (idx, crumb) in crumbs.iter().enumerate() {
             let crumb_str = crumb.breadcrumb_label();
             let is_last = idx + 1 == crumbs.len();
             if is_last {
                 spans.push(Span::styled(crumb_str, label_style));
-                width += crumb_str.width();
+                w += crumb_str.width();
             } else {
                 spans.push(Span::styled(crumb_str, fill.fg(theme.dim())));
                 spans.push(Span::styled(" > ", fill.fg(theme.dim())));
-                width += crumb_str.width() + 3;
+                w += crumb_str.width() + 3;
             }
         }
-        (spans, width)
+        (spans, w)
     } else {
-        // ADR-0050 [INV-HEAD-03]: In root thread view, the leading title slot is anchor-stable:
-        // if an authentic title exists, it leads the row; otherwise "thread" stands in as a
-        // muted placeholder until replaced.
-        // Singleton tool scenes (dashboard, settings) display their scene label.
-        if matches!(hints.kind, SceneKind::Thread) {
-            (Vec::new(), 0)
-        } else {
-            let label = hints.kind.scene_label();
-            let width = label.width();
-            (vec![Span::styled(label, label_style)], width)
+        (Vec::new(), 0)
+    };
+
+    // Left side: Scene Title or Domain Label + Context
+    // Under ADR-0060 [INV-SCENE-01]:
+    // - Thread scene: authentic title if present; if untitled, NO placeholder "thread".
+    // - Non-thread scene (Dashboard, Settings, Subagent without breadcrumbs): scene_label + context.
+    let (lead_label, context_str) = match hints.kind {
+        SceneKind::Thread => (None, hints.context),
+        other => {
+            if hints.breadcrumbs.map_or(true, |c| c.len() <= 1) {
+                (Some(other.scene_label()), hints.context)
+            } else {
+                (None, hints.context)
+            }
         }
     };
 
-    // Only thread-scoped scenes display a bound workspace path.
-    let show_workspace = matches!(
-        hints.kind,
-        SceneKind::Thread | SceneKind::Subagent
-    );
-    let ws = if show_workspace {
-        hints.workspace.filter(|w| !w.is_empty())
-    } else {
-        None
-    };
+    let mut left_spans = Vec::new();
+    let mut left_width = 0usize;
 
-    let ws_len = ws.map(|w| w.width() + 2).unwrap_or(0);
-    let lead_pad = if lead_width > 0 { lead_width + 2 } else { 0 };
-    let context_budget = text_width.saturating_sub(lead_pad + ws_len + right_width);
-    let (context, is_placeholder) = if let Some(c) = hints.context.filter(|c| !c.is_empty()) {
-        (Some(truncate_to_width(c, context_budget)), false)
-    } else if matches!(hints.kind, SceneKind::Thread) && hints.breadcrumbs.map_or(true, |c| c.len() <= 1) {
-        let placeholder = truncate_to_width("thread", context_budget);
-        if placeholder.is_empty() {
-            (None, false)
-        } else {
-            (Some(placeholder), true)
-        }
-    } else {
-        (None, false)
-    };
-
-    let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
-    spans.extend(lead_spans);
-    let mut left_width = lead_width;
-
-    if let Some(context) = context {
-        if left_width > 0 {
-            spans.push(Span::styled("  ", fill));
-            left_width += 2;
-        }
-        let context_width = context.width();
-        let style = if is_placeholder {
-            fill.fg(theme.dim())
-        } else {
-            context_style
-        };
-        spans.push(Span::styled(context, style));
-        left_width += context_width;
+    if let Some(lbl) = lead_label {
+        left_spans.push(Span::styled(lbl, label_style));
+        left_width += lbl.width();
     }
 
-    if let Some(ws_path) = ws {
-        let ws_pad = if left_width > 0 { left_width + 2 } else { 0 };
-        let ws_budget = text_width.saturating_sub(ws_pad + right_width);
-        let truncated_ws = truncate_to_width(ws_path, ws_budget);
-        if !truncated_ws.is_empty() {
+    if let Some(ctx) = context_str.filter(|c| !c.is_empty()) {
+        let sep_w = if left_width > 0 { 2 } else { 0 };
+        let budget = text_width.saturating_sub(left_width + sep_w + right_width);
+        let truncated = truncate_to_width(ctx, budget);
+        if !truncated.is_empty() {
             if left_width > 0 {
-                spans.push(Span::styled("  ", fill));
+                left_spans.push(Span::styled("  ", fill));
                 left_width += 2;
             }
-            let ws_w = truncated_ws.width();
-            spans.push(Span::styled(truncated_ws, workspace_style));
-            left_width += ws_w;
+            left_width += truncated.width();
+            left_spans.push(Span::styled(truncated, context_style));
         }
     }
 
     let gap = text_width.saturating_sub(left_width + right_width);
+    let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
+    spans.extend(left_spans);
     spans.push(Span::styled(" ".repeat(gap), fill));
-    if !flags.is_empty() {
-        spans.push(Span::styled(flags, flag_style));
-    }
+    spans.extend(right_spans);
     spans.push(Span::styled(" ".repeat(pad), fill));
 
     frame.render_widget(Paragraph::new(Line::from(spans)), rect);
 }
 
-/// The scene row's name for the `C-x` scene namespace (ADR-0023).
-/// The keycap names the namespace — now **`menu`**, because the
-/// namespace's headline verb is the palette / switcher (`C-x p`) — rather than
-/// one of its lifecycle verbs: `w`/`k` close a scene, but the same row is
-/// shared by pages already at their home scene, where there is nothing to
-/// close.
+/// The scene row's name for the `C-x` scene namespace (ADR-0023, ADR-0043).
 const SCENE_NAMESPACE_LABEL: &str = "menu";
 
-fn truncate_to_width(text: &str, max_width: usize) -> String {
-    if text.width() <= max_width && !text.contains(['\n', '\r']) {
-        return text.to_string();
+/// Disambiguate thread ids by taking their last four characters.
+fn id_tail(id: &str) -> &str {
+    let len = id.len();
+    if len <= 4 {
+        id
+    } else {
+        &id[len - 4..]
     }
+}
+
+/// Truncate `s` to at most `max_width` display columns using an ellipsis character.
+fn truncate_to_width(s: &str, max_width: usize) -> String {
     if max_width == 0 {
         return String::new();
+    }
+    let total_width = s.width();
+    if total_width <= max_width {
+        return s.to_string();
     }
     if max_width == 1 {
         return "…".to_string();
     }
-
-    let content_width = max_width - 1;
-    let mut out = String::new();
-    let mut used = 0;
-    for ch in text.chars() {
-        if ch == '\n' || ch == '\r' {
+    let target = max_width.saturating_sub(1);
+    let mut current_width = 0;
+    let mut end_byte = 0;
+    for (idx, ch) in s.char_indices() {
+        let ch_w = ch.width().unwrap_or(0);
+        if current_width + ch_w > target {
             break;
         }
-        let width = UnicodeWidthChar::width(ch).unwrap_or(0);
-        if used + width > content_width {
-            break;
-        }
-        out.push(ch);
-        used += width;
+        current_width += ch_w;
+        end_byte = idx + ch.len_utf8();
     }
-    out.push('…');
-    out
-}
-
-fn id_tail(id: &str) -> String {
-    let trimmed = id.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    let chars: Vec<char> = trimmed.chars().collect();
-    let take = chars.len().min(4);
-    chars[chars.len() - take..].iter().collect()
+    format!("{}…", &s[..end_byte])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn render_row1(width: u16, head: SessionHead<'_>) -> String {
-        render_row1_cells(width, head, &Theme::default())
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect()
+    fn render_row1(width: u16, head: ThreadHead<'_>) -> String {
+        let cells = render_row1_cells(width, head, &Theme::default());
+        cells.iter().map(|c| c.symbol()).collect()
     }
 
-    fn render_row1_cells(width: u16, head: SessionHead<'_>, theme: &Theme) -> Vec<nuotc::Cell> {
+    fn render_row1_cells(
+        width: u16,
+        head: ThreadHead<'_>,
+        theme: &Theme,
+    ) -> Vec<nuotc::Cell> {
         let mut terminal = nuotc::TestTerminal::new(width, 1);
         terminal.draw(|frame| {
             draw_view_header(frame, frame.area(), &head, theme);
@@ -496,14 +483,33 @@ mod tests {
         terminal.buffer().content.clone()
     }
 
-    fn render_row2(width: u16, hints: ViewHints<'_>) -> String {
-        render_row2_cells(width, hints, &Theme::default())
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect()
+    fn render_row2(width: u16, head: ThreadHead<'_>) -> String {
+        let cells = render_row2_cells(width, head, &Theme::default());
+        cells.iter().map(|c| c.symbol()).collect()
     }
 
-    fn render_row2_cells(width: u16, hints: ViewHints<'_>, theme: &Theme) -> Vec<nuotc::Cell> {
+    fn render_row2_cells(
+        width: u16,
+        head: ThreadHead<'_>,
+        theme: &Theme,
+    ) -> Vec<nuotc::Cell> {
+        let mut terminal = nuotc::TestTerminal::new(width, 1);
+        terminal.draw(|frame| {
+            draw_thread_governance_header(frame, frame.area(), &head, theme);
+        });
+        terminal.buffer().content.clone()
+    }
+
+    fn render_row3(width: u16, hints: ViewHints<'_>) -> String {
+        let cells = render_row3_cells(width, hints, &Theme::default());
+        cells.iter().map(|c| c.symbol()).collect()
+    }
+
+    fn render_row3_cells(
+        width: u16,
+        hints: ViewHints<'_>,
+        theme: &Theme,
+    ) -> Vec<nuotc::Cell> {
         let mut terminal = nuotc::TestTerminal::new(width, 1);
         terminal.draw(|frame| {
             draw_view_header_hints(frame, frame.area(), &hints, theme);
@@ -515,73 +521,50 @@ mod tests {
         ViewHints::simple(kind)
     }
 
-    /// Row 1 is the client-level top bar: `SESSION` (or tabs), the id tail,
-    /// the `[ROLE]` badge, and on the right the client-level `C-x menu` namespace.
-    /// It does not carry the workspace path (which moved to the scene head, ADR-0040).
     #[test]
-    fn row1_is_session_identity() {
-        let head = SessionHead {
-            session_id: "sess-01a2b3c4",
-            workspace: "~/projects/xx",
-            role: Some("developer"),
-            switching_target: None,
-            tabs: None,
-            active_tab: 0,
-        };
-        let row = render_row1(80, head);
-        assert!(row.starts_with("  SESSION b3c4 [DEVELOPER]"), "{row}");
-        assert!(
-            !row.contains("~/projects/xx"),
-            "workspace belongs to scene head: {row}"
-        );
-        assert!(
-            !row.contains("UNATTENDED") && !row.contains("UNCONFINED"),
-            "the run-mode flags live on row 2 now: {row}"
-        );
-        assert!(row.contains("C-x menu"), "compact client menu on row 1: {row}");
-    }
-
-    #[test]
-    fn row1_renders_tabs_and_client_namespace() {
+    fn row1_renders_tabs_without_ordinal_prefixes() {
         let tabs = vec![
             crate::surfaces::ClientTab::thread("sess-01a2b3c4", None::<String>),
             crate::surfaces::ClientTab::dashboard(),
         ];
-        let head = SessionHead {
-            session_id: "sess-01a2b3c4",
+        let head = ThreadHead {
+            thread_id: "sess-01a2b3c4",
             workspace: "~/projects/xx",
             role: Some("developer"),
-            switching_target: None,
             tabs: Some(&tabs),
             active_tab: 0,
+            unattended: false,
+            confined: true,
         };
         let row = render_row1(80, head);
-        assert!(row.contains("1:thread#b3c4"), "{row}");
-        assert!(!row.contains("[1:thread#b3c4]"), "tabs must not use brackets: {row}");
-        assert!(row.contains("2:dashboard"), "{row}");
-        assert!(!row.contains("~/projects/xx"), "workspace removed from client TabBar: {row}");
+        assert!(row.contains("thread#b3c4"), "{row}");
+        assert!(!row.contains("1:thread#b3c4"), "tabs must not use ordinal prefix: {row}");
+        assert!(row.contains("dashboard"), "{row}");
+        assert!(!row.contains("2:dashboard"), "tabs must not use ordinal prefix: {row}");
         assert!(row.contains("C-x menu"), "compact client menu on TabBar: {row}");
     }
 
     #[test]
-    fn row1_renders_semantic_tab_titles() {
+    fn row1_renders_semantic_tab_titles_with_wider_budget() {
         let tabs = vec![
-            crate::surfaces::ClientTab::thread("sess-01a2b3c4", Some("Refactor DB")),
+            crate::surfaces::ClientTab::thread("sess-01a2b3c4", Some("Refactor Database Connection")),
             crate::surfaces::ClientTab::thread("sess-05d6e7f8", None::<String>),
             crate::surfaces::ClientTab::dashboard(),
         ];
-        let head = SessionHead {
-            session_id: "sess-01a2b3c4",
+        let head = ThreadHead {
+            thread_id: "sess-01a2b3c4",
             workspace: "~/projects/xx",
             role: Some("developer"),
-            switching_target: None,
             tabs: Some(&tabs),
             active_tab: 0,
+            unattended: false,
+            confined: true,
         };
         let row = render_row1(80, head);
-        assert!(row.contains("1:Refactor DB"), "semantic title projected: {row}");
-        assert!(row.contains("2:thread#e7f8"), "untitled tab falls back to placeholder thread#tail: {row}");
-        assert!(row.contains("3:dashboard"), "{row}");
+        assert!(row.contains("Refactor Database C…"), "semantic title projected with wider budget: {row}");
+        assert!(!row.contains("1:Refactor"), "no ordinal prefix: {row}");
+        assert!(row.contains("thread#e7f8"), "untitled tab falls back to placeholder thread#tail: {row}");
+        assert!(row.contains("dashboard"), "{row}");
     }
 
     #[test]
@@ -591,13 +574,14 @@ mod tests {
             crate::surfaces::ClientTab::dashboard(),
             crate::surfaces::ClientTab::settings(),
         ];
-        let head = SessionHead {
-            session_id: "sess-01a2b3c4",
+        let head = ThreadHead {
+            thread_id: "sess-01a2b3c4",
             workspace: "~/projects/xx",
             role: Some("developer"),
-            switching_target: None,
             tabs: Some(&tabs),
             active_tab: 0,
+            unattended: false,
+            confined: true,
         };
         let mut terminal = nuotc::TestTerminal::new(80, 1);
         let theme = Theme::default();
@@ -615,62 +599,83 @@ mod tests {
     }
 
     #[test]
-    fn row1_workspace_free_hides_workspace_and_shows_role_badge() {
-        let head = SessionHead {
-            session_id: "sess-01a2b3c4",
-            workspace: "",
-            role: Some("philosophist"),
-            switching_target: None,
+    fn row1_renders_brand_when_no_tabs() {
+        let head = ThreadHead::new("sess-01a2b3c4", "~/projects/xx", Some("developer"), false, true);
+        let row = render_row1(80, head);
+        assert!(row.contains("nuo"), "brand shown: {row}");
+        assert!(row.contains("C-x menu"), "client menu shown: {row}");
+    }
+
+    #[test]
+    fn row2_renders_thread_governance_and_workspace() {
+        let head = ThreadHead {
+            thread_id: "sess-01a2b3c4",
+            workspace: "~/projects/xx",
+            role: Some("developer"),
             tabs: None,
             active_tab: 0,
+            unattended: true,
+            confined: false,
         };
-        let row = render_row1(80, head);
-        assert!(row.starts_with("  SESSION b3c4 [PHILOSOPHIST]"), "{row}");
+        let row = render_row2(80, head);
+        assert!(row.starts_with("  THREAD b3c4 [DEVELOPER] ~/projects/xx"), "{row}");
+        assert!(row.contains("UNATTENDED"), "unattended flag: {row}");
+        assert!(row.contains("UNCONFINED"), "unconfined flag: {row}");
+    }
+
+    #[test]
+    fn row2_workspace_free_hides_workspace_and_shows_role_badge() {
+        let head = ThreadHead {
+            thread_id: "sess-01a2b3c4",
+            workspace: "",
+            role: Some("philosophist"),
+            tabs: None,
+            active_tab: 0,
+            unattended: false,
+            confined: true,
+        };
+        let row = render_row2(80, head);
+        assert!(row.starts_with("  THREAD b3c4 [PHILOSOPHIST]"), "{row}");
         assert!(!row.contains("~/"), "{row}");
     }
 
     #[test]
-    fn row1_shows_custom_user_role_badge() {
-        let head = SessionHead {
-            session_id: "sess-01a2b3c4",
+    fn row2_shows_custom_user_role_badge() {
+        let head = ThreadHead {
+            thread_id: "sess-01a2b3c4",
             workspace: "~/projects/xx",
             role: Some("security-auditor"),
-            switching_target: None,
             tabs: None,
             active_tab: 0,
+            unattended: false,
+            confined: true,
         };
-        let row = render_row1(80, head);
-        assert!(row.starts_with("  SESSION b3c4 [SECURITY-AUDITOR]"), "{row}");
+        let row = render_row2(80, head);
+        assert!(row.starts_with("  THREAD b3c4 [SECURITY-AUDITOR]"), "{row}");
     }
 
     #[test]
-    fn row1_shows_switching_target_loading() {
-        let head = SessionHead {
-            session_id: "sess-01a2b3c4",
+    fn row2_shows_thread_id_tail() {
+        let head = ThreadHead {
+            thread_id: "thread-7c405d7e",
             workspace: "~/projects/xx",
             role: None,
-            switching_target: Some("7c405d7e"),
             tabs: None,
             active_tab: 0,
+            unattended: false,
+            confined: true,
         };
-        let row = render_row1(80, head);
-        assert!(row.contains("7c405d7e (loading…)"), "{row}");
+        let row = render_row2(80, head);
+        assert!(row.contains("5d7e"), "{row}");
     }
 
     #[test]
-    fn row1_band_paints_the_full_row_width() {
+    fn row2_band_paints_the_full_row_width() {
         let theme = Theme::default();
-        let head = SessionHead {
-            session_id: "sess-01a2b3c4",
-            workspace: "~/projects/xx",
-            role: Some("developer"),
-            switching_target: None,
-            tabs: None,
-            active_tab: 0,
-        };
+        let head = ThreadHead::new("sess-01a2b3c4", "~/projects/xx", Some("developer"), false, true);
         let mut terminal = nuotc::TestTerminal::new(60, 1);
         terminal.draw(|frame| {
-            draw_view_header(frame, frame.area(), &head, &theme);
+            draw_thread_governance_header(frame, frame.area(), &head, &theme);
         });
         for cell in &terminal.buffer().content {
             assert_eq!(cell.bg, theme.raised());
@@ -685,136 +690,42 @@ mod tests {
         assert!(row.ends_with("  "), "right pad: {row:?}");
     }
 
-    /// Row 2 in root thread view leads with the authentic title when established, replacing the "thread" placeholder (ADR-0050 [INV-HEAD-03]).
     #[test]
-    fn row2_names_the_scene_with_context_and_workspace() {
-        let row = render_row2(
+    fn row3_root_thread_with_title_shows_title_directly() {
+        let row = render_row3(
             80,
             ViewHints {
                 kind: SceneKind::Thread,
                 context: Some("Fix the retry loop"),
-                workspace: Some("~/projects/xx"),
                 ..hints(SceneKind::Thread)
             },
         );
         assert!(row.starts_with("  Fix the retry loop"), "{row}");
-        assert!(!row.contains("thread"), "thread placeholder replaced by authentic title: {row}");
-        assert!(row.contains("~/projects/xx"), "workspace present on scene head: {row}");
-        assert!(!row.contains("Ctrl-x"), "namespace moved up to TabBar: {row}");
-        assert!(!row.contains("Esc"), "Esc never advertises a scene exit: {row}");
+        assert!(!row.contains("thread"), "redundant thread label eliminated: {row}");
     }
 
     #[test]
-    fn row2_thread_without_a_title_shows_thread_placeholder() {
-        let row = render_row2(80, ViewHints {
-            workspace: Some("~/projects/xx"),
-            ..hints(SceneKind::Thread)
-        });
-        assert!(row.starts_with("  thread  ~/projects/xx"), "untitled thread has thread placeholder: {row}");
-
-        let blank = render_row2(80, hints(SceneKind::Thread));
-        assert!(blank.starts_with("  thread"), "blank thread shows thread placeholder: {blank}");
-
-        let theme = Theme::default();
-        let cells = render_row2_cells(80, hints(SceneKind::Thread), &theme);
-        let t_cell = cells.iter().find(|c| c.symbol() == "t").expect("t cell");
-        assert_eq!(t_cell.fg, theme.dim(), "placeholder is rendered in dim tone");
-
-        let titled_cells = render_row2_cells(
-            80,
-            ViewHints {
-                kind: SceneKind::Thread,
-                context: Some("Fix the retry loop"),
-                ..hints(SceneKind::Thread)
-            },
-            &theme,
-        );
-        let f_cell = titled_cells.iter().find(|c| c.symbol() == "F").expect("F cell");
-        assert_eq!(f_cell.fg, theme.fg(), "authentic title is rendered in standard foreground");
+    fn row3_root_thread_untitled_has_no_thread_placeholder() {
+        let row = render_row3(80, hints(SceneKind::Thread));
+        assert!(!row.contains("thread"), "untitled thread has NO dummy placeholder: {row}");
+        assert_eq!(row.trim(), "", "clean empty row when untitled");
     }
 
     #[test]
-    fn row2_workspace_only_for_thread_scenes() {
-        let session_row = render_row2(
-            80,
-            ViewHints {
-                kind: SceneKind::Thread,
-                workspace: Some("~/repo"),
-                ..hints(SceneKind::Thread)
-            },
-        );
-        assert!(session_row.contains("~/repo"), "session scene has workspace: {session_row}");
-
-        let dashboard_row = render_row2(
-            80,
-            ViewHints {
-                kind: SceneKind::Dashboard,
-                workspace: Some("~/repo"),
-                ..hints(SceneKind::Dashboard)
-            },
-        );
-        assert!(!dashboard_row.contains("~/repo"), "dashboard scene ignores workspace: {dashboard_row}");
-
-        let settings_row = render_row2(
-            80,
-            ViewHints {
-                kind: SceneKind::Settings,
-                workspace: Some("~/repo"),
-                ..hints(SceneKind::Settings)
-            },
-        );
-        assert!(!settings_row.contains("~/repo"), "settings scene ignores workspace: {settings_row}");
-    }
-
-    #[test]
-    fn row2_scene_labels_are_per_scene() {
+    fn row3_scene_labels_for_tool_scenes() {
         for (kind, label) in [
             (SceneKind::Subagent, "subagent"),
             (SceneKind::Settings, "settings"),
             (SceneKind::Dashboard, "dashboard"),
         ] {
             assert_eq!(kind.scene_label(), label);
-            let row = render_row2(80, hints(kind));
+            let row = render_row3(80, hints(kind));
             assert!(row.starts_with(&format!("  {label}")), "{kind:?}: {row}");
         }
-
-        // Thread scene: untitled renders "thread" placeholder in the title slot
-        assert_eq!(SceneKind::Thread.scene_label(), "thread");
-        let root_thread_empty = render_row2(80, hints(SceneKind::Thread));
-        assert!(root_thread_empty.starts_with("  thread"), "root thread shows 'thread' placeholder: {root_thread_empty}");
-
-        // Root thread with authentic title displays title directly, replacing "thread"
-        let root_thread_with_title = render_row2(
-            80,
-            ViewHints {
-                context: Some("Refactor DB"),
-                ..hints(SceneKind::Thread)
-            },
-        );
-        assert!(root_thread_with_title.starts_with("  Refactor DB"), "{root_thread_with_title}");
-        assert!(!root_thread_with_title.contains("thread"), "{root_thread_with_title}");
     }
 
-    /// The run-mode flags sit on the right of row 2.
     #[test]
-    fn row2_carries_unattended_and_unconfined_flags_on_the_right() {
-        let row = render_row2(
-            80,
-            ViewHints {
-                unattended: true,
-                confined: false,
-                ..hints(SceneKind::Dashboard)
-            },
-        );
-        assert!(row.contains("UNATTENDED"), "unattended flag: {row}");
-        assert!(row.contains("UNCONFINED"), "unconfined flag: {row}");
-        assert!(!row.contains("Ctrl-x"), "namespace elevated to TabBar: {row}");
-    }
-
-    /// An attention-toned context escalates to the warning tone; a quiet one
-    /// stays at the foreground tone.
-    #[test]
-    fn row2_context_tone_escalates_when_flagged() {
+    fn row3_context_tone_escalates_when_flagged() {
         let theme = Theme::default();
         let first_fg = |cells: &[nuotc::Cell], needle: &str| {
             let idx = cells
@@ -823,7 +734,7 @@ mod tests {
                 .expect("needle present");
             cells[idx].fg
         };
-        let quiet = render_row2_cells(
+        let quiet = render_row3_cells(
             80,
             ViewHints {
                 context: Some("main running"),
@@ -831,7 +742,7 @@ mod tests {
             },
             &theme,
         );
-        let urgent = render_row2_cells(
+        let urgent = render_row3_cells(
             80,
             ViewHints {
                 context: Some("needs approval"),
@@ -848,23 +759,31 @@ mod tests {
         );
     }
 
-    /// Every scene stands up row 2 (ADR-0023 `[INV-HINT-01]`).
     #[test]
-    fn row2_stands_up_on_every_scene() {
-        for kind in [
-            SceneKind::Thread,
-            SceneKind::Subagent,
-            SceneKind::Settings,
-            SceneKind::Dashboard,
-        ] {
-            assert!(hints(kind).has_content(), "{kind:?} stands up row 2");
-            let row = render_row2(80, hints(kind));
-            assert!(row.starts_with(&format!("  {}", kind.scene_label())), "{row}");
-        }
+    fn row3_renders_right_aligned_drill_in_stack() {
+        let crumbs = [SceneKind::Thread, SceneKind::Subagent];
+        let row = render_row3(
+            80,
+            ViewHints {
+                kind: SceneKind::Subagent,
+                context: Some("[EXPLORE] inspect codebase"),
+                context_warn: false,
+                breadcrumbs: Some(&crumbs),
+                can_back: true,
+                can_forward: false,
+            },
+        );
+        assert!(row.contains("[EXPLORE] inspect codebase"), "shows scene context: {row}");
+        assert!(row.contains("< "), "shows back affordance: {row}");
+        assert!(row.contains("thread > subagent"), "shows breadcrumb trail: {row}");
+        // Context on the left, stack on the right
+        let ctx_pos = row.find("[EXPLORE]").unwrap();
+        let stack_pos = row.find("< thread").unwrap();
+        assert!(ctx_pos < stack_pos, "context left, stack right: {row}");
     }
 
     #[test]
-    fn row2_band_paints_the_full_row_width() {
+    fn row3_band_paints_the_full_row_width() {
         let theme = Theme::default();
         let mut terminal = nuotc::TestTerminal::new(60, 1);
         terminal.draw(|frame| {
@@ -874,24 +793,4 @@ mod tests {
             assert_eq!(cell.bg, theme.raised());
         }
     }
-
-    #[test]
-    fn row2_renders_tab_breadcrumbs_and_subagent_drill_in() {
-        let crumbs = [SceneKind::Thread, SceneKind::Subagent];
-        let row = render_row2(
-            80,
-            ViewHints {
-                kind: SceneKind::Subagent,
-                context: Some("[EXPLORE] inspect codebase"),
-                breadcrumbs: Some(&crumbs),
-                can_back: true,
-                can_forward: false,
-                ..hints(SceneKind::Subagent)
-            },
-        );
-        assert!(row.contains("< "), "shows back affordance: {row}");
-        assert!(row.contains("thread > subagent"), "shows breadcrumb trail: {row}");
-        assert!(row.contains("[EXPLORE] inspect codebase"), "shows scene context: {row}");
-    }
 }
-

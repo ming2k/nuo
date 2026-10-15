@@ -21,7 +21,7 @@ Manual verification complements automated testing (`cargo test --workspace`, sna
 5. **Host Isolation & Posture Invariant**:
    Manual test runs must never pollute the operator's host configuration (`~/.config/nuo`) or collide with running production servers. Every test session must explicitly run inside an isolated sandbox directory using `NUO_HOME`. Furthermore, testing must strictly distinguish between the two dual hosting postures (ADR-0033):
    - **Native Scheme (`nuo`)**: Client-bound interactive sessions run purely over local Unix Domain Sockets (UDS) / Named Pipes with zero TCP port binding (`[INV-SERVER-03]`).
-   - **Port Scheme (`nuo serve` / `nuo start`)**: Standalone hosted servers bind a dedicated TCP port (`NUO_PORT`, default `9800`) plus UDS for network control planes, HTTP probes, and remote clients.
+   - **Port Scheme (`nuo server start --fg` / `nuo server start`)**: Standalone hosted servers bind a dedicated TCP port (`NUO_PORT`, default `9800`) plus UDS for network control planes, HTTP probes, and remote clients.
 
 ---
 
@@ -53,12 +53,12 @@ echo "Sandbox initialized at: $NUO_HOME (Port: $NUO_PORT)"
 
 > **Posture Configuration Note**:
 > - `NUO_HOME` is mandatory for all test suites: it roots all configuration, database state, and local UDS instance sockets (`$NUO_HOME/nuo/instance/server.sock`) into the sandbox.
-> - `NUO_PORT` is used by the **Port Scheme** (`nuo serve`, `nuo start`, HTTP probes, and remote clients) to avoid colliding with default port `9800`. The **Native Scheme** (`nuo` standalone) runs exclusively over UDS and ignores TCP ports.
+> - `NUO_PORT` is used by the **Port Scheme** (`nuo server start`, HTTP probes, and remote clients) to avoid colliding with default port `9800`. The **Native Scheme** (`nuo` standalone) runs exclusively over UDS and ignores TCP ports.
 
 To clean up after testing:
 
 ```bash
-nuo stop >/dev/null 2>&1
+nuo server stop >/dev/null 2>&1
 rm -rf "$NUO_HOME"
 ```
 
@@ -74,7 +74,7 @@ rm -rf "$NUO_HOME"
   nuo --help
   nuo --version
   nuo run --help
-  nuo serve --help
+  nuo server --help
   ```
 - **Expected Outcome**:
   - Help text renders cleanly with accurate usage patterns, subcommands, and environment variable documentation (`NUO_HOME`, `NUO_PORT`).
@@ -94,13 +94,13 @@ rm -rf "$NUO_HOME"
 
 ---
 
-### Suite 2: Standalone Hosted Server Lifecycle & Port Scheme (`nuo serve` / `nuo start`)
+### Suite 2: Standalone Hosted Server Lifecycle & Port Scheme (`nuo server start`)
 
-#### Scenario 2.1: Foreground Server Container Execution (`nuo serve` / `nuo start --fg`)
+#### Scenario 2.1: Foreground Server Container Execution (`nuo server start --fg`)
 - **Action**:
   1. In Terminal A, start the standalone server service in foreground mode (Port Scheme):
      ```bash
-     nuo serve --port "$NUO_PORT"
+     nuo server start --fg --port "$NUO_PORT"
      ```
   2. In Terminal B, query status:
      ```bash
@@ -116,28 +116,28 @@ rm -rf "$NUO_HOME"
 - **Action**:
   ```bash
   # 1. Start server detached (Port Scheme)
-  nuo start --port "$NUO_PORT"
+  nuo server start --port "$NUO_PORT"
 
   # 2. Inspect status
   nuo status --diagnostic
 
   # 3. Retrieve bearer token
-  TOKEN=$(nuo token)
+  TOKEN=$(nuo server token)
   echo "Server token: $TOKEN"
 
   # 4. Graceful stop
-  nuo stop
+  nuo server stop
   ```
 - **Expected Outcome**:
-  - `start` prints server PID and port, then returns control to the shell immediately.
+  - `server start` prints server PID and port, then returns control to the shell immediately.
   - `status --diagnostic` reports process PID, socket path, runtime state, and active sessions.
-  - `token` outputs a 64-character hexadecimal bearer token.
-  - `stop` signals the server to drain active connections, removes the lockfile, and exits 0.
+  - `server token` outputs a 64-character hexadecimal bearer token.
+  - `server stop` signals the server to drain active connections, removes the lockfile, and exits 0.
 
 #### Scenario 2.3: HTTP Health & Probe Endpoint
 - **Action**:
   ```bash
-  nuo start --port "$NUO_PORT"
+  nuo server start --port "$NUO_PORT"
 
   # Health probe
   curl -i "http://127.0.0.1:$NUO_PORT/healthz"
@@ -148,7 +148,7 @@ rm -rf "$NUO_HOME"
   # Non-existent route
   curl -i "http://127.0.0.1:$NUO_PORT/invalid-route"
 
-  nuo stop
+  nuo server stop
   ```
 - **Expected Outcome**:
   - `/healthz` returns `HTTP/1.1 200 OK`, `Content-Type: application/json`, and body containing `{"version":"...","auth":true}`.
@@ -158,10 +158,10 @@ rm -rf "$NUO_HOME"
 #### Scenario 2.4: Server Double-Start Mutual Exclusion
 - **Action**:
   ```bash
-  nuo start --port "$NUO_PORT"
+  nuo server start --port "$NUO_PORT"
   # Attempt second start on the same instance
-  nuo start --port "$NUO_PORT"
-  nuo stop
+  nuo server start --port "$NUO_PORT"
+  nuo server stop
   ```
 - **Expected Outcome**:
   - The second invocation fails immediately with an informative error (e.g. `server lock already held` or already running) and exit code `1`.
@@ -171,7 +171,7 @@ rm -rf "$NUO_HOME"
 - **Action**:
   1. Start the standalone hosted server on TCP `$NUO_PORT`:
      ```bash
-     nuo start --port "$NUO_PORT"
+     nuo server start --port "$NUO_PORT"
      ```
   2. In a second command, verify that client CLI attached opportunistically to the hosted server instead of spawning a new instance:
      ```bash
@@ -183,12 +183,12 @@ rm -rf "$NUO_HOME"
      ```
   4. Gracefully terminate the standalone server:
      ```bash
-     nuo stop
+     nuo server stop
      ```
 - **Expected Outcome**:
   - `nuo run` attaches to the already-running standalone server without spawning an isolated process (`[INV-SERVER-05]`).
   - `nuo status` confirms the hosted server handled the execution.
-  - `nuo stop` shuts down the standalone server cleanly.
+  - `nuo server stop` shuts down the standalone server cleanly.
 
 ---
 
@@ -215,16 +215,16 @@ rm -rf "$NUO_HOME"
   - Key `server.shutdown_grace_secs` updates to `15`.
   - `config get` outputs `15`.
 
-#### Scenario 3.3: Provider Credentials Setup
+#### Scenario 3.3: Provider Credentials & Configuration Setup
 - **Action**:
   ```bash
-  nuo auth list
-  nuo auth set deepseek "sk-test-key-mock-123456"
-  nuo auth show deepseek
+  nuo config ls
+  nuo config set providers.deepseek.api_key "sk-test-key-mock-123456"
+  nuo config get providers.deepseek.api_key
   ```
 - **Expected Outcome**:
-  - `auth set` securely stores the credential under the isolated config directory.
-  - `auth show deepseek` displays provider configuration with sensitive key characters masked (e.g., `sk-te****3456`).
+  - `config set` stores the configuration under the isolated config directory.
+  - `config get` displays the configured value.
 
 ---
 
@@ -400,10 +400,10 @@ rm -rf "$NUO_HOME"
     ```text
     nuo: detached from hosted server (PID <pid>, port <port>).
       • Reconnect:   nuo
-      • Terminate:   nuo stop
+      • Terminate:   nuo server stop
     ```
   - `nuo status` confirms the hosted server remains active in the background.
-  - Terminate the background server with `nuo stop`.
+  - Terminate the background server with `nuo server stop`.
 
 ---
 
@@ -457,7 +457,7 @@ rm -rf "$NUO_HOME"
 - **Action**:
   ```bash
   # 1. Start server
-  nuo start --port "$NUO_PORT"
+  nuo server start --port "$NUO_PORT"
 
   # 2. Spawn a long-running prompt in headless or background
   nuo run "List all crates in the workspace and explain their dependencies" &
@@ -479,29 +479,29 @@ rm -rf "$NUO_HOME"
   - `nuo` connects over TCP using the bearer token rather than local Unix domain sockets.
   - Output streams successfully; server processes the request on the remote port.
 
-#### Scenario 6.3: Session Attach & Picker (`nuo attach`)
+#### Scenario 6.3: Session Resume (`nuo -r`)
 - **Action**:
   ```bash
-  # Launch attach picker
-  nuo attach
+  # Resume recent session
+  nuo -r
   ```
 - **Expected Outcome**:
-  - If multiple sessions exist, displays an interactive picker listing session IDs, titles, and creation timestamps.
-  - Selecting a session attaches the TUI to that session and replays recent message history.
+  - Resumes the most recent session in interactive TUI and replays recent message history.
 
-#### Scenario 6.4: Full-Screen Session Dashboard (`nuo dashboard`)
+#### Scenario 6.4: Thread Listing (`nuo thread ls`)
 - **Action**:
   ```bash
-  nuo dashboard
+  nuo thread ls
   ```
 - **Expected Outcome**:
-  - Renders interactive full-screen session table with status, duration, model, and memory footprint.
-  - Navigation keys (`↑` / `↓` / `Enter` to attach, `d` to delete, `Esc` to quit) function as documented.
+  - Renders tabular list of hosted threads with ID, status, rounds, tokens, updated timestamp, and title.
 
-#### Scenario 6.5: Explicit Session Termination (`nuo session rm`)
+#### Scenario 6.5: Explicit Thread Termination (`nuo thread rm`)
 - **Action**:
   ```bash
-  SESSION_ID=$(nuo status --json | grep -o '"id":"[^"]*' | head -n 1 | cut -d'"' -f4)
+  THREAD_ID=$(nuo thread ls --json | grep -o '"id":"[^"]*' | head -n 1 | cut -d'"' -f4)
+  nuo thread rm "$THREAD_ID"
+  ```
   if [ -n "$SESSION_ID" ]; then
     nuo session rm "$SESSION_ID"
     nuo status
@@ -547,14 +547,15 @@ rm -rf "$NUO_HOME"
   - Lists configured Model Context Protocol (MCP) servers defined in `config.toml`.
   - If a server (e.g. `filesystem` or `fetch`) is configured, `nuo mcp probe <server>` connects and enumerates advertised tool schemas.
 
-#### Scenario 7.4: Storage Integrity & Doctor (`nuo doctor`)
+#### Scenario 7.4: Configuration & Diagnostic Check (`nuo config check` / `nuo status --diagnostic`)
 - **Action**:
   ```bash
-  nuo doctor
+  nuo config check
+  nuo status --diagnostic
   ```
 - **Expected Outcome**:
-  - Verifies local session database schemas, storage directories, and index consistency.
-  - Reports zero corruption or issues.
+  - Verifies local session database schemas, storage directories, and configuration consistency.
+  - Reports zero corruption or configuration issues.
 
 ---
 
@@ -568,7 +569,7 @@ rm -rf "$NUO_HOME"
   NC_PID=$!
 
   # Attempt to start server on occupied port
-  nuo start --port 9821 || true
+  nuo server start --port 9821 || true
 
   kill $NC_PID 2>/dev/null || true
   ```
@@ -588,7 +589,7 @@ rm -rf "$NUO_HOME"
 - **Action**:
   ```bash
   # 1. Start a server and leave it idle
-  nuo start
+  nuo server start
   nuo status --diagnostic   # note "Core Image" digests; they should match
 
   # 2. Rebuild the binary under the live server (same version, no protocol change)
@@ -596,7 +597,7 @@ rm -rf "$NUO_HOME"
 
   # 3. Discover it, then start again
   nuo status --diagnostic   # "Server sha256" now differs -> "REBUILT/STALE" + drift diagnosis
-  nuo                        # must reclaim the idle server automatically, no manual `nuo stop`
+  nuo                        # must reclaim the idle server automatically, no manual `nuo server stop`
   ```
 - **Expected Outcome**:
   - `nuo status --diagnostic` shows a `Core Image` block naming the installed path and both short digests; after the rebuild the server digest is flagged `differs from installed — REBUILT/STALE` and the top-level diagnosis reads `Rebuilt-binary drift`.
@@ -621,14 +622,14 @@ Prior to tagging and publishing a new release, verify each item:
 | **Clean Build** | `cargo build --release -p nuo` | Zero compilation warnings or errors | [ ] |
 | **Doc Governance** | `docgov check` | All protocol invariants pass | [ ] |
 | **Unit & E2E Tests** | `cargo test --workspace` | All automated tests pass | [ ] |
-| **Port Scheme Service** | `nuo serve --port "$NUO_PORT"` | Foreground server starts, binds TCP port & UDS, drains gracefully on SIGINT | [ ] |
-| **Detached Port Server** | `nuo start` -> `status` -> `token` -> `stop` | Background PID managed cleanly, TCP port listening, token generated, clean stop | [ ] |
+| **Port Scheme Service** | `nuo server start --fg --port "$NUO_PORT"` | Foreground server starts, binds TCP port & UDS, drains gracefully on SIGINT | [ ] |
+| **Detached Port Server** | `nuo server start` -> `nuo status` -> `nuo server token` -> `nuo server stop` | Background PID managed cleanly, TCP port listening, token generated, clean stop | [ ] |
 | **Native Scheme TUI** | Cold-start `nuo` (no server running) | Client-bound server spawns on pure UDS with zero TCP listeners `[INV-SERVER-03]` | [ ] |
-| **Opportunistic Attach** | `nuo` while `nuo serve` is running | Attaches to existing hosted server instance without duplicate daemon `[INV-SERVER-05]` | [ ] |
+| **Opportunistic Attach** | `nuo` while `nuo server start` is running | Attaches to existing hosted server instance without duplicate daemon `[INV-SERVER-05]` | [ ] |
 | **TUI Ergonomics** | Interactive `nuo` prompt and tool approval | Crisp rendering, no CJK glitches, clean exit | [ ] |
 | **Headless CLI** | `nuo run "prompt"` and stdin pipe | Non-interactive execution, correct exit code 0 | [ ] |
-| **Attach & Fleet** | `nuo attach` and `nuo dashboard` | Interactive picker & full-screen dashboard function smoothly | [ ] |
-| **System Integrity** | `nuo doctor` & `nuo config check` | Stored database and configuration check report zero errors | [ ] |
+| **Thread Management** | `nuo thread ls` and `nuo -r` | Interactive resume & thread listing function smoothly | [ ] |
+| **System Integrity** | `nuo config check` & `nuo status --diagnostic` | Stored database and configuration check report zero errors | [ ] |
 | **Cleanup** | Shell exit & sandbox teardown | Terminal state restored, temporary files removed | [ ] |
 
 ---
@@ -639,7 +640,7 @@ When testing is complete, tear down the test environment:
 
 ```bash
 # Terminate any running test servers
-nuo stop >/dev/null 2>&1 || true
+nuo server stop >/dev/null 2>&1 || true
 
 # Remove temporary instance directory
 if [ -n "$NUO_HOME" ] && [ -d "$NUO_HOME" ]; then

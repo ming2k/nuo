@@ -26,27 +26,30 @@ Nuo is a high-performance, modular AI session server and semantic terminal syste
 cargo build --release -p nuo
 ```
 
-### 2. Start the Server or Foreground Service
+### 2. Start the Server (Optional / Headless & Container)
 
 ```bash
-# Start foreground server service (systemd / container)
-./target/release/nuo serve
+# Start background server
+./target/release/nuo server start
 
-# Or start detached background server
-./target/release/nuo start
+# Or run foreground server service (containers / systemd)
+./target/release/nuo server start --fg
 
-# Inspect status and active sessions
+# Inspect system status and active sessions
 ./target/release/nuo status
 
 # Print connection bearer token
-./target/release/nuo token
+./target/release/nuo server token
 ```
 
 ### 3. Launch the Terminal Interface
 
 ```bash
-# Launch interactive TUI (auto-attaches to server)
+# Launch interactive TUI (auto-starts/attaches to server)
 ./target/release/nuo
+
+# Resume an existing thread
+./target/release/nuo -r
 
 # Run a headless one-shot prompt
 ./target/release/nuo run "Explain the Nuo project structure"
@@ -59,18 +62,19 @@ cargo build --release -p nuo
 | Command | Description |
 | :--- | :--- |
 | `nuo` | Open interactive terminal interface (default) |
-| `nuo run "<prompt>"` / `nuo -p` | Execute headless one-shot agent task and print result |
-| `nuo serve` | Run the server service in foreground |
-| `nuo start [--fg]` | Start the server (detached background or foreground) |
-| `nuo stop` | Gracefully drain and stop the server |
-| `nuo status [--watch]` | Check server health, hosted sessions, and active endpoints |
-| `nuo token` | Display current bearer authentication token |
-| `nuo attach` | Join an existing or hosted session in interactive TUI |
-| `nuo dashboard` | Open full-screen interactive session dashboard |
-| `nuo session rm <id>` | Terminate a hosted session |
+| `nuo -r` / `nuo <thread_id>` | Resume recent or specified thread in interactive TUI |
+| `nuo run "<prompt>"` / `nuo -p` | Execute headless one-shot agent task and stream result |
+| `nuo status [--watch]` | Check system health, hosted threads, and active endpoints |
+| `nuo server start [--fg]` | Start the session server (detached background, or `--fg` for foreground) |
+| `nuo server stop` | Gracefully drain and stop the session server |
+| `nuo server reload` | Soft reload configuration and MCP/skills |
+| `nuo server restart` | Restart or replace the session server instance |
+| `nuo server token` | Display current bearer authentication token |
+| `nuo thread ls` | List hosted threads and state |
+| `nuo thread rm <id>` | Terminate a hosted thread |
+| `nuo config <ls\|get\|set>` | Inspect or modify configuration |
 | `nuo mcp ls` | List configured MCP servers and probe status |
 | `nuo skill ls` | List discovered skills |
-| `nuo doctor` | Verify stored session database integrity |
 
 ---
 

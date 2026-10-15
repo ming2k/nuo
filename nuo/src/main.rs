@@ -1,7 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 use nuo_client as client;
-use nuo_persistence::session;
 mod cli;
 mod commands;
 mod identity;
@@ -62,13 +61,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             print!("{}", cli::completion_script(shell));
             Ok(())
         }
-        Mode::Doctor => session::run_doctor(project_override.as_deref())
-            .await
-            .map_err(Into::into),
-        Mode::Quota { provider, refresh } => commands::quota::run(provider, refresh).await,
         Mode::Config(action) => commands::config::run(action),
-        Mode::Context(action) => commands::context::run(action),
-        Mode::Auth(action) => commands::auth::run(action),
         Mode::Mcp(McpAction::Probe { name }) => commands::mcp::probe(&name).await,
         Mode::Mcp(action) => commands::mcp::run(action),
         Mode::Skill(action) => commands::skill::run(action).await,

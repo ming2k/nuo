@@ -94,31 +94,45 @@ impl DatabaseEngine {
     pub(crate) fn upsert_session(&self, session: &SessionRecord) -> Result<()> {
         self.conn.execute(
             r#"
-            INSERT INTO sessions (id, parent_id, fork_kind, title, created_at_s, updated_at_s, workspace_root, persona, msg_count, last_user_prompt, digest)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            INSERT INTO threads (
+                id, parent_thread_id, fork_kind, title, msg_count, last_user_prompt, digest, created_at_ms, updated_at_ms
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8 * 1000, ?9 * 1000)
             ON CONFLICT(id) DO UPDATE SET
-                parent_id = excluded.parent_id,
+                parent_thread_id = excluded.parent_thread_id,
                 fork_kind = excluded.fork_kind,
                 title = excluded.title,
-                updated_at_s = excluded.updated_at_s,
-                workspace_root = excluded.workspace_root,
-                persona = excluded.persona,
                 msg_count = excluded.msg_count,
                 last_user_prompt = excluded.last_user_prompt,
-                digest = excluded.digest;
+                digest = excluded.digest,
+                updated_at_ms = excluded.updated_at_ms;
             "#,
             params![
                 session.id,
                 session.parent_id,
                 session.fork_kind,
-                session.title,
-                session.created_at_s,
-                session.updated_at_s,
-                session.workspace_root,
-                session.persona,
+                session.title.as_deref().unwrap_or(""),
                 session.msg_count,
                 session.last_user_prompt,
                 session.digest,
+                session.created_at_s,
+                session.updated_at_s,
+            ],
+        )?;
+        self.conn.execute(
+            r#"
+            INSERT INTO thread_policies (thread_id, workspace_root, system_role, updated_at_ms)
+            VALUES (?1, ?2, ?3, ?4 * 1000)
+            ON CONFLICT(thread_id) DO UPDATE SET
+                workspace_root = excluded.workspace_root,
+                system_role = excluded.system_role,
+                updated_at_ms = excluded.updated_at_ms;
+            "#,
+            params![
+                session.id,
+                session.workspace_root.as_deref().unwrap_or(""),
+                session.persona.as_deref().unwrap_or("general"),
+                session.updated_at_s,
             ],
         )?;
         Ok(())
@@ -128,7 +142,7 @@ impl DatabaseEngine {
     pub(crate) fn get_session(&self, session_id: &str) -> Result<Option<SessionRecord>> {
         self.conn
             .query_row(
-                "SELECT id, parent_id, fork_kind, title, created_at_s, updated_at_s, workspace_root, persona, msg_count, last_user_prompt, digest FROM sessions WHERE id = ?1",
+                "SELECT id, parent_id, fork_kind, title, created_at_s, updated_at_s, workspace_root, persona, msg_count, last_user_prompt, digest FROM thread_list_view WHERE id = ?1",
                 params![session_id],
                 map_session_row,
             )
@@ -147,7 +161,7 @@ impl DatabaseEngine {
         match filter {
             Some(nuo_wire::WorkspaceFilter::Path(path)) => {
                 let sql = format!(
-                    "SELECT {COLS} FROM sessions WHERE workspace_root = ?1 ORDER BY updated_at_s DESC"
+                    "SELECT {COLS} FROM thread_list_view WHERE workspace_root = ?1 ORDER BY updated_at_s DESC"
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![path.to_string_lossy()], map_session_row)?;
@@ -157,7 +171,7 @@ impl DatabaseEngine {
             }
             Some(nuo_wire::WorkspaceFilter::Unbound) => {
                 let sql = format!(
-                    "SELECT {COLS} FROM sessions WHERE workspace_root IS NULL ORDER BY updated_at_s DESC"
+                    "SELECT {COLS} FROM thread_list_view WHERE workspace_root IS NULL OR workspace_root = '' ORDER BY updated_at_s DESC"
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map([], map_session_row)?;
@@ -166,7 +180,7 @@ impl DatabaseEngine {
                 }
             }
             _ => {
-                let sql = format!("SELECT {COLS} FROM sessions ORDER BY updated_at_s DESC");
+                let sql = format!("SELECT {COLS} FROM thread_list_view ORDER BY updated_at_s DESC");
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map([], map_session_row)?;
                 for session in rows {
@@ -181,7 +195,7 @@ impl DatabaseEngine {
     pub(crate) fn list_subagent_sessions(&self, parent_id: &str) -> Result<Vec<SessionRecord>> {
         const COLS: &str = "id, parent_id, fork_kind, title, created_at_s, updated_at_s, \
                             workspace_root, persona, msg_count, last_user_prompt, digest";
-        let sql = format!("SELECT {COLS} FROM sessions WHERE parent_id = ?1 AND fork_kind = 'subagent' ORDER BY created_at_s ASC");
+        let sql = format!("SELECT {COLS} FROM thread_list_view WHERE parent_id = ?1 AND fork_kind = 'subagent' ORDER BY created_at_s ASC");
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params![parent_id], map_session_row)?;
         let mut sessions = Vec::new();
@@ -195,7 +209,7 @@ impl DatabaseEngine {
     pub(crate) fn delete_session(&self, session_id: &str) -> Result<bool> {
         let affected = self
             .conn
-            .execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
+            .execute("DELETE FROM threads WHERE id = ?1", params![session_id])?;
         Ok(affected > 0)
     }
 
@@ -307,7 +321,7 @@ impl DatabaseEngine {
             let stored_generation: Option<String> = self
                 .conn
                 .query_row(
-                    "SELECT transcript_generation FROM sessions WHERE id = ?1",
+                    "SELECT transcript_generation FROM threads WHERE id = ?1",
                     params![data.id],
                     |row| row.get(0),
                 )
@@ -329,61 +343,79 @@ impl DatabaseEngine {
 
             self.conn.execute(
                 r#"
-                INSERT INTO sessions (id, parent_id, fork_kind, title, created_at_s, updated_at_s, workspace_root, additional_roots, persona, msg_count, last_user_prompt, digest, digest_anchor, tree, transcript_generation, provider_connection, round_counter, unattended, disabled_tools, commands, round_interrupts, retry_resolutions, retry_pending, checksum, schema_version, role_manifest)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)
+                INSERT INTO threads (
+                    id, parent_thread_id, fork_kind, title, title_manual, status,
+                    active_branch_id, round_counter, msg_count, last_user_prompt, tree,
+                    transcript_generation, digest, digest_anchor, checksum, created_at_ms, updated_at_ms
+                ) VALUES (?1, ?2, ?3, ?4, 0, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13 * 1000, ?14 * 1000)
                 ON CONFLICT(id) DO UPDATE SET
-                    parent_id = excluded.parent_id,
+                    parent_thread_id = excluded.parent_thread_id,
                     fork_kind = excluded.fork_kind,
                     title = excluded.title,
-                    updated_at_s = excluded.updated_at_s,
-                    workspace_root = excluded.workspace_root,
-                    additional_roots = excluded.additional_roots,
-                    persona = excluded.persona,
+                    round_counter = excluded.round_counter,
                     msg_count = excluded.msg_count,
                     last_user_prompt = excluded.last_user_prompt,
-                    digest = excluded.digest,
-                    digest_anchor = excluded.digest_anchor,
                     tree = excluded.tree,
                     transcript_generation = excluded.transcript_generation,
-                    provider_connection = excluded.provider_connection,
-                    round_counter = excluded.round_counter,
-                    unattended = excluded.unattended,
-                    disabled_tools = excluded.disabled_tools,
-                    commands = excluded.commands,
-                    round_interrupts = excluded.round_interrupts,
-                    retry_resolutions = excluded.retry_resolutions,
-                    retry_pending = excluded.retry_pending,
+                    digest = excluded.digest,
+                    digest_anchor = excluded.digest_anchor,
                     checksum = excluded.checksum,
-                    schema_version = excluded.schema_version,
-                    role_manifest = COALESCE(excluded.role_manifest, sessions.role_manifest);
+                    updated_at_ms = excluded.updated_at_ms;
                 "#,
                 params![
                     data.id,
                     data.parent_id,
                     fork_str,
-                    data.title,
-                    data.created_at as i64,
-                    data.updated_at as i64,
-                    workspace_root,
-                    additional_roots,
-                    persona,
+                    data.title.as_deref().unwrap_or(""),
+                    data.round_counter as i64,
                     msg_count,
                     last_prompt,
-                    digest_str,
-                    data.digest_anchor.map(|a| a as i64),
                     tree_str,
                     data.generation,
+                    digest_str,
+                    data.digest_anchor.map(|a| a as i64),
+                    data.checksum.map(|c| c as i64),
+                    data.created_at as i64,
+                    data.updated_at as i64,
+                ],
+            )?;
+
+            self.conn.execute(
+                r#"
+                INSERT INTO thread_policies (
+                    thread_id, workspace_root, system_role, unattended, provider_pin,
+                    disabled_tools_json, additional_roots_json, commands_json,
+                    round_interrupts_json, retry_resolutions_json, retry_pending,
+                    role_manifest, updated_at_ms
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13 * 1000)
+                ON CONFLICT(thread_id) DO UPDATE SET
+                    workspace_root = excluded.workspace_root,
+                    system_role = excluded.system_role,
+                    unattended = excluded.unattended,
+                    provider_pin = excluded.provider_pin,
+                    disabled_tools_json = excluded.disabled_tools_json,
+                    additional_roots_json = excluded.additional_roots_json,
+                    commands_json = excluded.commands_json,
+                    round_interrupts_json = excluded.round_interrupts_json,
+                    retry_resolutions_json = excluded.retry_resolutions_json,
+                    retry_pending = excluded.retry_pending,
+                    role_manifest = COALESCE(excluded.role_manifest, thread_policies.role_manifest),
+                    updated_at_ms = excluded.updated_at_ms;
+                "#,
+                params![
+                    data.id,
+                    workspace_root.as_deref().unwrap_or(""),
+                    persona.as_deref().unwrap_or("general"),
+                    if data.unattended { 1 } else { 0 },
                     data.provider_selection.as_ref().and_then(|s| serde_json::to_string(s).ok()),
-                    data.round_counter as i64,
-                    data.unattended,
                     serde_json::to_string(&data.disabled_tools.iter().collect::<Vec<_>>()).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                    additional_roots,
                     serde_json::to_string(&data.commands).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
                     serde_json::to_string(&data.round_interrupts).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
                     serde_json::to_string(&data.retry_resolutions).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                    data.retry_pending.as_ref().and_then(|p| serde_json::to_string(p).ok()),
-                    data.checksum.map(|c| c as i64),
-                    data.schema_version as i64,
+                    data.retry_pending.as_ref().and_then(|s| serde_json::to_string(s).ok()),
                     data.role_manifest.as_ref().and_then(|m| serde_json::to_string(m).ok()),
+                    data.updated_at as i64,
                 ],
             )?;
 
@@ -722,7 +754,19 @@ impl DatabaseEngine {
         let row = self
             .conn
             .query_row(
-                "SELECT id, parent_id, fork_kind, title, created_at_s, updated_at_s, workspace_root, additional_roots, persona, digest, digest_anchor, tree, transcript_generation, provider_connection, round_counter, unattended, disabled_tools, commands, round_interrupts, retry_resolutions, retry_pending, checksum, schema_version, role_manifest FROM sessions WHERE id = ?1",
+                r#"
+                SELECT t.id, t.parent_thread_id, t.fork_kind, t.title,
+                       t.created_at_ms / 1000, t.updated_at_ms / 1000,
+                       p.workspace_root, p.additional_roots_json, p.system_role,
+                       t.digest, t.digest_anchor, t.tree, t.transcript_generation,
+                       p.provider_pin, t.round_counter, p.unattended,
+                       p.disabled_tools_json, p.commands_json, p.round_interrupts_json,
+                       p.retry_resolutions_json, p.retry_pending, t.checksum,
+                       13, p.role_manifest
+                FROM threads t
+                LEFT JOIN thread_policies p ON p.thread_id = t.id
+                WHERE t.id = ?1
+                "#,
                 params![session_id],
                 |row| {
                     Ok((
@@ -1051,7 +1095,7 @@ impl DatabaseEngine {
         match filter {
             Some(nuo_wire::WorkspaceFilter::Path(path)) => {
                 let mut stmt = self.conn.prepare(
-                    "SELECT id FROM sessions WHERE id LIKE ?1 AND workspace_root = ?2 ORDER BY updated_at_s DESC",
+                    "SELECT t.id FROM threads t LEFT JOIN thread_policies p ON p.thread_id = t.id WHERE t.id LIKE ?1 AND p.workspace_root = ?2 ORDER BY t.updated_at_ms DESC",
                 )?;
                 let rows =
                     stmt.query_map(params![pattern, path.to_string_lossy()], |row| row.get(0))?;
@@ -1061,7 +1105,7 @@ impl DatabaseEngine {
             }
             Some(nuo_wire::WorkspaceFilter::Unbound) => {
                 let mut stmt = self.conn.prepare(
-                    "SELECT id FROM sessions WHERE id LIKE ?1 AND workspace_root IS NULL ORDER BY updated_at_s DESC",
+                    "SELECT t.id FROM threads t LEFT JOIN thread_policies p ON p.thread_id = t.id WHERE t.id LIKE ?1 AND (p.workspace_root IS NULL OR p.workspace_root = '') ORDER BY t.updated_at_ms DESC",
                 )?;
                 let rows = stmt.query_map(params![pattern], |row| row.get(0))?;
                 for id in rows {
@@ -1070,7 +1114,7 @@ impl DatabaseEngine {
             }
             _ => {
                 let mut stmt = self.conn.prepare(
-                    "SELECT id FROM sessions WHERE id LIKE ?1 ORDER BY updated_at_s DESC",
+                    "SELECT id FROM threads WHERE id LIKE ?1 ORDER BY updated_at_ms DESC",
                 )?;
                 let rows = stmt.query_map(params![pattern], |row| row.get(0))?;
                 for id in rows {
@@ -1092,7 +1136,7 @@ impl DatabaseEngine {
         let row = self
             .conn
             .query_row(
-                "SELECT workspace_root, additional_roots, persona FROM sessions WHERE id = ?1",
+                "SELECT workspace_root, additional_roots_json, system_role FROM thread_policies WHERE thread_id = ?1",
                 params![session_id],
                 |row| {
                     Ok((
@@ -1121,7 +1165,7 @@ impl DatabaseEngine {
         let row: Option<Option<String>> = self
             .conn
             .query_row(
-                "SELECT role_manifest FROM sessions WHERE id = ?1",
+                "SELECT role_manifest FROM thread_policies WHERE thread_id = ?1",
                 params![session_id],
                 |row| row.get::<_, Option<String>>(0),
             )
@@ -1147,7 +1191,7 @@ impl DatabaseEngine {
         match partition {
             nuo_wire::SessionPartition::Workspace(path) => {
                 let sql = format!(
-                    "SELECT {COLS} FROM sessions \
+                    "SELECT {COLS} FROM thread_list_view \
                      WHERE workspace_root = ?1 AND id <> ?2 AND fork_kind <> 'subagent' \
                      ORDER BY updated_at_s DESC;"
                 );
@@ -1160,8 +1204,8 @@ impl DatabaseEngine {
             }
             nuo_wire::SessionPartition::Role(role_id) => {
                 let sql = format!(
-                    "SELECT {COLS} FROM sessions \
-                     WHERE workspace_root IS NULL AND persona = ?1 AND id <> ?2 AND fork_kind <> 'subagent' \
+                    "SELECT {COLS} FROM thread_list_view \
+                     WHERE (workspace_root IS NULL OR workspace_root = '') AND persona = ?1 AND id <> ?2 AND fork_kind <> 'subagent' \
                      ORDER BY updated_at_s DESC;"
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
@@ -1187,7 +1231,7 @@ impl DatabaseEngine {
         match partition {
             nuo_wire::SessionPartition::Workspace(path) => {
                 let sql = format!(
-                    "SELECT {COLS} FROM sessions \
+                    "SELECT {COLS} FROM thread_list_view \
                      WHERE workspace_root = ?1 AND fork_kind <> 'subagent' \
                      ORDER BY updated_at_s DESC;"
                 );
@@ -1199,8 +1243,8 @@ impl DatabaseEngine {
             }
             nuo_wire::SessionPartition::Role(role_id) => {
                 let sql = format!(
-                    "SELECT {COLS} FROM sessions \
-                     WHERE workspace_root IS NULL AND persona = ?1 AND fork_kind <> 'subagent' \
+                    "SELECT {COLS} FROM thread_list_view \
+                     WHERE (workspace_root IS NULL OR workspace_root = '') AND persona = ?1 AND fork_kind <> 'subagent' \
                      ORDER BY updated_at_s DESC;"
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
@@ -1225,7 +1269,7 @@ impl DatabaseEngine {
         match filter {
             Some(nuo_wire::WorkspaceFilter::Path(path)) => {
                 let sql = format!(
-                    "SELECT {COLS} FROM sessions WHERE workspace_root = ?1 AND fork_kind <> 'subagent' ORDER BY updated_at_s DESC;"
+                    "SELECT {COLS} FROM thread_list_view WHERE workspace_root = ?1 AND fork_kind <> 'subagent' ORDER BY updated_at_s DESC;"
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![path.to_string_lossy()], map_summary_row)?;
@@ -1235,7 +1279,7 @@ impl DatabaseEngine {
             }
             Some(nuo_wire::WorkspaceFilter::Unbound) => {
                 let sql = format!(
-                    "SELECT {COLS} FROM sessions WHERE workspace_root IS NULL AND fork_kind <> 'subagent' ORDER BY updated_at_s DESC;"
+                    "SELECT {COLS} FROM thread_list_view WHERE (workspace_root IS NULL OR workspace_root = '') AND fork_kind <> 'subagent' ORDER BY updated_at_s DESC;"
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map([], map_summary_row)?;
@@ -1245,7 +1289,7 @@ impl DatabaseEngine {
             }
             _ => {
                 let sql = format!(
-                    "SELECT {COLS} FROM sessions WHERE fork_kind <> 'subagent' ORDER BY updated_at_s DESC;"
+                    "SELECT {COLS} FROM thread_list_view WHERE fork_kind <> 'subagent' ORDER BY updated_at_s DESC;"
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map([], map_summary_row)?;
@@ -1266,7 +1310,7 @@ impl DatabaseEngine {
         persona: Option<&str>,
     ) -> Result<Option<String>> {
         use nuo_wire::WorkspaceFilter;
-        let base = "SELECT id FROM sessions WHERE fork_kind <> 'subagent'";
+        let base = "SELECT id FROM thread_list_view WHERE fork_kind <> 'subagent'";
         let (sql, bind_path) = match (filter, persona.is_some()) {
             (WorkspaceFilter::Path(_), true) => (
                 format!(
@@ -1280,12 +1324,12 @@ impl DatabaseEngine {
             ),
             (WorkspaceFilter::Unbound, true) => (
                 format!(
-                    "{base} AND workspace_root IS NULL AND persona = ?1 ORDER BY updated_at_s DESC LIMIT 1"
+                    "{base} AND (workspace_root IS NULL OR workspace_root = '') AND persona = ?1 ORDER BY updated_at_s DESC LIMIT 1"
                 ),
                 false,
             ),
             (WorkspaceFilter::Unbound, false) => (
-                format!("{base} AND workspace_root IS NULL ORDER BY updated_at_s DESC LIMIT 1"),
+                format!("{base} AND (workspace_root IS NULL OR workspace_root = '') ORDER BY updated_at_s DESC LIMIT 1"),
                 false,
             ),
             (WorkspaceFilter::Any, true) => (
@@ -1323,7 +1367,7 @@ impl DatabaseEngine {
         &self,
         partition: &nuo_wire::SessionPartition,
     ) -> Result<Option<String>> {
-        let base = "SELECT id FROM sessions WHERE fork_kind <> 'subagent'";
+        let base = "SELECT id FROM thread_list_view WHERE fork_kind <> 'subagent'";
         let get = |row: &Row| row.get::<_, String>(0);
         let found = match partition {
             nuo_wire::SessionPartition::Workspace(path) => {
@@ -1335,7 +1379,7 @@ impl DatabaseEngine {
             }
             nuo_wire::SessionPartition::Role(role_id) => {
                 let sql = format!(
-                    "{base} AND workspace_root IS NULL AND persona = ?1 ORDER BY updated_at_s DESC LIMIT 1"
+                    "{base} AND (workspace_root IS NULL OR workspace_root = '') AND persona = ?1 ORDER BY updated_at_s DESC LIMIT 1"
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 stmt.query_row(params![role_id], get).optional()?
@@ -1378,10 +1422,10 @@ impl DatabaseEngine {
         manual: bool,
     ) -> Result<bool> {
         let _ = manual;
-        let now = crate::session::unix_timestamp() as i64;
+        let now_ms = (crate::session::unix_timestamp() * 1000) as i64;
         let affected = self.conn.execute(
-            "UPDATE sessions SET title = ?1, updated_at_s = ?2 WHERE id = ?3",
-            params![title, now, session_id],
+            "UPDATE threads SET title = ?1, updated_at_ms = ?2 WHERE id = ?3",
+            params![title, now_ms, session_id],
         )?;
         Ok(affected > 0)
     }
@@ -1590,7 +1634,7 @@ impl DatabaseEngine {
         match filter {
             Some(nuo_wire::WorkspaceFilter::Path(path)) => {
                 let sql = format!(
-                    "SELECT {cols} FROM fts_entries f JOIN sessions s ON f.session_id = s.id \
+                    "SELECT {cols} FROM fts_entries f JOIN thread_list_view s ON f.session_id = s.id \
                      WHERE fts_entries MATCH ?1 AND s.workspace_root = ?2 ORDER BY score ASC LIMIT ?3;"
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
@@ -1604,8 +1648,8 @@ impl DatabaseEngine {
             }
             Some(nuo_wire::WorkspaceFilter::Unbound) => {
                 let sql = format!(
-                    "SELECT {cols} FROM fts_entries f JOIN sessions s ON f.session_id = s.id \
-                     WHERE fts_entries MATCH ?1 AND s.workspace_root IS NULL ORDER BY score ASC LIMIT ?2;"
+                    "SELECT {cols} FROM fts_entries f JOIN thread_list_view s ON f.session_id = s.id \
+                     WHERE fts_entries MATCH ?1 AND (s.workspace_root IS NULL OR s.workspace_root = '') ORDER BY score ASC LIMIT ?2;"
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![clean_query, limit as i64], map_search_row)?;
@@ -1615,7 +1659,7 @@ impl DatabaseEngine {
             }
             _ => {
                 let sql = format!(
-                    "SELECT {cols} FROM fts_entries f JOIN sessions s ON f.session_id = s.id \
+                    "SELECT {cols} FROM fts_entries f JOIN thread_list_view s ON f.session_id = s.id \
                      WHERE fts_entries MATCH ?1 ORDER BY score ASC LIMIT ?2;"
                 );
                 let mut stmt = self.conn.prepare(&sql)?;

@@ -100,7 +100,7 @@ fn ensure_branch(
 ) -> Result<u64, ContextCommitError> {
     let existing: Option<u64> = tx
         .query_row(
-            "SELECT revision FROM branches WHERE branch_id = ?1 AND session_id = ?2",
+            "SELECT revision FROM branches WHERE branch_id = ?1 AND thread_id = ?2",
             params![branch_id, session_id],
             |row| row.get(0),
         )
@@ -109,7 +109,7 @@ fn ensure_branch(
         Some(revision) => Ok(revision),
         None if expected_revision == 0 => {
             tx.execute(
-                "INSERT INTO branches (branch_id, session_id, revision) VALUES (?1, ?2, 0)",
+                "INSERT INTO branches (branch_id, thread_id, revision) VALUES (?1, ?2, 0)",
                 params![branch_id, session_id],
             )?;
             Ok(0)
@@ -128,7 +128,7 @@ fn replay_of(
 ) -> Result<Option<u64>, ContextCommitError> {
     Ok(tx
         .query_row(
-            "SELECT applied_revision FROM commit_operations WHERE session_id = ?1 AND operation_id = ?2",
+            "SELECT applied_revision FROM commit_operations WHERE thread_id = ?1 AND operation_id = ?2",
             params![session_id, operation_id],
             |row| row.get(0),
         )
@@ -145,7 +145,7 @@ fn record_operation(
     at_ms: u64,
 ) -> Result<(), ContextCommitError> {
     tx.execute(
-        "INSERT INTO commit_operations (session_id, operation_id, kind, applied_revision, at_ms)
+        "INSERT INTO commit_operations (thread_id, operation_id, kind, applied_revision, at_ms)
          VALUES (?1, ?2, ?3, ?4, ?5)",
         params![session_id, operation_id, kind, applied_revision, at_ms],
     )?;
@@ -245,7 +245,7 @@ fn commit_facts_tx(
         }
         tx.execute(
             "INSERT INTO facts (
-                session_id, id, branch_origin, seq, round_id, turn_id,
+                thread_id, id, branch_origin, seq, round_id, turn_id,
                 parent_ids, payload_json, source_authority, sensitivity, artifact_refs, payload_hash
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
@@ -268,15 +268,15 @@ fn commit_facts_tx(
 
     for (artifact_id, fact_id) in artifact_refs {
         let published: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM artifact_manifests a JOIN facts f ON f.session_id=a.session_id
-             WHERE a.session_id=?1 AND a.artifact_id=?2 AND a.deletion='present'
+            "SELECT EXISTS(SELECT 1 FROM artifact_manifests a JOIN facts f ON f.thread_id=a.thread_id
+             WHERE a.thread_id=?1 AND a.artifact_id=?2 AND a.deletion='present'
                AND f.id=?3 AND f.deletion='present')",
             params![session_id, artifact_id.as_str(), fact_id.as_str()], |row| row.get(0))?;
         if !published { return Err(ContextCommitError::PersistenceFailure {
             detail: "artifact reference has no readable published manifest or fact".into(),
         }); }
         tx.execute(
-            "INSERT OR IGNORE INTO artifact_refs (session_id, artifact_id, fact_id)
+            "INSERT OR IGNORE INTO artifact_refs (thread_id, artifact_id, fact_id)
              VALUES (?1, ?2, ?3)",
             params![session_id, artifact_id.as_str(), fact_id.as_str()],
         )?;
@@ -285,7 +285,7 @@ fn commit_facts_tx(
     let next_revision = actual + 1;
     tx.execute(
         "UPDATE branches SET revision = ?1, head_fact_id = COALESCE(?2, head_fact_id)
-         WHERE branch_id = ?3 AND session_id = ?4",
+         WHERE branch_id = ?3 AND thread_id = ?4",
         params![next_revision as i64, last_fact_id, branch_id, session_id],
     )?;
     record_operation(tx, session_id, operation_id, "facts", next_revision, at_ms)?;
@@ -376,7 +376,7 @@ pub fn commit_view(
     if let Some(cp) = checkpoint {
         tx.execute(
             "INSERT INTO checkpoints (
-                session_id, checkpoint_id, branch_id, prior_checkpoint_id,
+                thread_id, checkpoint_id, branch_id, prior_checkpoint_id,
                 source_manifest, summary, mandatory_fact_refs, source_authority
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
@@ -394,7 +394,7 @@ pub fn commit_view(
 
     tx.execute(
         "INSERT INTO context_views (
-            session_id, view_id, branch_id, basis_revision, checkpoint_id,
+            thread_id, view_id, branch_id, basis_revision, checkpoint_id,
             tail_after_fact_id, representations, policy_revision
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
@@ -411,7 +411,7 @@ pub fn commit_view(
 
     let next_revision = actual + 1;
     tx.execute(
-        "UPDATE branches SET revision = ?1, active_view_id = ?2 WHERE branch_id = ?3 AND session_id = ?4",
+        "UPDATE branches SET revision = ?1, active_view_id = ?2 WHERE branch_id = ?3 AND thread_id = ?4",
         params![next_revision as i64, view.view_id.as_str(), branch_id, session_id],
     )?;
     record_operation(&tx, session_id, operation_id, "view", next_revision, at_ms)?;
@@ -429,7 +429,7 @@ pub fn branch_revision(
 ) -> Result<Option<u64>, ContextCommitError> {
     Ok(conn
         .query_row(
-            "SELECT revision FROM branches WHERE branch_id = ?1 AND session_id = ?2",
+            "SELECT revision FROM branches WHERE branch_id = ?1 AND thread_id = ?2",
             params![branch_id, session_id],
             |row| row.get(0),
         )
@@ -445,7 +445,7 @@ pub fn load_facts(
     let mut stmt = conn.prepare(
         "SELECT id, branch_origin, seq, round_id, turn_id, parent_ids, payload_json,
                 source_authority, sensitivity, artifact_refs
-         FROM facts WHERE session_id = ?1 ORDER BY seq ASC",
+         FROM facts WHERE thread_id = ?1 ORDER BY seq ASC",
     )?;
     let rows = stmt
         .query_map([session_id], |row| {
@@ -640,7 +640,7 @@ mod tests {
 
     fn seed_session(conn: &Connection, session_id: &str) {
         conn.execute(
-            "INSERT INTO sessions_v2 (id, created_at_s, updated_at_s) VALUES (?1, 0, 0)",
+            "INSERT INTO threads (id, created_at_ms, updated_at_ms) VALUES (?1, 0, 0)",
             [session_id],
         )
         .unwrap();

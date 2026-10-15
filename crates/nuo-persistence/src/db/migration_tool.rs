@@ -298,8 +298,8 @@ struct LegacyEntry {
 }
 
 fn read_legacy_sessions(conn: &Connection) -> Result<Vec<String>, String> {
-    // Try the v2 sessions table, then the legacy `sessions` table.
-    for table in ["sessions_v2", "sessions"] {
+    // Try canonical threads, then the v2 sessions table, then the legacy `sessions` table.
+    for table in ["threads", "sessions_v2", "sessions"] {
         let sql = format!("SELECT id FROM {table}");
         if let Ok(mut stmt) = conn.prepare(&sql) {
             let ids = stmt
@@ -371,19 +371,19 @@ fn write_facts(
     // migration operation id (idempotent across re-runs).
     let tx = target.transaction().map_err(|e| e.to_string())?;
     tx.execute(
-        "INSERT OR IGNORE INTO sessions_v2 (id, created_at_s, updated_at_s) VALUES (?1, 0, 0)",
+        "INSERT OR IGNORE INTO threads (id, created_at_ms, updated_at_ms) VALUES (?1, 0, 0)",
         [session_id],
     )
     .map_err(|e| e.to_string())?;
     tx.execute(
-        "INSERT OR IGNORE INTO branches (branch_id, session_id, revision) VALUES ('main', ?1, 0)",
+        "INSERT OR IGNORE INTO branches (branch_id, thread_id, revision) VALUES ('main', ?1, 0)",
         [session_id],
     )
     .map_err(|e| e.to_string())?;
     let op_id = format!("migrate:{session_id}");
     let already: Option<i64> = tx
         .query_row(
-            "SELECT applied_revision FROM commit_operations WHERE session_id = ?1 AND operation_id = ?2",
+            "SELECT applied_revision FROM commit_operations WHERE thread_id = ?1 AND operation_id = ?2",
             params![session_id, op_id],
             |row| row.get(0),
         )
@@ -395,7 +395,7 @@ fn write_facts(
     }
     for fact in facts {
         tx.execute(
-            "INSERT INTO facts (session_id, id, branch_origin, seq, round_id, turn_id, parent_ids, payload_json, source_authority, sensitivity, artifact_refs, payload_hash)
+            "INSERT INTO facts (thread_id, id, branch_origin, seq, round_id, turn_id, parent_ids, payload_json, source_authority, sensitivity, artifact_refs, payload_hash)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 fact.session_id,
@@ -415,12 +415,12 @@ fn write_facts(
         .map_err(|e| e.to_string())?;
     }
     tx.execute(
-        "UPDATE branches SET revision = revision + 1 WHERE branch_id = 'main' AND session_id=?1",
+        "UPDATE branches SET revision = revision + 1 WHERE branch_id = 'main' AND thread_id=?1",
         [session_id],
     )
     .map_err(|e| e.to_string())?;
     tx.execute(
-        "INSERT INTO commit_operations (session_id, operation_id, kind, applied_revision, at_ms)
+        "INSERT INTO commit_operations (thread_id, operation_id, kind, applied_revision, at_ms)
          VALUES (?1, ?2, 'migration', 1, 0)",
         params![session_id, op_id],
     )
@@ -524,14 +524,14 @@ pub fn verify_canonical(conn: &Connection) -> Result<VerificationReport, Migrati
             .map_err(|e| MigrationError::LegacyRead(e.to_string()))?;
         let purged: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM facts WHERE session_id = ?1 AND deletion <> 'present'",
+                "SELECT COUNT(*) FROM facts WHERE thread_id = ?1 AND deletion <> 'present'",
                 [&session_id],
                 |row| row.get(0),
             )
             .map_err(|e| MigrationError::LegacyRead(e.to_string()))?;
         let artifact_refs: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM artifact_refs WHERE session_id = ?1",
+                "SELECT COUNT(*) FROM artifact_refs WHERE thread_id = ?1",
                 [&session_id],
                 |row| row.get(0),
             )
@@ -541,8 +541,8 @@ pub fn verify_canonical(conn: &Connection) -> Result<VerificationReport, Migrati
             .query_row(
                 "SELECT COUNT(*) FROM artifact_refs r
                  LEFT JOIN artifact_manifests m
-                   ON m.session_id = r.session_id AND m.artifact_id = r.artifact_id
-                 WHERE r.session_id = ?1 AND m.artifact_id IS NULL",
+                   ON m.thread_id = r.thread_id AND m.artifact_id = r.artifact_id
+                 WHERE r.thread_id = ?1 AND m.artifact_id IS NULL",
                 [&session_id],
                 |row| row.get(0),
             )
@@ -634,7 +634,7 @@ mod tests {
         assert_eq!(report.sessions[0].facts_migrated, 3);
         let count: i64 = target
             .query_row(
-                "SELECT COUNT(*) FROM facts WHERE session_id='s1'",
+                "SELECT COUNT(*) FROM facts WHERE thread_id='s1'",
                 [],
                 |r| r.get(0),
             )
@@ -756,7 +756,7 @@ mod tests {
         // Introduce a dangling artifact reference (no manifest).
         target
             .execute(
-                "INSERT INTO artifact_refs (session_id, artifact_id, fact_id) VALUES ('s1','missing','n1')",
+                "INSERT INTO artifact_refs (thread_id, artifact_id, fact_id) VALUES ('s1','missing','n1')",
                 [],
             )
             .unwrap();

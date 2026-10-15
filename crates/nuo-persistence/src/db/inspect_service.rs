@@ -98,7 +98,7 @@ impl<'a> InspectService<'a> {
         // to answer a page request. The fact hash was computed at publication.
         let row: Option<(String, String, String, u64, u64)> = self.conn.query_row(
             "SELECT branch_origin, deletion, payload_hash, seq, length(CAST(payload_json AS BLOB))
-             FROM facts WHERE session_id=?1 AND id=?2",
+             FROM facts WHERE thread_id=?1 AND id=?2",
             params![auth.session_id, fact_id],
             |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)),
         ).optional().map_err(|_| InspectError::Corrupt)?;
@@ -118,7 +118,7 @@ impl<'a> InspectService<'a> {
         let ceiling = limits.bytes.min(64 * 1024);
         let bytes: Vec<u8> = self.conn.query_row(
             "SELECT substr(CAST(payload_json AS BLOB), ?3, ?4) FROM facts
-             WHERE session_id=?1 AND id=?2 AND deletion='present'",
+             WHERE thread_id=?1 AND id=?2 AND deletion='present'",
             params![auth.session_id, fact_id, start.saturating_add(1), ceiling], |r| r.get(0),
         ).optional().map_err(|_| InspectError::Corrupt)?.ok_or(InspectError::Purged)?;
         let text = match std::str::from_utf8(&bytes) {
@@ -133,7 +133,7 @@ impl<'a> InspectService<'a> {
         // Recheck deletion at delivery, including changes made through another
         // connection while this bounded page was decoded.
         let readable: bool = self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM facts WHERE session_id=?1 AND id=?2 AND deletion='present')",
+            "SELECT EXISTS(SELECT 1 FROM facts WHERE thread_id=?1 AND id=?2 AND deletion='present')",
             params![auth.session_id, fact_id], |r| r.get(0),
         ).map_err(|_| InspectError::Corrupt)?;
         if !readable { return Err(InspectError::Purged); }
@@ -173,7 +173,7 @@ pub fn grant_read_lease(
 ) -> Result<(), InspectError> {
     conn.execute(
         "INSERT OR REPLACE INTO read_leases
-            (session_id, lease_id, artifact_id, fact_id, expires_at_ms)
+            (thread_id, lease_id, artifact_id, fact_id, expires_at_ms)
          VALUES (?1, ?2, ?3, ?4, ?5)",
         params![session_id, lease_id, artifact_id, fact_id, expires_at_ms],
     )
@@ -195,7 +195,7 @@ pub fn collect_batch(
     let start = std::time::Instant::now();
     let last_seq: i64 = conn
         .query_row(
-            "SELECT last_seq FROM gc_continuations WHERE session_id = ?1",
+            "SELECT last_seq FROM gc_continuations WHERE thread_id = ?1",
             [session_id],
             |row| row.get(0),
         )
@@ -208,7 +208,7 @@ pub fn collect_batch(
     let mut stmt = conn
         .prepare(
             "SELECT artifact_id, deletion FROM artifact_manifests
-             WHERE session_id = ?1 AND deletion <> 'present'
+             WHERE thread_id = ?1 AND deletion <> 'present'
              ORDER BY artifact_id ASC",
         )
         .map_err(|_| InspectError::Corrupt)?;
@@ -228,14 +228,14 @@ pub fn collect_batch(
         }
         let refs: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM artifact_refs WHERE session_id = ?1 AND artifact_id = ?2",
+                "SELECT COUNT(*) FROM artifact_refs WHERE thread_id = ?1 AND artifact_id = ?2",
                 params![session_id, artifact_id],
                 |row| row.get(0),
             )
             .map_err(|_| InspectError::Corrupt)?;
         if refs == 0 {
             conn.execute(
-                "DELETE FROM artifact_manifests WHERE session_id = ?1 AND artifact_id = ?2",
+                "DELETE FROM artifact_manifests WHERE thread_id = ?1 AND artifact_id = ?2",
                 params![session_id, artifact_id],
             )
             .map_err(|_| InspectError::Corrupt)?;
@@ -245,9 +245,9 @@ pub fn collect_batch(
     let more = collected >= batch_objects;
     let next_seq = last_seq + collected as i64;
     conn.execute(
-        "INSERT INTO gc_continuations (session_id, last_seq, updated_at_ms)
+        "INSERT INTO gc_continuations (thread_id, last_seq, updated_at_ms)
          VALUES (?1, ?2, ?3)
-         ON CONFLICT(session_id) DO UPDATE SET last_seq = excluded.last_seq, updated_at_ms = excluded.updated_at_ms",
+         ON CONFLICT(thread_id) DO UPDATE SET last_seq = excluded.last_seq, updated_at_ms = excluded.updated_at_ms",
         params![session_id, next_seq, now_ms],
     )
     .map_err(|_| InspectError::Corrupt)?;
@@ -267,7 +267,7 @@ fn has_live_lease(
     let count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM read_leases
-             WHERE session_id = ?1 AND artifact_id = ?2 AND expires_at_ms > ?3",
+             WHERE thread_id = ?1 AND artifact_id = ?2 AND expires_at_ms > ?3",
             params![session_id, artifact_id, now_ms],
             |row| row.get(0),
         )
@@ -290,21 +290,21 @@ pub fn begin_deletion(
 ) -> Result<(), InspectError> {
     let tx = conn.unchecked_transaction().map_err(|_| InspectError::Corrupt)?;
     let existing: Option<(String, String, String)> = tx.query_row(
-        "SELECT target_kind,target_id,scope FROM deletion_jobs WHERE session_id=?1 AND job_id=?2",
+        "SELECT target_kind,target_id,scope FROM deletion_jobs WHERE thread_id=?1 AND job_id=?2",
         params![session_id,job_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
     ).optional().map_err(|_| InspectError::Corrupt)?;
     if let Some(existing) = existing {
         return if existing == (target_kind.into(),target_id.into(),scope.into()) { Ok(()) } else { Err(InspectError::Corrupt) };
     }
     let sql = match target_kind {
-        "fact" => "UPDATE facts SET deletion='delete_pending' WHERE session_id=?1 AND id=?2 AND deletion='present'",
-        "artifact" => "UPDATE artifact_manifests SET deletion='delete_pending' WHERE session_id=?1 AND artifact_id=?2 AND deletion='present'",
+        "fact" => "UPDATE facts SET deletion='delete_pending' WHERE thread_id=?1 AND id=?2 AND deletion='present'",
+        "artifact" => "UPDATE artifact_manifests SET deletion='delete_pending' WHERE thread_id=?1 AND artifact_id=?2 AND deletion='present'",
         _ => return Err(InspectError::NotFound),
     };
     tx.execute(sql, params![session_id,target_id]).map_err(|_| InspectError::Corrupt)?;
     tx.execute(
         "INSERT INTO deletion_jobs
-            (session_id, job_id, target_kind, target_id, scope, state, created_at_ms, updated_at_ms)
+            (thread_id, job_id, target_kind, target_id, scope, state, created_at_ms, updated_at_ms)
          VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?6)",
         params![session_id, job_id, target_kind, target_id, scope, now_ms],
     ).map_err(|_| InspectError::Corrupt)?;
@@ -324,7 +324,7 @@ pub fn execute_deletion(
     let (target_kind, target_id): (String, String) = conn
         .query_row(
             "SELECT target_kind, target_id FROM deletion_jobs
-             WHERE session_id = ?1 AND job_id = ?2",
+             WHERE thread_id = ?1 AND job_id = ?2",
             params![session_id, job_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
@@ -334,7 +334,7 @@ pub fn execute_deletion(
 
     conn.execute(
         "UPDATE deletion_jobs SET state = 'reclaiming', updated_at_ms = ?3
-         WHERE session_id = ?1 AND job_id = ?2",
+         WHERE thread_id = ?1 AND job_id = ?2",
         params![session_id, job_id, now_ms],
     )
     .map_err(|_| InspectError::Corrupt)?;
@@ -347,7 +347,7 @@ pub fn execute_deletion(
         // tombstone; a raw DELETE is forbidden by the schema trigger.
         let parents: Option<String> = conn
             .query_row(
-                "SELECT parent_ids FROM facts WHERE session_id = ?1 AND id = ?2",
+                "SELECT parent_ids FROM facts WHERE thread_id = ?1 AND id = ?2",
                 params![session_id, target_id],
                 |row| row.get(0),
             )
@@ -357,12 +357,12 @@ pub fn execute_deletion(
             conn.execute(
                 "UPDATE facts SET payload_json = '{\"termination\":{\"reason\":\"purged\"}}',
                                   artifact_refs = '[]', deletion = 'purged'
-                 WHERE session_id = ?1 AND id = ?2",
+                 WHERE thread_id = ?1 AND id = ?2",
                 params![session_id, target_id],
             )
             .map_err(|_| InspectError::Corrupt)?;
             conn.execute(
-                "INSERT OR REPLACE INTO tombstones (session_id, fact_id, parent_ids, purged_at_ms)
+                "INSERT OR REPLACE INTO tombstones (thread_id, fact_id, parent_ids, purged_at_ms)
                  VALUES (?1, ?2, ?3, ?4)",
                 params![session_id, target_id, parents, now_ms],
             )
@@ -373,7 +373,7 @@ pub fn execute_deletion(
         let cascaded = conn
             .execute(
                 "UPDATE task_revisions SET open = 0
-                 WHERE session_id = ?1 AND objective_fact_id = ?2 AND open = 1",
+                 WHERE thread_id = ?1 AND objective_fact_id = ?2 AND open = 1",
                 params![session_id, target_id],
             )
             .map_err(|_| InspectError::Corrupt)?;
@@ -382,7 +382,7 @@ pub fn execute_deletion(
         derived_invalidated = conn
             .execute(
                 "DELETE FROM checkpoints
-                 WHERE session_id = ?1 AND mandatory_fact_refs LIKE '%' || ?2 || '%'",
+                 WHERE thread_id = ?1 AND mandatory_fact_refs LIKE '%' || ?2 || '%'",
                 params![session_id, target_id],
             )
             .map_err(|_| InspectError::Corrupt)? as u32;
@@ -390,13 +390,13 @@ pub fn execute_deletion(
         // Artifact deletion: mark purged and drop its references so GC reclaims.
         conn.execute(
             "UPDATE artifact_manifests SET deletion = 'purged'
-             WHERE session_id = ?1 AND artifact_id = ?2",
+             WHERE thread_id = ?1 AND artifact_id = ?2",
             params![session_id, target_id],
         )
         .map_err(|_| InspectError::Corrupt)?;
         derived_invalidated = conn
             .execute(
-                "DELETE FROM artifact_refs WHERE session_id = ?1 AND artifact_id = ?2",
+                "DELETE FROM artifact_refs WHERE thread_id = ?1 AND artifact_id = ?2",
                 params![session_id, target_id],
             )
             .map_err(|_| InspectError::Corrupt)? as u32;
@@ -404,7 +404,7 @@ pub fn execute_deletion(
 
     conn.execute(
         "UPDATE deletion_jobs SET state = 'done', updated_at_ms = ?3
-         WHERE session_id = ?1 AND job_id = ?2",
+         WHERE thread_id = ?1 AND job_id = ?2",
         params![session_id, job_id, now_ms],
     )
     .map_err(|_| InspectError::Corrupt)?;
@@ -427,12 +427,12 @@ mod tests {
 
     fn seed(conn: &Connection) {
         conn.execute(
-            "INSERT INTO sessions_v2 (id, created_at_s, updated_at_s) VALUES ('s1', 0, 0)",
+            "INSERT INTO threads (id, created_at_ms, updated_at_ms) VALUES ('s1', 0, 0)",
             [],
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO branches (branch_id, session_id, revision) VALUES ('main', 's1', 1)",
+            "INSERT INTO branches (branch_id, thread_id, revision) VALUES ('main', 's1', 1)",
             [],
         )
         .unwrap();
@@ -440,7 +440,7 @@ mod tests {
 
     fn insert_fact(conn: &Connection, id: &str, seq: i64, text: &str) {
         conn.execute(
-            "INSERT INTO facts (session_id, id, branch_origin, seq, round_id, turn_id, payload_json, source_authority, sensitivity, payload_hash)
+            "INSERT INTO facts (thread_id, id, branch_origin, seq, round_id, turn_id, payload_json, source_authority, sensitivity, payload_hash)
              VALUES ('s1', ?1, 'main', ?2, 'r1', 't1', ?3, 'user', 'internal', ?4)",
             params![id, seq, format!("{{\"user_message\":{{\"text\":\"{text}\"}}}}"), fact_content_hash(&format!("{{\"user_message\":{{\"text\":\"{text}\"}}}}"))],
         )
@@ -601,7 +601,7 @@ mod tests {
         seed(&conn);
         conn.execute(
             "INSERT INTO artifact_manifests
-                (session_id, artifact_id, content_hash, media_type, stream, capture, byte_count, retention, sensitivity, deletion, created_at_ms)
+                (thread_id, artifact_id, content_hash, media_type, stream, capture, byte_count, retention, sensitivity, deletion, created_at_ms)
              VALUES ('s1', 'a1', 'h', 'text/plain', 'stdout', 'complete', 10, 'session_bound', 'internal', 'purged', 0)",
             [],
         )
@@ -631,7 +631,7 @@ mod tests {
         for i in 0..10 {
             conn.execute(
                 "INSERT INTO artifact_manifests
-                    (session_id, artifact_id, content_hash, media_type, stream, capture, byte_count, retention, sensitivity, deletion, created_at_ms)
+                    (thread_id, artifact_id, content_hash, media_type, stream, capture, byte_count, retention, sensitivity, deletion, created_at_ms)
                  VALUES ('s1', ?1, 'h', 'text/plain', 'stdout', 'complete', 10, 'session_bound', 'internal', 'purged', 0)",
                 [format!("a{i}")],
             )
@@ -649,7 +649,7 @@ mod tests {
         insert_fact(&conn, "f1", 1, "requirement");
         conn.execute(
             "INSERT INTO task_revisions
-                (session_id, task_id, revision, objective_fact_id, requirements, open_items, open, created_at_ms)
+                (thread_id, task_id, revision, objective_fact_id, requirements, open_items, open, created_at_ms)
              VALUES ('s1', 't1', 1, 'f1', '[]', '[]', 1, 0)",
             [],
         )

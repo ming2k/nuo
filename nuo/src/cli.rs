@@ -1,20 +1,17 @@
-//! The `nuo` command line — parsed where it belongs (ADR-0116).
+//! The `nuo` command line — modern, pure, uncompromising CLI topology.
 //!
-//! For most of the project's life this lived in `nuo-server::startup`
-//! (`parse_args`), which put a frontend concern inside the session-runtime
-//! library and let two flag tables drift independently. ADR-0116 fixes both:
-//!
-//! - **One noun per resource, one verb per action.** The server is managed
-//!   by the top-level `nuo start|stop|status|token` verbs; sessions by
-//!   `nuo session rm` (listing is `status`). Interactive
-//!   run/attach/dashboard commands are top-level `nuo` verbs. The former
-//!   spellings (`serve`, the `server` noun, `resume`, `exec`) are removed
-//!   outright: no alias, no teaching error — an unknown word is an
-//!   unrecognized command.
+//! - **Pure resource-verb topology**: Server operations are unified under
+//!   `nuo server <start|stop|reload|restart|status|token>`. Threads are
+//!   managed under `nuo thread <ls|rm>`. Configurations under `nuo config`.
+//! - **Zero scene leakage**: Internal TUI scenes (`dashboard`, `settings`,
+//!   `attach`) belong strictly inside the interactive experience, never exposed
+//!   as redundant top-level CLI commands.
+//! - **Single clean entrypoints**:
+//!   - Bare `nuo`: launches the interactive semantic terminal.
+//!   - `nuo run <prompt>` / `-p`: executes headless turns.
+//!   - `nuo status`: high-level application health and session dashboard.
 //! - **The parser is a table, not a hand-rolled ladder.** One spec drives
-//!   parsing, help, error messages, and shell completions, so a flag
-//!   cannot exist in one place and not the other (the `--expose`/
-//!   `--public` usage drift this replaces).
+//!   parsing, help, error messages, and shell completions.
 //!
 //! This module decides *what was asked*; the dispatch in `main.rs` decides
 //! *what happens*.
@@ -29,24 +26,15 @@ use std::path::PathBuf;
 pub enum Mode {
     /// Interactive TUI session or headless run (`nuox` unified engine per ADR-0005, ADR-0048).
     Interactive(nuo_tui::cli::CliArgs),
-    /// `nuo thread …` / `nuo session …` (ADR-0043).
+    /// `nuo thread …` (ADR-0043, ADR-0048).
     Thread(ThreadAction),
-    /// Session server commands and lifecycle operations.
+    /// Session server commands and lifecycle operations (`nuo server …`).
     Server(ServerAction),
     Config(ConfigAction),
-    Auth(AuthAction),
     /// `nuo mcp ls` — list configured MCP servers.
     Mcp(McpAction),
     /// `nuo skill ls` — list discovered skills.
     Skill(SkillAction),
-    /// `nuo context migrate` — offline legacy→canonical conversion (ADR-0280).
-    Context(ContextAction),
-    /// `nuo quota [provider] [--refresh]` — inspect provider quotas across connections (ADR-0036).
-    Quota {
-        provider: Option<String>,
-        refresh: bool,
-    },
-    Doctor,
     /// `nuo completions <shell>`.
     Completions(Shell),
     /// `--version` / `-V`.
@@ -92,13 +80,12 @@ pub enum ThreadAction {
     Delete(String),
 }
 
-/// `nuo` server actions (server, serve, start, stop, restart, status, token)
+/// `nuo server` actions (start, stop, reload, restart, status, token)
 #[derive(Debug, Clone, PartialEq)]
 pub enum ServerAction {
-    /// `nuo server start` / `nuo start` / `nuo serve` — start the session server.
+    /// `nuo server start` — start the session server.
     Start {
-        /// `--detach`: run in background.
-        /// By default, runs in the foreground (ADR-0029).
+        /// `--fg`: run in foreground (default: background detachment per ADR-0048).
         foreground: bool,
         port: Option<u16>,
         public: bool,
@@ -107,13 +94,13 @@ pub enum ServerAction {
         shutdown_grace_secs: Option<u64>,
         zero_tcp: bool,
     },
-    /// `nuo server stop` / `nuo stop` — graceful, budget-aware drain.
+    /// `nuo server stop` — graceful, budget-aware drain.
     Stop,
-    /// `nuo server reload` / `nuo reload` — soft reload (ADR-0034 Level 1):
+    /// `nuo server reload` — soft reload (ADR-0034 Level 1):
     /// re-read configuration and re-sync MCP + skills without dropping
     /// connections.
     Reload,
-    /// `nuo server restart` / `nuo restart` — restart or replace the server instance.
+    /// `nuo server restart` — restart or replace the server instance.
     Restart {
         force: bool,
         port: Option<u16>,
@@ -123,7 +110,7 @@ pub enum ServerAction {
         shutdown_grace_secs: Option<u64>,
         zero_tcp: bool,
     },
-    /// `nuo server token` / `nuo token` — print the local server's bearer token.
+    /// `nuo server token` — print the local server's bearer token.
     Token,
     /// `nuo server status` / `nuo status` — the server's session table and endpoints.
     Status {
@@ -149,35 +136,6 @@ pub enum ConfigAction {
     /// `nuo config migrate` — perform clean-break migration from legacy config.toml
     /// into domain-separated server.toml, client.toml, terminal.toml, agent.toml (ADR-0031).
     Migrate,
-}
-
-/// `nuo auth …`
-#[derive(Debug, Clone, PartialEq)]
-pub enum AuthAction {
-    List,
-    Show(String),
-    Set { provider: String, key: String },
-}
-
-/// `nuo context …` (ADR-0280 §4): the offline migration surface.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ContextAction {
-    /// `nuo context migrate --legacy <db> --target <db>` — convert a legacy
-    /// database into a canonical one, offline, never in the runtime path.
-    Migrate {
-        /// The legacy database to read.
-        legacy: String,
-        /// The canonical database to write.
-        target: String,
-    },
-    /// `nuo context verify --db <db> [--json]` — emit a machine-readable
-    /// integrity report for a canonical database.
-    Verify {
-        /// The canonical database to verify.
-        db: String,
-        /// Emit JSON instead of human-readable text.
-        json: bool,
-    },
 }
 
 /// A shell whose completion script `nuo completions` can print.
@@ -260,24 +218,6 @@ const CONFIG_SUBS: &[Spec] = &[
     },
 ];
 
-const AUTH_SUBS: &[Spec] = &[
-    Spec {
-        name: "ls",
-        names: &["ls", "list", "status"],
-        about: "list configured providers and auth status",
-    },
-    Spec {
-        name: "show",
-        names: &["show"],
-        about: "show one provider's credential status",
-    },
-    Spec {
-        name: "set",
-        names: &["set"],
-        about: "set a provider API key",
-    },
-];
-
 const MCP_SUBS: &[Spec] = &[
     Spec {
         name: "ls",
@@ -300,7 +240,7 @@ const SERVER_SUBS: &[Spec] = &[
     Spec {
         name: "start",
         names: &["start"],
-        about: "start the session server (foreground by default; --detach for background)",
+        about: "start the session server (detached background by default; --fg for foreground)",
     },
     Spec {
         name: "stop",
@@ -337,64 +277,19 @@ const SKILL_SUBS: &[Spec] = &[Spec {
 
 const COMMANDS: &[Spec] = &[
     Spec {
-        name: "server",
-        names: &["server"],
-        about: "manage the session server (start, stop, restart, status, token)",
-    },
-    Spec {
-        name: "serve",
-        names: &["serve"],
-        about: "run the session server in the foreground",
-    },
-    Spec {
         name: "run",
         names: &["run"],
         about: "execute a headless turn (-p / run) streaming to stdout",
     },
     Spec {
-        name: "attach",
-        names: &["attach"],
-        about: "join an existing or hosted session in the interactive TUI",
-    },
-    Spec {
-        name: "dashboard",
-        names: &["dashboard"],
-        about: "open the full-screen interactive session dashboard",
-    },
-    Spec {
-        name: "settings",
-        names: &["settings"],
-        about: "open the interactive settings overlay",
-    },
-    Spec {
-        name: "start",
-        names: &["start"],
-        about: "start the server (runs in foreground by default; --detach runs in background)",
-    },
-    Spec {
-        name: "stop",
-        names: &["stop"],
-        about: "stop the server gracefully",
-    },
-    Spec {
-        name: "reload",
-        names: &["reload"],
-        about: "soft reload configuration and MCP/skills without dropping connections",
-    },
-    Spec {
-        name: "restart",
-        names: &["restart"],
-        about: "restart the server instance",
-    },
-    Spec {
         name: "status",
         names: &["status"],
-        about: "show the server's sessions and endpoints",
+        about: "show application health and session status",
     },
     Spec {
-        name: "token",
-        names: &["token"],
-        about: "print the local server bearer token",
+        name: "server",
+        names: &["server"],
+        about: "manage the session server (start, stop, reload, restart, status, token)",
     },
     Spec {
         name: "thread",
@@ -407,21 +302,6 @@ const COMMANDS: &[Spec] = &[
         about: "inspect or modify configuration",
     },
     Spec {
-        name: "context",
-        names: &["context"],
-        about: "context lifecycle: offline legacy-to-canonical migration",
-    },
-    Spec {
-        name: "auth",
-        names: &["auth"],
-        about: "manage provider credentials and API keys",
-    },
-    Spec {
-        name: "quota",
-        names: &["quota", "quotas"],
-        about: "inspect provider quotas, sliding-window allowances, and account pool status",
-    },
-    Spec {
         name: "mcp",
         names: &["mcp"],
         about: "inspect MCP servers (ls, get, probe); configured declaratively in TOML",
@@ -429,12 +309,7 @@ const COMMANDS: &[Spec] = &[
     Spec {
         name: "skill",
         names: &["skill", "skills"],
-        about: "manage skills (ls)",
-    },
-    Spec {
-        name: "doctor",
-        names: &["doctor"],
-        about: "verify stored session integrity",
+        about: "manage skills (ls, show, info, init)",
     },
     Spec {
         name: "completions",
@@ -518,7 +393,7 @@ fn parse_u64(flag: &str, value: &str) -> Result<u64, FlagError> {
         .map_err(|_| FlagError::new(flag, format!("'{value}' is not a number")))
 }
 
-/// The `nuo start` flags (one table — the `serve` duplication is gone).
+/// The `nuo server start` flags.
 struct ServerStartFlags {
     foreground: bool,
     port: Option<u16>,
@@ -702,51 +577,9 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         || cmd == "-p"
         || cmd.starts_with("-p=")
         || cmd == "run"
-        || cmd == "attach"
-        || cmd == "dashboard"
-        || cmd == "settings"
+        || cmd.starts_with('-')
     {
         return parse_interactive(args);
-    }
-
-    if cmd == "serve" {
-        let flags = parse_server_start_flags(&rest[1..], true).map_err(|e| e.0)?;
-        return ok(Mode::Server(ServerAction::Start {
-            foreground: true,
-            port: flags.port,
-            public: flags.public,
-            no_local_auth: flags.no_local_auth,
-            idle_exit_minutes: flags.idle_exit_minutes,
-            shutdown_grace_secs: flags.shutdown_grace_secs,
-            zero_tcp: flags.zero_tcp,
-        }));
-    }
-
-    if cmd.starts_with('-') {
-        // Explicit daemon start flags like `--fg` / `--detach` invoke the server container start action.
-        // Interactive and general flags (e.g. `--resume`, `--role`, `--unattended`, `--port`, `-p`)
-        // route to Mode::Interactive.
-        if cmd == "--fg"
-            || cmd == "--foreground"
-            || cmd == "--detach"
-            || cmd == "-d"
-            || cmd == "--bg"
-            || cmd == "--zero-tcp"
-            || cmd == "--client-driven"
-        {
-            let flags = parse_server_start_flags(&rest, false).map_err(|e| e.0)?;
-            return ok(Mode::Server(ServerAction::Start {
-                foreground: flags.foreground,
-                port: flags.port,
-                public: flags.public,
-                no_local_auth: flags.no_local_auth,
-                idle_exit_minutes: flags.idle_exit_minutes,
-                shutdown_grace_secs: flags.shutdown_grace_secs,
-                zero_tcp: flags.zero_tcp,
-            }));
-        } else {
-            return parse_interactive(args);
-        }
     }
 
     let extra: Vec<String> = rest[1..].to_vec();
@@ -774,7 +607,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     let mode = match spec.name {
         "server" => {
             if extra.is_empty() {
-                return Err("nuo server needs a subcommand: `nuo server start|stop|restart|status|token`".into());
+                return Err("nuo server needs a subcommand: `nuo server start|stop|reload|restart|status|token`".into());
             }
             let sub = match resolve(&extra[0], SERVER_SUBS) {
                 Some(sub) => sub,
@@ -843,67 +676,8 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 _ => unreachable!("server subcommands are closed"),
             }
         }
-        "serve" => {
-            let flags = parse_server_start_flags(&extra, true).map_err(|e| e.0)?;
-            Mode::Server(ServerAction::Start {
-                foreground: true,
-                port: flags.port,
-                public: flags.public,
-                no_local_auth: flags.no_local_auth,
-                idle_exit_minutes: flags.idle_exit_minutes,
-                shutdown_grace_secs: flags.shutdown_grace_secs,
-                zero_tcp: flags.zero_tcp,
-            })
-        }
-        "run" | "attach" | "dashboard" | "settings" => {
+        "run" => {
             return parse_interactive(args);
-        }
-        "start" => {
-            let flags = parse_server_start_flags(&extra, false).map_err(|e| e.0)?;
-            Mode::Server(ServerAction::Start {
-                foreground: flags.foreground,
-                port: flags.port,
-                public: flags.public,
-                no_local_auth: flags.no_local_auth,
-                idle_exit_minutes: flags.idle_exit_minutes,
-                shutdown_grace_secs: flags.shutdown_grace_secs,
-                zero_tcp: flags.zero_tcp,
-            })
-        }
-        "stop" => {
-            let args: &[String] = &extra;
-            match args {
-                [] => Mode::Server(ServerAction::Stop),
-                [bad, ..] => return unexpected(bad),
-            }
-        }
-        "reload" => {
-            let args: &[String] = &extra;
-            match args {
-                [] => Mode::Server(ServerAction::Reload),
-                [bad, ..] => return unexpected(bad),
-            }
-        }
-        "restart" => {
-            let mut force = false;
-            let mut remaining = Vec::new();
-            for arg in &extra {
-                if arg == "--force" {
-                    force = true;
-                } else {
-                    remaining.push(arg.clone());
-                }
-            }
-            let flags = parse_server_start_flags(&remaining, false).map_err(|e| e.0)?;
-            Mode::Server(ServerAction::Restart {
-                force,
-                port: flags.port,
-                public: flags.public,
-                no_local_auth: flags.no_local_auth,
-                idle_exit_minutes: flags.idle_exit_minutes,
-                shutdown_grace_secs: flags.shutdown_grace_secs,
-                zero_tcp: flags.zero_tcp,
-            })
         }
         "status" => {
             let flags = parse_table_flags(&extra, false).map_err(|e| e.0)?;
@@ -914,10 +688,6 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 diagnostic: flags.diagnostic,
             })
         }
-        "token" => match extra.as_slice() {
-            [] => Mode::Server(ServerAction::Token),
-            [bad, ..] => return unexpected(bad),
-        },
         "thread" => {
             let (sub, sub_extra) = if extra.is_empty() {
                 (
@@ -993,52 +763,13 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 [bad, ..] => return unexpected(bad),
             }
         }
-        "context" => {
-            let extra_str: Vec<&str> = extra.iter().map(String::as_str).collect();
-            match extra_str.as_slice() {
-                ["migrate", "--legacy", legacy, "--target", target] => {
-                    Mode::Context(ContextAction::Migrate {
-                        legacy: (*legacy).to_string(),
-                        target: (*target).to_string(),
-                    })
-                }
-                ["migrate", ..] => {
-                    return Err("context migrate requires --legacy <db> and --target <db>".into());
-                }
-                ["verify", "--db", db] => Mode::Context(ContextAction::Verify {
-                    db: (*db).to_string(),
-                    json,
-                }),
-                ["verify", ..] => {
-                    return Err("context verify requires --db <db> [--json]".into());
-                }
-                [bad, ..] => return unexpected(bad),
-                [] => return Err("context requires a subcommand (migrate|verify)".into()),
-            }
-        }
-        "auth" => {
-            let extra_str: Vec<&str> = extra.iter().map(String::as_str).collect();
-            match extra_str.as_slice() {
-                [] | ["ls"] | ["list"] | ["status"] => Mode::Auth(AuthAction::List),
-                ["show", provider] => Mode::Auth(AuthAction::Show((*provider).to_string())),
-                ["set", provider, key] => Mode::Auth(AuthAction::Set {
-                    provider: (*provider).to_string(),
-                    key: (*key).to_string(),
-                }),
-                ["show"] => return Err("auth show requires a provider name".into()),
-                ["set"] | ["set", _] => {
-                    return Err("auth set requires <provider> and <key>".into());
-                }
-                [bad, ..] => return unexpected(bad),
-            }
-        }
         "mcp" => {
             let extra_str: Vec<&str> = extra.iter().map(String::as_str).collect();
             match extra_str.as_slice() {
                 // A bare `nuo mcp` teaches the subcommand rather than
                 // silently running the only one (ADR-0119's noun-verb
-                // shape; `config`/`auth` default to `list` because they
-                // have several — `mcp` now does too, but the lesson
+                // shape; `config` defaults to `list` because it has
+                // several — `mcp` now does too, but the lesson
                 // stays worth the keystroke).
                 [] => return Err("nuo mcp needs a subcommand: `nuo mcp ls`, `nuo mcp get <name>`, `nuo mcp probe <name>`".into()),
                 ["ls"] | ["list"] => Mode::Mcp(McpAction::List),
@@ -1070,27 +801,6 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 ["init", name] => Mode::Skill(SkillAction::Init { name: (*name).to_string(), user: false }),
                 ["init", name, "--user"] | ["init", "--user", name] => Mode::Skill(SkillAction::Init { name: (*name).to_string(), user: true }),
                 [bad, ..] => return unexpected(bad),
-            }
-        }
-        "quota" | "quotas" => {
-            let mut provider = None;
-            let mut refresh = false;
-            for arg in &extra {
-                if arg == "--refresh" || arg == "-r" {
-                    refresh = true;
-                } else if !arg.starts_with('-') && provider.is_none() {
-                    provider = Some(arg.clone());
-                } else {
-                    return unexpected(arg);
-                }
-            }
-            Mode::Quota { provider, refresh }
-        }
-        "doctor" => {
-            if extra.is_empty() {
-                Mode::Doctor
-            } else {
-                return unexpected(&extra[0]);
             }
         }
         "completions" => match extra.as_slice() {
@@ -1154,27 +864,13 @@ fn levenshtein(a: &str, b: &str) -> usize {
 /// completion share them.
 fn command_flags(cmd: &str) -> &'static [(&'static str, &'static str)] {
     match cmd {
-        "start" => &[
-            ("--fg", "stay in the foreground (default: detach)"),
-            ("--port <n>", "TCP port (default: NUO_PORT, else 9800)"),
-            ("--public", "bind all interfaces; requires the bearer token"),
-            (
-                "--no-local-auth",
-                "drop the loopback bearer-token requirement",
-            ),
-            (
-                "--idle-exit <min>",
-                "auto-exit after <min> idle minutes (0 = never)",
-            ),
-            ("--grace <secs>", "graceful-drain budget in seconds"),
-        ],
         "status" => &[
             ("--watch", "keep streaming live updates"),
             ("--json", "emit one JSON frame per update"),
             ("--all", "include idle sessions"),
             ("--diagnostic", "report discovery/lock/socket/log health"),
         ],
-        "thread" | "session" => &[("rm <id>", "terminate a hosted thread by id")],
+        "thread" => &[("rm <id>", "terminate a hosted thread by id")],
         "mcp" => &[
             ("ls", "list configured MCP servers"),
             ("get <name>", "print one server's config entry"),
@@ -1231,15 +927,15 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
                     out.push_str(&format!("  {:<width$}  {about}\n", flag));
                 }
             }
-            if spec.name == "start" {
+            if spec.name == "server" {
                 out.push_str(
-                    "\nThe server hosts every session across every project. `start` runs it\n",
+                    "\nThe server hosts every session across every project. `nuo server start` runs it\n",
                 );
                 out.push_str("detached by default (--fg for systemd/tmux-style supervision);\n");
                 out.push_str(
-                    "`stop` drains within the server's --grace budget before escalating;\n",
+                    "`nuo server stop` drains within the server's --grace budget before escalating;\n",
                 );
-                out.push_str("`status` observes without ever spawning one.\n");
+                out.push_str("`nuo status` observes without ever spawning one.\n");
                 out.push_str(
                     "\nNUO_HOME points the whole instance (config, data, server files,\n",
                 );
@@ -1253,9 +949,9 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
 
 fn subs_of(cmd: &str) -> Option<&'static [Spec]> {
     match cmd {
-        "thread" | "session" => Some(THREAD_SUBS),
+        "server" => Some(SERVER_SUBS),
+        "thread" => Some(THREAD_SUBS),
         "config" => Some(CONFIG_SUBS),
-        "auth" => Some(AUTH_SUBS),
         "mcp" => Some(MCP_SUBS),
         "skill" => Some(SKILL_SUBS),
         _ => None,
@@ -1430,106 +1126,51 @@ mod surface_tests {
     }
 
     #[test]
-    fn serve_starts_foreground_server() {
+    fn server_subcommands_parse() {
+        let parsed_default = parse(&["server", "start"]).unwrap();
         assert!(matches!(
-            parse(&["serve"]).unwrap().mode,
-            Mode::Server(ServerAction::Start {
-                foreground: true,
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn start_defaults_to_background_server() {
-        let parsed = parse(&["start"]).unwrap();
-        assert!(matches!(
-            parsed.mode,
+            parsed_default.mode,
             Mode::Server(ServerAction::Start {
                 foreground: false,
                 zero_tcp: false,
                 ..
             })
         ));
-    }
 
-    #[test]
-    fn start_with_fg_sets_foreground() {
-        let parsed = parse(&["start", "--fg"]).unwrap();
+        let parsed_fg = parse(&["server", "start", "--fg"]).unwrap();
         assert!(matches!(
-            parsed.mode,
+            parsed_fg.mode,
             Mode::Server(ServerAction::Start {
                 foreground: true,
                 ..
             })
         ));
-    }
 
-    #[test]
-    fn start_with_detach_sets_background() {
-        let parsed = parse(&["start", "--detach"]).unwrap();
+        let parsed_detach = parse(&["server", "start", "--detach"]).unwrap();
         assert!(matches!(
-            parsed.mode,
+            parsed_detach.mode,
             Mode::Server(ServerAction::Start {
                 foreground: false,
                 ..
             })
         ));
-    }
 
-    #[test]
-    fn start_with_zero_tcp_sets_flag() {
-        let parsed = parse(&["start", "--zero-tcp"]).unwrap();
+        let parsed_zero = parse(&["server", "start", "--zero-tcp"]).unwrap();
         assert!(matches!(
-            parsed.mode,
+            parsed_zero.mode,
             Mode::Server(ServerAction::Start {
                 zero_tcp: true,
                 ..
             })
         ));
-        let parsed_legacy = parse(&["start", "--client-driven"]).unwrap();
-        assert!(matches!(
-            parsed_legacy.mode,
-            Mode::Server(ServerAction::Start {
-                zero_tcp: true,
-                ..
-            })
-        ));
-    }
 
-    #[test]
-    fn top_level_server_verbs_are_canonical() {
-        assert!(matches!(
-            parse(&["start"]).unwrap().mode,
-            Mode::Server(ServerAction::Start { .. })
-        ));
-        assert!(matches!(
-            parse(&["stop"]).unwrap().mode,
-            Mode::Server(ServerAction::Stop)
-        ));
-        assert!(matches!(
-            parse(&["restart"]).unwrap().mode,
-            Mode::Server(ServerAction::Restart { .. })
-        ));
-        assert!(matches!(
-            parse(&["status"]).unwrap().mode,
-            Mode::Server(ServerAction::Status { .. })
-        ));
-        assert!(matches!(
-            parse(&["token"]).unwrap().mode,
-            Mode::Server(ServerAction::Token)
-        ));
-    }
-
-    #[test]
-    fn server_subcommands_parse() {
-        assert!(matches!(
-            parse(&["server", "start"]).unwrap().mode,
-            Mode::Server(ServerAction::Start { .. })
-        ));
         assert!(matches!(
             parse(&["server", "stop"]).unwrap().mode,
             Mode::Server(ServerAction::Stop)
+        ));
+        assert!(matches!(
+            parse(&["server", "reload"]).unwrap().mode,
+            Mode::Server(ServerAction::Reload)
         ));
         assert!(matches!(
             parse(&["server", "restart"]).unwrap().mode,
@@ -1546,19 +1187,29 @@ mod surface_tests {
     }
 
     #[test]
-    fn tui_commands_route_to_interactive() {
-        for command in [
-            &["run", "hello"][..],
-            &["attach"][..],
-            &["dashboard"][..],
-            &["settings"][..],
-        ] {
-            assert!(
-                matches!(parse(command).unwrap().mode, Mode::Interactive(_)),
-                "{:?}",
-                command
-            );
-        }
+    fn top_level_status_parses() {
+        assert!(matches!(
+            parse(&["status"]).unwrap().mode,
+            Mode::Server(ServerAction::Status { .. })
+        ));
+    }
+
+    #[test]
+    fn legacy_and_scene_commands_are_eradicated() {
+        // serve, start, stop, doctor, auth, quota are unrecognized as commands
+        assert!(parse(&["serve"]).is_err());
+        assert!(parse(&["doctor"]).is_err());
+        assert!(parse(&["auth"]).is_err());
+        assert!(parse(&["quota"]).is_err());
+        assert!(parse(&["context"]).is_err());
+    }
+
+    #[test]
+    fn run_routes_to_interactive_execution() {
+        assert!(matches!(
+            parse(&["run", "hello"]).unwrap().mode,
+            Mode::Interactive(_)
+        ));
     }
 
     #[test]

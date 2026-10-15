@@ -13,9 +13,30 @@ fn render_full_view(
     messages: &[TranscriptMessage],
     page_hints: Option<ViewHints<'_>>,
 ) -> nuotc::TestTerminal {
+    render_full_view_with_head(width, height, messages, page_hints, None)
+}
+
+fn render_full_view_with_head(
+    width: u16,
+    height: u16,
+    messages: &[TranscriptMessage],
+    page_hints: Option<ViewHints<'_>>,
+    thread_head: Option<ThreadHead<'_>>,
+) -> nuotc::TestTerminal {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(width, height);
     let hints = page_hints;
+    let head = thread_head.or_else(|| {
+        Some(ThreadHead {
+            thread_id: "sess-01a2b3c4",
+            workspace: "~/projects/xx",
+            role: Some("developer"),
+            tabs: None,
+            active_tab: 0,
+            unattended: false,
+            confined: true,
+        })
+    });
     terminal.draw(|f| {
         let _ = draw_transcript(
             f,
@@ -42,14 +63,7 @@ fn render_full_view(
                 persistence_health: None,
                 subagent_bar: None,
                 page_hints: hints,
-                session_head: Some(SessionHead {
-                    session_id: "sess-01a2b3c4",
-                    workspace: "~/projects/xx",
-                    role: Some("developer"),
-                    switching_target: None,
-                    tabs: None,
-                    active_tab: 0,
-                }),
+                thread_head: head,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,

@@ -30,7 +30,7 @@ pub fn detach_server(flags: &ServerStart) -> Result<(), Box<dyn std::error::Erro
     }
     let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("nuo"));
     let mut command = std::process::Command::new(&program);
-    command.args(["start", "--fg"]);
+    command.args(["server", "start", "--fg"]);
     if flags.zero_tcp {
         command.arg("--zero-tcp");
     }
@@ -59,7 +59,7 @@ pub fn detach_server(flags: &ServerStart) -> Result<(), Box<dyn std::error::Erro
         .spawn()
         .map_err(|e| format!("could not spawn {}: {e}", program.display()))?;
     eprintln!(
-        "nuo: server started in the background (`nuo status` to observe, `nuo stop` to stop it)"
+        "nuo: server started in the background (`nuo status` to observe, `nuo server stop` to stop it)"
     );
     Ok(())
 }

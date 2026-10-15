@@ -289,17 +289,6 @@ fn compose_frame(
         kind: scene_kind,
         context: scene_context.as_deref(),
         context_warn: scene_context_warn,
-        unattended: app.unattended,
-        confined: app.confined,
-        workspace: if matches!(
-            scene_kind,
-            crate::surfaces::SceneKind::Thread | crate::surfaces::SceneKind::Subagent
-        ) && !app.current_workspace.is_empty()
-        {
-            Some(&app.current_workspace)
-        } else {
-            None
-        },
         breadcrumbs,
         can_back,
         can_forward,
@@ -409,13 +398,14 @@ fn compose_frame(
                 // foreground — so the row is withheld rather than left
                 // dimmed-but-readable behind the backdrop.
                 page_hints: scene_chrome_hints.then_some(page_hints),
-                session_head: Some(render::SessionHead {
-                    session_id: viewed_session_id,
+                thread_head: Some(render::ThreadHead {
+                    thread_id: viewed_session_id,
                     workspace: &app.current_workspace,
                     role: app.current_role.as_deref(),
-                    switching_target: app.switching_session.as_deref(),
                     tabs: Some(app.surfaces.tabs()),
                     active_tab: app.surfaces.active_tab_index(),
+                    unattended: app.unattended,
+                    confined: app.confined,
                 }),
                 // View-scoped: the elapsed-timer origin belongs to the viewed
                 // session's round (an aside view times the aside's round, not
@@ -1084,16 +1074,15 @@ fn compose_frame(
                         prompt_text: &app.input,
                         current_session_id: viewed_session_id,
                         show_caret: scene_prompt_owns_caret,
-                        session_head: Some(render::SessionHead {
-                            session_id: viewed_session_id,
+                        thread_head: Some(render::ThreadHead {
+                            thread_id: viewed_session_id,
                             workspace: &app.current_workspace,
                             role: app.current_role.as_deref(),
-                            switching_target: app.switching_session.as_deref(),
                             tabs: Some(app.surfaces.tabs()),
                             active_tab: app.surfaces.active_tab_index(),
+                            unattended: app.unattended,
+                            confined: app.confined,
                         }),
-                        unattended: app.unattended,
-                        confined: app.confined,
                     },
                     &app.theme,
                 );
@@ -1130,16 +1119,15 @@ fn compose_frame(
                         theme: &app.theme,
                         profile: &app.profile,
                         tui_config: &app.tui_config,
-                        session_head: Some(render::SessionHead {
-                            session_id: viewed_session_id,
+                        thread_head: Some(render::ThreadHead {
+                            thread_id: viewed_session_id,
                             workspace: &app.current_workspace,
                             role: app.current_role.as_deref(),
-                            switching_target: app.switching_session.as_deref(),
                             tabs: Some(app.surfaces.tabs()),
                             active_tab: app.surfaces.active_tab_index(),
+                            unattended: app.unattended,
+                            confined: app.confined,
                         }),
-                        unattended: app.unattended,
-                        confined: app.confined,
                     },
                 );
                 app.config_selected_rect = rects.selected_row_rect;

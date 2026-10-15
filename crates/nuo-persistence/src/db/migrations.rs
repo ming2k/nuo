@@ -5,14 +5,14 @@
 use super::*;
 
 /// SQLite schema version tracking. Fresh databases jump straight to the latest version.
-pub const CURRENT_DB_VERSION: u32 = 23;
+pub const CURRENT_DB_VERSION: u32 = 24;
 
 /// SHA-256 fingerprint of the migration catalog (version + SQL of every
 /// entry). Locked by `migration_catalog_fingerprint_is_stable`; see that test
 /// for the discipline this enforces.
 #[cfg(test)]
 pub const MIGRATION_CATALOG_FINGERPRINT: &str =
-    "47d0c9388a1ca9a0d98166048a74974d1938bf849ab2ec6eb53f5001510b40be";
+    "cc86d25238798520b0876b73311111af04dacf451192db8a580c93c685c420da";
 
 /// Payload size threshold (4 KB) beyond which text content is offloaded to CAS BlobStore.
 pub const CAS_THRESHOLD_BYTES: usize = 4096;
@@ -516,6 +516,15 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 23,
         sql: "",
     },
+    Migration {
+        // Canonical Thread persistence substrate, junk drawer elimination,
+        // and zero-legacy clean break (ADR-0059):
+        // establish threads as root SSOT, thread_policies with normalized columns,
+        // thread_list_view, rename session_id -> thread_id on all child tables,
+        // and purge legacy zombie tables and dead 'aside' concept.
+        version: 24,
+        sql: "",
+    },
 ];
 
 /// Working-state columns the final ADR-0186 `sessions` rebuild must carry,
@@ -578,11 +587,24 @@ pub fn sessions_columns(conn: &Connection) -> Result<std::collections::HashSet<S
     Ok(columns)
 }
 
+pub fn table_columns(conn: &Connection, table_name: &str) -> Result<std::collections::HashSet<String>> {
+    let pragma = format!("PRAGMA table_info({table_name})");
+    let mut stmt = conn.prepare(&pragma)?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(Result::ok)
+        .collect();
+    Ok(columns)
+}
+
 /// Reconcile an interim version-5 `sessions` table to the final ADR-0186
 /// schema: drop retired columns, add any missing working-state column. Every
 /// step is conditional because both version-5 incarnations (interim and
 /// final) must converge through this repair.
 pub fn repair_intermediate_sessions_schema(tx: &rusqlite::Transaction) -> Result<()> {
+    if !table_exists(tx, "sessions")? {
+        return Ok(());
+    }
     let existing = sessions_columns(tx)?;
     for retired in SESSIONS_RETIRED_COLUMNS {
         if existing.contains(*retired) {
@@ -613,6 +635,10 @@ pub fn apply_persistence_v2_schema(tx: &rusqlite::Transaction) -> Result<()> {
     // Dead ledgers: the event log never had a writer or a replay path, and
     // the CAS lives on the filesystem.
     tx.execute_batch("DROP TABLE IF EXISTS events; DROP TABLE IF EXISTS session_blobs;")?;
+
+    if !table_exists(tx, "sessions")? {
+        return Ok(());
+    }
 
     let existing = sessions_columns(tx)?;
     // Honest units: sessions store seconds despite the `_ms` suffix.
@@ -744,6 +770,9 @@ pub fn apply_usage_ledger_schema(tx: &rusqlite::Transaction) -> Result<()> {
             PRIMARY KEY (session_id, actor_id, round, turn, attempt)
         );",
     )?;
+    if !table_exists(tx, "sessions")? {
+        return Ok(());
+    }
     let existing = sessions_columns(tx)?;
     if !existing.contains("request_usage_records") {
         return Ok(());
@@ -800,6 +829,8 @@ pub fn apply_entries_integrity_schema(tx: &rusqlite::Transaction) -> Result<()> 
         "DROP TRIGGER IF EXISTS trg_memberships_ai;
          DROP TRIGGER IF EXISTS trg_entries_ai;
          DROP TRIGGER IF EXISTS trg_entries_ad;
+         DROP TRIGGER IF EXISTS trg_entries_membership_ai;
+         DROP TRIGGER IF EXISTS trg_entries_membership_ad;
          CREATE TABLE entries_new (
             id            TEXT PRIMARY KEY,
             kind          TEXT NOT NULL CHECK (kind IN ('message','state')),
@@ -911,6 +942,9 @@ pub fn apply_session_scope_schema(tx: &rusqlite::Transaction) -> Result<()> {
 /// Conditional so a database already at the derived-grouping schema passes
 /// through unchanged.
 pub fn apply_session_grouping_schema(tx: &rusqlite::Transaction) -> Result<()> {
+    if !table_exists(tx, "sessions")? {
+        return Ok(());
+    }
     let existing = sessions_columns(tx)?;
     if existing.contains("space") && !existing.contains("scope_key") {
         return Ok(());
@@ -939,6 +973,9 @@ pub fn apply_session_grouping_schema(tx: &rusqlite::Transaction) -> Result<()> {
 /// Workspace-only partition (ADR-0226 revised), applied by migration 14:
 /// drops the `space` column and adds `persona` metadata.
 pub fn apply_workspace_partition_schema(tx: &rusqlite::Transaction) -> Result<()> {
+    if !table_exists(tx, "sessions")? {
+        return Ok(());
+    }
     let existing = sessions_columns(tx)?;
     if existing.contains("persona") && !existing.contains("space") {
         return Ok(());
@@ -1143,6 +1180,9 @@ pub fn apply_asset_attestation_schema(tx: &rusqlite::Transaction) -> Result<()> 
 /// Migration 19 (ADR-0245): Session Role Manifest Snapshotting.
 /// Adds `role_manifest TEXT` JSON column to `sessions` table.
 pub fn apply_role_manifest_schema(tx: &rusqlite::Transaction) -> Result<()> {
+    if !table_exists(tx, "sessions")? {
+        return Ok(());
+    }
     let existing = sessions_columns(tx)?;
     if !existing.contains("role_manifest") {
         tx.execute_batch("ALTER TABLE sessions ADD COLUMN role_manifest TEXT;")?;
@@ -1152,6 +1192,9 @@ pub fn apply_role_manifest_schema(tx: &rusqlite::Transaction) -> Result<()> {
 
 /// Adds covering index on `sessions(persona, updated_at_s DESC)` for workspace-free role partitions (ADR-0250).
 pub fn apply_role_anchored_session_partition_schema(tx: &rusqlite::Transaction) -> Result<()> {
+    if !table_exists(tx, "sessions")? {
+        return Ok(());
+    }
     tx.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_sessions_role_partition \
          ON sessions(persona, updated_at_s DESC) \
@@ -1224,7 +1267,7 @@ pub fn insert_usage_record_tx(
     }
     let root: Option<String> = conn
         .query_row(
-            "SELECT workspace_root FROM sessions WHERE id=?1",
+            "SELECT workspace_root FROM thread_policies WHERE thread_id=?1",
             [session_id],
             |r| r.get(0),
         )
@@ -1294,13 +1337,29 @@ pub fn verify_sessions_schema(conn: &Connection) -> Result<()> {
             missing.join(", ")
         )));
     }
-    // Table owned by migration 11 (ADR-0218). The sessions-column guard above
-    // cannot see it; verify it explicitly so a database that skipped the
-    // migration fails loud at startup instead of on the first request.
-    if !table_exists(conn, "request_projections")? {
+    // Table owned by migration 11 (ADR-0218). In version 24+ (ADR-0059),
+    // request_projections is retired; only enforce for legacy databases.
+    if !table_exists(conn, "threads")? && !table_exists(conn, "request_projections")? {
         return Err(rusqlite::Error::InvalidParameterName(
             "request_projections table is missing; the database predates schema \
              migration 11 — restore a backup or recreate the state"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Verify presence of canonical Thread SSOT schema tables (ADR-0059).
+pub fn verify_thread_canonical_schema(conn: &Connection) -> Result<()> {
+    if !table_exists(conn, "threads")? {
+        return Err(rusqlite::Error::InvalidParameterName(
+            "threads table is missing; the database predates schema migration 24 — restore a backup or recreate state"
+                .to_string(),
+        ));
+    }
+    if !table_exists(conn, "thread_policies")? {
+        return Err(rusqlite::Error::InvalidParameterName(
+            "thread_policies table is missing; the database predates schema migration 24 — restore a backup or recreate state"
                 .to_string(),
         ));
     }
@@ -1352,7 +1411,10 @@ pub fn migrate_schema(conn: &mut Connection) -> Result<()> {
         assert_referential_integrity(conn)?;
     }
 
-    verify_sessions_schema(conn)
+    if !table_exists(conn, "threads")? {
+        verify_sessions_schema(conn)?;
+    }
+    verify_thread_canonical_schema(conn)
 }
 
 /// Apply every migration above `observed_version` inside one immediate
@@ -1378,14 +1440,20 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                     version = migration.version,
                     "Applying SQLite schema migration"
                 );
-                tx.execute_batch(migration.sql)?;
+                if !migration.sql.is_empty() {
+                    if !table_exists(&tx, "sessions")? && migration.sql.contains("ALTER TABLE sessions") {
+                        // Obsolete sessions table alterations skipped because sessions is dropped
+                    } else {
+                        tx.execute_batch(migration.sql)?;
+                    }
+                }
 
                 // Migration 9 is a no-op when the column already exists — a
                 // database stamped by an intermediate dev build (via the
                 // startup repair, or a partially-applied v9) must pass
                 // through unchanged instead of failing on a duplicate
                 // `ADD COLUMN` (mirrors the migration-6 conditional repair).
-                if migration.version == 9 {
+                if migration.version == 9 && table_exists(&tx, "sessions")? {
                     let has_column = sessions_columns(&tx)?
                         .iter()
                         .any(|column| column == "retry_resolutions");
@@ -1396,7 +1464,7 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                     }
                 }
 
-                if migration.version == 3 {
+                if migration.version == 3 && table_exists(&tx, "sessions")? {
                     let mut stmt =
                         tx.prepare("SELECT id, data FROM sessions WHERE data IS NOT NULL")?;
                     let rows = stmt.query_map([], |row| {
@@ -1444,7 +1512,7 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                 if migration.version == 8 {
                     apply_usage_ledger_schema(&tx)?;
                 }
-                if migration.version == 9 {
+                if migration.version == 9 && table_exists(&tx, "sessions")? {
                     // Conditional add (see the migration entry's note): the
                     // column already exists on every database whose version-5
                     // SQL was finalized after the feature landed.
@@ -1493,6 +1561,9 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                 }
                 if migration.version == 23 {
                     apply_retrieval_and_gc_schema(&tx)?;
+                }
+                if migration.version == 24 {
+                    apply_thread_canonical_clean_break_schema(&tx)?;
                 }
             }
         }
@@ -1618,17 +1689,29 @@ pub fn apply_context_lifecycle_schema(tx: &rusqlite::Transaction) -> Result<()> 
             PRIMARY KEY (session_id, id),
             UNIQUE (session_id, seq)
         );
-        CREATE INDEX IF NOT EXISTS idx_facts_session_seq ON facts(session_id, seq ASC);
+        "#,
+    )?;
 
-        -- Fact immutability (INV-FACT-02): refuse any change to a committed
-        -- payload or ancestry, and refuse deletion of a fact. The single
-        -- sanctioned payload replacement is a purge, which must advance
-        -- `deletion` in the same statement (the tombstone path, ADR-0279 §6).
+    let fact_col = if table_exists(tx, "facts")? && table_columns(tx, "facts")?.contains("thread_id") {
+        "thread_id"
+    } else {
+        "session_id"
+    };
+
+    let idx_sql = if fact_col == "thread_id" {
+        "CREATE INDEX IF NOT EXISTS idx_facts_thread_seq ON facts(thread_id, seq ASC);"
+    } else {
+        "CREATE INDEX IF NOT EXISTS idx_facts_session_seq ON facts(session_id, seq ASC);"
+    };
+    tx.execute_batch(idx_sql)?;
+
+    let trg_sql = format!(
+        r#"
         DROP TRIGGER IF EXISTS trg_facts_immutable_payload;
         CREATE TRIGGER trg_facts_immutable_payload
         BEFORE UPDATE ON facts
         WHEN NEW.id <> OLD.id
-          OR NEW.session_id <> OLD.session_id
+          OR NEW.{fact_col} <> OLD.{fact_col}
           OR NEW.seq <> OLD.seq
           OR NEW.branch_origin <> OLD.branch_origin
           OR NEW.parent_ids <> OLD.parent_ids
@@ -1640,11 +1723,17 @@ pub fn apply_context_lifecycle_schema(tx: &rusqlite::Transaction) -> Result<()> 
           OR NEW.payload_hash <> OLD.payload_hash
           OR ((NEW.payload_json <> OLD.payload_json OR NEW.artifact_refs <> OLD.artifact_refs)
               AND NOT (OLD.deletion <> 'purged' AND NEW.deletion = 'purged'
-                  AND NEW.payload_json = '{"termination":{"reason":"purged"}}'
+                  AND NEW.payload_json = '{{"termination":{{"reason":"purged"}}}}'
                   AND NEW.artifact_refs = '[]'))
         BEGIN
             SELECT RAISE(ABORT, 'facts are immutable: only payload erasure during purge is allowed');
         END;
+        "#
+    );
+    tx.execute_batch(&trg_sql)?;
+
+    tx.execute_batch(
+        r#"
         CREATE TRIGGER IF NOT EXISTS trg_facts_deletion_monotonic
         BEFORE UPDATE OF deletion ON facts
         WHEN NOT (
@@ -1830,6 +1919,415 @@ pub fn apply_retrieval_and_gc_schema(tx: &rusqlite::Transaction) -> Result<()> {
         );
         "#,
     )?;
+    Ok(())
+}
+
+/// Canonical Thread persistence schema (ADR-0059), applied by migration 24.
+///
+/// Establishes `threads` as the root entity, `thread_policies` with normalized
+/// first-class columns (`workspace_root`, `system_role`), and `thread_list_view`
+/// as the authoritative CQRS projection, eliminating legacy junk drawers.
+pub fn apply_thread_canonical_clean_break_schema(tx: &rusqlite::Transaction) -> Result<()> {
+    tx.execute_batch(
+        r#"
+        -- 0. Drop views first so altering/dropping underlying tables never marks views invalid
+        DROP VIEW IF EXISTS session_list_view;
+        DROP VIEW IF EXISTS thread_list_view;
+
+        -- 1. Canonical threads root table (ADR-0059)
+        CREATE TABLE IF NOT EXISTS threads (
+            id                    TEXT PRIMARY KEY,
+            title                 TEXT NOT NULL DEFAULT '',
+            title_manual          INTEGER NOT NULL DEFAULT 0 CHECK(title_manual IN (0, 1)),
+            status                TEXT NOT NULL DEFAULT 'idle'
+                                  CHECK(status IN ('idle', 'running', 'suspended', 'archived', 'terminated')),
+            fork_kind             TEXT NOT NULL DEFAULT 'trunk'
+                                  CHECK(fork_kind IN ('trunk', 'fork', 'subagent')),
+            parent_thread_id      TEXT REFERENCES threads(id) ON DELETE SET NULL,
+            fork_fact_id          TEXT,
+            active_branch_id      TEXT NOT NULL DEFAULT 'main',
+            active_leaf           TEXT,
+            suspension_payload    TEXT,
+            pending_notifications TEXT NOT NULL DEFAULT '[]',
+            round_counter         INTEGER NOT NULL DEFAULT 0,
+            msg_count             INTEGER NOT NULL DEFAULT 0,
+            last_user_prompt      TEXT,
+            tree                  TEXT NOT NULL DEFAULT '{}',
+            transcript_generation TEXT,
+            digest                TEXT,
+            digest_anchor         INTEGER,
+            checksum              INTEGER,
+            created_at_ms         INTEGER NOT NULL,
+            updated_at_ms         INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_threads_parent ON threads(parent_thread_id);
+        CREATE INDEX IF NOT EXISTS idx_threads_updated ON threads(updated_at_ms DESC);
+
+        -- 2. Normalized thread_policies table (ADR-0059)
+        CREATE TABLE IF NOT EXISTS thread_policies (
+            thread_id                  TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
+            workspace_root             TEXT NOT NULL,
+            system_role                TEXT NOT NULL DEFAULT 'general',
+            unattended                 INTEGER NOT NULL DEFAULT 0 CHECK(unattended IN (0, 1)),
+            provider_pin               TEXT,
+            max_context_tokens         INTEGER NOT NULL DEFAULT 128000,
+            compaction_trigger_tokens  INTEGER NOT NULL DEFAULT 96000,
+            disabled_tools_json        TEXT NOT NULL DEFAULT '[]',
+            additional_roots_json      TEXT NOT NULL DEFAULT '[]',
+            commands_json              TEXT NOT NULL DEFAULT '[]',
+            round_interrupts_json      TEXT NOT NULL DEFAULT '[]',
+            retry_resolutions_json     TEXT NOT NULL DEFAULT '[]',
+            retry_pending              TEXT,
+            role_manifest              TEXT,
+            rules_json                 TEXT NOT NULL DEFAULT '{}',
+            capabilities_json          TEXT NOT NULL DEFAULT '{}',
+            guardrails_json            TEXT NOT NULL DEFAULT '{}',
+            budget_json                TEXT NOT NULL DEFAULT '{}',
+            updated_at_ms              INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_thread_policies_workspace ON thread_policies(workspace_root);
+        "#,
+    )?;
+
+    if table_exists(tx, "sessions_v2")? {
+        let title_subquery = if table_exists(tx, "sessions")? {
+            "COALESCE((SELECT s.title FROM sessions s WHERE s.id = s2.id), '')"
+        } else {
+            "''"
+        };
+        tx.execute_batch(&format!(
+            r#"
+            INSERT OR IGNORE INTO threads (
+                id, title, title_manual, status, fork_kind, parent_thread_id,
+                active_branch_id, active_leaf, suspension_payload, pending_notifications,
+                round_counter, created_at_ms, updated_at_ms
+            )
+            SELECT
+                s2.id,
+                {title_subquery},
+                0,
+                CASE WHEN s2.status IN ('idle', 'running', 'suspended', 'archived', 'terminated') THEN s2.status ELSE 'idle' END,
+                'trunk',
+                s2.parent_session_id,
+                'main',
+                s2.active_leaf,
+                s2.suspension_payload,
+                s2.pending_notifications,
+                s2.round_counter,
+                s2.created_at_s * 1000,
+                s2.updated_at_s * 1000
+            FROM sessions_v2 s2;
+            "#
+        ))?;
+    }
+    
+    if table_exists(tx, "sessions")? {
+        tx.execute_batch(
+            r#"
+            INSERT OR IGNORE INTO threads (
+                id, title, title_manual, status, fork_kind, parent_thread_id,
+                active_branch_id, round_counter, msg_count, last_user_prompt,
+                tree, transcript_generation, digest, digest_anchor, checksum,
+                created_at_ms, updated_at_ms
+            )
+            SELECT
+                id,
+                COALESCE(title, ''),
+                0,
+                'idle',
+                CASE WHEN fork_kind IN ('trunk', 'fork', 'subagent') THEN fork_kind ELSE 'trunk' END,
+                parent_id,
+                'main',
+                round_counter,
+                msg_count,
+                last_user_prompt,
+                tree,
+                transcript_generation,
+                digest,
+                digest_anchor,
+                checksum,
+                created_at_s * 1000,
+                updated_at_s * 1000
+            FROM sessions;
+            "#,
+        )?;
+    }
+
+    if table_exists(tx, "session_policies")? {
+        tx.execute_batch(
+            r#"
+            INSERT OR IGNORE INTO thread_policies (
+                thread_id, workspace_root, system_role, unattended, provider_pin,
+                max_context_tokens, compaction_trigger_tokens, disabled_tools_json,
+                additional_roots_json, commands_json, round_interrupts_json,
+                retry_resolutions_json, retry_pending, role_manifest, rules_json,
+                capabilities_json, guardrails_json, budget_json, updated_at_ms
+            )
+            SELECT
+                session_id,
+                COALESCE(json_extract(rules_json, '$.workspace_root'), ''),
+                COALESCE(json_extract(rules_json, '$.system_persona'), 'general'),
+                CASE WHEN json_extract(guardrails_json, '$.unattended') = 1 THEN 1 ELSE 0 END,
+                json_extract(capabilities_json, '$.provider_pin'),
+                COALESCE(json_extract(budget_json, '$.max_context_tokens'), 128000),
+                COALESCE(json_extract(budget_json, '$.compaction_trigger_tokens'), 96000),
+                COALESCE(json_extract(capabilities_json, '$.disabled_tools'), '[]'),
+                '[]',
+                '[]',
+                '[]',
+                '[]',
+                NULL,
+                NULL,
+                rules_json,
+                capabilities_json,
+                guardrails_json,
+                budget_json,
+                updated_at_s * 1000
+            FROM session_policies;
+            "#,
+        )?;
+    }
+    
+    if table_exists(tx, "sessions")? {
+        tx.execute_batch(
+            r#"
+            INSERT OR IGNORE INTO thread_policies (
+                thread_id, workspace_root, system_role, unattended, provider_pin,
+                max_context_tokens, compaction_trigger_tokens, disabled_tools_json,
+                additional_roots_json, commands_json, round_interrupts_json,
+                retry_resolutions_json, retry_pending, role_manifest, updated_at_ms
+            )
+            SELECT
+                id,
+                COALESCE(workspace_root, ''),
+                COALESCE(persona, 'general'),
+                CASE WHEN unattended != 0 THEN 1 ELSE 0 END,
+                provider_connection,
+                128000,
+                96000,
+                COALESCE(disabled_tools, '[]'),
+                '[]',
+                commands,
+                round_interrupts,
+                retry_resolutions,
+                retry_pending,
+                role_manifest,
+                updated_at_s * 1000
+            FROM sessions;
+            "#,
+        )?;
+    }
+
+    // 4. Rebuild legacy parent references to point to threads instead of sessions
+    if table_exists(tx, "entry_memberships")? {
+        tx.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS entry_memberships_clean (
+                session_id            TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+                seq                   INTEGER NOT NULL,
+                entry_id              TEXT NOT NULL REFERENCES entries(id),
+                PRIMARY KEY (session_id, seq)
+            );
+            INSERT OR IGNORE INTO entry_memberships_clean SELECT * FROM entry_memberships;
+            DROP TABLE entry_memberships;
+            ALTER TABLE entry_memberships_clean RENAME TO entry_memberships;
+            CREATE INDEX IF NOT EXISTS idx_memberships_entry ON entry_memberships(entry_id);
+
+            CREATE TRIGGER IF NOT EXISTS trg_entries_membership_ai AFTER INSERT ON entry_memberships BEGIN
+                INSERT INTO fts_entries(rowid, entry_id, session_id, role, content)
+                SELECT new.rowid, new.entry_id, new.session_id, e.role, e.content
+                FROM entries e WHERE e.id = new.entry_id;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_entries_membership_ad AFTER DELETE ON entry_memberships BEGIN
+                DELETE FROM fts_entries WHERE rowid = old.rowid;
+            END;
+            "#,
+        )?;
+    }
+
+    if table_exists(tx, "projections")? {
+        tx.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS projections_clean (
+                session_id            TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+                seq                   INTEGER NOT NULL,
+                kind                  TEXT NOT NULL,
+                up_to_seq             INTEGER NOT NULL,
+                payload               TEXT NOT NULL,
+                PRIMARY KEY (session_id, seq)
+            );
+            INSERT OR IGNORE INTO projections_clean SELECT * FROM projections;
+            DROP TABLE projections;
+            ALTER TABLE projections_clean RENAME TO projections;
+            "#,
+        )?;
+    }
+
+    if table_exists(tx, "blob_refs")? {
+        tx.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS blob_refs_clean (
+                session_id            TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+                hash                  TEXT NOT NULL,
+                PRIMARY KEY (session_id, hash)
+            );
+            INSERT OR IGNORE INTO blob_refs_clean SELECT session_id, hash FROM blob_refs;
+            DROP TABLE blob_refs;
+            ALTER TABLE blob_refs_clean RENAME TO blob_refs;
+            "#,
+        )?;
+    }
+
+    if table_exists(tx, "request_projections")? {
+        tx.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS request_projections_clean (
+                session_id            TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+                round                 INTEGER NOT NULL,
+                turn                  INTEGER NOT NULL,
+                created_at_ms         INTEGER NOT NULL,
+                payload               TEXT NOT NULL,
+                PRIMARY KEY (session_id, round, turn)
+            );
+            INSERT OR IGNORE INTO request_projections_clean SELECT * FROM request_projections;
+            DROP TABLE request_projections;
+            ALTER TABLE request_projections_clean RENAME TO request_projections;
+            CREATE INDEX IF NOT EXISTS idx_request_projections_recency ON request_projections(session_id, created_at_ms DESC);
+            "#,
+        )?;
+    }
+
+    if table_exists(tx, "causal_nodes")? {
+        tx.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS causal_nodes_clean (
+                id                    TEXT NOT NULL,
+                session_id            TEXT NOT NULL,
+                parent_id             TEXT,
+                seq                   INTEGER NOT NULL,
+                kind                  TEXT NOT NULL CHECK (kind IN ('dialogue','compaction','termination','system_notice','observation')),
+                payload_json          TEXT NOT NULL,
+                timestamp_ms          INTEGER NOT NULL,
+                PRIMARY KEY (session_id, id),
+                UNIQUE(session_id, seq)
+            );
+
+            INSERT OR IGNORE INTO causal_nodes_clean (id, session_id, parent_id, seq, kind, payload_json, timestamp_ms)
+            SELECT id, session_id, parent_id, seq, kind, payload_json, timestamp_ms FROM causal_nodes;
+
+            DROP TABLE causal_nodes;
+            ALTER TABLE causal_nodes_clean RENAME TO causal_nodes;
+            CREATE INDEX IF NOT EXISTS idx_causal_nodes_session_seq ON causal_nodes(session_id, seq ASC);
+            CREATE INDEX IF NOT EXISTS idx_causal_nodes_parent ON causal_nodes(session_id, parent_id);
+            "#,
+        )?;
+    }
+
+    // 5. Physical purge of retired zombie tables and duplicate ledgers (ADR-0059)
+    tx.execute_batch(
+        r#"
+        DROP VIEW IF EXISTS session_list_view;
+        DROP TABLE IF EXISTS sessions;
+        DROP TABLE IF EXISTS sessions_v2;
+        DROP TABLE IF EXISTS session_policies;
+        DROP TABLE IF EXISTS session_events;
+        DROP TABLE IF EXISTS session_blobs;
+        DROP TABLE IF EXISTS causal_nodes_v2;
+        DROP TABLE IF EXISTS messages;
+        DROP TABLE IF EXISTS commands;
+        "#,
+    )?;
+
+    // 6. Uncompromising schema standardization: rename session_id -> thread_id
+    for table in &[
+        "facts",
+        "branches",
+        "checkpoints",
+        "context_views",
+        "artifact_manifests",
+        "artifact_refs",
+        "request_manifests",
+        "commit_operations",
+        "read_leases",
+        "deletion_jobs",
+        "gc_continuations",
+        "tombstones",
+        "task_revisions",
+    ] {
+        if table_exists(tx, table)? {
+            let cols = table_columns(tx, table)?;
+            if cols.contains("session_id") {
+                tx.execute_batch(&format!(
+                    "ALTER TABLE {table} RENAME COLUMN session_id TO thread_id;"
+                ))?;
+            }
+        }
+    }
+
+    // 7. Rebuild fact immutability triggers aligning to thread_id
+    if table_exists(tx, "facts")? {
+        tx.execute_batch(
+            r#"
+            DROP TRIGGER IF EXISTS trg_facts_immutable_payload;
+            CREATE TRIGGER trg_facts_immutable_payload
+            BEFORE UPDATE ON facts
+            WHEN NEW.id <> OLD.id
+              OR NEW.thread_id <> OLD.thread_id
+              OR NEW.seq <> OLD.seq
+              OR NEW.branch_origin <> OLD.branch_origin
+              OR NEW.parent_ids <> OLD.parent_ids
+              OR NEW.round_id <> OLD.round_id
+              OR NEW.turn_id <> OLD.turn_id
+              OR NEW.source_authority <> OLD.source_authority
+              OR NEW.sensitivity <> OLD.sensitivity
+              OR NEW.created_at_ms <> OLD.created_at_ms
+              OR NEW.payload_hash <> OLD.payload_hash
+              OR ((NEW.payload_json <> OLD.payload_json OR NEW.artifact_refs <> OLD.artifact_refs)
+                  AND NOT (OLD.deletion <> 'purged' AND NEW.deletion = 'purged'
+                      AND NEW.payload_json = '{"termination":{"reason":"purged"}}'
+                      AND NEW.artifact_refs = '[]'))
+            BEGIN
+                SELECT RAISE(ABORT, 'facts are immutable: only payload erasure during purge is allowed');
+            END;
+
+            DROP VIEW IF EXISTS thread_list_view;
+            CREATE VIEW thread_list_view AS
+            SELECT
+                t.id,
+                t.parent_thread_id AS parent_id,
+                t.fork_kind,
+                t.title,
+                t.created_at_ms / 1000 AS created_at_s,
+                t.updated_at_ms / 1000 AS updated_at_s,
+                p.workspace_root,
+                p.system_role AS persona,
+                CASE
+                    WHEN EXISTS (SELECT 1 FROM facts f WHERE f.thread_id = t.id AND f.deletion = 'present')
+                    THEN (SELECT COUNT(*) FROM facts f WHERE f.thread_id = t.id AND f.deletion = 'present')
+                    ELSE t.msg_count
+                END AS msg_count,
+                COALESCE(
+                    (SELECT COALESCE(
+                        json_extract(f.payload_json, '$.user_message.text'),
+                        json_extract(f.payload_json, '$.message.content')
+                     )
+                     FROM facts f
+                     WHERE f.thread_id = t.id AND f.deletion = 'present'
+                     ORDER BY f.seq DESC LIMIT 1),
+                    t.last_user_prompt
+                ) AS last_user_prompt,
+                t.digest,
+                t.status,
+                t.round_counter
+            FROM threads t
+            LEFT JOIN thread_policies p ON p.thread_id = t.id;
+            "#,
+        )?;
+    }
+
     Ok(())
 }
 

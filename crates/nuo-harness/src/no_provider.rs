@@ -77,7 +77,7 @@ impl Provider for NoProvider {
 }
 
 fn no_provider_message() -> String {
-    "No provider configured. Run 'nuo auth' or configure a provider in config.toml before sending a message.".to_string()
+    "No provider configured. Configure a provider in config.toml or via 'nuo config' before sending a message.".to_string()
 }
 
 #[cfg(test)]

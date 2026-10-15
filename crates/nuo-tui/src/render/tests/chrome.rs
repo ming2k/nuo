@@ -2,16 +2,17 @@
 
 use super::*;
 
-/// A fixed session head for the scene tests (ADR-0024): the head band's top row
-/// is now the uniform session identity drawn by the settings/dashboard views.
-fn test_session_head() -> SessionHead<'static> {
-    SessionHead {
-        session_id: "sess-01a2b3c4",
+/// A fixed thread head for the scene tests (ADR-0043, ADR-0060): the head band's row 2
+/// is now the uniform thread identity and governance band drawn by settings/dashboard views.
+fn test_thread_head() -> ThreadHead<'static> {
+    ThreadHead {
+        thread_id: "sess-01a2b3c4",
         workspace: "~/workspace",
         role: Some("developer"),
-        switching_target: None,
         tabs: None,
         active_tab: 0,
+        unattended: false,
+        confined: true,
     }
 }
 
@@ -64,8 +65,8 @@ fn redesigned_components_render_without_panicking() {
                         persistence_health: None,
                         subagent_bar: None,
                         page_hints: None,
-                    session_head: None,
-                                        round_started_at: None,
+                        thread_head: None,
+                        round_started_at: None,
                         hovered_step: None,
                         focused_target: None,
                         logo: None,
@@ -395,22 +396,20 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
-                session_head: Some(test_session_head()),
-                unattended: false,
-                confined: true,
+                thread_head: Some(test_thread_head()),
             },
         );
     });
-    // Row 1 is the uniform session identity; the scene name + breadcrumb live on
-    // row 2 (ADR-0024).
-    assert!(grid_row(&terminal, 0).contains("SESSION"));
-    assert!(!grid_row(&terminal, 0).contains("⚙"));
-    assert!(!grid_row(&terminal, 0).contains("Appearance"));
-    let scene_row = grid_row(&terminal, 1);
-    assert!(scene_row.contains("settings"), "scene name on row 2: {scene_row:?}");
+    // Row 1 is Client TabBar; Row 2 is Thread Governance (THREAD); Row 3 is Scene Head (settings) (ADR-0060).
+    assert!(grid_row(&terminal, 0).contains("C-x menu"));
+    assert!(grid_row(&terminal, 1).contains("THREAD"));
+    assert!(!grid_row(&terminal, 1).contains("⚙"));
+    assert!(!grid_row(&terminal, 1).contains("Appearance"));
+    let scene_row = grid_row(&terminal, 2);
+    assert!(scene_row.contains("settings"), "scene name on row 3: {scene_row:?}");
     assert!(
         scene_row.contains("Main › Settings"),
-        "Row 2 must show the view stack breadcrumbs: {scene_row:?}"
+        "Row 3 must show the view stack breadcrumbs: {scene_row:?}"
     );
     assert!(!grid_row(&terminal, 3).contains("◐"));
 
@@ -432,13 +431,11 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
-                session_head: Some(test_session_head()),
-                unattended: false,
-                confined: true,
+                thread_head: Some(test_thread_head()),
             },
         );
     });
-    assert!(grid_row(&terminal, 0).contains("SESSION"));
+    assert!(grid_row(&terminal, 1).contains("THREAD"));
 }
 
 /// The Settings center has no bottom footer band and no per-pane prose header:
@@ -471,9 +468,7 @@ fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
-                session_head: Some(test_session_head()),
-                unattended: false,
-                confined: true,
+                thread_head: Some(test_thread_head()),
             },
         );
     });
@@ -507,7 +502,7 @@ fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header
     // The pane under the bookend rows is one body surface (no `raised` header
     // strip). Rows carrying the keyboard cursor's hover band are exempt.
     let band = theme.row_hover_band(&[]);
-    for y in 2..24u16 {
+    for y in 3..24u16 {
         let bg = buffer[(40, y)].bg;
         assert_ne!(
             bg,
@@ -524,7 +519,7 @@ fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header
     // the first body row is padding, not content.
     for gutter_x in [22u16, 23] {
         assert_eq!(
-            buffer[(gutter_x, 2)].bg,
+            buffer[(gutter_x, 3)].bg,
             theme.pane_sunken(),
             "the pane's leading columns are the 2-column padding gutter"
         );
@@ -573,9 +568,7 @@ fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() 
                         theme: &theme,
                         profile: &nuotc::TerminalProfile::direct_color(),
                         tui_config: &tui_config,
-                        session_head: Some(test_session_head()),
-                        unattended: false,
-                        confined: true,
+                        thread_head: Some(test_thread_head()),
                     },
                 );
             });
@@ -623,9 +616,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
                 theme: &theme_direct,
                 profile: &direct_profile,
                 tui_config: &tui_config,
-                session_head: Some(test_session_head()),
-                unattended: false,
-                confined: true,
+                thread_head: Some(test_thread_head()),
             },
         );
     });
@@ -659,9 +650,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
                 theme: &theme_mono,
                 profile: &mono_profile,
                 tui_config: &tui_config,
-                session_head: Some(test_session_head()),
-                unattended: false,
-                confined: true,
+                thread_head: Some(test_thread_head()),
             },
         );
     });
@@ -709,9 +698,7 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
                     theme,
                     profile: &nuotc::TerminalProfile::direct_color(),
                     tui_config,
-                    session_head: Some(test_session_head()),
-                    unattended: false,
-                    confined: true,
+                    thread_head: Some(test_thread_head()),
                 },
             );
         });
@@ -807,9 +794,7 @@ fn components_rows_use_text_and_band_not_selection_dots_with_description_below()
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
-                session_head: Some(test_session_head()),
-                unattended: false,
-                confined: true,
+                thread_head: Some(test_thread_head()),
             },
         );
     });
@@ -881,9 +866,7 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
                     theme: &theme,
                     profile: &nuotc::TerminalProfile::direct_color(),
                     tui_config: &tui_config,
-                    session_head: Some(test_session_head()),
-                    unattended: false,
-                    confined: true,
+                    thread_head: Some(test_thread_head()),
                 },
             );
         });
@@ -927,9 +910,7 @@ fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
-                session_head: Some(test_session_head()),
-                unattended: false,
-                confined: true,
+                thread_head: Some(test_thread_head()),
             },
         );
         selected_rect = rects.selected_row_rect;
@@ -981,7 +962,7 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
                     persistence_health: None,
                     subagent_bar: None,
                     page_hints: None,
-                    session_head: None,
+                    thread_head: None,
                     round_started_at: None,
                     hovered_step: None,
                     focused_target: None,
@@ -1049,7 +1030,7 @@ fn too_small_terminal_shows_notice_and_zeroed_render() {
                 persistence_health: None,
                 subagent_bar: None,
                 page_hints: None,
-                session_head: None,
+                thread_head: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1145,7 +1126,7 @@ fn empty_session_renders_empty_state_with_nonzero_height() {
                 persistence_health: None,
                 subagent_bar: None,
                 page_hints: None,
-                session_head: None,
+                thread_head: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1209,7 +1190,7 @@ fn nonempty_session_does_not_render_empty_state() {
                 persistence_health: None,
                 subagent_bar: None,
                 page_hints: None,
-                session_head: None,
+                thread_head: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1278,7 +1259,7 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
                 persistence_health: None,
                 subagent_bar: None,
                 page_hints: None,
-                session_head: None,
+                thread_head: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1313,45 +1294,50 @@ fn main_view_shows_the_thread_scene_row() {
             kind: crate::surfaces::SceneKind::Thread,
             context: Some("Fix the retry loop"),
             context_warn: false,
-            unattended: false,
-            confined: true,
-            workspace: Some("~/workspace"),
             breadcrumbs: None,
             can_back: false,
             can_forward: false,
         }),
     );
     let row0 = grid_row(&terminal, 0);
-    assert!(row0.contains("SESSION"));
     assert!(
         row0.contains("C-x menu"),
         "client top bar offers the C-x menu namespace: {row0:?}"
     );
     let row1 = grid_row(&terminal, 1);
+    assert!(row1.contains("THREAD"), "thread governance on row 1: {row1:?}");
     assert!(
-        row1.starts_with("  Fix the retry loop"),
-        "root thread head leads with authentic title: {row1:?}"
+        row1.contains("~/projects/xx"),
+        "workspace belongs to thread governance row: {row1:?}"
+    );
+    let row2 = grid_row(&terminal, 2);
+    assert!(
+        row2.starts_with("  Fix the retry loop"),
+        "root thread head leads with authentic title: {row2:?}"
     );
     assert!(
-        !row1.contains("thread"),
-        "root thread omits redundant 'thread' label: {row1:?}"
+        !row2.contains("thread"),
+        "root thread omits redundant 'thread' label: {row2:?}"
     );
     assert!(
-        row1.contains("~/workspace"),
-        "workspace belongs to thread scene row: {row1:?}"
-    );
-    assert!(
-        !row1.contains("C-x menu") && !row1.contains("C-x"),
-        "scene row no longer carries C-x: {row1:?}"
+        !row2.contains("C-x menu") && !row2.contains("C-x"),
+        "scene row no longer carries C-x: {row2:?}"
     );
 }
 
-/// ADR-0024: the run-mode flags ride the scene row's right edge, so a
-/// thread read-out states the session's persistent posture alongside the
-/// scene name and title.
+/// ADR-0060: the run-mode flags ride the thread governance row's right edge.
 #[test]
-fn main_view_scene_row_carries_run_mode_flags() {
-    let terminal = render_full_view(
+fn main_view_thread_governance_row_carries_run_mode_flags() {
+    let head = ThreadHead {
+        thread_id: "sess-01a2b3c4",
+        workspace: "~/projects/xx",
+        role: Some("developer"),
+        tabs: None,
+        active_tab: 0,
+        unattended: true,
+        confined: false,
+    };
+    let terminal = render_full_view_with_head(
         80,
         24,
         &[],
@@ -1359,23 +1345,22 @@ fn main_view_scene_row_carries_run_mode_flags() {
             kind: crate::surfaces::SceneKind::Thread,
             context: None,
             context_warn: false,
-            unattended: true,
-            confined: false,
-            workspace: None,
             breadcrumbs: None,
             can_back: false,
             can_forward: false,
         }),
+        Some(head),
     );
     let row0 = grid_row(&terminal, 0);
     assert!(row0.contains("C-x menu"), "client menu on row 0: {row0:?}");
     let row1 = grid_row(&terminal, 1);
-    assert!(row1.starts_with("  thread"), "untitled thread scene has thread placeholder: {row1:?}");
+    assert!(row1.contains("THREAD"), "thread governance on row 1: {row1:?}");
     assert!(row1.contains("UNATTENDED"), "unattended flag: {row1:?}");
     assert!(row1.contains("UNCONFINED"), "unconfined flag: {row1:?}");
-    assert!(!row1.contains("C-x menu") && !row1.contains("C-x"), "namespace on row 0 not row 1: {row1:?}");
-    assert!(!row1.contains("Esc"), "no interrupt pair: {row1:?}");
-    assert!(!row1.contains("F1"), "no global help pair: {row1:?}");
+    let row2 = grid_row(&terminal, 2);
+    assert!(!row2.contains("thread"), "untitled thread has NO dummy thread placeholder: {row2:?}");
+    assert!(!row2.contains("Esc"), "no interrupt pair: {row2:?}");
+    assert!(!row2.contains("F1"), "no global help pair: {row2:?}");
 }
 
 /// The empty-state tour renders the current carousel page beneath the
@@ -1411,7 +1396,7 @@ fn empty_state_tour_renders_the_current_carousel_page() {
                 persistence_health: None,
                 subagent_bar: None,
                 page_hints: None,
-                session_head: None,
+                thread_head: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1481,7 +1466,7 @@ fn h1_underline_clamps_to_text_extent() {
                 persistence_health: None,
                 subagent_bar: None,
                 page_hints: None,
-                session_head: None,
+                thread_head: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1569,7 +1554,7 @@ fn h1_underline_emits_wide_glyph_in_underlined_run() {
                 persistence_health: None,
                 subagent_bar: None,
                 page_hints: None,
-                session_head: None,
+                thread_head: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1652,7 +1637,7 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
                 persistence_health: None,
                 subagent_bar: None,
                 page_hints: None,
-                session_head: None,
+                thread_head: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,

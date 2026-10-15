@@ -249,7 +249,7 @@ pub(crate) fn format_diagnostics(diag: &ServerDiagnostics) -> String {
         out.push_str(
             "Rebuilt-binary drift: the running server's executable differs from the installed image.\n",
         );
-        out.push_str("                    `nuo` reclaims it automatically when idle; stop it now with `nuo stop`.\n");
+        out.push_str("                    `nuo` reclaims it automatically when idle; stop it now with `nuo server stop`.\n");
     } else if diag.discovery_valid && diag.tcp_listening {
         out.push_str("Server is running and healthy (hosted standalone posture). (Observe with `nuo status --watch`)\n");
     } else if diag.discovery_valid && diag.local_endpoint_connectable {
@@ -258,13 +258,13 @@ pub(crate) fn format_diagnostics(diag: &ServerDiagnostics) -> String {
         out.push_str(
             "Ghost server detected: Instance lock is held but discovery record is missing.\n",
         );
-        out.push_str("                    Run `nuo stop` or kill the locking PID, then start with `nuo start`.\n");
+        out.push_str("                    Run `nuo server stop` or kill the locking PID, then start with `nuo server start`.\n");
     } else if !diag.lock_held && diag.discovery_record.is_some() {
         out.push_str("Stale discovery record: Process is gone but discovery record remains.\n");
-        out.push_str("                    Start a new server with `nuo start`.\n");
+        out.push_str("                    Start a new server with `nuo server start`.\n");
     } else if !diag.lock_held {
         out.push_str("No session server is running.\n");
-        out.push_str("                    Start one with `nuo start`.\n");
+        out.push_str("                    Start one with `nuo server start`.\n");
     } else {
         out.push_str("Server state is transitioning or unresponsive.\n");
     }

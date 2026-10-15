@@ -81,18 +81,18 @@ pub fn save_session_delta(conn: &Connection, delta: &SessionDelta) -> Result<()>
 
         conn.execute(
             r#"
-            INSERT INTO sessions_v2 (
-                id, parent_session_id, active_leaf, status, suspension_payload,
-                pending_notifications, round_counter, created_at_s, updated_at_s
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
+            INSERT INTO threads (
+                id, parent_thread_id, active_leaf, status, suspension_payload,
+                pending_notifications, round_counter, created_at_ms, updated_at_ms
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8 * 1000, ?8 * 1000)
             ON CONFLICT(id) DO UPDATE SET
-                parent_session_id = COALESCE(excluded.parent_session_id, sessions_v2.parent_session_id),
+                parent_thread_id = COALESCE(excluded.parent_thread_id, threads.parent_thread_id),
                 active_leaf = excluded.active_leaf,
                 status = excluded.status,
                 suspension_payload = excluded.suspension_payload,
                 pending_notifications = excluded.pending_notifications,
                 round_counter = excluded.round_counter,
-                updated_at_s = excluded.updated_at_s;
+                updated_at_ms = excluded.updated_at_ms;
             "#,
             params![
                 delta.session_id,
@@ -152,15 +152,29 @@ pub fn save_session_delta(conn: &Connection, delta: &SessionDelta) -> Result<()>
 
             conn.execute(
                 r#"
-                INSERT INTO session_policies (
-                    session_id, rules_json, capabilities_json, guardrails_json, budget_json, updated_at_s
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                ON CONFLICT(session_id) DO UPDATE SET
+                INSERT INTO thread_policies (
+                    thread_id, workspace_root, system_role, unattended, max_context_tokens,
+                    compaction_trigger_tokens, rules_json, capabilities_json, guardrails_json, budget_json, updated_at_ms
+                ) VALUES (
+                    ?1,
+                    COALESCE(json_extract(?2, '$.workspace_root'), ''),
+                    COALESCE(json_extract(?2, '$.system_persona'), 'general'),
+                    CASE WHEN json_extract(?4, '$.unattended') = 1 THEN 1 ELSE 0 END,
+                    COALESCE(json_extract(?5, '$.max_context_tokens'), 128000),
+                    COALESCE(json_extract(?5, '$.compaction_trigger_tokens'), 96000),
+                    ?2, ?3, ?4, ?5, ?6 * 1000
+                )
+                ON CONFLICT(thread_id) DO UPDATE SET
+                    workspace_root = excluded.workspace_root,
+                    system_role = excluded.system_role,
+                    unattended = excluded.unattended,
+                    max_context_tokens = excluded.max_context_tokens,
+                    compaction_trigger_tokens = excluded.compaction_trigger_tokens,
                     rules_json = excluded.rules_json,
                     capabilities_json = excluded.capabilities_json,
                     guardrails_json = excluded.guardrails_json,
                     budget_json = excluded.budget_json,
-                    updated_at_s = excluded.updated_at_s;
+                    updated_at_ms = excluded.updated_at_ms;
                 "#,
                 params![
                     delta.session_id,
@@ -189,13 +203,13 @@ pub fn save_session_delta(conn: &Connection, delta: &SessionDelta) -> Result<()>
 
 /// Hydrate a full SessionIR from SQLite (INV-SESSION-02).
 pub fn load_session_ir(conn: &Connection, session_id: &str) -> Result<Option<SessionIR>> {
-    // 1. Query sessions_v2 table
+    // 1. Query threads table
     let session_row = conn
         .query_row(
             r#"
-            SELECT id, parent_session_id, active_leaf, status, suspension_payload,
-                   pending_notifications, round_counter, created_at_s, updated_at_s
-            FROM sessions_v2 WHERE id = ?1
+            SELECT id, parent_thread_id, active_leaf, status, suspension_payload,
+                   pending_notifications, round_counter, created_at_ms / 1000, updated_at_ms / 1000
+            FROM threads WHERE id = ?1
             "#,
             params![session_id],
             |row| {
@@ -281,7 +295,7 @@ pub fn load_session_ir(conn: &Connection, session_id: &str) -> Result<Option<Ses
         .query_row(
             r#"
             SELECT rules_json, capabilities_json, guardrails_json, budget_json
-            FROM session_policies WHERE session_id = ?1
+            FROM thread_policies WHERE thread_id = ?1
             "#,
             params![session_id],
             |row| {
@@ -396,8 +410,8 @@ mod tests {
 
     #[test]
     fn test_session_ir_persistence_roundtrip() {
-        let conn = Connection::open_in_memory().unwrap();
-        initialize_session_ir_schema(&conn).unwrap();
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::initialize_connection_schema(&mut conn).unwrap();
 
         // 1. Create SessionIR and append events
         let mut policy = SessionPolicy::default();

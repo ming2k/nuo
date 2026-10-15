@@ -30,7 +30,8 @@ use nuotc::{
 use crate::primitives::{ElevationContainer, SCROLL_EDGE_MARGIN, draw_scrollbar, resolve_scroll};
 use crate::render::Theme;
 use crate::view_header::{
-    SessionHead, ViewHints, ViewKind, draw_view_header, draw_view_header_hints,
+    ThreadHead, ViewHints, ViewKind, draw_thread_governance_header, draw_view_header,
+    draw_view_header_hints,
 };
 /// Width of the left navigation pane (its outer rect, before inner padding).
 const NAV_WIDTH: u16 = 22;
@@ -198,14 +199,9 @@ pub struct SettingsProps<'a> {
     pub theme: &'a Theme,
     pub profile: &'a nuotc::TerminalProfile,
     pub tui_config: &'a crate::config::TuiConfig,
-    /// The session identity for the head band's top row (ADR-0024): the band is
-    /// uniform across scenes, so Settings draws the same `SESSION` row as the
-    /// thread. `None` hides row 1. Crate-visible only (`SessionHead` is
-    /// crate-private; the shell is the sole caller).
-    pub(crate) session_head: Option<SessionHead<'a>>,
-    /// The session's persistent run-mode flags for the head band's scene row.
-    pub(crate) unattended: bool,
-    pub(crate) confined: bool,
+    /// The thread identity for the head band's top row (ADR-0060): carries
+    /// client tabs, thread identity, and execution governance posture (unattended / confined).
+    pub(crate) thread_head: Option<ThreadHead<'a>>,
 }
 
 /// Draw the full-screen Settings View.
@@ -219,42 +215,39 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         area,
     );
 
-    // 3 vertical zones: the two-row head band (session identity + scene row,
-    // ADR-0024), then the body (flexible). There is deliberately **no footer
-    // band**: the Settings center's own affordances — including its exit —
-    // already live on the head band's scene row, so a redundant bottom keycap
-    // strip only stole vertical space from the panes it described.
+    // 3 vertical zones: the three-tier head band (TabBar + thread governance + scene row,
+    // ADR-0060), then the body (flexible).
     let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(6),
+            Constraint::Length(1), // Tier 1: Client TabBar
+            Constraint::Length(1), // Tier 2: Thread Governance Band
+            Constraint::Length(1), // Tier 3: Scene Head
+            Constraint::Min(6),    // Settings body
         ])
         .split(area);
 
     let header_rect = vertical_chunks[0];
-    let subhead_rect = vertical_chunks[1];
-    let body_rect = vertical_chunks[2];
+    let gov_rect = vertical_chunks[1];
+    let subhead_rect = vertical_chunks[2];
+    let body_rect = vertical_chunks[3];
 
     let category = ConfigCategory::from_index(props.category_index);
 
-    // 1. Top Header Row (session identity, shared across scenes)
-    let tab_rects = if let Some(head) = props.session_head {
-        draw_view_header(frame, header_rect, &head, props.theme)
+    // 1. Tier 1 & Tier 2: TabBar and Thread Governance (ADR-0060)
+    let tab_rects = if let Some(head) = props.thread_head.as_ref() {
+        let rects = draw_view_header(frame, header_rect, head, props.theme);
+        draw_thread_governance_header(frame, gov_rect, head, props.theme);
+        rects
     } else {
         Vec::new()
     };
 
-    // 2. Scene row: the `settings` scene name, the category breadcrumb context,
-    //    the run-mode flags, and the namespace pair (ADR-0024).
+    // 2. Tier 3: Scene row: the `settings` scene name and category breadcrumb context
     let view_hints = ViewHints {
         kind: ViewKind::Settings,
         context: props.breadcrumbs.map(str::trim),
         context_warn: false,
-        unattended: props.unattended,
-        confined: props.confined,
-        workspace: None,
         breadcrumbs: None,
         can_back: false,
         can_forward: false,

@@ -39,7 +39,7 @@ use crate::primitives::{
     ElevationContainer, LayoutTier, SCROLL_EDGE_MARGIN, resolve_scroll, viewport_rect,
 };
 use crate::render::Theme;
-use crate::view_header::SessionHead;
+use crate::view_header::ThreadHead;
 
 /// Which zone of the dashboard currently owns the keyboard.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -172,15 +172,9 @@ pub struct DashboardProps<'a> {
     // The frame-level caret verdict (ADR-0205): the inline prompt borrows the
     // composer buffer but owns the cursor through this scene's own footer band.
     pub show_caret: bool,
-    /// The session identity for the head band's top row (ADR-0024): the band is
-    /// uniform across scenes, so the dashboard draws the same `SESSION` row as
-    /// the thread. `None` hides row 1 (the body then starts at row 0).
-    pub session_head: Option<SessionHead<'a>>,
-    /// The session's persistent run-mode flags for the head band's scene row
-    /// (ADR-0024): unattended execution and confinement. Mirrors the ambient
-    /// session state the thread scene reads from `App`.
-    pub unattended: bool,
-    pub confined: bool,
+    /// The thread identity for the head band's top row (ADR-0060): carries
+    /// client tabs, thread identity, and execution governance posture (unattended / confined).
+    pub thread_head: Option<ThreadHead<'a>>,
 }
 
 /// Draw the full-screen dashboard view.
@@ -202,9 +196,7 @@ pub fn draw_dashboard(
         prompt_text,
         current_session_id,
         show_caret,
-        session_head,
-        unattended,
-        confined,
+        thread_head,
     } = props;
     // A true full-screen surface: clear the whole frame and paint our own
     // backdrop.
@@ -220,9 +212,8 @@ pub fn draw_dashboard(
     let full = frame.area();
     let area = viewport_rect(frame);
     let tier = LayoutTier::from_rect(area, theme.elevation);
-    /// The shared head band's height: session-identity row + scene row
-    /// (ADR-0024).
-    const BAND_ROWS: u16 = 2;
+    /// The shared head band's height: three-tier spatial header (ADR-0060).
+    const BAND_ROWS: u16 = 3;
     let body = Rect {
         y: area.y.saturating_add(BAND_ROWS),
         height: area.height.saturating_sub(BAND_ROWS),
@@ -235,18 +226,7 @@ pub fn draw_dashboard(
     // Two-tier responsive layout (ADR-0097 §3 evolution):
     // - Wide (width >= 90): Dual-pane side-by-side (Sessions list left, Cognitive Dossier + Console right).
     // - Compact (width < 90): Vertical stack (head band, Sessions dock top, Cognitive Dossier + Console bottom, footer).
-    //
-    // The head band is the shared two-row band every other scene carries
-    // (ADR-0298 §4): row 1 is identity + fleet summary, row 2 is the `C-x`
-    // scene namespace. It replaces this surface's former homegrown one-row
-    // header plus gap row, so the dashboard's chrome can no longer drift from
-    // the rest of the app.
-    //
-    // The band spans the full terminal width (its background owns every cell of
-    // the row), pinned flush to the top edge exactly as every other scene draws
-    // it (ADR-0298 §4: one head band). The body below sits inside the viewport
-    // margins, offset past the band's two rows.
-    let (header_rect, hints_rect, dock_rect, console_rect, footer_rect, card_columns) =
+    let (header_rect, gov_rect, hints_rect, dock_rect, console_rect, footer_rect, card_columns) =
         if tier.is_wide() {
             let v_chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -273,6 +253,7 @@ pub fn draw_dashboard(
             (
                 Rect::new(full.x, full.y, full.width, 1),
                 Rect::new(full.x, full.y.saturating_add(1), full.width, 1),
+                Rect::new(full.x, full.y.saturating_add(2), full.width, 1),
                 dock,
                 console,
                 footer,
@@ -299,6 +280,7 @@ pub fn draw_dashboard(
             (
                 Rect::new(full.x, full.y, full.width, 1),
                 Rect::new(full.x, full.y.saturating_add(1), full.width, 1),
+                Rect::new(full.x, full.y.saturating_add(2), full.width, 1),
                 dock,
                 console,
                 footer,
@@ -307,12 +289,13 @@ pub fn draw_dashboard(
         };
 
     // The head band, drawn by the shared renderer so the dashboard is
-    // chrome-identical to every other scene (ADR-0024). Row 1 is
-    // the uniform session identity; row 2 names the scene (`dashboard`) and
-    // carries the live fleet summary as its context, with the session's
-    // run-mode flags and the namespace pair on the right.
-    let tab_rects = if let Some(head) = session_head.as_ref() {
-        crate::render::draw_view_header(frame, header_rect, head, theme)
+    // chrome-identical to every other scene (ADR-0060). Row 1 is
+    // the client TabBar; row 2 is thread governance; row 3 names the scene (`dashboard`)
+    // and carries the live fleet summary as its context.
+    let tab_rects = if let Some(head) = thread_head.as_ref() {
+        let rects = crate::render::draw_view_header(frame, header_rect, head, theme);
+        crate::render::draw_thread_governance_header(frame, gov_rect, head, theme);
+        rects
     } else {
         Vec::new()
     };
@@ -324,9 +307,6 @@ pub fn draw_dashboard(
             kind: crate::surfaces::SceneKind::Dashboard,
             context: Some(summary.trim_end()),
             context_warn: needs_attention,
-            unattended,
-            confined,
-            workspace: None,
             breadcrumbs: None,
             can_back: false,
             can_forward: false,
@@ -1428,19 +1408,20 @@ mod tests {
     /// namespace pair on the right. This pins the rendered rows end to end,
     /// because the layout split is what makes the scene row reachable.
     #[test]
-    fn dashboard_head_renders_the_shared_two_row_band() {
+    fn dashboard_head_renders_the_shared_three_tier_band() {
         let theme = Theme::default();
         let rows = vec![row("a-1", 100, "/work/app", SessionStatus::Running)];
         let mut terminal = nuotc::TestTerminal::new(100, 24);
         let mut list_scroll = 0usize;
         let mut detail_scroll = 0usize;
-        let head = SessionHead {
-            session_id: "sess-01a2b3c4",
+        let head = ThreadHead {
+            thread_id: "sess-01a2b3c4",
             workspace: "~/work",
             role: Some("developer"),
-            switching_target: None,
             tabs: None,
             active_tab: 0,
+            unattended: true,
+            confined: true,
         };
         terminal.draw(|f| {
             draw_dashboard(
@@ -1458,9 +1439,7 @@ mod tests {
                     prompt_text: "",
                     current_session_id: "a-1",
                     show_caret: false,
-                    session_head: Some(head),
-                    unattended: true,
-                    confined: true,
+                    thread_head: Some(head),
                 },
                 &theme,
             );
@@ -1477,21 +1456,24 @@ mod tests {
                 .collect()
         };
 
-        // Row 1: the uniform session identity and namespace pair.
-        let head = row_text(0);
-        assert!(head.contains("SESSION"), "session identity on row 1: {head:?}");
-        assert!(head.contains("b3c4"), "id tail on row 1: {head:?}");
+        // Row 1: the client TabBar / brand and namespace pair (ADR-0060).
+        let tabbar = row_text(0);
         assert!(
-            head.contains("C-x menu"),
-            "row 1 advertises the scene namespace: {head:?}"
+            tabbar.contains("C-x menu"),
+            "row 1 advertises the scene namespace: {tabbar:?}"
         );
 
-        // Row 2: the scene name, the fleet summary context, the run-mode flag.
-        let scene = row_text(1);
-        assert!(scene.contains("dashboard"), "scene name on row 2: {scene:?}");
+        // Row 2: the thread governance band (ADR-0060).
+        let gov = row_text(1);
+        assert!(gov.contains("THREAD"), "thread identity on row 2: {gov:?}");
+        assert!(gov.contains("b3c4"), "id tail on row 2: {gov:?}");
+        assert!(gov.contains("UNATTENDED"), "run-mode flag on row 2: {gov:?}");
+
+        // Row 3: the scene name, the fleet summary context.
+        let scene = row_text(2);
+        assert!(scene.contains("dashboard"), "scene name on row 3: {scene:?}");
         assert!(scene.contains("1 session(s)"), "fleet summary context: {scene:?}");
         assert!(scene.contains("1 running"), "running count: {scene:?}");
-        assert!(scene.contains("UNATTENDED"), "run-mode flag: {scene:?}");
         assert!(
             !scene.contains("Esc"),
             "Esc is never advertised as a scene exit: {scene:?}"

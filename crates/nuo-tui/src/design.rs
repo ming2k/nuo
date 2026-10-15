@@ -206,15 +206,12 @@ pub(crate) const STREAM_BOTTOM_GAP_ROWS: usize = 1;
 /// via [`STREAM_TOP_GAP_ROWS`] and [`STREAM_BOTTOM_GAP_ROWS`].
 pub(crate) const FOOTER_TOP_GAP_ROWS: u16 = 0;
 /// Maximum height of the head band shown at the top of every transcript
-/// page — Main (session identity + workspace), Subagent, Dashboard, and
-/// Settings all share this single chrome slot. Row 1 is always the ambient
-/// **session identity**; row 2 is the **scene row** — the scene the user
-/// stands in, named plainly, with its context and the session's run-mode flags
-/// plus the standing `C-x menu` namespace pair (ADR-0024, amending ADR-0023).
-/// The band is two rows on every reachable scene (`ViewHints::has_content` is
-/// always `true`); it halves to a single row only for non-session contexts
-/// (tests/showcase) that supply no `session_head`.
-pub(crate) const PAGE_HEADER_ROWS: u16 = 2;
+/// page — Main (thread), Subagent, Dashboard, and Settings all share this
+/// single chrome slot. Under ADR-0060 it is structured across three sovereign tiers:
+/// - Tier 1: Client Global TabBar (`draw_view_header`)
+/// - Tier 2: Thread Identity & Governance Band (`draw_thread_governance_header`)
+/// - Tier 3: Scene Head & Navigation Stack (`draw_view_header_hints`)
+pub(crate) const PAGE_HEADER_ROWS: u16 = 3;
 
 /// Horizontal inset applied to the footer area containing status/composer/hints.
 pub(crate) const FOOTER_H_INSET: u16 = TRANSCRIPT_H_INSET;

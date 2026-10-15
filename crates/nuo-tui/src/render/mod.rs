@@ -52,7 +52,8 @@ pub use crate::theme::{COLOR_SCHEMES, Theme};
 use crate::view_header;
 #[allow(unused_imports)]
 pub(crate) use crate::view_header::{
-    SessionHead, ViewHints, ViewKind, draw_view_header, draw_view_header_hints,
+    ThreadHead, ViewHints, ViewKind, draw_thread_governance_header, draw_view_header,
+    draw_view_header_hints,
 };
 #[allow(unused_imports)]
 pub use crate::views::settings::*;
@@ -214,11 +215,11 @@ pub struct TranscriptProps<'a> {
     /// its context, and the session's run-mode flags + the `C-x menu` namespace
     /// pair. `None` suppresses the row entirely (non-app contexts).
     pub page_hints: Option<view_header::ViewHints<'a>>,
-    /// The head band's **session-identity row** (ADR-0024), uniform across
-    /// scenes: `SESSION` plus the persistent-id tail, `[ROLE]` badge, and
-    /// tilde-shortened workspace on the left. `None` only in non-session
-    /// contexts (tests/showcase) where no ambient session exists.
-    pub session_head: Option<SessionHead<'a>>,
+    /// The head band's **thread-identity and governance row** (ADR-0043, ADR-0060), uniform across
+    /// scenes: `THREAD` plus the persistent-id tail, `[ROLE]` badge, and
+    /// tilde-shortened workspace on the left. `None` only in non-thread
+    /// contexts (tests/showcase) where no ambient thread exists.
+    pub thread_head: Option<ThreadHead<'a>>,
     /// Wall-clock instant the current round started, or `None` between rounds.
     /// Drives the muted `<elapsed>` segment in the activity bar.
     pub round_started_at: Option<std::time::Instant>,
@@ -699,7 +700,7 @@ pub fn draw_transcript(
         persistence_health,
         subagent_bar,
         page_hints,
-        session_head,
+        thread_head,
         round_started_at,
         hovered_step,
         focused_target,
@@ -745,56 +746,48 @@ pub fn draw_transcript(
         };
     }
 
-    // The head band is a fixed two-row stack (ADR-0024): row 1 is the ambient
-    // **session identity** (`SESSION`, id tail, `[ROLE]` badge, workspace),
-    // uniform on every scene; row 2 is the **scene row** — the scene the user
-    // stands in named plainly, the scene's own context, and the session's
-    // run-mode flags plus the standing `C-x menu` namespace pair (ADR-0023
-    // `[INV-HINT-01]`). `page_hints` is pre-resolved by the caller (it needs
-    // app-level state — the scene kind and its context).
-    let page_hints_view = page_hints.filter(|hints: &ViewHints<'_>| hints.has_content());
+    // The head band is a fixed three-row stack (ADR-0060):
+    // - row 1 is the Client Global TabBar (`draw_view_header`)
+    // - row 2 is the Thread Governance Band (`draw_thread_governance_header`)
+    // - row 3 is the Scene Head & Navigation Stack (`draw_view_header_hints`)
+    let page_hints_view = page_hints;
 
     // The band occupies the top rows of the terminal directly — it is a sibling
     // of the transcript, not content inside it, so it replaces the viewport's
-    // top margin rather than nesting under it. Each present row is carved off
-    // with one layout split; the transcript keeps the row for any absent row
-    // (non-session test/showcase contexts). Without any head the standard
-    // viewport margins apply.
-    let head_rows = u16::from(session_head.is_some());
+    // top margin rather than nesting under it.
+    let tab_rows = u16::from(thread_head.is_some());
+    let gov_rows = u16::from(thread_head.is_some());
     let hints_rows = u16::from(page_hints_view.is_some());
-    let (head_rect, hints_rect, viewport) = if head_rows + hints_rows > 0 {
+    let (tab_rect, gov_rect, hints_rect, viewport) = if tab_rows + gov_rows + hints_rows > 0 {
         debug_assert!(
-            head_rows + hints_rows <= PAGE_HEADER_ROWS,
+            tab_rows + gov_rows + hints_rows <= PAGE_HEADER_ROWS,
             "the head band is at most {PAGE_HEADER_ROWS} rows"
         );
         let full = frame.area();
         let sub = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(head_rows),
+                Constraint::Length(tab_rows),
+                Constraint::Length(gov_rows),
                 Constraint::Length(hints_rows),
                 Constraint::Min(0),
             ])
             .split(full);
         (
-            // The head band spans the terminal's full width — it is top-level
-            // chrome pinned to the top edge, not a transcript-area component.
-            // Its *text* keeps the shared horizontal inset (applied inside the
-            // draw functions as pad spans) so it stays aligned with the
-            // transcript band below.
-            (head_rows > 0).then_some(sub[0]),
-            (hints_rows > 0).then_some(sub[1]),
+            (tab_rows > 0).then_some(sub[0]),
+            (gov_rows > 0).then_some(sub[1]),
+            (hints_rows > 0).then_some(sub[2]),
             // The remaining area keeps the bottom viewport margin (0) but
             // drops the top one (the head owns those rows now).
             Rect::new(
-                sub[2].x,
-                sub[2].y,
-                sub[2].width,
-                sub[2].height.saturating_sub(VIEWPORT_BOTTOM_MARGIN),
+                sub[3].x,
+                sub[3].y,
+                sub[3].width,
+                sub[3].height.saturating_sub(VIEWPORT_BOTTOM_MARGIN),
             ),
         )
     } else {
-        (None, None, viewport_rect(frame))
+        (None, None, None, viewport_rect(frame))
     };
 
     let size = viewport;
@@ -929,14 +922,16 @@ pub fn draw_transcript(
         .split(size);
 
     // 1. Head band — drawn at the very top of the terminal, before the
-    // transcript. The band is a sibling of the transcript, not content inside
-    // it, so it was already split from `full` above; just paint it here.
-    // Row 1 carries the session identity; row 2 the scene + context + status.
-    let tab_rects = if let (Some(head), Some(rect)) = (session_head.as_ref(), head_rect) {
+    // transcript (ADR-0060).
+    // Row 1 carries the Client TabBar; row 2 the thread governance; row 3 the scene head & stack.
+    let tab_rects = if let (Some(head), Some(rect)) = (thread_head.as_ref(), tab_rect) {
         draw_view_header(frame, rect, head, theme)
     } else {
         Vec::new()
     };
+    if let (Some(head), Some(rect)) = (thread_head.as_ref(), gov_rect) {
+        draw_thread_governance_header(frame, rect, head, theme);
+    }
     if let (Some(hints), Some(rect)) = (page_hints_view.as_ref(), hints_rect) {
         draw_view_header_hints(frame, rect, hints, theme);
     }
@@ -1026,7 +1021,7 @@ pub fn draw_transcript(
         // every layout agrees on scroll semantics. The layout leaves
         // `content_lines` and `sticky_steps` populated for the
         // post-processing below.
-        let workspace_root = session_head
+        let workspace_root = thread_head
             .as_ref()
             .map(|h| h.workspace)
             .filter(|w| !w.is_empty())

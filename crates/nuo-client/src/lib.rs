@@ -1503,7 +1503,7 @@ pub async fn ensure_server_explicit(
 fn spawn_server(explicit_port: Option<u16>) -> Result<std::process::Child, String> {
     let program = server_program();
     let mut command = std::process::Command::new(&program);
-    command.args(["start", "--fg"]);
+    command.args(["server", "start", "--fg"]);
     let port = explicit_port.or_else(|| {
         std::env::var("NUO_PORT")
             .ok()

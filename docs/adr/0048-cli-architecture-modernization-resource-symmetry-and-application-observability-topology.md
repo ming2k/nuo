@@ -1,7 +1,7 @@
 ---
 id: ADR-0048
 title: "CLI Architecture Modernization, Resource Symmetry, and Application Observability Topology"
-status: draft
+status: accepted
 date: 2026-10-25
 scope: interface/cli, architecture/observability, server/status, runtime/concentric
 superseded_by: null
@@ -10,7 +10,7 @@ negative_knowledge: true
 
 # 0048. CLI Architecture Modernization, Resource Symmetry, and Application Observability Topology
 
-- Status: Draft
+- Status: Accepted
 - Date: 2026-10-25
 - Deciders: Nuo Architecture Working Group
 - Consulted: Interface, Runtime, Protocol, and TUI Teams
@@ -24,24 +24,21 @@ negative_knowledge: true
 Nuo unified its binary footprint under ADR-0005 and streamlined its domain nomenclature under ADR-0038 and ADR-0043. However, progressive feature accumulation across rapid release cycles exposed deep ergonomic inconsistencies, architectural redundancies, and observability gaps across the Command Line Interface (CLI):
 
 1. **Dual-Parser Drift and Redundant Argument Validation**:
-   Command-line invocation currently traverses two uncoordinated parsing layers:
-   - Root Coordinator: `nuo/src/cli.rs` parses top-level flags, but when no server subcommand is detected, bundles raw unparsed tokens into `Mode::Interactive(Vec<String>)`.
-   - Presentation Runtime: `nuo-tui/src/cli.rs` re-parses these arguments from scratch.
-   Flags such as `--role`, `--unattended`, `--resume`, `--project`, and `-p` exist in duplicate table specifications across two separate crates. This dual-parser model increases maintenance overhead, introduces subtle argument validation divergence, and violates the single-source-of-truth invariant.
+   Command-line invocation historically traversed uncoordinated parsing layers between root launcher and presentation runtime.
 
 2. **CRUD Asymmetry in Thread Resource Management**:
-   Under ADR-0038 and ADR-0043, the persistent multi-turn conversational entity was formally ratified as `Thread`. The CLI provides administrative deletion via `nuo thread rm <id>`. However, operators attempting to list hosted threads discover that `nuo thread ls` (or `nuo thread list`) does not exist. Listing threads was historically coupled to `nuo status`, forcing operators to memorize an idiosyncratic cross-subsystem convention that breaks universal POSIX/CLI mental models.
+   Under ADR-0038 and ADR-0043, the persistent multi-turn conversational entity was formally ratified as `Thread`. The CLI provided administrative deletion via `nuo thread rm <id>`, but lacked symmetrical `nuo thread ls`.
 
-3. **Nomenclature Inflation and Deprecated Aliases**:
-   While `Thread` was established as the authoritative business noun, legacy documentation and CLI shims continue to co-advertise `session` and `thread` on equal footing (e.g. `THREAD_SUBS` vs `SESSION_SUBS`). This co-advertisement confuses new operators, clutters help screens, and dilutes domain taxonomy purity.
+3. **Nomenclature Inflation and Leaked Scene Commands**:
+   Internal TUI scenes (`attach`, `dashboard`, `settings`) leaked into the top-level CLI surface as pseudo-commands. Concurrently, redundant verbs (`serve` vs `server start`) and internal utilities (`doctor`, `auth`, `quota`, `context`) cluttered `--help`.
 
 4. **Observability Conflation in `nuo status`**:
-   `nuo status` was originally conceived when the server was merely an ephemeral session broker. In the contemporary concentric runtime, Nuo operates as a sophisticated platform coordinating model provider quota pools, MCP servers, autonomous skills, SQLite WAL state, and orthogonal network endpoints. Rendering a raw, uncurated ASCII table of threads in response to `nuo status` obscures high-level system health, provider connectivity, and active execution telemetry.
+   `nuo status` originally dumped raw session tables, obscuring high-level system health, provider readiness, and active workflows.
 
 5. **Foreground vs. Background Lifecycle Semantic Inversion**:
-   In standard CLI ergonomics (e.g., `systemctl`, `brew services`, `nginx`), `start` denotes detached background service orchestration, whereas `serve` or `run` denotes attached foreground execution. Nuo currently defaults `nuo start` to foreground execution, requiring an explicit `--detach` flag for background spawning. This inverts conventional developer expectations.
+   In standard CLI ergonomics, `start` denotes background service orchestration, whereas foreground container execution requires `--fg`.
 
-We require a modernized, uncompromising CLI architecture that eradicates dual-parser drift, enforces full CRUD resource symmetry, canonicalizes `thread` as the sole primary resource noun, bifurcates application observability from thread querying, and aligns server lifecycle verbs with standard Unix systems.
+We require a modernized, uncompromising, forward-facing CLI architecture that eradicates dual-parser drift, enforces full CRUD resource symmetry, canonicalizes `thread` as the primary resource noun, consolidates server lifecycle under `nuo server`, and purges all legacy command baggage.
 
 ---
 
@@ -49,9 +46,9 @@ We require a modernized, uncompromising CLI architecture that eradicates dual-pa
 
 - **Single CLI Parse Authority (`[INV-PARSE-01]`)**: All command-line arguments across both interactive TUI and headless/server modes must be parsed once within the root binary crate (`nuo`) into a strongly typed execution descriptor.
 - **Resource CRUD Symmetry (`[INV-CLI-03]`)**: Every first-class resource that exposes mutation verbs (`rm`, `set`) must provide a corresponding listing verb (`ls`).
-- **Singular Domain Resource Noun (`[INV-CLI-04]`)**: `thread` is the authoritative public noun for multi-turn agent workloads; `session` is demoted to a silent, unadvertised backwards-compatibility alias.
+- **Singular Domain Resource Noun (`[INV-CLI-04]`)**: `thread` is the authoritative public noun for multi-turn agent workloads; `session` is demoted to a silent backwards-compatibility alias.
 - **Hierarchical Application Observability (`[INV-STATUS-02]`)**: `nuo status` serves as the top-level application dashboard, presenting server health, provider readiness, MCP/tool state, and active workflows. Thread enumeration is delegated to `nuo thread ls`, and low-level transport debugging is delegated to `nuo server status` / `--diagnostic`.
-- **Intuitive Lifecycle Invariant (`[INV-CLI-05]`)**: `nuo serve` is the canonical foreground container runner; `nuo server start` (and `nuo start`) launches detached background servers by default.
+- **Pure Resource-Verb Lifecycle Topology (`[INV-CLI-05]`)**: Server lifecycle is strictly unified under `nuo server <start|stop|reload|restart|status|token>`. `nuo server start` launches background instances by default, with `--fg` for foreground container execution. Leaked scene commands (`attach`, `dashboard`, `settings`) and legacy verbs (`serve`, `doctor`, `auth`, `quota`, `context`) are purged without legacy shims.
 
 ---
 
@@ -172,16 +169,17 @@ All resource subcommands standardize on **`ls`** as the primary canonical verb, 
 - `nuo thread ls`
 - `nuo mcp ls`
 - `nuo skill ls`
-- `nuo auth ls`
 - `nuo config ls`
 
 ### 5. Lifecycle Semantics Realignment (`[INV-CLI-05]`)
 
 Server execution verbs are aligned with standard systems engineering expectations:
-- **`nuo serve`**: Starts the server container in the **foreground** (ideal for Docker containers, systemd units, and development debugging).
-- **`nuo server start` / `nuo start`**: Starts the server in the **background (detached)** by default. An explicit `--fg` or `--foreground` flag is available to keep it attached.
-- **`nuo server stop` / `nuo stop`**: Drains and terminates the running server.
-- **`nuo server reload` / `nuo reload`**: Triggers Level 1 soft configuration and MCP/skill re-sync without dropping connections.
+- **`nuo server start`**: Starts the server in the **background (detached)** by default. An explicit `--fg` or `--foreground` flag runs it in the foreground for container/supervision environments.
+- **`nuo server stop`**: Drains and terminates the running server.
+- **`nuo server reload`**: Triggers Level 1 soft configuration and MCP/skill re-sync without dropping connections.
+- **`nuo server restart`**: Restarts or replaces the server instance.
+- **`nuo server status` / `nuo server token`**: Infrastructure diagnostics and bearer credentials.
+- **Eradicated redundant aliases**: `serve`, top-level `start`/`stop`/`reload`/`restart`/`token`, `attach`, `dashboard`, `settings`, `doctor`, `auth`, `quota`, and `context` are eliminated outright.
 
 ---
 
@@ -191,7 +189,7 @@ Server execution verbs are aligned with standard systems engineering expectation
 - **`[INV-CLI-03]` Thread Resource Symmetry**: The CLI MUST provide `nuo thread ls` for querying threads whenever `nuo thread rm` is provided for removing threads. Thread enumeration MUST NOT require invocation of top-level system health commands.
 - **`[INV-CLI-04]` Canonical Thread Domain**: The public user-facing nomenclature for agent workloads MUST be `thread`. The noun `session` MUST NOT appear in generated help text, shell completions, or public documentation.
 - **`[INV-STATUS-02]` Layered Observability Separation**: `nuo status` MUST focus on top-level application and capability health. It MUST NOT dump raw unpaginated multi-project thread tables. Low-level socket diagnostics MUST be isolated under `nuo server status` or `--diagnostic`.
-- **`[INV-CLI-05]` Deterministic Server Lifecycle Verbs**: `nuo serve` MUST execute in the foreground. `nuo server start` MUST detach into the background by default unless `--fg` is explicitly declared.
+- **`[INV-CLI-05]` Pure Server Lifecycle Topology**: Server operations MUST be routed under `nuo server <start|stop|reload|restart|status|token>`. `nuo server start` MUST detach into the background by default unless `--fg` is explicitly declared. Redundant aliases (`serve`, top-level lifecycle verbs) and internal scene leakages (`attach`, `dashboard`, `settings`) MUST NOT exist as top-level CLI commands.
 
 ---
 

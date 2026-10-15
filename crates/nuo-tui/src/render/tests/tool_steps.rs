@@ -74,7 +74,7 @@ fn subagent_view_groups_children_into_turn_bands() {
                     total: 1,
                 }),
                 page_hints: None,
-                session_head: None,
+                thread_head: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -178,7 +178,7 @@ fn subagent_step_and_view_render_without_panicking() {
                 persistence_health: None,
                 subagent_bar: None,
                 page_hints: None,
-                session_head: None,
+                thread_head: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -233,20 +233,18 @@ fn subagent_step_and_view_render_without_panicking() {
                     kind: ViewKind::Subagent,
                     context: Some("[EXPLORE] the codebase (1/2)"),
                     context_warn: false,
-                    unattended: false,
-                    confined: true,
-                    workspace: Some("~/projects/nuo"),
                     breadcrumbs: None,
                     can_back: false,
                     can_forward: false,
                 }),
-                session_head: Some(SessionHead {
-                    session_id: "sess-01a2b3c4",
+                thread_head: Some(ThreadHead {
+                    thread_id: "sess-01a2b3c4",
                     workspace: "~/projects/nuo",
                     role: None,
-                    switching_target: None,
                     tabs: None,
                     active_tab: 0,
+                    unattended: false,
+                    confined: true,
                 }),
                 round_started_at: None,
                 hovered_step: None,
@@ -268,30 +266,31 @@ fn subagent_step_and_view_render_without_panicking() {
             .map(|cell| cell.symbol())
             .collect()
     };
-    // Row 1 is the uniform session identity (ADR-0024), carrying client C-x menu on the right.
-    let head_row = row_text(0);
+    // Row 1 is the Client TabBar (ADR-0060), carrying client C-x menu on the right.
+    let tab_row = row_text(0);
     assert!(
-        head_row.contains("SESSION"),
-        "session identity on row 1: {head_row:?}"
+        tab_row.contains("C-x menu"),
+        "the client row offers the namespace pair: {tab_row:?}"
+    );
+    // Row 2 is the Thread Governance Band (ADR-0060): THREAD, id, workspace.
+    let gov_row = row_text(1);
+    assert!(
+        gov_row.contains("THREAD"),
+        "thread identity on row 2: {gov_row:?}"
     );
     assert!(
-        head_row.contains("C-x menu"),
-        "the client row offers the namespace pair: {head_row:?}"
+        gov_row.contains("~/projects/nuo"),
+        "workspace attached to governance row: {gov_row:?}"
     );
-    // Row 2 is the scene row: the scene name, then the task's `[ROLE] label
-    // (i/n)` context, followed by the workspace path.
-    let scene_row = row_text(1);
+    // Row 3 is the scene row: the scene name, then the task's `[ROLE] label (i/n)` context.
+    let scene_row = row_text(2);
     assert!(
         scene_row.trim_start().starts_with("subagent"),
-        "scene name leads row 2: {scene_row:?}"
+        "scene name leads row 3: {scene_row:?}"
     );
     assert!(
         scene_row.contains("[EXPLORE] the codebase (1/2)"),
         "role tag, title and sibling index on the scene row: {scene_row:?}"
-    );
-    assert!(
-        scene_row.contains("~/projects/nuo"),
-        "workspace attached to scene row: {scene_row:?}"
     );
     assert!(
         !scene_row.contains("C-x menu") && !scene_row.contains("C-x"),
@@ -371,7 +370,7 @@ fn height_cache_skip_path_matches_full_layout() {
                     persistence_health: None,
                     subagent_bar: None,
                     page_hints: None,
-                    session_head: None,
+                    thread_head: None,
                     round_started_at: None,
                     hovered_step: None,
                     focused_target: None,
@@ -481,7 +480,7 @@ fn expanded_edit_diff_height_is_scroll_independent() {
                     persistence_health: None,
                     subagent_bar: None,
                     page_hints: None,
-                    session_head: None,
+                    thread_head: None,
                     round_started_at: None,
                     hovered_step: None,
                     focused_target: None,
@@ -579,7 +578,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
                 persistence_health: None,
                 subagent_bar: None,
                 page_hints: None,
-                session_head: None,
+                thread_head: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -670,14 +669,10 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
         kind: ViewKind::Subagent,
         context: Some("[EXPLORE] inspect the renderer (1/2)"),
         context_warn: false,
-        unattended: false,
-        confined: true,
-        workspace: None,
         breadcrumbs: None,
         can_back: false,
         can_forward: false,
     };
-    assert!(hints.has_content(), "every scene stands up row 2 (ADR-0024)");
     let terminal = render_full_view(80, 24, &[], Some(hints));
     let row0 = grid_row(&terminal, 0);
     assert!(
@@ -685,14 +680,16 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
         "client row carries namespace pair: {row0:?}"
     );
     let row1 = grid_row(&terminal, 1);
-    assert!(row1.starts_with("  subagent"), "scene name leads: {row1:?}");
+    assert!(row1.contains("THREAD"), "thread governance on row 1: {row1:?}");
+    let row2 = grid_row(&terminal, 2);
+    assert!(row2.starts_with("  subagent"), "scene name leads: {row2:?}");
     assert!(
-        row1.contains("[EXPLORE] inspect the renderer (1/2)"),
-        "task context follows: {row1:?}"
+        row2.contains("[EXPLORE] inspect the renderer (1/2)"),
+        "task context follows: {row2:?}"
     );
     assert!(
-        !row1.contains("C-x menu") && !row1.contains("C-x"),
-        "scene row no longer carries namespace pair: {row1:?}"
+        !row2.contains("C-x menu") && !row2.contains("C-x"),
+        "scene row no longer carries namespace pair: {row2:?}"
     );
 }
 
@@ -928,7 +925,7 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
                     persistence_health: None,
                     subagent_bar: None,
                     page_hints: None,
-                    session_head: None,
+                    thread_head: None,
                     round_started_at: None,
                     hovered_step: None,
                     focused_target: None,
