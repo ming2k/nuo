@@ -14,14 +14,14 @@ pub fn build_request(
     is_stream: bool,
 ) -> (String, http::HeaderMap, serde_json::Value) {
     let method_suffix = if is_stream {
-        ":streamGenerateContent?alt=sse&key="
+        ":streamGenerateContent?alt=sse"
     } else {
-        ":generateContent?key="
+        ":generateContent"
     };
 
     let url = format!(
-        "{}/models/{}{}{}",
-        endpoint.base_url, endpoint.model, method_suffix, token
+        "{}/models/{}{}",
+        endpoint.base_url, endpoint.model, method_suffix
     );
 
     let mut headers = http::HeaderMap::new();
@@ -29,6 +29,24 @@ pub fn build_request(
         http::header::CONTENT_TYPE,
         http::header::HeaderValue::from_static("application/json"),
     );
+
+    if !token.is_empty() {
+        if token.starts_with("ya29.") || token.starts_with("Bearer ") {
+            let bearer = if token.starts_with("Bearer ") {
+                token.to_string()
+            } else {
+                format!("Bearer {token}")
+            };
+            if let Ok(val) = bearer.parse() {
+                headers.insert(http::header::AUTHORIZATION, val);
+            }
+        } else if let Ok(val) = http::HeaderValue::from_str(token) {
+            headers.insert(
+                http::header::HeaderName::from_static("x-goog-api-key"),
+                val,
+            );
+        }
+    }
 
     for (k, v) in endpoint.client_profile.headers() {
         if let (Ok(name), Ok(val)) = (k.parse::<http::header::HeaderName>(), v.parse()) {
@@ -67,8 +85,9 @@ pub fn build_request(
                 ContentBlock::Text { text } => {
                     parts.push(json!({ "text": text }));
                 }
-                ContentBlock::Thinking { text, .. } => {
-                    parts.push(json!({ "thought": text }));
+                ContentBlock::Thinking { .. } => {
+                    // Google Gemini REST API does not accept "thought" fields in request parts.
+                    // Thinking text is emitted by the model during output but withheld from request contents.
                 }
                 ContentBlock::Image { media_type, data } => {
                     parts.push(json!({
@@ -136,6 +155,12 @@ pub fn build_request(
     }
     if let Some(max) = request.max_tokens {
         gen_config.insert("maxOutputTokens".into(), json!(max));
+    }
+    if let Some(budget) = request.thinking_budget {
+        let mut thinking_config = serde_json::Map::new();
+        thinking_config.insert("includeThoughts".into(), json!(true));
+        thinking_config.insert("thinkingBudget".into(), json!(budget));
+        gen_config.insert("thinkingConfig".into(), serde_json::Value::Object(thinking_config));
     }
     if !gen_config.is_empty() {
         body["generationConfig"] = serde_json::Value::Object(gen_config);

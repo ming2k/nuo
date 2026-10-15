@@ -125,20 +125,38 @@ fn test_gemini_wire_request_and_response() {
         )],
         temperature: Some(0.2),
         max_tokens: Some(512),
-        thinking_budget: None,
+        thinking_budget: Some(2048),
     };
 
     // Non-streaming URL
-    let (url, _headers, body) = google::build_request(&endpoint, "goog-test", &request, false);
-    assert!(url.contains(":generateContent?key=goog-test"));
+    let (url, headers, body) = google::build_request(&endpoint, "goog-test", &request, false);
+    assert!(url.ends_with(":generateContent"), "{url}");
+    assert!(!url.contains("key="), "Key must not leak into query string: {url}");
+    assert_eq!(
+        headers.get("x-goog-api-key").and_then(|v| v.to_str().ok()),
+        Some("goog-test")
+    );
     assert_eq!(body["contents"][0]["role"], "user");
     assert_eq!(body["contents"][0]["parts"][0]["text"], "What time is it in Tokyo?");
     assert_eq!(body["tools"][0]["functionDeclarations"][0]["name"], "get_time");
+    assert_eq!(
+        body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+        2048
+    );
+    assert_eq!(
+        body["generationConfig"]["thinkingConfig"]["includeThoughts"],
+        true
+    );
     assert!(body.get("stream").is_none());
 
     // Streaming URL
-    let (stream_url, _, stream_body) = google::build_request(&endpoint, "goog-test", &request, true);
-    assert!(stream_url.contains(":streamGenerateContent?alt=sse&key=goog-test"));
+    let (stream_url, stream_headers, stream_body) = google::build_request(&endpoint, "goog-test", &request, true);
+    assert!(stream_url.ends_with(":streamGenerateContent?alt=sse"), "{stream_url}");
+    assert!(!stream_url.contains("key="), "Key must not leak into streaming query string: {stream_url}");
+    assert_eq!(
+        stream_headers.get("x-goog-api-key").and_then(|v| v.to_str().ok()),
+        Some("goog-test")
+    );
     assert!(stream_body.get("stream").is_none());
 
     let mock_resp = json!({

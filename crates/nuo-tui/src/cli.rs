@@ -74,6 +74,10 @@ pub struct CliArgs {
     pub token: Option<String>,
     /// `--port <n>`: TCP port to bind or connect to.
     pub port: Option<u16>,
+    /// `--headless`: run non-interactively without TUI and stream output to stdout.
+    pub headless: bool,
+    /// `-t` / `--thread [id]`: attach to existing thread (picker if ID omitted).
+    pub thread: Option<Option<String>>,
 }
 
 struct Spec {
@@ -83,12 +87,8 @@ struct Spec {
 
 const COMMANDS: &[Spec] = &[
     Spec {
-        name: "run",
-        about: "execute a prompt non-interactively (headless one-shot)",
-    },
-    Spec {
         name: "attach",
-        about: "attach the TUI to a hosted session (picker when no id)",
+        about: "attach the TUI to a hosted thread (picker when no id)",
     },
     Spec {
         name: "dashboard",
@@ -169,6 +169,8 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     let mut remote = None;
     let mut token = None;
     let mut port = None;
+    let mut headless = false;
+    let mut thread = None;
     let mut rest = Vec::new();
 
     let mut iter = args.iter().peekable();
@@ -188,6 +190,17 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 return Err(format!(
                     "{name} was removed: use matching NUO_*_DIR environment variables instead"
                 ));
+            }
+            "--headless" => headless = true,
+            "-t" | "--thread" => {
+                if let Some(val) = inline {
+                    thread = Some(Some(val.to_string()));
+                } else if let Some(next) = iter.peek().filter(|n| !n.starts_with('-')) {
+                    thread = Some(Some((*next).clone()));
+                    let _ = iter.next();
+                } else {
+                    thread = Some(None);
+                }
             }
             "--unattended" => unattended = true,
             "--role" | "-r" => role = Some(flag_value("-r/--role", inline, &mut iter)?),
@@ -239,6 +252,8 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         remote: remote.clone(),
         token: token.clone(),
         port,
+        headless,
+        thread: thread.clone(),
     };
     let ok = |mode| Ok(base(mode));
 
@@ -266,6 +281,9 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     }
 
     let Some(cmd) = rest.first().cloned() else {
+        if let Some(ref t) = thread {
+            return ok(Mode::Attach { id: t.clone() });
+        }
         return ok(Mode::Fresh);
     };
     let extra = &rest[1..];
@@ -274,6 +292,12 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             "unexpected argument '{arg}' found for 'nuox {cmd}'"
         ))
     };
+
+    if cmd == "run" {
+        return Err(
+            "'run' was removed in favor of '--headless' (ADR-0061).\n\n  tip: use 'nuo --headless <prompt>' or 'nuo -p <prompt>'".into(),
+        );
+    }
 
     if CORE_COMMANDS.contains(&cmd.as_str()) {
         return Err(format!(
@@ -311,18 +335,6 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         return Err(format!("unrecognized command '{cmd}'"));
     };
     let mode = match spec.name {
-        "run" => {
-            let mut parts = Vec::new();
-            if let Some(value) = prompt.as_ref().filter(|value| !value.is_empty()) {
-                parts.push(value.clone());
-            }
-            parts.extend(extra.iter().cloned());
-            let text = parts.join(" ");
-            if text.trim().is_empty() {
-                return Err("run requires a prompt".into());
-            }
-            Mode::Run { prompt: text }
-        }
         "attach" => match extra {
             [] => Mode::Attach { id: None },
             [id] if !id.starts_with('-') => Mode::Attach {
@@ -409,14 +421,16 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
                 out.push_str(&format!("  {:<width$}  {}\n", spec.name, spec.about));
             }
             out.push_str("\nOptions:\n");
-            out.push_str("  -p, --prompt <prompt>  run the prompt non-interactively (headless)\n");
+            out.push_str("  -t, --thread [id]      attach to existing thread (opens picker if id omitted)\n");
+            out.push_str("      --headless         execute prompt non-interactively and stream to stdout\n");
+            out.push_str("  -p, --prompt <prompt>  prompt for headless execution or initial TUI input\n");
             out.push_str("  -i, --interactive      force interactive TUI mode\n");
             out.push_str("  -j, --json             emit structured JSON where supported\n");
             out.push_str(
-                "  -r, --role <id>        staff the new session with a role (developer, philosophist, ops, or custom)\n",
+                "  -r, --role <id>        staff the thread with a role (developer, philosophist, ops, or custom)\n",
             );
             out.push_str(
-                "      --resume           resume the most recent matching session instead of a new one\n",
+                "      --resume           resume the most recent matching thread instead of a new one\n",
             );
             out.push_str(
                 "      --unattended       run unattended without interactive human confirmations\n",
@@ -427,7 +441,7 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
             out.push_str("      --token <token>    bearer token for server connection\n");
             out.push_str("  -h, --help             print help ('nuox help <command>' for more)\n");
             out.push_str("  -V, --version          print the version and exit\n");
-            out.push_str("\nWith no command, nuox opens a fresh interactive session.\n");
+            out.push_str("\nWith no command, nuox opens a fresh interactive thread.\n");
             out.push_str("It checks the Nuo server first and starts `nuo` when needed.\n");
             out.push_str("Server and service administration remains under the `nuo` command.\n");
         }
@@ -436,17 +450,11 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
             out.push_str(&format!("nuox {} — {}\n\n", spec.name, spec.about));
             out.push_str(&format!("Usage: nuox {}\n", spec.name));
             match spec.name {
-                "run" => {
-                    out.push_str(
-                        "\nThe prompt streams to stdout (tool activity to stderr), exiting 0\n",
-                    );
-                    out.push_str("on completion. The Nuo server starts on demand.\n");
-                }
                 "attach" => {
                     out.push_str(
-                        "\nWith no id the TUI session picker opens (a lone hosted session is\n",
+                        "\nWith no id the TUI thread picker opens. Supplying an id\n",
                     );
-                    out.push_str("auto-selected). The Nuo server starts on demand.\n");
+                    out.push_str("attaches directly to that hosted thread.\n");
                 }
                 "settings" => {
                     out.push_str(
@@ -525,10 +533,23 @@ mod tests {
             parse(&["attach"]).unwrap().mode,
             Mode::Attach { id: None }
         ));
-        assert!(matches!(
-            parse(&["run", "hello"]).unwrap().mode,
-            Mode::Run { .. }
-        ));
+        let run_err = parse(&["run", "hello"]).unwrap_err();
+        assert!(run_err.contains("'run' was removed in favor of '--headless'"));
+    }
+
+    #[test]
+    fn thread_flag_parses_cleanly() {
+        let parsed = parse(&["-t"]).unwrap();
+        assert_eq!(parsed.thread, Some(None));
+        assert!(matches!(parsed.mode, Mode::Attach { id: None }));
+
+        let parsed = parse(&["--thread", "thr-42"]).unwrap();
+        assert_eq!(parsed.thread, Some(Some("thr-42".into())));
+        assert!(matches!(parsed.mode, Mode::Attach { id: Some(ref id) } if id == "thr-42"));
+
+        let parsed = parse(&["--headless", "-p", "fix it"]).unwrap();
+        assert!(parsed.headless);
+        assert_eq!(parsed.prompt.as_deref(), Some("fix it"));
     }
 
     #[test]

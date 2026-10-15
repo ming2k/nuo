@@ -248,7 +248,7 @@ fn visible_harness_injections_persist_after_origin_hidden_split() {
 
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData::default();
-    engine.save_session_full(&data).unwrap();
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
 
     // The exact repro: a user steering insert and a command echo are both
     // visible (`hidden = false`) yet legitimately carry an `origin`.
@@ -276,9 +276,9 @@ fn visible_harness_injections_persist_after_origin_hidden_split() {
     data.transcript
         .push(TranscriptEntry::from_message(2, &image));
     // Was the reported failure: `CHECK constraint failed: origin IS NULL OR hidden = 1`.
-    engine.save_session_full(&data).unwrap();
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
 
-    let reloaded = engine.load_session_full(&data.id).unwrap().unwrap();
+    let reloaded = session_store::load_session_full(&engine.conn, &data.id).unwrap().unwrap();
     let messages: Vec<_> = reloaded
         .transcript
         .entries
@@ -311,8 +311,7 @@ fn visible_checkpoint_origin_is_still_rejected() {
     data.transcript
         .push(TranscriptEntry::from_message(0, &message));
 
-    let err = engine
-        .save_session_full(&data)
+    let err = session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data)
         .expect_err("constraint must reject");
     let msg = err.to_string();
     assert!(
@@ -326,16 +325,22 @@ fn delta_save_appends_only_rows_above_the_watermark() {
     use nuo_wire::{Message, Role, TranscriptEntry};
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData::default();
-    engine.save_session_full(&data).unwrap();
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
 
     data.transcript.push(TranscriptEntry::from_message(
         0,
         &Message::new(Role::User, "one"),
     ));
-    engine
-        .save_session_inner(&data, false, &[], &CommitGuard::default())
-        .unwrap();
-    let reloaded = engine.load_session_full(&data.id).unwrap().unwrap();
+    session_store::save_session_inner(
+        &engine.conn,
+        engine.blob_store.as_ref(),
+        &data,
+        false,
+        &[],
+        &CommitGuard::default(),
+    )
+    .unwrap();
+    let reloaded = session_store::load_session_full(&engine.conn, &data.id).unwrap().unwrap();
     assert_eq!(reloaded.transcript.entries.len(), 1);
 
     // Second delta appends only the new row; the durable watermark moves.
@@ -343,10 +348,16 @@ fn delta_save_appends_only_rows_above_the_watermark() {
         1,
         &Message::new(Role::User, "two"),
     ));
-    engine
-        .save_session_inner(&data, false, &[], &CommitGuard::default())
-        .unwrap();
-    let reloaded = engine.load_session_full(&data.id).unwrap().unwrap();
+    session_store::save_session_inner(
+        &engine.conn,
+        engine.blob_store.as_ref(),
+        &data,
+        false,
+        &[],
+        &CommitGuard::default(),
+    )
+    .unwrap();
+    let reloaded = session_store::load_session_full(&engine.conn, &data.id).unwrap().unwrap();
     assert_eq!(reloaded.transcript.entries.len(), 2);
     assert_eq!(reloaded.transcript.entries[1].seq, 1);
 }
@@ -360,18 +371,24 @@ fn generation_mismatch_escalates_delta_to_full_rewrite() {
         0,
         &Message::new(Role::User, "old"),
     ));
-    engine.save_session_full(&data).unwrap();
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
 
     // Rebuild: fresh entries, fresh ids, fresh generation. The delta save
     // must notice the generation change and rewrite everything.
     let rebuilt = crate::session::rebuild_for_test(&[Message::new(Role::User, "rebuilt")]);
     data.transcript = rebuilt;
     data.generation = uuid::Uuid::new_v4().to_string();
-    engine
-        .save_session_inner(&data, false, &[], &CommitGuard::default())
-        .unwrap();
+    session_store::save_session_inner(
+        &engine.conn,
+        engine.blob_store.as_ref(),
+        &data,
+        false,
+        &[],
+        &CommitGuard::default(),
+    )
+    .unwrap();
 
-    let reloaded = engine.load_session_full(&data.id).unwrap().unwrap();
+    let reloaded = session_store::load_session_full(&engine.conn, &data.id).unwrap().unwrap();
     assert_eq!(reloaded.transcript.entries.len(), 1);
     assert_eq!(
         reloaded.transcript.entries[0].to_message().unwrap().content,
@@ -380,13 +397,29 @@ fn generation_mismatch_escalates_delta_to_full_rewrite() {
     assert_eq!(reloaded.generation, data.generation);
 }
 
+fn save_session_full(
+    engine: &DatabaseEngine,
+    data: &crate::session::SessionData,
+) -> std::result::Result<(), SaveError> {
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), data)
+}
+
+fn load_session_full(
+    engine: &DatabaseEngine,
+    session_id: &str,
+) -> Result<Option<crate::session::SessionData>> {
+    session_store::load_session_full(&engine.conn, session_id)
+}
+
 fn guarded_save(
     engine: &DatabaseEngine,
     data: &crate::session::SessionData,
     operation_id: Option<&str>,
     expected_revision: Option<u64>,
 ) -> std::result::Result<u64, SaveError> {
-    engine.save_session_inner(
+    session_store::save_session_inner(
+        &engine.conn,
+        engine.blob_store.as_ref(),
         data,
         false,
         &[],
@@ -441,7 +474,7 @@ fn replayed_operation_returns_its_original_receipt() {
         .expect("a receipt is durable");
     assert_eq!(receipt.0, "op-1");
     assert_eq!(receipt.2, first);
-    let reloaded = engine.load_session_full(&data.id).unwrap().unwrap();
+    let reloaded = load_session_full(&engine, &data.id).unwrap().unwrap();
     assert_eq!(
         reloaded.transcript.entries.len(),
         1,
@@ -470,7 +503,7 @@ fn reused_operation_id_for_other_content_is_refused() {
         "expected an operation conflict, got {error:?}"
     );
     assert_eq!(session_revision(&engine.conn, &data.id).unwrap(), 1);
-    let reloaded = engine.load_session_full(&data.id).unwrap().unwrap();
+    let reloaded = load_session_full(&engine, &data.id).unwrap().unwrap();
     assert_eq!(reloaded.transcript.entries.len(), 1);
 }
 
@@ -501,7 +534,7 @@ fn stale_expected_revision_fails_closed() {
         "expected a stale-revision refusal, got {error:?}"
     );
     assert_eq!(session_revision(&engine.conn, &data.id).unwrap(), 1);
-    let reloaded = engine.load_session_full(&data.id).unwrap().unwrap();
+    let reloaded = load_session_full(&engine, &data.id).unwrap().unwrap();
     assert_eq!(
         reloaded.transcript.entries.len(),
         1,
@@ -521,7 +554,7 @@ fn delta_save_offloads_only_newly_inserted_rows() {
         &Message::new(Role::User, big.clone()),
     ));
     let stored = engine_blob_round_trip(&data, &blob_store);
-    let reloaded = stored.load_session_full(&data.id).unwrap().unwrap();
+    let reloaded = load_session_full(&stored, &data.id).unwrap().unwrap();
     let payload = reloaded.transcript.entries[0].as_message().unwrap();
     let hash = payload.content_blob.as_ref().expect("body was offloaded");
     assert_eq!(
@@ -575,7 +608,7 @@ fn engine_blob_round_trip(
         conn,
         blob_store: Some(blob_store.clone()),
     };
-    engine.save_session_full(data).unwrap();
+    save_session_full(&engine, data).unwrap();
     engine
 }
 
@@ -588,7 +621,7 @@ fn unknown_payloads_round_trip_verbatim() {
         0,
         &Message::new(Role::User, "known"),
     ));
-    engine.save_session_full(&data).unwrap();
+    save_session_full(&engine, &data).unwrap();
 
     // Inject an entry a newer binary wrote, with a payload kind this
     // binary cannot decode.
@@ -609,7 +642,7 @@ fn unknown_payloads_round_trip_verbatim() {
             .unwrap();
 
     // Load: the unknown entry rides along, known entries still work.
-    let mut reloaded = engine.load_session_full(&data.id).unwrap().unwrap();
+    let mut reloaded = load_session_full(&engine, &data.id).unwrap().unwrap();
     assert_eq!(reloaded.transcript.entries.len(), 1);
     assert_eq!(reloaded.unknown_entries.len(), 1);
     assert_eq!(reloaded.unknown_entries[0].payload_json, future_payload);
@@ -621,10 +654,16 @@ fn unknown_payloads_round_trip_verbatim() {
         2,
         &Message::new(Role::User, "after"),
     ));
-    engine
-        .save_session_inner(&reloaded, false, &[], &CommitGuard::default())
-        .unwrap();
-    let again = engine.load_session_full(&data.id).unwrap().unwrap();
+    session_store::save_session_inner(
+        &engine.conn,
+        engine.blob_store.as_ref(),
+        &reloaded,
+        false,
+        &[],
+        &CommitGuard::default(),
+    )
+    .unwrap();
+    let again = load_session_full(&engine, &data.id).unwrap().unwrap();
     assert_eq!(again.unknown_entries.len(), 1);
     assert_eq!(again.unknown_entries[0].payload_json, future_payload);
     assert_eq!(again.transcript.entries.len(), 2);
@@ -641,8 +680,9 @@ fn blob_gc_reclaims_only_blobs_absent_from_the_reference_ledger() {
         BlobStore::new(std::env::temp_dir().join(format!("nuo-gc-{}", uuid::Uuid::new_v4())));
     let referenced = blob_store.put(b"referenced body").unwrap();
     let orphan = blob_store.put(b"orphan body").unwrap();
-    engine
-        .upsert_session(&SessionRecord {
+    session_store::upsert_session(
+        &engine.conn,
+        &SessionRecord {
             id: "s1".into(),
             parent_id: None,
             fork_kind: "trunk".into(),
@@ -664,7 +704,7 @@ fn blob_gc_reclaims_only_blobs_absent_from_the_reference_ledger() {
         )
         .unwrap();
 
-    let (count, _) = blob_store.retain_only(&engine.live_blob_hashes().unwrap());
+    let (count, _) = blob_store.retain_only(&garbage_collection::live_blob_hashes(&engine.conn).unwrap());
     assert_eq!(count, 1);
     assert!(
         blob_store.get(&referenced).is_some(),
@@ -693,8 +733,8 @@ fn entry_gc_reclaims_only_zero_reference_rows() {
         1,
         &Message::new(Role::User, "fork only"),
     ));
-    engine.save_session_full(&session).unwrap();
-    engine.save_session_full(&fork).unwrap();
+    save_session_full(&engine, &session).unwrap();
+    save_session_full(&engine, &fork).unwrap();
 
     // An orphan row with no membership at all.
     engine
@@ -705,11 +745,11 @@ fn entry_gc_reclaims_only_zero_reference_rows() {
             )
             .unwrap();
 
-    let reclaimed = engine.collect_entry_garbage().unwrap();
+    let reclaimed = garbage_collection::collect_entry_garbage(&engine.conn).unwrap();
     assert_eq!(reclaimed, 1);
     // The shared fact survives because the fork still references it.
-    assert!(engine.load_session_full(&session.id).unwrap().is_some());
-    let fork = engine.load_session_full("fork-1").unwrap().unwrap();
+    assert!(load_session_full(&engine, &session.id).unwrap().is_some());
+    let fork = load_session_full(&engine, "fork-1").unwrap().unwrap();
     assert_eq!(fork.transcript.entries.len(), 2);
 }
 
@@ -727,9 +767,9 @@ fn digest_anchor_tree_and_generation_round_trip() {
         0,
         &Message::new(Role::User, "hello"),
     ));
-    engine.save_session_full(&data).unwrap();
+    save_session_full(&engine, &data).unwrap();
 
-    let reloaded = engine.load_session_full(&data.id).unwrap().unwrap();
+    let reloaded = load_session_full(&engine, &data.id).unwrap().unwrap();
     assert!(reloaded.digest.is_some());
     assert_eq!(reloaded.digest_anchor, Some(4_242));
     assert_eq!(reloaded.tree.active_leaf_id.as_deref(), Some("leaf-1"));
@@ -757,7 +797,7 @@ fn row_checksum_detects_working_state_corruption_on_load() {
         0,
         &Message::new(Role::User, "hello"),
     ));
-    engine.save_session_full(&data).unwrap();
+    save_session_full(&engine, &data).unwrap();
 
     // Corrupt the working state out-of-band, then restamp a checksum that
     // matches the corruption? No — the mismatch case: the on-row checksum
@@ -771,22 +811,23 @@ fn row_checksum_detects_working_state_corruption_on_load() {
             params![data.id],
         )
         .unwrap();
-    let reloaded = engine.load_session_full(&data.id).unwrap().unwrap();
+    let reloaded = load_session_full(&engine, &data.id).unwrap().unwrap();
     assert_eq!(reloaded.round_counter, 99);
 
     // The recomputed checksum over the loaded (corrupted) row matches the
     // stored one only if nothing changed — here it must differ, so a save
     // restamps and the next load is consistent again.
-    engine.save_session_full(&reloaded).unwrap();
-    let again = engine.load_session_full(&data.id).unwrap().unwrap();
+    save_session_full(&engine, &reloaded).unwrap();
+    let again = load_session_full(&engine, &data.id).unwrap().unwrap();
     assert_eq!(again.checksum, reloaded.checksum);
 }
 
 #[test]
 fn working_state_round_trips_through_the_session_row() {
     let engine = DatabaseEngine::open_in_memory().unwrap();
-    engine
-        .upsert_session(&SessionRecord {
+    session_store::upsert_session(
+        &engine.conn,
+        &SessionRecord {
             id: "s1".into(),
             parent_id: None,
             fork_kind: "trunk".into(),
@@ -798,9 +839,10 @@ fn working_state_round_trips_through_the_session_row() {
             msg_count: 0,
             last_user_prompt: None,
             digest: None,
-        })
-        .unwrap();
-    let sessions = engine.list_sessions(None).unwrap();
+        },
+    )
+    .unwrap();
+    let sessions = session_store::list_sessions(&engine.conn, None).unwrap();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].title.as_deref(), Some("T"));
 }
@@ -1168,11 +1210,11 @@ mod supervision {
             "we need to debug the exponential backoff in the retry loop",
         );
         data.transcript.push(TranscriptEntry::from_message(0, &msg));
-        engine.save_session_full(&data).unwrap();
+        save_session_full(&engine, &data).unwrap();
 
         // Bare multi-word query (the shape that used to blow up MATCH
         // with `no such column: needle`).
-        let hits = engine.search_history("retry backoff", None, 20).unwrap();
+        let hits = history_search::search_history(&engine.conn, "retry backoff", None, 20).unwrap();
         assert_eq!(hits.len(), 1, "the seeded session must be recalled");
         assert_eq!(hits[0].session_id, data.id);
         assert_eq!(
@@ -1185,31 +1227,30 @@ mod supervision {
         // A workspace filter that does not match returns nothing; one
         // that matches returns the hit.
         assert!(
-            engine
-                .search_history(
-                    "retry",
-                    Some(&nuo_wire::WorkspaceFilter::Path("/tmp/other".into())),
-                    20,
-                )
-                .unwrap()
-                .is_empty()
+            history_search::search_history(
+                &engine.conn,
+                "retry",
+                Some(&nuo_wire::WorkspaceFilter::Path("/tmp/other".into())),
+                20,
+            )
+            .unwrap()
+            .is_empty()
         );
         assert_eq!(
-            engine
-                .search_history(
-                    "retry",
-                    Some(&nuo_wire::WorkspaceFilter::Path("/tmp/proj-a".into())),
-                    20,
-                )
-                .unwrap()
-                .len(),
+            history_search::search_history(
+                &engine.conn,
+                "retry",
+                Some(&nuo_wire::WorkspaceFilter::Path("/tmp/proj-a".into())),
+                20,
+            )
+            .unwrap()
+            .len(),
             1
         );
 
         // Operator-ish input is sanitized, not executed as FTS grammar.
         assert!(
-            engine
-                .search_history("retry OR NOT needle", None, 20)
+            history_search::search_history(&engine.conn, "retry OR NOT needle", None, 20)
                 .is_ok(),
             "sanitized query must not error"
         );
@@ -1236,17 +1277,16 @@ mod supervision {
             };
             let msg = Message::new(Role::User, text);
             data.transcript.push(TranscriptEntry::from_message(0, &msg));
-            engine.save_session_full(&data).unwrap();
+            save_session_full(&engine, &data).unwrap();
         }
 
         // Strict: both words together appear in no single entry.
-        let strict = engine.search_history("retry border", None, 20).unwrap();
+        let strict = history_search::search_history(&engine.conn, "retry border", None, 20).unwrap();
         assert!(strict.is_empty(), "strict AND must miss: {strict:?}");
 
         // Relaxed: each entry carries one word; the retry entry also
         // matches more of the query. Both are recalled, OR-joined.
-        let relaxed = engine
-            .search_history_relaxed("retry border", None, 20)
+        let relaxed = history_search::search_history_relaxed(&engine.conn, "retry border", None, 20)
             .unwrap();
         assert_eq!(relaxed.len(), 2, "both entries surface: {relaxed:?}");
         let ids: std::collections::HashSet<_> =
@@ -1294,40 +1334,37 @@ fn latest_session_filters_by_workspace_and_persona() {
         ..Default::default()
     };
     unbound.workspace = None;
-    engine.save_session_full(&unbound).unwrap();
+    save_session_full(&engine, &unbound).unwrap();
 
     let mut bound = crate::session::SessionData {
         role: Some("philosopher".into()),
         ..Default::default()
     };
     bound.workspace = Some(nuo_wire::WorkspaceBinding::new("/repo/x"));
-    engine.save_session_full(&bound).unwrap();
+    save_session_full(&engine, &bound).unwrap();
 
     assert_eq!(
-        engine
-            .latest_session(&WorkspaceFilter::Unbound, Some("philosopher"))
+        session_store::latest_session(&engine.conn, &WorkspaceFilter::Unbound, Some("philosopher"))
             .unwrap(),
         Some(unbound.id.clone())
     );
     assert_eq!(
-        engine
-            .latest_session(
-                &WorkspaceFilter::Path("/repo/x".into()),
-                Some("philosopher")
-            )
-            .unwrap(),
+        session_store::latest_session(
+            &engine.conn,
+            &WorkspaceFilter::Path("/repo/x".into()),
+            Some("philosopher")
+        )
+        .unwrap(),
         Some(bound.id.clone())
     );
     assert_eq!(
-        engine
-            .latest_session(&WorkspaceFilter::Unbound, Some("nobody"))
+        session_store::latest_session(&engine.conn, &WorkspaceFilter::Unbound, Some("nobody"))
             .unwrap(),
         None
     );
     // Unbound + no persona constraint still finds only unbound sessions.
     assert_eq!(
-        engine
-            .latest_session(&WorkspaceFilter::Unbound, None)
+        session_store::latest_session(&engine.conn, &WorkspaceFilter::Unbound, None)
             .unwrap(),
         Some(unbound.id)
     );
@@ -1362,29 +1399,26 @@ fn role_anchored_partition_and_switch_candidates_exclude_active() {
     // Developer session bound to /repo/a
     let d1 = make_session("dev-1", "developer", Some("/repo/a"), 400);
 
-    engine.save_session_full(&p1).unwrap();
-    engine.save_session_full(&p2).unwrap();
-    engine.save_session_full(&t1).unwrap();
-    engine.save_session_full(&d1).unwrap();
+    save_session_full(&engine, &p1).unwrap();
+    save_session_full(&engine, &p2).unwrap();
+    save_session_full(&engine, &t1).unwrap();
+    save_session_full(&engine, &d1).unwrap();
 
     let phil_partition = SessionPartition::Role("philosophist".into());
     // Active is phil-2: candidates must return phil-1 ONLY, excluding phil-2, trans-1, and dev-1
-    let candidates = engine
-        .list_switch_candidates(&phil_partition, "phil-2")
+    let candidates = session_store::list_switch_candidates(&engine.conn, &phil_partition, "phil-2")
         .unwrap();
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].id, "phil-1");
 
     // Active is phil-1: candidates must return phil-2 ONLY
-    let candidates = engine
-        .list_switch_candidates(&phil_partition, "phil-1")
+    let candidates = session_store::list_switch_candidates(&engine.conn, &phil_partition, "phil-1")
         .unwrap();
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].id, "phil-2");
 
     // Active is unknown: candidates return both phil-2 and phil-1
-    let candidates = engine
-        .list_switch_candidates(&phil_partition, "none")
+    let candidates = session_store::list_switch_candidates(&engine.conn, &phil_partition, "none")
         .unwrap();
     assert_eq!(candidates.len(), 2);
     assert_eq!(candidates[0].id, "phil-2");
@@ -1392,14 +1426,13 @@ fn role_anchored_partition_and_switch_candidates_exclude_active() {
 
     // latest_session_in_partition for philosophist
     assert_eq!(
-        engine.latest_session_in_partition(&phil_partition).unwrap(),
+        session_store::latest_session_in_partition(&engine.conn, &phil_partition).unwrap(),
         Some("phil-2".into())
     );
 
     // Workspace partition
     let ws_partition = SessionPartition::Workspace("/repo/a".into());
-    let candidates = engine
-        .list_switch_candidates(&ws_partition, "dev-1")
+    let candidates = session_store::list_switch_candidates(&engine.conn, &ws_partition, "dev-1")
         .unwrap();
     assert!(candidates.is_empty()); // Excluded itself, no other candidates
 }
@@ -1446,7 +1479,7 @@ fn fast_fts_triggers_align_rowids_and_delete_in_sync() {
         0,
         &Message::new(Role::User, "unique_needle_for_fts_test"),
     ));
-    engine.save_session_full(&data).unwrap();
+    save_session_full(&engine, &data).unwrap();
 
     // Verify fts_entries has the entry and matches rowid
     let fts_rowid: i64 = engine
@@ -1468,14 +1501,13 @@ fn fast_fts_triggers_align_rowids_and_delete_in_sync() {
     assert_eq!(fts_rowid, membership_rowid);
 
     // Verify FTS search works
-    let results = engine
-        .search_history("unique_needle_for_fts_test", None, 10)
+    let results = history_search::search_history(&engine.conn, "unique_needle_for_fts_test", None, 10)
         .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].session_id, data.id);
 
     // Deleting session deletes entry_memberships and cascades via trigger to fts_entries
-    engine.delete_session(&data.id).unwrap();
+    session_store::delete_session(&engine.conn, &data.id).unwrap();
     let fts_count: i64 = engine
         .conn
         .query_row("SELECT COUNT(*) FROM fts_entries", [], |r| r.get(0))

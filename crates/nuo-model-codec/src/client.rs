@@ -3,6 +3,7 @@
 use crate::endpoint::Endpoint;
 use crate::error::{Result, WireError};
 use crate::protocol::build_request;
+#[cfg(feature = "netune")]
 use crate::stream::SseDecoder;
 use crate::types::{WireChunk, WireRequest, WireResponse};
 use futures::{SinkExt, Stream};

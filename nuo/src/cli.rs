@@ -24,17 +24,12 @@ use std::path::PathBuf;
 /// What the user asked the binary to do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
-    /// Interactive TUI session or headless run (`nuox` unified engine per ADR-0005, ADR-0048).
+    /// Interactive TUI session, thread picker, or headless run (`nuox` unified engine per ADR-0005, ADR-0048, ADR-0061).
     Interactive(nuo_tui::cli::CliArgs),
-    /// `nuo thread …` (ADR-0043, ADR-0048).
+    /// `nuo thread …` (ADR-0043, ADR-0048, ADR-0061).
     Thread(ThreadAction),
     /// Session server commands and lifecycle operations (`nuo server …`).
     Server(ServerAction),
-    Config(ConfigAction),
-    /// `nuo mcp ls` — list configured MCP servers.
-    Mcp(McpAction),
-    /// `nuo skill ls` — list discovered skills.
-    Skill(SkillAction),
     /// `nuo completions <shell>`.
     Completions(Shell),
     /// `--version` / `-V`.
@@ -43,33 +38,11 @@ pub enum Mode {
     Help(Option<String>),
 }
 
-/// `nuo mcp …` (ADR-0252: read-only inspection; mutations are file-authored)
-#[derive(Debug, Clone, PartialEq)]
-pub enum McpAction {
-    /// `nuo mcp ls` — list configured MCP servers.
-    List,
-    /// `nuo mcp get <name>` — print one server's effective TOML entry.
-    Get { name: String },
-    /// `nuo mcp probe <name>` — connect once, list the advertised tools.
-    Probe { name: String },
-}
-
-/// `nuo skill …`
-#[derive(Debug, Clone, PartialEq)]
-pub enum SkillAction {
-    /// `nuo skill ls` — list discovered skills.
-    List,
-    /// `nuo skill show <name>` — print one skill's full markdown instructions.
-    Show { name: String },
-    /// `nuo skill info <name>` — print one skill's diagnostics and metadata.
-    Info { name: String },
-    /// `nuo skill init <name> [--user]` — scaffold a new skill folder with standard templates.
-    Init { name: String, user: bool },
-}
-
-/// `nuo thread …` / `nuo session …` (ADR-0043, ADR-0048)
+/// `nuo thread …` / `nuo session …` (ADR-0043, ADR-0048, ADR-0061)
 #[derive(Debug, Clone, PartialEq)]
 pub enum ThreadAction {
+    /// `nuo thread` or `nuo thread open [id]` — launch interactive TUI into the thread picker or specific thread.
+    Open(Option<String>),
     /// `nuo thread ls` — list hosted threads.
     List {
         watch: bool,
@@ -121,23 +94,6 @@ pub enum ServerAction {
     },
 }
 
-/// `nuo config …`
-#[derive(Debug, Clone, PartialEq)]
-pub enum ConfigAction {
-    List,
-    Path,
-    Get(String),
-    Set {
-        key: String,
-        value: String,
-    },
-    /// `nuo config check` — validate configuration against domain schemas.
-    Check,
-    /// `nuo config migrate` — perform clean-break migration from legacy config.toml
-    /// into domain-separated server.toml, client.toml, terminal.toml, agent.toml (ADR-0031).
-    Migrate,
-}
-
 /// A shell whose completion script `nuo completions` can print.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shell {
@@ -179,6 +135,11 @@ struct Spec {
 
 const THREAD_SUBS: &[Spec] = &[
     Spec {
+        name: "open",
+        names: &["open", "attach", "resume"],
+        about: "open interactive thread picker or attach to thread by id",
+    },
+    Spec {
         name: "ls",
         names: &["ls", "list"],
         about: "list hosted threads",
@@ -187,52 +148,6 @@ const THREAD_SUBS: &[Spec] = &[
         name: "rm",
         names: &["rm", "delete"],
         about: "terminate a hosted thread by id",
-    },
-];
-
-const CONFIG_SUBS: &[Spec] = &[
-    Spec {
-        name: "ls",
-        names: &["ls", "list", "show"],
-        about: "show current configuration",
-    },
-    Spec {
-        name: "get",
-        names: &["get"],
-        about: "get a configuration value",
-    },
-    Spec {
-        name: "set",
-        names: &["set"],
-        about: "set a configuration value",
-    },
-    Spec {
-        name: "path",
-        names: &["path"],
-        about: "print the configuration file path",
-    },
-    Spec {
-        name: "check",
-        names: &["check"],
-        about: "validate config.toml: syntax errors, typo'd keys, dead legacy keys",
-    },
-];
-
-const MCP_SUBS: &[Spec] = &[
-    Spec {
-        name: "ls",
-        names: &["ls", "list"],
-        about: "list configured MCP servers",
-    },
-    Spec {
-        name: "get",
-        names: &["get"],
-        about: "print one server's config entry",
-    },
-    Spec {
-        name: "probe",
-        names: &["probe"],
-        about: "connect to a server once and list its tools",
     },
 ];
 
@@ -269,47 +184,21 @@ const SERVER_SUBS: &[Spec] = &[
     },
 ];
 
-const SKILL_SUBS: &[Spec] = &[Spec {
-    name: "ls",
-    names: &["ls", "list"],
-    about: "list discovered skills",
-}];
-
 const COMMANDS: &[Spec] = &[
     Spec {
-        name: "run",
-        names: &["run"],
-        about: "execute a headless turn (-p / run) streaming to stdout",
+        name: "thread",
+        names: &["thread", "threads"],
+        about: "browse, resume, or manage threads (ls, rm)",
     },
     Spec {
         name: "status",
         names: &["status"],
-        about: "show application health and session status",
+        about: "show application health, providers, and workflows",
     },
     Spec {
         name: "server",
         names: &["server"],
         about: "manage the session server (start, stop, reload, restart, status, token)",
-    },
-    Spec {
-        name: "thread",
-        names: &["thread"],
-        about: "manage threads (ls, rm)",
-    },
-    Spec {
-        name: "config",
-        names: &["config"],
-        about: "inspect or modify configuration",
-    },
-    Spec {
-        name: "mcp",
-        names: &["mcp"],
-        about: "inspect MCP servers (ls, get, probe); configured declaratively in TOML",
-    },
-    Spec {
-        name: "skill",
-        names: &["skill", "skills"],
-        about: "manage skills (ls, show, info, init)",
     },
     Spec {
         name: "completions",
@@ -566,9 +455,39 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         return parse_interactive(args);
     };
 
-    if cmd == "session" {
+    if cmd == "run" {
         return Err(
-            "'session' was removed in favor of 'nuo thread' (ADR-0038, ADR-0048).\n\n  tip: use 'nuo thread ls' or 'nuo thread rm <id>'".into(),
+            "'run' was removed in favor of '--headless' (ADR-0061).\n\n  tip: use 'nuo --headless <prompt>' or 'nuo -p <prompt>'".into(),
+        );
+    }
+
+    if cmd == "config" {
+        return Err(
+            "'config' CLI commands were removed (ADR-0061).\n\n  tip: configuration is declarative in config.toml or managed interactively via /settings in TUI. Run 'nuo status' for environment overview.".into(),
+        );
+    }
+
+    if cmd == "mcp" {
+        return Err(
+            "'mcp' CLI commands were removed (ADR-0061).\n\n  tip: MCP servers are configured declaratively in config.toml or managed via /mcp in TUI. Run 'nuo status' to check MCP health.".into(),
+        );
+    }
+
+    if cmd == "skill" || cmd == "skills" {
+        return Err(
+            "'skill' CLI commands were removed (ADR-0061).\n\n  tip: skills are discovered from .nuo/skills or managed via /skills in TUI. Run 'nuo status' for overview.".into(),
+        );
+    }
+
+    if cmd == "resume" {
+        return Err(
+            "'resume' was unified into 'nuo -t' / 'nuo thread' (ADR-0061).\n\n  tip: use 'nuo -t' to select a thread interactively, or 'nuo -t <id>' to resume by id.".into(),
+        );
+    }
+
+    if cmd == "session" || cmd == "sessions" {
+        return Err(
+            "'session' was removed in favor of 'nuo thread' (ADR-0038, ADR-0048, ADR-0061).\n\n  tip: use 'nuo thread' to browse threads, or 'nuo thread ls'.".into(),
         );
     }
 
@@ -576,7 +495,6 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         || cmd == "--interactive"
         || cmd == "-p"
         || cmd.starts_with("-p=")
-        || cmd == "run"
         || cmd.starts_with('-')
     {
         return parse_interactive(args);
@@ -676,9 +594,6 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 _ => unreachable!("server subcommands are closed"),
             }
         }
-        "run" => {
-            return parse_interactive(args);
-        }
         "status" => {
             let flags = parse_table_flags(&extra, false).map_err(|e| e.0)?;
             Mode::Server(ServerAction::Status {
@@ -692,9 +607,9 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             let (sub, sub_extra) = if extra.is_empty() {
                 (
                     &Spec {
-                        name: "ls",
-                        names: &["ls", "list"],
-                        about: "list hosted threads",
+                        name: "open",
+                        names: &["open", "attach", "resume"],
+                        about: "open interactive thread picker or attach to thread by id",
                     },
                     &[][..],
                 )
@@ -710,9 +625,24 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                     &extra[..],
                 )
             } else {
-                return unexpected(&extra[0]);
+                (
+                    &Spec {
+                        name: "open",
+                        names: &["open", "attach", "resume"],
+                        about: "open interactive thread picker or attach to thread by id",
+                    },
+                    &extra[..],
+                )
             };
             match sub.name {
+                "open" => {
+                    let id = match sub_extra {
+                        [] => None,
+                        [target] if !target.starts_with('-') => Some(target.clone()),
+                        [bad, ..] => return unexpected(bad),
+                    };
+                    Mode::Thread(ThreadAction::Open(id))
+                }
                 "ls" => {
                     let mut watch = false;
                     let mut json_flag = false;
@@ -742,65 +672,6 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                     }
                 }
                 _ => unreachable!("thread subcommands are closed"),
-            }
-        }
-        "config" => {
-            let extra_str: Vec<&str> = extra.iter().map(String::as_str).collect();
-            match extra_str.as_slice() {
-                [] | ["ls"] | ["list"] | ["show"] => Mode::Config(ConfigAction::List),
-                ["path"] => Mode::Config(ConfigAction::Path),
-                ["check"] => Mode::Config(ConfigAction::Check),
-                ["migrate"] => Mode::Config(ConfigAction::Migrate),
-                ["get", key] => Mode::Config(ConfigAction::Get((*key).to_string())),
-                ["set", key, value] => Mode::Config(ConfigAction::Set {
-                    key: (*key).to_string(),
-                    value: (*value).to_string(),
-                }),
-                ["get"] => return Err("config get requires a key name".into()),
-                ["set"] | ["set", _] => {
-                    return Err("config set requires <key> and <value>".into());
-                }
-                [bad, ..] => return unexpected(bad),
-            }
-        }
-        "mcp" => {
-            let extra_str: Vec<&str> = extra.iter().map(String::as_str).collect();
-            match extra_str.as_slice() {
-                // A bare `nuo mcp` teaches the subcommand rather than
-                // silently running the only one (ADR-0119's noun-verb
-                // shape; `config` defaults to `list` because it has
-                // several — `mcp` now does too, but the lesson
-                // stays worth the keystroke).
-                [] => return Err("nuo mcp needs a subcommand: `nuo mcp ls`, `nuo mcp get <name>`, `nuo mcp probe <name>`".into()),
-                ["ls"] | ["list"] => Mode::Mcp(McpAction::List),
-                ["get", name] => Mode::Mcp(McpAction::Get {
-                    name: (*name).to_string(),
-                }),
-                ["get"] => return Err("nuo mcp get requires a server name".into()),
-                ["probe", name] => Mode::Mcp(McpAction::Probe {
-                    name: (*name).to_string(),
-                }),
-                ["probe"] => return Err("nuo mcp probe requires a server name".into()),
-                ["add", ..] | ["rm", ..] | ["remove", ..] | ["enable", ..] | ["disable", ..] | ["import", ..] => {
-                    return Err(
-                        "nuo mcp mutation commands (add, rm, enable, disable, import) are retired (ADR-0252). \
-                         Configure MCP servers declaratively in ~/.config/nuo/config.toml or .nuo/config.toml."
-                            .into(),
-                    );
-                }
-                [bad, ..] => return unexpected(bad),
-            }
-        }
-        "skill" => {
-            let extra_str: Vec<&str> = extra.iter().map(String::as_str).collect();
-            match extra_str.as_slice() {
-                [] => return Err("nuo skill needs a subcommand: `nuo skill ls`, `nuo skill show <name>`, `nuo skill info <name>`, `nuo skill init <name>`".into()),
-                ["ls"] | ["list"] => Mode::Skill(SkillAction::List),
-                ["show", name] => Mode::Skill(SkillAction::Show { name: (*name).to_string() }),
-                ["info", name] => Mode::Skill(SkillAction::Info { name: (*name).to_string() }),
-                ["init", name] => Mode::Skill(SkillAction::Init { name: (*name).to_string(), user: false }),
-                ["init", name, "--user"] | ["init", "--user", name] => Mode::Skill(SkillAction::Init { name: (*name).to_string(), user: true }),
-                [bad, ..] => return unexpected(bad),
             }
         }
         "completions" => match extra.as_slice() {
@@ -870,13 +741,11 @@ fn command_flags(cmd: &str) -> &'static [(&'static str, &'static str)] {
             ("--all", "include idle sessions"),
             ("--diagnostic", "report discovery/lock/socket/log health"),
         ],
-        "thread" => &[("rm <id>", "terminate a hosted thread by id")],
-        "mcp" => &[
-            ("ls", "list configured MCP servers"),
-            ("get <name>", "print one server's config entry"),
-            ("probe <name>", "connect once and list the advertised tools"),
+        "thread" => &[
+            ("open [id]", "open interactive thread picker or attach by id"),
+            ("ls", "list hosted threads"),
+            ("rm <id>", "terminate a hosted thread by id"),
         ],
-        "skill" => &[("ls", "list discovered skills")],
         _ => &[],
     }
 }
@@ -887,15 +756,22 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
     let mut out = String::new();
     match topic {
         None => {
-            out.push_str("nuo — session server and control plane\n\n");
-            out.push_str("Usage: nuo [OPTIONS]\n       nuo [OPTIONS] <COMMAND>\n\nCommands:\n");
+            out.push_str("nuo — terminal-first AI agent platform\n\n");
+            out.push_str("Usage: nuo [OPTIONS] [PROMPT]\n       nuo [OPTIONS] <COMMAND>\n\nCommands:\n");
             let width = COMMANDS.iter().map(|s| s.name.len()).max().unwrap_or(0);
             for spec in COMMANDS {
                 out.push_str(&format!("  {:<width$}  {}\n", spec.name, spec.about));
             }
             out.push_str("\nOptions:\n");
-            out.push_str("  -j, --json             emit structured JSON where supported\n");
-            out.push_str("      --project <path>   operate on the project at <path>\n");
+            out.push_str("  -t, --thread [ID]      attach to existing thread (opens picker if ID omitted)\n");
+            out.push_str("      --headless         execute prompt non-interactively and stream to stdout\n");
+            out.push_str("  -p, --prompt <TEXT>    headless prompt or initial TUI input\n");
+            out.push_str("  -i, --interactive      force interactive TUI mode\n");
+            out.push_str("  -r, --role <ROLE>      agent role (developer, ops, etc.)\n");
+            out.push_str("      --resume           resume the most recent matching thread\n");
+            out.push_str("      --unattended       auto-approve permissions without confirmation\n");
+            out.push_str("      --no-confinement   disable workspace filesystem confinement\n");
+            out.push_str("      --project <PATH>   operate on the project at <PATH>\n");
             out.push_str("  -h, --help             print help ('nuo help <command>' for more)\n");
             out.push_str("  -V, --version          print the version and exit\n");
             out.push_str("\nEnvironment:\n");
@@ -951,9 +827,6 @@ fn subs_of(cmd: &str) -> Option<&'static [Spec]> {
     match cmd {
         "server" => Some(SERVER_SUBS),
         "thread" => Some(THREAD_SUBS),
-        "config" => Some(CONFIG_SUBS),
-        "mcp" => Some(MCP_SUBS),
-        "skill" => Some(SKILL_SUBS),
         _ => None,
     }
 }
@@ -1205,43 +1078,24 @@ mod surface_tests {
     }
 
     #[test]
-    fn run_routes_to_interactive_execution() {
-        assert!(matches!(
-            parse(&["run", "hello"]).unwrap().mode,
-            Mode::Interactive(_)
-        ));
+    fn run_command_is_retired_in_favor_of_headless() {
+        let err = parse(&["run", "hello"]).unwrap_err();
+        assert!(err.contains("'run' was removed in favor of '--headless'"));
     }
 
     #[test]
-    fn mcp_verbs_parse() {
-        assert!(matches!(
-            parse(&["mcp", "ls"]).unwrap().mode,
-            Mode::Mcp(McpAction::List)
-        ));
-        assert!(matches!(
-            parse(&["mcp", "get", "aegis"]).unwrap().mode,
-            Mode::Mcp(McpAction::Get { ref name }) if name == "aegis"
-        ));
-        assert!(matches!(
-            parse(&["mcp", "probe", "aegis"]).unwrap().mode,
-            Mode::Mcp(McpAction::Probe { ref name }) if name == "aegis"
-        ));
-    }
+    fn pseudo_crud_commands_are_retired_with_guidance() {
+        let mcp_err = parse(&["mcp", "ls"]).unwrap_err();
+        assert!(mcp_err.contains("'mcp' CLI commands were removed (ADR-0061)"));
 
-    #[test]
-    fn mcp_mutations_are_retired_with_informative_error() {
-        // ADR-0252: imperative mutations are retired in favor of declarative TOML configuration.
-        let add_err = parse(&["mcp", "add", "aegis", "--", "cmd"]).unwrap_err();
-        assert!(add_err.contains("retired (ADR-0252)"));
+        let config_err = parse(&["config", "ls"]).unwrap_err();
+        assert!(config_err.contains("'config' CLI commands were removed (ADR-0061)"));
 
-        let rm_err = parse(&["mcp", "rm", "aegis"]).unwrap_err();
-        assert!(rm_err.contains("retired (ADR-0252)"));
+        let skill_err = parse(&["skill", "ls"]).unwrap_err();
+        assert!(skill_err.contains("'skill' CLI commands were removed (ADR-0061)"));
 
-        let enable_err = parse(&["mcp", "enable", "aegis"]).unwrap_err();
-        assert!(enable_err.contains("retired (ADR-0252)"));
-
-        let import_err = parse(&["mcp", "import", "-"]).unwrap_err();
-        assert!(import_err.contains("retired (ADR-0252)"));
+        let resume_err = parse(&["resume"]).unwrap_err();
+        assert!(resume_err.contains("'resume' was unified into 'nuo -t' / 'nuo thread'"));
     }
 
     #[test]
@@ -1254,9 +1108,18 @@ mod surface_tests {
             parse(&["thread", "ls"]).unwrap().mode,
             Mode::Thread(ThreadAction::List { watch: false, json: false, all: false })
         ));
+        // Bare `nuo thread` defaults to interactive Thread Picker
         assert!(matches!(
             parse(&["thread"]).unwrap().mode,
-            Mode::Thread(ThreadAction::List { watch: false, json: false, all: false })
+            Mode::Thread(ThreadAction::Open(None))
+        ));
+        assert!(matches!(
+            parse(&["thread", "open"]).unwrap().mode,
+            Mode::Thread(ThreadAction::Open(None))
+        ));
+        assert!(matches!(
+            parse(&["thread", "open", "thr-0123"]).unwrap().mode,
+            Mode::Thread(ThreadAction::Open(Some(ref id))) if id == "thr-0123"
         ));
         assert!(matches!(
             parse(&["thread", "list", "--json", "--watch"]).unwrap().mode,
@@ -1264,5 +1127,23 @@ mod surface_tests {
         ));
         let session_err = parse(&["session", "rm", "thr-0123"]).unwrap_err();
         assert!(session_err.contains("'session' was removed in favor of 'nuo thread'"));
+    }
+
+    #[test]
+    fn headless_and_thread_flags_route_interactively() {
+        let parsed = parse(&["--headless", "-p", "fix it"]).unwrap();
+        if let Mode::Interactive(args) = parsed.mode {
+            assert!(args.headless);
+            assert_eq!(args.prompt.as_deref(), Some("fix it"));
+        } else {
+            panic!("expected Interactive mode");
+        }
+
+        let parsed_thread = parse(&["-t"]).unwrap();
+        if let Mode::Interactive(args) = parsed_thread.mode {
+            assert_eq!(args.thread, Some(None));
+        } else {
+            panic!("expected Interactive mode");
+        }
     }
 }

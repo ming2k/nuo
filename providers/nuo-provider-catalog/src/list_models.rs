@@ -27,7 +27,7 @@
 //!   no bearer header at all.
 //! - **Anthropic**: `GET {base}/v1/models`, `x-api-key` + `anthropic-version`,
 //!   body `{data: [{id}, …]}`.
-//! - **Google native**: `GET {base}/v1beta/models?key=<key>`,
+//! - **Google native**: `GET {base}/v1beta/models`, `x-goog-api-key: <key>`,
 //!   body `{models: [{name: "models/<id>", supportedGenerationMethods: […]}, …]}`
 //!   — only `generateContent`-capable text models are kept.
 //! - **Google Antigravity (cloudcode)**: `POST {base}/v1internal:fetchAvailableModels`,
@@ -247,16 +247,24 @@ pub async fn fetch_remote_catalog(
             client.send(request).await.map_err(ModelListError::Http)?
         }
         CatalogShape::Google => {
-            // Google auth: the key is a query param, never a header. A keyless
-            // request omits it entirely (Google rejects keyless, but a relay
-            // might not require it).
-            let endpoint = if req.api_key.expose_secret().trim().is_empty() {
-                endpoint.clone()
-            } else {
-                append_query(&endpoint, &[("key", req.api_key.expose_secret())])
-            };
+            // Google AI Studio auth: x-goog-api-key header is the official standard.
+            // OAuth/IAM bearer tokens use Authorization: Bearer.
+            // Avoid leaking credentials in URL query parameters.
             let mut request = nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
                 .header("user-agent", user_agent);
+            let secret = req.api_key.expose_secret().trim();
+            if !secret.is_empty() {
+                if secret.starts_with("ya29.") || secret.starts_with("Bearer ") {
+                    let bearer = if secret.starts_with("Bearer ") {
+                        secret.to_string()
+                    } else {
+                        format!("Bearer {secret}")
+                    };
+                    request = request.header("authorization", bearer);
+                } else {
+                    request = request.header("x-goog-api-key", secret);
+                }
+            }
             for (name, value) in req.extra_headers {
                 request = request.header(name, *value);
             }
@@ -867,19 +875,35 @@ fn parse_google_models(json: &Value) -> Vec<DiscoveredModel> {
                 if !is_text {
                     return None;
                 }
+                let context_window = entry
+                    .get("inputTokenLimit")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize);
+                let max_output_tokens = entry
+                    .get("outputTokenLimit")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as u32);
                 entry
                     .get("name")
                     .and_then(Value::as_str)
-                    .map(|name| DiscoveredModel {
-                        id: name.strip_prefix("models/").unwrap_or(name).to_string(),
-                        // Gemini's model resource carries the label in
-                        // `displayName` (`name` is the `models/<id>` path), so
-                        // the display label must not be read from `name` here.
-                        name: entry
-                            .get("displayName")
-                            .and_then(Value::as_str)
-                            .map(str::to_string),
-                        ..DiscoveredModel::default()
+                    .map(|name| {
+                        let id = name.strip_prefix("models/").unwrap_or(name).to_string();
+                        let reasoning = id.contains("gemini-2.5") || id.contains("gemini-3");
+                        DiscoveredModel {
+                            id,
+                            // Gemini's model resource carries the label in
+                            // `displayName` (`name` is the `models/<id>` path), so
+                            // the display label must not be read from `name` here.
+                            name: entry
+                                .get("displayName")
+                                .and_then(Value::as_str)
+                                .map(str::to_string),
+                            context_window,
+                            max_output_tokens,
+                            reasoning: reasoning.then_some(true),
+                            family: Some("google".to_string()),
+                            ..DiscoveredModel::default()
+                        }
                     })
             })
             .collect();
@@ -1562,6 +1586,25 @@ mod tests {
         let models = parse_models(CatalogShape::Google, &json);
         assert_eq!(models[0].id, "gemini-2.5-pro");
         assert_eq!(models[0].name.as_deref(), Some("Gemini 2.5 Pro"));
+    }
+
+    #[test]
+    fn google_models_parse_token_limits_and_reasoning() {
+        let json = serde_json::json!({
+            "models": [{
+                "name": "models/gemini-2.5-flash",
+                "displayName": "Gemini 2.5 Flash",
+                "inputTokenLimit": 1048576,
+                "outputTokenLimit": 65536,
+                "supportedGenerationMethods": ["generateContent"]
+            }]
+        });
+        let models = parse_models(CatalogShape::Google, &json);
+        assert_eq!(models[0].id, "gemini-2.5-flash");
+        assert_eq!(models[0].context_window, Some(1048576));
+        assert_eq!(models[0].max_output_tokens, Some(65536));
+        assert_eq!(models[0].reasoning, Some(true));
+        assert_eq!(models[0].family.as_deref(), Some("google"));
     }
 
     #[test]

@@ -155,7 +155,7 @@ impl DbReader {
 
     /// One session's header row, if it exists.
     pub fn get_session(&self, session_id: &str) -> Result<Option<SessionRecord>> {
-        self.engine.get_session(session_id)
+        crate::db::session_store::get_session(&self.engine.conn, session_id)
     }
 
     /// Sessions matching a derived grouping, newest first.
@@ -163,12 +163,12 @@ impl DbReader {
         &self,
         filter: Option<&nuo_wire::WorkspaceFilter>,
     ) -> Result<Vec<SessionRecord>> {
-        self.engine.list_sessions(filter)
+        crate::db::session_store::list_sessions(&self.engine.conn, filter)
     }
 
     /// Subagent sessions spawned by `parent_id` (ADR-0262).
     pub fn list_subagent_sessions(&self, parent_id: &str) -> Result<Vec<SessionRecord>> {
-        self.engine.list_subagent_sessions(parent_id)
+        crate::db::session_store::list_subagent_sessions(&self.engine.conn, parent_id)
     }
 
     /// Candidate sessions for switching, strictly excluding the active session (ADR-0250).
@@ -177,7 +177,7 @@ impl DbReader {
         partition: &nuo_wire::SessionPartition,
         active_id: &str,
     ) -> Result<Vec<crate::session::SessionSummary>> {
-        self.engine.list_switch_candidates(partition, active_id)
+        crate::db::session_store::list_switch_candidates(&self.engine.conn, partition, active_id)
     }
 
     /// List session summaries for a domain partition, with active session tagged (ADR-0250).
@@ -186,8 +186,11 @@ impl DbReader {
         partition: &nuo_wire::SessionPartition,
         active_id: &str,
     ) -> Result<Vec<crate::session::SessionSummary>> {
-        self.engine
-            .list_session_summaries_in_partition(partition, active_id)
+        crate::db::session_store::list_session_summaries_in_partition(
+            &self.engine.conn,
+            partition,
+            active_id,
+        )
     }
 
     /// The most recently updated session id in `partition` (ADR-0250 `--resume`).
@@ -195,7 +198,7 @@ impl DbReader {
         &self,
         partition: &nuo_wire::SessionPartition,
     ) -> Result<Option<String>> {
-        self.engine.latest_session_in_partition(partition)
+        crate::db::session_store::latest_session_in_partition(&self.engine.conn, partition)
     }
 
     /// Picker-facing summaries for a derived grouping, newest first.
@@ -204,7 +207,7 @@ impl DbReader {
         filter: Option<&nuo_wire::WorkspaceFilter>,
         active_id: &str,
     ) -> Result<Vec<crate::session::SessionSummary>> {
-        self.engine.list_session_summaries(filter, active_id)
+        crate::db::session_store::list_session_summaries(&self.engine.conn, filter, active_id)
     }
 
     /// The most recently updated session id in `filter`, optionally narrowed
@@ -214,7 +217,7 @@ impl DbReader {
         filter: &nuo_wire::WorkspaceFilter,
         persona: Option<&str>,
     ) -> Result<Option<String>> {
-        self.engine.latest_session(filter, persona)
+        crate::db::session_store::latest_session(&self.engine.conn, filter, persona)
     }
 
     /// A session's inherited workspace binding plus its persona.
@@ -222,7 +225,7 @@ impl DbReader {
         &self,
         session_id: &str,
     ) -> Result<Option<(Option<nuo_wire::WorkspaceBinding>, Option<String>)>> {
-        self.engine.lookup_session_workspace(session_id)
+        crate::db::session_store::lookup_session_workspace(&self.engine.conn, session_id)
     }
 
     /// A session's immutable role manifest snapshot (ADR-0245).
@@ -230,7 +233,7 @@ impl DbReader {
         &self,
         session_id: &str,
     ) -> Result<Option<nuo_wire::SessionRoleManifest>> {
-        self.engine.lookup_session_manifest(session_id)
+        crate::db::session_store::lookup_session_manifest(&self.engine.conn, session_id)
     }
 
     /// Resolve an id prefix to every matching session id.
@@ -239,7 +242,7 @@ impl DbReader {
         prefix: &str,
         filter: Option<&nuo_wire::WorkspaceFilter>,
     ) -> Result<Vec<String>> {
-        self.engine.resolve_session_prefix(prefix, filter)
+        crate::db::session_store::resolve_session_prefix(&self.engine.conn, prefix, filter)
     }
 
     /// Full detail for one session (the session-info sub-view).
@@ -248,7 +251,7 @@ impl DbReader {
         session_id: &str,
         active_id: &str,
     ) -> Result<Option<nuo_wire::SessionDetail>> {
-        self.engine.get_session_detail(session_id, active_id)
+        crate::db::session_store::get_session_detail(&self.engine.conn, session_id, active_id)
     }
 
     /// One session's raw durable data (the load path of `SessionStore`).
@@ -256,7 +259,7 @@ impl DbReader {
         &self,
         session_id: &str,
     ) -> Result<Option<crate::session::SessionData>> {
-        self.engine.load_session_full(session_id)
+        crate::db::session_store::load_session_full(&self.engine.conn, session_id)
     }
 
     /// A session's projected transcript tail as wire rows (the Archivist's
@@ -266,14 +269,14 @@ impl DbReader {
         session_id: &str,
         tail: usize,
     ) -> Result<Option<SessionTranscriptView>> {
-        self.engine.read_session_transcript(session_id, tail)
+        crate::db::session_store::read_session_transcript(&self.engine.conn, session_id, tail)
     }
 
     /// Every blob hash the durable reference ledger still mentions. The sweep
     /// that consumes this is a *filesystem* pass, so it runs on the caller's
     /// thread rather than blocking the writer.
     pub fn live_blob_hashes(&self) -> Result<std::collections::HashSet<String>> {
-        self.engine.live_blob_hashes()
+        crate::db::garbage_collection::live_blob_hashes(&self.engine.conn)
     }
 
     // -- recall / history --------------------------------------------------
@@ -285,7 +288,7 @@ impl DbReader {
         filter: Option<&nuo_wire::WorkspaceFilter>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
-        self.engine.search_history(query, filter, limit)
+        crate::db::history_search::search_history(&self.engine.conn, query, filter, limit)
     }
 
     /// [`Self::search_history`] with the words OR-joined (recall fallback).
@@ -295,12 +298,12 @@ impl DbReader {
         filter: Option<&nuo_wire::WorkspaceFilter>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
-        self.engine.search_history_relaxed(query, filter, limit)
+        crate::db::history_search::search_history_relaxed(&self.engine.conn, query, filter, limit)
     }
 
     /// The prompt history, oldest first, capped at `limit`.
     pub fn load_input_history(&self, limit: usize) -> Result<Vec<nuo_wire::HistoryEntry>> {
-        self.engine.load_input_history(limit)
+        crate::db::input_history::load_input_history(&self.engine.conn, limit)
     }
 
     /// Archived request projections for one session, oldest first.
@@ -309,24 +312,24 @@ impl DbReader {
         session_id: &str,
         limit: usize,
     ) -> Result<Vec<nuo_wire::RequestProjection>> {
-        self.engine.load_request_projections(session_id, limit)
+        crate::db::usage_projection::load_request_projections(&self.engine.conn, session_id, limit)
     }
 
     // -- typed key/value ---------------------------------------------------
 
     /// A raw key-value entry.
     pub fn get_kv(&self, key: &str) -> Result<Option<String>> {
-        self.engine.get_kv(key)
+        crate::db::kv_store::get_kv(&self.engine.conn, key)
     }
 
     /// A JSON-encoded key-value entry.
     pub fn get_json<T: for<'de> Deserialize<'de>>(&self, key: &str) -> Result<Option<T>> {
-        self.engine.get_json(key)
+        crate::db::kv_store::get_json(&self.engine.conn, key)
     }
 
     /// Every key with the given prefix.
     pub fn list_kv_keys_with_prefix(&self, prefix: &str) -> Result<Vec<String>> {
-        self.engine.list_kv_keys_with_prefix(prefix)
+        crate::db::kv_store::list_kv_keys_with_prefix(&self.engine.conn, prefix)
     }
 
     // -- context lifecycle (ADR-0275 / ADR-0279) ---------------------------

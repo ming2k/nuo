@@ -166,7 +166,10 @@ fn prompt_cache_for_model(_: &str) -> nuo_model_codec::PromptCacheSpec {
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     dialect: nuo_model_codec::ProviderDialect::Standard,
-    protocol_roots: std::borrow::Cow::Borrowed(&[]),
+    protocol_roots: std::borrow::Cow::Borrowed(&[(
+        WireProtocol::ChatCompletions,
+        std::borrow::Cow::Borrowed("https://generativelanguage.googleapis.com/v1beta/openai"),
+    )]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
     id: std::borrow::Cow::Borrowed("google"),
@@ -180,3 +183,25 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     client_profile_sensitive: false,
     quota: None,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn google_provider_spec_validates_and_resolves_protocols() {
+        assert!(MODEL_PROVIDER_SPEC.validate().is_ok());
+        assert_eq!(
+            MODEL_PROVIDER_SPEC
+                .endpoint(WireProtocol::GoogleGemini)
+                .unwrap(),
+            "https://generativelanguage.googleapis.com/v1beta"
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC
+                .endpoint(WireProtocol::ChatCompletions)
+                .unwrap(),
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        );
+    }
+}

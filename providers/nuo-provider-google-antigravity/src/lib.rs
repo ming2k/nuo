@@ -1,12 +1,12 @@
 //! Google native provider (REST to the versioned Google base).
 //!
 //! A thin executor over the pure [`request`] and [`response`] layers plus the
-//! shared transport helpers. Google's transport is distinctive in two ways:
-//! the credential carrier depends on the credential (a plain API key rides as
-//! a `?key=` query param, an org-scoped console token as `x-goog-api-key`), and
-//! the base URL is versioned (`.../v1beta`) with the per-call model path
-//! appended at request time. Everything else reuses the shared SSE decoder and
-//! HTTP helpers.
+//! shared transport helpers. Google AI Studio's transport uses standard header
+//! authentication (`x-goog-api-key` for API keys, `Authorization: Bearer` for
+//! OAuth tokens) with clean URLs without query parameter key leakage, and the
+//! base URL is versioned (`.../v1beta`) with the per-call model path appended
+//! at request time. Everything else reuses the shared SSE decoder and HTTP
+//! helpers.
 //!
 //! Module layout (mirrors the OpenAI and Anthropic providers):
 //! - [`request`] — body / url construction (pure, no I/O)
@@ -523,9 +523,6 @@ impl GoogleProvider {
         auth: &nuo_model_codec::ResolvedAuth,
     ) -> (String, http::header::HeaderMap, serde_json::Value) {
         let key = auth.token.expose_secret();
-        let org_scoped = auth
-            .extension::<nuo_model_codec::OpencodeAuthMetadata>()
-            .is_some();
         let include_thoughts = self.capabilities.reasoning() && !omit_thinking;
         let thinking = if omit_thinking {
             None
@@ -578,14 +575,9 @@ impl GoogleProvider {
             .endpoint
             .session_affinity_headers(self.prompt_cache.routing_key());
         let scoped_headers = self.endpoint.auth_scoped_headers(auth);
-        // An org-scoped credential is a workspace bearer token, not an API key:
-        // the Console relay rejects it in a query string (ADR-0269 probe P2), so
-        // it travels in the header Google's own clients use.
-        let credential_header = org_scoped.then(|| ("x-goog-api-key", key.to_string()));
         for (k, v) in client_headers
             .chain(affinity_headers)
             .chain(scoped_headers)
-            .chain(credential_header)
         {
             if let (Ok(hname), Ok(hval)) = (
                 http::header::HeaderName::from_bytes(k.as_bytes()),
@@ -640,11 +632,32 @@ impl GoogleProvider {
 
             (url, headers, wrapped_body)
         } else {
-            let query_key = (!org_scoped && !key.is_empty()).then_some(key);
+            // Google AI Studio official best-practice authentication:
+            // Standard API keys ride in the `x-goog-api-key` header; OAuth/IAM
+            // bearer tokens ride in `Authorization: Bearer`.
+            // URLs stay clean without `?key=` query parameters to prevent secret
+            // leakage in proxy logs, browser history, and request telemetry.
+            if !key.is_empty() {
+                if key.starts_with("ya29.") || key.starts_with("Bearer ") {
+                    let bearer_val = if key.starts_with("Bearer ") {
+                        key.to_string()
+                    } else {
+                        format!("Bearer {key}")
+                    };
+                    if let Ok(val) = http::header::HeaderValue::from_str(&bearer_val) {
+                        headers.insert(http::header::AUTHORIZATION, val);
+                    }
+                } else if let Ok(val) = http::header::HeaderValue::from_str(key) {
+                    headers.insert(
+                        http::header::HeaderName::from_static("x-goog-api-key"),
+                        val,
+                    );
+                }
+            }
             let url = if is_stream {
-                request::stream_url(&self.endpoint.base_url, &self.endpoint.model, query_key)
+                request::stream_url(&self.endpoint.base_url, &self.endpoint.model)
             } else {
-                request::url(&self.endpoint.base_url, &self.endpoint.model, query_key)
+                request::url(&self.endpoint.base_url, &self.endpoint.model)
             };
             (url, headers, raw_body)
         }
@@ -968,7 +981,7 @@ mod tests {
     }
 
     #[test]
-    fn plain_api_key_travels_in_the_query_string() {
+    fn plain_api_key_travels_in_the_header() {
         let p = GoogleProvider::with_base_url(
             "AIza-key".to_string(),
             "gemini-3-flash".to_string(),
@@ -977,8 +990,12 @@ mod tests {
         let auth = nuo_model_codec::ResolvedAuth::new("AIza-key");
         let (url, headers, _) =
             p.prepare_request_for_auth(ModelRequest::new(Vec::new()), false, true, &auth);
-        assert!(url.ends_with(":generateContent?key=AIza-key"), "{url}");
-        assert!(!headers.contains_key("x-goog-api-key"));
+        assert!(url.ends_with(":generateContent"), "{url}");
+        assert!(!url.contains("key="), "API key must not leak into URL: {url}");
+        assert_eq!(
+            headers.get("x-goog-api-key").and_then(|v| v.to_str().ok()),
+            Some("AIza-key")
+        );
         assert!(!headers.contains_key("x-opencode-org-id"));
     }
 

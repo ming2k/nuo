@@ -1121,15 +1121,12 @@ async fn anthropic_list_models_sends_api_key_and_version_headers() {
 }
 
 #[tokio::test]
-async fn google_list_models_sends_key_query_param_and_filters_non_text() {
+async fn google_list_models_sends_api_key_header_and_filters_non_text() {
     let mut server = Server::new_async().await;
     let _mock = server
         .mock("GET", "/v1beta/models")
-        // Google auth: the key is a query param, never a header.
-        .match_query(Matcher::UrlEncoded(
-            "key".to_string(),
-            "gem-key".to_string(),
-        ))
+        // Google AI Studio: x-goog-api-key header authentication.
+        .match_header("x-goog-api-key", "gem-key")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(

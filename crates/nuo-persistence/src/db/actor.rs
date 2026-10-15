@@ -16,16 +16,24 @@ impl PersistenceCommand {
                 guard,
                 ack,
             } => {
-                let res =
-                    guarded_save(|| engine.save_session_inner(&data, full, &usage_upserts, &guard));
+                let res = guarded_save(|| {
+                    crate::db::session_store::save_session_inner(
+                        &engine.conn,
+                        engine.blob_store.as_ref(),
+                        &data,
+                        full,
+                        &usage_upserts,
+                        &guard,
+                    )
+                });
                 let _ = ack.send(res);
             }
             Self::UpsertSession { record, ack } => {
-                let res = guarded(|| engine.upsert_session(&record));
+                let res = guarded(|| crate::db::session_store::upsert_session(&engine.conn, &record));
                 let _ = ack.send(res);
             }
             Self::DeleteSession { session_id, ack } => {
-                let res = guarded(|| engine.delete_session(&session_id));
+                let res = guarded(|| crate::db::session_store::delete_session(&engine.conn, &session_id));
                 let _ = ack.send(res);
             }
             Self::RenameSession {
@@ -34,11 +42,13 @@ impl PersistenceCommand {
                 manual,
                 ack,
             } => {
-                let res = guarded(|| engine.rename_session(&session_id, title.as_deref(), manual));
+                let res = guarded(|| {
+                    crate::db::session_store::rename_session(&engine.conn, &session_id, title.as_deref(), manual)
+                });
                 let _ = ack.send(res);
             }
             Self::RecordCommand { cmd, ack } => {
-                let res = guarded(|| engine.record_command(&cmd));
+                let res = guarded(|| crate::db::usage_projection::record_command(&engine.conn, &cmd));
                 let _ = ack.send(res);
             }
             Self::RecordRequestProjection {
@@ -46,11 +56,15 @@ impl PersistenceCommand {
                 record,
                 ack,
             } => {
-                let res = guarded(|| engine.insert_request_projection(&session_id, &record));
+                let res = guarded(|| {
+                    crate::db::usage_projection::insert_request_projection(&engine.conn, &session_id, &record)
+                });
                 let _ = ack.send(res);
             }
             Self::ProjectUsage { ack } => {
-                let _ = ack.send(guarded(|| engine.project_usage_batch(64)));
+                let _ = ack.send(guarded(|| {
+                    crate::db::usage_projection::project_usage_batch(&engine.conn, 64)
+                }));
             }
             Self::RecordUsageStats { entries, ack } => {
                 let res = guarded(|| persist_usage_records(&engine.conn, entries));
@@ -61,15 +75,15 @@ impl PersistenceCommand {
                 }
             }
             Self::SetKV { key, value, ack } => {
-                let res = guarded(|| engine.set_kv(&key, &value));
+                let res = guarded(|| crate::db::kv_store::set_kv(&engine.conn, &key, &value));
                 let _ = ack.send(res);
             }
             Self::DeleteKV { key, ack } => {
-                let res = guarded(|| engine.delete_kv(&key));
+                let res = guarded(|| crate::db::kv_store::delete_kv(&engine.conn, &key));
                 let _ = ack.send(res);
             }
             Self::CollectEntryGarbage { ack } => {
-                let res = guarded(|| engine.collect_entry_garbage());
+                let res = guarded(|| crate::db::garbage_collection::collect_entry_garbage(&engine.conn));
                 let _ = ack.send(res);
             }
             Self::CreateBackup { target_path, ack } => {
@@ -77,7 +91,7 @@ impl PersistenceCommand {
                 let _ = ack.send(res);
             }
             Self::RecordInputHistory { entry, dedup, ack } => {
-                let res = guarded(|| engine.record_input_history(&entry, dedup));
+                let res = guarded(|| crate::db::input_history::record_input_history(&engine.conn, &entry, dedup));
                 if let Some(ack) = ack {
                     let _ = ack.send(res);
                 }
@@ -87,11 +101,11 @@ impl PersistenceCommand {
                 dedup,
                 ack,
             } => {
-                let res = guarded(|| engine.save_input_history(&entries, dedup));
+                let res = guarded(|| crate::db::input_history::save_input_history(&engine.conn, &entries, dedup));
                 let _ = ack.send(res);
             }
             Self::ClearInputHistory { ack } => {
-                let res = guarded(|| engine.clear_input_history());
+                let res = guarded(|| crate::db::input_history::clear_input_history(&engine.conn));
                 let _ = ack.send(res);
             }
             Self::DeleteInputHistoryEntry {
@@ -99,7 +113,9 @@ impl PersistenceCommand {
                 created_at_ms,
                 ack,
             } => {
-                let res = guarded(|| engine.delete_input_history_entry(&text, created_at_ms));
+                let res = guarded(|| {
+                    crate::db::input_history::delete_input_history_entry(&engine.conn, &text, created_at_ms)
+                });
                 if let Some(ack) = ack {
                     let _ = ack.send(res);
                 }
@@ -161,8 +177,16 @@ impl PersistenceCommand {
                 usage_upserts,
                 guard,
             } => {
-                let _ =
-                    guarded_save(|| engine.save_session_inner(&data, full, &usage_upserts, &guard));
+                let _ = guarded_save(|| {
+                    crate::db::session_store::save_session_inner(
+                        &engine.conn,
+                        engine.blob_store.as_ref(),
+                        &data,
+                        full,
+                        &usage_upserts,
+                        &guard,
+                    )
+                });
                 // Die without acknowledging: the commit is durable, its ack is
                 // gone. Recovery must resolve the outcome by operation identity.
                 return false;
@@ -526,7 +550,7 @@ async fn spawn_writer(
                 }
                 if rx.is_empty() || foreground >= 16 {
                     foreground = 0;
-                    match engine.project_usage_batch(64) {
+                    match crate::db::usage_projection::project_usage_batch(&engine.conn, 64) {
                         Ok(n) if n > 0 && rx.is_empty() => {
                             std::thread::sleep(Duration::from_millis(5));
                             continue;

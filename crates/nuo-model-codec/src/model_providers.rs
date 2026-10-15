@@ -242,6 +242,7 @@ pub fn canonical_provider_id(id: &str) -> Option<String> {
         "xai-oauth" => "xai",
         "zai-code" => "glm-cn",
         "kimi" => "kimi-code",
+        "google-ai-studio" | "ai-studio" | "google-studio" | "gemini" => "google",
         other => other,
     };
     is_known_model_provider(canonical).then(|| canonical.to_string())
@@ -315,6 +316,18 @@ mod provider_id_tests {
             Some("deepseek")
         );
         assert_eq!(canonical_provider_id("zai-code").as_deref(), Some("glm-cn"));
+        assert_eq!(
+            canonical_provider_id("google-ai-studio").as_deref(),
+            Some("google")
+        );
+        assert_eq!(
+            canonical_provider_id("ai-studio").as_deref(),
+            Some("google")
+        );
+        assert_eq!(
+            canonical_provider_id("gemini").as_deref(),
+            Some("google")
+        );
         assert!(canonical_provider_id("does-not-exist").is_none());
         assert!(canonical_provider_id("").is_none());
     }

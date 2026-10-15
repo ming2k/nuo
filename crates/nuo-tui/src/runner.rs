@@ -122,7 +122,11 @@ pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::er
     // headless; `-i` forces the TUI; `run` is headless by definition.
     if matches!(parsed.mode, Mode::Fresh) && !parsed.interactive {
         let stdout_is_tty = io::stdout().is_terminal();
-        if parsed.prompt_from_flag || parsed.json || (parsed.prompt.is_some() && !stdout_is_tty) {
+        if parsed.headless
+            || parsed.prompt_from_flag
+            || parsed.json
+            || (parsed.prompt.is_some() && !stdout_is_tty)
+        {
             parsed.mode = Mode::Run {
                 prompt: parsed.prompt.clone().unwrap_or_default(),
             };
@@ -190,8 +194,11 @@ pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::er
             .await
         }
         Mode::Attach { id } => {
-            let overlay =
-                crate::StartupOverlay::resolve_from_env().unwrap_or(crate::StartupOverlay::None);
+            let overlay = if id.is_none() {
+                crate::StartupOverlay::SessionsPicker
+            } else {
+                crate::StartupOverlay::resolve_from_env().unwrap_or(crate::StartupOverlay::None)
+            };
             run_attached(
                 id,
                 false,

@@ -15,15 +15,21 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tracing::{info, warn};
 
 mod actor;
-mod engine;
+mod connection;
+pub mod context_store;
+pub mod garbage_collection;
 mod handle;
+pub mod history_search;
+pub mod input_history;
+pub mod inspect_service;
+pub mod kv_store;
+pub mod migration_policy;
+pub mod migration_tool;
 mod migrations;
 mod reader;
-pub mod context_store;
-pub mod inspect_service;
-pub mod migration_tool;
-pub mod migration_policy;
 pub mod session_ir;
+pub mod session_store;
+pub mod usage_projection;
 
 pub use handle::get_persistence_handle;
 pub(crate) use migrations::*;
@@ -256,12 +262,12 @@ struct EntryEnvelope<'a> {
 
 /// Authoritative relational database access object for Nuo persistence.
 pub(crate) struct DatabaseEngine {
-    conn: Connection,
+    pub(crate) conn: Connection,
     /// CAS store used to offload oversized entry bodies at insert time
     /// (ADR-0187): only rows this transaction inserts are offloaded, so the
     /// per-save cost stays proportional to the delta. `None` keeps content
     /// inline (readers, tests).
-    blob_store: Option<BlobStore>,
+    pub(crate) blob_store: Option<BlobStore>,
 }
 
 #[derive(Deserialize)]

@@ -17,6 +17,12 @@ pub async fn run(
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
     match action {
+        ThreadAction::Open(id) => {
+            let mut tui_args = nuo_tui::cli::parse(&[])?;
+            tui_args.project = project_override;
+            tui_args.mode = nuo_tui::cli::Mode::Attach { id };
+            nuo_tui::runner::run_with_options(tui_args).await
+        }
         ThreadAction::List { watch, json, all } => {
             let info = match client::discover(&project_root) {
                 Some(info) => info,

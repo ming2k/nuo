@@ -1,4 +1,4 @@
-//! Google Google — request construction.
+//! Google Gemini — request construction.
 //!
 //! Pure functions that turn the harness's `Vec<Message>` into the Google
 //! `generateContent` request shape: a `contents` array of `{role, parts}`,
@@ -9,9 +9,9 @@
 //! Google's wire shape:
 //! - URL: `{base}/models/{model}:generateContent` (streaming adds
 //!   `:streamGenerateContent?alt=sse`).
-//! - Auth: a plain API key rides in the `?key=` query param. A workspace-scoped
-//!   console bearer is header-only (`x-goog-api-key`, ADR-0269) — the relay
-//!   rejects it as a query param, and a token in a URL reaches access logs.
+//! - Auth: header-based (`x-goog-api-key: <key>` for Google AI Studio API keys,
+//!   `Authorization: Bearer <token>` for OAuth/IAM tokens). Clean URLs without
+//!   key leakage in query parameters.
 //! - Body:
 //!   `{contents: [{role, parts}], systemInstruction?: {parts:[{text}]}, tools?}`.
 //! - Roles are only `user` and `model` (assistant). Tool calls are assistant
@@ -793,20 +793,14 @@ fn tool_response_payload(text: &str) -> Value {
     }
 }
 
-/// The non-streaming generateContent URL. `api_key` is embedded as a query
-/// param only for a plain API-key credential; an org-scoped credential is
-/// header-carried and the URL stays keyless (ADR-0269).
-pub fn url(base_url: &str, model: &str, api_key: Option<&str>) -> String {
-    let query = api_key.map(|key| format!("?key={key}")).unwrap_or_default();
-    format!("{base_url}/models/{model}:generateContent{query}")
+/// The non-streaming generateContent URL.
+pub fn url(base_url: &str, model: &str) -> String {
+    format!("{base_url}/models/{model}:generateContent")
 }
 
 /// The streaming streamGenerateContent URL (SSE framing via `alt=sse`).
-pub fn stream_url(base_url: &str, model: &str, api_key: Option<&str>) -> String {
-    let query = api_key
-        .map(|key| format!("?alt=sse&key={key}"))
-        .unwrap_or_else(|| "?alt=sse".to_string());
-    format!("{base_url}/models/{model}:streamGenerateContent{query}")
+pub fn stream_url(base_url: &str, model: &str) -> String {
+    format!("{base_url}/models/{model}:streamGenerateContent?alt=sse")
 }
 
 /// The maximum `thinkingBudget` a Gemini 2.5 model accepts, in tokens — the cap

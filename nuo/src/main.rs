@@ -12,7 +12,7 @@ use supervisor::{
     ServerStart, detach_server, reload_server, restart_server, run_server_foreground, stop_server,
 };
 
-use cli::{CliArgs, McpAction, Mode, ServerAction};
+use cli::{CliArgs, Mode, ServerAction};
 use std::path::PathBuf;
 
 /// Worker-thread stack size for the server.
@@ -61,10 +61,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             print!("{}", cli::completion_script(shell));
             Ok(())
         }
-        Mode::Config(action) => commands::config::run(action),
-        Mode::Mcp(McpAction::Probe { name }) => commands::mcp::probe(&name).await,
-        Mode::Mcp(action) => commands::mcp::run(action),
-        Mode::Skill(action) => commands::skill::run(action).await,
         Mode::Thread(action) => commands::thread::run(action, project_override).await,
         Mode::Server(action) => run_server_action(action, project_override).await,
     }

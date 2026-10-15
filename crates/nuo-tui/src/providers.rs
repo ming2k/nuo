@@ -1680,7 +1680,9 @@ mod tests {
                 }
                 "deepseek" => Some(nuo_wire::model_providers::DEEPSEEK_BUILTIN_MODELS),
                 "github-copilot" => Some(nuo_wire::model_providers::COPILOT_SEED_MODELS),
-                "google" => Some(nuo_wire::model_providers::GOOGLE_BUILTIN_MODELS),
+                "google" | "google-ai-studio" | "ai-studio" | "gemini" => {
+                    Some(nuo_wire::model_providers::GOOGLE_BUILTIN_MODELS)
+                }
                 "google-antigravity" => {
                     Some(nuo_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS)
                 }
