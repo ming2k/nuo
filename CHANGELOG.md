@@ -8,6 +8,15 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.25] - 2026-11-04
+
+### Fixed
+
+- **Tool Execution Slot State Machine and Viewport Argument Isolation**:
+  - Eliminated legacy `("raw", ...)` fallback in `parse_arguments_kv` that leaked unclosed streaming JSON arguments into expanded tool steps.
+  - Hardened in-flight component state machine preventing incomplete arguments from triggering execution-phase diff projections during the `Ingesting` phase.
+  - Enforced atomic JSON validation and Canonical formatting on lowered tool calls, converting truncated/aborted streams into explicit `[Aborted tool ...]` dialogue facts and preventing unparsed syntax debris from leaking into session history.
+
 ## [0.0.24] - 2026-11-04
 
 ### Added
