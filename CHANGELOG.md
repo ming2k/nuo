@@ -8,6 +8,20 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.22] - 2026-10-29
+
+### Added
+
+- **Granular Causal Session Forking and Sovereign Tab Projection (ADR-0058).**
+  - **Granular Temporal Addressing (`[INV-FORK-03]`)**: Extended `/fork` command with granular temporal targeting (`/fork <round>` or `/fork <round>.<turn>`) to branch at arbitrary historical decision points.
+  - **Sovereign ClientTab Projection (`[INV-FORK-04]`)**: Mounts forked child threads as sovereign `ClientTab::Thread` viewports on Row 1, allowing concurrent multi-branch exploration with `Alt+1..9` tab switching while preserving the parent session intact.
+
+### Changed
+
+- **Retirement of the `/btw` Aside Subsystem (`[INV-DEPR-01]`, ADR-0058).**
+  - Retired the legacy `/btw` command, aside modal overlays, and dedicated aside wire routing, subsuming isolated exploration under first-class causal session forks.
+  - Non-destructively redirect legacy `/btw` invocations to `/fork` guidance.
+
 ## [0.0.21] - 2026-10-28
 
 ### Added
