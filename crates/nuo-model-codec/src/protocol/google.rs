@@ -187,11 +187,13 @@ pub fn parse_response(json_val: &serde_json::Value) -> Result<WireResponse> {
     let mut tool_calls = Vec::new();
 
     for part in parts {
-        if let Some(txt) = part.get("text").and_then(|t| t.as_str()) {
+        let is_thought = part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false);
+        if is_thought {
+            if let Some(txt) = part.get("text").and_then(|t| t.as_str()) {
+                thinking_acc.push_str(txt);
+            }
+        } else if let Some(txt) = part.get("text").and_then(|t| t.as_str()) {
             text_acc.push_str(txt);
-        }
-        if let Some(th) = part.get("thought").and_then(|t| t.as_str()) {
-            thinking_acc.push_str(th);
         }
         if let Some(func_call) = part.get("functionCall") {
             let name = func_call

@@ -22,6 +22,8 @@ pub const DEEPSEEK_BUILTIN_MODELS: &[&str] = &[
 pub const COPILOT_SEED_MODELS: &[&str] = &["gpt-4o-mini"];
 
 pub const GOOGLE_BUILTIN_MODELS: &[&str] = &[
+    // Gemini 4
+    "gemini-4-argon",
     // Gemini 3.x
     "gemini-3.8-flash",
     "gemini-3.7-flash",
@@ -30,6 +32,7 @@ pub const GOOGLE_BUILTIN_MODELS: &[&str] = &[
     "gemini-3-flash-preview",
     "gemini-3.1-pro-preview",
     "gemini-3.1-pro-preview-customtools",
+    "gemini-3.1-flash-lite",
     // Gemini 2.5
     "gemini-2.5-flash",
     "gemini-2.5-pro",
@@ -39,6 +42,7 @@ pub const GOOGLE_BUILTIN_MODELS: &[&str] = &[
 ];
 
 pub const ANTIGRAVITY_OAUTH_MODELS: &[&str] = &[
+    "gemini-4-argon",
     "gemini-3.8-flash-tiered",
     "gemini-3.7-flash-tiered",
     "gemini-pro-agent",

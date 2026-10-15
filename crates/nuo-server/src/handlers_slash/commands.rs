@@ -512,6 +512,23 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
             // the picker's Enter key drives. Without an id, the
             // picker (the old "resume most recent" guess is gone).
             Some(id) => {
+                let current_id = session.id().await;
+                if current_id == id {
+                    let status = if lifecycle.is_running().await {
+                        LoopStatus::Running
+                    } else {
+                        LoopStatus::Idle
+                    };
+                    send_harness_state_for_session(
+                        resp_tx,
+                        &current_id,
+                        agent,
+                        session,
+                        status,
+                    )
+                    .await;
+                    return;
+                }
                 supersede_for_session_switch(lifecycle, agent, resp_tx).await;
                 match session.open(id).await {
                     Ok(()) => {

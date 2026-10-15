@@ -2264,3 +2264,91 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     assert!(app.dismiss_surface());
     assert_eq!(app.active_dialog(), None);
 }
+
+#[tokio::test]
+async fn open_selected_session_preserves_current_running_session_messages_and_resets_scroll() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    let sid = "session-running-123";
+    app.current_session_id = sid.to_string();
+    app.running_sessions.insert(sid.to_string());
+    app.messages.push(crate::model::document::TranscriptMessage::new(
+        nuo_wire::Role::User,
+        "Hello",
+    ));
+    app.scroll = 42;
+
+    app.sessions_overview = vec![nuo_wire::SessionOverview {
+        id: sid.to_string(),
+        title: Some("Running Task".into()),
+        overview: "Running Task".into(),
+        created_at: 100,
+        updated_at: 200,
+        message_count: 1,
+        active: true,
+        parent_id: None,
+        fork_kind: nuo_wire::SessionForkKind::Trunk,
+        digest: None,
+    }];
+    app.open_dialog(crate::surfaces::DialogKind::Sessions);
+    assert_eq!(app.active_dialog(), Some(crate::surfaces::DialogKind::Sessions));
+
+    // Dispatch OpenSelectedSession via dispatch_action_for_test
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::OpenSelectedSession,
+        sid,
+    )
+    .await;
+
+    // Modal dismissed
+    assert_eq!(app.active_dialog(), None);
+    // Messages must NOT be wiped!
+    assert_eq!(app.messages.len(), 1);
+    // Scroll reset to 0 (pinned to bottom)
+    assert_eq!(app.scroll, 0);
+    // Same session does not trigger process quit / switch
+    assert_eq!(app.switch_to_target, None);
+}
+
+#[tokio::test]
+async fn open_selected_session_switches_to_another_thread_via_client_tab_and_runner_attach() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    let current_sid = "session-1";
+    let target_sid = "session-2";
+    app.current_session_id = current_sid.to_string();
+
+    app.sessions_overview = vec![nuo_wire::SessionOverview {
+        id: target_sid.to_string(),
+        title: Some("Target Task".into()),
+        overview: "Target Task".into(),
+        created_at: 100,
+        updated_at: 200,
+        message_count: 3,
+        active: false,
+        parent_id: None,
+        fork_kind: nuo_wire::SessionForkKind::Trunk,
+        digest: None,
+    }];
+    app.open_dialog(crate::surfaces::DialogKind::Sessions);
+    assert_eq!(app.active_dialog(), Some(crate::surfaces::DialogKind::Sessions));
+
+    // Dispatch OpenSelectedSession on the target thread
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::OpenSelectedSession,
+        current_sid,
+    )
+    .await;
+
+    // Modal dismissed
+    assert_eq!(app.active_dialog(), None);
+    // ClientTab opened/focused
+    assert!(app.surfaces.tabs().iter().any(|t| t.thread_id() == Some(target_sid)));
+    // Runner attach queued
+    assert_eq!(app.switch_to_target, Some(target_sid.to_string()));
+    assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
+}

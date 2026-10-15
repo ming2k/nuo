@@ -57,6 +57,7 @@ pub struct SessionsModalProps<'a> {
     pub session_detail: Option<&'a nuo_wire::SessionDetail>,
     pub session_info_scroll: &'a mut usize,
     pub sessions_loading: bool,
+    pub running_sessions: Option<&'a std::collections::HashSet<String>>,
 }
 
 /// A projected row item in the sessions picker modal (ADR-0251).
@@ -158,6 +159,7 @@ pub fn draw_sessions_modal(
         session_detail,
         session_info_scroll,
         sessions_loading,
+        running_sessions,
     } = props;
     let area = modal_area(frame, FixedModalSpec::SESSIONS);
     let f = modal_frame(frame, area, theme, true, true);
@@ -290,7 +292,14 @@ pub fn draw_sessions_modal(
                 expanded,
                 ..
             } => {
-                let badge = if *child_count > 0 {
+                let is_running = running_sessions.is_some_and(|r| r.contains(&session.id));
+                let run_badge = if is_running {
+                    let spin = theme.glyphs.spinner_frame(spinner_phase);
+                    format!(" [{spin} RUNNING]")
+                } else {
+                    String::new()
+                };
+                let tree_badge = if *child_count > 0 {
                     if *expanded {
                         format!(" [▼ ⑂ {}]", child_count)
                     } else {
@@ -299,6 +308,7 @@ pub fn draw_sessions_modal(
                 } else {
                     String::new()
                 };
+                let badge = format!("{run_badge}{tree_badge}");
                 let badge_w = badge.width();
                 let col1_budget = body_width.saturating_sub(meta_w + badge_w + COL_GUTTER);
                 let display_title = session
@@ -315,6 +325,8 @@ pub fn draw_sessions_modal(
                 let pad = body_width.saturating_sub(left_w + meta_w);
                 let badge_style = if is_selected {
                     Style::default().bg(s.bg).fg(theme.primary)
+                } else if is_running {
+                    Style::default().bg(s.bg).fg(theme.warning)
                 } else {
                     Style::default().bg(s.bg).fg(theme.brand())
                 };
@@ -333,7 +345,15 @@ pub fn draw_sessions_modal(
                     "  ├─ ⑂ "
                 };
                 let prefix_w = prefix.width();
-                let col1_budget = body_width.saturating_sub(meta_w + prefix_w + COL_GUTTER);
+                let is_running = running_sessions.is_some_and(|r| r.contains(&session.id));
+                let run_badge = if is_running {
+                    let spin = theme.glyphs.spinner_frame(spinner_phase);
+                    format!(" [{spin} RUNNING]")
+                } else {
+                    String::new()
+                };
+                let badge_w = run_badge.width();
+                let col1_budget = body_width.saturating_sub(meta_w + prefix_w + badge_w + COL_GUTTER);
                 let display_title = session
                     .title
                     .as_deref()
@@ -344,7 +364,7 @@ pub fn draw_sessions_modal(
                         "(untitled)"
                     });
                 let overview = truncate_ellipsis(&one_line(display_title), col1_budget);
-                let left_w = prefix_w + overview.width();
+                let left_w = prefix_w + overview.width() + badge_w;
                 let pad = body_width.saturating_sub(left_w + meta_w);
                 let branch_prefix_style = if is_selected {
                     Style::default().bg(s.bg).fg(theme.primary)
@@ -356,9 +376,15 @@ pub fn draw_sessions_modal(
                 } else {
                     Style::default().bg(s.bg).fg(theme.muted())
                 };
+                let run_badge_style = if is_selected {
+                    Style::default().bg(s.bg).fg(theme.primary)
+                } else {
+                    Style::default().bg(s.bg).fg(theme.warning)
+                };
                 let spans = vec![
                     Span::styled(prefix, branch_prefix_style),
                     Span::styled(overview, branch_text_style),
+                    Span::styled(run_badge, run_badge_style),
                     Span::styled(" ".repeat(pad), Style::default().bg(s.bg)),
                     Span::styled(meta, Style::default().bg(s.bg).fg(s.dim)),
                 ];
@@ -488,6 +514,7 @@ mod tests {
                     session_detail: None,
                     session_info_scroll: &mut info_scroll,
                     sessions_loading: true,
+                    running_sessions: None,
                 },
                 &theme,
                 &selection,
@@ -536,6 +563,7 @@ mod tests {
                     session_detail: None,
                     session_info_scroll: &mut info_scroll,
                     sessions_loading: false,
+                    running_sessions: None,
                 },
                 &theme,
                 &selection,
@@ -689,6 +717,7 @@ mod tests {
                     session_detail: None,
                     session_info_scroll: &mut info_scroll,
                     sessions_loading: false,
+                    running_sessions: None,
                 },
                 &theme,
                 &selection,
@@ -726,6 +755,7 @@ mod tests {
                     session_detail: None,
                     session_info_scroll: &mut info_scroll,
                     sessions_loading: false,
+                    running_sessions: None,
                 },
                 &theme,
                 &selection,
@@ -743,5 +773,66 @@ mod tests {
         assert!(output_expanded.contains("Auth Refactor"));
         assert!(output_expanded.contains("[▼ ⑂ 1]"));
         assert!(output_expanded.contains("└─ ⑂ Regex Aside"));
+    }
+
+    #[test]
+    fn sessions_modal_renders_running_indicator_for_active_threads() {
+        let theme = Theme::default();
+        let selection = crate::model::selection::SelectionState::None;
+        let mut layout_map = crate::model::layout::LayoutMap::default();
+        let mut scroll = 0;
+        let mut info_scroll = 0;
+
+        let s1 = nuo_wire::SessionOverview {
+            id: "s1".into(),
+            title: Some("Running Task".into()),
+            overview: "Running Task".into(),
+            created_at: 100,
+            updated_at: 100,
+            message_count: 5,
+            active: true,
+            parent_id: None,
+            fork_kind: nuo_wire::SessionForkKind::Trunk,
+            digest: None,
+        };
+        let sessions = vec![s1];
+        let mut running_set = std::collections::HashSet::new();
+        running_set.insert("s1".to_string());
+
+        let mut term = TestTerminal::new(80, 24);
+        term.draw(|frame| {
+            draw_sessions_modal(
+                frame,
+                SessionsModalProps {
+                    sessions: &sessions,
+                    expanded_sessions: None,
+                    selected: 0,
+                    scroll: &mut scroll,
+                    follow: false,
+                    startup_picker: false,
+                    spinner_phase: 0,
+                    session_info_detail: false,
+                    session_detail: None,
+                    session_info_scroll: &mut info_scroll,
+                    sessions_loading: false,
+                    running_sessions: Some(&running_set),
+                },
+                &theme,
+                &selection,
+                &mut layout_map,
+            );
+        });
+
+        let output: String = term
+            .buffer()
+            .rows()
+            .iter()
+            .map(|r| r.iter().map(|c| c.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            output.contains("RUNNING"),
+            "must render RUNNING indicator for active running threads: {output}"
+        );
     }
 }

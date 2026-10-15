@@ -164,7 +164,8 @@ fn test_gemini_wire_request_and_response() {
             "content": {
                 "parts": [
                     {
-                        "thought": "The user wants current time in Tokyo. Call get_time with city=Tokyo."
+                        "thought": true,
+                        "text": "The user wants current time in Tokyo. Call get_time with city=Tokyo."
                     },
                     {
                         "functionCall": {
@@ -193,6 +194,34 @@ fn test_gemini_wire_request_and_response() {
     assert_eq!(parsed.tool_calls[0].name, "get_time");
     assert_eq!(parsed.tool_calls[0].arguments["city"], "Tokyo");
     assert_eq!(parsed.usage.total_tokens, 55);
+
+    // Standard Gemini API response format where thoughts have `thought: true`
+    let standard_gemini_resp = json!({
+        "candidates": [{
+            "content": {
+                "parts": [
+                    {
+                        "thought": true,
+                        "text": "Thinking step by step..."
+                    },
+                    {
+                        "text": "The time in Tokyo is 15:00."
+                    }
+                ],
+                "role": "model"
+            },
+            "finishReason": "STOP"
+        }],
+        "usageMetadata": {
+            "promptTokenCount": 10,
+            "candidatesTokenCount": 20,
+            "totalTokenCount": 30
+        }
+    });
+
+    let standard_parsed = google::parse_response(&standard_gemini_resp).unwrap();
+    assert_eq!(standard_parsed.thinking.as_deref(), Some("Thinking step by step..."));
+    assert_eq!(standard_parsed.content.as_deref(), Some("The time in Tokyo is 15:00."));
 }
 
 #[test]

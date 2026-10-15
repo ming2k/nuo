@@ -97,6 +97,7 @@ fn compose_frame(
                 session_detail: app.session_detail.as_ref(),
                 session_info_scroll: &mut sessions.info_scroll,
                 sessions_loading: sessions.loading,
+                running_sessions: Some(&app.running_sessions),
             },
             &app.theme,
             &app.selection,

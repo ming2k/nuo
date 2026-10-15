@@ -888,7 +888,15 @@ fn parse_google_models(json: &Value) -> Vec<DiscoveredModel> {
                     .and_then(Value::as_str)
                     .map(|name| {
                         let id = name.strip_prefix("models/").unwrap_or(name).to_string();
-                        let reasoning = id.contains("gemini-2.5") || id.contains("gemini-3");
+                        let reasoning = entry
+                            .get("thinking")
+                            .and_then(Value::as_bool)
+                            .unwrap_or_else(|| {
+                                id.contains("gemini-2.5")
+                                    || id.contains("gemini-3")
+                                    || id.contains("gemini-4")
+                                    || id.contains("argon")
+                            });
                         DiscoveredModel {
                             id,
                             // Gemini's model resource carries the label in
@@ -925,12 +933,13 @@ fn parse_antigravity_models_map(
     let mut emitted: HashSet<String> = HashSet::new();
 
     for (model_id, mdata) in models_map {
-        // Suppress 3.6 flash models, internal chat/tab helpers, embeddings, image models, deprecated models
+        // Suppress 3.6 flash models, internal chat/tab helpers, embeddings, image models, deprecated models, canary-disabled models
         if model_id.starts_with("gemini-3.6-flash")
             || model_id.starts_with("chat_")
             || model_id.starts_with("tab_")
             || model_id.starts_with("models/")
             || model_id.contains("image")
+            || model_id.ends_with("-disabled")
             || deprecated_map.is_some_and(|dep| dep.contains_key(model_id))
         {
             continue;
@@ -1603,6 +1612,27 @@ mod tests {
         assert_eq!(models[0].id, "gemini-2.5-flash");
         assert_eq!(models[0].context_window, Some(1048576));
         assert_eq!(models[0].max_output_tokens, Some(65536));
+        assert_eq!(models[0].reasoning, Some(true));
+        assert_eq!(models[0].family.as_deref(), Some("google"));
+    }
+
+    #[test]
+    fn google_models_parse_gemini_4_argon_with_thinking_bool() {
+        let json = serde_json::json!({
+            "models": [{
+                "name": "models/gemini-4-argon",
+                "displayName": "Gemini 4 Argon",
+                "inputTokenLimit": 1048576,
+                "outputTokenLimit": 32768,
+                "thinking": true,
+                "supportedGenerationMethods": ["generateContent"]
+            }]
+        });
+        let models = parse_models(CatalogShape::Google, &json);
+        assert_eq!(models[0].id, "gemini-4-argon");
+        assert_eq!(models[0].name.as_deref(), Some("Gemini 4 Argon"));
+        assert_eq!(models[0].context_window, Some(1048576));
+        assert_eq!(models[0].max_output_tokens, Some(32768));
         assert_eq!(models[0].reasoning, Some(true));
         assert_eq!(models[0].family.as_deref(), Some("google"));
     }

@@ -1092,26 +1092,39 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::OpenSelectedSession => {
-            let rows = crate::overlays::session::project_session_rows(
-                &app.sessions_overview,
-                Some(&app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().expanded),
-            );
-            if let Some(item) = rows.get(app.active_index().min(rows.len().saturating_sub(1))) {
-                let session = item.session();
-                let id = session.id.clone();
-                let short_id = crate::session::short_session_id(&id);
+            let target = {
+                let rows = crate::overlays::session::project_session_rows(
+                    &app.sessions_overview,
+                    Some(&app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().expanded),
+                );
+                rows.get(app.active_index().min(rows.len().saturating_sub(1)))
+                    .map(|item| {
+                        let session = item.session();
+                        (session.id.clone(), session.title.clone())
+                    })
+            };
+            if let Some((id, title)) = target {
                 app.dismiss_active_dialog();
                 app.set_active_index(0);
-                // A session was chosen from the startup picker, so a
-                // real thread now backs the view: subsequent
-                // `/sessions` modals should behave as ordinary
-                // transient overlays (Esc = dismiss, not quit).
                 app.startup_overlay = crate::StartupOverlay::None;
-                app.switching_session = Some(short_id.clone());
-                let _ = short_id;
-                app.messages.clear();
-                app.scroll = 0;
-                app.send_intent(AgentRequest::SlashCommand(format!("/sessions {}", id)));
+
+                // Project into ClientTab workspace topology (ADR-0039, ADR-0041, ADR-0043)
+                let tab = crate::surfaces::ClientTab::thread(&id, title.as_deref());
+                app.open_tab(tab);
+
+                if id == viewed_session_id {
+                    // Re-selecting the currently viewed thread is an idempotent focus recovery.
+                    // Keep messages intact. If running, pin scroll to bottom for live output.
+                    if app.running_sessions.contains(&id) {
+                        app.scroll = 0;
+                    }
+                } else {
+                    // Switching to another thread (running or idle):
+                    // Purge legacy slash-command RPC (/sessions <id>).
+                    // Trigger clean client viewport attach (ADR-0038 [INV-ACTION-02]).
+                    app.switch_to_target = Some(id);
+                    app.should_quit.store(true, Ordering::SeqCst);
+                }
             }
         }
         input::InputAction::HostPreviewSelected => {

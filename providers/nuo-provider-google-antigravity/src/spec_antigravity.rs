@@ -18,6 +18,17 @@ pub use nuo_model_codec::model_providers::ANTIGRAVITY_OAUTH_MODELS;
 /// Baseline capability metadata for the models this provider serves.
 pub const MODELS: &[Model] = &[
     Model {
+        id: "gemini-4-argon",
+        family: "google",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        protocol: WireProtocol::GoogleGemini,
+        model_guidance: "",
+        effort_levels: effort_ladders::GEMINI_LEVEL,
+    },
+    Model {
         id: "gemini-3.8-flash-tiered",
         family: "google",
         context_window: 1_000_000,

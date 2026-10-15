@@ -429,6 +429,7 @@ fn render_dialog(
                     session_detail: app.session_detail.as_ref(),
                     session_info_scroll: &mut d.info_scroll,
                     sessions_loading: d.loading,
+                    running_sessions: Some(&app.running_sessions),
                 },
                 ctx.theme,
                 ctx.selection,

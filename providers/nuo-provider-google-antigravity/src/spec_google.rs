@@ -23,6 +23,17 @@ pub const MODELS: &[Model] = &[
     // instead of a generic fallback. See ADR for the configurable
     // `google_base_url`.
     Model {
+        id: "gemini-4-argon",
+        family: "google",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        protocol: WireProtocol::GoogleGemini,
+        model_guidance: "",
+        effort_levels: effort_ladders::GEMINI_LEVEL,
+    },
+    Model {
         id: "gemini-3.8-flash",
         family: "google",
         context_window: 1_000_000,
@@ -91,6 +102,17 @@ pub const MODELS: &[Model] = &[
     Model {
         // Custom-tools variant of 3.1 Pro Preview; serves the same REST surface.
         id: "gemini-3.1-pro-preview-customtools",
+        family: "google",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        protocol: WireProtocol::GoogleGemini,
+        model_guidance: "",
+        effort_levels: effort_ladders::GEMINI_LEVEL,
+    },
+    Model {
+        id: "gemini-3.1-flash-lite",
         family: "google",
         context_window: 1_000_000,
         thinking: ReasoningSupport::ReasoningContent,
@@ -203,5 +225,20 @@ mod tests {
                 .unwrap(),
             "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         );
+
+        let argon = nuo_model_codec::model::resolve("gemini-4-argon");
+        assert_eq!(argon.id, "gemini-4-argon");
+        assert_eq!(argon.context_window, 1_000_000);
+        assert_eq!(argon.protocol, WireProtocol::GoogleGemini);
+        assert!(argon.tool_call);
+        assert!(argon.thinking.reasons());
+        assert_eq!(argon.effort_levels, effort_ladders::GEMINI_LEVEL);
+
+        let flash38 = nuo_model_codec::model::resolve("gemini-3.8-flash");
+        assert_eq!(flash38.id, "gemini-3.8-flash");
+        assert_eq!(flash38.context_window, 1_000_000);
+        assert_eq!(flash38.protocol, WireProtocol::GoogleGemini);
+        assert!(flash38.tool_call);
+        assert!(flash38.thinking.reasons());
     }
 }

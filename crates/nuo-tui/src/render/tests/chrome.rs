@@ -281,6 +281,7 @@ fn redesigned_components_render_without_panicking() {
                 session_detail: None,
                 session_info_scroll: &mut 0,
                 sessions_loading: false,
+                running_sessions: None,
             },
             &theme,
             &selection,
