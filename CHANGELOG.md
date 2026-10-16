@@ -8,6 +8,28 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.26] - 2026-11-06
+
+### Added
+
+- **Multi-Factor Pricing Specification, Dual-Mode Connection Budget, and Spend Circuit Breaker (ADR-0065)**:
+  - Multi-factor model pricing specification capturing prompt token tiers (≤128K, >128K), completion tokens, and cache read/creation costs.
+  - Dual-mode connection budget enforcement across token counts and currency spend limits with spend circuit breaker halting execution upon budget exhaustion.
+  - Granular token classification and cost accounting recorded across connection usage events.
+- **Canonical Protocol Nomenclature and Codec Purity (ADR-0066)**:
+  - Renamed `crates/nuo-wire` to `crates/nuo-protocol` to reflect canonical IPC nomenclature across client-server boundaries.
+  - Decoupled internal East-West IPC structures from external North-South LLM streaming codecs.
+
+### Changed
+
+- **DocGov Decoupling, Invariant Realism, and Documentation Topology Modernization (ADR-0067)**:
+  - Decoupled external docgov tooling, retired `.docgov.yml`, and flattened governance structures to `docs/dev/standards/` and `docs/dev/testing.md`.
+  - Degazetted pseudo-invariant tagging across presentation components in favor of typed models, Rust compiler invariants, and deterministic tests.
+  - Swept legacy citations and resolved references to canonical ADRs.
+- **Google Antigravity Provider Alignment**:
+  - Synchronized Antigravity User-Agent profile to `agy/cli/1.3.6` (`cl=999748552`).
+  - Purged obsolete legacy models and retired synthetic `-tiered` duplicate; cleanly standardized canonical model set to `gemini-4-argon` and `gemini-3.8-flash` with orthogonal reasoning effort depth.
+
 ## [0.0.25] - 2026-11-04
 
 ### Fixed
