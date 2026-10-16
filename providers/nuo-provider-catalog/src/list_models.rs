@@ -367,6 +367,13 @@ impl CatalogParser for GoogleCatalogParser {
     }
 }
 
+pub struct GoogleCloudCodeCatalogParser;
+impl CatalogParser for GoogleCloudCodeCatalogParser {
+    fn parse_json(&self, json: &Value) -> Vec<DiscoveredModel> {
+        nuo_provider_google_antigravity::catalog::parse_antigravity_catalog(json)
+    }
+}
+
 pub struct CodexCatalogParser;
 impl CatalogParser for CodexCatalogParser {
     fn parse_json(&self, json: &Value) -> Vec<DiscoveredModel> {
@@ -417,7 +424,8 @@ pub fn parser_for_with_dimensions(
     match protocol {
         CatalogShape::OpenAi => Box::new(OpenAiCatalogParser),
         CatalogShape::Anthropic => Box::new(AnthropicCatalogParser),
-        CatalogShape::Google | CatalogShape::GoogleCloudCode => Box::new(GoogleCatalogParser),
+        CatalogShape::Google => Box::new(GoogleCatalogParser),
+        CatalogShape::GoogleCloudCode => Box::new(GoogleCloudCodeCatalogParser),
         CatalogShape::Codex => Box::new(CodexCatalogParser),
         CatalogShape::OpencodeConsole => Box::new(OpencodeConsoleCatalogParser),
         CatalogShape::SceneMap => {
@@ -917,78 +925,7 @@ fn parse_google_models(json: &Value) -> Vec<DiscoveredModel> {
             .collect();
     }
 
-    if let Some(models_map) = json.get("models").and_then(Value::as_object) {
-        return parse_antigravity_models_map(models_map, json);
-    }
-
     Vec::new()
-}
-
-fn parse_antigravity_models_map(
-    models_map: &serde_json::Map<String, Value>,
-    root: &Value,
-) -> Vec<DiscoveredModel> {
-    let deprecated_map = root.get("deprecatedModelIds").and_then(Value::as_object);
-    let mut out = Vec::new();
-    let mut emitted: HashSet<String> = HashSet::new();
-
-    for (model_id, mdata) in models_map {
-        // Suppress 3.6 flash models, internal chat/tab helpers, embeddings, image models, deprecated models, canary-disabled models
-        if model_id.starts_with("gemini-3.6-flash")
-            || model_id.starts_with("chat_")
-            || model_id.starts_with("tab_")
-            || model_id.starts_with("models/")
-            || model_id.contains("image")
-            || model_id.ends_with("-disabled")
-            || deprecated_map.is_some_and(|dep| dep.contains_key(model_id))
-        {
-            continue;
-        }
-
-        let context_window = mdata
-            .get("maxTokens")
-            .and_then(Value::as_u64)
-            .map(|v| v as usize);
-        let max_output_tokens = mdata
-            .get("maxOutputTokens")
-            .and_then(Value::as_u64)
-            .map(|v| v as u32);
-        let reasoning = mdata
-            .get("supportsThinking")
-            .and_then(Value::as_bool)
-            .or(Some(true));
-        let vision = mdata.get("supportsImages").and_then(Value::as_bool);
-
-        let discovered = DiscoveredModel {
-            id: model_id.clone(),
-            // This parser applies the provider's admission filter itself (it
-            // drops deprecated and non-chat entries), so nothing survives that
-            // it needs to declare unavailable or unlisted.
-            availability: None,
-            advertised: None,
-            protocol: None,
-            endpoint: None,
-            family: Some("google".to_string()),
-            name: mdata
-                .get("displayName")
-                .or_else(|| mdata.get("display_name"))
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            context_window,
-            max_output_tokens,
-            reasoning,
-            thinking: Some(ReasoningSupport::ReasoningContent),
-            tool_call: Some(true),
-            vision,
-            effort_levels: None,
-            catalog_source: None,
-        };
-        if emitted.insert(discovered.id.clone()) {
-            out.push(discovered);
-        }
-    }
-
-    out
 }
 
 #[cfg(test)]
@@ -1065,10 +1002,91 @@ mod tests {
     }
 
     #[test]
+    fn parses_antigravity_curated_agent_sorts_and_filters_lane_and_effort_variants() {
+        let json = serde_json::json!({
+            "defaultAgentModelId": "gemini-3.8-flash",
+            "agentModelSorts": [
+                {
+                    "displayName": "Recommended",
+                    "groups": [
+                        {
+                            "modelIds": [
+                                "gemini-4-argon",
+                                "gemini-3.8-flash",
+                                "claude-sonnet-5-5",
+                                "claude-opus-5-5",
+                                "claude-sonnet-4-6",
+                                "claude-opus-4-6-thinking"
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "commandModelIds": ["gemini-3-flash"],
+            "commitMessageModelIds": ["gemini-3.5-flash-lite"],
+            "imageGenerationModelIds": ["gemini-3.1-flash-image"],
+            "audioTranscriptionModelIds": ["models/proactive-observer-v10"],
+            "models": {
+                "gemini-4-argon": { "maxTokens": 1000000, "supportsThinking": true },
+                "gemini-3.8-flash": { "maxTokens": 1048576, "supportsThinking": true },
+                "gemini-3.8-flash-high": { "maxTokens": 1048576, "supportsThinking": true },
+                "gemini-3.8-flash-medium": { "maxTokens": 1048576, "supportsThinking": true },
+                "gemini-3.8-flash-low": { "maxTokens": 1048576, "supportsThinking": true },
+                "claude-sonnet-5-5": { "maxTokens": 250000, "supportsThinking": true },
+                "claude-sonnet-5-5-high": { "maxTokens": 250000, "supportsThinking": true },
+                "claude-sonnet-5-5-max": { "maxTokens": 250000, "supportsThinking": true },
+                "claude-opus-5-5": { "maxTokens": 250000, "supportsThinking": true },
+                "claude-opus-5-5-low": { "maxTokens": 250000, "supportsThinking": true },
+                "claude-sonnet-4-6": { "maxTokens": 250000 },
+                "claude-opus-4-6-thinking": { "maxTokens": 250000, "supportsThinking": true },
+                "gemini-3-flash": { "maxTokens": 1000000 },
+                "gemini-3.5-flash-lite": { "maxTokens": 1000000 },
+                "gemini-3.1-flash-image": { "maxTokens": 1000000 },
+                "models/proactive-observer-v10": { "maxTokens": 16000 },
+                "chat_20706": { "maxTokens": 16000 }
+            }
+        });
+
+        let discovered = parse_models(CatalogShape::GoogleCloudCode, &json);
+        let ids: Vec<String> = discovered.iter().map(|m| m.id.clone()).collect();
+
+        // Preserves curated ordering from agentModelSorts [INV-CATALOG-01]
+        assert_eq!(
+            ids,
+            vec![
+                "gemini-4-argon".to_string(),
+                "gemini-3.8-flash".to_string(),
+                "claude-sonnet-5-5".to_string(),
+                "claude-opus-5-5".to_string(),
+                "claude-sonnet-4-6".to_string(),
+                "claude-opus-4-6-thinking".to_string(),
+            ]
+        );
+
+        // Verify Gemini effort ladder [INV-CATALOG-02]
+        let flash38 = discovered.iter().find(|m| m.id == "gemini-3.8-flash").unwrap();
+        assert_eq!(
+            flash38.effort_levels,
+            Some(vec!["minimal".to_string(), "low".to_string(), "medium".to_string(), "high".to_string()])
+        );
+
+        // Verify Claude 5.5 effort ladder [INV-CATALOG-02]
+        let sonnet55 = discovered.iter().find(|m| m.id == "claude-sonnet-5-5").unwrap();
+        assert_eq!(
+            sonnet55.effort_levels,
+            Some(vec!["low".to_string(), "medium".to_string(), "high".to_string(), "max".to_string()])
+        );
+    }
+
+    #[test]
     fn parses_antigravity_models_filtering_3_6_and_deprecated() {
         let json = serde_json::json!({
             "models": {
                 "gemini-3.8-flash": { "maxTokens": 1048576, "supportsThinking": true },
+                "gemini-3.8-flash-high": { "maxTokens": 1048576, "supportsThinking": true },
+                "gemini-3.8-flash-medium": { "maxTokens": 1048576, "supportsThinking": true },
+                "gemini-3.8-flash-low": { "maxTokens": 1048576, "supportsThinking": true },
+                "gemini-3.8-flash-tiered": { "maxTokens": 1048576, "supportsThinking": true },
                 "gemini-4-argon": { "maxTokens": 1000000, "supportsThinking": true },
                 "gemini-3.6-flash-high": { "maxTokens": 1000000, "supportsThinking": true },
                 "gemini-pro-agent": { "maxTokens": 1000000, "supportsThinking": true },
@@ -1079,13 +1097,30 @@ mod tests {
                 "gemini-3.1-pro-high": { "newModelId": "gemini-pro-agent" }
             }
         });
-        let got: Vec<String> = parse_models(CatalogShape::Google, &json)
-            .into_iter()
-            .map(|model| model.id)
+        let discovered = parse_models(CatalogShape::GoogleCloudCode, &json);
+        let got: Vec<String> = discovered
+            .iter()
+            .map(|model| model.id.clone())
             .collect();
         assert!(got.contains(&"gemini-3.8-flash".to_string()));
         assert!(got.contains(&"gemini-4-argon".to_string()));
         assert!(got.contains(&"gemini-pro-agent".to_string()));
+        assert!(
+            !got.contains(&"gemini-3.8-flash-high".to_string()),
+            "3.8 flash effort variants must be normalized/suppressed"
+        );
+        assert!(
+            !got.contains(&"gemini-3.8-flash-medium".to_string()),
+            "3.8 flash effort variants must be normalized/suppressed"
+        );
+        assert!(
+            !got.contains(&"gemini-3.8-flash-low".to_string()),
+            "3.8 flash effort variants must be normalized/suppressed"
+        );
+        assert!(
+            !got.contains(&"gemini-3.8-flash-tiered".to_string()),
+            "3.8 flash tiered duplicate must be suppressed"
+        );
         assert!(
             !got.contains(&"gemini-3.6-flash-high".to_string()),
             "3.6 flash must be suppressed"
@@ -1097,6 +1132,20 @@ mod tests {
         assert!(
             !got.contains(&"chat_20706".to_string()),
             "internal helper model must be suppressed"
+        );
+
+        let flash38 = discovered
+            .iter()
+            .find(|m| m.id == "gemini-3.8-flash")
+            .unwrap();
+        assert_eq!(
+            flash38.effort_levels,
+            Some(vec![
+                "minimal".to_string(),
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string(),
+            ])
         );
     }
 

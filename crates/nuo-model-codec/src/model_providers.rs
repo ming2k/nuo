@@ -44,6 +44,8 @@ pub const GOOGLE_BUILTIN_MODELS: &[&str] = &[
 pub const ANTIGRAVITY_OAUTH_MODELS: &[&str] = &[
     "gemini-4-argon",
     "gemini-3.8-flash",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
 ];
 
 pub const KIMI_CODE_MODELS: &[&str] = &["k3", "kimi-k2.7-code"];

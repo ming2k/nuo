@@ -22,6 +22,8 @@ nuo-provider-anthropic = { workspace = true }
 nuo-provider-opencode = { workspace = true }
 # list_models.rs:387 — `crate::registry::qoder::parse_scene_catalog`.
 nuo-provider-qoder = { workspace = true }
+# ADR-0068: Google Antigravity catalog parsing owned by its provider crate
+nuo-provider-google-antigravity = { workspace = true }
 
 async-trait = { workspace = true }
 serde = { workspace = true }

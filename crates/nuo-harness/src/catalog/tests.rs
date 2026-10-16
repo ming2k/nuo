@@ -1109,6 +1109,7 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
             r#"{
                 "models": {
                   "gemini-3.8-flash": { "maxTokens": 1048576, "maxOutputTokens": 65536, "supportsThinking": true, "supportsImages": true },
+                  "gemini-3.8-flash-high": { "maxTokens": 1048576, "supportsThinking": true },
                   "gemini-4-argon": { "maxTokens": 1048576, "maxOutputTokens": 65536, "supportsThinking": true, "supportsImages": true },
                   "gemini-3.6-flash-high": { "maxTokens": 1048576, "supportsThinking": true },
                   "gemini-pro-agent": { "maxTokens": 1048576, "supportsThinking": true },
@@ -1180,9 +1181,10 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
         .get("agy-live")
         .expect("catalog lands in the cache");
     assert!(models.contains(&"gemini-3.8-flash".to_string()));
+    assert!(!models.contains(&"gemini-3.8-flash-high".to_string()));
     assert!(models.contains(&"gemini-4-argon".to_string()));
     assert!(models.contains(&"gemini-pro-agent".to_string()));
-    // Internal helpers, the legacy 3.6 generation, and deprecated ids stay out.
+    // Internal helpers, pseudo-effort variants, the legacy 3.6 generation, and deprecated ids stay out.
     assert!(!models.iter().any(|m| m.starts_with("chat_")));
     assert!(
         !models.iter().any(|m| m.starts_with("gemini-3.6-flash")),

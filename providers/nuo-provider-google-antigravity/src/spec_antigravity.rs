@@ -39,6 +39,28 @@ pub const MODELS: &[Model] = &[
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
     },
+    Model {
+        id: "claude-sonnet-5-5",
+        family: "claude",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::AnthropicAdaptive,
+        tool_call: true,
+        vision: true,
+        protocol: WireProtocol::GoogleGemini,
+        model_guidance: "",
+        effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
+    },
+    Model {
+        id: "claude-opus-5-5",
+        family: "claude",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::AnthropicAdaptive,
+        tool_call: true,
+        vision: true,
+        protocol: WireProtocol::GoogleGemini,
+        model_guidance: "",
+        effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
+    },
 ];
 
 inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));

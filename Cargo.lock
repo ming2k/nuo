@@ -2097,6 +2097,7 @@ dependencies = [
  "nuo-model-codec",
  "nuo-provider",
  "nuo-provider-anthropic",
+ "nuo-provider-google-antigravity",
  "nuo-provider-opencode",
  "nuo-provider-qoder",
  "nuo-provider-transport",

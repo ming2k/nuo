@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex};
 use nuo_provider_transport::{Client, ClientProfile, Endpoint};
 use nuo_provider_transport::transport::{decode_response_json, ensure_success};
 
+pub mod catalog;
 pub mod request;
 pub mod response;
 pub mod spec_antigravity;
@@ -523,8 +524,9 @@ impl GoogleProvider {
         auth: &nuo_model_codec::ResolvedAuth,
     ) -> (String, http::header::HeaderMap, serde_json::Value) {
         let key = auth.token.expose_secret();
-        let include_thoughts = self.capabilities.reasoning() && !omit_thinking;
-        let thinking = if omit_thinking {
+        let is_claude = self.endpoint.model.starts_with("claude-");
+        let include_thoughts = self.capabilities.reasoning() && !omit_thinking && !is_claude;
+        let thinking = if omit_thinking || is_claude {
             None
         } else {
             request::resolve_thinking(
@@ -622,11 +624,15 @@ impl GoogleProvider {
                 );
             }
 
+            let effective_model = effective_antigravity_wire_model(
+                &self.endpoint.model,
+                self.reasoning_effort,
+            );
             let wrapped_body = serde_json::json!({
                 "project": project,
                 "requestId": uuid::Uuid::new_v4().to_string(),
                 "userAgent": self.endpoint.user_agent(),
-                "model": &self.endpoint.model,
+                "model": effective_model,
                 "request": raw_body
             });
 
@@ -815,6 +821,40 @@ impl Provider for GoogleProvider {
     }
 }
 
+/// Resolve the wire model ID for Google Antigravity envelopes.
+///
+/// Third-party models (e.g. Claude 5.5 on Vertex) route reasoning depth
+/// via dedicated wire endpoint suffixes (`-low`, `-medium`, `-high`, `-max`)
+/// because Vertex AI does not accept Google's `thinkingConfig` object.
+fn effective_antigravity_wire_model(
+    model: &str,
+    effort: Option<nuo_model_codec::Effort>,
+) -> String {
+    let Some(effort) = effort else {
+        return model.to_string();
+    };
+    if model.ends_with("-low")
+        || model.ends_with("-medium")
+        || model.ends_with("-high")
+        || model.ends_with("-max")
+        || model.ends_with("-minimal")
+    {
+        return model.to_string();
+    }
+
+    if model == "claude-sonnet-5-5" || model == "claude-opus-5-5" {
+        return match effort {
+            nuo_model_codec::Effort::Low => format!("{model}-low"),
+            nuo_model_codec::Effort::Medium => format!("{model}-medium"),
+            nuo_model_codec::Effort::High => format!("{model}-high"),
+            nuo_model_codec::Effort::Max => format!("{model}-max"),
+            _ => format!("{model}-high"),
+        };
+    }
+
+    model.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -867,6 +907,8 @@ mod tests {
             ("gemini-3.8-flash", "gemini-3.8-flash"),
             ("claude-sonnet-4-6", "claude-sonnet-4-6"),
             ("claude-opus-4-6-thinking", "claude-opus-4-6-thinking"),
+            ("claude-sonnet-5-5", "claude-sonnet-5-5"),
+            ("claude-opus-5-5", "claude-opus-5-5"),
         ] {
             let p = GoogleProvider::with_base_url_and_user_agent(
                 "k".to_string(),
@@ -881,6 +923,29 @@ mod tests {
                 body["model"], expected,
                 "model id must match expected wire id"
             );
+        }
+
+        // Test wire mapping when reasoning effort is selected on Claude 5.5
+        for (model, effort, expected) in [
+            ("claude-sonnet-5-5", nuo_model_codec::Effort::Low, "claude-sonnet-5-5-low"),
+            ("claude-sonnet-5-5", nuo_model_codec::Effort::Medium, "claude-sonnet-5-5-medium"),
+            ("claude-sonnet-5-5", nuo_model_codec::Effort::High, "claude-sonnet-5-5-high"),
+            ("claude-sonnet-5-5", nuo_model_codec::Effort::Max, "claude-sonnet-5-5-max"),
+            ("claude-opus-5-5", nuo_model_codec::Effort::High, "claude-opus-5-5-high"),
+        ] {
+            let mut p = GoogleProvider::with_base_url_and_user_agent(
+                "k".to_string(),
+                model.to_string(),
+                "https://daily-cloudcode-pa.googleapis.com",
+                "ua",
+            )
+            .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+            .with_project_id("proj-1");
+            p.reasoning_effort = Some(effort);
+            let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
+            assert_eq!(body["model"], expected);
+            // Verify Vertex Claude requests never stamp Google-native thinkingConfig
+            assert!(body["request"]["generationConfig"]["thinkingConfig"].is_null());
         }
     }
 
