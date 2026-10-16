@@ -8,6 +8,17 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.29] - 2026-10-16
+
+### Fixed
+
+- **Google Antigravity 404 Entity Resolution & PredictionService Wire Alignment**:
+  - Mapped `gemini-3.8-flash` directly to upstream CloudCode's verified PredictionService entity `gemini-3.8-flash-tiered`, eliminating HTTP 404 `Requested entity was not found` errors.
+  - Decoupled reasoning effort from model naming; effort is conveyed orthogonally via Google-native `thinkingConfig` (`thinkingLevel` / `thinkingBudget`).
+  - Aligned Claude and GPT-OSS wire entities to `claude-opus-4-6-thinking` and `gpt-oss-120b-medium`.
+  - Ingested upstream `tieredModelIds` (`flash`, `pro`, `flashLite`) in `parse_antigravity_catalog` to ensure primary agent flagship models are prioritized in dynamic catalog discovery without omission.
+  - Modernized baseline catalog definitions and purged legacy hallucinated models.
+
 ## [0.0.28] - 2026-11-06
 
 ### Fixed
