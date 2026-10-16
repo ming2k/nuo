@@ -3,6 +3,17 @@
 # (/home/ming/.local/bin/agy, stripped Go ELF, 208 MB, build 999748552)
 # and live-verified against a real consumer (Google One) account.
 #
+# 2026-10-23 revision: re-verified against the installed `agy` 1.3.6→1.4.0
+# lineage and a paid-pro consumer account (tier G1_PRO): the inference
+# `model` field routes by *registered PredictionService entities* —
+# `gemini-4-argon` (bare) is NOT a registered entity (404
+# `Requested entity was not found`); only its per-level variants
+# `gemini-4-argon-{low,medium,high}` resolve (200). The catalog exposes
+# per-level `tieredModelIds` entries for gemini-3.8/3.5 (canonical
+# `-tiered` entity takes `thinkingLevel` in-band) but exposes argon
+# solely as per-level ids + `defaultAgentModelId`, so argon's wire effort
+# surface is the entity suffix itself.
+#
 # Consumers: the implementer maintaining the `antigravity` client-identity profile in
 # Nuo (nuo-model-codec::client_identity) and the
 # providers/nuo-provider-google-antigravity crate. This file never encodes code
@@ -439,32 +450,59 @@ paths:
         Body is exactly `{"project": "…"}`. The response is the **live**
         (Layer-2) catalog: agent model groups with display ordering, dedicated
         per-lane model ids (command, commit-message, image-generation,
-        audio-transcription), the default agent model, per-model definitions
-        (`models.{id}`) carrying context/output limits, provider enum, effort
-        metadata and per-model experiment configs, plus the experiment id list
-        the account is enrolled in.
+        audio-transcription, web-search, mquery, tab chat proxies), the default
+        agent model, per-model definitions (`models.{id}`) carrying
+        context/output limits, provider enum, effort metadata and per-model
+        experiment configs, plus the experiment id list the account is
+        enrolled in.
 
-        `defaultAgentModelId`: `gemini-3.8-flash`.
-        The recommended agent group observed:
-        `gemini-4-argon`, `gemini-3.8-flash` (with orthogonal effort level
-        selection), `claude-sonnet-4-6`, `claude-opus-4-6-thinking`, `gpt-oss-120b-medium`
-        (upstream natively supports `gemini-4-argon` and effort variants; accounts
-        lacking Argon tier entitlement observe the id with a `-disabled` flag suffix,
-        `gemini-4-argon-disabled`, which the CLI model picker suppresses). Lane models
-        observed: command `gemini-3-flash`, commit-message
-        `gemini-3.5-flash-lite`, image `gemini-3.1-flash-image`, audio
-        `models/proactive-observer-v10`.
+        **Wire entity routing (live 2026-10-23, paid-pro account):** the two
+        inference verbs accept only *registered* ids. Per-level entries ride
+        both the catalog rows and `tieredModelIds` for every tier:
+        `tieredModelIds: {flashLite: [gemini-3.5-flash-lite], flash: [gemini-3.8-flash-tiered],
+        pro: [gemini-3.8-flash-tiered]}` — flash/pro tiers route through the
+        canonical `gemini-3.8-flash-tiered` entity, whose depth is chosen
+        in-band (`generationConfig.thinkingLevel`). Gemini 4 Argon carries **no
+        tiered canonical entity**: the account surface lists only
+        `gemini-4-argon-{low,medium,high}` (catalog rows flagged `recommended`,
+        `tagTitle: "New"`, `thinkingLevel: 1|2|3`), and the bare
+        `gemini-4-argon` id 404s (`Requested entity was not found`, live on
+        both `generateContent` and `streamGenerateContent`). Argon's wire
+        effort surface is therefore the entity suffix. Accounts **without**
+        Argon entitlement observe `gemini-4-argon-disabled` (the catalog row's
+        boolean `disabled: true` form folds into the `-disabled` suffix id
+        the CLI model picker suppresses).
+
+        Paid-pro surface observed 2026-10-23:
+        `defaultAgentModelId: gemini-4-argon-medium`;
+        recommended sort order `gemini-4-argon-{medium,high,low}`,
+        `gemini-3.8-flash-{high,medium,low}`, `claude-{opus,sonnet}-5-5-{low,medium,high}`,
+        `gpt-oss-120b-medium` (deeper claude-sonnet/opus-4-6 ids remain valid
+        legacy-tier rows). Lane models observed: command `gemini-3-flash`,
+        commit-message `gemini-3.5-flash-lite`, image `gemini-3.1-flash-image`,
+        audio `models/proactive-observer-v10`, web-search/mquery
+        `gemini-3.5-flash-lite`, tab `chat_20706`/`chat_23310` (internal
+        helpers, never user-selectable).
 
         Model definition notes (from the live catalog):
         - `apiProvider` discriminates the upstream lane:
-          `API_PROVIDER_INTERNAL` (first-party Gemini),
-          `API_PROVIDER_ANTHROPIC_VERTEX` (Claude via Vertex).
-        - Third-party models carry `model: "MODEL_PLACEHOLDER_M*"` internal
-          enum names (M26 = claude-opus-4-6-thinking, M35 =
-          claude-sonnet-4-6, M318 = gemini-3.8-flash-high family) — these are
-          labels echoed in request `labels.model_enum`, not wire ids.
-        - `maxTokens` is the context ceiling (250000 for Claude entries),
-          `maxOutputTokens` the per-turn output cap (64000).
+          `API_PROVIDER_INTERNAL` (legacy first-party rows),
+          `API_PROVIDER_GOOGLE_GEMINI` (Argon/3.8 rows),
+          `API_PROVIDER_ANTHROPIC_VERTEX` (Claude via Vertex),
+          `API_PROVIDER_OPENAI_VERTEX` (GPT-OSS via Vertex).
+        - `model` is the internal enum label echoed in request
+          `labels.model_enum`, not a wire id — first-party Argon/3.8 rows use
+          `MODEL_PLACEHOLDER_M*` (M318/319/320 = 3.8-flash high/medium/low,
+          M322 = `gemini-3.8-flash-tiered`, M417/418/419 = argon
+          high/medium/low); third-party rows carry named enums
+          (`MODEL_OPENAI_GPT_OSS_120B_MEDIUM`).
+        - `maxTokens` is the context ceiling (1048576 for Gemini/Argon and the
+          5-5 Claude generation), `maxOutputTokens` the per-turn output cap
+          (65536 Gemini rows, 128000 Claude 5-5 rows, 32768 GPT-OSS).
+        - Per-level depth metadata rides the row:
+          `thinkingLevel: 1|2|3` (catalog → `LOW|MEDIUM|HIGH`), plus
+          `thinkingBudget` (−1 = auto; positive = fixed token budget, e.g.
+          gemini-3.8-flash-low = 1000) and `minThinkingBudget: 32`.
         - `quotaInfo.remainingFraction` (0..1) rides each definition.
       requestBody:
         required: true
@@ -485,8 +523,127 @@ paths:
               schema:
                 $ref: "#/components/schemas/AvailableModelsResponse"
               examples:
+                paidPro20261023:
+                  x-provenance: live
+                  summary: Paid-pro consumer account (G1_PRO tier) — per-level argon surface
+                  value:
+                    defaultAgentModelId: gemini-4-argon-medium
+                    agentModelSorts:
+                      - displayName: Recommended
+                        groups:
+                          - modelIds:
+                              - gemini-4-argon-medium
+                              - gemini-4-argon-high
+                              - gemini-4-argon-low
+                              - gemini-3.8-flash-high
+                              - gemini-3.8-flash-medium
+                              - gemini-3.8-flash-low
+                              - claude-opus-5-5-low
+                              - claude-opus-5-5-medium
+                              - claude-opus-5-5-high
+                              - claude-sonnet-5-5-low
+                              - claude-sonnet-5-5-medium
+                              - claude-sonnet-5-5-high
+                              - gpt-oss-120b-medium
+                    tieredModelIds:
+                      flashLite: [gemini-3.5-flash-lite]
+                      flash: [gemini-3.8-flash-tiered]
+                      pro: [gemini-3.8-flash-tiered]
+                    commandModelIds: [gemini-3-flash]
+                    commitMessageModelIds: [gemini-3.5-flash-lite]
+                    imageGenerationModelIds: [gemini-3.1-flash-image]
+                    audioTranscriptionModelIds: [models/proactive-observer-v10]
+                    webSearchModelIds: [gemini-3.5-flash-lite]
+                    mqueryModelIds: [gemini-3.5-flash-lite]
+                    tabModelIds: [chat_20706, chat_23310]
+                    models:
+                      gemini-4-argon-medium:
+                        apiProvider: API_PROVIDER_GOOGLE_GEMINI
+                        modelProvider: MODEL_PROVIDER_GOOGLE
+                        displayName: Gemini 4 Argon (Medium)
+                        model: MODEL_PLACEHOLDER_M418
+                        maxTokens: 1048576
+                        maxOutputTokens: 65536
+                        supportsThinking: true
+                        thinkingLevel: 2
+                        thinkingBudget: -1
+                        minThinkingBudget: 32
+                        recommended: true
+                        tagTitle: New
+                        supportsImages: true
+                        supportsVideo: true
+                      gemini-4-argon-high:
+                        apiProvider: API_PROVIDER_GOOGLE_GEMINI
+                        modelProvider: MODEL_PROVIDER_GOOGLE
+                        displayName: Gemini 4 Argon (High)
+                        model: MODEL_PLACEHOLDER_M417
+                        maxTokens: 1048576
+                        maxOutputTokens: 65536
+                        supportsThinking: true
+                        thinkingLevel: 3
+                        thinkingBudget: -1
+                        minThinkingBudget: 32
+                        recommended: true
+                        tagTitle: New
+                      gemini-4-argon-low:
+                        apiProvider: API_PROVIDER_GOOGLE_GEMINI
+                        modelProvider: MODEL_PROVIDER_GOOGLE
+                        displayName: Gemini 4 Argon (Low)
+                        model: MODEL_PLACEHOLDER_M419
+                        maxTokens: 1048576
+                        maxOutputTokens: 65536
+                        supportsThinking: true
+                        thinkingLevel: 1
+                        thinkingBudget: -1
+                        minThinkingBudget: 32
+                        recommended: true
+                        tagTitle: New
+                      gemini-3.8-flash-tiered:
+                        apiProvider: API_PROVIDER_GOOGLE_GEMINI
+                        modelProvider: MODEL_PROVIDER_GOOGLE
+                        model: MODEL_PLACEHOLDER_M322
+                        maxTokens: 1048576
+                        maxOutputTokens: 65536
+                        supportsThinking: true
+                        thinkingBudget: -1
+                        minThinkingBudget: 32
+                        recommended: true
+                      gemini-3.8-flash-high:
+                        apiProvider: API_PROVIDER_GOOGLE_GEMINI
+                        modelProvider: MODEL_PROVIDER_GOOGLE
+                        displayName: Gemini 3.8 Flash (High)
+                        model: MODEL_PLACEHOLDER_M318
+                        maxTokens: 1048576
+                        maxOutputTokens: 65536
+                        supportsThinking: true
+                        thinkingBudget: -1
+                        minThinkingBudget: 32
+                        recommended: true
+                      claude-opus-5-5-high:
+                        apiProvider: API_PROVIDER_ANTHROPIC_VERTEX
+                        modelProvider: MODEL_PROVIDER_ANTHROPIC
+                        displayName: Claude Opus 5.5 (High)
+                        model: MODEL_PLACEHOLDER_M402
+                        maxTokens: 1000000
+                        maxOutputTokens: 128000
+                        supportsThinking: true
+                        thinkingLevel: 3
+                        recommended: true
+                        tagTitle: New
+                      gpt-oss-120b-medium:
+                        apiProvider: API_PROVIDER_OPENAI_VERTEX
+                        modelProvider: MODEL_PROVIDER_OPENAI
+                        displayName: GPT-OSS 120B (Medium)
+                        model: MODEL_OPENAI_GPT_OSS_120B_MEDIUM
+                        maxTokens: 131072
+                        maxOutputTokens: 32768
+                        supportsThinking: true
+                        thinkingBudget: 8192
+                        recommended: true
+                        tagTitle: Notice
                 consumer20261014:
                   x-provenance: live
+                  summary: Free-tier consumer account (2026-10-14 capture, the 1.3.6 era)
                   value:
                     defaultAgentModelId: gemini-3.8-flash
                     agentModelSorts:
@@ -503,15 +660,12 @@ paths:
                     imageGenerationModelIds: [gemini-3.1-flash-image]
                     audioTranscriptionModelIds: [models/proactive-observer-v10]
                     models:
-                      gemini-4-argon:
+                      gemini-4-argon-disabled:
                         apiProvider: API_PROVIDER_INTERNAL
                         displayName: Gemini 4 Argon
                         maxTokens: 1000000
-                        maxOutputTokens: 64000
-                        supportsThinking: true
-                        supportsImages: true
-                        quotaInfo:
-                          remainingFraction: 1
+                        maxOutputTokens: 65536
+                        disabled: true
                       gemini-3.8-flash:
                         apiProvider: API_PROVIDER_INTERNAL
                         displayName: Gemini 3.8 Flash
@@ -614,9 +768,25 @@ paths:
         `User-Agent`.
 
         Envelope (all fields observed live, top level):
-        - `model` — the wire model id (e.g. `gemini-3.8-flash-high`,
-          `gemini-3.5-flash-lite` for the title-generation lane).
-        - `project` — companion project (`aicode-consumers`).
+        - `model` — the wire model id. **Routing is by registered
+          PredictionService entity** (live 2026-10-23, both inference verbs):
+          `gemini-4-argon` (bare) → HTTP 404
+          `{"error":{"code":404,"message":"Requested entity was not
+          found.","status":"NOT_FOUND"}}`; the per-level ids
+          `gemini-4-argon-{low,medium,high}` serve 200 with
+          `response.modelVersion = gemini-4-argon-trial`. For the
+          gemini-3.8/3.5 families the registered entity is the canonical
+          `-tiered`/suffix-less row and the depth rides in-band
+          (`generationConfig.thinkingLevel`); for argon the suffix IS the
+          depth surface (its rows carry `thinkingLevel: 1|2|3` and the
+          upstream ignores an in-band `thinkingLevel` on argon with a 400
+          `Unknown name "thinkingConfig"`). Observed working ids:
+          `gemini-3.8-flash-high`, `gemini-4-argon-{low,medium,high}`,
+          `claude-sonnet-4-6`, `gpt-oss-120b-medium`,
+          `gemini-3.5-flash-lite` (title-generation lane).
+        - `project` — companion project (`aicode-consumers`). Requests without
+          it are still served (observed live 2026-10-23) but remain the
+          documented 429 trigger under load.
         - `request` — a standard Google `GenerateContentRequest`.
         - `requestId` — `checkpoint/{uuid-v4}` when the turn is a title/
           checkpoint generation (`requestType: "checkpoint"`); absent on
@@ -699,6 +869,35 @@ paths:
                       used_claude_conservative: "false"
                       used_non_gemini_model: "false"
                     sessionId: "-3750763034362895579"
+              argonPerLevelTurn:
+                x-provenance: live
+                summary: >-
+                  Gemini 4 Argon routes by its per-level entity; depth never
+                  appears in-band. Live 2026-10-23 (paid pro): 200,
+                  modelVersion gemini-4-argon-trial. The bare `model:
+                  gemini-4-argon` with this same body 404s.
+                value:
+                  model: gemini-4-argon-medium
+                  project: aicode-consumers
+                  request:
+                    contents:
+                      - role: user
+                        parts:
+                          - text: "Say OK"
+              argonBareIdNotFound:
+                x-provenance: live
+                summary: >-
+                  The 404 freeze: bare base id is not a registered
+                  PredictionService entity (identical on generateContent and
+                  streamGenerateContent).
+                value:
+                  model: gemini-4-argon
+                  project: aicode-consumers
+                  request:
+                    contents:
+                      - role: user
+                        parts:
+                          - text: "Say OK"
               titleCheckpointTurn:
                 x-provenance: live
                 value:
@@ -769,6 +968,18 @@ paths:
                       responseId: sgPPaqn5M9rXrfcP1POhMA
                     traceId: "2069e2aa710b228f"
                     metadata: {}
+        "404":
+          description: >-
+            Unregistered `model` id. Live 2026-10-23: envelope
+            `{"error":{"code":404,"message":"Requested entity was not
+            found.","status":"NOT_FOUND"}}`. `gemini-4-argon` (bare) is the
+            canonical repro; per-level argon ids and the `-tiered` canonical
+            rows resolve. 404 alone does not establish tier ineligibility —
+            check the account surface's `disabled` row first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "429":
@@ -779,12 +990,15 @@ paths:
       operationId: generateContent
       tags: [inference]
       summary: Unary (non-streaming) twin of the SSE envelope
-      x-provenance: bundle
+      x-provenance: bundle + live
       description: |
         Same envelope as `streamGenerateContent`, no `?alt=sse`, response is a
         single wrapped GenerateContentResponse JSON body. The shipped CLI
         prefers the streaming twin for agent turns; the unary verb exists in
-        the binary's RPC table for completion-style lanes.
+        the binary's RPC table for completion-style lanes — and is served for
+        any registered entity: live 2026-10-23 the unary verb 200'd for
+        `gemini-4-argon-{low,medium,high}` and 404'd identically for the bare
+        `gemini-4-argon` id.
       requestBody:
         required: true
         content:
@@ -1217,22 +1431,57 @@ components:
       properties:
         model:
           type: string
-          description: Internal enum name (`MODEL_PLACEHOLDER_M*`) echoed in request labels; third-party models only.
+          description: >-
+            Internal enum label echoed in request labels; `MODEL_PLACEHOLDER_M*`
+            for first-party rows (M318/319/320 = gemini-3.8-flash
+            high/medium/low, M322 = gemini-3.8-flash-tiered, M417/418/419 =
+            argon high/medium/low), named enums for third-party rows
+            (e.g. `MODEL_OPENAI_GPT_OSS_120B_MEDIUM`).
         displayName:
           type: string
         apiProvider:
           type: string
-          enum: [API_PROVIDER_INTERNAL, API_PROVIDER_ANTHROPIC_VERTEX]
+          enum: [API_PROVIDER_INTERNAL, API_PROVIDER_GOOGLE_GEMINI, API_PROVIDER_ANTHROPIC_VERTEX, API_PROVIDER_OPENAI_VERTEX]
         modelProvider:
           type: string
+          enum: [MODEL_PROVIDER_GOOGLE, MODEL_PROVIDER_ANTHROPIC, MODEL_PROVIDER_OPENAI]
         isInternal:
           type: boolean
         maxTokens:
           type: integer
-          description: Context ceiling.
+          description: Context ceiling (1048576 on the 2026-10-23 argon/3.8/claude-5-5 rows).
         maxOutputTokens:
           type: integer
-          description: Per-turn output cap.
+          description: Per-turn output cap (65536 Gemini rows, 128000 Claude 5-5, 32768 GPT-OSS).
+        supportsThinking:
+          type: boolean
+        thinkingLevel:
+          type: integer
+          description: >-
+            Catalog-side depth rank 1|2|3 (→ LOW|MEDIUM|HIGH). Present on
+            per-level rows (argon, claude-5-5); absence with
+            `thinkingBudget: -1` means "canonical row, depth chosen in-band".
+        thinkingBudget:
+          type: integer
+          description: "-1 = auto (server picks). Positive = fixed budget (e.g. gemini-3.8-flash-low = 1000, gemini-3.8-flash-medium = 4000, gpt-oss-120b-medium = 8192)."
+        minThinkingBudget:
+          type: integer
+          description: Minimum accepted in-band budget (32 on every Gemini row observed).
+        recommended:
+          type: boolean
+          description: Account-surface recommendation flag (all paid-pro sort rows carry true).
+        disabled:
+          type: boolean
+          description: >-
+            Entitlement gate (tier lock). True rows surface in the CLI picker
+            folded to the `-disabled` suffix id (e.g. `gemini-4-argon-disabled`
+            for accounts without Argon tier); usable for the signed-in tier's
+            rows are absent from `models` or `disabled` false.
+        beta:
+          type: boolean
+        tagTitle:
+          type: string
+          description: Picker badge ("New", "Notice").
         promptTemplaterType:
           type: string
         toolFormatterType:
@@ -1241,8 +1490,19 @@ components:
           $ref: "#/components/schemas/ModelQuotaInfo"
         supportsCumulativeContext:
           type: boolean
+        supportsImages:
+          type: boolean
+        supportsVideo:
+          type: boolean
         requiresLeadInGeneration:
           type: boolean
+        supportedMimeTypes:
+          type: object
+          additionalProperties:
+            type: boolean
+          description: >-
+            Admissible MIME → bool map riding the row (audio/video/image/doc
+            families observed on argon & 3.8 rows).
         modelExperiments:
           type: object
           additionalProperties: true
@@ -1268,10 +1528,35 @@ components:
       properties:
         defaultAgentModelId:
           type: string
+          description: >-
+            Account-surface default agent entity. Paid-pro 2026-10-23:
+            `gemini-4-argon-medium` (a per-level argon entity); free-tier
+            2026-10-14: `gemini-3.8-flash`.
         agentModelSorts:
           type: array
           items:
             $ref: "#/components/schemas/AgentModelSort"
+        tieredModelIds:
+          type: object
+          description: >-
+            Tier-folded canonical entities — flash/pro route through
+            `gemini-3.8-flash-tiered` (depth in-band); flashLite through
+            `gemini-3.5-flash-lite`. Argon is never present here; its
+            depth lives in per-level entities under `models` +
+            `agentModelSorts`.
+          properties:
+            flashLite:
+              type: array
+              items:
+                type: string
+            flash:
+              type: array
+              items:
+                type: string
+            pro:
+              type: array
+              items:
+                type: string
         commandModelIds:
           type: array
           items:
@@ -1288,6 +1573,19 @@ components:
           type: array
           items:
             type: string
+        webSearchModelIds:
+          type: array
+          items:
+            type: string
+        mqueryModelIds:
+          type: array
+          items:
+            type: string
+        tabModelIds:
+          type: array
+          items:
+            type: string
+          description: Internal tab-chat proxy ids (chat_20706/chat_23310) — never user-selectable.
         models:
           type: object
           additionalProperties:
@@ -1301,10 +1599,16 @@ components:
     ThinkingConfig:
       type: object
       description: >-
-        Google thinking surface. Two admissible shapes observed live:
-        `{includeThoughts: true, thinkingBudget: -1}` (auto budget, main agent
-        turns) and `{includeThoughts: true, thinkingLevel: "LOW"}` (explicit
-        level, title lane). The whole object is omitted on downgrade when the
+        Google thinking surface, two admissible live shapes — but their
+        availability is ENTITY-scoped (live 2026-10-23):
+        the canonical `-tiered` rows (gemini-3.8-flash-tiered, and the
+        suffix-less legacy rows) accept `generationConfig.thinkingConfig`
+        (`{includeThoughts: true, thinkingBudget: -1}` auto-budget on main
+        agent turns, `{includeThoughts: true, thinkingLevel: "LOW"}` on the
+        title lane). The argon per-level entities REJECT the in-band object
+        with 400 `Invalid JSON payload received. Unknown name
+        "thinkingConfig" at 'request': Cannot find field.` — their depth is
+        the entity suffix. The whole object is omitted on downgrade when the
         upstream refuses it.
       properties:
         includeThoughts:
@@ -1384,7 +1688,16 @@ components:
       properties:
         model:
           type: string
-          description: Wire model id (e.g. `gemini-3.8-flash-high`).
+          description: >-
+            Wire model id — MUST be a registered PredictionService entity.
+            Registered (live 2026-10-23): `gemini-4-argon-{low,medium,high}`
+            (argon depth = entity suffix), `gemini-3.8-flash-tiered` and the
+            `gemini-3.8-flash-{high,medium,low}` rows, `claude-{opus,sonnet}-4-6(-thinking)`,
+            `claude-{opus,sonnet}-5-5-{low,medium,high}`,
+            `gpt-oss-120b-medium`, `gemini-3.5-flash-lite`. Unregistered
+            (→404 Requested entity was not found): `gemini-4-argon`,
+            `gemini-3.8-flash` (bare), invented suffixes
+            (`gemini-4-argon-thinking`).
         project:
           type: string
         request:
@@ -1451,7 +1764,11 @@ components:
               $ref: "#/components/schemas/UsageMetadata"
             modelVersion:
               type: string
-              description: Concrete serving version, may differ from the requested id.
+              description: >-
+                Concrete serving version, may differ from the requested id
+                (live 2026-10-23: argon per-level entities serve as
+                `gemini-4-argon-trial`; `gemini-3.8-flash-high` served as
+                `gemini-3.8-flash-n`).
             responseId:
               type: string
         traceId:
@@ -1494,14 +1811,16 @@ components:
 
 x-admission-band:
   summary: >-
-    Live differential probe results (2026-10-14, all endpoints 200 unless
-    noted). Policy: the pin tracks the shipped client — the realistic
-    band-narrowing direction is the floor rising under an auto-updating wild
-    client population, which retires floor-hugging pins first, so the top of
-    the band is the max-headroom seat.
+    Live differential probe results (2026-10-14, re-probed 2026-10-23, all
+    endpoints 200 unless noted). Policy: the pin tracks the shipped client —
+    the realistic band-narrowing direction is the floor rising under an
+    auto-updating wild client population, which retires floor-hugging pins
+    first, so the top of the band is the max-headroom seat.
   userAgents:
+    - value: antigravity/cli/1.4.0 (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)
+      verdict: admitted (re-probed 2026-10-23 — the installed 1.4.0 lineage reaches inference with the 1.3.6 build counter; see note below)
     - value: antigravity/cli/1.3.6 (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)
-      verdict: admitted (the shipped client itself — nuo's tracked profile)
+      verdict: admitted (the tracked 1.3.6 profile — re-admitted 2026-10-23)
     - value: antigravity/cli/1.3.5 (aidev_client; os_type=linux; arch=amd64; cl=998863838; auth_method=consumer)
       verdict: admitted (previous tracked profile)
     - value: antigravity/cli/1.2.12 (aidev_client; os_type=linux; arch=amd64; cl=0; auth_method=consumer)
@@ -1510,6 +1829,19 @@ x-admission-band:
       verdict: admitted on this capture (floor version still inside the band)
     - value: antigravity/1.2.12 (…) — no cli brand segment
       verdict: admitted on this capture (earlier backend generations 404'd this form; keep the brand)
+  versionNote: >-
+    The installed `agy` reports 1.4.0 (Language server version: 1.4.0 in its
+    own logs; go1.28-20260921-RC02 cl/985595000 toolchain in its Go buildinf).
+    The per-request `cl=` counter is therefore not discriminated (1592 = cl=0
+    admitted 2026-10-14; 1.4.0 + cl=999748552 admitted 2026-10-23). The brand
+    `"antigravity/cli/"` segment and the `aidev_client; os_type; arch; …;
+    auth_method=consumer` anatomy remain the load-bearing identity — the
+    literal `antigravity/cli/{version}` string appears nowhere in the 1.4.0
+    binary image (assembled at runtime from format pieces
+    `os_type=%s` / `cl=%d` / `auth_method=%s` / `"%s/%s (%s)"` adjacent to the
+    `User-Agent` constant in the string table), yet the live-admitted form
+    still reads `antigravity/cli/{version} (…)` — the assembled product of
+    those pieces, unchanged from 1.3.6.
   fullCombination:
     fact: tracked version 1.3.6 + real build cl=999748552 + x-goog-api-client header + rich loadCodeAssist metadata body
     verdict: admitted end-to-end (every v1internal verb 200, inference green) — the exact combination nuo ships
