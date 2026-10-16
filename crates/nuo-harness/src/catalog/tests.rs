@@ -330,7 +330,7 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
     use nuo_wire::{ModelRequest, ProviderDialect};
     let _sandbox = sandboxed_paths();
     let mut server = mockito::Server::new_async().await;
-    let model = "gemini-3.8-flash-tiered";
+    let model = "gemini-3.8-flash";
     // Exercise persisted provider definition, OAuth resolution, catalog derivation,
     // factory and HTTP adapter together. No manually constructed Transport.
     let mut providers = nuo_persistence::model_providers::ModelProviders::default();
@@ -1108,8 +1108,8 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
         .with_body(
             r#"{
                 "models": {
-                  "gemini-3.8-flash-tiered": { "maxTokens": 1048576, "maxOutputTokens": 65536, "supportsThinking": true, "supportsImages": true },
-                  "gemini-3.7-flash-tiered": { "maxTokens": 1048576, "maxOutputTokens": 65536, "supportsThinking": true, "supportsImages": true },
+                  "gemini-3.8-flash": { "maxTokens": 1048576, "maxOutputTokens": 65536, "supportsThinking": true, "supportsImages": true },
+                  "gemini-4-argon": { "maxTokens": 1048576, "maxOutputTokens": 65536, "supportsThinking": true, "supportsImages": true },
                   "gemini-3.6-flash-high": { "maxTokens": 1048576, "supportsThinking": true },
                   "gemini-pro-agent": { "maxTokens": 1048576, "supportsThinking": true },
                   "gemini-3.1-pro-high": { "maxTokens": 1048576, "supportsThinking": true },
@@ -1179,11 +1179,8 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
         .connection_models
         .get("agy-live")
         .expect("catalog lands in the cache");
-    // Upstream tiered generation materializes in its canonical wire id without client-synthesized aliases.
-    assert!(models.contains(&"gemini-3.8-flash-tiered".to_string()));
-    assert!(!models.contains(&"gemini-3.8-flash".to_string()));
-    assert!(models.contains(&"gemini-3.7-flash-tiered".to_string()));
-    assert!(!models.contains(&"gemini-3.7-flash".to_string()));
+    assert!(models.contains(&"gemini-3.8-flash".to_string()));
+    assert!(models.contains(&"gemini-4-argon".to_string()));
     assert!(models.contains(&"gemini-pro-agent".to_string()));
     // Internal helpers, the legacy 3.6 generation, and deprecated ids stay out.
     assert!(!models.iter().any(|m| m.starts_with("chat_")));
@@ -1628,7 +1625,7 @@ fn antigravity_models_derivation_and_hidden_filter() {
 
     let config = Config {
         default_connection: "g11".to_string(),
-        default_model: Some("gemini-3.8-flash-tiered".to_string()),
+        default_model: Some("gemini-3.8-flash".to_string()),
         hidden_models: vec![
             "gemini-3.6-flash*".to_string(),
             "gemini-3-flash*".to_string(),
@@ -1647,7 +1644,7 @@ fn antigravity_models_derivation_and_hidden_filter() {
     assert!(
         g11_row
             .models
-            .contains(&"gemini-3.8-flash-tiered".to_string())
+            .contains(&"gemini-3.8-flash".to_string())
     );
     assert!(
         g11_row

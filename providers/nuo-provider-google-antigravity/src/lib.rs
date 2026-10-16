@@ -864,7 +864,7 @@ mod tests {
     fn antigravity_envelope_preserves_canonical_antigravity_wire_ids() {
         for (id, expected) in [
             ("gemini-4-argon", "gemini-4-argon"),
-            ("gemini-3.8-flash-tiered", "gemini-3.8-flash-tiered"),
+            ("gemini-3.8-flash", "gemini-3.8-flash"),
             ("claude-sonnet-4-6", "claude-sonnet-4-6"),
             ("claude-opus-4-6-thinking", "claude-opus-4-6-thinking"),
         ] {

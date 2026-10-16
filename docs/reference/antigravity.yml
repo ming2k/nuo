@@ -444,9 +444,9 @@ paths:
         metadata and per-model experiment configs, plus the experiment id list
         the account is enrolled in.
 
-        `defaultAgentModelId`: `gemini-3.8-flash-tiered`.
+        `defaultAgentModelId`: `gemini-3.8-flash`.
         The recommended agent group observed:
-        `gemini-4-argon`, `gemini-3.8-flash-tiered` (with orthogonal effort level
+        `gemini-4-argon`, `gemini-3.8-flash` (with orthogonal effort level
         selection), `claude-sonnet-4-6`, `claude-opus-4-6-thinking`, `gpt-oss-120b-medium`
         (upstream natively supports `gemini-4-argon` and effort variants; accounts
         lacking Argon tier entitlement observe the id with a `-disabled` flag suffix,
@@ -488,13 +488,13 @@ paths:
                 consumer20261014:
                   x-provenance: live
                   value:
-                    defaultAgentModelId: gemini-3.8-flash-tiered
+                    defaultAgentModelId: gemini-3.8-flash
                     agentModelSorts:
                       - displayName: Recommended
                         groups:
                           - modelIds:
                               - gemini-4-argon
-                              - gemini-3.8-flash-tiered
+                              - gemini-3.8-flash
                               - claude-sonnet-4-6
                               - claude-opus-4-6-thinking
                               - gpt-oss-120b-medium
@@ -512,9 +512,9 @@ paths:
                         supportsImages: true
                         quotaInfo:
                           remainingFraction: 1
-                      gemini-3.8-flash-tiered:
+                      gemini-3.8-flash:
                         apiProvider: API_PROVIDER_INTERNAL
-                        displayName: Gemini 3.8 Flash (Tiered)
+                        displayName: Gemini 3.8 Flash
                         maxTokens: 1000000
                         maxOutputTokens: 64000
                         supportsThinking: true

@@ -1068,8 +1068,8 @@ mod tests {
     fn parses_antigravity_models_filtering_3_6_and_deprecated() {
         let json = serde_json::json!({
             "models": {
-                "gemini-3.8-flash-tiered": { "maxTokens": 1048576, "supportsThinking": true },
-                "gemini-3.7-flash-tiered": { "maxTokens": 1000000, "supportsThinking": true },
+                "gemini-3.8-flash": { "maxTokens": 1048576, "supportsThinking": true },
+                "gemini-4-argon": { "maxTokens": 1000000, "supportsThinking": true },
                 "gemini-3.6-flash-high": { "maxTokens": 1000000, "supportsThinking": true },
                 "gemini-pro-agent": { "maxTokens": 1000000, "supportsThinking": true },
                 "gemini-3.1-pro-high": { "maxTokens": 1000000, "supportsThinking": true },
@@ -1083,10 +1083,8 @@ mod tests {
             .into_iter()
             .map(|model| model.id)
             .collect();
-        assert!(got.contains(&"gemini-3.8-flash-tiered".to_string()));
-        assert!(!got.contains(&"gemini-3.8-flash".to_string()));
-        assert!(got.contains(&"gemini-3.7-flash-tiered".to_string()));
-        assert!(!got.contains(&"gemini-3.7-flash".to_string()));
+        assert!(got.contains(&"gemini-3.8-flash".to_string()));
+        assert!(got.contains(&"gemini-4-argon".to_string()));
         assert!(got.contains(&"gemini-pro-agent".to_string()));
         assert!(
             !got.contains(&"gemini-3.6-flash-high".to_string()),

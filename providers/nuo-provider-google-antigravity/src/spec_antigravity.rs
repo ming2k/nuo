@@ -29,7 +29,7 @@ pub const MODELS: &[Model] = &[
         effort_levels: effort_ladders::GEMINI_LEVEL,
     },
     Model {
-        id: "gemini-3.8-flash-tiered",
+        id: "gemini-3.8-flash",
         family: "google",
         context_window: 1_000_000,
         thinking: ReasoningSupport::ReasoningContent,
