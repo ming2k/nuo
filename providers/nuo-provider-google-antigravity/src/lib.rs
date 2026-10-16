@@ -828,14 +828,15 @@ impl Provider for GoogleProvider {
 /// - `claude-sonnet-4-6` and `gemini-3.5-flash-lite` are wire entities verbatim.
 fn effective_antigravity_wire_model(
     model: &str,
-    _effort: Option<nuo_model_codec::Effort>,
+    effort: Option<nuo_model_codec::Effort>,
 ) -> String {
-    // `gemini-4-argon` family: the base / bare effort-suffixed variants are
-    // catalog-side canonicalizations; the PredictionService registers concrete
-    // per-level entities (`gemini-4-argon-{low,medium,high}`, verified live
-    // 2026-10-23: base `gemini-4-argon` 404s `Requested entity was not found`,
-    // each suffixed entity 200s). Default to the paid-tier default agent
-    // model (`defaultAgentModelId` from `fetchAvailableModels`).
+    // `gemini-4-argon` family: the base id is a catalog-side canonicalization;
+    // the PredictionService registers concrete per-level entities
+    // (`gemini-4-argon-{low,medium,high}`) — verified live 2026-10-23: the bare
+    // base id 404s `Requested entity was not found`, each suffixed entity
+    // 200s. `tieredModelIds` never carries argon, so the per-level suffix is
+    // the wire's effort surface for this family (unlike gemini-3.8, whose
+    // canonical `-tiered` entity takes `thinkingLevel` in-band).
     if model == "gemini-4-argon"
         || (model.starts_with("gemini-4-argon-")
             && !matches!(
@@ -843,6 +844,18 @@ fn effective_antigravity_wire_model(
                 "gemini-4-argon-low" | "gemini-4-argon-medium" | "gemini-4-argon-high"
             ))
     {
+        if let Some(e) = effort {
+            // The argon family only registers three depth buckets on the wire;
+            // the effort vocabulary collapses onto them shallow→deep by rank
+            // (`None < Minimal < Low < Medium < High < Xhigh < Max`).
+            return match effort_bucket(e) {
+                0 => "gemini-4-argon-low".to_string(),
+                1 => "gemini-4-argon-medium".to_string(),
+                _ => "gemini-4-argon-high".to_string(),
+            };
+        }
+        // No explicit effort: honor the account's upstream default
+        // (`defaultAgentModelId` = gemini-4-argon-medium on the paid pro tier).
         return "gemini-4-argon-medium".to_string();
     }
     match model {
@@ -856,6 +869,17 @@ fn effective_antigravity_wire_model(
         "gemini-3.5-flash-lite" => "gemini-3.5-flash-lite".to_string(),
         "claude-sonnet-4-6" => "claude-sonnet-4-6".to_string(),
         other => other.to_string(),
+    }
+}
+
+/// Collapse the full effort vocabulary onto argon's three registered wire
+/// buckets (the per-level entities), shallow→deep.
+fn effort_bucket(effort: nuo_model_codec::Effort) -> u8 {
+    use nuo_model_codec::Effort;
+    match effort {
+        Effort::None | Effort::Minimal | Effort::Low => 0,
+        Effort::Medium => 1,
+        Effort::High | Effort::Xhigh | Effort::Max | Effort::Ultra => 2,
     }
 }
 
@@ -918,13 +942,11 @@ mod tests {
             ("gpt-oss-120b", "gpt-oss-120b-medium"),
             ("gpt-oss-120b-medium", "gpt-oss-120b-medium"),
             ("gemini-3.5-flash-lite", "gemini-3.5-flash-lite"),
-            // gemini-4-argon: base and bare suffixed canonicalizations have no
-            // PredictionService entity (404 `Requested entity was not found`);
-            // the concrete per-level entities are registerd on the wire
-            // (verified live 2026-10-23). The base already carries the
-            // account's effort choice through `reasoning_effort`, so the rub
-            // is to reach the closest registered entity — the paid-tier
-            // default (`defaultAgentModelId`).
+            // gemini-4-argon: base and unrecognized suffixed canonicalizations
+            // have no PredictionService entity (404 `Requested entity was not
+            // found`); the concrete per-level entities are registered on the
+            // wire (verified live 2026-10-23). With no effort override the
+            // paid-tier default (`defaultAgentModelId`) applies.
             ("gemini-4-argon", "gemini-4-argon-medium"),
             ("gemini-4-argon-low", "gemini-4-argon-low"),
             ("gemini-4-argon-medium", "gemini-4-argon-medium"),
@@ -978,6 +1000,49 @@ mod tests {
         .with_project_id("proj-1");
         let (_, _, body_claude) = p_claude.prepare_request(ModelRequest::new(Vec::new()), false, false);
         assert!(body_claude["request"]["generationConfig"]["thinkingConfig"].is_null());
+    }
+
+    /// Argon's wire effort surface is the per-level entity itself (no
+    /// `tieredModelIds` entry carries argon, so there is no canonical entity
+    /// that would take an in-band `thinkingLevel` budget). The registered
+    /// entity must track the channel's effort override.
+    #[test]
+    fn antigravity_argon_routes_effort_to_registered_per_level_entity() {
+        for (effort, expected) in [
+            (nuo_model_codec::Effort::Minimal, "gemini-4-argon-low"),
+            (nuo_model_codec::Effort::Low, "gemini-4-argon-low"),
+            (nuo_model_codec::Effort::Medium, "gemini-4-argon-medium"),
+            (nuo_model_codec::Effort::High, "gemini-4-argon-high"),
+            (nuo_model_codec::Effort::Max, "gemini-4-argon-high"),
+        ] {
+            let mut p = GoogleProvider::with_base_url_and_user_agent(
+                "k".to_string(),
+                "gemini-4-argon".to_string(),
+                "https://daily-cloudcode-pa.googleapis.com",
+                "ua",
+            )
+            .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+            .with_project_id("proj-1");
+            p.reasoning_effort = Some(effort);
+            let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
+            assert_eq!(
+                body["model"], expected,
+                "effort {effort:?} must reach its registered argon entity"
+            );
+        }
+
+        // No effort override: the account default entity applies.
+        let p =
+            GoogleProvider::with_base_url_and_user_agent(
+                "k".to_string(),
+                "gemini-4-argon".to_string(),
+                "https://daily-cloudcode-pa.googleapis.com",
+                "ua",
+            )
+            .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+            .with_project_id("proj-1");
+        let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
+        assert_eq!(body["model"], "gemini-4-argon-medium");
     }
 
     #[test]
