@@ -8,6 +8,16 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.28] - 2026-11-06
+
+### Fixed
+
+- **Google Antigravity End-to-End Inference Wire Mapping & Project Routing**:
+  - Dynamically mapped canonical `gemini-3.8-flash` with orthogonal reasoning effort depth to concrete wire variants (`gemini-3.8-flash-minimal/low/medium/high`) preventing upstream 404/400 errors.
+  - Standardized companion project fallback to `aicode-consumers` across inference execution (`prepare_request_for_auth`) and quota queries (`fetch_usage_with_project`, `retrieve_antigravity_quota_summary`), preventing HTTP 429 `RESOURCE_EXHAUSTED` faults.
+  - Preserved curated priority ordering (`[INV-CATALOG-01]`) for `CatalogShape::GoogleCloudCode` in `fetch_remote_catalog` to guarantee top-tier frontier models (`gemini-4-argon`, `gemini-3.8-flash`) lead model selection.
+  - Lifted subscription-disabled variants (e.g. `gemini-4-argon-disabled`) into canonical representations with `Availability::locked` per ADR-0273.
+
 ## [0.0.27] - 2026-11-06
 
 ### Added
