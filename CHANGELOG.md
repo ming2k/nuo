@@ -8,6 +8,17 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.27] - 2026-11-06
+
+### Added
+
+- **Canonical Model Catalog Ingestion, Semantic Lifting, and Orthogonal Capability Normalization (ADR-0068)**:
+  - Curated Agent Surface Primacy (`[INV-CATALOG-01]`): Prioritized upstream curated agent model sets (`agentModelSorts`) while systematically isolating dedicated sub-task lane models (`commandModelIds`, `commitMessageModelIds`, etc.).
+  - Orthogonal Capability Lifting (`[INV-CATALOG-02]`): Folded parameter-suffixed wire variants (`-high`, `-medium`, `-low`, `-minimal`, `-max`, `-tiered`) into canonical model identities and lifted implied parameters into first-class `effort_levels`.
+  - Abolition of Legacy Blacklists (`[INV-CATALOG-03]`): Eliminated brittle, hardcoded version string heuristics (`starts_with("gemini-3.6-flash")`) in favor of generic, structural filtering.
+  - Provider Dialect Encapsulation (`[INV-CATALOG-04]`): Encapsulated Antigravity live catalog parsing in `nuo-provider-google-antigravity::catalog`, purifying `nuo-provider-catalog` as a shape-keyed dispatch engine.
+  - Antigravity 1.3.6 Modernization: Added native support for flagship `claude-sonnet-5-5` and `claude-opus-5-5` on Google Antigravity with full `[low, medium, high, max]` effort depth and transparent wire envelope mapping.
+
 ## [0.0.26] - 2026-11-06
 
 ### Added
