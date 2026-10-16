@@ -830,6 +830,21 @@ fn effective_antigravity_wire_model(
     model: &str,
     _effort: Option<nuo_model_codec::Effort>,
 ) -> String {
+    // `gemini-4-argon` family: the base / bare effort-suffixed variants are
+    // catalog-side canonicalizations; the PredictionService registers concrete
+    // per-level entities (`gemini-4-argon-{low,medium,high}`, verified live
+    // 2026-10-23: base `gemini-4-argon` 404s `Requested entity was not found`,
+    // each suffixed entity 200s). Default to the paid-tier default agent
+    // model (`defaultAgentModelId` from `fetchAvailableModels`).
+    if model == "gemini-4-argon"
+        || (model.starts_with("gemini-4-argon-")
+            && !matches!(
+                model,
+                "gemini-4-argon-low" | "gemini-4-argon-medium" | "gemini-4-argon-high"
+            ))
+    {
+        return "gemini-4-argon-medium".to_string();
+    }
     match model {
         "gemini-3.8-flash"
         | "gemini-3.8-flash-high"
@@ -903,6 +918,17 @@ mod tests {
             ("gpt-oss-120b", "gpt-oss-120b-medium"),
             ("gpt-oss-120b-medium", "gpt-oss-120b-medium"),
             ("gemini-3.5-flash-lite", "gemini-3.5-flash-lite"),
+            // gemini-4-argon: base and bare suffixed canonicalizations have no
+            // PredictionService entity (404 `Requested entity was not found`);
+            // the concrete per-level entities are registerd on the wire
+            // (verified live 2026-10-23). The base already carries the
+            // account's effort choice through `reasoning_effort`, so the rub
+            // is to reach the closest registered entity — the paid-tier
+            // default (`defaultAgentModelId`).
+            ("gemini-4-argon", "gemini-4-argon-medium"),
+            ("gemini-4-argon-low", "gemini-4-argon-low"),
+            ("gemini-4-argon-medium", "gemini-4-argon-medium"),
+            ("gemini-4-argon-high", "gemini-4-argon-high"),
         ] {
             let p = GoogleProvider::with_base_url_and_user_agent(
                 "k".to_string(),
