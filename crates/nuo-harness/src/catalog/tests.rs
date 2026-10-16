@@ -1107,9 +1107,24 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
         .with_header("content-type", "application/json")
         .with_body(
             r#"{
+                "defaultAgentModelId": "gemini-3.8-flash",
+                "agentModelSorts": [
+                  {
+                    "displayName": "Recommended",
+                    "groups": [
+                      {
+                        "modelIds": [
+                          "gemini-4-argon",
+                          "gemini-3.8-flash-high",
+                          "gemini-pro-agent",
+                          "claude-opus-4-6-thinking"
+                        ]
+                      }
+                    ]
+                  }
+                ],
                 "models": {
-                  "gemini-3.8-flash": { "maxTokens": 1048576, "maxOutputTokens": 65536, "supportsThinking": true, "supportsImages": true },
-                  "gemini-3.8-flash-high": { "maxTokens": 1048576, "supportsThinking": true },
+                  "gemini-3.8-flash-high": { "maxTokens": 1048576, "maxOutputTokens": 65536, "supportsThinking": true, "supportsImages": true },
                   "gemini-4-argon": { "maxTokens": 1048576, "maxOutputTokens": 65536, "supportsThinking": true, "supportsImages": true },
                   "gemini-3.6-flash-high": { "maxTokens": 1048576, "supportsThinking": true },
                   "gemini-pro-agent": { "maxTokens": 1048576, "supportsThinking": true },
@@ -1191,6 +1206,10 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
         "legacy 3.6 flash generation must stay suppressed"
     );
     assert!(!models.contains(&"gemini-3.1-pro-high".to_string()));
+    assert!(
+        !models.contains(&"gemini-2.5-flash".to_string()),
+        "legacy 2.5 flash generation must stay suppressed"
+    );
 }
 
 #[tokio::test]

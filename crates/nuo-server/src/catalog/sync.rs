@@ -186,7 +186,12 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
                 api_key: &auth.token,
                 account_id: auth
                     .extension::<nuo_wire::ChatGptAuthMetadata>()
-                    .map(|m| m.account_id.as_str()),
+                    .map(|m| m.account_id.as_str())
+                    .or_else(|| {
+                        auth.extension::<nuo_wire::GoogleAuthMetadata>()
+                            .map(|m| m.project_id.as_str())
+                            .filter(|s| !s.trim().is_empty())
+                    }),
                 org_id: auth
                     .extension::<nuo_wire::OpencodeAuthMetadata>()
                     .map(|m| m.org_id.as_str()),

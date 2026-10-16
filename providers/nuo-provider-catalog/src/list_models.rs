@@ -232,9 +232,15 @@ pub async fn fetch_remote_catalog(
             // Wire truth (live 2026-10-14): `fetchAvailableModels` takes
             // exactly `{"project": "…"}` with only the auth headers — no
             // `x-goog-api-client` (the shipped client never sends it).
+            // Consumer accounts route through companion project `aicode-consumers`
+            // unless an explicit non-empty account/project ID was provided.
+            let project = req
+                .account_id
+                .filter(|id| !id.trim().is_empty())
+                .unwrap_or("aicode-consumers");
             let mut request = nuo_provider_transport::http::Request::new(netune::Method::POST, &endpoint)
                 .header("user-agent", user_agent)
-                .json(&serde_json::json!({ "project": "" }));
+                .json(&serde_json::json!({ "project": project }));
             if !req.api_key.expose_secret().trim().is_empty() {
                 request = request.header(
                     "authorization",
@@ -318,9 +324,9 @@ pub async fn fetch_remote_catalog(
 
     validate_catalog_shape(req.protocol, &json)?;
     let mut models = parse_models_with_dimensions(req.protocol, &json, req.dimensions);
-    if req.protocol == CatalogShape::Codex {
-        // Codex's order is semantic (the endpoint's `priority` order), so
-        // preserve it while discarding duplicate slugs.
+    if req.protocol == CatalogShape::Codex || req.protocol == CatalogShape::GoogleCloudCode {
+        // Codex and Google CloudCode have semantic curation order (agentModelSorts),
+        // so preserve it while discarding duplicate slugs.
         let mut seen = HashSet::new();
         models.retain(|model| seen.insert(model.id.clone()));
     } else {

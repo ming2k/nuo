@@ -86,8 +86,12 @@ impl AntigravityUsageFetcher {
             ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL.to_string()
         };
 
+        let effective_project = project
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("aicode-consumers");
         let req_body = serde_json::json!({
-            "project": project.unwrap_or("")
+            "project": effective_project
         });
 
         let request = nuo_provider_transport::http::Request::new(netune::Method::POST, &endpoint)
@@ -119,8 +123,12 @@ pub async fn retrieve_antigravity_quota_summary(
     access_token: &str,
     project: Option<&str>,
 ) -> Result<AntigravityQuotaSummaryResponse, nuo_oauth::oauth::AuthError> {
+    let effective_project = project
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("aicode-consumers");
     let req_body = serde_json::json!({
-        "project": project.unwrap_or("")
+        "project": effective_project
     });
 
     let request =

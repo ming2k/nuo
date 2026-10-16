@@ -616,13 +616,9 @@ impl GoogleProvider {
                 .extension::<nuo_model_codec::GoogleAuthMetadata>()
                 .map(|m| m.project_id.as_str())
                 .or(self.project_id.as_deref())
-                .unwrap_or("");
-            if project.is_empty() {
-                tracing::warn!(
-                    model = %self.endpoint.model,
-                    "Antigravity request missing project_id; requests without cloudaicompanionProject may hit HTTP 429 RESOURCE_EXHAUSTED"
-                );
-            }
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("aicode-consumers");
 
             let effective_model = effective_antigravity_wire_model(
                 &self.endpoint.model,
@@ -823,9 +819,11 @@ impl Provider for GoogleProvider {
 
 /// Resolve the wire model ID for Google Antigravity envelopes.
 ///
-/// Third-party models (e.g. Claude 5.5 on Vertex) route reasoning depth
-/// via dedicated wire endpoint suffixes (`-low`, `-medium`, `-high`, `-max`)
-/// because Vertex AI does not accept Google's `thinkingConfig` object.
+/// Upstream Google Antigravity (CloudCode) exposes reasoning models via
+/// dedicated wire endpoints with effort suffixes (e.g. `gemini-3.8-flash-high`,
+/// `claude-sonnet-5-5-high`). Canonical models selected in the catalog are
+/// dynamically lifted back to the appropriate concrete wire endpoint based
+/// on the user's selected reasoning effort depth.
 fn effective_antigravity_wire_model(
     model: &str,
     effort: Option<nuo_model_codec::Effort>,
@@ -840,6 +838,18 @@ fn effective_antigravity_wire_model(
         || model.ends_with("-minimal")
     {
         return model.to_string();
+    }
+
+    if model == "gemini-3.8-flash" {
+        return match effort {
+            nuo_model_codec::Effort::Minimal => "gemini-3.8-flash-minimal".to_string(),
+            nuo_model_codec::Effort::Low => "gemini-3.8-flash-low".to_string(),
+            nuo_model_codec::Effort::Medium => "gemini-3.8-flash-medium".to_string(),
+            nuo_model_codec::Effort::High | nuo_model_codec::Effort::Max => {
+                "gemini-3.8-flash-high".to_string()
+            }
+            _ => "gemini-3.8-flash-high".to_string(),
+        };
     }
 
     if model == "claude-sonnet-5-5" || model == "claude-opus-5-5" {
@@ -925,13 +935,18 @@ mod tests {
             );
         }
 
-        // Test wire mapping when reasoning effort is selected on Claude 5.5
+        // Test wire mapping when reasoning effort is selected on Claude 5.5 and Gemini 3.8 Flash
         for (model, effort, expected) in [
             ("claude-sonnet-5-5", nuo_model_codec::Effort::Low, "claude-sonnet-5-5-low"),
             ("claude-sonnet-5-5", nuo_model_codec::Effort::Medium, "claude-sonnet-5-5-medium"),
             ("claude-sonnet-5-5", nuo_model_codec::Effort::High, "claude-sonnet-5-5-high"),
             ("claude-sonnet-5-5", nuo_model_codec::Effort::Max, "claude-sonnet-5-5-max"),
             ("claude-opus-5-5", nuo_model_codec::Effort::High, "claude-opus-5-5-high"),
+            ("gemini-3.8-flash", nuo_model_codec::Effort::Minimal, "gemini-3.8-flash-minimal"),
+            ("gemini-3.8-flash", nuo_model_codec::Effort::Low, "gemini-3.8-flash-low"),
+            ("gemini-3.8-flash", nuo_model_codec::Effort::Medium, "gemini-3.8-flash-medium"),
+            ("gemini-3.8-flash", nuo_model_codec::Effort::High, "gemini-3.8-flash-high"),
+            ("gemini-3.8-flash", nuo_model_codec::Effort::Max, "gemini-3.8-flash-high"),
         ] {
             let mut p = GoogleProvider::with_base_url_and_user_agent(
                 "k".to_string(),
@@ -944,8 +959,13 @@ mod tests {
             p.reasoning_effort = Some(effort);
             let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
             assert_eq!(body["model"], expected);
-            // Verify Vertex Claude requests never stamp Google-native thinkingConfig
-            assert!(body["request"]["generationConfig"]["thinkingConfig"].is_null());
+            if model.starts_with("claude-") {
+                // Verify Vertex Claude requests never stamp Google-native thinkingConfig
+                assert!(body["request"]["generationConfig"]["thinkingConfig"].is_null());
+            } else {
+                // Verify first-party Gemini requests stamp thinkingConfig
+                assert!(!body["request"]["generationConfig"]["thinkingConfig"].is_null());
+            }
         }
     }
 
