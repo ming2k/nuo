@@ -208,6 +208,9 @@ pub struct ConnectionDetail {
     pub active_model_thinking: Option<bool>,
     /// Remote provider usage / quota / balance state.
     pub usage: ConnectionUsageState,
+    /// Budget policy and circuit-breaker posture for this connection (ADR-0065).
+    #[serde(default)]
+    pub budget: crate::budget::ConnectionBudget,
 }
 
 /// Individual connection quota inspection entry for batch inspection (ADR-0036).

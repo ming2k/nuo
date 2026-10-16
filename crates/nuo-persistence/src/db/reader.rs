@@ -97,6 +97,7 @@ impl DbReader {
                     cache_write_tokens: r.get(8)?,
                     cache_read_tokens: r.get(9)?,
                     estimated_tokens: r.get(10)?,
+                    cost_nano_usd: 0,
                 },
             ))
         })?;
@@ -109,6 +110,7 @@ impl DbReader {
             a.cache_write_tokens += b.cache_write_tokens;
             a.cache_read_tokens += b.cache_read_tokens;
             a.estimated_tokens += b.estimated_tokens;
+            a.cost_nano_usd = a.cost_nano_usd.saturating_add(b.cost_nano_usd);
         }
         for row in rows {
             let (day, provider, model, totals) = row?;

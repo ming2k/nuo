@@ -268,6 +268,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         custom_fields: Vec::new(),
         custom_protocol_wire: String::new(),
         custom_client_identity: nuo_wire::ClientIdentity::Native,
+        custom_budget: Default::default(),
         custom_models: Vec::new(),
         custom_url_hint: String::new(),
         custom_user_agent: None,

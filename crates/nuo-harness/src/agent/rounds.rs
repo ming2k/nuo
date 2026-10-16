@@ -434,6 +434,47 @@ impl Agent {
             // attempt that handed it over is the only reader.
             let mut attempt_request = request.clone();
             attempt_request.transport_telemetry = request_accounting.transport_telemetry();
+
+            // ADR-0065: Pre-flight local spend circuit breaker check.
+            let connection_id = self.provider.provider_id();
+            if let Some(conn) = nuo_persistence::connections::Connections::load().get(&connection_id) {
+                if let nuo_wire::ConnectionBudget::Local { limit, period, .. } = &conn.budget {
+                    let current_spend = match period {
+                        nuo_wire::BudgetPeriod::Session => {
+                            if let Some(pricing) = nuo_provider::resolve_model_pricing(&conn.provider, &self.provider.model()) {
+                                pricing.calculate_cost(&round.state.token_usage).amount
+                            } else {
+                                nuo_wire::pricing::NanoUsd::ZERO
+                            }
+                        }
+                        nuo_wire::BudgetPeriod::Daily | nuo_wire::BudgetPeriod::Total => {
+                            let total_nano = nuo_persistence::connection_usage::ConnectionUsage::load()
+                                .connection_spend(&connection_id);
+                            nuo_wire::pricing::NanoUsd(total_nano)
+                        }
+                    };
+
+                    if conn.budget.is_exceeded(current_spend) {
+                        let err_msg = format!(
+                            "[SPEND CIRCUIT BREAKER]: Connection `{}` reached its {} budget limit of {} (accumulated: {}). Execution halted to protect your account balance.",
+                            connection_id,
+                            period.label(),
+                            limit.format_usd(),
+                            current_spend.format_usd(),
+                        );
+                        request_accounting.record_error(&err_msg);
+                        return Err(HarnessError::Provider(
+                            nuo_wire::ProviderError::new(
+                                &connection_id,
+                                nuo_wire::ProviderErrorKind::QuotaExhausted,
+                                err_msg,
+                            )
+                            .retryable(None),
+                        ));
+                    }
+                }
+            }
+
             // Race the model request against cancellation so an interrupt
             // while we're waiting on the network resolves promptly instead of
             // blocking until the first stream chunk arrives. The idle-timeout
@@ -1080,6 +1121,23 @@ impl Agent {
                     .or_else(|| streamed_usage.take()),
                 &mut request_accounting,
             );
+
+            // ADR-0065: Post-flight financial spend settlement.
+            let settled_usage = completion_meta
+                .as_ref()
+                .and_then(|meta| meta.usage)
+                .or(streamed_usage);
+            if let Some(usage) = settled_usage {
+                let conn_id = self.provider.provider_id();
+                let model_id = self.provider.model();
+                if let Some(pricing) = nuo_provider::resolve_model_pricing(&conn_id, &model_id) {
+                    let cost = pricing.calculate_cost(&usage);
+                    let mut conn_usage = nuo_persistence::connection_usage::ConnectionUsage::load();
+                    conn_usage.record_spend(&conn_id, &model_id, cost.amount.0);
+                    let _ = conn_usage.save();
+                }
+            }
+
             on_event(AgentEvent::TurnPerformance(performance));
             messages.push(response.clone());
 

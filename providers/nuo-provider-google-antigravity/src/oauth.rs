@@ -97,7 +97,7 @@ pub async fn resolve_antigravity_project(
     client: &nuo_provider_transport::http::Http,
     access_token: &str,
 ) -> Result<String, AuthError> {
-    // Wire truth (live capture of `agy` 1.3.5, 2026-10-14): the shipped
+    // Wire truth (live capture of `agy` 1.3.5 / 1.3.6): the shipped
     // client sends the minimal metadata body — ideType only. The extended
     // ideVersion/ideName/platform/pluginType block is also admitted, but the
     // minimal form is what the profile mirrors.

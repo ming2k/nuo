@@ -5,7 +5,9 @@
 //! owner and one entry point.
 
 pub(crate) mod r#loop;
+pub mod spend_breaker;
 
 mod runtime;
 
 pub use runtime::{Agent, AgentBuilder, ChannelWake};
+pub use spend_breaker::SpendCircuitBreaker;

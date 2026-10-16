@@ -182,6 +182,7 @@ impl App {
         auth: ConnectionAuth,
         curated: bool,
         client_identity: nuo_wire::ClientIdentity,
+        budget: nuo_wire::ConnectionBudget,
     ) {
         self.surfaces
             .present_sheet(crate::surfaces::SheetKind::CustomProvider);
@@ -190,6 +191,7 @@ impl App {
         self.custom_field = 0;
         self.custom_protocol_wire = protocol;
         self.custom_client_identity = client_identity;
+        self.custom_budget = budget;
         self.custom_models.clear();
         self.custom_url_hint.clear();
         self.custom_user_agent = None;
@@ -268,6 +270,24 @@ impl App {
                     (index + choices.len() - 1) % choices.len()
                 };
                 self.custom_client_identity = choices[next].clone();
+            }
+            Some(CustomField::Budget) => {
+                let options = [
+                    nuo_wire::ConnectionBudget::Remote,
+                    nuo_wire::ConnectionBudget::local(1.0, nuo_wire::BudgetPeriod::Session),
+                    nuo_wire::ConnectionBudget::local(5.0, nuo_wire::BudgetPeriod::Daily),
+                    nuo_wire::ConnectionBudget::local(20.0, nuo_wire::BudgetPeriod::Total),
+                ];
+                let index = options
+                    .iter()
+                    .position(|value| *value == self.custom_budget)
+                    .unwrap_or(0);
+                let next = if forward {
+                    (index + 1) % options.len()
+                } else {
+                    (index + options.len() - 1) % options.len()
+                };
+                self.custom_budget = options[next].clone();
             }
             _ => {}
         }

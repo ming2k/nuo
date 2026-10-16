@@ -80,6 +80,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                     provider,
                     api_key,
                     client_identity: Some(app.custom_client_identity.clone()),
+                    budget: app.custom_budget.clone(),
                 });
                 // Phase 3 (ADR-0133): the chain ends at chat. Pop the nav
                 // frame (the picker this editor was opened over) and hand
@@ -152,6 +153,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                     models,
                     auth,
                     client_identity,
+                    budget: app.custom_budget.clone(),
                 });
                 app.restore_chat_after_editor_chain();
                 app.custom_field = 0;
@@ -294,6 +296,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                     auth,
                     curated,
                     client_identity,
+                    app.connection_detail.as_ref().map(|d| d.budget.clone()).unwrap_or_default(),
                 );
             }
         }

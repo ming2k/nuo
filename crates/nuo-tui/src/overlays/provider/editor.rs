@@ -612,6 +612,7 @@ pub struct CustomEditorProps<'a> {
     pub model_buf: &'a str,
     pub protocol_display: &'a str,
     pub identity_display: &'a str,
+    pub budget_display: &'a str,
     pub url_hint: &'a str,
     pub input: &'a str,
     pub cursor_position: usize,
@@ -638,6 +639,7 @@ pub fn draw_custom_provider_editor(
         model_buf,
         protocol_display,
         identity_display,
+        budget_display,
         url_hint,
         input,
         cursor_position,
@@ -742,6 +744,7 @@ pub fn draw_custom_provider_editor(
             ),
             CustomField::Protocol => choice_row(focused, "API", protocol_display),
             CustomField::ClientIdentity => choice_row(focused, "Identity", identity_display),
+            CustomField::Budget => choice_row(focused, "Budget", budget_display),
         });
     }
 
@@ -760,7 +763,7 @@ pub fn draw_custom_provider_editor(
         hints.push(FooterHint::key_secondary(crate::keymap::Key::TAB, "field"));
         let choice_focused = matches!(
             fields.get(field as usize),
-            Some(CustomField::Protocol | CustomField::ClientIdentity)
+            Some(CustomField::Protocol | CustomField::ClientIdentity | CustomField::Budget)
         );
         if choice_focused {
             hints.push(FooterHint::navigation(keyvocab::ARROWS_LR, "choose"));

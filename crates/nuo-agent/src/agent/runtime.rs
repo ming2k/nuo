@@ -135,6 +135,10 @@ pub struct Agent {
     skills: crate::skill::SkillRegistry,
     /// In-flight stack of active procedural skill frames.
     skill_stack: Arc<std::sync::Mutex<crate::skill::SkillStack>>,
+    /// Optional spend circuit breaker for financial safety (ADR-0065).
+    spend_breaker: Option<crate::agent::SpendCircuitBreaker>,
+    /// Optional model pricing specification for accurate cost settlement (ADR-0065).
+    model_pricing: Option<nuo_wire::pricing::ModelPricing>,
 }
 
 impl Agent {
@@ -156,6 +160,16 @@ impl Agent {
     /// This agent's unique physical node instance identifier.
     pub fn instance_id(&self) -> Uuid {
         self.instance_id
+    }
+
+    /// Access the spend circuit breaker guardrail if configured (ADR-0065).
+    pub fn spend_breaker(&self) -> Option<&crate::agent::SpendCircuitBreaker> {
+        self.spend_breaker.as_ref()
+    }
+
+    /// Access the configured model pricing specification if set (ADR-0065).
+    pub fn model_pricing(&self) -> Option<&nuo_wire::pricing::ModelPricing> {
+        self.model_pricing.as_ref()
     }
 
     /// Performs an active P2P identity handshake with a peer agent, returning the confirmed pairing acknowledgment.
@@ -363,6 +377,8 @@ impl Agent {
             self.policy.clone(),
             self.active_scopes.clone(),
             self.skill_stack.clone(),
+            self.spend_breaker.clone(),
+            self.model_pricing.clone(),
         );
         loop_.run(session, correlation, events).await
     }
@@ -1158,6 +1174,8 @@ pub struct AgentBuilder {
     p2p_only: bool,
     signature_verifier: Option<Arc<dyn acp::signature::EnvelopeVerifier>>,
     signature_enforcement: acp::signature::SignatureEnforcement,
+    spend_breaker: Option<crate::agent::SpendCircuitBreaker>,
+    model_pricing: Option<nuo_wire::pricing::ModelPricing>,
 }
 
 impl AgentBuilder {
@@ -1184,6 +1202,8 @@ impl AgentBuilder {
             p2p_only: false,
             signature_verifier: None,
             signature_enforcement: acp::signature::SignatureEnforcement::Permissive,
+            spend_breaker: None,
+            model_pricing: None,
         }
     }
 
@@ -1396,6 +1416,18 @@ impl AgentBuilder {
         self
     }
 
+    /// Attaches a local spend circuit breaker to prevent unconstrained financial burn (ADR-0065).
+    pub fn with_spend_breaker(mut self, breaker: crate::agent::SpendCircuitBreaker) -> Self {
+        self.spend_breaker = Some(breaker);
+        self
+    }
+
+    /// Configures model pricing specification for accurate cost settlement (ADR-0065).
+    pub fn with_model_pricing(mut self, pricing: nuo_wire::pricing::ModelPricing) -> Self {
+        self.model_pricing = Some(pricing);
+        self
+    }
+
     pub async fn build(mut self) -> Result<Agent> {
         let address = AgentAddress::parse(&self.address).map_err(|err| {
             AgentError::Session(format!("invalid agent address `{}`: {err}", self.address))
@@ -1482,6 +1514,8 @@ impl AgentBuilder {
             signature_enforcement: self.signature_enforcement,
             skills: self.skills,
             skill_stack,
+            spend_breaker: self.spend_breaker,
+            model_pricing: self.model_pricing,
         })
     }
 }

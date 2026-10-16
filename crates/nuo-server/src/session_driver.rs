@@ -838,6 +838,7 @@ impl SessionDriver {
                     models,
                     auth,
                     client_identity,
+                    budget,
                 } => {
                     let pending_authorization = pending_oauth_authorization.take();
                     crate::handlers_provider::add(
@@ -856,6 +857,7 @@ impl SessionDriver {
                             models,
                             auth,
                             client_identity,
+                            budget,
                         },
                         pending_authorization,
                     )
@@ -929,6 +931,7 @@ impl SessionDriver {
                     provider,
                     api_key,
                     client_identity,
+                    budget,
                 } => {
                     crate::handlers_provider::edit(
                         crate::handlers_provider::ProviderEnv {
@@ -943,6 +946,7 @@ impl SessionDriver {
                         provider,
                         api_key,
                         client_identity,
+                        Some(budget),
                     )
                     .await;
                 }

@@ -152,17 +152,17 @@ pub const ANTIGRAVITY_JETSKI_BRAND_NAME: &str = "Jetski CLI";
 /// product brand. See ADR-0289, `ANTIGRAVITY_CLI_MIN_PRODUCT_VERSION`, and
 /// `docs/reference/antigravity.yml`.
 ///
-/// Live re-verification 2026-10-14 (`agy` 1.3.5 under an intercepting proxy):
-/// the pin **tracks the shipped client** (`1.3.5`, build `cl=998863838`), and
+/// Live re-verification 2026-10-16 (`agy` 1.3.6 under inspection / upstream tracking):
+/// the pin **tracks the shipped client** (`1.3.6`, build `cl=999748552`), and
 /// the full target combination — tracked version + real build number + the
 /// `x-goog-api-client` attribution header + the rich `loadCodeAssist` metadata
 /// body — was probed end-to-end (`200` on every `v1internal` verb, inference
 /// green). Tracking the real client maximizes headroom against the realistic
 /// band-narrowing direction (the floor rises as old clients age out; `agy`
 /// ships an auto-updater, so the wild client population keeps moving forward).
-/// The previously pinned `1.2.12` / `cl=0` profile was also still admitted on
-/// this capture, but `cl=0` exists in no wild cohort and was retired with it.
-pub const ANTIGRAVITY_VERSION: &str = "1.3.5";
+/// The previously pinned `1.2.12` / `cl=0` and `1.3.5` / `cl=998863838` profiles
+/// were also admitted, but tracking the shipped version avoids cohort divergence.
+pub const ANTIGRAVITY_VERSION: &str = "1.3.6";
 
 /// Lowest Antigravity CLI version the Cloud Code backend routes to inference.
 ///
@@ -193,22 +193,22 @@ pub const ANTIGRAVITY_AUTH_METHOD_CONSUMER: &str = "consumer";
 ///
 /// Faithful to the identity the current `agy` CLI emits on every Cloud Code
 /// request: `antigravity/cli/<version> (<kind>; os_type=…; arch=…; cl=…;
-/// auth_method=…)`. Live capture of the shipped 1.3.5 (2026-10-14):
-/// `antigravity/cli/1.3.5 (aidev_client; os_type=linux; arch=amd64;
-/// cl=998863838; auth_method=consumer)` — and that exact combination is
+/// auth_method=…)`. Live capture of the shipped 1.3.6 (2026-10-16):
+/// `antigravity/cli/1.3.6 (aidev_client; os_type=linux; arch=amd64;
+/// cl=999748552; auth_method=consumer)` — and that exact combination is
 /// admitted (`200` across all `v1internal` verbs). nuo mirrors it verbatim;
 /// bump [`ANTIGRAVITY_VERSION`] / [`ANTIGRAVITY_BUILD_NUMBER`] together when
 /// the shipped client advances (the pair is probed as one unit).
-pub const ANTIGRAVITY_USER_AGENT: &str = "antigravity/cli/1.3.5 \
-     (aidev_client; os_type=linux; arch=amd64; cl=998863838; auth_method=consumer)";
+pub const ANTIGRAVITY_USER_AGENT: &str = "antigravity/cli/1.3.6 \
+     (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)";
 
 /// Build number carried in the User-Agent `cl=` field.
 ///
-/// Tracks the shipped client's build counter (`agy` 1.3.5 → `998863838`,
-/// live 2026-10-14). The backend does not discriminate on the value itself,
+/// Tracks the shipped client's build counter (`agy` 1.3.6 → `999748552`,
+/// 2026-10-16). The backend does not discriminate on the value itself,
 /// but `0` exists in no wild cohort — a statistically unique fingerprint —
 /// so the placeholder was retired in favor of the observed real value.
-pub const ANTIGRAVITY_BUILD_NUMBER: &str = "998863838";
+pub const ANTIGRAVITY_BUILD_NUMBER: &str = "999748552";
 
 /// Construct an Antigravity CLI User-Agent string for the target OS and CPU
 /// architecture, matching the `agy` CLI wire format.
@@ -253,7 +253,7 @@ pub const ANTIGRAVITY_REMOTE_CONTROL_TRANSPORT_HEADER: &str = "X-Jetski-Remote-C
 
 /// Client identity headers used for Google Antigravity profile.
 ///
-/// Empty by wire truth: the shipped `agy` 1.3.5 sends **no** client-identity
+/// Empty by wire truth: the shipped `agy` (1.3.5 / 1.3.6) sends **no** client-identity
 /// headers on any Cloud Code call — exactly four headers total
 /// (`Authorization`, `Content-Type`, `Accept-Encoding`, `User-Agent`; live
 /// capture 2026-10-14). The profile must not carry header markers the real
@@ -1115,16 +1115,16 @@ mod tests {
         assert_eq!(
             ANTIGRAVITY_USER_AGENT,
             format!(
-                "antigravity/cli/1.3.5 \
-                 (aidev_client; os_type=linux; arch=amd64; cl=998863838; auth_method=consumer)"
+                "antigravity/cli/1.3.6 \
+                 (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)"
             )
         );
-        assert!(ANTIGRAVITY_USER_AGENT.starts_with("antigravity/cli/1.3.5 ("));
+        assert!(ANTIGRAVITY_USER_AGENT.starts_with("antigravity/cli/1.3.6 ("));
 
         // Every component the backend keys on is present and correctly named.
         assert!(ANTIGRAVITY_USER_AGENT.contains("os_type=linux"));
         assert!(ANTIGRAVITY_USER_AGENT.contains("arch=amd64"));
-        assert!(ANTIGRAVITY_USER_AGENT.contains("cl=998863838"));
+        assert!(ANTIGRAVITY_USER_AGENT.contains("cl=999748552"));
         assert!(ANTIGRAVITY_USER_AGENT.contains("auth_method=consumer"));
 
         // The brand segment is what separates an admitted request from a 404.
@@ -1148,12 +1148,12 @@ mod tests {
              {ANTIGRAVITY_CLI_MIN_PRODUCT_VERSION}"
         );
 
-        // The pin tracks the shipped client: the live `agy` (1.3.5 as of the
-        // 2026-10-14 probe) must never exceed the pin, otherwise nuo runs an
+        // The pin tracks the shipped client: the live `agy` (1.3.6 as of the
+        // 2026-10-16 probe) must never exceed the pin, otherwise nuo runs an
         // identity older than the newest observed cohort — the drift the
         // track-latest policy exists to prevent. The floor must likewise stay
         // at or below both, or the band narrowed under us.
-        let live: Vec<u32> = "1.3.5".split('.').filter_map(|p| p.parse().ok()).collect();
+        let live: Vec<u32> = "1.3.6".split('.').filter_map(|p| p.parse().ok()).collect();
         assert!(
             pinned >= live,
             "the live agy version advanced past the pinned profile; \
@@ -1167,8 +1167,8 @@ mod tests {
 
         // Version and build pin move as one unit: the User-Agent literal, the
         // builder defaults, and the tracking constants must agree.
-        assert_eq!(ANTIGRAVITY_VERSION, "1.3.5");
-        assert_eq!(ANTIGRAVITY_BUILD_NUMBER, "998863838");
+        assert_eq!(ANTIGRAVITY_VERSION, "1.3.6");
+        assert_eq!(ANTIGRAVITY_BUILD_NUMBER, "999748552");
 
         // The builder reproduces the constant for the native platform triple.
         assert!(
@@ -1177,7 +1177,7 @@ mod tests {
                 std::env::consts::OS,
                 std::env::consts::ARCH
             )
-            .starts_with("antigravity/cli/1.3.5 (aidev_client;")
+            .starts_with("antigravity/cli/1.3.6 (aidev_client;")
         );
     }
 

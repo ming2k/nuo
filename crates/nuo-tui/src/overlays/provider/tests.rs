@@ -1490,6 +1490,7 @@ fn connections_modal_detail_view_renders_info_and_usage() {
                 updated_at_ms: None,
             },
         )),
+        budget: Default::default(),
     };
 
     terminal.draw(|f| {
@@ -1631,6 +1632,7 @@ fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
                 updated_at_ms: None,
             },
         )),
+        budget: Default::default(),
     };
 
     terminal.draw(|f| {
@@ -1694,6 +1696,7 @@ fn connections_modal_detail_view_renders_inline_fetching_spinner() {
         active_model_effort: None,
         active_model_thinking: None,
         usage: nuo_wire::ConnectionUsageState::Fetching,
+        budget: Default::default(),
     };
 
     terminal.draw(|f| {
@@ -1912,6 +1915,7 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
                 updated_at_ms: None,
             },
         )),
+        budget: Default::default(),
     };
 
     terminal.draw(|f| {
@@ -2022,6 +2026,7 @@ fn connections_modal_standalone_detail_renders_single_level_header() {
         active_model_effort: Some("high".to_string()),
         active_model_thinking: Some(true),
         usage: nuo_wire::ConnectionUsageState::Fetching,
+        budget: Default::default(),
     };
 
     terminal.draw(|f| {
@@ -2088,6 +2093,7 @@ fn connections_modal_detail_wraps_second_column_with_indent() {
         active_model_effort: None,
         active_model_thinking: None,
         usage: nuo_wire::ConnectionUsageState::Unsupported,
+        budget: Default::default(),
     };
 
     terminal.draw(|f| {
@@ -2224,6 +2230,7 @@ fn connections_modal_detail_served_models_collapsed_by_default_and_expands() {
         active_model_effort: None,
         active_model_thinking: None,
         usage: nuo_wire::ConnectionUsageState::Unsupported,
+        budget: Default::default(),
     };
 
     // 1. Collapsed mode (default)
@@ -2354,6 +2361,7 @@ fn connections_modal_quota_bucket_used_percentage_and_separate_reset_line() {
                 updated_at_ms: None,
             },
         )),
+        budget: Default::default(),
     };
 
     terminal.draw(|f| {

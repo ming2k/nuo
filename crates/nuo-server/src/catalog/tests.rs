@@ -1628,7 +1628,7 @@ fn antigravity_models_derivation_and_hidden_filter() {
 
     let config = Config {
         default_connection: "g11".to_string(),
-        default_model: Some("gemini-3.7-flash".to_string()),
+        default_model: Some("gemini-3.8-flash-tiered".to_string()),
         hidden_models: vec![
             "gemini-3.6-flash*".to_string(),
             "gemini-3-flash*".to_string(),
@@ -1647,7 +1647,12 @@ fn antigravity_models_derivation_and_hidden_filter() {
     assert!(
         g11_row
             .models
-            .contains(&"gemini-3.7-flash-tiered".to_string())
+            .contains(&"gemini-3.8-flash-tiered".to_string())
+    );
+    assert!(
+        g11_row
+            .models
+            .contains(&"gemini-4-argon".to_string())
     );
     assert!(
         !g11_row

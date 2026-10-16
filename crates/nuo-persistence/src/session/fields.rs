@@ -399,7 +399,7 @@ mod tests {
         assert_eq!(m.role_id, "philosophist");
         assert_eq!(
             m.tools,
-            vec!["read_url", "search_web", "ask_user", "recall_memory"]
+            vec!["read_url", "search_web", "recall_memory"]
         );
         assert!(m.identity.preamble().starts_with("Role: philosophist."));
     }

@@ -43,6 +43,10 @@ pub use cache::{
 };
 pub mod request_projection;
 pub use request_projection::RequestProjection;
+pub mod budget;
+pub use budget::{BudgetPeriod, ConnectionBudget};
+pub mod pricing;
+pub use pricing::{ModelPricing, NanoUsd, PricingTier, TurnCost};
 pub mod usage;
 pub use usage::TokenUsage;
 

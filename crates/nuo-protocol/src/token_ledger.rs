@@ -353,6 +353,9 @@ pub struct RequestUsageRecord {
     /// Detailed failure reason / error payload if this attempt failed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Precise financial cost in nano-USD (ADR-0065). `None` when pricing is unavailable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_nano_usd: Option<u64>,
 }
 
 impl RequestUsageRecord {
@@ -848,6 +851,19 @@ impl TokenSourceLedger {
             // clamped — this crate carries no tracing dependency, and the
             // repair is visible in the report itself.
             record.sanitize_poisoned_estimate();
+        }
+        if let Some(pricing) = nuo_provider::resolve_model_pricing(&record.provider, &record.model) {
+            let tool_usage = nuo_tool::usage::TokenUsage {
+                prompt_tokens: record.prompt_tokens,
+                completion_tokens: record.completion_tokens,
+                total_tokens: record.total_tokens,
+                cache_creation_input_tokens: record.cache_write_tokens,
+                cache_read_input_tokens: record.cache_read_tokens,
+                cache_miss_input_tokens: record.cache_miss_tokens,
+                reasoning_tokens: record.reasoning_tokens,
+            };
+            let cost = pricing.calculate_cost(&tool_usage);
+            record.cost_nano_usd = Some(cost.amount.0);
         }
         self.dirty_usage
             .lock()

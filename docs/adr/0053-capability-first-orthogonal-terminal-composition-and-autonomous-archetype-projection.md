@@ -181,4 +181,4 @@ Any visual archetype requiring structural framing (`Structured`) must project no
 ## Compliance and Verification
 
 1. **Unit and Snapshot Tests**: `cargo test -p nuo-tui tests::elevation_pipeline` verifies mapping from `TerminalProfile` to `ElevationArchetype`, spatial cost deduction, and VT100 reverse video behavior.
-2. **Governance Check**: `docgov check` verifies documentation invariants and schema compliance.
+2. **Workspace Verification**: `cargo check --workspace` and `cargo test --workspace` verify architecture constraints and regressions.

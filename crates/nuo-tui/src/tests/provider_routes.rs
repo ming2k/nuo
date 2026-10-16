@@ -422,6 +422,7 @@ fn custom_provider_edit_restores_protocol_and_request_identity() {
         nuo_wire::ConnectionAuth::ApiKey,
         false,
         nuo_wire::ClientIdentity::ClaudeCode,
+        Default::default(),
     );
     assert_eq!(app.custom_protocol_wire, "anthropic-messages");
     assert_eq!(
@@ -806,6 +807,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
         nuo_wire::ConnectionAuth::ApiKey,
         false,
         nuo_wire::ClientIdentity::Native,
+        Default::default(),
     );
     // The Name field owns the composer line; typing a new name renames.
     app.custom_field = 0;
@@ -903,6 +905,7 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
         active_model_effort: None,
         active_model_thinking: None,
         usage: nuo_wire::ConnectionUsageState::Fetching,
+        budget: Default::default(),
     };
 
     crate::event_loop::apply::apply(
@@ -963,6 +966,7 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
         active_model_effort: None,
         active_model_thinking: None,
         usage: nuo_wire::ConnectionUsageState::Unsupported,
+        budget: Default::default(),
     });
 
     let flow = crate::event_loop::actions::dispatch_action_for_test(
@@ -1059,4 +1063,64 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
         app.notice_toast_message,
         "Model list refreshed (up to date)"
     );
+}
+
+#[test]
+fn test_tui_connection_editor_cycles_budget_and_renders_detail() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.open_edit_provider_editor(
+        "gemini-work".to_string(),
+        "Gemini Work".to_string(),
+        "google".to_string(),
+        "https://generativelanguage.googleapis.com".to_string(),
+        nuo_wire::ConnectionAuth::ApiKey,
+        true,
+        nuo_wire::ClientIdentity::Native,
+        nuo_wire::ConnectionBudget::Remote,
+    );
+
+    // Initial budget is Remote
+    assert_eq!(app.custom_budget, nuo_wire::ConnectionBudget::Remote);
+
+    // Focus on Budget field (index 2 for curated API key: Name=0, Token=1, Budget=2)
+    assert_eq!(
+        app.custom_fields,
+        vec![
+            crate::providers::CustomField::Name,
+            crate::providers::CustomField::Token,
+            crate::providers::CustomField::Budget,
+        ]
+    );
+    app.custom_field = 2;
+
+    // Cycle forward with Right arrow
+    app.cycle_custom_choice(true);
+    assert_eq!(
+        app.custom_budget,
+        nuo_wire::ConnectionBudget::local(1.0, nuo_wire::BudgetPeriod::Session)
+    );
+
+    // Cycle forward again
+    app.cycle_custom_choice(true);
+    assert_eq!(
+        app.custom_budget,
+        nuo_wire::ConnectionBudget::local(5.0, nuo_wire::BudgetPeriod::Daily)
+    );
+
+    // Test rendering detail rows includes budget line
+    let detail = nuo_wire::ConnectionDetail {
+        name: "gemini-work".to_string(),
+        provider: "google".to_string(),
+        provider_label: "Google Gemini".to_string(),
+        budget: app.custom_budget.clone(),
+        ..Default::default()
+    };
+    let rows = crate::overlays::provider::connections::connection_detail_body(
+        &detail,
+        false,
+        0,
+        &app.theme,
+    );
+    let budget_row = rows.iter().find(|r| r.prefix.iter().any(|seg| seg.text.contains("Budget Policy")));
+    assert!(budget_row.is_some(), "Budget Policy row must be rendered in detail body");
 }

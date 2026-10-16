@@ -1,38 +1,29 @@
 # Agent Directives
 
-严禁使用 git stash、 git branch、 git reset 特性。
+## 1. Operational Guardrails (Hard Constraints)
+- **Prohibited Git Commands**: NEVER execute `git stash`, `git branch`, or `git reset`.
+- **Command Termination**: All commands MUST be finite and self-terminating. Never start background servers or unbounded loops without a strict timeout.
 
-<!-- BEGIN DOCGOV DIRECTIVES -->
-<!-- CRITICAL: MANAGED BY DOCGOV. DO NOT MODIFY, MOVE, OR REMOVE DELIMITER TAGS. -->
-## Documentation Governance Directives <!-- @docgov-anchor -->
+## 2. Core Mental Model & Subsystem Boundaries
+- **Concentric Architecture**: Nuo is a concentric workspace with a single public binary (`nuo`).
+- **Server Purity**: `nuo-server` is strictly headless and must never link terminal presentation libraries (`nuotc`, `crossterm`, `nuo-tui`).
+- **Client-Server Anti-Inversion**: `nuo-server` never depends on `nuo-client`. Communication flows exclusively through typed `nuo-protocol` IPC.
+- **Protocol Separation**: Local East-West IPC (`nuo-protocol`) is strictly decoupled from external North-South LLM streaming (`nuo-model-codec`).
 
-All modifications must adhere to repository invariants and pass `docgov check`.
+## 3. Engineering Discipline
+- **Mechanisms Over Exhortations**: Rely on Rust compiler typestates, private visibility, and automated tests to guarantee invariants. Never rely on natural-language comments alone.
+- **Anti-Inflation**: Do not mint pseudo-invariant tags (e.g. `INV-UI`, `INV-FOOTER`). Model states via typed enums and styles via design constants.
+- **Atomic Verification**: Always verify code changes with `cargo check --workspace` and relevant crate test suites before declaring tasks complete.
+- **Clean Epistemic Lineage**: References must resolve to canonical in-repo ADRs (`docs/adr/0001`+). Never reference non-existent external `ADR-01xx`/`ADR-02xx` legacy numbers.
 
-### 1. Hard Constraints (Zero-Tolerance Invariants)
-- `[INV-LINT-01] Root Whitelist`: Never create arbitrary Markdown files at the repository root. Only whitelisted files (`README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`, `LICENSE.md`, `SECURITY.md`) are allowed.
-- `[INV-LINT-02] Scope Boundary`: Public documentation (`docs/{tutorials,how-to,reference,explanation}/`) MUST NEVER link to internal contributor docs (`docs/dev/**`).
-- `[INV-LINT-03] Frontmatter Schema`: Every ADR in `docs/adr/` must declare valid YAML frontmatter (`id`, `title`, `status`, `date`).
-- `[INV-LINT-04] Code-Doc Sync`: Modifying monitored paths in `src/` requires updating corresponding `docs/` in the same change.
-- `[INV-LINT-05] Directives Integrity`: Never remove, reformat, or strip boundary delimiters (`<!-- BEGIN/END DOCGOV DIRECTIVES -->`) when modifying agent configuration files.
-
-### 2. Architectural Decision Standards (Reasoning Principles)
-- `[INV-AGENT-01] Rejected Alternatives`: Every new ADR MUST document discarded options and their specific failure modes.
-- `[INV-AGENT-02] Historical State Routing`:
-  - New implementations: DO NOT use `superseded` or `rejected` ADRs as active patterns.
-  - Refactoring & investigations: MUST inspect `superseded` ADRs to learn from historical failure modes.
-- `[INV-AGENT-03] Blameless Postmortems`: Incident postmortems must focus strictly on timeline, detection gaps, and systemic defense failures, prohibiting personal human blame.
-- `[INV-AGENT-04] Architectural Significance Threshold`: Only author ADRs for decisions with high reversal cost or cross-boundary blast radius (skip localized or trivial refactorings).
-
-### 3. Reference Specifications (Authoritative Standards)
-Before drafting or restructuring documentation, inspect the local governance specifications:
-- Taxonomy & Layout (Diátaxis): `docs/governance/documentation/core/taxonomy.md`
-- System Invariants: `docs/governance/documentation/core/invariants.md`
-- Style & Hyperlink Rules: `docs/governance/documentation/core/style.md`
-- ADR & RFC Standards: `docs/governance/documentation/profiles/architecture/adr.md`
-- Quality & Verification: `docs/governance/documentation/profiles/validation/testing.md`
-
-### 4. Verification & Advisory Gate (On-Demand / Lazy)
-`docgov` is an on-demand verification tool, not an unconditional mandatory step for every turn. Apply a lazy strategy:
-- **Skip (No-op)**: Pure discussions, architecture Q&A, intermediate edits, or internal code changes that do not touch documentation or governance boundaries.
-- **Run (Targeted Verification)**: Execute `docgov check` before final hand-off only when modifying `docs/`, `spec/`, ADRs (`docs/adr/`), or files affecting code-doc sync (`[INV-LINT-04]`). Prioritize static self-review over blind tool invocation.
-<!-- END DOCGOV DIRECTIVES -->
+## 4. On-Demand Standards Routing
+Do not guess repository rules or rely on stale assumptions. Consult authoritative specifications in `docs/dev/standards/` as needed:
+- Topology & Subsystem Red-Lines: `docs/dev/standards/architecture.md`
+- Invariant & Constraint Policy: `docs/dev/standards/invariants.md`
+- ADR Authoring & Lifecycle: `docs/dev/standards/adr.md`
+- RFC Standards: `docs/dev/standards/rfc.md`
+- Documentation Taxonomy & Firewalls: `docs/dev/standards/taxonomy.md`
+- Markdown & Hyperlink Style: `docs/dev/standards/style.md`
+- PR Gates & Code-Doc Sync: `docs/dev/standards/workflow.md`
+- Blameless Postmortems: `docs/dev/standards/postmortems.md`
+- Testing Strategy & Execution: `docs/dev/testing.md`

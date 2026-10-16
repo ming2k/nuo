@@ -58,6 +58,7 @@ pub(crate) struct AddConnectionParams {
     pub models: Vec<String>,
     pub auth: nuo_wire::ConnectionAuth,
     pub client_identity: Option<ClientIdentity>,
+    pub budget: nuo_wire::ConnectionBudget,
 }
 
 /// Register a user-declared model provider surface (ADR-0258).
@@ -241,6 +242,7 @@ pub(crate) async fn add(
         models,
         auth,
         client_identity,
+        budget,
     } = params;
     let mut connections = Connections::load();
     // The name IS the connection's identity (ADR-0201 INV-3): reject a
@@ -418,6 +420,7 @@ pub(crate) async fn add(
         client_identity,
         models: model_rules,
         catalog_dimensions: Default::default(),
+        budget,
     };
     connections.connections.push(connection);
     let conn_save_err = connections.save().err().map(|e| e.to_string());
@@ -558,6 +561,7 @@ pub(crate) async fn edit(
     provider: String,
     api_key: SecretString,
     client_identity: Option<ClientIdentity>,
+    budget: Option<nuo_wire::ConnectionBudget>,
 ) {
     let mut connections = Connections::load();
     let trimmed_key = api_key.expose_secret().trim();
@@ -581,6 +585,9 @@ pub(crate) async fn edit(
     instance.provider = provider;
     if let Some(ci) = client_identity {
         instance.client_identity = ci;
+    }
+    if let Some(b) = budget {
+        instance.budget = b;
     }
     if !instance.auth.is_oauth() && !trimmed_key.is_empty() {
         let mut creds = Credentials::load();
@@ -1908,6 +1915,7 @@ pub(crate) async fn query_connection_detail(
         active_model_effort,
         active_model_thinking,
         usage: nuo_wire::ConnectionUsageState::Fetching,
+        budget: connection.budget.clone(),
     };
 
     if force_refresh {
@@ -2353,6 +2361,7 @@ mod tests {
             models: vec!["gpt-5.6".to_string()],
             auth: nuo_wire::ConnectionAuth::subscription("chatgpt"),
             client_identity: None,
+            budget: Default::default(),
         };
 
         add(env, params, Some(pending)).await;
@@ -2633,6 +2642,7 @@ mod tests {
             models: vec!["gpt-4o".to_string(), "gpt-4o-mini".to_string()],
             auth: nuo_wire::ConnectionAuth::ApiKey,
             client_identity: None,
+            budget: Default::default(),
         };
 
         add(env, params, None).await;
@@ -2742,6 +2752,7 @@ mod tests {
             models: vec!["gpt-4o".to_string()],
             auth: nuo_wire::ConnectionAuth::ApiKey,
             client_identity: None,
+            budget: Default::default(),
         };
 
         add(env, params, None).await;

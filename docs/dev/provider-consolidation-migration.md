@@ -309,7 +309,7 @@ These are comments/docs, not compile errors, but they become **false statements*
 - `docs/dev/subsystems.md` §2.3: remove the "pending retirement" marker; the ADR-0027
   registry row flips to Accepted.
 - Flip ADR-0027 `status: draft` → `accepted`; update `docs/adr/index.md`.
-- `cargo test --workspace && docgov check`
+- `cargo test --workspace`
 
 ---
 
@@ -324,7 +324,7 @@ These are comments/docs, not compile errors, but they become **false statements*
 | 6 | `rg 'nuo_provider_adapters' nuo-provider-adapters/tests nuo-provider-adapters/examples` finds nothing before those files are removed |
 | 7–8 | `rg` finds no reference to the deleted abstraction names |
 | 9 | `cargo build --workspace` clean **before** and **after** `rm -rf`; `[INV-PROV-09]` link check |
-| 10–11 | `docgov check` + full suite green |
+| 10–11 | Full workspace test suite green (`cargo test --workspace`) |
 
 ## Rollback
 

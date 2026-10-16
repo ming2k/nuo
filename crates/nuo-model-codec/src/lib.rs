@@ -29,6 +29,7 @@ pub mod provider_state;
 pub mod provider_surface;
 pub mod reasoning;
 pub mod stream;
+pub mod token_classification;
 pub mod tokenizer;
 pub mod tool_output;
 pub mod types;
@@ -62,6 +63,7 @@ pub use provider_state::*;
 pub use provider_surface::*;
 pub use reasoning::{ReasoningMode, ReasoningSupport};
 pub use stream::{SseDecoder, parse_vendor_chunk};
+pub use token_classification::{TokenBreakdown, TokenClass};
 pub use tokenizer::*;
 pub use tool_output::*;
 pub use types::{

@@ -10,6 +10,7 @@ pub enum ProviderErrorKind {
     Transport,
     Timeout,
     RateLimited,
+    QuotaExhausted,
     Authentication,
     InvalidRequest,
     ContextOverflow,

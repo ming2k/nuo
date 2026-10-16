@@ -620,6 +620,11 @@ impl StreamingRoundState {
     pub(crate) fn committed_turns(&self) -> usize {
         self.turn_index
     }
+
+    #[cfg(test)]
+    pub(crate) fn set_token_usage_for_test(&mut self, usage: nuo_wire::TokenUsage) {
+        self.state.token_usage = usage;
+    }
 }
 
 /// A queue of pending messages controlled by a [`nuo_wire::QueueMode`].

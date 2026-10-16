@@ -85,6 +85,9 @@ pub struct UsageModelTotals {
     pub cache_read_tokens: i64,
     /// Tokens from attempts the provider never reported (local estimate).
     pub estimated_tokens: i64,
+    /// Total precise financial cost accumulated in nano-USD (ADR-0065).
+    #[serde(default)]
+    pub cost_nano_usd: u64,
 }
 
 impl UsageModelTotals {
@@ -92,6 +95,9 @@ impl UsageModelTotals {
         self.requests += 1;
         if entry.record.status == RequestUsageStatus::Completed {
             self.completed += 1;
+        }
+        if let Some(cost) = entry.record.cost_nano_usd {
+            self.cost_nano_usd = self.cost_nano_usd.saturating_add(cost);
         }
         match entry.record.source {
             RequestUsageSource::Reported => {
@@ -110,6 +116,16 @@ impl UsageModelTotals {
     /// Grand total across reported + estimated tokens.
     pub fn grand_total(&self) -> i64 {
         self.total_tokens.saturating_add(self.estimated_tokens)
+    }
+
+    /// Accumulated cost converted to floating-point USD.
+    pub fn cost_usd(&self) -> f64 {
+        self.cost_nano_usd as f64 / 1_000_000_000.0
+    }
+
+    /// Formatted cost string (e.g. "$0.0034", "$1.25").
+    pub fn format_cost_usd(&self) -> String {
+        crate::pricing::NanoUsd(self.cost_nano_usd).format_usd()
     }
 }
 

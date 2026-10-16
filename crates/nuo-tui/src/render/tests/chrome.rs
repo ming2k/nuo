@@ -229,6 +229,7 @@ fn redesigned_components_render_without_panicking() {
                 model_buf: "GPT-4o",
                 protocol_display: "Chat Completions",
                 identity_display: "nuo (Native)",
+                budget_display: "Remote (Upstream)",
                 url_hint: "https://relay.example.com/v1/chat/completions",
                 input: "gpt",
                 cursor_position: 3,

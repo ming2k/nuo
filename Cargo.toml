@@ -110,7 +110,8 @@ nuo-model-codec = { version = "0.0.25", path = "crates/nuo-model-codec", default
 nuotc = "0.0.2"
 
 # In-house Nuo crates
-nuo-wire = { version = "0.0.25", path = "crates/nuo-wire" }
+nuo-protocol = { version = "0.0.25", path = "crates/nuo-protocol" }
+nuo-wire = { version = "0.0.25", package = "nuo-protocol", path = "crates/nuo-protocol" }
 nuo-client = { version = "0.0.25", path = "crates/nuo-client" }
 nuo = { version = "0.0.25", path = "nuo" }
 nuo-server = { version = "0.0.25", path = "crates/nuo-server" }

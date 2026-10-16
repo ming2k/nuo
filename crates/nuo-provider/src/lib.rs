@@ -10,6 +10,7 @@ pub mod catalog;
 pub mod credentials;
 pub mod effort_ladders;
 pub mod factory;
+pub mod pricing;
 pub mod spec;
 
 pub mod oauth {
@@ -18,6 +19,7 @@ pub mod oauth {
 
 // Capability & Core Traits
 pub use capability::{Provider, QuotaTracker};
+pub use pricing::{ModelPricing, NanoUsd, PricingTier, TurnCost, resolve_model_pricing};
 pub use catalog::{
     CatalogDiscovery, CatalogSignature, CatalogSigning, DiscoveredModel, ModelListError,
     RemoteCatalogOptions, RemoteCatalogRequest, RemoteCatalogUpdate, build_catalog_signer,

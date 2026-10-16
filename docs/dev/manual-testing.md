@@ -620,7 +620,6 @@ Prior to tagging and publishing a new release, verify each item:
 | Check Category | Verification Step | Pass Criteria | Status |
 | :--- | :--- | :--- | :--- |
 | **Clean Build** | `cargo build --release -p nuo` | Zero compilation warnings or errors | [ ] |
-| **Doc Governance** | `docgov check` | All protocol invariants pass | [ ] |
 | **Unit & E2E Tests** | `cargo test --workspace` | All automated tests pass | [ ] |
 | **Port Scheme Service** | `nuo server start --fg --port "$NUO_PORT"` | Foreground server starts, binds TCP port & UDS, drains gracefully on SIGINT | [ ] |
 | **Detached Port Server** | `nuo server start` -> `nuo status` -> `nuo server token` -> `nuo server stop` | Background PID managed cleanly, TCP port listening, token generated, clean stop | [ ] |

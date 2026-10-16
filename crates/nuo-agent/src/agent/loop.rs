@@ -5,6 +5,8 @@ use crate::session::{Session, SessionEvent, SteeringEffect, SteeringHandle};
 use crate::token::Compactor;
 use crate::tools::ToolRegistry;
 use nuo_tool::{ToolContext, ToolPolicy, ToolScope};
+use nuo_wire::pricing::ModelPricing;
+use super::spend_breaker::SpendCircuitBreaker;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -25,6 +27,8 @@ pub(super) struct CognitiveLoop {
     policy: ToolPolicy,
     active_scopes: Option<Vec<ToolScope>>,
     skill_stack: Arc<std::sync::Mutex<crate::skill::SkillStack>>,
+    spend_breaker: Option<SpendCircuitBreaker>,
+    model_pricing: Option<ModelPricing>,
 }
 
 impl CognitiveLoop {
@@ -38,6 +42,8 @@ impl CognitiveLoop {
         policy: ToolPolicy,
         active_scopes: Option<Vec<ToolScope>>,
         skill_stack: Arc<std::sync::Mutex<crate::skill::SkillStack>>,
+        spend_breaker: Option<SpendCircuitBreaker>,
+        model_pricing: Option<ModelPricing>,
     ) -> Self {
         Self {
             provider,
@@ -48,6 +54,8 @@ impl CognitiveLoop {
             policy,
             active_scopes,
             skill_stack,
+            spend_breaker,
+            model_pricing,
         }
     }
 
@@ -77,6 +85,10 @@ impl CognitiveLoop {
             round += 1;
             if round > session.budget.max_rounds {
                 return Err(AgentError::MaxRoundsExceeded(session.budget.max_rounds));
+            }
+
+            if let Some(ref breaker) = self.spend_breaker {
+                breaker.check_preflight()?;
             }
 
             let round_span = tracing::info_span!(
@@ -351,6 +363,17 @@ impl CognitiveLoop {
             };
 
             session.total_usage.accumulate(&response.usage);
+
+            if let Some(ref breaker) = self.spend_breaker {
+                let tool_usage: nuo_tool::usage::TokenUsage = response.usage.into();
+                let cost = self
+                    .model_pricing
+                    .as_ref()
+                    .map(|p| p.calculate_cost(&tool_usage))
+                    .map(|c| c.amount)
+                    .unwrap_or(nuo_wire::pricing::NanoUsd::ZERO);
+                breaker.record_spend(cost);
+            }
 
             // ---------------------------------------------------------------
             // Terminal: the model answered instead of calling a tool.

@@ -1024,6 +1024,12 @@ fn compose_frame(
                         .parse::<nuo_wire::WireProtocol>()
                         .map(|p| p.display_name())
                         .unwrap_or(&app.custom_protocol_wire);
+                    let budget_display = match &app.custom_budget {
+                        nuo_wire::ConnectionBudget::Remote => "Remote (Upstream)".to_string(),
+                        nuo_wire::ConnectionBudget::Local { limit, period, .. } => {
+                            format!("Local ({}, {})", limit.format_usd(), period.label())
+                        }
+                    };
                     Some(render::draw_custom_provider_editor(
                         render::CustomEditorProps {
                             fields: &app.custom_fields,
@@ -1038,6 +1044,7 @@ fn compose_frame(
                             model_buf: &app.custom_model,
                             protocol_display,
                             identity_display: app.custom_client_identity.label(),
+                            budget_display: &budget_display,
                             url_hint: &app.custom_url_hint,
                             input: &app.input,
                             cursor_position: app.cursor_position,

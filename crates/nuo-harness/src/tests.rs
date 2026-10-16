@@ -3962,3 +3962,88 @@ async fn agent_compiles_request_directly_from_session_ir() {
     assert_eq!(artifact.stats.nodes_traversed, 1);
     assert!(!artifact.cache_boundary.prefix_fingerprint.is_empty());
 }
+
+struct DummyCustomProvider {
+    id: String,
+    model: String,
+}
+
+#[async_trait]
+impl Provider for DummyCustomProvider {
+    async fn chat(
+        &self,
+        _request: nuo_wire::ModelRequest,
+    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+        Ok(nuo_wire::ProviderCompletion::message(Message::new(
+            Role::Assistant,
+            "dummy",
+        )))
+    }
+
+    async fn stream_chat(
+        &self,
+        _request: nuo_wire::ModelRequest,
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
+        nuo_wire::ProviderError,
+    > {
+        Ok(Box::pin(stream::empty()))
+    }
+
+    fn provider_id(&self) -> String {
+        self.id.clone()
+    }
+
+    fn model(&self) -> String {
+        self.model.clone()
+    }
+}
+
+#[tokio::test]
+async fn test_runtime_spend_circuit_breaker_intercepts_over_budget_connection() {
+    let conn_name = "guarded-test-conn";
+    let mut conns = nuo_persistence::connections::Connections::default();
+    conns.connections.push(nuo_persistence::connections::Connection {
+        name: conn_name.to_string(),
+        provider: "google".to_string(),
+        budget: nuo_wire::ConnectionBudget::local(0.05, nuo_wire::BudgetPeriod::Session),
+        ..Default::default()
+    });
+    conns.save().unwrap();
+
+    let provider: Arc<dyn Provider> = Arc::new(DummyCustomProvider {
+        id: conn_name.to_string(),
+        model: "gemini-2.0-flash".to_string(),
+    });
+    let agent = Arc::new(Agent::new(provider, Vec::new(), crate::AgentIdentity::default()));
+
+    let mut round = agent.begin_streaming_round();
+    // 600,000 prompt tokens * $0.10/1M = $0.06 -> exceeds $0.05 limit
+    round.set_token_usage_for_test(nuo_wire::TokenUsage {
+        prompt_tokens: 600_000,
+        total_tokens: 600_000,
+        ..Default::default()
+    });
+
+    let mut messages = vec![Message::new(Role::User, "Hello")];
+    let cancel = tokio_util::sync::CancellationToken::new();
+
+    let res = agent
+        .resume_streaming_with_events(
+            &mut messages,
+            &cancel,
+            &mut round,
+            |_| {},
+        )
+        .await;
+
+    let err = res.unwrap_err();
+    match err {
+        HarnessError::Provider(provider_err) => {
+            assert_eq!(provider_err.kind(), nuo_wire::ProviderErrorKind::QuotaExhausted);
+            assert!(provider_err.message().contains("[SPEND CIRCUIT BREAKER]"));
+            assert!(provider_err.message().contains("$0.05"));
+        }
+        other => panic!("expected HarnessError::Provider(QuotaExhausted), got {other:?}"),
+    }
+}

@@ -22,7 +22,7 @@
 //! state file, separate from the user-edited `config.toml`.
 
 use nuo_wire::model_providers::{canonical_provider_id, is_known_model_provider};
-use nuo_wire::{ClientIdentity, ConnectionAuth, WireProtocol};
+use nuo_wire::{ClientIdentity, ConnectionAuth, ConnectionBudget, WireProtocol};
 use serde::{Deserialize, Serialize};
 
 use crate::fsutil;
@@ -72,6 +72,9 @@ pub struct Connection {
     /// `assistant` vs `experts`) and caches independently of the default.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub catalog_dimensions: std::collections::BTreeMap<String, String>,
+    /// Budget policy and circuit-breaker posture for this connection (ADR-0065).
+    #[serde(default)]
+    pub budget: ConnectionBudget,
 }
 
 impl Default for Connection {
@@ -84,6 +87,7 @@ impl Default for Connection {
             client_identity: ClientIdentity::Native,
             models: ModelScopeConfig::default(),
             catalog_dimensions: std::collections::BTreeMap::new(),
+            budget: ConnectionBudget::default(),
         }
     }
 }
@@ -149,6 +153,8 @@ struct RawConnection {
     extra_models: Vec<DeclaredModel>,
     #[serde(default)]
     catalog_dimensions: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    budget: ConnectionBudget,
 }
 
 #[derive(Debug, Deserialize)]
@@ -287,6 +293,7 @@ impl RawConnection {
             client_identity: self.client_identity,
             models,
             catalog_dimensions: self.catalog_dimensions,
+            budget: self.budget,
         })
     }
 }
@@ -842,5 +849,37 @@ models = ["llama3:latest", "mistral:latest"]
         let declared = DeclaredModel::sanitized("  deepseek-x  ").unwrap();
         assert_eq!(declared.id, "deepseek-x");
         assert!(declared.context_window.is_none());
+    }
+
+    #[test]
+    fn connection_budget_round_trips_through_toml() {
+        let toml_str = r#"
+[[connections]]
+name = "gemini-guarded"
+provider = "google"
+[connections.budget]
+mode = "local"
+limit = 1.5
+period = "session"
+"#;
+        let connections: Connections = toml::from_str(toml_str).unwrap();
+        let conn = &connections.connections[0];
+        assert_eq!(conn.name, "gemini-guarded");
+        assert!(conn.budget.is_local());
+        assert_eq!(
+            conn.budget.limit_nano_usd(),
+            Some(nuo_wire::pricing::NanoUsd::from_usd_f64(1.5))
+        );
+        assert_eq!(
+            conn.budget.period(),
+            Some(nuo_wire::budget::BudgetPeriod::Session)
+        );
+
+        // Serialize back and verify round-trip
+        let serialized = toml::to_string(&connections).unwrap();
+        assert!(serialized.contains("gemini-guarded"));
+        assert!(serialized.contains("mode = \"local\""));
+        let round_tripped: Connections = toml::from_str(&serialized).unwrap();
+        assert_eq!(connections, round_tripped);
     }
 }

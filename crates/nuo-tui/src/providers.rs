@@ -41,16 +41,17 @@ pub enum CustomField {
     Model,
     Protocol,
     ClientIdentity,
+    Budget,
 }
 
-/// A curated starting point for adding a connection — the **creation-time
-/// template** of ADR-0201. A template is consumed when the connection is
+/// A curated starting point for adding a connection — the creation-time
+/// template (ADR-0014, ADR-0027). A template is consumed when the connection is
 /// created and never persisted as identity; the created connection records
 /// only the [`Self::id`] as its `provider` (a model provider names a service
-/// surface, ADR-0201 INV-1). Curated templates lock the wire protocol and seed
+/// surface). Curated templates lock the wire protocol and seed
 /// their model list; the standalone `custom` template exposes protocol, model,
 /// and request identity in its editor. Modelled as *data* — one table entry per
-/// template — mirroring `nuo_wire::model_providers`.
+/// template.
 pub struct ConnectionTemplate {
     /// The **model provider id** this template creates a connection for
     /// (`"openai"`, `"openai-subscription"`, `"custom"`, …). MUST match the
@@ -439,9 +440,9 @@ pub fn provider_type_label(provider: &str) -> Option<&'static str> {
 /// rename is the only safe operation.
 pub fn edit_fields(curated: bool, auth: ConnectionAuth) -> Vec<CustomField> {
     if auth.is_oauth() {
-        vec![CustomField::Name]
+        vec![CustomField::Name, CustomField::Budget]
     } else if curated {
-        vec![CustomField::Name, CustomField::Token]
+        vec![CustomField::Name, CustomField::Token, CustomField::Budget]
     } else {
         vec![
             CustomField::Name,
@@ -449,6 +450,7 @@ pub fn edit_fields(curated: bool, auth: ConnectionAuth) -> Vec<CustomField> {
             CustomField::Token,
             CustomField::Protocol,
             CustomField::ClientIdentity,
+            CustomField::Budget,
         ]
     }
 }
@@ -1822,24 +1824,26 @@ mod tests {
                 CustomField::Token,
                 CustomField::Protocol,
                 CustomField::ClientIdentity,
+                CustomField::Budget,
             ]
         );
 
         // A curated API-key provider derives its Base URL from the provider
-        // spec, so it only exposes Name and Token.
+        // spec, so it exposes Name, Token, and Budget.
         let curated_fields = edit_fields(true, ConnectionAuth::ApiKey);
-        assert_eq!(curated_fields, vec![CustomField::Name, CustomField::Token]);
+        assert_eq!(
+            curated_fields,
+            vec![CustomField::Name, CustomField::Token, CustomField::Budget]
+        );
     }
 
     #[test]
     fn edit_fields_oauth_shows_name_only() {
         // An OAuth connection's endpoint and bearer are owned by the auth flow
         // (xAI `https://api.x.ai/...`, ChatGPT
-        // `https://chatgpt.com/backend-api/codex/...`). The editor must expose
-        // only a rename, so the server-side guard is never the lone defense
-        // against wiping them.
+        // `https://chatgpt.com/backend-api/codex/...`). The editor exposes Name and Budget.
         let xai = edit_fields(true, ConnectionAuth::subscription("xai"));
-        assert_eq!(xai, vec![CustomField::Name]);
+        assert_eq!(xai, vec![CustomField::Name, CustomField::Budget]);
 
         let chatgpt = edit_fields(true, ConnectionAuth::subscription("chatgpt"));
         assert_eq!(chatgpt, vec![CustomField::Name]);

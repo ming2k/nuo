@@ -2256,6 +2256,7 @@ pub async fn run_tui(
         custom_fields: Vec::new(),
         custom_protocol_wire: String::new(),
         custom_client_identity: nuo_wire::ClientIdentity::Native,
+        custom_budget: nuo_wire::ConnectionBudget::default(),
         custom_models: Vec::new(),
         custom_url_hint: String::new(),
         custom_user_agent: None,

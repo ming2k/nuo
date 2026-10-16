@@ -118,4 +118,3 @@ A session initialized within a multi-member workspace automatically renders a co
 ## Compliance and Verification
 
 - `cargo check --workspace` & `cargo test --workspace` pass without regressions.
-- `docgov check` enforces ADR schema validation and code-doc synchronization.

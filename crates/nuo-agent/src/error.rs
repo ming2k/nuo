@@ -11,6 +11,13 @@ pub enum AgentError {
     #[error("token budget exceeded: {0}")]
     BudgetExceeded(String),
 
+    #[error("spend budget exceeded: limit {limit_usd}, current spend {spend_usd} ({period})")]
+    SpendBudgetExceeded {
+        limit_usd: String,
+        spend_usd: String,
+        period: String,
+    },
+
     #[error("maximum round steps exceeded ({0} rounds)")]
     MaxRoundsExceeded(u32),
 

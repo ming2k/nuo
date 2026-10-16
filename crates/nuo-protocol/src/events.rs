@@ -203,6 +203,9 @@ pub enum AgentRequest {
         /// Client identity (impersonation/headers). Defaults to Native when unset.
         #[serde(default)]
         client_identity: Option<crate::ClientIdentity>,
+        /// Budget policy and circuit breaker posture (ADR-0065).
+        #[serde(default)]
+        budget: crate::ConnectionBudget,
     },
     /// Reauthenticate an existing OAuth connection. Runs the browser-loopback
     /// or device-code flow, persists directly under `name`, then activates it.
@@ -228,6 +231,9 @@ pub enum AgentRequest {
         api_key: crate::SecretString,
         #[serde(default)]
         client_identity: Option<crate::ClientIdentity>,
+        /// Budget policy and circuit breaker posture (ADR-0065).
+        #[serde(default)]
+        budget: crate::ConnectionBudget,
     },
     /// Rename a connection. The server rewrites every hard join key
     /// (`credentials.toml`, `auth.toml`, `default_connection`) in one

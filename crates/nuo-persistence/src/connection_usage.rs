@@ -29,6 +29,9 @@ pub struct UsageEntry {
     /// Total times the entity was activated. Kept for future tie-breaking and
     /// "most used" views; not used by the current recency sort.
     pub use_count: u64,
+    /// Cumulative financial spend on this entity in nano-USD (ADR-0065).
+    #[serde(default)]
+    pub spend_nano_usd: u64,
 }
 
 /// Helper deserializer to cleanly migrate legacy flat `models` format into
@@ -153,6 +156,7 @@ impl ConnectionUsage {
             let disk = merged.connections.entry(id.clone()).or_default();
             disk.last_used_ms = disk.last_used_ms.max(entry.last_used_ms);
             disk.use_count = disk.use_count.max(entry.use_count);
+            disk.spend_nano_usd = disk.spend_nano_usd.max(entry.spend_nano_usd);
         }
         for (conn_id, models) in &self.models {
             let disk_models = merged.models.entry(conn_id.clone()).or_default();
@@ -160,6 +164,7 @@ impl ConnectionUsage {
                 let disk = disk_models.entry(model.clone()).or_default();
                 disk.last_used_ms = disk.last_used_ms.max(entry.last_used_ms);
                 disk.use_count = disk.use_count.max(entry.use_count);
+                disk.spend_nano_usd = disk.spend_nano_usd.max(entry.spend_nano_usd);
             }
         }
         for (connection_id, model) in &self.last_models {
@@ -262,6 +267,34 @@ impl ConnectionUsage {
         }
 
         changed
+    }
+
+    /// Record financial spend on a connection and model in nano-USD (ADR-0065).
+    pub fn record_spend(&mut self, connection_id: &str, model_id: &str, nano_usd: u64) {
+        let now = now_ms();
+        let conn_entry = self.connections.entry(connection_id.to_string()).or_default();
+        conn_entry.last_used_ms = now;
+        conn_entry.spend_nano_usd = conn_entry.spend_nano_usd.saturating_add(nano_usd);
+
+        let model_map = self.models.entry(connection_id.to_string()).or_default();
+        let model_entry = model_map.entry(model_id.to_string()).or_default();
+        model_entry.last_used_ms = now;
+        model_entry.spend_nano_usd = model_entry.spend_nano_usd.saturating_add(nano_usd);
+    }
+
+    /// Return cumulative recorded spend for a connection in nano-USD (ADR-0065).
+    pub fn connection_spend(&self, connection_id: &str) -> u64 {
+        self.connections
+            .get(connection_id)
+            .map(|e| e.spend_nano_usd)
+            .unwrap_or(0)
+    }
+
+    /// Reset cumulative spend on a connection to zero (ADR-0065).
+    pub fn reset_spend(&mut self, connection_id: &str) {
+        if let Some(entry) = self.connections.get_mut(connection_id) {
+            entry.spend_nano_usd = 0;
+        }
     }
 
     /// Persist this usage state directly and atomically to SQLite (SSOT).
@@ -419,5 +452,18 @@ mod tests {
             "the entry stays under its original exact key"
         );
         assert_eq!(usage.recency_of("QOD"), 0, "no second key was created");
+    }
+
+    #[test]
+    fn test_connection_spend_tracking() {
+        let mut usage = ConnectionUsage::default();
+        usage.record_spend("gemini-test", "gemini-2.0-flash", 1_500_000); // $0.0015
+        assert_eq!(usage.connection_spend("gemini-test"), 1_500_000);
+
+        usage.record_spend("gemini-test", "gemini-2.0-flash", 2_000_000); // +$0.002
+        assert_eq!(usage.connection_spend("gemini-test"), 3_500_000);
+
+        usage.reset_spend("gemini-test");
+        assert_eq!(usage.connection_spend("gemini-test"), 0);
     }
 }

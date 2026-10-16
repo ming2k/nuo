@@ -176,7 +176,6 @@ When releasing a new version of the Nuo product and server/terminal suite:
 
 1. **Run Full Verification**:
    ```bash
-   docgov check
    cargo check --workspace
    cargo test --workspace
    ```
@@ -217,7 +216,6 @@ When releasing a new version of the Nuo product and server/terminal suite:
 
 Before submitting a version bump PR or pushing a release tag, verify:
 
-- [ ] `docgov check` succeeds with zero errors or invariant warnings.
 - [ ] `cargo check --workspace` compiles cleanly without warnings.
 - [ ] `cargo test --workspace` passes all unit and integration tests.
 - [ ] Every crate declared in `[workspace.dependencies]` has both `version` and `path`.

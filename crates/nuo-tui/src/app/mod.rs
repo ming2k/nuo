@@ -985,6 +985,8 @@ pub struct App {
     /// Client identity (User-Agent and impersonation headers) selected for a
     /// connection. Curated providers keep their provider-defined identity.
     pub custom_client_identity: nuo_wire::ClientIdentity,
+    /// Connection budget policy configured in create/edit modal (ADR-0065).
+    pub custom_budget: nuo_wire::ConnectionBudget,
     /// Models seeded by the active template (create mode). Submitted as the
     /// provider's model list unless the editor exposes a free-text Model field
     /// (then the single typed model is submitted instead). Empty in edit mode.

@@ -62,6 +62,20 @@ impl From<TokenUsage> for nuo_model_codec::WireUsage {
     }
 }
 
+impl From<TokenUsage> for nuo_tool::usage::TokenUsage {
+    fn from(u: TokenUsage) -> Self {
+        Self {
+            prompt_tokens: u.prompt_tokens as i64,
+            completion_tokens: u.completion_tokens as i64,
+            total_tokens: u.total_tokens as i64,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: u.cached_tokens as i64,
+            cache_miss_input_tokens: (u.prompt_tokens.saturating_sub(u.cached_tokens)) as i64,
+            reasoning_tokens: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ModelRequest {
     pub messages: Vec<Message>,

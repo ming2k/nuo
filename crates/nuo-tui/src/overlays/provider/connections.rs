@@ -470,6 +470,18 @@ pub(crate) fn connection_detail_body(
         kv("Base URL", &detail.base_url),
         kv("Auth Type", &detail.auth_type),
     ];
+    match &detail.budget {
+        nuo_wire::ConnectionBudget::Remote => {
+            rows.push(kv("Budget Policy", "Remote (Upstream Managed)"));
+        }
+        nuo_wire::ConnectionBudget::Local { limit, period, .. } => {
+            let budget_str = format!("Local ({}, {} cap)", limit.format_usd(), period.label());
+            rows.push(
+                SelectableRow::styled(budget_str, warning)
+                    .with_prefix(RowSegment::styled(format!("{:<16}", "Budget Policy"), label)),
+            );
+        }
+    }
     if let Some(masked) = &detail.api_key_masked {
         rows.push(
             SelectableRow::from_segments(vec![
