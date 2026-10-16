@@ -191,13 +191,14 @@ pub fn build_provider_for_channel(
             dialect,
         } => {
             let capabilities = channel.capabilities();
+            let effective_effort = effective_channel_effort(*effort, &capabilities);
             let mut provider = GoogleProvider::with_credentials(
                 credentials,
                 channel.model.clone(),
                 base_url,
                 client_profile.clone(),
             )
-            .with_reasoning_effort(*effort)
+            .with_reasoning_effort(effective_effort)
             .with_model_capabilities(capabilities)
             .with_prompt_cache(prompt_cache)
             .with_dialect(*dialect)

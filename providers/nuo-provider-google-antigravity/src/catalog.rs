@@ -273,9 +273,26 @@ pub fn parse_antigravity_catalog(root: &Value) -> Vec<DiscoveredModel> {
         }
     }
 
-    // 2. Discover curated agent order from upstream `agentModelSorts` and `defaultAgentModelId` [INV-CATALOG-01]
+    // 2. Discover curated agent order from upstream `tieredModelIds`, `agentModelSorts`, and `defaultAgentModelId` [INV-CATALOG-01]
     let mut curated_canonical_ids: Vec<String> = Vec::new();
     let mut curated_seen: HashSet<String> = HashSet::new();
+
+    if let Some(tiered) = root.get("tieredModelIds").and_then(Value::as_object) {
+        for tier_key in ["flash", "pro", "flashLite"] {
+            if let Some(arr) = tiered.get(tier_key).and_then(Value::as_array) {
+                for id in arr.iter().filter_map(Value::as_str) {
+                    let canon = canonicalize_model_id(id).base_id.to_string();
+                    if !is_internal_helper(&canon)
+                        && !dedicated_lane_ids.contains(id)
+                        && !dedicated_lane_ids.contains(canon.as_str())
+                        && curated_seen.insert(canon.clone())
+                    {
+                        curated_canonical_ids.push(canon);
+                    }
+                }
+            }
+        }
+    }
 
     if let Some(sorts) = root.get("agentModelSorts").and_then(Value::as_array) {
         for sort in sorts {

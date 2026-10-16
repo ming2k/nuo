@@ -389,7 +389,7 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
             .mock("POST", path.as_str())
             .match_header("authorization", "Bearer test-token")
             .match_body(mockito::Matcher::PartialJson(serde_json::json!({
-                "project": "test-project", "model": model, "request": {"contents": []}
+                "project": "test-project", "model": "gemini-3.8-flash-tiered", "request": {"contents": []}
             })));
         mock = if streaming {
             mock.match_query(mockito::Matcher::UrlEncoded("alt".into(), "sse".into()))

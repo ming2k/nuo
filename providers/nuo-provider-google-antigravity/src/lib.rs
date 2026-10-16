@@ -819,50 +819,29 @@ impl Provider for GoogleProvider {
 
 /// Resolve the wire model ID for Google Antigravity envelopes.
 ///
-/// Upstream Google Antigravity (CloudCode) exposes reasoning models via
-/// dedicated wire endpoints with effort suffixes (e.g. `gemini-3.8-flash-high`,
-/// `claude-sonnet-5-5-high`). Canonical models selected in the catalog are
-/// dynamically lifted back to the appropriate concrete wire endpoint based
-/// on the user's selected reasoning effort depth.
+/// Upstream Google Antigravity (CloudCode) PredictionService registers concrete
+/// wire entities:
+/// - `gemini-3.8-flash` maps to `gemini-3.8-flash-tiered` (the live PredictionService entity;
+///   thinking effort is conveyed orthogonally via `thinkingConfig`).
+/// - `claude-opus-4-6` maps to `claude-opus-4-6-thinking`.
+/// - `gpt-oss-120b` maps to `gpt-oss-120b-medium`.
+/// - `claude-sonnet-4-6` and `gemini-3.5-flash-lite` are wire entities verbatim.
 fn effective_antigravity_wire_model(
     model: &str,
-    effort: Option<nuo_model_codec::Effort>,
+    _effort: Option<nuo_model_codec::Effort>,
 ) -> String {
-    let Some(effort) = effort else {
-        return model.to_string();
-    };
-    if model.ends_with("-low")
-        || model.ends_with("-medium")
-        || model.ends_with("-high")
-        || model.ends_with("-max")
-        || model.ends_with("-minimal")
-    {
-        return model.to_string();
+    match model {
+        "gemini-3.8-flash"
+        | "gemini-3.8-flash-high"
+        | "gemini-3.8-flash-medium"
+        | "gemini-3.8-flash-low"
+        | "gemini-3.8-flash-tiered" => "gemini-3.8-flash-tiered".to_string(),
+        "claude-opus-4-6" | "claude-opus-4-6-thinking" => "claude-opus-4-6-thinking".to_string(),
+        "gpt-oss-120b" | "gpt-oss-120b-medium" => "gpt-oss-120b-medium".to_string(),
+        "gemini-3.5-flash-lite" => "gemini-3.5-flash-lite".to_string(),
+        "claude-sonnet-4-6" => "claude-sonnet-4-6".to_string(),
+        other => other.to_string(),
     }
-
-    if model == "gemini-3.8-flash" {
-        return match effort {
-            nuo_model_codec::Effort::Minimal => "gemini-3.8-flash-minimal".to_string(),
-            nuo_model_codec::Effort::Low => "gemini-3.8-flash-low".to_string(),
-            nuo_model_codec::Effort::Medium => "gemini-3.8-flash-medium".to_string(),
-            nuo_model_codec::Effort::High | nuo_model_codec::Effort::Max => {
-                "gemini-3.8-flash-high".to_string()
-            }
-            _ => "gemini-3.8-flash-high".to_string(),
-        };
-    }
-
-    if model == "claude-sonnet-5-5" || model == "claude-opus-5-5" {
-        return match effort {
-            nuo_model_codec::Effort::Low => format!("{model}-low"),
-            nuo_model_codec::Effort::Medium => format!("{model}-medium"),
-            nuo_model_codec::Effort::High => format!("{model}-high"),
-            nuo_model_codec::Effort::Max => format!("{model}-max"),
-            _ => format!("{model}-high"),
-        };
-    }
-
-    model.to_string()
 }
 
 #[cfg(test)]
@@ -913,12 +892,17 @@ mod tests {
     #[test]
     fn antigravity_envelope_preserves_canonical_antigravity_wire_ids() {
         for (id, expected) in [
-            ("gemini-4-argon", "gemini-4-argon"),
-            ("gemini-3.8-flash", "gemini-3.8-flash"),
+            ("gemini-3.8-flash", "gemini-3.8-flash-tiered"),
+            ("gemini-3.8-flash-high", "gemini-3.8-flash-tiered"),
+            ("gemini-3.8-flash-medium", "gemini-3.8-flash-tiered"),
+            ("gemini-3.8-flash-low", "gemini-3.8-flash-tiered"),
+            ("gemini-3.8-flash-tiered", "gemini-3.8-flash-tiered"),
             ("claude-sonnet-4-6", "claude-sonnet-4-6"),
+            ("claude-opus-4-6", "claude-opus-4-6-thinking"),
             ("claude-opus-4-6-thinking", "claude-opus-4-6-thinking"),
-            ("claude-sonnet-5-5", "claude-sonnet-5-5"),
-            ("claude-opus-5-5", "claude-opus-5-5"),
+            ("gpt-oss-120b", "gpt-oss-120b-medium"),
+            ("gpt-oss-120b-medium", "gpt-oss-120b-medium"),
+            ("gemini-3.5-flash-lite", "gemini-3.5-flash-lite"),
         ] {
             let p = GoogleProvider::with_base_url_and_user_agent(
                 "k".to_string(),
@@ -931,26 +915,21 @@ mod tests {
             let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
             assert_eq!(
                 body["model"], expected,
-                "model id must match expected wire id"
+                "model id {id} must match expected wire id {expected}"
             );
         }
 
-        // Test wire mapping when reasoning effort is selected on Claude 5.5 and Gemini 3.8 Flash
-        for (model, effort, expected) in [
-            ("claude-sonnet-5-5", nuo_model_codec::Effort::Low, "claude-sonnet-5-5-low"),
-            ("claude-sonnet-5-5", nuo_model_codec::Effort::Medium, "claude-sonnet-5-5-medium"),
-            ("claude-sonnet-5-5", nuo_model_codec::Effort::High, "claude-sonnet-5-5-high"),
-            ("claude-sonnet-5-5", nuo_model_codec::Effort::Max, "claude-sonnet-5-5-max"),
-            ("claude-opus-5-5", nuo_model_codec::Effort::High, "claude-opus-5-5-high"),
-            ("gemini-3.8-flash", nuo_model_codec::Effort::Minimal, "gemini-3.8-flash-minimal"),
-            ("gemini-3.8-flash", nuo_model_codec::Effort::Low, "gemini-3.8-flash-low"),
-            ("gemini-3.8-flash", nuo_model_codec::Effort::Medium, "gemini-3.8-flash-medium"),
-            ("gemini-3.8-flash", nuo_model_codec::Effort::High, "gemini-3.8-flash-high"),
-            ("gemini-3.8-flash", nuo_model_codec::Effort::Max, "gemini-3.8-flash-high"),
+        // Test wire mapping when reasoning effort is selected on Gemini 3.8 Flash
+        for effort in [
+            nuo_model_codec::Effort::Minimal,
+            nuo_model_codec::Effort::Low,
+            nuo_model_codec::Effort::Medium,
+            nuo_model_codec::Effort::High,
+            nuo_model_codec::Effort::Max,
         ] {
             let mut p = GoogleProvider::with_base_url_and_user_agent(
                 "k".to_string(),
-                model.to_string(),
+                "gemini-3.8-flash".to_string(),
                 "https://daily-cloudcode-pa.googleapis.com",
                 "ua",
             )
@@ -958,15 +937,21 @@ mod tests {
             .with_project_id("proj-1");
             p.reasoning_effort = Some(effort);
             let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
-            assert_eq!(body["model"], expected);
-            if model.starts_with("claude-") {
-                // Verify Vertex Claude requests never stamp Google-native thinkingConfig
-                assert!(body["request"]["generationConfig"]["thinkingConfig"].is_null());
-            } else {
-                // Verify first-party Gemini requests stamp thinkingConfig
-                assert!(!body["request"]["generationConfig"]["thinkingConfig"].is_null());
-            }
+            assert_eq!(body["model"], "gemini-3.8-flash-tiered");
+            assert!(!body["request"]["generationConfig"]["thinkingConfig"].is_null());
         }
+
+        // Verify Vertex Claude requests never stamp Google-native thinkingConfig
+        let p_claude = GoogleProvider::with_base_url_and_user_agent(
+            "k".to_string(),
+            "claude-sonnet-4-6".to_string(),
+            "https://daily-cloudcode-pa.googleapis.com",
+            "ua",
+        )
+        .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+        .with_project_id("proj-1");
+        let (_, _, body_claude) = p_claude.prepare_request(ModelRequest::new(Vec::new()), false, false);
+        assert!(body_claude["request"]["generationConfig"]["thinkingConfig"].is_null());
     }
 
     #[test]

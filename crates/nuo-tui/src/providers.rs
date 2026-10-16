@@ -1846,7 +1846,7 @@ mod tests {
         assert_eq!(xai, vec![CustomField::Name, CustomField::Budget]);
 
         let chatgpt = edit_fields(true, ConnectionAuth::subscription("chatgpt"));
-        assert_eq!(chatgpt, vec![CustomField::Name]);
+        assert_eq!(chatgpt, vec![CustomField::Name, CustomField::Budget]);
     }
 
     #[test]
