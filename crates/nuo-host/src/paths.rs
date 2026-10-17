@@ -629,6 +629,12 @@ impl Dirs {
         self.state_dir.join("log")
     }
 
+    /// Execution log directory for spilled command and tool execution outputs,
+    /// under `$XDG_STATE_HOME/nuo/exec_logs` (ADR-0069).
+    pub fn exec_logs_dir(&self) -> PathBuf {
+        self.state_dir.join("exec_logs")
+    }
+
     // helpers
 
     /// The **server instance directory**: the one directory holding the

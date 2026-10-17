@@ -397,7 +397,42 @@ pub struct TuiLaunchConfig {
     pub initial_tabs: Option<Vec<crate::surfaces::ClientTab>>,
 }
 
+/// Install the panic hook so abnormal main-thread termination restores the terminal.
+pub fn ensure_panic_hook() {
+    static PANIC_HOOK: std::sync::Once = std::sync::Once::new();
+    PANIC_HOOK.call_once(|| {
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let main_thread = std::thread::current()
+                .name()
+                .is_some_and(|name| name == "main");
+            if main_thread {
+                terminal::restore_terminal();
+            }
+            default_hook(info);
+        }));
+    });
+}
+
 pub async fn run_tui(
+    tx: mpsc::UnboundedSender<AgentRequest>,
+    rx: mpsc::UnboundedReceiver<AgentResponse>,
+    config: TuiLaunchConfig,
+) -> Result<TuiOutcome, Box<dyn Error>> {
+    let profile = nuotc::TerminalProfile::detect();
+    terminal::enter_terminal(&profile)?;
+    let stdout = io::stdout();
+    let backend = Backend::with_profile(stdout, profile);
+    let mut terminal = Terminal::new(backend);
+    terminal::spawn_signal_guard();
+    ensure_panic_hook();
+    let outcome = run_tui_with_terminal(&mut terminal, tx, rx, config).await;
+    terminal::restore_terminal();
+    outcome
+}
+
+pub async fn run_tui_with_terminal(
+    terminal: &mut Terminal<io::Stdout>,
     tx: mpsc::UnboundedSender<AgentRequest>,
     mut rx: mpsc::UnboundedReceiver<AgentResponse>,
     config: TuiLaunchConfig,
@@ -419,41 +454,7 @@ pub async fn run_tui(
         startup_overlay,
         initial_tabs,
     } = config;
-    // Setup terminal with adaptive capability profile (ADR-0053)
     let profile = nuotc::TerminalProfile::detect();
-    terminal::enter_terminal(&profile)?;
-    let stdout = io::stdout();
-    // The nuotc engine owns its grid + diff + crossterm I/O directly. No
-    // ratatui, no WideHealBackend wrapper — the engine's retained grid writes
-    // wide-glyph trailing cells with the glyph's own background at write time,
-    // so ghost cells cannot occur regardless of terminal or multiplexer
-    // (ADR-0038).
-    let backend = Backend::with_profile(stdout, profile);
-    let mut terminal = Terminal::new(backend);
-    // Install the signal guard after the terminal enters raw mode + alt screen
-    // so any later SIGTERM/SIGINT/SIGHUP restores it instead of stranding it.
-    terminal::spawn_signal_guard();
-    // Panic hook: a panic anywhere on the main thread unwinds the process
-    // without running run_tui's cleanup (raw mode + alt screen + mouse
-    // capture stay enabled, leaving the host terminal scrambled). The signal
-    // guard covers SIGINT/SIGTERM/SIGHUP/SIGQUIT but not panics; this closes
-    // that gap. Installed once per process — the /host re-attach loop calls
-    // run_tui repeatedly and must not chain hooks. Background tasks (the
-    // response listener, ws pumps) panic without unwinding the terminal:
-    // only the thread that owns the terminal restores it.
-    static PANIC_HOOK: std::sync::Once = std::sync::Once::new();
-    PANIC_HOOK.call_once(|| {
-        let default_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            let main_thread = std::thread::current()
-                .name()
-                .is_some_and(|name| name == "main");
-            if main_thread {
-                terminal::restore_terminal();
-            }
-            default_hook(info);
-        }));
-    });
     let tui_config = Arc::new(tui_config);
     let mut restored = transcript_messages_from_core(initial_messages, &tui_config);
     restored = merge_command_rows(restored, transcript_commands_from_ledger(initial_commands));
@@ -2177,6 +2178,7 @@ pub async fn run_tui(
         host_kill_confirm: None,
         host_kill_confirm_id: None,
         switch_to_target: None,
+        switch_to_new: false,
         startup_overlay,
         permission_confirm_always: false,
         permission_show_details: false,
@@ -2335,7 +2337,7 @@ pub async fn run_tui(
 
     // Run app
     let res = event_loop::run_app_loop(
-        &mut terminal,
+        terminal,
         &mut app,
         event_loop::UiRuntime {
             dirty,
@@ -2351,18 +2353,17 @@ pub async fn run_tui(
     )
     .await;
 
-    // Restore terminal
-    terminal::restore_terminal();
-
     if let Err(err) = res {
         return Err(err.into());
     }
 
     let switch = app.switch_to_target.take();
+    let switch_to_new = app.switch_to_new;
     let tabs = Some(app.surfaces.tabs().to_vec());
     Ok(TuiOutcome {
         history: app.input_history,
         switch_to: switch,
+        switch_to_new,
         tabs,
     })
 }
@@ -2373,6 +2374,7 @@ pub async fn run_tui(
 pub struct TuiOutcome {
     pub history: Vec<nuo_wire::HistoryEntry>,
     pub switch_to: Option<String>,
+    pub switch_to_new: bool,
     pub tabs: Option<Vec<crate::surfaces::ClientTab>>,
 }
 

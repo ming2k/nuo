@@ -1112,10 +1112,6 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.set_active_index(0);
                 app.startup_overlay = crate::StartupOverlay::None;
 
-                // Project into ClientTab workspace topology (ADR-0039, ADR-0041, ADR-0043)
-                let tab = crate::surfaces::ClientTab::thread(&id, title.as_deref());
-                app.open_tab(tab);
-
                 if id == viewed_session_id {
                     // Re-selecting the currently viewed thread is an idempotent focus recovery.
                     // Keep messages intact. If running, pin scroll to bottom for live output.
@@ -1123,6 +1119,33 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         app.scroll = 0;
                     }
                 } else {
+                    let is_empty = app.is_current_thread_empty();
+                    let tab = crate::surfaces::ClientTab::thread(&id, title.as_deref());
+                    if is_empty {
+                        // Current tab is an empty thread: discard it and overwrite the tab.
+                        app.send_intent(AgentRequest::DeleteSession {
+                            id: viewed_session_id.to_string(),
+                        });
+                        let active_idx = app.surfaces.active_tab_index();
+                        if let Some(existing_pos) = app.surfaces.tabs().iter().position(|t| match &t.kind {
+                            crate::surfaces::TabKind::Thread(tid) => tid == &id,
+                            _ => false,
+                        }) {
+                            app.close_tab(active_idx);
+                            let new_pos = if existing_pos > active_idx {
+                                existing_pos - 1
+                            } else {
+                                existing_pos
+                            };
+                            app.surfaces.select_tab(new_pos);
+                        } else {
+                            app.replace_tab(active_idx, tab);
+                        }
+                    } else {
+                        // Project into ClientTab workspace topology (ADR-0039, ADR-0041, ADR-0043)
+                        app.open_tab(tab);
+                    }
+
                     // Switching to another thread (running or idle):
                     // Purge legacy slash-command RPC (/sessions <id>).
                     // Trigger clean client viewport attach (ADR-0038 [INV-ACTION-02]).
@@ -1151,11 +1174,39 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // the selection indexes that sequence, not the raw
             // newest-first snapshot.
             let order = crate::overlays::creation_order(&app.host_sessions);
-            if let Some(row) = order.get(idx).map(|&i| &app.host_sessions[i]) {
+            let target_info = order
+                .get(idx)
+                .and_then(|&i| app.host_sessions.get(i))
+                .map(|r| (r.id.clone(), r.title.clone()));
+            if let Some((target_id, target_title)) = target_info {
                 // Switching to the current session is a no-op.
-                let switchable = row.id != viewed_session_id;
+                let switchable = target_id != viewed_session_id;
                 if switchable {
-                    app.switch_to_target = Some(row.id.clone());
+                    let is_empty = app.is_current_thread_empty();
+                    let tab = crate::surfaces::ClientTab::thread(&target_id, target_title.as_deref());
+                    if is_empty {
+                        app.send_intent(AgentRequest::DeleteSession {
+                            id: viewed_session_id.to_string(),
+                        });
+                        let active_idx = app.surfaces.active_tab_index();
+                        if let Some(existing_pos) = app.surfaces.tabs().iter().position(|t| match &t.kind {
+                            crate::surfaces::TabKind::Thread(tid) => tid == &target_id,
+                            _ => false,
+                        }) {
+                            app.close_tab(active_idx);
+                            let new_pos = if existing_pos > active_idx {
+                                existing_pos - 1
+                            } else {
+                                existing_pos
+                            };
+                            app.surfaces.select_tab(new_pos);
+                        } else {
+                            app.replace_tab(active_idx, tab);
+                        }
+                    } else {
+                        app.open_tab(tab);
+                    }
+                    app.switch_to_target = Some(target_id);
                     app.should_quit.store(true, Ordering::SeqCst);
                 }
                 app.dismiss_active_dialog();
@@ -1249,7 +1300,14 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::CreateNewSession => {
             app.startup_overlay = crate::StartupOverlay::None;
             app.dismiss_active_dialog();
-            app.send_intent(AgentRequest::SlashCommand("/new".to_string()));
+            if app.is_current_thread_empty() {
+                // If already in an empty thread, reset in place without adding a new tab.
+                app.send_intent(AgentRequest::SlashCommand("/new".to_string()));
+            } else {
+                // Current thread has content: create a fresh thread in a new tab.
+                app.switch_to_new = true;
+                app.should_quit.store(true, Ordering::SeqCst);
+            }
         }
         input::InputAction::OpenSessionInfo => {
             // Drill into the session-info sub-view for the highlighted

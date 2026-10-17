@@ -782,8 +782,34 @@ fn handle_dialog_click(
                 e.index = target_idx;
                 e.follow = true;
                 if was_selected {
-                    let target_id = projected[target_idx].session().id.clone();
+                    let target_session = projected[target_idx].session();
+                    let target_id = target_session.id.clone();
+                    let target_title = target_session.title.clone();
                     if target_id != viewed_session_id {
+                        let is_empty = app.is_current_thread_empty();
+                        let tab = crate::surfaces::ClientTab::thread(&target_id, target_title.as_deref());
+                        if is_empty {
+                            app.send_intent(nuo_wire::AgentRequest::DeleteSession {
+                                id: viewed_session_id.to_string(),
+                            });
+                            let active_idx = app.surfaces.active_tab_index();
+                            if let Some(existing_pos) = app.surfaces.tabs().iter().position(|t| match &t.kind {
+                                crate::surfaces::TabKind::Thread(tid) => tid == &target_id,
+                                _ => false,
+                            }) {
+                                app.close_tab(active_idx);
+                                let new_pos = if existing_pos > active_idx {
+                                    existing_pos - 1
+                                } else {
+                                    existing_pos
+                                };
+                                app.surfaces.select_tab(new_pos);
+                            } else {
+                                app.replace_tab(active_idx, tab);
+                            }
+                        } else {
+                            app.open_tab(tab);
+                        }
                         app.switch_to_target = Some(target_id);
                         app.should_quit.store(true, std::sync::atomic::Ordering::SeqCst);
                     } else {

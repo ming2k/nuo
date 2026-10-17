@@ -1,9 +1,9 @@
-//! Concrete [`OffstreamSource`] implementations for `nuo-server` (ADR-0262).
+//! Concrete [`OffstreamSource`] implementations for `nuo-server` (ADR-0069, ADR-0262).
 //!
 //! Provides lock-free offstream readers for:
 //! - `sub:`: Subagent session transcripts and trajectories
-//! - `call:`: Claim-Check tool execution stubs restored from CAS BlobStore / SessionIR (ADR-0057)
 //! - `fold:`: Folded causal subgraphs behind compaction horizons
+//! - `artifact:`: Multimodal media and visual artifacts
 
 use std::sync::Arc;
 
@@ -201,221 +201,6 @@ impl OffstreamSource for SubagentSource {
         }
 
         Err(format!("Subagent session '{key}' not found"))
-    }
-}
-
-/// Source for inspecting Claim-Check tool output stubs (`call:<tool_call_id>`) (ADR-0057).
-pub struct PrunedToolSource {
-    session_id: String,
-    blob_store: BlobStore,
-}
-
-impl PrunedToolSource {
-    pub fn new(session_id: impl Into<String>, blob_store: BlobStore) -> Self {
-        Self {
-            session_id: session_id.into(),
-            blob_store,
-        }
-    }
-}
-
-#[async_trait]
-impl OffstreamSource for PrunedToolSource {
-    fn scheme(&self) -> &'static str {
-        "call"
-    }
-
-    async fn enumerate(&self, session_id: &str) -> Result<Vec<OffstreamEntry>, String> {
-        let sid = if session_id.is_empty() {
-            &self.session_id
-        } else {
-            session_id
-        };
-
-        let reader = get_persistence_handle()
-            .reader()
-            .map_err(|e| format!("Failed to acquire reader: {e}"))?;
-
-        let mut entries = Vec::new();
-        let mut seen_calls = std::collections::HashSet::new();
-
-        // 1. Scan transcript directives and entries
-        if let Ok(Some(data)) = reader.load_session_full(sid) {
-            for dir in &data.transcript().directives {
-                if let nuo_wire::DirectivePayload::Prune { elided, pruned_media } = &dir.payload {
-                    for item in elided {
-                        if seen_calls.insert(item.tool_call_id.clone()) {
-                            entries.push(OffstreamEntry {
-                                handle: format!("call:{}", item.tool_call_id),
-                                label: item.placeholder.chars().take(80).collect(),
-                                status: OffstreamStatus::Pruned,
-                                size_tokens: None,
-                            });
-                        }
-                    }
-                    for item in pruned_media {
-                        if let Some(pos) = item.placeholder.find("artifact:") {
-                            let hash_part = &item.placeholder[pos + 9..];
-                            let hash: String = hash_part
-                                .chars()
-                                .take_while(|c| c.is_ascii_alphanumeric())
-                                .collect();
-                            if !hash.is_empty() && seen_calls.insert(format!("artifact:{hash}")) {
-                                entries.push(OffstreamEntry {
-                                    handle: format!("artifact:{hash}"),
-                                    label: item.placeholder.chars().take(80).collect(),
-                                    status: OffstreamStatus::Pruned,
-                                    size_tokens: None,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-
-            for entry in &data.transcript().entries {
-                if let nuo_wire::EntryPayload::Message(payload) = &entry.payload
-                    && let Some(call_id) = &payload.tool_call_id
-                {
-                    let content = entry.content.as_deref().unwrap_or("");
-                    if (content.starts_with(nuo_wire::pressure::CLEARED_TOOL_PREFIX)
-                        || content.contains("[Claim-Check Stub: inspect full output with handle")
-                        || content.contains("[Output truncated:")
-                        || payload.content_blob.is_some())
-                        && seen_calls.insert(call_id.clone())
-                    {
-                        entries.push(OffstreamEntry {
-                            handle: format!("call:{call_id}"),
-                            label: content.chars().take(80).collect(),
-                            status: OffstreamStatus::Pruned,
-                            size_tokens: None,
-                        });
-                    }
-                }
-            }
-        }
-
-        // 2. Scan SessionIR nodes
-        if let Ok(Some(ir)) = reader.load_session_ir(sid) {
-            for node in ir.history.nodes.values() {
-                if let NodePayload::Message { message } = &node.payload
-                    && message.role == Role::Tool
-                    && let Some(call_id) = &message.tool_call_id
-                {
-                    let content = &message.content;
-                    if (content.starts_with(nuo_wire::pressure::CLEARED_TOOL_PREFIX)
-                        || content.contains("[Claim-Check Stub: inspect full output with handle")
-                        || content.contains("[Output truncated:")
-                        || message.content_blob.is_some())
-                        && seen_calls.insert(call_id.clone())
-                    {
-                        entries.push(OffstreamEntry {
-                            handle: format!("call:{call_id}"),
-                            label: content.chars().take(80).collect(),
-                            status: OffstreamStatus::Pruned,
-                            size_tokens: None,
-                        });
-                    }
-                }
-            }
-        }
-
-        Ok(entries)
-    }
-
-    async fn read(
-        &self,
-        key: &str,
-        cursor: Option<&str>,
-        query: Option<&str>,
-        budget_tokens: usize,
-    ) -> Result<PagedOffstreamContent, String> {
-        let reader = get_persistence_handle()
-            .reader()
-            .map_err(|e| format!("Failed to acquire reader: {e}"))?;
-
-        // 1. Try transcript entries: entry.content in transcript.entries has the
-        // unpruned, original verbatim text (Prune directive only affects projected views)
-        if let Ok(Some(data)) = reader.load_session_full(&self.session_id) {
-            let entries = &data.transcript().entries;
-            for (idx, entry) in entries.iter().enumerate() {
-                if let nuo_wire::EntryPayload::Message(payload) = &entry.payload
-                    && payload.tool_call_id.as_deref() == Some(key)
-                {
-                    // ADR-0285: Check if tool entry itself has images
-                    if let Some(images) = &payload.images
-                        && let Some(first_img) = images.first()
-                    {
-                        return Ok(PagedOffstreamContent::new(
-                            format!("[Rehydrated visual media: mime={} | handle: call:{key}]", first_img.mime),
-                            None,
-                            1,
-                        ).with_media(first_img.clone()));
-                    }
-
-                    // ADR-0285: Check companion ToolImage message immediately following
-                    if let Some(next_entry) = entries.get(idx + 1)
-                        && let nuo_wire::EntryPayload::Message(next_payload) = &next_entry.payload
-                        && next_payload
-                            .injection
-                            .as_ref()
-                            .is_some_and(|o| o.kind == nuo_wire::InjectionKind::ToolImage)
-                        && let Some(images) = &next_payload.images
-                        && let Some(first_img) = images.first()
-                    {
-                        return Ok(PagedOffstreamContent::new(
-                            format!("[Rehydrated visual media: mime={} | handle: call:{key}]", first_img.mime),
-                            None,
-                            1,
-                        ).with_media(first_img.clone()));
-                    }
-
-                    if let Some(blob_hash) = &payload.content_blob
-                        && let Some(bytes) = self.blob_store.get(blob_hash)
-                        && let Ok(text) = String::from_utf8(bytes)
-                    {
-                        return Ok(paginate_text(&text, cursor, query, budget_tokens));
-                    }
-                    if let Some(content) = &entry.content {
-                        if !content.starts_with(nuo_wire::pressure::CLEARED_TOOL_PREFIX) {
-                            return Ok(paginate_text(content, cursor, query, budget_tokens));
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Try SessionIR nodes
-        if let Ok(Some(ir)) = reader.load_session_ir(&self.session_id) {
-            for node in ir.history.nodes.values() {
-                if let NodePayload::Message { message } = &node.payload
-                    && message.tool_call_id.as_deref() == Some(key)
-                {
-                    // ADR-0285: Check direct image attachment
-                    if let Some(images) = &message.images
-                        && let Some(first_img) = images.first()
-                    {
-                        return Ok(PagedOffstreamContent::new(
-                            format!("[Rehydrated visual media: mime={} | handle: call:{key}]", first_img.mime),
-                            None,
-                            1,
-                        ).with_media(first_img.clone()));
-                    }
-
-                    if let Some(blob_hash) = &message.content_blob
-                        && let Some(bytes) = self.blob_store.get(blob_hash)
-                        && let Ok(text) = String::from_utf8(bytes)
-                    {
-                        return Ok(paginate_text(&text, cursor, query, budget_tokens));
-                    }
-                    if !message.content.starts_with(nuo_wire::pressure::CLEARED_TOOL_PREFIX) {
-                        return Ok(paginate_text(&message.content, cursor, query, budget_tokens));
-                    }
-                }
-            }
-        }
-
-        Err(format!("Original unpruned tool output for tool_call_id '{key}' not found"))
     }
 }
 
@@ -631,7 +416,6 @@ fn detect_image_mime(bytes: &[u8]) -> Option<&'static str> {
 pub fn build_offstream_registry(session_id: &str, blob_store: BlobStore) -> Arc<OffstreamRegistry> {
     let mut registry = OffstreamRegistry::empty();
     registry.register(Arc::new(SubagentSource::new(session_id)));
-    registry.register(Arc::new(PrunedToolSource::new(session_id, blob_store.clone())));
     registry.register(Arc::new(ArtifactSource::new(session_id, blob_store)));
     registry.register(Arc::new(FoldedCausalSource::new(session_id)));
     Arc::new(registry)
@@ -660,18 +444,6 @@ mod tests {
 
         let paged2 = paginate_text(text, Some(next), None, 1000);
         assert!(!paged2.text.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_pruned_tool_source_reads_from_blob_store() {
-        let tmp = tempfile::tempdir().unwrap();
-        let blob_store = BlobStore::new(tmp.path().to_path_buf());
-        let unpruned_text = "fn main() {\n    println!(\"raw unpruned output\");\n}";
-        let hash = blob_store.put(unpruned_text.as_bytes()).unwrap();
-
-        let bytes = blob_store.get(&hash).unwrap();
-        let retrieved = String::from_utf8(bytes).unwrap();
-        assert_eq!(retrieved, unpruned_text);
     }
 
     #[tokio::test]

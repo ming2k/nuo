@@ -43,7 +43,7 @@ impl std::fmt::Display for OffstreamStatus {
 /// Catalog entry describing an addressable offstream artifact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OffstreamEntry {
-    /// Canonical URI handle, e.g. "sub:ses_123", "call:call_abc", "fold:node_xyz".
+    /// Canonical URI handle, e.g. "sub:ses_123", "fold:node_xyz", "artifact:blob_abc".
     pub handle: String,
     /// Human/model-readable label describing the content.
     pub label: String,

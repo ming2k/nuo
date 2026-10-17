@@ -499,7 +499,7 @@ async fn channel_replication_syncs_messages_across_remote_rooms() {
 }
 
 // =========================================================================
-// 6. Claim-Check Invoice, ObservationStore, and InspectTool Tests
+// 6. ObservationStore and RecallContextTool Tests
 // =========================================================================
 
 #[tokio::test]
@@ -507,7 +507,7 @@ async fn file_observation_store_persists_and_slices_on_disk() {
     use nuo_agent::token::{FileObservationStore, ObservationStore};
 
     let temp_store = FileObservationStore::in_temp_dir().unwrap();
-    let handle = "call:test_file_call";
+    let handle = "fold:test_file_call";
     let text = "Line 1\nLine 2: Target secret line\nLine 3\nLine 4\n";
 
     temp_store.store(handle, text.to_string()).await.unwrap();
@@ -521,19 +521,19 @@ async fn file_observation_store_persists_and_slices_on_disk() {
 }
 
 #[tokio::test]
-async fn inspect_tool_rehydrates_invoice_slice() {
+async fn recall_context_tool_rehydrates_context_slice() {
     use nuo_agent::token::{InMemoryObservationStore, ObservationStore};
-    use nuo_agent::tools::{InspectTool, Tool};
+    use nuo_agent::tools::{RecallContextTool, Tool};
 
     let obs_store = Arc::new(InMemoryObservationStore::new());
-    let handle = "call:compile_errors";
+    let handle = "fold:compile_errors";
     let raw_logs =
         "Compiler error on line 42: mismatched types\nCompiler error on line 88: unreachable code";
 
     obs_store.store(handle, raw_logs.to_string()).await.unwrap();
 
-    let inspect_tool = InspectTool::new(obs_store);
-    assert_eq!(inspect_tool.name(), "inspect");
+    let recall_tool = RecallContextTool::new(obs_store);
+    assert_eq!(recall_tool.name(), "recall_context");
 
     let args = json!({
         "target": handle,
@@ -541,8 +541,8 @@ async fn inspect_tool_rehydrates_invoice_slice() {
         "limit": 43,
     });
 
-    let result = inspect_tool.execute_simple(args).await.unwrap();
-    assert!(result.content().contains("call:compile_errors"));
+    let result = recall_tool.execute_simple(args).await.unwrap();
+    assert!(result.content().contains("fold:compile_errors"));
     assert!(result.content().contains("Compiler error on line 42: mismatched types"));
 }
 
@@ -581,8 +581,8 @@ async fn agent_with_observation_store_offloads_large_tool_output_and_allows_insp
         .await
         .unwrap();
 
-    // The inspect tool should have been automatically registered!
-    assert!(agent.tool_names().contains(&"inspect".to_string()));
+    // The recall_context tool should have been automatically registered!
+    assert!(agent.tool_names().contains(&"recall_context".to_string()));
 
     // Round 1: Model calls dump_data
     provider
@@ -595,12 +595,12 @@ async fn agent_with_observation_store_offloads_large_tool_output_and_allows_insp
         ))
         .await;
 
-    // Round 2: Model sees invoice and calls inspect
+    // Round 2: Model sees context handle and calls recall_context
     provider
         .push_response(ModelResponse::tool_call(
-            "call_inspect_1",
-            "inspect",
-            json!({"target": "call:call_dump_99", "offset": 0, "limit": 20}),
+            "call_recall_1",
+            "recall_context",
+            json!({"target": "obs:call_dump_99", "offset": 0, "limit": 20}),
             10,
             10,
         ))
@@ -614,10 +614,10 @@ async fn agent_with_observation_store_offloads_large_tool_output_and_allows_insp
     let answer = agent.prompt("Get data and inspect it").await.unwrap();
     assert!(answer.contains("Inspected raw data successfully"));
 
-    // Verify raw output was saved in observation store under "call:call_dump_99"
-    assert!(obs_store.contains("call:call_dump_99").await);
+    // Verify raw output was saved in observation store under "obs:call_dump_99"
+    assert!(obs_store.contains("obs:call_dump_99").await);
     let slice = obs_store
-        .fetch_slice("call:call_dump_99", 0, 5)
+        .fetch_slice("obs:call_dump_99", 0, 5)
         .await
         .unwrap();
     assert_eq!(slice, "XXXXX");

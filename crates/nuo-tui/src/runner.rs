@@ -1,7 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 use nuo_client as client;
-use crate::start_tui;
 use crate::cli::{self, CliArgs, Mode};
 use crate::headless;
 use std::path::PathBuf;
@@ -348,6 +347,27 @@ pub async fn run_attached(
         nuo_client::SessionInitOptions::new(unattended_at_start, confined_at_start)
             .with_role(role.clone())
             .with_resume(resume);
+
+    // Initialize terminal once and keep it alive across thread switches to eliminate flicker.
+    let profile = nuotc::TerminalProfile::detect();
+    crate::terminal::enter_terminal(&profile)?;
+    crate::terminal::spawn_signal_guard();
+    crate::ensure_panic_hook();
+
+    struct TerminalGuard(bool);
+    impl Drop for TerminalGuard {
+        fn drop(&mut self) {
+            if self.0 {
+                crate::terminal::restore_terminal();
+            }
+        }
+    }
+    let mut guard = TerminalGuard(true);
+
+    let stdout = std::io::stdout();
+    let backend = nuotc::Backend::with_profile(stdout, profile);
+    let mut terminal = nuotc::Terminal::new(backend);
+
     loop {
         let action = match &target {
             Some(id) => client::AttachAction::Attach(Some(id.clone())),
@@ -448,7 +468,8 @@ pub async fn run_attached(
         let startup_overlay =
             std::mem::replace(&mut startup_overlay_pending, crate::StartupOverlay::None);
         let exit_tx = tx.clone();
-        let outcome = start_tui(
+        let outcome = crate::run_tui_with_terminal(
+            &mut terminal,
             tx,
             rx,
             crate::TuiLaunchConfig {
@@ -479,12 +500,19 @@ pub async fn run_attached(
         }) {
             tracing::error!(%error, "server link lost before exit history flush");
         }
+        if outcome.switch_to_new {
+            target = None;
+            fresh_pending = true;
+            continue;
+        }
         match outcome.switch_to {
             Some(id) => {
                 target = Some(id);
                 continue;
             }
             None => {
+                guard.0 = false;
+                crate::terminal::restore_terminal();
                 if info.port > 0 {
                     eprintln!(
                         "nuo: detached from hosted server (PID {}, port {}).\n  • Reconnect:   nuo\n  • Terminate:   nuo stop",

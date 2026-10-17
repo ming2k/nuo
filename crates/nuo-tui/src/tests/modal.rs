@@ -2427,3 +2427,149 @@ async fn test_close_tab_accurately_closes_tab_on_thread_and_subagent() {
     assert_eq!(flow, crate::event_loop::actions::ActionFlow::Exit);
     assert!(app.surfaces.tabs().is_empty());
 }
+
+#[tokio::test]
+async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    app.tx = tx;
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    let empty_sid = "empty-session-1";
+    let target_sid = "target-session-2";
+    app.current_session_id = empty_sid.to_string();
+    app.open_tab(crate::surfaces::ClientTab::thread(empty_sid, None::<String>));
+    assert_eq!(app.surfaces.tabs().len(), 1);
+    assert_eq!(app.surfaces.tabs()[0].thread_id(), Some(empty_sid));
+    assert!(app.is_current_thread_empty());
+
+    app.sessions_overview = vec![nuo_wire::SessionOverview {
+        id: target_sid.to_string(),
+        title: Some("Target Thread".into()),
+        overview: "Target Thread".into(),
+        created_at: 100,
+        updated_at: 200,
+        message_count: 5,
+        active: false,
+        parent_id: None,
+        fork_kind: nuo_wire::SessionForkKind::Trunk,
+        digest: None,
+    }];
+    app.open_dialog(crate::surfaces::DialogKind::Sessions);
+
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::OpenSelectedSession,
+        empty_sid,
+    )
+    .await;
+
+    // Must NOT create a second tab! Tab count must remain 1, overwritten in-place!
+    assert_eq!(app.surfaces.tabs().len(), 1);
+    assert_eq!(app.surfaces.tabs()[0].thread_id(), Some(target_sid));
+    assert_eq!(app.switch_to_target, Some(target_sid.to_string()));
+
+    // Must have sent DeleteSession intent for the abandoned empty thread
+    let req = rx.try_recv().expect("DeleteSession sent for empty thread");
+    match req {
+        nuo_wire::AgentRequest::DeleteSession { id } => {
+            assert_eq!(id, empty_sid);
+        }
+        other => panic!("expected DeleteSession, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    app.tx = tx;
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    let active_sid = "active-session-1";
+    let target_sid = "target-session-2";
+    app.current_session_id = active_sid.to_string();
+    app.open_tab(crate::surfaces::ClientTab::thread(active_sid, Some("Active Thread")));
+    // Add a message to make it non-empty
+    app.messages.push(crate::model::document::TranscriptMessage::new(
+        nuo_wire::Role::User,
+        "Hello",
+    ));
+    assert!(!app.is_current_thread_empty());
+
+    app.sessions_overview = vec![nuo_wire::SessionOverview {
+        id: target_sid.to_string(),
+        title: Some("Target Thread".into()),
+        overview: "Target Thread".into(),
+        created_at: 100,
+        updated_at: 200,
+        message_count: 5,
+        active: false,
+        parent_id: None,
+        fork_kind: nuo_wire::SessionForkKind::Trunk,
+        digest: None,
+    }];
+    app.open_dialog(crate::surfaces::DialogKind::Sessions);
+
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::OpenSelectedSession,
+        active_sid,
+    )
+    .await;
+
+    // Must append a new tab (total 2 tabs)!
+    assert_eq!(app.surfaces.tabs().len(), 2);
+    assert_eq!(app.surfaces.tabs()[0].thread_id(), Some(active_sid));
+    assert_eq!(app.surfaces.tabs()[1].thread_id(), Some(target_sid));
+    assert_eq!(app.switch_to_target, Some(target_sid.to_string()));
+
+    // Must NOT have sent DeleteSession!
+    assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_non_empty() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    app.tx = tx;
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    let empty_sid = "empty-session-1";
+    app.current_session_id = empty_sid.to_string();
+    app.open_tab(crate::surfaces::ClientTab::thread(empty_sid, None::<String>));
+    assert!(app.is_current_thread_empty());
+
+    // 1. In empty tab: pressing 'N' should send /new to reset in-place
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::CreateNewSession,
+        empty_sid,
+    )
+    .await;
+
+    assert!(!app.switch_to_new);
+    let req = rx.try_recv().expect("/new sent for empty thread");
+    match req {
+        nuo_wire::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
+        other => panic!("expected /new slash command, got {other:?}"),
+    }
+
+    // 2. In non-empty tab: pressing 'N' should arm switch_to_new
+    app.messages.push(crate::model::document::TranscriptMessage::new(
+        nuo_wire::Role::User,
+        "Existing message",
+    ));
+    assert!(!app.is_current_thread_empty());
+
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::CreateNewSession,
+        empty_sid,
+    )
+    .await;
+
+    assert!(app.switch_to_new);
+    assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
+}

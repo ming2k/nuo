@@ -1,16 +1,16 @@
 ---
 id: ADR-0057
 title: "Tool Output Claim-Check Mechanism and Context Stub Topology"
-status: accepted
+status: superseded
 date: 2026-10-28
 scope: tool/exec, context/claim-check, harness/rounds, wire/pressure, storage/offstream
-superseded_by: null
+superseded_by: ADR-0069
 negative_knowledge: true
 ---
 
 # 0057. Tool Output Claim-Check Mechanism and Context Stub Topology
 
-- Status: Accepted
+- Status: Superseded by [ADR-0069](0069-execution-log-spilling-epistemic-context-paging-and-anti-recursion-topology.md)
 - Date: 2026-10-28
 - Deciders: Nuo Architecture Working Group, Runtime Engineering
 - Consulted: Tooling (`nuo-tool`, `nuo-tool-exec`), Harness (`nuo-harness`), Wire (`nuo-wire`), Server (`nuo-server`)

@@ -618,7 +618,7 @@ impl ObservationLifecycle {
                 ..
             } => {
                 format!(
-                    "{head_preview}\n\n[... {omitted_bytes} bytes elided to relieve context — inspect with handle \"call:{call_id}\"]\n\n{tail_preview}"
+                    "{head_preview}\n\n[... {omitted_bytes} bytes elided to relieve context budget]\n\n{tail_preview}"
                 )
             }
             Self::Retired {
@@ -627,7 +627,7 @@ impl ObservationLifecycle {
                 original_lines,
             } => {
                 format!(
-                    "{} {tool_name} ({original_lines} lines, {original_tokens} tokens) — reason: {} — inspect with handle \"call:{call_id}\"]",
+                    "{} {tool_name} ({original_lines} lines, {original_tokens} tokens) — reason: {}]",
                     crate::pressure::CLEARED_TOOL_PREFIX,
                     reason.summary()
                 )

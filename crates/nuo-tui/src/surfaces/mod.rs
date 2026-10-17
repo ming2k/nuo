@@ -578,6 +578,22 @@ impl SurfaceRouter {
         self.tabs.get(self.active_tab)
     }
 
+    /// Currently active tab mutably, if any.
+    pub fn active_tab_mut(&mut self) -> Option<&mut ClientTab> {
+        self.tabs.get_mut(self.active_tab)
+    }
+
+    /// Replace the tab at `index` with `tab`. Returns true if replaced.
+    pub fn replace_tab(&mut self, index: usize, tab: ClientTab) -> bool {
+        if let Some(slot) = self.tabs.get_mut(index) {
+            *slot = tab;
+            self.sync_scene_to_active_tab();
+            true
+        } else {
+            false
+        }
+    }
+
     /// Open or focus a tab in this viewport (ADR-0039 [INV-TAB-02]).
     pub fn open_tab(&mut self, tab: ClientTab) -> usize {
         if let Some(pos) = self.tabs.iter().position(|t| match (&t.kind, &tab.kind) {

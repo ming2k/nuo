@@ -121,7 +121,13 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             true
         }
         AppMutation::LiveSession(session_id) => {
-            app.live_session_id = session_id;
+            app.live_session_id = session_id.clone();
+            if let Some(active_tab) = app.surfaces.active_tab_mut() {
+                if let crate::surfaces::TabKind::Thread(ref mut id) = active_tab.kind {
+                    *id = session_id;
+                    active_tab.title = None;
+                }
+            }
             true
         }
         AppMutation::SessionForked {

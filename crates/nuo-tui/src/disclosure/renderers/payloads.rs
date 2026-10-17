@@ -2372,6 +2372,7 @@ fn parse_unstructured_shell_content(
             || trimmed_leading.starts_with("[output truncated")
             || trimmed_leading.starts_with("[stream truncated")
             || trimmed_leading.starts_with("⋯ [Claim-Check Stub:")
+            || trimmed_leading.starts_with("--- [Middle output omitted")
             || trimmed_leading.starts_with("[Output was large")
         {
             truncated = true;

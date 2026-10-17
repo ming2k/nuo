@@ -538,18 +538,18 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     let subagent_tool_handle = subagent_tool.clone();
     toolset.insert(subagent_tool);
 
-    // Demand-paged epistemic memory (ADR-0262): provide the `inspect` tool to the
-    // master agent for recalling subagent sessions, pruned tool outputs, and compacted history.
+    // Demand-paged epistemic memory (ADR-0069, ADR-0262): provide the `recall_context` tool to the
+    // master agent for recalling subagent sessions, visual artifacts, and compacted history.
     let current_session_id = session.id().await;
     let offstream_reg = crate::offstream::build_offstream_registry(
         &current_session_id,
         session.blob_store().clone(),
     );
-    let inspect_tool = Arc::new(nuo_harness::tools::InspectTool::new(
+    let recall_tool = Arc::new(nuo_harness::tools::RecallContextTool::new(
         offstream_reg,
         current_session_id,
     ));
-    toolset.insert(inspect_tool);
+    toolset.insert(recall_tool);
 
     let mut agent = Agent::builder_from_toolset(agent_provider, toolset, identity)
         .with_host(agent_kernel_host.clone())

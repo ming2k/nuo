@@ -239,6 +239,26 @@ impl App {
         idx
     }
 
+    /// Replace a client tab at index, running each dropped sheet's teardown.
+    pub(crate) fn replace_tab(&mut self, index: usize, tab: crate::surfaces::ClientTab) -> bool {
+        let sheets = self.surfaces.take_sheets();
+        let ok = self.surfaces.replace_tab(index, tab);
+        for s in sheets {
+            self.on_sheet_dismissed(s);
+        }
+        ok
+    }
+
+    /// Whether the currently active tab is a thread that is completely empty
+    /// (no turns, no messages), meaning it can be overwritten and discarded.
+    pub fn is_current_thread_empty(&self) -> bool {
+        let is_thread_tab = self
+            .surfaces
+            .active_tab()
+            .map_or(false, |t| matches!(t.kind, crate::surfaces::TabKind::Thread(_)));
+        is_thread_tab && self.messages.is_empty() && self.round_count == 0
+    }
+
     /// Dynamically update the authentic title of a thread tab (ADR-0050 [INV-TAB-08]).
     pub(crate) fn update_tab_title(&mut self, thread_id: &str, title: impl Into<String>) -> bool {
         self.surfaces.update_tab_title(thread_id, title)

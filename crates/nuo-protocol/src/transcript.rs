@@ -481,7 +481,7 @@ impl Transcript {
                 message.reasoning_content = None;
                 message.images = None;
                 last_pruned_tool = Some(tool_call_id.clone());
-            } else if let Some(last_call_id) = last_pruned_tool.take()
+            } else if let Some(_last_call_id) = last_pruned_tool.take()
                 && message
                     .origin
                     .as_ref()
@@ -494,7 +494,7 @@ impl Transcript {
                     .map(|img| img.mime.clone())
                     .unwrap_or_else(|| "image".to_string());
                 message.content = format!(
-                    "[cleared image payload ({mime}) — rehydrate with inspect handle \"call:{last_call_id}\"]"
+                    "[cleared image payload ({mime}) to protect context budget]"
                 );
                 message.images = None;
             } else {

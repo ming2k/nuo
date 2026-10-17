@@ -1,7 +1,7 @@
 //! Cognitive meta-tools owned by the Agent Harness ([INV-HARNESS-01]).
 //!
 //! Per ADR-0001 and ADR-0010, `nuo-harness` implements *strictly* cognitive
-//! meta-tools ([`AskUserTool`], [`TodoTool`], [`InspectTool`]).
+//! meta-tools ([`AskUserTool`], [`TodoTool`], [`RecallContextTool`]).
 //!
 //! Capability tools are decentralized in capability crates:
 //! - Filesystem: [`nuo_tool_fs`]
@@ -10,12 +10,12 @@
 //! - Code & AST: [`nuo_tool_ast`]
 
 mod ask_user;
-pub mod inspect;
+pub mod recall_context;
 pub mod recall_memory;
 mod todo;
 
 pub use ask_user::AskUserTool;
-pub use inspect::InspectTool;
+pub use recall_context::RecallContextTool;
 pub use recall_memory::{RecallMemoryService, RecallMemoryTool};
 pub use todo::{TodoTool, TodoToolContext};
 

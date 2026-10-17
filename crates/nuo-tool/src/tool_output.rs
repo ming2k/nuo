@@ -43,12 +43,12 @@ pub enum ToolOutput {
     PermissionDenied { tool: String },
     /// A shell command execution. Carries stdout/stderr/exit separately so the
     /// UI never has to string-sniff for `Exit N` / `STDOUT:` / `STDERR:`
-    /// markers. `truncated` is a **size hint and Claim-Check Stub trigger** (ADR-0057):
+    /// markers. `truncated` is a **size hint and Execution Log Spilling trigger** (ADR-0069):
     /// `true` means the composed output crosses [`crate::tool_output::SHELL_MAX_OUTPUT_CHARS`]
-    /// and text consumers will project it as a bounded Context Stub. The structured fields
+    /// and text consumers will project it as a bounded log preview. The structured fields
     /// themselves are *not* pre-cut — they carry the full output so a UI can render/paginate
-    /// the complete step and CAS BlobStore can retain the raw un-truncated bytes; the hint
-    /// lets a text-based caller stub without recomputing the length.
+    /// the complete step and the harness can spill the raw un-truncated bytes to disk; the hint
+    /// lets a text-based caller preview without recomputing the length.
     ///
     /// `lines` is the **TUI-authoritative** view: stdout and stderr lines in
     /// their true interleaved arrival order, each tagged with its source
@@ -748,7 +748,7 @@ fn shell_body_to_text(
         }
         let tail_part = &inner[tail_idx..];
         format!(
-            "[Output truncated: {tokens} tokens total]\n{}\n\n⋯ [Claim-Check Stub: middle output omitted to protect context budget] ⋯\n\n{}",
+            "[Output truncated: {tokens} tokens total]\n{}\n\n--- [Middle output omitted to protect context budget] ---\n\n{}",
             head_part, tail_part
         )
     } else {
@@ -1117,7 +1117,7 @@ mod tests {
             "got: {text:.80}"
         );
         assert!(
-            text.contains("⋯ [Claim-Check Stub: middle output omitted to protect context budget] ⋯")
+            text.contains("--- [Middle output omitted to protect context budget] ---")
         );
     }
 

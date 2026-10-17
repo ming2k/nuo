@@ -54,7 +54,7 @@ pub use token::{
     PressureLevel, TokenBudget, TokenCounter,
 };
 pub use tools::{
-    AlwaysApprove, ApprovalDecision, ApprovalHandler, CommandTool, DynamicTool, InspectTool,
+    AlwaysApprove, ApprovalDecision, ApprovalHandler, CommandTool, DynamicTool, RecallContextTool,
     McpTool, RiskProfile, ShellKind, Tool, ToolCallRequest, ToolContext, ToolError, ToolOutput,
     ToolPolicy, ToolRegistry, ToolScope,
 };

@@ -1599,58 +1599,7 @@ impl Agent {
                 .with_subagent_meta(meta)
             }
             None => {
-                if let ToolOutput::Shell {
-                    truncated: true,
-                    stdout,
-                    stderr,
-                    exit,
-                    ..
-                } = result
-                {
-                    // ADR-0264, ADR-0057: Store full raw un-truncated shell output in CAS BlobStore
-                    // so the Claim-Check stub handle is guaranteed to be redeemable by inspect.
-                    let raw_full = nuo_tool::tool_output::shell_inner_text(stdout, stderr, *exit);
-                    let blob_dir = nuo_host::paths::get().blobs_dir();
-                    let blob_store = nuo_persistence::blobs::BlobStore::new(blob_dir);
-                    let content_blob_hash = blob_store.put(raw_full.as_bytes()).ok();
-
-                    let formatted = format!("[{} result]:\n{}", call.name, text);
-                    let message_content = format!(
-                        "{formatted}\n\n[Claim-Check Stub: inspect full output with handle \"call:{call_id}\"]"
-                    );
-                    let mut msg = Message::tool_result(call, message_content);
-                    msg.content_blob = content_blob_hash;
-                    msg
-                } else if text.len() > nuo_tool::tool_output::SHELL_MAX_OUTPUT_CHARS {
-                    // ADR-0057 [INV-CLAIM-01]: Universal Claim-Check gate. Any oversized tool output
-                    // (MCP, custom tool, search/read) is offloaded to CAS BlobStore and projected as a Stub.
-                    let blob_dir = nuo_host::paths::get().blobs_dir();
-                    let blob_store = nuo_persistence::blobs::BlobStore::new(blob_dir);
-                    let content_blob_hash = blob_store.put(text.as_bytes()).ok();
-
-                    let tokens = nuo_wire::tokenizer::count_tokens(&text);
-                    let head_len = nuo_tool::tool_output::SHELL_TRUNCATED_CHARS / 2;
-                    let tail_len = nuo_tool::tool_output::SHELL_TRUNCATED_CHARS / 2;
-                    let head_part: String = text.chars().take(head_len).collect();
-                    let tail_part: String = text
-                        .chars()
-                        .rev()
-                        .take(tail_len)
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .rev()
-                        .collect();
-                    let stub_content = format!(
-                        "[{name} result]:\n[Output truncated: {tokens} tokens total]\n{head_part}\n\n⋯ [Claim-Check Stub: middle output omitted to protect context budget] ⋯\n\n{tail_part}\n\n[Claim-Check Stub: inspect full output with handle \"call:{call_id}\"]",
-                        name = call.name
-                    );
-                    let mut msg = Message::tool_result(call, stub_content);
-                    msg.content_blob = content_blob_hash;
-                    msg
-                } else {
-                    let formatted = format!("[{} result]:\n{}", call.name, text);
-                    Message::tool_result(call, formatted)
-                }
+                format_tool_result_message(call, call_id, result, &text)
             }
         };
         messages.push(tool_message);
@@ -1669,5 +1618,134 @@ impl Agent {
                 data.clone(),
             ));
         }
+    }
+}
+
+pub(crate) fn format_tool_result_message(
+    call: &ToolCall,
+    call_id: &str,
+    result: &ToolOutput,
+    text: &str,
+) -> Message {
+    if let ToolOutput::Shell {
+        truncated: true,
+        stdout,
+        stderr,
+        exit,
+        ..
+    } = result
+    {
+        // ADR-0069 [INV-LOG-01]: Execution Log Spilling.
+        // Store full raw un-truncated shell output in transparent session log file
+        // so AI can search it via native grep/tail tools without context blowup or meta-tool nesting.
+        let raw_full = nuo_tool::tool_output::shell_inner_text(stdout, stderr, *exit);
+        let log_dir = nuo_host::paths::get().exec_logs_dir();
+        let _ = std::fs::create_dir_all(&log_dir);
+        let log_file = log_dir.join(format!("exec_{call_id}.log"));
+        let _ = std::fs::write(&log_file, raw_full.as_bytes());
+
+        let formatted = format!("[{} result]:\n{}", call.name, text);
+        let message_content = format!(
+            "{formatted}\n\n[Full raw output saved to: {}]\n[Guidance: Use `execute_command` with grep/tail or `read_text` with line limits to inspect specific sections.]",
+            log_file.display()
+        );
+        Message::tool_result(call, message_content)
+    } else if call.name == "recall_context" {
+        // ADR-0069 [INV-RECALL-02]: Universal Immunity & Non-Recursion.
+        // Output of recall_context must never trigger Log Spilling or truncation.
+        let formatted = format!("[{} result]:\n{}", call.name, text);
+        Message::tool_result(call, formatted)
+    } else if text.len() > nuo_tool::tool_output::SHELL_MAX_OUTPUT_CHARS {
+        // ADR-0069 [INV-LOG-01]: Log Spilling for oversized generic tool outputs.
+        let log_dir = nuo_host::paths::get().exec_logs_dir();
+        let _ = std::fs::create_dir_all(&log_dir);
+        let log_file = log_dir.join(format!("exec_{call_id}.log"));
+        let _ = std::fs::write(&log_file, text.as_bytes());
+
+        let tokens = nuo_wire::tokenizer::count_tokens(text);
+        let head_len = nuo_tool::tool_output::SHELL_TRUNCATED_CHARS / 2;
+        let tail_len = nuo_tool::tool_output::SHELL_TRUNCATED_CHARS / 2;
+        let head_part: String = text.chars().take(head_len).collect();
+        let tail_part: String = text
+            .chars()
+            .rev()
+            .take(tail_len)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        let stub_content = format!(
+            "[{name} result]:\n[Output truncated: {tokens} tokens total]\n{head_part}\n\n--- [Middle output omitted to protect context budget] ---\n\n{tail_part}\n\n[Full raw output saved to: {}]\n[Guidance: Use `execute_command` with grep/tail or `read_text` to inspect specific sections.]",
+            log_file.display(),
+            name = call.name
+        );
+        Message::tool_result(call, stub_content)
+    } else {
+        let formatted = format!("[{} result]:\n{}", call.name, text);
+        Message::tool_result(call, formatted)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nuo_tool::ToolOutput;
+
+    #[test]
+    fn test_shell_output_spilling_and_guidance() {
+        let call = ToolCall {
+            id: "call_test_spill_123".to_string(),
+            name: "execute_command".to_string(),
+            arguments: r#"{"command":"cargo test"}"#.to_string(),
+        };
+
+        let result = ToolOutput::Shell {
+            command: "cargo test".to_string(),
+            stdout: "line 1\nline 2\n".to_string(),
+            stderr: "warning in build\n".to_string(),
+            exit: Some(0),
+            lines: vec![],
+            truncated: true,
+            termination: nuo_tool::ShellTermination::Exited,
+            detached_job_id: None,
+        };
+
+        let msg = format_tool_result_message(&call, &call.id, &result, &result.to_text());
+        let content = &msg.content;
+        assert!(content.contains("[Full raw output saved to:"));
+        assert!(content.contains("exec_call_test_spill_123.log"));
+        assert!(content.contains("[Guidance: Use `execute_command` with grep/tail or `read_text`"));
+        assert!(!content.contains("Claim-Check Stub"));
+        assert!(!content.contains("call:call_test_spill_123"));
+
+        // Verify the log file was actually created on disk
+        let log_file = nuo_host::paths::get().exec_logs_dir().join("exec_call_test_spill_123.log");
+        assert!(log_file.exists());
+        let disk_content = std::fs::read_to_string(&log_file).unwrap();
+        assert!(disk_content.contains("line 1\nline 2"));
+        assert!(disk_content.contains("warning in build"));
+        let _ = std::fs::remove_file(log_file);
+    }
+
+    #[test]
+    fn test_recall_context_universal_immunity() {
+        let call = ToolCall {
+            id: "call_recall_456".to_string(),
+            name: "recall_context".to_string(),
+            arguments: r#"{"target":"fold:ckpt_1"}"#.to_string(),
+        };
+
+        // Create large text that exceeds SHELL_MAX_OUTPUT_CHARS (8000 bytes)
+        let large_text = "a".repeat(12000);
+        let result = ToolOutput::Text(large_text.clone());
+
+        let msg = format_tool_result_message(&call, &call.id, &result, &large_text);
+        let content = &msg.content;
+        // Immunity invariant [INV-RECALL-02]: must NOT be truncated, spilled, or stubbed
+        assert!(content.starts_with("[recall_context result]:\n"));
+        assert!(!content.contains("[Output truncated:"));
+        assert!(!content.contains("[Full raw output saved to:"));
+        assert!(!content.contains("Claim-Check Stub"));
+        assert_eq!(content.len(), "[recall_context result]:\n".len() + 12000);
     }
 }

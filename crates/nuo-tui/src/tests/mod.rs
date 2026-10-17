@@ -200,6 +200,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         host_kill_confirm: None,
         host_kill_confirm_id: None,
         switch_to_target: None,
+        switch_to_new: false,
         startup_overlay: crate::StartupOverlay::None,
         permission_confirm_always: false,
         permission_show_details: false,

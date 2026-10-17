@@ -1,8 +1,8 @@
-//! Content-addressed observation backing store and claim-check invoice persistence.
+//! Content-addressed observation backing store and context persistence (ADR-0069).
 //!
 //! When tool execution outputs exceed context watermarks, the raw payload is offloaded
-//! into an [`ObservationStore`] and replaced in working context with an immutable
-//! invoice handle (`call:<call_id>`).
+//! into an [`ObservationStore`] and replaced in working context with a deterministic
+//! handle (`obs:<call_id>`).
 
 use crate::error::{AgentError, Result};
 use async_trait::async_trait;
@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 /// Persistence interface for offstream raw tool execution payloads.
 #[async_trait]
 pub trait ObservationStore: Send + Sync {
-    /// Stores the raw observation payload under an immutable invoice handle (e.g. `call:<call_id>`).
+    /// Stores the raw observation payload under an immutable handle (e.g. `obs:<call_id>`).
     async fn store(&self, handle: &str, raw_output: String) -> Result<()>;
 
     /// Fetches a character slice of the stored observation starting at `offset` up to `limit` chars.
@@ -53,8 +53,8 @@ impl ObservationStore for InMemoryObservationStore {
         let guard = self.store.read().await;
         let content = guard.get(handle).ok_or_else(|| {
             AgentError::Tool(
-                "inspect".into(),
-                format!("invoice handle `{handle}` not found"),
+                "recall_context".into(),
+                format!("context handle `{handle}` not found"),
             )
         })?;
 
@@ -127,8 +127,8 @@ impl ObservationStore for FileObservationStore {
         let path = self.file_path_for(handle);
         let content = tokio::fs::read_to_string(&path).await.map_err(|_| {
             AgentError::Tool(
-                "inspect".into(),
-                format!("invoice handle `{handle}` not found on disk"),
+                "recall_context".into(),
+                format!("context handle `{handle}` not found on disk"),
             )
         })?;
 

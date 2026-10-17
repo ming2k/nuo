@@ -1,4 +1,4 @@
-//! Native tool for rehydrating offstream observations via claim-check invoice handles.
+//! Native tool for recalling offstream observations and cognitive contexts (ADR-0069, ADR-0262).
 
 use crate::token::observation::ObservationStore;
 use async_trait::async_trait;
@@ -6,26 +6,26 @@ use nuo_tool::{Result, Tool, ToolContext, ToolError, ToolOutput};
 use serde_json::json;
 use std::sync::Arc;
 
-/// Tool allowing models to inspect offstream offloaded tool observations via invoice handles.
+/// Tool allowing models to recall offstream offloaded observations.
 #[derive(Clone)]
-pub struct InspectTool {
+pub struct RecallContextTool {
     store: Arc<dyn ObservationStore>,
 }
 
-impl InspectTool {
+impl RecallContextTool {
     pub fn new(store: Arc<dyn ObservationStore>) -> Self {
         Self { store }
     }
 }
 
 #[async_trait]
-impl Tool for InspectTool {
+impl Tool for RecallContextTool {
     fn name(&self) -> &str {
-        "inspect"
+        "recall_context"
     }
 
     fn description(&self) -> &str {
-        "Inspects offstream tool execution outputs using their claim-check invoice handle (e.g. 'call:<tool_call_id>'). Supports demand-paged reading via offset and limit."
+        "Recalls offstream tool execution observations and cognitive context. Supports demand-paged reading via offset and limit."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -34,7 +34,7 @@ impl Tool for InspectTool {
             "properties": {
                 "target": {
                     "type": "string",
-                    "description": "The invoice handle to inspect, e.g. 'call:call_xyz'"
+                    "description": "The context handle to recall, e.g. 'sub:ses_xyz' or 'fold:node_xyz'"
                 },
                 "offset": {
                     "type": "integer",
@@ -80,7 +80,7 @@ impl Tool for InspectTool {
 
         let end = (offset + slice.len()).min(total_len);
         Ok(ToolOutput::success(format!(
-            "[Inspecting '{target}' (chars {offset}..{end} of {total_len} total)]\n\n{slice}"
+            "[Recalling '{target}' (chars {offset}..{end} of {total_len} total)]\n\n{slice}"
         )))
     }
 }

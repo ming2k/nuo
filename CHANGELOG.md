@@ -8,7 +8,18 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
-## [0.0.29] - 2026-10-16
+## [0.0.30] - 2026-10-17
+
+### Fixed
+
+- **Thread Picker Tab Overwrite & Ghost Thread Elimination (`/threads`)**:
+  - Empty placeholder threads are now overwritten in-place when selecting an existing thread from `/threads` (or clicking via mouse in `ThreadsDialog`), preventing phantom tab proliferation.
+  - Automatically emits `AgentRequest::DeleteSession` for abandoned empty threads so they are discarded without persisting to SQLite.
+  - Aligned `CreateNewSession` ('N' in `/threads` modal): resets in-place when current thread is empty; arms `switch_to_new` to create a fresh thread in a new tab when current thread has active conversation, preventing in-place transcript wipes.
+- **TUI Lifecycle Elevation & Zero-Flicker Tab Switching**:
+  - Elevated `nuotc::terminal::Terminal` instance and `EnterAlternateScreen` lifecycle to outer loop in `run_attached`.
+  - Switching thread tabs now preserves raw mode and Alternate Screen continuously without dropping back to the host shell, eliminating physical screen flash.
+  - Upgraded terminal substrate `nuotc` to `0.0.3`: decoupled DEC Mode 2026 synchronized updates from color depth, introduced uninitialized sentinels for atomic full-screen diffing, and added `StyledClear` to eliminate background color inversion flicker.
 
 ### Fixed
 

@@ -109,7 +109,7 @@ impl StandardCompactionStrategy {
 /// Offloads a single tool result into the observation store according to the specified mode.
 ///
 /// - `[INV-CTX-01]`: Tool offload strictly operates on `ToolResult` outputs.
-/// - `[INV-CTX-02]`: Offloaded tool results emit an immutable claim-check invoice handle (`call:<call_id>`).
+/// - `[INV-CTX-02]`: Offloaded tool results emit a deterministic context handle (`obs:<call_id>`).
 /// - `[INV-CTX-03]`: `OffloadMode::Partial` retains head and tail previews; `OffloadMode::Full` retains zero body characters.
 ///
 /// Returns the number of characters elided from context.
@@ -119,7 +119,7 @@ pub async fn offload_tool_result(
     store: Option<&Arc<dyn ObservationStore>>,
 ) -> usize {
     let total_len = tr.output.len();
-    let handle = format!("call:{}", tr.call_id);
+    let handle = format!("obs:{}", tr.call_id);
 
     // Offload raw output to observation store if present
     if let Some(s) = store {
@@ -142,19 +142,19 @@ pub async fn offload_tool_result(
             let elided = total_len.saturating_sub(preview_len * 2);
 
             tr.output = format!(
-                "{head}\n\n[... Claim-Check Invoice: {elided} bytes elided to relieve context pressure ...]\n\
-                - Invoice Handle: \"{handle}\"\n\
+                "{head}\n\n[... Context Offloaded: {elided} bytes elided to relieve context pressure ...]\n\
+                - Context Handle: \"{handle}\"\n\
                 - Tail Preview: {tail}\n\
-                - To inspect the complete raw output, invoke: `inspect(target: \"{handle}\", offset: 0, limit: 2000)`"
+                - To recall the raw content, invoke: `recall_context(target: \"{handle}\", offset: 0, limit: 2000)`"
             );
 
             elided
         }
         OffloadMode::Full => {
             tr.output = format!(
-                "[Claim-Check Invoice: {total_len} bytes offloaded to store]\n\
-                - Invoice Handle: \"{handle}\"\n\
-                - To inspect the complete raw output, invoke: `inspect(target: \"{handle}\", offset: 0, limit: 2000)`"
+                "[Context Offloaded: {total_len} bytes offloaded to store]\n\
+                - Context Handle: \"{handle}\"\n\
+                - To recall the raw content, invoke: `recall_context(target: \"{handle}\", offset: 0, limit: 2000)`"
             );
 
             total_len
@@ -260,14 +260,15 @@ mod tests {
 
         let elided = offload_tool_result(&mut tr, OffloadMode::Partial, Some(&obs_store)).await;
         assert!(elided > 0);
-        assert!(tr.output.contains("Claim-Check Invoice"));
-        assert!(tr.output.contains("call:call_abc123"));
+        assert!(tr.output.contains("Context Offloaded"));
+        assert!(tr.output.contains("obs:call_abc123"));
         assert!(tr.output.contains("Tail Preview"));
+        assert!(tr.output.contains("recall_context"));
 
         // Verify that raw output was stored in observation store
-        assert!(obs_store.contains("call:call_abc123").await);
+        assert!(obs_store.contains("obs:call_abc123").await);
         let slice = obs_store
-            .fetch_slice("call:call_abc123", 0, 10)
+            .fetch_slice("obs:call_abc123", 0, 10)
             .await
             .unwrap();
         assert_eq!(slice, "AAAAAAAAAA");
@@ -285,15 +286,16 @@ mod tests {
 
         let elided = offload_tool_result(&mut tr, OffloadMode::Full, Some(&obs_store)).await;
         assert_eq!(elided, 1000);
-        assert!(tr.output.contains("[Claim-Check Invoice: 1000 bytes offloaded to store]"));
-        assert!(tr.output.contains("call:call_full99"));
+        assert!(tr.output.contains("[Context Offloaded: 1000 bytes offloaded to store]"));
+        assert!(tr.output.contains("obs:call_full99"));
+        assert!(tr.output.contains("recall_context"));
         // Full mode MUST NOT contain head or tail preview
         assert!(!tr.output.contains("Tail Preview"));
 
         // Raw output still 100% accessible via observation store
-        assert!(obs_store.contains("call:call_full99").await);
+        assert!(obs_store.contains("obs:call_full99").await);
         let slice = obs_store
-            .fetch_slice("call:call_full99", 0, 5)
+            .fetch_slice("obs:call_full99", 0, 5)
             .await
             .unwrap();
         assert_eq!(slice, "XXXXX");
@@ -327,6 +329,6 @@ mod tests {
         // User dialogue turn must remain 100% untouched ([INV-CTX-01])
         assert_eq!(messages[0].content, user_content);
         // Only tool result was offloaded
-        assert!(messages[0].tool_results[0].output.contains("call:call_tool_1"));
+        assert!(messages[0].tool_results[0].output.contains("obs:call_tool_1"));
     }
 }

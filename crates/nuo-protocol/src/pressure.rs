@@ -571,9 +571,9 @@ fn apply_prune(
                 .map(|img| img.mime.clone())
                 .unwrap_or_else(|| "image".to_string());
             next_msg.images = None;
-            let id_str = call_id.as_deref().unwrap_or("unknown");
+            let _id_str = call_id.as_deref().unwrap_or("unknown");
             next_msg.content = format!(
-                "[cleared image payload ({mime}) — rehydrate with inspect handle \"call:{id_str}\"]"
+                "[cleared image payload ({mime}) to protect context budget]"
             );
             outcome.reclaimed_tokens += 1600;
         }
@@ -806,13 +806,8 @@ fn cleared_placeholder_with_reason(meta: &ToolMeta, content: &str, reason: Optio
         Some(r) => format!(" — reason: {r}"),
         None => String::new(),
     };
-    if let Some(call_id) = &meta.call_id {
-        format!(
-            "{CLEARED_TOOL_PREFIX} {label} ({lines} lines, {tokens} tokens){reason_clause} — inspect with handle \"call:{call_id}\"]"
-        )
-    } else {
-        format!("{CLEARED_TOOL_PREFIX} {label} ({lines} lines, {tokens} tokens){reason_clause}]")
-    }
+    let _ = &meta.call_id;
+    format!("{CLEARED_TOOL_PREFIX} {label} ({lines} lines, {tokens} tokens){reason_clause}]")
 }
 
 /// Keep head + tail, eliding the middle with a recognisable marker. Returns the
@@ -830,13 +825,8 @@ fn truncate_middle(content: &str, call_id: Option<&str>) -> String {
     let (tail_rev, _tail_tokens) = tokenizer::truncate_to_tokens(&reversed, keep);
     let tail: String = tail_rev.chars().rev().collect();
     let dropped = total - head_tokens - tokenizer::count_tokens(&tail);
-    if let Some(id) = call_id {
-        format!(
-            "{head}\n[... {dropped}{ELIDED_MARKER} — Claim-Check Stub: inspect with handle \"call:{id}\"]\n{tail}"
-        )
-    } else {
-        format!("{head}\n[... {dropped}{ELIDED_MARKER}\n{tail}")
-    }
+    let _ = call_id;
+    format!("{head}\n[... {dropped}{ELIDED_MARKER}\n{tail}")
 }
 
 /// Freeze one historical tool output into its **final, single-pass** provider
@@ -1659,7 +1649,6 @@ mod tests {
         assert!(out.cleared_count >= 1);
         assert!(messages[2].images.is_none());
         assert!(messages[2].content.starts_with("[cleared image payload"));
-        assert!(messages[2].content.contains("call:c1"));
     }
 
     #[test]

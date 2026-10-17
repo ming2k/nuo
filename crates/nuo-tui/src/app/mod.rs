@@ -677,6 +677,8 @@ pub struct App {
     /// `/host` Enter on a hosted session: the id to switch to, read by the
     /// caller after the TUI exits to re-attach (ADR-0096).
     pub switch_to_target: Option<String>,
+    /// Request the runner to create and attach to a brand-new thread.
+    pub switch_to_new: bool,
     /// Which full-screen overlay (if any) the TUI opened straight into at
     /// startup instead of a thread view. In that mode the overlay is not
     /// a transient modal — there is no thread the user asked for behind
