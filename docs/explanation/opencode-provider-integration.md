@@ -10,9 +10,9 @@ This article explains how the three OpenCode service surfaces are modeled as dis
 
 | Provider id | Surface | Auth | Catalog shape |
 | :--- | :--- | :--- | :--- |
-| `opencode` | Console subscription + inference (`opencode.ai/inference/…`) | OAuth (device grant) + workspace header | `CatalogShape::OpencodeConsole` |
+| `opencode` | General inference relay (`opencode.ai/inference/…`) | API key / Public Keyless (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
 | `opencode-plan` | Zen Go relay (`opencode.ai/zen/go/v1`) | OpenCode Go API key (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
-| `opencode-zen` | Zen relay (`opencode.ai/zen/v1`) | OpenCode API key (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
+| `opencode-zen` | Zen relay (`opencode.ai/zen/v1`) | OpenCode API key / Public Keyless (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
 
 They are separate providers because the endpoint family and model universe differ. Per [ADR-0015](../adr/0015-dependency-inversion-architecture-for-model-providers.md), the classification unit is the concrete access channel/plan, never the corporate brand; authentication mode never selects the route (`[INV-AUTH-04]`).
 
@@ -36,9 +36,11 @@ Intrinsic capability metadata (context window, reasoning support, tool calling, 
 
 ### 4.1 Authentication
 
-The Console surface authenticates through OpenCode's OAuth device grant (RFC 8628): the client requests a device code, polls the token endpoint honoring the server's interval (waiting the interval *before* the first poll), and enriches the resulting token with the account/org identity. The generic engine in `nuo-oauth` never names OpenCode — the vendor-specific parameters and token-exchange workflow live in this crate's `oauth` module and register through the typed `OAuthProvider` port.
+All OpenCode surfaces authenticate with a plain API key (or public keyless for free models) and serve a public `/models` catalog:
+- `opencode-plan` authenticates with an OpenCode Go subscription API key (`oc_sk_...`) and automatically injects the mandatory `x-opencode-session` header.
+- `opencode-zen` and `opencode` authenticate with `OPENCODE_API_KEY` (or `Authorization: Bearer public` for promotional free tier models).
 
-The Zen surfaces authenticate with a plain API key and serve a public catalog; they require no OAuth credential and no workspace header.
+OpenCode's legacy Console OAuth device grant (which targeted internal enterprise console SSO organizations rather than personal coding plans) was retired to eliminate broken device authentication flows and prevent `OpencodeConsole.SignedOut` token invalidation errors.
 
 ### 4.2 Ids-Only Catalog and the Compiled Baseline
 

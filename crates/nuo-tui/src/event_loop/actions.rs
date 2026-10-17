@@ -273,11 +273,17 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                             app.switch_to_target = Some(id.clone());
                             app.should_quit.store(true, Ordering::SeqCst);
                         } else {
+                            if app.current_scene() != crate::surfaces::SceneKind::Thread {
+                                enter_scene(app, crate::surfaces::SceneKind::Thread, runtime);
+                            }
                             app.surfaces.select_tab(idx);
                         }
                     }
-                    _ => {
-                        app.surfaces.select_tab(idx);
+                    crate::surfaces::TabKind::Dashboard => {
+                        enter_scene(app, crate::surfaces::SceneKind::Dashboard, runtime);
+                    }
+                    crate::surfaces::TabKind::Settings => {
+                        enter_scene(app, crate::surfaces::SceneKind::Settings, runtime);
                     }
                 }
             }
@@ -291,11 +297,17 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                             app.switch_to_target = Some(id.clone());
                             app.should_quit.store(true, Ordering::SeqCst);
                         } else {
+                            if app.current_scene() != crate::surfaces::SceneKind::Thread {
+                                enter_scene(app, crate::surfaces::SceneKind::Thread, runtime);
+                            }
                             app.surfaces.select_tab(next_idx);
                         }
                     }
-                    _ => {
-                        app.surfaces.select_tab(next_idx);
+                    crate::surfaces::TabKind::Dashboard => {
+                        enter_scene(app, crate::surfaces::SceneKind::Dashboard, runtime);
+                    }
+                    crate::surfaces::TabKind::Settings => {
+                        enter_scene(app, crate::surfaces::SceneKind::Settings, runtime);
                     }
                 }
             }
@@ -314,11 +326,17 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                             app.switch_to_target = Some(id.clone());
                             app.should_quit.store(true, Ordering::SeqCst);
                         } else {
+                            if app.current_scene() != crate::surfaces::SceneKind::Thread {
+                                enter_scene(app, crate::surfaces::SceneKind::Thread, runtime);
+                            }
                             app.surfaces.select_tab(prev_idx);
                         }
                     }
-                    _ => {
-                        app.surfaces.select_tab(prev_idx);
+                    crate::surfaces::TabKind::Dashboard => {
+                        enter_scene(app, crate::surfaces::SceneKind::Dashboard, runtime);
+                    }
+                    crate::surfaces::TabKind::Settings => {
+                        enter_scene(app, crate::surfaces::SceneKind::Settings, runtime);
                     }
                 }
             }
@@ -3023,6 +3041,56 @@ mod transcript_scroll_tests {
         mouse::handle_selection_start(&mut app, &runtime, "s1", 32, 0).await;
         assert_eq!(app.surfaces.active_tab_index(), 2);
         assert_eq!(app.surfaces.active_scene(), crate::surfaces::SceneKind::Settings);
+    }
+
+    #[tokio::test]
+    async fn mouse_click_on_tab_bar_background_blurs_composer() {
+        let mut app = crate::tests::new_app_for_relay_tests();
+        let runtime = UiRuntime::minimal_for_test();
+
+        assert!(!app.transcript_focused, "composer active by default");
+
+        // Mount TabBar across full width (0..80) and TabBarItem(0) at (0..14)
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui.mount(crate::ui::UiKey::TabBar, nuotc::Rect::new(0, 0, 80, 1));
+        app.ui.mount(crate::ui::UiKey::TabBarItem(0), nuotc::Rect::new(0, 0, 14, 1));
+        app.ui.commit();
+
+        // Click outside tabs on the TabBar background (col 50)
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 50, 0).await;
+        assert!(app.transcript_focused, "clicking TabBar background must blur composer");
+    }
+
+    #[tokio::test]
+    async fn mouse_click_on_active_thread_tab_blurs_composer() {
+        let mut app = crate::tests::new_app_for_relay_tests();
+        let runtime = UiRuntime::minimal_for_test();
+
+        app.surfaces.open_tab(crate::surfaces::ClientTab::thread("s1", Some("Thread 1")));
+        app.surfaces.select_tab(0);
+        assert!(!app.transcript_focused, "composer active by default");
+
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui.mount(crate::ui::UiKey::TabBar, nuotc::Rect::new(0, 0, 80, 1));
+        app.ui.mount(crate::ui::UiKey::TabBarItem(0), nuotc::Rect::new(0, 0, 14, 1));
+        app.ui.commit();
+
+        // Click on already-active Thread tab (col 5)
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 5, 0).await;
+        assert_eq!(app.surfaces.active_tab_index(), 0);
+        assert!(app.transcript_focused, "clicking active tab must blur composer");
+    }
+
+    #[tokio::test]
+    async fn mouse_click_outside_composer_dead_zone_blurs_composer() {
+        let mut app = crate::tests::new_app_for_relay_tests();
+        let runtime = UiRuntime::minimal_for_test();
+
+        assert!(!app.transcript_focused, "composer active by default");
+
+        // Click in outer unmounted zone / dead zone
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 79, 10).await;
+        assert!(app.transcript_focused, "clicking outside composer must blur composer");
     }
 
     #[tokio::test]

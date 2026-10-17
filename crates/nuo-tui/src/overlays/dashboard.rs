@@ -66,6 +66,8 @@ pub struct DashboardRects {
     pub detail_body: Option<Rect>,
     /// Bounding rects for each rendered tab in the top tab bar: `(tab_index, rect)`.
     pub tab_rects: Vec<(usize, Rect)>,
+    /// Full bounding rect for the top tab bar row.
+    pub tab_bar_rect: Option<Rect>,
 }
 
 /// A session card's dock position: its 1-based sequence number (creation
@@ -349,6 +351,7 @@ pub fn draw_dashboard(
         list_body: console_body,
         detail_body: Some(dock_body),
         tab_rects,
+        tab_bar_rect: Some(header_rect),
     }
 }
 

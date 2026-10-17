@@ -31,7 +31,7 @@ impl RecallMemoryTool {
     pub fn new(store: Arc<RoleMemoryStore>) -> Self {
         Self {
             store,
-            default_role: "assistant".to_string(),
+            default_role: "philosophist".to_string(),
         }
     }
 
@@ -114,14 +114,14 @@ mod tests {
         let store = Arc::new(RoleMemoryStore::open_in_memory().unwrap());
         store
             .record_dialogue(
-                "developer",
+                "philosophist",
                 Some("session-1"),
-                "How do we write rust tools?",
-                "We implement nuo_tool::Tool with async execute",
+                "What is existentialism?",
+                "Existentialism emphasizes individual existence, freedom and choice.",
             )
             .unwrap();
 
-        let tool = RecallMemoryTool::with_default_role(store, "developer");
+        let tool = RecallMemoryTool::with_default_role(store, "philosophist");
         let t_ctx = ToolContext::default();
 
         // Validate derived schema
@@ -131,12 +131,12 @@ mod tests {
         assert_eq!(schema["additionalProperties"], false);
 
         let res = tool
-            .execute(&t_ctx, json!({"query": "rust tools"}))
+            .execute(&t_ctx, json!({"query": "existentialism"}))
             .await
             .unwrap();
 
         assert!(!res.is_error());
-        assert!(res.content().contains("nuo_tool::Tool"));
+        assert!(res.content().contains("freedom and choice"));
 
         // Validate typed rejection on missing query
         let err = tool.execute(&t_ctx, json!({})).await.unwrap_err();

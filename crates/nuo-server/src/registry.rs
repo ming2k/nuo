@@ -1415,7 +1415,11 @@ impl SessionRegistry {
                 manifest.role_id.clone(),
                 role_identity.clone(),
             );
-            role.tools = nuo_wire::ToolSelection::from_allowlist(&manifest.tools);
+            let mut admitted_tools = manifest.tools.clone();
+            if manifest.role_id == "developer" {
+                admitted_tools.retain(|t| t != "recall_memory");
+            }
+            role.tools = nuo_wire::ToolSelection::from_allowlist(&admitted_tools);
             role.admit_mcp = manifest.admit_mcp.clone();
             identity = role_identity;
             preset = role;
@@ -1960,5 +1964,19 @@ mod acp_fabric_tests {
             acp::MessageIntent::steer("nobody home", acp::SteerAction::Note),
         );
         assert!(registry.fabric().dispatch(envelope).await.is_err());
+    }
+
+    #[test]
+    fn resumed_developer_manifest_strips_legacy_recall_memory() {
+        let mut manifest = nuo_wire::SessionRoleManifest::developer();
+        manifest.tools.push("recall_memory".to_string());
+        assert!(manifest.tools.contains(&"recall_memory".to_string()));
+
+        let mut admitted_tools = manifest.tools.clone();
+        if manifest.role_id == "developer" {
+            admitted_tools.retain(|t| t != "recall_memory");
+        }
+        let selection = nuo_wire::ToolSelection::from_allowlist(&admitted_tools);
+        assert!(!selection.scope.admits("recall_memory"));
     }
 }

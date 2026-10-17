@@ -657,6 +657,8 @@ pub struct TranscriptRender {
     pub sticky: Option<StickyInfo>,
     /// Bounding rects for each rendered tab in the top tab bar: `(tab_index, rect)`.
     pub tab_rects: Vec<(usize, Rect)>,
+    /// Full bounding rect for the top tab bar row.
+    pub tab_bar_rect: Option<Rect>,
 }
 
 /// A sticky pinned step summary (returned to the app for click handling).
@@ -735,6 +737,7 @@ pub fn draw_transcript(
             view_height: 0,
             sticky: None,
             tab_rects: Vec::new(),
+            tab_bar_rect: None,
         };
     }
 
@@ -1126,6 +1129,7 @@ pub fn draw_transcript(
         view_height: transcript_area.height,
         sticky: sticky_info,
         tab_rects,
+        tab_bar_rect: tab_rect,
     }
 }
 

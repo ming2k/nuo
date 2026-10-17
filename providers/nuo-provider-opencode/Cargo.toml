@@ -8,7 +8,6 @@ description = "OpenCode (Console, Plan, Zen) provider channel for Nuo"
 
 [dependencies]
 nuo-provider = { workspace = true }
-nuo-oauth = { workspace = true }
 nuo-provider-transport = { workspace = true }
 nuo-provider-openai = { workspace = true }
 nuo-model-codec = { workspace = true }
@@ -21,7 +20,6 @@ tracing = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
 nuo-host = { workspace = true }
-netune = "0.1.0"
 
 [dev-dependencies]
 nuo-provider-deepseek = { workspace = true }

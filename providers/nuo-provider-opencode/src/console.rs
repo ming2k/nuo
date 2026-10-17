@@ -51,6 +51,56 @@ pub const MODELS: &[Model] = &[
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
     },
+    Model {
+        id: "glm-5.3-flash",
+        family: "glm",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        protocol: WireProtocol::ChatCompletions,
+        model_guidance: "",
+        effort_levels: effort_ladders::GLM_5,
+    },
+    Model {
+        id: "deepseek-v4.1-flash",
+        family: "deepseek",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        protocol: WireProtocol::ChatCompletions,
+        model_guidance: "",
+        effort_levels: effort_ladders::LOW_HIGH_MAX,
+    },
+    // =========================================================================
+    // EPHEMERAL: OpenCode Promotional Free Tier (Oct 2026 - Limited Time)
+    // Upstream authority: models.opencode.ai/api.json ($p priority list)
+    // Context is restricted to 200k (vs 1M paid), output 32k.
+    // Tagged for easy discovery and retirement when OpenCode free tier ends.
+    // =========================================================================
+    Model {
+        id: "deepseek-v4.1-flash-free",
+        family: "deepseek",
+        context_window: 200_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        protocol: WireProtocol::ChatCompletions,
+        model_guidance: "",
+        effort_levels: effort_ladders::LOW_HIGH_MAX,
+    },
+    Model {
+        id: "glm-5.3-flash-free",
+        family: "glm",
+        context_window: 200_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        protocol: WireProtocol::ChatCompletions,
+        model_guidance: "",
+        effort_levels: effort_ladders::GLM_5,
+    },
 ];
 
 inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
@@ -67,19 +117,17 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
             std::borrow::Cow::Borrowed("https://opencode.ai/inference/google/v1beta"),
         ),
     ]),
-    catalog_root_url: Some(std::borrow::Cow::Borrowed("https://opencode.ai/console")),
+    catalog_root_url: Some(std::borrow::Cow::Borrowed("https://opencode.ai/zen/v1")),
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
     id: std::borrow::Cow::Borrowed("opencode"),
     baselines: MODELS,
-    // Per-model routes come from the account catalog (protocol + optional
-    // root override); the default root serves OpenAI chat/responses surfaces
-    // and any model the catalog does not override.
+    // Per-model routes come from protocol_roots (Anthropic / Gemini) or root_url.
     root_url: std::borrow::Cow::Borrowed("https://opencode.ai/inference/openai/v1"),
     user_agent: Some(std::borrow::Cow::Borrowed(
         nuo_model_codec::client_identity::OPENCODE_USER_AGENT,
     )),
     protocol: WireProtocol::ChatCompletions,
-    catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpencodeConsole),
+    catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,

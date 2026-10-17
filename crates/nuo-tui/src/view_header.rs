@@ -190,10 +190,14 @@ pub(crate) fn draw_tab_bar(
                 Style::default().bg(inactive_bg).fg(theme.text_muted)
             };
 
-            if current_x < rect.right() {
-                let w = (tab_w as u16).min(rect.right().saturating_sub(current_x));
+            // Contiguous hit target: tab 0 subsumes leading padding, and every tab
+            // includes its trailing separator, eliminating dead gaps between tabs.
+            let hit_start = if i == 0 { rect.x } else { current_x };
+            let hit_end = current_x.saturating_add((tab_w + separator_w) as u16);
+            if hit_start < rect.right() {
+                let w = hit_end.min(rect.right()).saturating_sub(hit_start);
                 if w > 0 {
-                    tab_rects.push((i, Rect::new(current_x, rect.y, w, 1)));
+                    tab_rects.push((i, Rect::new(hit_start, rect.y, w, 1)));
                 }
             }
 
@@ -621,6 +625,9 @@ mod tests {
         assert_eq!(tab_rects[1].0, 1);
         assert_eq!(tab_rects[2].0, 2);
         assert_eq!(tab_rects[0].1.y, 0);
+        assert_eq!(tab_rects[0].1.x, 0, "tab 0 subsumes leading pad");
+        assert_eq!(tab_rects[1].1.x, tab_rects[0].1.right(), "tab 1 starts seamlessly where tab 0 ends");
+        assert_eq!(tab_rects[2].1.x, tab_rects[1].1.right(), "tab 2 starts seamlessly where tab 1 ends");
         assert!(tab_rects[0].1.width > 0);
         assert!(tab_rects[1].1.x > tab_rects[0].1.x);
     }

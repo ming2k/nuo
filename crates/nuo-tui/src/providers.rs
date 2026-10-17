@@ -267,7 +267,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
     ConnectionTemplate {
         id: "opencode",
         label: "OpenCode",
-        description: "OpenCode Console account for coding and agent models; sign in with your OpenCode account.",
+        description: "OpenCode account for coding and agent models; sign in with your OpenCode API key or use free models.",
         protocol: WireProtocol::ChatCompletions,
         models: nuo_wire::model_providers::OPENCODE_CONSOLE_MODELS,
         needs_url: false,
@@ -275,7 +275,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://opencode.ai/inference/openai/v1/chat/completions"),
         user_agent: Some(nuo_wire::client_identity::OPENCODE_USER_AGENT),
-        auth: nuo_wire::ConnectionAuth::subscription_const("opencode"),
+        auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
         id: "opencode-plan",

@@ -438,6 +438,9 @@ fn compose_frame(
         };
         ui.mount(key, *rect);
     }
+    if let Some(rect) = transcript_render.tab_bar_rect {
+        ui.mount(UiKey::TabBar, rect);
+    }
     for (idx, tab_rect) in &transcript_render.tab_rects {
         ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
     }
@@ -1091,6 +1094,9 @@ fn compose_frame(
                     &app.theme,
                 );
                 dashboard_list_body_height = Some(rects.list_body.height);
+                if let Some(rect) = rects.tab_bar_rect {
+                    ui.mount(UiKey::TabBar, rect);
+                }
                 for (idx, tab_rect) in &rects.tab_rects {
                     ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
                 }
@@ -1135,6 +1141,9 @@ fn compose_frame(
                     },
                 );
                 app.config_selected_rect = rects.selected_row_rect;
+                if let Some(rect) = rects.tab_bar_rect {
+                    ui.mount(UiKey::TabBar, rect);
+                }
                 for (idx, tab_rect) in &rects.tab_rects {
                     ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
                 }

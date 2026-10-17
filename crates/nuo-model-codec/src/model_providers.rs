@@ -81,18 +81,36 @@ pub const COMMANDCODE_BUILTIN_MODELS: &[&str] = &[
 ];
 
 pub const OPENCODE_GO_MODELS: &[&str] = &[
-    "glm-5.2",
-    "kimi-k2.7-code",
-    "deepseek-v4-flash",
     "deepseek-v4.1-flash",
+    "deepseek-v4-pro",
+    "glm-5.3-flash",
+    "glm-5.3",
+    "glm-5.2",
+    "qwen3.8-max",
+    "qwen3.8-flash",
+    "kimi-k3",
+    "deepseek-v4.1-flash-free",
+    "glm-5.3-flash-free",
 ];
 
-pub const OPENCODE_CONSOLE_MODELS: &[&str] = &["claude-sonnet-4-6", "deepseek-v4-flash", "glm-5.2"];
+pub const OPENCODE_CONSOLE_MODELS: &[&str] = &[
+    "deepseek-v4.1-flash",
+    "glm-5.3-flash",
+    "claude-sonnet-4-6",
+    "deepseek-v4.1-flash-free",
+    "glm-5.3-flash-free",
+];
 
 /// OpenCode Zen relay seeds. The key-authenticated `/zen/v1` surface publishes
 /// a public `/zen/v1/models` catalog, which is authoritative; this is the
 /// offline seed before the first refresh.
-pub const OPENCODE_ZEN_MODELS: &[&str] = &["claude-sonnet-4-6", "deepseek-v4-flash", "glm-5.2"];
+pub const OPENCODE_ZEN_MODELS: &[&str] = &[
+    "deepseek-v4.1-flash",
+    "glm-5.3-flash",
+    "claude-sonnet-4-6",
+    "deepseek-v4.1-flash-free",
+    "glm-5.3-flash-free",
+];
 
 pub const ZAI_CODE_MODELS: &[&str] = &["glm-5.3", "glm-5.3-flash", "glm-5.2"];
 

@@ -398,7 +398,6 @@ fn register_oauth_providers() {
         nuo_provider_chatgpt_plan::oauth::providers(),
         nuo_provider_copilot::oauth::providers(),
         nuo_provider_qoder::oauth_provider::providers(),
-        nuo_provider_opencode::oauth::providers(),
     ];
     for providers in surfaces {
         for provider in providers {

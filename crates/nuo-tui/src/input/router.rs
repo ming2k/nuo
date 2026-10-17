@@ -147,13 +147,6 @@ fn bare_chat_surface(dispatch: &Dispatch) -> bool {
     dispatch.overlay.is_none() && dispatch.sheet.is_none()
 }
 
-/// Whether clicks, drags and hover reach the live transcript: on the bare
-/// chat surface, or behind the foreground permission sheet. A coexisting
-/// modal owns the screen above the sheet, so the pass-through suspends.
-fn transcript_interactive(dispatch: &Dispatch) -> bool {
-    bare_chat_surface(dispatch) || permission_sheet_foreground(dispatch)
-}
-
 /// Whether the foreground surface (sheet or modal) pages its own body on the
 /// scroll keys.
 fn foreground_scrolls_own_body(dispatch: &Dispatch) -> bool {
@@ -228,40 +221,11 @@ pub fn route_event(
                 MouseEventKind::ScrollUp => InputAction::Wheel { up: true, x, y },
                 MouseEventKind::ScrollDown => InputAction::Wheel { up: false, x, y },
                 MouseEventKind::Down(MouseButton::Left) => {
-                    // The permission sheet replaces the composer but leaves the
-                    // transcript above fully interactive, so a click there can
-                    // still toggle steps, drag-select text, follow links, etc.
-                    // The sheet itself has no click targets (its buttons are
-                    // keyboard-driven) and covers only the composer/hint slot,
-                    // which has no registered transcript region, so a press
-                    // landing on it resolves to nothing and stays inert.
-                    if transcript_interactive(&dispatch) {
-                        drag.start(SemanticCursor::new(0, 0, 0));
-                        InputAction::SelectionStart { x, y }
-                    } else if dispatch.sheet == Some(crate::sheet::SheetKind::Question)
-                        || dispatch.overlay.is_some()
-                        || dispatch.scene == crate::surfaces::SceneKind::Dashboard
-                        || dispatch.scene == crate::surfaces::SceneKind::Settings
-                    {
-                        InputAction::SelectionStart { x, y }
-                    } else {
-                        InputAction::None
-                    }
+                    drag.start(SemanticCursor::new(0, 0, 0));
+                    InputAction::SelectionStart { x, y }
                 }
                 MouseEventKind::Drag(MouseButton::Left) => {
-                    if drag.active
-                        && (transcript_interactive(&dispatch)
-                            || dispatch.overlay
-                                == Some(crate::surfaces::OverlaySurface::Sheet(
-                                    crate::surfaces::SheetKind::OAuthPending,
-                                )))
-                    {
-                        InputAction::SelectionUpdate { x, y }
-                    } else if drag.active {
-                        // A drag armed inside a selectable modal document
-                        // (SelectionStart resolved to a MODAL_DOC region)
-                        // keeps updating while the button is held, even under
-                        // modals that otherwise swallow mouse events.
+                    if drag.active {
                         InputAction::SelectionUpdate { x, y }
                     } else {
                         InputAction::None
@@ -277,34 +241,9 @@ pub fn route_event(
                 }
                 // Triple-click detection would need a timer; for now we map
                 // middle click to "select block" as a quick approximation.
-                MouseEventKind::Down(MouseButton::Middle) => {
-                    if transcript_interactive(&dispatch) {
-                        InputAction::SelectBlock { x, y }
-                    } else {
-                        InputAction::None
-                    }
-                }
-                MouseEventKind::Down(MouseButton::Right) => {
-                    // Right-click opens detail/feedback for interactive
-                    // transcript elements. Allowed during a permission prompt
-                    // because the transcript stays interactive.
-                    if transcript_interactive(&dispatch) {
-                        InputAction::RightClick { x, y }
-                    } else {
-                        InputAction::None
-                    }
-                } // Mouse motion (reported because `EnableMouseCapture` requests
-                // mode 1003 "all motion"). Forwarded on the main view and
-                // during a permission prompt so hover affordances keep working
-                // on the still-interactive transcript; blocked behind other
-                // overlay modals.
-                MouseEventKind::Moved => {
-                    if transcript_interactive(&dispatch) {
-                        InputAction::Hover { x, y }
-                    } else {
-                        InputAction::None
-                    }
-                }
+                MouseEventKind::Down(MouseButton::Middle) => InputAction::SelectBlock { x, y },
+                MouseEventKind::Down(MouseButton::Right) => InputAction::RightClick { x, y },
+                MouseEventKind::Moved => InputAction::Hover { x, y },
                 _ => InputAction::None,
             }
         }

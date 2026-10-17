@@ -1622,8 +1622,11 @@ pub async fn execute_round(
         ));
     }
 
-    // Record dialogue into role-scoped cognitive memory (pure user <-> role turns)
-    if let (Some(prompt), Some(role)) = (prompt_for_memory, agent.active_role())
+    // Record dialogue into role-scoped cognitive memory (pure user <-> role turns).
+    // Only roles equipped with `recall_memory` (e.g. philosophist) record dialogue memory.
+    // Engineering and operational roles (developer, ops) are strictly excluded from dialogue memory.
+    if agent.tool_manager().find("recall_memory").is_some()
+        && let (Some(prompt), Some(role)) = (prompt_for_memory, agent.active_role())
         && !prompt.trim().is_empty()
         && !visible.is_empty()
         && let Ok(store) = nuo_persistence::get_role_memory_store()

@@ -177,6 +177,8 @@ pub struct ConfigRects {
     pub row_rects: Vec<(usize, Rect)>,
     /// Bounding rects for each rendered tab in the top tab bar: `(tab_index, rect)`.
     pub tab_rects: Vec<(usize, Rect)>,
+    /// Full bounding rect for the top tab bar row.
+    pub tab_bar_rect: Option<Rect>,
 }
 
 /// Properties passed to render the complete Settings View.
@@ -330,6 +332,7 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         category_rects,
         row_rects: detail.rows,
         tab_rects,
+        tab_bar_rect: Some(header_rect),
     }
 }
 

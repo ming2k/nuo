@@ -53,6 +53,8 @@ pub enum UiKey {
     /// A visible (non-cursor) Settings detail row that exists only as a pointer
     /// hover target so the row under the mouse can light up.
     SettingsRow(usize),
+    /// Tier 1: Client Global TabBar container (ADR-0039, ADR-0040, ADR-0060, ADR-0062).
+    TabBar,
     /// An interactive Tab Bar item at the top of the viewport (ADR-0039, ADR-0040).
     TabBarItem(usize),
 }
@@ -298,6 +300,13 @@ impl ComponentTree {
                 PointerPolicy::Target,
                 InputPolicy::Bubble,
                 true,
+            ),
+            UiKey::TabBar => (
+                Some(UiKey::Root),
+                19,
+                PointerPolicy::Target,
+                InputPolicy::None,
+                false,
             ),
             UiKey::TabBarItem(_) => (
                 Some(UiKey::Root),

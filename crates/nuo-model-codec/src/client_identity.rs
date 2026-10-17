@@ -10,10 +10,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub const NUO_USER_AGENT: &str = concat!("nuo/", env!("CARGO_PKG_VERSION"));
 
 /// OpenCode version emulated by nuo.
-pub const OPENCODE_VERSION: &str = "1.18.20";
+pub const OPENCODE_VERSION: &str = "2.0.32";
 
 /// User-Agent header value sent for OpenCode client profile.
-pub const OPENCODE_USER_AGENT: &str = "opencode/1.18.20";
+pub const OPENCODE_USER_AGENT: &str = "opencode/2.0.32";
 
 /// Client identity headers used for OpenCode profile.
 pub const OPENCODE_CLIENT_HEADERS: &[(&str, &str)] = &[("x-opencode-client", "cli")];

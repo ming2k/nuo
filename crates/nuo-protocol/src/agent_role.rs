@@ -439,6 +439,8 @@ impl MainAgentRole {
     /// AST-level structural queries (`code_query`) are strictly excluded by design:
     /// developer delegates exploration and AST investigation to dedicated
     /// subagents (`explore`/`debug`) to maintain a lean, clean context window.
+    /// Cross-session episodic dialogue memory (`recall_memory`) is excluded: the
+    /// repository workspace, git history, and tests are the authoritative ground truth.
     pub const DEVELOPER_TOOLS: &'static [BuiltinTool] = &[
         BuiltinTool::ExecuteCommand,
         BuiltinTool::ReadText,
@@ -450,7 +452,6 @@ impl MainAgentRole {
         BuiltinTool::SearchWeb,
         BuiltinTool::ReadImage,
         BuiltinTool::SpawnAgent,
-        BuiltinTool::RecallMemory,
     ];
 
     /// Built-in tools admitted for philosophist sessions.
@@ -722,7 +723,7 @@ mod tests {
     }
 
     #[test]
-    fn developer_role_excludes_ast_code_query() {
+    fn developer_role_excludes_ast_code_query_and_recall_memory() {
         let base = AgentIdentity::from_mission("coding assistant");
         let dev = AgentRoleProfile::from_role(MainAgentRole::Developer, &base);
         let crate::ToolScope::Only(names) = &dev.tools.scope else {
@@ -733,11 +734,15 @@ mod tests {
         assert!(names.contains(BuiltinTool::EditText.as_str()));
         assert!(names.contains(BuiltinTool::WriteFile.as_str()));
         assert!(names.contains(BuiltinTool::SpawnAgent.as_str()));
-        assert!(names.contains(BuiltinTool::RecallMemory.as_str()));
+        assert!(!names.contains(BuiltinTool::RecallMemory.as_str()));
         assert!(dev.tools.scope.admits_builtin(BuiltinTool::ExecuteCommand));
         assert!(
             !dev.tools.scope.admits_builtin(BuiltinTool::CodeQuery),
             "code_query must be delegated to explore/debug subagents"
+        );
+        assert!(
+            !dev.tools.scope.admits_builtin(BuiltinTool::RecallMemory),
+            "recall_memory is reserved for conversational/philosophical roles"
         );
     }
 
@@ -851,6 +856,6 @@ mod tests {
 
         let dev = AgentRoleProfile::from_role(MainAgentRole::Developer, &base);
         assert!(!dev.tools.scope.admits_builtin(BuiltinTool::CodeQuery));
-        assert!(dev.tools.scope.admits_builtin(BuiltinTool::RecallMemory));
+        assert!(!dev.tools.scope.admits_builtin(BuiltinTool::RecallMemory));
     }
 }

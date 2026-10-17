@@ -41,6 +41,16 @@ pub(super) async fn handle_selection_start(
         let _ = app.ui.runtime.capture_pointer(id);
     }
     match target {
+        Some(UiKey::TabBar) => {
+            app.selection = SelectionState::None;
+            app.focused_target = None;
+            if app.current_scene() == crate::surfaces::SceneKind::Thread {
+                app.transcript_focused = true;
+            }
+            app.drag.cancel();
+            app.ui.runtime.release_pointer();
+            return;
+        }
         Some(UiKey::TabBarItem(index)) => {
             if let Some(target_tab) = app.surfaces.tabs().get(index).cloned() {
                 match &target_tab.kind {
@@ -48,12 +58,30 @@ pub(super) async fn handle_selection_start(
                         if id != viewed_session_id {
                             app.switch_to_target = Some(id.clone());
                             app.should_quit.store(true, std::sync::atomic::Ordering::SeqCst);
+                            app.drag.cancel();
+                            app.ui.runtime.release_pointer();
                         } else {
+                            let was_in_thread = app.current_scene() == crate::surfaces::SceneKind::Thread;
+                            if !was_in_thread {
+                                super::enter_scene(app, crate::surfaces::SceneKind::Thread, runtime);
+                            }
                             app.surfaces.select_tab(index);
+                            app.transcript_focused = was_in_thread;
+                            app.focused_target = None;
+                            app.selection = SelectionState::None;
+                            app.drag.cancel();
+                            app.ui.runtime.release_pointer();
                         }
                     }
-                    _ => {
-                        app.surfaces.select_tab(index);
+                    crate::surfaces::TabKind::Dashboard => {
+                        super::enter_scene(app, crate::surfaces::SceneKind::Dashboard, runtime);
+                        app.drag.cancel();
+                        app.ui.runtime.release_pointer();
+                    }
+                    crate::surfaces::TabKind::Settings => {
+                        super::enter_scene(app, crate::surfaces::SceneKind::Settings, runtime);
+                        app.drag.cancel();
+                        app.ui.runtime.release_pointer();
                     }
                 }
             }
@@ -288,6 +316,9 @@ pub(super) async fn handle_selection_start(
     }
     app.selection = SelectionState::None;
     app.focused_target = None;
+    if app.current_scene() == crate::surfaces::SceneKind::Thread {
+        app.transcript_focused = true;
+    }
     app.drag.cancel();
     app.ui.runtime.release_pointer();
 }
@@ -434,9 +465,13 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
             }
             ClickTarget::Dead => {
                 // Click outside all known areas (outer gutters,
-                // below content). Fully inert.
+                // below content). Parks attention on browse focus so the composer
+                // becomes inactive.
                 app.selection = SelectionState::None;
                 app.focused_target = None;
+                if app.current_scene() == crate::surfaces::SceneKind::Thread {
+                    app.transcript_focused = true;
+                }
                 app.drag.cancel();
             }
         }

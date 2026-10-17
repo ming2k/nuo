@@ -266,12 +266,10 @@ impl SessionStore {
             .role
             .clone()
             .or_else(|| Some("developer".to_string()));
-        let role_manifest = state.data.role_manifest.clone().or_else(|| {
-            Some(crate::roles::resolve_role_manifest(
-                workspace.as_ref().map(|w| w.root.as_path()),
-                role.as_deref(),
-            ))
-        });
+        let role_manifest = Some(crate::roles::resolve_role_manifest(
+            workspace.as_ref().map(|w| w.root.as_path()),
+            role.as_deref(),
+        ));
         let sessions_dir = self.sessions_dir.clone();
         let id = uuid::Uuid::new_v4().to_string();
         let path = sessions_dir.join(format!("{id}.json"));
