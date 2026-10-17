@@ -592,6 +592,7 @@ fn parse_codex_models(json: &Value) -> Vec<DiscoveredModel> {
                     vision: Some(vision),
                     effort_levels: Some(effort_levels),
                     catalog_source: None,
+                    wire_entities: None,
                 },
             ))
         })
@@ -724,6 +725,7 @@ fn discovered_model_from_entry(entry: &Value) -> Option<DiscoveredModel> {
             }),
         effort_levels,
         catalog_source: None,
+        wire_entities: None,
     })
 }
 
@@ -848,6 +850,7 @@ fn copilot_model_from_capabilities(
             .and_then(Value::as_bool),
         effort_levels,
         catalog_source: None,
+        wire_entities: None,
     })
 }
 

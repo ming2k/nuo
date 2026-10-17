@@ -11,6 +11,11 @@ use nuo_model_codec::reasoning::ReasoningSupport;
 use nuo_model_codec::Availability;
 use serde_json::Value;
 
+/// Effort suffixes in **shallow→deep wire order** — the canonical ordering
+/// the request builder's rank-into-entities relies on (ADR-0272). Upstream
+/// catalog rows arrive in map order, which is unordered; the depth rank of
+/// each entity is a stable vocabulary fact (`-low < -medium < -high < -max`,
+/// and `-tiered`/`-minimal` are in-band-depth canonical rows that lead).
 const EFFORT_OR_TIER_SUFFIXES: &[&str] = &[
     "-high",
     "-medium",
@@ -19,6 +24,36 @@ const EFFORT_OR_TIER_SUFFIXES: &[&str] = &[
     "-max",
     "-tiered",
 ];
+
+/// Rank position of an entity id on the shallow→deep wire order. The bare/tiered
+/// canonical rows carry in-band depth (`thinkingLevel`) and are depth-zero
+/// leaders; a `-minimal` row sits shallowest; `-max` is deepest.
+/// Entity id → depth rank on the canonical shallow→deep wire order
+/// (ADR-0272). The bare/`-tiered`/`-minimal` rows carry in-band depth
+/// (`thinkingLevel`) and lead at rank 0; `-max` is deepest.
+fn entity_rank(id: &str) -> usize {
+    for (suffix, rank) in [
+        ("-tiered", 0usize),
+        ("-minimal", 0),
+        ("-low", 1),
+        ("-medium", 2),
+        ("-high", 3),
+        ("-max", 4),
+    ] {
+        if id.ends_with(suffix) {
+            return rank;
+        }
+    }
+    // Bare canonical id (no suffix): in-band depth, leads.
+    0
+}
+
+/// Reorder observed entity ids into canonical shallow→deep rank (stable on
+/// ties so upstream advertisement order survives within a depth rung).
+fn rank_entity_ids(mut ids: Vec<String>) -> Vec<String> {
+    ids.sort_by_key(|id| (entity_rank(id), ()));
+    ids
+}
 
 const DISPLAY_NAME_PARAM_SUFFIXES: &[&str] = &[
     " (High)",
@@ -98,6 +133,11 @@ struct ModelFoldAccumulator {
     has_usable_variant: bool,
     has_disabled_variant: bool,
     observed_effort_suffixes: Vec<String>,
+    /// Whether the bare canonical id itself was observed as a registered
+    /// upstream row (`gemini-3.8-flash` is; `claude-opus-5-5` is not). A bare
+    /// registration means depth rides in-band (`thinkingConfig`) and the
+    /// canonical id leads the wire-entity list (ADR-0272).
+    observed_bare_id: bool,
 }
 
 impl ModelFoldAccumulator {
@@ -113,6 +153,7 @@ impl ModelFoldAccumulator {
             has_usable_variant: false,
             has_disabled_variant: false,
             observed_effort_suffixes: Vec::new(),
+            observed_bare_id: false,
         }
     }
 
@@ -133,6 +174,8 @@ impl ModelFoldAccumulator {
             if !self.observed_effort_suffixes.iter().any(|s| s == suffix) {
                 self.observed_effort_suffixes.push(suffix.to_string());
             }
+        } else if raw_id == self.canonical_id {
+            self.observed_bare_id = true;
         }
 
         let raw_name = mdata
@@ -187,9 +230,39 @@ impl ModelFoldAccumulator {
         let model_id = self.canonical_id;
         let reasoning = self.reasoning;
 
-        // [INV-CATALOG-02] Lift reasoning capability to orthogonal effort ladder.
-        // Google Gemini/Argon models support [minimal, low, medium, high].
-        // Claude 5.5 models on Antigravity Vertex support [low, medium, high, max].
+        // [INV-CATALOG-02] Lift reasoning capability to orthogonal effort
+        // ladder, and record the wire-entity evidence for the request builder.
+        //
+        // Priority is **observation over inference** (ADR-0272):
+        //
+        // 1. The reconstructed ids of the parameterized variants the upstream
+        //    actually registered (`base + "-suffix"`) are the wire entities —
+        //    exactly the PredictionService entities a depth request must
+        //    target (`gemini-4-argon-{low,medium,high}`,
+        //    `claude-{opus,sonnet}-5-5-{low,medium,high,max}`). When the bare
+        //    canonical id itself was observed as a registered row
+        //    (`gemini-3.8-flash`), it leads the list: depth rides in-band
+        //    (`thinkingConfig`) and the canonical id routes directly.
+        // 2. Zero observed parameterized variants → no entity list at all:
+        //    the canonical id routes verbatim (legacy-tier `claude-sonnet-4-6`
+        //    rows genuinely have no per-level entities).
+        //
+        // The vendor ladder constants below remain the *display* ladder (what
+        // the effort selector shows); `wire_entities` is the *wire* truth.
+        // They may legitimately differ (argon displays four rungs, registers
+        // three entities) — the request builder ranks into the entities it
+        // was handed, never into the ladder.
+        let observed_entities: Vec<String> = rank_entity_ids(
+            self.observed_effort_suffixes
+                .iter()
+                .map(|suffix| format!("{model_id}-{suffix}"))
+                .chain(std::iter::once(model_id.clone()).filter(|_| self.observed_bare_id))
+                .collect(),
+        );
+
+        let wire_entities = (!observed_entities.is_empty()).then_some(observed_entities);
+
+        // [INV-CATALOG-02] Display ladder lifting (capability, not wire truth).
         let effort_levels = if reasoning == Some(true) {
             if model_id.starts_with("gemini-") || model_id.contains("argon") {
                 Some(vec![
@@ -246,6 +319,7 @@ impl ModelFoldAccumulator {
             vision: self.vision,
             effort_levels,
             catalog_source: None,
+            wire_entities,
         }
     }
 }
@@ -580,5 +654,92 @@ mod tests {
         assert_eq!(ids, vec!["gemini-3.8-flash".to_string()]);
         assert!(!ids.contains(&"gemini-2.5-flash".to_string()));
         assert!(!ids.contains(&"gemini-2.5-pro".to_string()));
+    }
+
+    /// The parser records the wire-entity **evidence** it observed: suffixed
+    /// rows reconstruct to concrete registered entities ranked shallow→deep,
+    /// a bare-row registration leads the list (in-band depth), and absence
+    /// of variants means no entity list at all (verbatim routing). This is
+    /// the parser→`RemoteModelMetadata`→`ModelCapabilities` belt the request
+    /// builder's typed resolution consumes (ADR-0272).
+    #[test]
+    fn observes_wire_entities_from_live_rows() {
+        let json = serde_json::json!({
+            "agentModelSorts": [
+                {"groups": [{"modelIds": [
+                    "gemini-4-argon-medium", "claude-opus-5-5-high", "gemini-3.8-flash",
+                    "claude-sonnet-4-6"
+                ]}]}
+            ],
+            "models": {
+                "gemini-4-argon-low":    {"maxTokens": 1048576, "supportsThinking": true},
+                "gemini-4-argon-medium": {"maxTokens": 1048576, "supportsThinking": true},
+                "gemini-4-argon-high":   {"maxTokens": 1048576, "supportsThinking": true},
+                "claude-opus-5-5-low":    {"maxTokens": 1000000, "supportsThinking": true},
+                "claude-opus-5-5-medium": {"maxTokens": 1000000, "supportsThinking": true},
+                "claude-opus-5-5-high":   {"maxTokens": 1000000, "supportsThinking": true},
+                "gemini-3.8-flash": {"maxTokens": 1048576, "supportsThinking": true},
+                "gemini-3.8-flash-high": {"maxTokens": 1048576, "supportsThinking": true},
+                "claude-sonnet-4-6": {"maxTokens": 250000}
+            }
+        });
+
+        let discovered = parse_antigravity_catalog(&json);
+        let pick = |id: &str| {
+            discovered
+                .iter()
+                .find(|m| m.id == id)
+                .cloned()
+                .unwrap_or_else(|| panic!("missing {id}"))
+        };
+
+        // Suffixed-only surface: entities in shallow→deep register order.
+        assert_eq!(
+            pick("gemini-4-argon").wire_entities.as_deref(),
+            Some(&[
+                "gemini-4-argon-low".to_string(),
+                "gemini-4-argon-medium".to_string(),
+                "gemini-4-argon-high".to_string()
+            ][..])
+        );
+        // Bare row observed: the canonical id leads (in-band depth).
+        assert_eq!(
+            pick("gemini-3.8-flash").wire_entities.as_deref().and_then(|e| e.first()),
+            Some(&"gemini-3.8-flash".to_string())
+        );
+        // Zero parameterized variants but a bare registered row: the
+        // canonical id leads a single-entity list (verbatim-equivalent —
+        // `wire_entity_resolution` sees the channel id IS a registered
+        // entity and takes the Verbatim arm).
+        let legacy = pick("claude-sonnet-4-6");
+        assert_eq!(
+            legacy.wire_entities.as_deref(),
+            Some(&["claude-sonnet-4-6".to_string()][..])
+        );
+        let caps = nuo_model_codec::ModelCapabilities::for_channel(
+            "claude-sonnet-4-6",
+            Some(&legacy.remote_metadata()),
+        );
+        assert!(matches!(
+            caps.wire_entity_resolution("claude-sonnet-4-6"),
+            nuo_model_codec::WireEntityResolution::Verbatim
+        ));
+
+        // Merge path: remote metadata → caps, verbatim for the bare-lead case.
+        let meta = pick("gemini-3.8-flash").remote_metadata();
+        let caps = nuo_model_codec::ModelCapabilities::for_channel("gemini-3.8-flash", Some(&meta));
+        assert!(caps.effort_entities.is_empty() || caps.effort_entities[0] == "gemini-3.8-flash");
+        let argon_meta = pick("gemini-4-argon").remote_metadata();
+        let argon_caps =
+            nuo_model_codec::ModelCapabilities::for_channel("gemini-4-argon", Some(&argon_meta));
+        assert_eq!(argon_caps.effort_entities.len(), 3);
+        assert!(matches!(
+            argon_caps.wire_entity_resolution("gemini-4-argon"),
+            nuo_model_codec::WireEntityResolution::PerLevel { .. }
+        ));
+        assert!(matches!(
+            argon_caps.wire_entity_resolution("gemini-4-argon-high"),
+            nuo_model_codec::WireEntityResolution::Verbatim
+        ));
     }
 }

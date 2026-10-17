@@ -121,6 +121,17 @@ pub struct DiscoveredModel {
     pub vision: Option<bool>,
     pub effort_levels: Option<Vec<String>>,
     pub catalog_source: Option<String>,
+    /// Live catalog **observation**: the concrete effort-parameterized wire
+    /// entity ids the upstream registered for this canonical model, in the
+    /// order upstream advertises them (shallow→deep for the known tiered
+    /// Antigravity families: `gemini-4-argon-{low,medium,high}`,
+    /// `claude-{opus,sonnet}-5-5-{low,medium,high,max}`).
+    ///
+    /// This is **evidence, not policy** (ADR-0068): the parser records what
+    /// the upstream actually registered; it never infers a family prefix.
+    /// `None`/empty means the canonical id routes verbatim — the common case
+    /// for every provider whose wire id equals the id the user selects.
+    pub wire_entities: Option<Vec<String>>,
 }
 
 impl DiscoveredModel {
@@ -158,6 +169,11 @@ impl DiscoveredModel {
             catalog_source: self.catalog_source.clone(),
             availability: self.availability.clone(),
             advertised: self.advertised,
+            wire_entities: self
+                .wire_entities
+                .as_ref()
+                .filter(|entities| !entities.is_empty())
+                .cloned(),
         }
     }
 }

@@ -64,6 +64,12 @@ pub enum ToolOutput {
         lines: Vec<ShellLine>,
         exit: Option<i32>,
         truncated: bool,
+        /// The claim-check stub note (ADR-0057): the human/model-readable
+        /// truncation acknowledgment stamped into `to_text` when `truncated`
+        /// fired. `None` (or legacy snapshots without the field, via
+        /// `#[serde(default)]`) renders as the plain bounded log preview.
+        #[serde(default)]
+        truncated_note: Option<String>,
         /// Why the step ended. Back-compat: restored sessions without this
         /// field deserialize as [`ShellTermination::Exited`] (via
         /// `#[serde(default)]`), so a live step whose cause wasn't persisted
@@ -517,10 +523,19 @@ impl ToolOutput {
                 lines,
                 exit,
                 truncated,
+                truncated_note,
                 termination,
                 ..
             } => {
                 let mut text = shell_body_to_text(lines, stdout, stderr, *exit, *truncated);
+                if let Some(note) = truncated_note
+                    && !note.is_empty()
+                {
+                    if !text.is_empty() && !text.ends_with('\n') {
+                        text.push('\n');
+                    }
+                    text.push_str(&format!("[{note}]"));
+                }
                 if let Some(note) = termination_model_note(*termination) {
                     if !text.is_empty() && !text.ends_with('\n') {
                         text.push('\n');
@@ -1006,6 +1021,7 @@ mod tests {
             lines: Vec::new(),
             exit: Some(0),
             truncated: false,
+            truncated_note: None,
             termination: ShellTermination::Exited,
             detached_job_id: None,
         };
@@ -1035,6 +1051,7 @@ mod tests {
                 lines: Vec::new(),
                 exit: None,
                 truncated: false,
+                truncated_note: None,
                 termination: term,
                 detached_job_id: None,
             };
@@ -1056,6 +1073,7 @@ mod tests {
             lines: Vec::new(),
             exit: Some(0),
             truncated: false,
+            truncated_note: None,
             termination: ShellTermination::Exited,
             detached_job_id: None,
         };
@@ -1072,6 +1090,7 @@ mod tests {
             lines: Vec::new(),
             exit: Some(0),
             truncated: false,
+            truncated_note: None,
             termination: ShellTermination::Exited,
             detached_job_id: None,
         };
@@ -1087,6 +1106,7 @@ mod tests {
             lines: Vec::new(),
             exit: Some(1),
             truncated: false,
+            truncated_note: None,
             termination: ShellTermination::Exited,
             detached_job_id: None,
         };
@@ -1103,6 +1123,7 @@ mod tests {
             lines: Vec::new(),
             exit: None,
             truncated: false,
+            truncated_note: None,
             termination: ShellTermination::Exited,
             detached_job_id: None,
         };
@@ -1120,6 +1141,7 @@ mod tests {
             lines: Vec::new(),
             exit: Some(0),
             truncated: true,
+            truncated_note: None,
             termination: ShellTermination::Exited,
             detached_job_id: None,
         };

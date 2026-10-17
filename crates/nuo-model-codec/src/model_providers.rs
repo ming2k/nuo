@@ -45,6 +45,8 @@ pub const ANTIGRAVITY_OAUTH_MODELS: &[&str] = &[
     "gemini-3.8-flash",
     "claude-sonnet-4-6",
     "claude-opus-4-6-thinking",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
     "gpt-oss-120b-medium",
     "gemini-4-argon",
     "gemini-3.5-flash-lite",

@@ -378,6 +378,7 @@ mod tests {
             tool_call: true,
             vision,
             effort_levels: Vec::new(),
+            effort_entities: Vec::new(),
         }
     }
 
@@ -491,6 +492,7 @@ mod tests {
                 Effort::Medium.into(),
                 Effort::High.into(),
             ],
+            effort_entities: Vec::new(),
         };
         let body = body_with_capabilities(
             vec![Message::new(Role::User, "inspect"), assistant, tool_result],

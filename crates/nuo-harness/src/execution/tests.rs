@@ -124,6 +124,7 @@ async fn secret_scrub_middleware_redacts_credentials() {
         lines: Vec::new(),
         exit: Some(0),
         truncated: false,
+        truncated_note: None,
         termination: nuo_wire::ShellTermination::Exited,
         detached_job_id: None,
     };

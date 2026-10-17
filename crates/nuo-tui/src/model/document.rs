@@ -1456,6 +1456,7 @@ impl TranscriptMessage {
                 truncated: false,
                 // Still-streaming seed: the real termination lands with the
                 // final result (`finish_tool_step`). Default until then.
+                truncated_note: None,
                 termination: nuo_wire::tool_output::ShellTermination::default(),
                 detached_job_id: None,
             }));

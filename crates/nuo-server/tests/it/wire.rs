@@ -378,6 +378,7 @@ async fn openrouter_stream_uses_gateway_dialect_and_returns_replay_artifacts() {
             nuo_model_codec::Effort::Medium.into(),
             nuo_model_codec::Effort::High.into(),
         ],
+        effort_entities: Vec::new(),
     };
     let provider = OpenAiChatCompletionsProvider::with_base_url(
         "sk-or-test".into(),

@@ -1730,6 +1730,7 @@ mod tests {
             exit: Some(0),
             lines: vec![],
             truncated: true,
+            truncated_note: None,
             termination: nuo_tool::ShellTermination::Exited,
             detached_job_id: None,
         };

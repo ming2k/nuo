@@ -480,9 +480,10 @@ fn init_registers_every_vendor_oauth_surface() {
         "github-copilot",
         "qoder",
         "qoder-cn",
-        "opencode",
-        "opencode-go",
-        "opencode-plan",
+        // `opencode`/`opencode-go`/`opencode-plan` retired as OAuth surfaces
+        // (060956d removed `nuo-provider-opencode::oauth`): they key-auth via
+        // the generic key lane, so the composition root no longer registers
+        // them here.
     ] {
         assert!(
             nuo_oauth::oauth_provider(id).is_some(),

@@ -216,6 +216,11 @@ impl Tool for ExecuteCommandTool {
         let total_chars = stdout_buf.len() + stderr_buf.len();
         let truncated = total_chars > nuo_tool::tool_output::SHELL_MAX_OUTPUT_CHARS
             || termination == ShellTermination::StreamGuard;
+        let truncated_note = truncated.then(|| {
+            format!(
+                "Output truncated: {total_chars} chars total; full raw log spilled to disk"
+            )
+        });
 
         Ok(ToolOutput::Shell {
             command: command.clone(),
@@ -224,6 +229,7 @@ impl Tool for ExecuteCommandTool {
             lines,
             exit: exit_code,
             truncated,
+            truncated_note,
             termination,
             detached_job_id: None,
         })

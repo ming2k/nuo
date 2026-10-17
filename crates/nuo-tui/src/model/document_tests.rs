@@ -617,6 +617,7 @@ fn bash_failure_is_classified_failed_from_structured_exit_code() {
         lines: Vec::new(),
         exit: Some(1),
         truncated: false,
+        truncated_note: None,
         termination: nuo_wire::tool_output::ShellTermination::Exited,
         detached_job_id: None,
     };
@@ -639,6 +640,7 @@ fn bash_success_is_classified_ok() {
         lines: Vec::new(),
         exit: Some(0),
         truncated: false,
+        truncated_note: None,
         termination: nuo_wire::tool_output::ShellTermination::Exited,
         detached_job_id: None,
     };

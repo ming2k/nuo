@@ -12,6 +12,7 @@
 //! provider metadata supplies a more specific endpoint. A remote catalogue can
 //! legitimately route the same model id through a different surface.
 
+use crate::effort::Effort;
 use crate::reasoning::ReasoningSupport;
 pub use crate::wire_protocol::WireProtocol;
 
@@ -210,6 +211,14 @@ pub struct RemoteModelMetadata {
     /// provider expressed no listing intent and the model is listed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub advertised: Option<bool>,
+    /// Live catalog **observation** of the concrete effort-parameterized wire
+    /// entities the upstream registered for this canonical model — evidence
+    /// carried verbatim from [`crate::catalog::DiscoveredModel::wire_entities`]
+    /// (ADR-0068: parsers record, they do not infer). `None`/empty means the
+    /// canonical id routes verbatim. Consumed by the request builder through
+    /// [`ModelCapabilities::wire_entity_resolution`]; never consulted for display.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wire_entities: Option<Vec<String>>,
 }
 
 /// Effective capabilities for one provider channel.
@@ -240,6 +249,12 @@ pub struct ModelCapabilities {
     /// and stamped through (ADR-0065). Built in `for_channel` from the remote
     /// advertisement over the static baseline.
     pub effort_levels: Vec<crate::effort::EffortLevel>,
+    /// The concrete per-level wire entities the upstream catalog registered
+    /// for this model (ADR-0272). Empty when the canonical id routes
+    /// verbatim — every provider except the tiered Antigravity families
+    /// (`gemini-4-argon`, `claude-{opus,sonnet}-5-5`). Consumed by
+    /// [`ModelCapabilities::wire_entity_resolution`]; evidentiary, not display.
+    pub effort_entities: Vec<String>,
 }
 
 impl RemoteModelMetadata {
@@ -321,6 +336,84 @@ impl ModelCapabilities {
     /// as "text-only" (that is what [`Self::accepts_images`] answers).
     pub const fn vision_declared(&self) -> bool {
         self.vision.is_some()
+    }
+
+    /// The route's wire-entity decision: how the requested `(model, effort)`
+    /// selection becomes the id stamped into the request envelope (ADR-0272).
+    ///
+    /// Resolution is **evidence over inference** (ADR-0068):
+    /// 1. **Observed per-level entities** — when the live catalog registered
+    ///    concrete effort entities for this canonical id, effort selects
+    ///    among them by depth rank and the bare canonical id is never sent
+    ///    (upstream 404s it: Antigravity `gemini-4-argon`,
+    ///    `claude-{opus,sonnet}-5-5`).
+    /// 2. **Verbatim** — no observation (or the channel id IS one of the
+    ///    registered entities, i.e. the user pinned a depth): the canonical
+    ///    id routes as-is, the common case for every provider whose wire id
+    ///    equals the id the user selects.
+    ///
+    /// The request builder reads this decision; it never re-derives wire
+    /// mappings from family prefixes. That is the mechanism replacing the
+    /// per-provider string-match ladders.
+    pub fn wire_entity_resolution<'a>(
+        &'a self,
+        model_id: &'a str,
+    ) -> WireEntityResolution<'a> {
+        if self.effort_entities.is_empty() {
+            return WireEntityResolution::Verbatim;
+        }
+        if self.effort_entities.iter().any(|e| e == model_id) {
+            // The channel id is itself a registered entity — direct identity.
+            return WireEntityResolution::Verbatim;
+        }
+        WireEntityResolution::PerLevel {
+            base: model_id,
+            entities: &self.effort_entities,
+        }
+    }
+}
+
+/// The typed decision of [`ModelCapabilities::wire_entity_resolution`]: how a
+/// channel's `(model, effort)` selection becomes a wire id.
+///
+/// Evidence over inference (ADR-0068): the *observed* per-level entities the
+/// upstream catalog registered are authoritative; absent evidence means the
+/// canonical id routes verbatim. Living in the codec as typed data is what
+/// retires the per-provider string-match ladders in request builders — the
+/// provider reads the decision, it does not re-derive it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WireEntityResolution<'a> {
+    /// The canonical id is a registered wire entity: stamp it verbatim for
+    /// every effort. Also the arm for a channel id that is itself one of the
+    /// observed per-level entities (a user-pinned depth).
+    Verbatim,
+    /// The upstream registered concrete per-level entities and the bare
+    /// canonical id is not one of them. `effort` ranks into `entities`
+    /// shallow→deep; `None` resolves to the mid entity for an odd three-rung
+    /// surface (argon's upstream default) and stays a registered entity
+    /// either way — never a 404.
+    PerLevel {
+        /// The canonical base id the channel was opened with.
+        base: &'a str,
+        /// The observed registered entity ids, in upstream advertisement
+        /// order (shallow→deep for the known surfaces).
+        entities: &'a [String],
+    },
+}
+
+impl WireEntityResolution<'_> {
+    /// Stamp the concrete wire id for the requested effort against an
+    /// entity list in advertisement order (shallow→deep). Rank exceeds the
+    /// surface's depth buckets clamp to the deepest registered entity.
+    pub fn resolve_into(entities: &[String], effort: Option<Effort>) -> String {
+        let rank = effort.map_or(entities.len().saturating_sub(1) / 2 + 1, |e| match e {
+            Effort::None | Effort::Minimal | Effort::Low => 0,
+            Effort::Medium => 1,
+            Effort::High | Effort::Xhigh => 2,
+            Effort::Max | Effort::Ultra => 3,
+        });
+        let idx = rank.min(entities.len() - 1);
+        entities[idx].clone()
     }
 }
 
@@ -645,6 +738,11 @@ impl ModelCapabilities {
                     .map(Into::into)
                     .collect()
             }),
+            // Wire-entity observation rides the remote layer only: no vetted
+            // baseline id carries a compiled-in entity claim. If a future
+            // family needs one, extend `Model` — never a family-prefix guess
+            // (ADR-0068).
+            effort_entities: remote.wire_entities.unwrap_or_default(),
         }
     }
 

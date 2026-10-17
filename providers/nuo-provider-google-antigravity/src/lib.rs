@@ -621,6 +621,7 @@ impl GoogleProvider {
                 .unwrap_or("aicode-consumers");
 
             let effective_model = effective_antigravity_wire_model(
+                &self.capabilities,
                 &self.endpoint.model,
                 self.reasoning_effort,
             );
@@ -817,70 +818,138 @@ impl Provider for GoogleProvider {
     }
 }
 
-/// Resolve the wire model ID for Google Antigravity envelopes.
+/// The Antigravity **compiled baseline** wire-entity surface (ADR-0272).
 ///
-/// Upstream Google Antigravity (CloudCode) PredictionService registers concrete
-/// wire entities:
-/// - `gemini-3.8-flash` maps to `gemini-3.8-flash-tiered` (the live PredictionService entity;
-///   thinking effort is conveyed orthogonally via `thinkingConfig`).
-/// - `claude-opus-4-6` maps to `claude-opus-4-6-thinking`.
-/// - `gpt-oss-120b` maps to `gpt-oss-120b-medium`.
-/// - `claude-sonnet-4-6` and `gemini-3.5-flash-lite` are wire entities verbatim.
+/// This is the *offline floor* — entity facts for model ids a live
+/// `fetchAvailableModels` snapshot may never have covered (offline session,
+/// seed-only connection). The live catalog is authoritative when it ran: its
+/// observed `wire_entities` ride `ModelCapabilities.effort_entities` and are
+/// consumed by [`nuo_model_codec::ModelCapabilities::wire_entity_resolution`]
+/// directly, with zero family-prefix matching. This table exists only so the
+/// offline floor behaves identically to the live surface; its rows cite their
+/// provenance and it is *data*, not inference.
+///
+/// Wire facts (live-verified; see `docs/reference/antigravity.yml`):
+/// - `gemini-3.8-flash*` family: registers the concrete per-level entities
+///   `-tiered`/`-high`/`-medium`/`-low`; depth rides in-band (`thinkingLevel`).
+/// - `gemini-4-argon` family: registers only `-{low,medium,high}`; the bare
+///   id 404s `Requested entity was not found` (live 2026-10-23).
+/// - `claude-{opus,sonnet}-5-5` family: registers only
+///   `-{low,medium,high,max}`; the bare id 404s (live 2026-10-17, real `agy`
+///   HttpClientLogError; corroborated upstream by CLIProxyAPI #6366 and
+///   OmniRoute #15691).
+/// - `claude-opus-4-6` (`-thinking` remap), `gpt-oss-120b` (`-medium` remap),
+///   `claude-sonnet-4-6`, `gemini-3.5-flash-lite`: verbatim ids / single
+///   named entities, handled structurally in the fn body below.
+static BASELINE_WIRE_ENTITIES: &[(&str, &str, &[&str])] = &[
+    (
+        "gemini-3.8-flash",
+        "gemini-3.8-flash-tiered",
+        &[
+            "gemini-3.8-flash-tiered",
+            "gemini-3.8-flash-high",
+            "gemini-3.8-flash-medium",
+            "gemini-3.8-flash-low",
+        ],
+    ),
+    (
+        "gemini-4-argon",
+        "gemini-4-argon-medium",
+        &[
+            "gemini-4-argon-low",
+            "gemini-4-argon-medium",
+            "gemini-4-argon-high",
+        ],
+    ),
+    (
+        "claude-opus-5-5",
+        "claude-opus-5-5-high",
+        &[
+            "claude-opus-5-5-low",
+            "claude-opus-5-5-medium",
+            "claude-opus-5-5-high",
+            "claude-opus-5-5-max",
+        ],
+    ),
+    (
+        "claude-sonnet-5-5",
+        "claude-sonnet-5-5-high",
+        &[
+            "claude-sonnet-5-5-low",
+            "claude-sonnet-5-5-medium",
+            "claude-sonnet-5-5-high",
+            "claude-sonnet-5-5-max",
+        ],
+    ),
+];
+
+/// Resolve the wire model id for the Antigravity envelope.
+///
+/// Priority (ADR-0272, evidence over inference):
+/// 1. **Live observation** — `capabilities.effort_entities`, the account's
+///    real `fetchAvailableModels` surface, via the typed
+///    [`nuo_model_codec::WireEntityResolution`] decision.
+/// 2. **Compiled baseline** — `BASELINE_WIRE_ENTITIES`, matching the exact
+///    family base id only (never a substring scan).
+/// 3. **Structural remaps / verbatim** — single named entities and pass-through.
 fn effective_antigravity_wire_model(
+    capabilities: &nuo_model_codec::ModelCapabilities,
     model: &str,
     effort: Option<nuo_model_codec::Effort>,
 ) -> String {
-    // `gemini-4-argon` family: the base id is a catalog-side canonicalization;
-    // the PredictionService registers concrete per-level entities
-    // (`gemini-4-argon-{low,medium,high}`) — verified live 2026-10-23: the bare
-    // base id 404s `Requested entity was not found`, each suffixed entity
-    // 200s. `tieredModelIds` never carries argon, so the per-level suffix is
-    // the wire's effort surface for this family (unlike gemini-3.8, whose
-    // canonical `-tiered` entity takes `thinkingLevel` in-band).
-    if model == "gemini-4-argon"
-        || (model.starts_with("gemini-4-argon-")
-            && !matches!(
-                model,
-                "gemini-4-argon-low" | "gemini-4-argon-medium" | "gemini-4-argon-high"
-            ))
-    {
-        if let Some(e) = effort {
-            // The argon family only registers three depth buckets on the wire;
-            // the effort vocabulary collapses onto them shallow→deep by rank
-            // (`None < Minimal < Low < Medium < High < Xhigh < Max`).
-            return match effort_bucket(e) {
-                0 => "gemini-4-argon-low".to_string(),
-                1 => "gemini-4-argon-medium".to_string(),
-                _ => "gemini-4-argon-high".to_string(),
-            };
+    use nuo_model_codec::WireEntityResolution;
+
+    // 1. Live observation first: the account's real wired surface.
+    match capabilities.wire_entity_resolution(model) {
+        WireEntityResolution::Verbatim => {}
+        WireEntityResolution::PerLevel { entities, .. } => {
+            return ranked_entity(entities, effort);
         }
-        // No explicit effort: honor the account's upstream default
-        // (`defaultAgentModelId` = gemini-4-argon-medium on the paid pro tier).
-        return "gemini-4-argon-medium".to_string();
     }
+
+    // 2. Compiled baseline (offline floor), exact family base id match.
+    if let Some((_, default_entity, entities)) = BASELINE_WIRE_ENTITIES
+        .iter()
+        .find(|(base, _, _)| *base == model)
+    {
+        return match effort {
+            // In-band-depth families (first entity IS the default, e.g.
+            // gemini-3.8-flash's `-tiered`): the wire id never changes with
+            // effort — depth rides `thinkingConfig`. Suffix-depth families
+            // rank across their per-level entities.
+            Some(_e) if entities[0] == *default_entity => default_entity.to_string(),
+            Some(e) => {
+                let ranked: Vec<String> = entities.iter().map(|e| e.to_string()).collect();
+                ranked_entity(&ranked, Some(e))
+            }
+            None => default_entity.to_string(),
+        };
+    }
+    // 3. Structural single-entity remaps and verbatim ids.
     match model {
-        "gemini-3.8-flash"
-        | "gemini-3.8-flash-high"
-        | "gemini-3.8-flash-medium"
-        | "gemini-3.8-flash-low"
-        | "gemini-3.8-flash-tiered" => "gemini-3.8-flash-tiered".to_string(),
-        "claude-opus-4-6" | "claude-opus-4-6-thinking" => "claude-opus-4-6-thinking".to_string(),
-        "gpt-oss-120b" | "gpt-oss-120b-medium" => "gpt-oss-120b-medium".to_string(),
-        "gemini-3.5-flash-lite" => "gemini-3.5-flash-lite".to_string(),
-        "claude-sonnet-4-6" => "claude-sonnet-4-6".to_string(),
+        "claude-opus-4-6" => "claude-opus-4-6-thinking".to_string(),
+        "gpt-oss-120b" => "gpt-oss-120b-medium".to_string(),
         other => other.to_string(),
     }
 }
 
-/// Collapse the full effort vocabulary onto argon's three registered wire
-/// buckets (the per-level entities), shallow→deep.
-fn effort_bucket(effort: nuo_model_codec::Effort) -> u8 {
+/// Rank `effort` into the registered entity list (shallow to deep). `None`
+/// resolves to the list's **first** entity — the order the table (or live
+/// observation) is written in *is* the account-default declaration: the
+/// baseline tables lead with the upstream default row (`-tiered` for
+/// `gemini-3.8-flash`, `-medium` for argon), mirroring
+/// `defaultAgentModelId`. A registered entity id passed as the channel model
+/// never reaches here (the Verbatim arm returns first).
+fn ranked_entity(entities: &[impl AsRef<str>], effort: Option<nuo_model_codec::Effort>) -> String {
     use nuo_model_codec::Effort;
-    match effort {
+    let rank = effort.map_or(0, |e| match e {
         Effort::None | Effort::Minimal | Effort::Low => 0,
         Effort::Medium => 1,
-        Effort::High | Effort::Xhigh | Effort::Max | Effort::Ultra => 2,
-    }
+        Effort::High | Effort::Xhigh => 2,
+        Effort::Max | Effort::Ultra => 3,
+    });
+    let idx = rank.min(entities.len().saturating_sub(1));
+    entities.get(idx).map(|s| s.as_ref().to_string()).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -931,10 +1000,15 @@ mod tests {
     #[test]
     fn antigravity_envelope_preserves_canonical_antigravity_wire_ids() {
         for (id, expected) in [
+            // Registered per-level entity ids are the user's explicit depth
+            // choice: they pass through verbatim (ADR-0272 Verbatim arm).
+            ("gemini-3.8-flash-high", "gemini-3.8-flash-high"),
+            ("gemini-3.8-flash-medium", "gemini-3.8-flash-medium"),
+            ("gemini-3.8-flash-low", "gemini-3.8-flash-low"),
+            // The bare canonical id has no registered entity of its own; the
+            // baseline table resolves it to the upstream-default row
+            // (`-tiered`: in-band `thinkingLevel` depth).
             ("gemini-3.8-flash", "gemini-3.8-flash-tiered"),
-            ("gemini-3.8-flash-high", "gemini-3.8-flash-tiered"),
-            ("gemini-3.8-flash-medium", "gemini-3.8-flash-tiered"),
-            ("gemini-3.8-flash-low", "gemini-3.8-flash-tiered"),
             ("gemini-3.8-flash-tiered", "gemini-3.8-flash-tiered"),
             ("claude-sonnet-4-6", "claude-sonnet-4-6"),
             ("claude-opus-4-6", "claude-opus-4-6-thinking"),
@@ -942,11 +1016,11 @@ mod tests {
             ("gpt-oss-120b", "gpt-oss-120b-medium"),
             ("gpt-oss-120b-medium", "gpt-oss-120b-medium"),
             ("gemini-3.5-flash-lite", "gemini-3.5-flash-lite"),
-            // gemini-4-argon: base and unrecognized suffixed canonicalizations
-            // have no PredictionService entity (404 `Requested entity was not
-            // found`); the concrete per-level entities are registered on the
-            // wire (verified live 2026-10-23). With no effort override the
-            // paid-tier default (`defaultAgentModelId`) applies.
+            // gemini-4-argon: the bare base id has no PredictionService entity
+            // (404 `Requested entity was not found`); the baseline table
+            // resolves it to the paid-tier default row (`-medium`,
+            // `defaultAgentModelId` on the pro surface). Per-level ids pass
+            // through untouched.
             ("gemini-4-argon", "gemini-4-argon-medium"),
             ("gemini-4-argon-low", "gemini-4-argon-low"),
             ("gemini-4-argon-medium", "gemini-4-argon-medium"),
@@ -1043,6 +1117,75 @@ mod tests {
             .with_project_id("proj-1");
         let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
         assert_eq!(body["model"], "gemini-4-argon-medium");
+    }
+
+    /// The Claude 5.5 family's registered wire entities are the per-level
+    /// suffixes; effort ranks into them. This exercises the **live
+    /// observation** path: the entity evidence comes from the channel's
+    /// remote catalog snapshot (`effort_entities`), exactly what a real
+    /// `fetchAvailableModels` sync produces.
+    #[test]
+    fn antigravity_claude_5_5_routes_observed_entities() {
+        let observed: Vec<String> = [
+            "claude-opus-5-5-low",
+            "claude-opus-5-5-medium",
+            "claude-opus-5-5-high",
+            "claude-opus-5-5-max",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        for (effort, expected) in [
+            (Some(nuo_model_codec::Effort::Low), "claude-opus-5-5-low"),
+            (Some(nuo_model_codec::Effort::Medium), "claude-opus-5-5-medium"),
+            (Some(nuo_model_codec::Effort::High), "claude-opus-5-5-high"),
+            (Some(nuo_model_codec::Effort::Max), "claude-opus-5-5-max"),
+        ] {
+            let mut p = GoogleProvider::with_base_url_and_user_agent(
+                "k".to_string(),
+                "claude-opus-5-5".to_string(),
+                "https://daily-cloudcode-pa.googleapis.com",
+                "ua",
+            )
+            .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+            .with_project_id("proj-1");
+            p.capabilities.effort_entities = observed.clone();
+            p.reasoning_effort = effort;
+            let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
+            assert_eq!(
+                body["model"], expected,
+                "effort {effort:?} must reach its registered 5-5 entity"
+            );
+        }
+    }
+
+    /// Offline-floor parity: with NO remote observation, the compiled
+    /// baseline entity table routes bare family ids identically to the live
+    /// path — an offline session never degrades into a bare-id 404.
+    #[test]
+    fn antigravity_baseline_table_covers_the_offline_floor() {
+        for (model, effort, expected) in [
+            ("claude-opus-5-5", Some(nuo_model_codec::Effort::High), "claude-opus-5-5-high"),
+            ("claude-sonnet-5-5", Some(nuo_model_codec::Effort::Max), "claude-sonnet-5-5-max"),
+            ("gemini-4-argon", None, "gemini-4-argon-medium"),
+            ("gemini-3.8-flash", None, "gemini-3.8-flash-tiered"),
+        ] {
+            let mut p = GoogleProvider::with_base_url_and_user_agent(
+                "k".to_string(),
+                model.to_string(),
+                "https://daily-cloudcode-pa.googleapis.com",
+                "ua",
+            )
+            .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+            .with_project_id("proj-1");
+            assert!(p.capabilities.effort_entities.is_empty());
+            p.reasoning_effort = effort;
+            let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
+            assert_eq!(
+                body["model"], expected,
+                "offline floor for {model} must hit its registered entity"
+            );
+        }
     }
 
     #[test]

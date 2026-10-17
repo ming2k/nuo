@@ -734,6 +734,7 @@ fn deepseek_route_is_the_responses_transport() {
 
 #[test]
 fn opencode_go_routes_models_by_wire_format() {
+    ensure_test_init();
     let go = instance("opencode-go", Some("opencode-go"));
     let glm = derive_channel(&go, "glm-5.2", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
     .unwrap();
@@ -1381,6 +1382,7 @@ async fn single_source_endpoint_failure_records_failure_and_preserves_determinis
 
 #[tokio::test]
 async fn connection_catalog_sync_never_touches_unrelated_connections() {
+    ensure_test_init();
     let _sandbox = sandboxed_paths();
     let mut selected_server = mockito::Server::new_async().await;
     let selected_mock = selected_server
@@ -1498,6 +1500,7 @@ async fn catalog_sync_failure_keeps_the_previous_subset_and_reports() {
 
 #[tokio::test]
 async fn successful_empty_remote_catalog_clears_previous_models() {
+    ensure_test_init();
     let _sandbox = sandboxed_paths();
     let mut server = mockito::Server::new_async().await;
     let model_list = server

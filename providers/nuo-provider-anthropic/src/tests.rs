@@ -45,6 +45,7 @@ fn caps_with_vision(vision: Option<bool>) -> nuo_model_codec::ModelCapabilities 
         tool_call: true,
         vision,
         effort_levels: Vec::new(),
+        effort_entities: Vec::new(),
     }
 }
 

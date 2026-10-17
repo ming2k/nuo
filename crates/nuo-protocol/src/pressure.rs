@@ -1676,7 +1676,8 @@ mod tests {
         assert!(messages[0].content.contains(
             "[Image Offloaded: image/png elided to relieve context pressure]"
         ));
-        assert!(messages[0].content.contains("/tmp/nuo/vfs/artifact:"));
+        // The VFS invoice carries the CAS Virtual Path and the rehydrate tool.
+        assert!(messages[0].content.contains("/tmp/nuo/vfs/"));
         assert!(messages[0].content.contains("read_image"));
     }
 }

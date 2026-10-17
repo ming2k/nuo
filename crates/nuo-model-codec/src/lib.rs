@@ -55,7 +55,7 @@ pub use instructions::{InstructionBundle, InstructionSlice, InstructionTier};
 pub use json::find_balanced_object;
 pub use loop_detector::{DegeneratePattern, StreamLoopDetector};
 pub use message::*;
-pub use model::{Availability, BaselineModels, Model, ModelCapabilities, RemoteModelMetadata, resolve, resolve as resolve_model};
+pub use model::{Availability, BaselineModels, Model, ModelCapabilities, RemoteModelMetadata, WireEntityResolution, resolve, resolve as resolve_model};
 pub use nuo_host::SecretString;
 pub use provider_auth::*;
 pub use provider_error::{ProviderError, ProviderErrorKind, RetryDisposition};

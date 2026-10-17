@@ -864,6 +864,7 @@ mod tests {
             tool_call: true,
             vision,
             effort_levels: Vec::new(),
+            effort_entities: Vec::new(),
         }
     }
 

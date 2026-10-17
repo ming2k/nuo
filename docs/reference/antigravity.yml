@@ -478,7 +478,11 @@ paths:
         recommended sort order `gemini-4-argon-{medium,high,low}`,
         `gemini-3.8-flash-{high,medium,low}`, `claude-{opus,sonnet}-5-5-{low,medium,high}`,
         `gpt-oss-120b-medium` (deeper claude-sonnet/opus-4-6 ids remain valid
-        legacy-tier rows). Lane models observed: command `gemini-3-flash`,
+        legacy-tier rows; the 5-5 family exposes a `-max` entity too — display
+        `Claude Opus 5.5 (Max)` in the shipped 1.4.0 picker — but the curated
+        pro surface omits it; the bare `claude-{opus,sonnet}-5-5` ids 404 and
+        route through the per-level entities exactly as argon does).
+        Lane models observed: command `gemini-3-flash`,
         commit-message `gemini-3.5-flash-lite`, image `gemini-3.1-flash-image`,
         audio `models/proactive-observer-v10`, web-search/mquery
         `gemini-3.5-flash-lite`, tab `chat_20706`/`chat_23310` (internal
@@ -1691,12 +1695,16 @@ components:
           description: >-
             Wire model id — MUST be a registered PredictionService entity.
             Registered (live 2026-10-23): `gemini-4-argon-{low,medium,high}`
-            (argon depth = entity suffix), `gemini-3.8-flash-tiered` and the
-            `gemini-3.8-flash-{high,medium,low}` rows, `claude-{opus,sonnet}-4-6(-thinking)`,
-            `claude-{opus,sonnet}-5-5-{low,medium,high}`,
+            (argon/claude-5.5 depth = entity suffix),
+            `gemini-3.8-flash-tiered` and the
+            `gemini-3.8-flash-{high,medium,low}` rows,
+            `claude-{opus,sonnet}-4-6(-thinking)`,
+            `claude-{opus,sonnet}-5-5-{low,medium,high,max}`,
             `gpt-oss-120b-medium`, `gemini-3.5-flash-lite`. Unregistered
             (→404 Requested entity was not found): `gemini-4-argon`,
-            `gemini-3.8-flash` (bare), invented suffixes
+            `gemini-3.8-flash` (bare), the bare Claude 5.5 ids
+            (`claude-opus-5-5`, `claude-sonnet-5-5` — 404 in real `agy`
+            sessions, 2026-10-17), invented suffixes
             (`gemini-4-argon-thinking`).
         project:
           type: string

@@ -279,6 +279,7 @@ fn from_dev_model(
         },
         effort_levels: (!effort_levels.is_empty()).then_some(effort_levels),
         catalog_source: None,
+        wire_entities: None,
     }
 }
 

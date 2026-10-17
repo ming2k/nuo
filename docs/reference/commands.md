@@ -15,7 +15,7 @@ Type these at the composer to open the corresponding surface or perform the acti
 | `/tools` | Manage session tools (enable/disable) |
 | `/mcp` | Manage MCP servers (status, reconnect) |
 | `/compact` | Compact older rounds into durable context memory |
-| `/new` | Start a new session, keeping history |
+| `/new` | Start a fresh thread tab (or reset in-place if current thread is empty), preserving history |
 | `/permissions` | Show or clear always-allowed tool rules |
 | `/unattended` | Toggle unattended execution posture |
 | `/confinement` | Toggle workspace filesystem confinement (confine file tools to workspace) |

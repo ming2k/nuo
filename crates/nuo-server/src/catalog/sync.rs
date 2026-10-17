@@ -752,6 +752,7 @@ mod tests {
             vision: Some(true),
             effort_levels: None,
             catalog_source: Some("system".to_string()),
+            wire_entities: None,
         }
     }
 

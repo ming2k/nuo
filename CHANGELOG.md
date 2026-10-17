@@ -7,6 +7,28 @@ the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
 ## [Unreleased]
+### Fixed
+
+- **Tab-Aware `/new` Workspace Projection (ADR-0039, ADR-0058)**: Aligned `/new`
+  harness command and its canonical `/session new` invocation with the sovereign
+  `ClientTab` workspace topology. When invoked in an active thread with dialogue
+  history, `/new` preserves the existing tab and transcript intact, opening and
+  focusing a fresh sovereign `ClientTab::Thread` (with optional initial prompt
+  execution if arguments are provided), eliminating in-place transcript wipes.
+  Invoking `/new` in an already-empty thread resets the session in place,
+  preventing tab pollution.
+- **Antigravity `claude-{opus,sonnet}-5-5` 404** (`Requested entity was not
+  found`): the bare 5-5 ids are catalog-side fold targets, not registered
+  PredictionService entities. Reverse-engineering the shipped `agy` 1.4.0
+  binary and the paid-pro `fetchAvailableModels` snapshot confirmed the wire
+  registers only the per-level entities
+  `claude-{opus,sonnet}-5-5-{low,medium,high,max}` — the same
+  entity-suffix-is-effort pattern as `gemini-4-argon`. Channel effort and bare
+  base ids now route onto them through the typed evidence-based
+  `WireEntityResolution` mechanism ([ADR-0074](docs/adr/0074-observed-wire-entity-resolution-and-evidence-driven-per-level-model-routing.md)), with the
+  parser→persistence→request-builder evidence belt; both 5-5 flagships were
+  added to the provider's baseline surface and offline model seed.
+
 
 ## [0.0.32] - 2026-10-17
 

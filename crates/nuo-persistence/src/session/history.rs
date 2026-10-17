@@ -1014,12 +1014,15 @@ fn translate_projection(
                 continue;
             }
 
-            // ADR-0285: User-uploaded visual media pruning
+            // ADR-0285 / ADR-0074-era CAS invoice: User-uploaded visual media
+            // pruning lands either the legacy `[cleared image payload` stub or
+            // the VFS invoice `[Image Offloaded: …elided… Virtual Path`.
             let is_pruned_user_image = before.role == Role::User
                 && before.images.is_some()
                 && after.role == Role::User
                 && after.images.is_none()
-                && after.content.contains("[cleared image payload");
+                && (after.content.contains("[cleared image payload")
+                    || after.content.contains("[Image Offloaded:"));
             if is_pruned_user_image {
                 let seq = transcript.entries[idx].seq;
                 pruned_media.push(nuo_wire::PrunedMediaOutput {
