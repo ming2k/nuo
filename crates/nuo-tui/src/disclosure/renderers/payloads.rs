@@ -2147,50 +2147,80 @@ pub(crate) fn draw_matches_content(
 /// `(text, style)`, or `None` for a healthy `Exited` run (which carries no
 /// extra marker beyond its optional `exit N` line). The footer explains *why*
 /// the command ended and — for the blocked variants — how to retry
-/// non-interactively, closing the loop the agent can't close itself. Colors
-/// reuse the block-level design contract: `warn()` for the blocked/timeout
-/// family, `err()` for cancellation, all on the code surface.
+/// Termination footer (ADR-0063 / ADR-0070: unaggressive, clear industrial diagnostics)
 fn termination_footer(
     term: nuo_wire::tool_output::ShellTermination,
     theme: &Theme,
+    bg: Color,
 ) -> Option<(String, Style)> {
     use nuo_wire::tool_output::ShellTermination as T;
-    let bg = theme.code_surface();
     let warn_style = Style::default()
         .bg(bg)
-        .fg(theme.warn())
-        .add_modifier(Modifier::BOLD);
+        .fg(theme.warn());
     let err_style = Style::default()
         .bg(bg)
-        .fg(theme.err())
-        .add_modifier(Modifier::BOLD);
+        .fg(theme.err());
     match term {
         T::Exited => None,
         T::IdleBlocked => Some((
-            "idle timeout detected".to_string(),
+            "harness: idle timeout detected".to_string(),
             warn_style,
         )),
         T::InteractiveBlocked => Some((
-            "interactive prompt detected".to_string(),
+            "harness: interactive prompt detected".to_string(),
             warn_style,
         )),
         T::InputUnanswered => Some((
-            "unanswered input prompt".to_string(),
+            "harness: unanswered input prompt".to_string(),
             warn_style,
         )),
         T::Timeout => Some((
-            "timed out".to_string(),
+            "harness: timed out".to_string(),
             warn_style,
         )),
-        T::Cancelled => Some(("cancelled".to_string(), err_style)),
+        T::Cancelled => Some(("harness: cancelled".to_string(), err_style)),
         T::StreamGuard => Some((
-            "stream cap reached".to_string(),
+            "harness: stream cap reached".to_string(),
             warn_style,
         )),
         T::Detached => Some((
-            "detached to background".to_string(),
+            "harness: detached to background".to_string(),
             warn_style,
         )),
+    }
+}
+
+/// Dynamic supervisor surface tint for Part 3 Harness Governance band (ADR-0070).
+fn harness_intervention_surface(
+    term: nuo_wire::tool_output::ShellTermination,
+    theme: &Theme,
+) -> Color {
+    use nuo_wire::tool_output::ShellTermination as T;
+    let tint = match term {
+        T::Cancelled => theme.err(),
+        _ => theme.warn(),
+    };
+    match theme.code_surface() {
+        Color::Rgb(..) => crate::theme::mix(theme.code_surface(), tint, 0.12),
+        _ => theme.code_surface(),
+    }
+}
+
+/// Map POSIX/standard shell exit codes to canonical explanatory descriptions (ADR-0070).
+fn exit_code_explanation(code: i32) -> &'static str {
+    match code {
+        1 => "general error",
+        2 => "misuse of shell builtins",
+        126 => "permission denied / cannot execute",
+        127 => "command not found",
+        128 => "invalid exit argument",
+        130 => "interrupted (SIGINT)",
+        131 => "core dumped (SIGQUIT)",
+        134 => "aborted (SIGABRT)",
+        137 => "killed (SIGKILL / OOM)",
+        139 => "segmentation fault (SIGSEGV)",
+        143 => "terminated (SIGTERM)",
+        _ => "error",
     }
 }
 
@@ -2215,10 +2245,6 @@ pub(crate) fn draw_command_content(
     let result_bg = ctx.theme.code_surface();
     let pad = Style::default().bg(result_bg);
     let base = Style::default().bg(result_bg).fg(ctx.theme.code_text());
-    let marker_style = Style::default()
-        .bg(result_bg)
-        .fg(ctx.theme.warn())
-        .add_modifier(Modifier::BOLD);
     let sel_range = block_selection_range(selection, mi, block_idx);
     let wrap_w = inner_w.max(1);
 
@@ -2284,50 +2310,51 @@ pub(crate) fn draw_command_content(
         );
     }
 
-    if is_truncated {
-        byte_offset = emit_command_lines(
-            ctx,
-            mi,
-            block_idx,
-            indent,
-            wrap_w,
-            pad,
-            sel_range,
-            "[stream truncated] output cap reached",
-            marker_style,
-            byte_offset,
-        );
-    }
-
-    // Exit status footer: only non-zero exits paint a distinct marker
+    // Part 2: Process Exit Outcome Strip (Flush underneath Part 1)
+    // Only non-zero exits paint a distinct marker with explanation (ADR-0070)
+    let footer_bg = ctx.theme.match_title_surface();
+    let footer_pad = Style::default().bg(footer_bg);
+    let footer_marker_style = Style::default().bg(footer_bg).fg(ctx.theme.warn());
     if let Some(code) = exit {
         if code != 0 {
-            let m = format!("exit {}", code);
+            let expl = exit_code_explanation(code);
+            let m = format!("exit {} ({})", code, expl);
             let _ = emit_command_lines(
                 ctx,
                 mi,
                 block_idx,
                 indent,
                 wrap_w,
-                pad,
+                footer_pad,
                 sel_range,
                 &m,
-                marker_style,
+                footer_marker_style,
                 byte_offset,
             );
         }
     }
 
-    // Termination footer (ADR-0063: crisp, emoji-free industrial diagnostics)
-    if let Some(footer) = termination_footer(termination, ctx.theme) {
-        let (text, style) = footer;
+    // Part 3: Harness Governance Strip (Flush underneath Part 2)
+    // Only rendered when supervisor intervention occurred (timeout, stream cap, cancelled, truncation)
+    let harness_bg = harness_intervention_surface(termination, ctx.theme);
+    let harness_pad = Style::default().bg(harness_bg);
+    let governance_entry = termination_footer(termination, ctx.theme, harness_bg).or_else(|| {
+        if is_truncated {
+            let warn_style = Style::default().bg(harness_bg).fg(ctx.theme.warn());
+            Some(("harness: output cap reached".to_string(), warn_style))
+        } else {
+            None
+        }
+    });
+
+    if let Some((text, style)) = governance_entry {
         let _ = emit_command_lines(
             ctx,
             mi,
             block_idx,
             indent,
             wrap_w,
-            pad,
+            harness_pad,
             sel_range,
             &text,
             style,
@@ -2367,13 +2394,15 @@ fn parse_unstructured_shell_content(
             continue;
         }
 
-        // 2. Strip truncation markers
+        // 2. Strip truncation markers and VFS prompts
         if trimmed_leading.starts_with("[Output truncated")
             || trimmed_leading.starts_with("[output truncated")
             || trimmed_leading.starts_with("[stream truncated")
             || trimmed_leading.starts_with("⋯ [Claim-Check Stub:")
             || trimmed_leading.starts_with("--- [Middle output omitted")
             || trimmed_leading.starts_with("[Output was large")
+            || trimmed_leading.starts_with("[Full raw output saved to:")
+            || trimmed_leading.starts_with("[Guidance:")
         {
             truncated = true;
             continue;
@@ -2596,14 +2625,30 @@ fn emit_command_lines_folded(
     for (text, _style) in rows[head_end..tail_start].iter() {
         byte_offset += text.len() + 1;
     }
-    let ellipsis_text = format!("⋯ {} lines hidden", hidden);
-    let used = indent + ellipsis_text.width();
-    let ellipsis_line = Line::from(vec![
+    // 3-row compact negative space folding (ADR-0070):
+    // Row 1: blank breathing space on terminal code_surface
+    let blank_row = Line::from(vec![
+        Span::styled(padded_tail(ctx.full_width, 0), pad),
+    ]);
+    let _ = ctx.paint(blank_row.clone());
+
+    // Row 2: quiet single-space indented text with lines and physical metrics
+    let omitted_bytes: usize = rows[head_end..tail_start]
+        .iter()
+        .map(|(t, _)| t.len() + 1)
+        .sum();
+    let omitted_kb = omitted_bytes as f64 / 1024.0;
+    let label = format!("  {} lines omitted ({:.1} KB)", hidden, omitted_kb);
+    let used = indent + label.width();
+    let label_line = Line::from(vec![
         Span::styled(" ".repeat(indent), pad),
-        Span::styled(ellipsis_text, pad.fg(ctx.theme.dim())),
+        Span::styled(label, pad.fg(ctx.theme.dim())),
         Span::styled(padded_tail(ctx.full_width, used), pad),
     ]);
-    let _ = ctx.paint(ellipsis_line); // summary row: not registered for selection
+    let _ = ctx.paint(label_line);
+
+    // Row 3: blank breathing space on terminal code_surface
+    let _ = ctx.paint(blank_row);
 
     // tail
     for (text, style) in rows[tail_start..].iter() {
@@ -3516,11 +3561,16 @@ mod tests {
     #[test]
     fn termination_footer_renders_stream_guard_warning() {
         let theme = crate::Theme::default();
-        let footer = termination_footer(ShellTermination::StreamGuard, &theme);
+        let footer = termination_footer(
+            ShellTermination::StreamGuard,
+            &theme,
+            theme.match_title_surface(),
+        );
         assert!(footer.is_some());
         let (text, style) = footer.unwrap();
-        assert_eq!(text, "stream cap reached");
+        assert_eq!(text, "harness: stream cap reached");
         assert_eq!(style.fg, theme.warn());
+        assert_eq!(style.bg, theme.match_title_surface());
     }
 
     #[test]

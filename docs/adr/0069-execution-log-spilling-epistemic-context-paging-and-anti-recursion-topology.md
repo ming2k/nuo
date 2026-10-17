@@ -1,16 +1,16 @@
 ---
 id: ADR-0069
 title: "Execution Log Spilling, Epistemic Context Paging, and Anti-Recursion Topology"
-status: accepted
+status: superseded
 date: 2026-11-08
 scope: tool/exec, context/recall, harness/rounds, storage/offstream, protocol/session-ir
-superseded_by: null
+superseded_by: ADR-0070
 negative_knowledge: true
 ---
 
 # 0069. Execution Log Spilling, Epistemic Context Paging, and Anti-Recursion Topology
 
-- Status: Accepted
+- Status: Superseded by [ADR-0070](0070-unified-cas-vfs-projection-and-epistemic-meta-tool-abolition.md)
 - Date: 2026-11-08
 - Deciders: Nuo Architecture Working Group, Runtime Engineering
 - Consulted: Tooling (`nuo-tool`), Harness (`nuo-harness`), Server (`nuo-server`), Protocol (`nuo-protocol`), TUI (`nuo-tui`)

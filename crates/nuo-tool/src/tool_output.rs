@@ -737,7 +737,6 @@ fn shell_body_to_text(
 ) -> String {
     let inner = compose_shell_body(lines, stdout, stderr, exit);
     if truncated || inner.len() > SHELL_MAX_OUTPUT_CHARS {
-        let tokens = crate::tokenizer::count_tokens(&inner);
         let head_bytes = SHELL_TRUNCATED_CHARS / 2;
         let tail_bytes = SHELL_TRUNCATED_CHARS / 2;
         let head_part = truncate_utf8(&inner, head_bytes);
@@ -746,11 +745,25 @@ fn shell_body_to_text(
         while !inner.is_char_boundary(tail_idx) && tail_idx < inner.len() {
             tail_idx += 1;
         }
-        let tail_part = &inner[tail_idx..];
-        format!(
-            "[Output truncated: {tokens} tokens total]\n{}\n\n--- [Middle output omitted to protect context budget] ---\n\n{}",
-            head_part, tail_part
-        )
+        let raw_tail_part = &inner[tail_idx..];
+        let (head_part, middle_slice, tail_part) = if head_part.len() < tail_idx {
+            (head_part, &inner[head_part.len()..tail_idx], raw_tail_part)
+        } else {
+            (inner.as_str(), "", "")
+        };
+        let middle_lines = middle_slice.lines().count();
+        let middle_chars = middle_slice.chars().count();
+        let middle_kb = middle_slice.len() as f64 / 1024.0;
+        let banner = if middle_lines > 1 {
+            format!("--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---")
+        } else {
+            format!("--- [Middle {middle_chars} characters ({middle_kb:.1} KB) omitted to protect context budget] ---")
+        };
+        if tail_part.is_empty() {
+            format!("{head_part}\n\n{banner}")
+        } else {
+            format!("{head_part}\n\n{banner}\n\n{tail_part}")
+        }
     } else {
         inner
     }
@@ -1111,14 +1124,12 @@ mod tests {
             detached_job_id: None,
         };
         let text = o.to_text();
-        // 9000 'a's ≈ 2250 tokens in the class-based estimator; the notice reports tokens.
         assert!(
-            text.starts_with("[Output truncated: 2250 tokens total]\n"),
+            text.contains("omitted to protect context budget"),
             "got: {text:.80}"
         );
-        assert!(
-            text.contains("--- [Middle output omitted to protect context budget] ---")
-        );
+        // Single giant line without newlines -> reported as characters
+        assert!(text.contains("characters ("), "got: {text:.80}");
     }
 
     #[test]

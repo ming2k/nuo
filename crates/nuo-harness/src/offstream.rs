@@ -155,3 +155,31 @@ impl OffstreamRegistry {
         source.read(key, cursor, query, budget_tokens).await
     }
 }
+
+#[async_trait]
+impl nuo_tool::VirtualFileResolver for OffstreamRegistry {
+    async fn resolve_virtual(&self, path: &str) -> Option<String> {
+        let handle = nuo_tool::extract_virtual_handle(path);
+
+        // 1. Check physical VFS directory
+        let vfs_dir = nuo_tool::vfs_root_dir();
+        for ext in ["log", "txt", "md"] {
+            let candidate = vfs_dir.join(format!("{handle}.{ext}"));
+            if let Ok(content) = tokio::fs::read_to_string(&candidate).await {
+                return Some(content);
+            }
+        }
+
+        // 2. Check host exec_logs directory
+        let log_dir = nuo_host::paths::get().exec_logs_dir();
+        for prefix in ["", "exec_"] {
+            let candidate = log_dir.join(format!("{prefix}{handle}.log"));
+            if let Ok(content) = tokio::fs::read_to_string(&candidate).await {
+                return Some(content);
+            }
+        }
+
+        // 3. Fallback to offstream registered sources (subagent transcripts, causal folds, etc.)
+        self.read(handle, None, None, 1_000_000).await.ok().map(|p| p.text)
+    }
+}

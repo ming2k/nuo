@@ -1487,8 +1487,6 @@ impl AgentBuilder {
         compactor.policy = self.compaction_policy;
 
         if let Some(obs_store) = self.observation_store {
-            self.tools
-                .register(crate::tools::RecallContextTool::new(obs_store.clone()));
             compactor = compactor.with_observation_store(obs_store);
         }
 

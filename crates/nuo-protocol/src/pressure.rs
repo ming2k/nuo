@@ -516,8 +516,15 @@ fn plan_prune(messages: &[Message], protect_recent_tokens: usize) -> Vec<PrunePl
         let mut invoices = Vec::new();
         for img in images {
             let hash = artifact_hash_for_base64(&img.data);
+            let short_hash = if hash.len() >= 12 { &hash[..12] } else { &hash };
+            let ext = match img.mime.as_str() {
+                "image/jpeg" => "jpg",
+                "image/webp" => "webp",
+                "image/gif" => "gif",
+                _ => "png",
+            };
             invoices.push(format!(
-                "[cleared image payload ({}) — rehydrate with inspect handle \"artifact:{hash}\"]",
+                "[Image Offloaded: {} elided to relieve context pressure]\n- Virtual Path: \"/tmp/nuo/vfs/{short_hash}.{ext}\"\n- Guidance: Use `read_image(path: \"/tmp/nuo/vfs/{short_hash}.{ext}\")` to inspect and rehydrate.",
                 img.mime
             ));
         }
@@ -1667,7 +1674,9 @@ mod tests {
         assert!(messages[0].images.is_none());
         assert!(messages[0].content.starts_with("User prompt with visual"));
         assert!(messages[0].content.contains(
-            "[cleared image payload (image/png) — rehydrate with inspect handle \"artifact:"
+            "[Image Offloaded: image/png elided to relieve context pressure]"
         ));
+        assert!(messages[0].content.contains("/tmp/nuo/vfs/artifact:"));
+        assert!(messages[0].content.contains("read_image"));
     }
 }

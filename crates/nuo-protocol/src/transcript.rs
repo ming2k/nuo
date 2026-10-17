@@ -851,7 +851,7 @@ mod tests {
                 elided: vec![],
                 pruned_media: vec![PrunedMediaOutput {
                     seq: 0,
-                    placeholder: "User prompt with image\n[cleared image payload (image/png) — rehydrate with inspect handle \"artifact:abc\"]".into(),
+                    placeholder: "User prompt with image\n[Image Offloaded: image/png elided to relieve context pressure]\n- Virtual Path: \"/tmp/nuo/vfs/abc.png\"\n- Guidance: Use `read_image(path: \"/tmp/nuo/vfs/abc.png\")` to inspect and rehydrate.".into(),
                 }],
             },
         });
@@ -859,6 +859,6 @@ mod tests {
         let view = transcript.project();
         assert_eq!(view.len(), 2);
         assert!(view[0].1.images.is_none());
-        assert!(view[0].1.content.contains("artifact:abc"));
+        assert!(view[0].1.content.contains("/tmp/nuo/vfs/abc.png"));
     }
 }

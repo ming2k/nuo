@@ -53,7 +53,7 @@ impl ObservationStore for InMemoryObservationStore {
         let guard = self.store.read().await;
         let content = guard.get(handle).ok_or_else(|| {
             AgentError::Tool(
-                "recall_context".into(),
+                "vfs".into(),
                 format!("context handle `{handle}` not found"),
             )
         })?;
@@ -127,7 +127,7 @@ impl ObservationStore for FileObservationStore {
         let path = self.file_path_for(handle);
         let content = tokio::fs::read_to_string(&path).await.map_err(|_| {
             AgentError::Tool(
-                "recall_context".into(),
+                "vfs".into(),
                 format!("context handle `{handle}` not found on disk"),
             )
         })?;
@@ -148,5 +148,23 @@ impl ObservationStore for FileObservationStore {
 
     async fn contains(&self, handle: &str) -> bool {
         self.file_path_for(handle).exists()
+    }
+}
+
+#[async_trait]
+impl nuo_tool::VirtualFileResolver for InMemoryObservationStore {
+    async fn resolve_virtual(&self, path: &str) -> Option<String> {
+        let handle = nuo_tool::extract_virtual_handle(path);
+        let guard = self.store.read().await;
+        guard.get(handle).cloned().or_else(|| guard.get(path).cloned())
+    }
+}
+
+#[async_trait]
+impl nuo_tool::VirtualFileResolver for FileObservationStore {
+    async fn resolve_virtual(&self, path: &str) -> Option<String> {
+        let handle = nuo_tool::extract_virtual_handle(path);
+        let path_on_disk = self.file_path_for(handle);
+        tokio::fs::read_to_string(path_on_disk).await.ok()
     }
 }

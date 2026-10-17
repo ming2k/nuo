@@ -30,6 +30,7 @@ pub mod todos;
 pub mod tool_output;
 pub mod usage;
 pub mod validation;
+pub mod vfs;
 
 pub use access::{ToolAccess, ToolAccesses, ToolFileAccessOperation};
 pub use approval::{AlwaysApprove, ApprovalDecision, ApprovalHandler, ToolCallRequest};
@@ -60,6 +61,7 @@ pub use tokenizer::{StreamingCounter, Tokenizer, count_tokens, truncate_to_token
 pub use todos::{MAX_TODOS, TodoId, TodoItem, TodoList, TodoStatus, unix_now};
 pub use usage::TokenUsage;
 pub use validation::validate_tool_arguments;
+pub use vfs::{VFS_ROOT_PREFIX, VirtualFileResolver, extract_virtual_handle, is_virtual_path, vfs_canonical_path, vfs_root_dir, vfs_short_hash};
 
 pub use nuo_tool_derive::ToolSchema;
 

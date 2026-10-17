@@ -1639,30 +1639,42 @@ pub(crate) fn format_tool_result_message(
         // Store full raw un-truncated shell output in transparent session log file
         // so AI can search it via native grep/tail tools without context blowup or meta-tool nesting.
         let raw_full = nuo_tool::tool_output::shell_inner_text(stdout, stderr, *exit);
+        let short_hash = nuo_tool::vfs_short_hash(raw_full.as_bytes());
+        let vfs_path = nuo_tool::vfs_canonical_path(&short_hash, "log");
+
+        // Write to physical VFS directory so grep/cut/head can read without root
+        let vfs_dir = nuo_tool::vfs_root_dir();
+        let _ = std::fs::create_dir_all(&vfs_dir);
+        let vfs_file = vfs_dir.join(format!("{short_hash}.log"));
+        let _ = std::fs::write(&vfs_file, raw_full.as_bytes());
+
         let log_dir = nuo_host::paths::get().exec_logs_dir();
         let _ = std::fs::create_dir_all(&log_dir);
-        let log_file = log_dir.join(format!("exec_{call_id}.log"));
-        let _ = std::fs::write(&log_file, raw_full.as_bytes());
+        let _ = std::fs::write(log_dir.join(format!("{short_hash}.log")), raw_full.as_bytes());
+        let _ = std::fs::write(log_dir.join(format!("exec_{call_id}.log")), raw_full.as_bytes());
 
         let formatted = format!("[{} result]:\n{}", call.name, text);
         let message_content = format!(
-            "{formatted}\n\n[Full raw output saved to: {}]\n[Guidance: Use `execute_command` with grep/tail or `read_text` with line limits to inspect specific sections.]",
-            log_file.display()
+            "{formatted}\n\n- Virtual Path: \"{vfs_path}\"\n[Guidance: Use `read_text(path: \"{vfs_path}\", offset: 1, limit: 100)` or `execute_command` with grep/tail to inspect.]"
         );
         Message::tool_result(call, message_content)
-    } else if call.name == "recall_context" {
-        // ADR-0069 [INV-RECALL-02]: Universal Immunity & Non-Recursion.
-        // Output of recall_context must never trigger Log Spilling or truncation.
+    } else if call.name == "read_text" && (call.arguments.contains("/tmp/nuo/vfs") || call.arguments.contains("/tmp/vfs") || call.arguments.contains("/virtual") || call.arguments.contains(".nuo/virtual") || call.arguments.contains("virtual://")) {
+        // ADR-0070: VFS virtual reads are line-budgeted in-process and immune to secondary spilling
         let formatted = format!("[{} result]:\n{}", call.name, text);
         Message::tool_result(call, formatted)
     } else if text.len() > nuo_tool::tool_output::SHELL_MAX_OUTPUT_CHARS {
-        // ADR-0069 [INV-LOG-01]: Log Spilling for oversized generic tool outputs.
+        // ADR-0070: CAS Log Spilling & VFS projection for oversized generic tool outputs.
+        let short_hash = nuo_tool::vfs_short_hash(text.as_bytes());
+        let vfs_path = nuo_tool::vfs_canonical_path(&short_hash, "log");
+
+        let vfs_dir = nuo_tool::vfs_root_dir();
+        let _ = std::fs::create_dir_all(&vfs_dir);
+        let _ = std::fs::write(vfs_dir.join(format!("{short_hash}.log")), text.as_bytes());
+
         let log_dir = nuo_host::paths::get().exec_logs_dir();
         let _ = std::fs::create_dir_all(&log_dir);
-        let log_file = log_dir.join(format!("exec_{call_id}.log"));
-        let _ = std::fs::write(&log_file, text.as_bytes());
+        let _ = std::fs::write(log_dir.join(format!("{short_hash}.log")), text.as_bytes());
 
-        let tokens = nuo_wire::tokenizer::count_tokens(text);
         let head_len = nuo_tool::tool_output::SHELL_TRUNCATED_CHARS / 2;
         let tail_len = nuo_tool::tool_output::SHELL_TRUNCATED_CHARS / 2;
         let head_part: String = text.chars().take(head_len).collect();
@@ -1674,9 +1686,21 @@ pub(crate) fn format_tool_result_message(
             .into_iter()
             .rev()
             .collect();
+        let middle_chars = text.chars().count().saturating_sub(head_len + tail_len);
+        let middle_kb = (middle_chars as f64) / 1024.0;
+        let middle_lines = text.lines().count().saturating_sub(head_part.lines().count() + tail_part.lines().count());
+        let banner = if middle_lines > 1 {
+            format!("--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---")
+        } else {
+            format!("--- [Middle {middle_chars} characters ({middle_kb:.1} KB) omitted to protect context budget] ---")
+        };
+        let guidance = if middle_lines <= 1 {
+            "[Guidance: Large single-line content detected. Use `execute_command` with cut/jq/head on the log or `read_text` to inspect.]".to_string()
+        } else {
+            format!("[Guidance: Use `read_text(path: \"{vfs_path}\", offset: 1, limit: 100)` or `execute_command` with grep/tail to inspect.]")
+        };
         let stub_content = format!(
-            "[{name} result]:\n[Output truncated: {tokens} tokens total]\n{head_part}\n\n--- [Middle output omitted to protect context budget] ---\n\n{tail_part}\n\n[Full raw output saved to: {}]\n[Guidance: Use `execute_command` with grep/tail or `read_text` to inspect specific sections.]",
-            log_file.display(),
+            "[{name} result]:\n{head_part}\n\n{banner}\n\n{tail_part}\n\n- Virtual Path: \"{vfs_path}\"\n{guidance}",
             name = call.name
         );
         Message::tool_result(call, stub_content)
@@ -1712,9 +1736,9 @@ mod tests {
 
         let msg = format_tool_result_message(&call, &call.id, &result, &result.to_text());
         let content = &msg.content;
-        assert!(content.contains("[Full raw output saved to:"));
-        assert!(content.contains("exec_call_test_spill_123.log"));
-        assert!(content.contains("[Guidance: Use `execute_command` with grep/tail or `read_text`"));
+        assert!(content.contains("- Virtual Path: \"/tmp/nuo/vfs/"));
+        assert!(content.contains(".log\""));
+        assert!(content.contains("[Guidance: Use `read_text"));
         assert!(!content.contains("Claim-Check Stub"));
         assert!(!content.contains("call:call_test_spill_123"));
 
@@ -1728,11 +1752,11 @@ mod tests {
     }
 
     #[test]
-    fn test_recall_context_universal_immunity() {
+    fn test_vfs_read_text_universal_immunity() {
         let call = ToolCall {
-            id: "call_recall_456".to_string(),
-            name: "recall_context".to_string(),
-            arguments: r#"{"target":"fold:ckpt_1"}"#.to_string(),
+            id: "call_vfs_read_456".to_string(),
+            name: "read_text".to_string(),
+            arguments: r#"{"path":"/tmp/nuo/vfs/fold:ckpt_1.txt"}"#.to_string(),
         };
 
         // Create large text that exceeds SHELL_MAX_OUTPUT_CHARS (8000 bytes)
@@ -1741,11 +1765,11 @@ mod tests {
 
         let msg = format_tool_result_message(&call, &call.id, &result, &large_text);
         let content = &msg.content;
-        // Immunity invariant [INV-RECALL-02]: must NOT be truncated, spilled, or stubbed
-        assert!(content.starts_with("[recall_context result]:\n"));
+        // VFS Immunity invariant [INV-VFS-02]: must NOT be truncated, spilled, or stubbed
+        assert!(content.starts_with("[read_text result]:\n"));
         assert!(!content.contains("[Output truncated:"));
         assert!(!content.contains("[Full raw output saved to:"));
         assert!(!content.contains("Claim-Check Stub"));
-        assert_eq!(content.len(), "[recall_context result]:\n".len() + 12000);
+        assert_eq!(content.len(), "[read_text result]:\n".len() + 12000);
     }
 }

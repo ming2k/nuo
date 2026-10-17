@@ -13,10 +13,21 @@ use serde::Deserialize;
 use serde_json::Value;
 
 /// Context holding the active workspace root and system tool settings.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SystemToolContext {
     pub workspace_root: PathBuf,
     pub default_timeout: Duration,
+    pub vfs_resolver: Option<Arc<dyn nuo_tool::VirtualFileResolver>>,
+}
+
+impl std::fmt::Debug for SystemToolContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SystemToolContext")
+            .field("workspace_root", &self.workspace_root)
+            .field("default_timeout", &self.default_timeout)
+            .field("vfs_resolver", &self.vfs_resolver.is_some())
+            .finish()
+    }
 }
 
 impl SystemToolContext {
@@ -24,11 +35,17 @@ impl SystemToolContext {
         Self {
             workspace_root: workspace_root.into(),
             default_timeout: Duration::from_secs(60),
+            vfs_resolver: None,
         }
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.default_timeout = timeout;
+        self
+    }
+
+    pub fn with_vfs_resolver(mut self, resolver: Arc<dyn nuo_tool::VirtualFileResolver>) -> Self {
+        self.vfs_resolver = Some(resolver);
         self
     }
 
@@ -114,20 +131,41 @@ impl Tool for ReadTextTool {
         let offset = args.offset.unwrap_or(1).max(1);
         let limit = args.limit.map(|l| l.max(1));
 
-        let path = self.ctx.resolve_path(raw_path);
-        if !path.exists() {
-            return Err(ToolError::execution(
-                self.name(),
-                format!("file does not exist: `{raw_path}`"),
-            ));
-        }
+        // ADR-0070: Virtual File System (VFS) in-process resolution
+        let content = if nuo_tool::is_virtual_path(raw_path) {
+            let resolved = if let Some(resolver) = &self.ctx.vfs_resolver {
+                resolver.resolve_virtual(raw_path).await
+            } else if let Some(resolver) = _ctx.service::<Arc<dyn nuo_tool::VirtualFileResolver>>() {
+                resolver.resolve_virtual(raw_path).await
+            } else {
+                None
+            };
 
-        let content = fs::read_to_string(&path).map_err(|err| {
-            ToolError::execution(
-                self.name(),
-                format!("failed to read file `{raw_path}`: {err}"),
-            )
-        })?;
+            match resolved {
+                Some(text) => text,
+                None => {
+                    return Err(ToolError::execution(
+                        self.name(),
+                        format!("virtual path not found or expired: `{raw_path}`"),
+                    ));
+                }
+            }
+        } else {
+            let path = self.ctx.resolve_path(raw_path);
+            if !path.exists() {
+                return Err(ToolError::execution(
+                    self.name(),
+                    format!("file does not exist: `{raw_path}`"),
+                ));
+            }
+
+            fs::read_to_string(&path).map_err(|err| {
+                ToolError::execution(
+                    self.name(),
+                    format!("failed to read file `{raw_path}`: {err}"),
+                )
+            })?
+        };
 
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
@@ -1044,6 +1082,58 @@ mod tests {
                 assert_eq!(start_line, 1);
                 assert_eq!(prefix.as_deref(), Some("[Lines 1-2 of 2 from `full.txt`]"));
                 assert_eq!(suffix, None);
+            }
+            other => panic!("expected ToolOutput::Code, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_text_resolves_virtual_path_via_vfs_without_disk() {
+        struct MockVfs;
+        #[async_trait]
+        impl nuo_tool::VirtualFileResolver for MockVfs {
+            async fn resolve_virtual(&self, path: &str) -> Option<String> {
+                if path == "/tmp/nuo/vfs/call_123.txt" || path == ".nuo/virtual/observations/call_123.txt" {
+                    Some("alpha\nbeta\ngamma\ndelta\n".to_string())
+                } else {
+                    None
+                }
+            }
+        }
+
+        let dir = tempdir().unwrap();
+        let ctx = Arc::new(
+            SystemToolContext::new(dir.path()).with_vfs_resolver(Arc::new(MockVfs)),
+        );
+        let t_ctx = ToolContext::default();
+
+        let out = ReadTextTool::new(ctx)
+            .execute(
+                &t_ctx,
+                json!({
+                    "path": "/tmp/nuo/vfs/call_123.txt",
+                    "offset": 2,
+                    "limit": 2
+                }),
+            )
+            .await
+            .unwrap();
+
+        match out {
+            ToolOutput::Code {
+                text,
+                start_line,
+                prefix,
+                suffix,
+                ..
+            } => {
+                assert_eq!(text, "beta\ngamma");
+                assert_eq!(start_line, 2);
+                assert_eq!(
+                    prefix.as_deref(),
+                    Some("[Lines 2-3 of 4 from `/tmp/nuo/vfs/call_123.txt`]")
+                );
+                assert_eq!(suffix.as_deref(), Some("[1 more line — read with offset=4]"));
             }
             other => panic!("expected ToolOutput::Code, got {other:?}"),
         }

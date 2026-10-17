@@ -119,10 +119,13 @@ pub async fn offload_tool_result(
     store: Option<&Arc<dyn ObservationStore>>,
 ) -> usize {
     let total_len = tr.output.len();
+    let content_hash = nuo_tool::vfs_short_hash(tr.output.as_bytes());
+    let vfs_path = nuo_tool::vfs_canonical_path(&content_hash, "txt");
     let handle = format!("obs:{}", tr.call_id);
 
-    // Offload raw output to observation store if present
+    // Offload raw output to observation store under both hash and handle
     if let Some(s) = store {
+        let _ = s.store(&content_hash, tr.output.clone()).await;
         let _ = s.store(&handle, tr.output.clone()).await;
     }
 
@@ -139,22 +142,37 @@ pub async fn offload_tool_result(
                 .chars()
                 .rev()
                 .collect();
-            let elided = total_len.saturating_sub(preview_len * 2);
+            let elided_bytes = total_len.saturating_sub(preview_len * 2);
+            let elided_kb = (elided_bytes as f64) / 1024.0;
+            let elided_lines = tr.output.lines().count().saturating_sub(head.lines().count() + tail.lines().count());
+            let metric_desc = if elided_lines > 1 {
+                format!("{elided_lines} lines ({elided_kb:.1} KB)")
+            } else {
+                format!("{elided_bytes} characters ({elided_kb:.1} KB)")
+            };
 
             tr.output = format!(
-                "{head}\n\n[... Context Offloaded: {elided} bytes elided to relieve context pressure ...]\n\
-                - Context Handle: \"{handle}\"\n\
+                "{head}\n\n[... Context Offloaded: {metric_desc} elided to relieve context pressure ...]\n\
+                - Virtual Path: \"{vfs_path}\"\n\
                 - Tail Preview: {tail}\n\
-                - To recall the raw content, invoke: `recall_context(target: \"{handle}\", offset: 0, limit: 2000)`"
+                - Guidance: Use `read_text(path: \"{vfs_path}\", offset: 1, limit: 100)` to inspect."
             );
 
-            elided
+            elided_bytes
         }
         OffloadMode::Full => {
+            let total_lines = tr.output.lines().count();
+            let total_kb = (total_len as f64) / 1024.0;
+            let metric_desc = if total_lines > 1 {
+                format!("{total_lines} lines ({total_kb:.1} KB)")
+            } else {
+                format!("{total_len} characters ({total_kb:.1} KB)")
+            };
+
             tr.output = format!(
-                "[Context Offloaded: {total_len} bytes offloaded to store]\n\
-                - Context Handle: \"{handle}\"\n\
-                - To recall the raw content, invoke: `recall_context(target: \"{handle}\", offset: 0, limit: 2000)`"
+                "[Context Offloaded: {metric_desc} offloaded to store]\n\
+                - Virtual Path: \"{vfs_path}\"\n\
+                - Guidance: Use `read_text(path: \"{vfs_path}\", offset: 1, limit: 100)` to inspect."
             );
 
             total_len
@@ -261,14 +279,15 @@ mod tests {
         let elided = offload_tool_result(&mut tr, OffloadMode::Partial, Some(&obs_store)).await;
         assert!(elided > 0);
         assert!(tr.output.contains("Context Offloaded"));
-        assert!(tr.output.contains("obs:call_abc123"));
+        assert!(tr.output.contains("/tmp/nuo/vfs/"));
         assert!(tr.output.contains("Tail Preview"));
-        assert!(tr.output.contains("recall_context"));
+        assert!(tr.output.contains("read_text"));
 
-        // Verify that raw output was stored in observation store
-        assert!(obs_store.contains("obs:call_abc123").await);
+        // Verify that raw output was stored in observation store under content hash
+        let hash = nuo_tool::vfs_short_hash(b"A".repeat(500).as_slice());
+        assert!(obs_store.contains(&hash).await);
         let slice = obs_store
-            .fetch_slice("obs:call_abc123", 0, 10)
+            .fetch_slice(&hash, 0, 10)
             .await
             .unwrap();
         assert_eq!(slice, "AAAAAAAAAA");
@@ -286,16 +305,17 @@ mod tests {
 
         let elided = offload_tool_result(&mut tr, OffloadMode::Full, Some(&obs_store)).await;
         assert_eq!(elided, 1000);
-        assert!(tr.output.contains("[Context Offloaded: 1000 bytes offloaded to store]"));
-        assert!(tr.output.contains("obs:call_full99"));
-        assert!(tr.output.contains("recall_context"));
+        assert!(tr.output.contains("[Context Offloaded: 1000 characters (1.0 KB) offloaded to store]"));
+        assert!(tr.output.contains("/tmp/nuo/vfs/"));
+        assert!(tr.output.contains("read_text"));
         // Full mode MUST NOT contain head or tail preview
         assert!(!tr.output.contains("Tail Preview"));
 
         // Raw output still 100% accessible via observation store
-        assert!(obs_store.contains("obs:call_full99").await);
+        let hash = nuo_tool::vfs_short_hash(b"X".repeat(1000).as_slice());
+        assert!(obs_store.contains(&hash).await);
         let slice = obs_store
-            .fetch_slice("obs:call_full99", 0, 5)
+            .fetch_slice(&hash, 0, 5)
             .await
             .unwrap();
         assert_eq!(slice, "XXXXX");
@@ -328,7 +348,7 @@ mod tests {
         assert!(elided > 0);
         // User dialogue turn must remain 100% untouched ([INV-CTX-01])
         assert_eq!(messages[0].content, user_content);
-        // Only tool result was offloaded
-        assert!(messages[0].tool_results[0].output.contains("obs:call_tool_1"));
+        // Only tool result was offloaded to VFS
+        assert!(messages[0].tool_results[0].output.contains("/tmp/nuo/vfs/"));
     }
 }

@@ -513,10 +513,9 @@ impl Tool for CommandTool {
             }
         }
 
-        // Apply Execution Log Spilling truncation if output exceeds threshold (ADR-0069)
+        // Apply Execution Log Spilling truncation if output exceeds threshold (ADR-0070)
         let total_chars = stdout.len() + stderr.len();
         if total_chars > crate::tool_output::SHELL_MAX_OUTPUT_CHARS {
-            let tokens = crate::tokenizer::count_tokens(&result);
             let head_len = crate::tool_output::SHELL_TRUNCATED_CHARS / 2;
             let tail_len = crate::tool_output::SHELL_TRUNCATED_CHARS / 2;
             let head_part: String = result.chars().take(head_len).collect();
@@ -528,9 +527,15 @@ impl Tool for CommandTool {
                 .into_iter()
                 .rev()
                 .collect();
-            result = format!(
-                "[Output truncated: {tokens} tokens total]\n{head_part}\n\n--- [Middle output omitted to protect context budget] ---\n\n{tail_part}"
-            );
+            let middle_chars = result.chars().count().saturating_sub(head_len + tail_len);
+            let middle_kb = (middle_chars as f64) / 1024.0;
+            let middle_lines = result.lines().count().saturating_sub(head_part.lines().count() + tail_part.lines().count());
+            let banner = if middle_lines > 1 {
+                format!("--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---")
+            } else {
+                format!("--- [Middle {middle_chars} characters ({middle_kb:.1} KB) omitted to protect context budget] ---")
+            };
+            result = format!("{head_part}\n\n{banner}\n\n{tail_part}");
         }
 
         if output.status.success() {

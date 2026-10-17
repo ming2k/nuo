@@ -2471,9 +2471,11 @@ name = "nuo-tool"
 version = "0.0.30"
 dependencies = [
  "async-trait",
+ "hex",
  "nuo-tool-derive",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",

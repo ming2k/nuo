@@ -521,29 +521,20 @@ async fn file_observation_store_persists_and_slices_on_disk() {
 }
 
 #[tokio::test]
-async fn recall_context_tool_rehydrates_context_slice() {
+async fn vfs_observation_store_resolves_virtual_path() {
     use nuo_agent::token::{InMemoryObservationStore, ObservationStore};
-    use nuo_agent::tools::{RecallContextTool, Tool};
+    use nuo_tool::VirtualFileResolver;
 
     let obs_store = Arc::new(InMemoryObservationStore::new());
-    let handle = "fold:compile_errors";
     let raw_logs =
         "Compiler error on line 42: mismatched types\nCompiler error on line 88: unreachable code";
+    let hash = nuo_tool::vfs_short_hash(raw_logs.as_bytes());
 
-    obs_store.store(handle, raw_logs.to_string()).await.unwrap();
+    obs_store.store(&hash, raw_logs.to_string()).await.unwrap();
 
-    let recall_tool = RecallContextTool::new(obs_store);
-    assert_eq!(recall_tool.name(), "recall_context");
-
-    let args = json!({
-        "target": handle,
-        "offset": 0,
-        "limit": 43,
-    });
-
-    let result = recall_tool.execute_simple(args).await.unwrap();
-    assert!(result.content().contains("fold:compile_errors"));
-    assert!(result.content().contains("Compiler error on line 42: mismatched types"));
+    let path = nuo_tool::vfs_canonical_path(&hash, "txt");
+    let resolved = obs_store.resolve_virtual(&path).await;
+    assert_eq!(resolved.as_deref(), Some(raw_logs));
 }
 
 #[tokio::test]
@@ -581,8 +572,8 @@ async fn agent_with_observation_store_offloads_large_tool_output_and_allows_insp
         .await
         .unwrap();
 
-    // The recall_context tool should have been automatically registered!
-    assert!(agent.tool_names().contains(&"recall_context".to_string()));
+    // ADR-0070: recall_context is abolished from agent toolset
+    assert!(!agent.tool_names().contains(&"recall_context".to_string()));
 
     // Round 1: Model calls dump_data
     provider
@@ -595,18 +586,7 @@ async fn agent_with_observation_store_offloads_large_tool_output_and_allows_insp
         ))
         .await;
 
-    // Round 2: Model sees context handle and calls recall_context
-    provider
-        .push_response(ModelResponse::tool_call(
-            "call_recall_1",
-            "recall_context",
-            json!({"target": "obs:call_dump_99", "offset": 0, "limit": 20}),
-            10,
-            10,
-        ))
-        .await;
-
-    // Round 3: Model completes
+    // Round 2: Model completes
     provider
         .push_text("Inspected raw data successfully: XXXXXXXXXXXXXXXXXXXX")
         .await;

@@ -2657,8 +2657,8 @@ impl TranscriptMessage {
         // not yet dispatched) append a count-only progress clause. It is a
         // static clause — never a `+`/`-` disclosure marker, never animated.
         let streaming = match (input_slot, input_bytes) {
-            (Some(_), Some(bytes)) => format!(" · receiving input ({} KB)", bytes / 1024),
-            (Some(_), None) => " · receiving input".to_string(),
+            (Some(_), Some(bytes)) => format!(" (receiving input {} KB)", bytes / 1024),
+            (Some(_), None) => " (receiving input)".to_string(),
             (None, _) => String::new(),
         };
         Some(match status {
@@ -2669,7 +2669,7 @@ impl TranscriptMessage {
                     "execute_command" => "running",
                     _ => "executing",
                 };
-                format!("{summary} · {verb}")
+                format!("{summary} ({verb})")
             }
             ToolStepStatus::Ok => match duration_ms {
                 Some(ms) => format!("{summary}{streaming} ({})", duration_text(Some(*ms))),
@@ -2737,8 +2737,8 @@ impl TranscriptMessage {
         let suffix = match status {
             ToolStepStatus::Ingesting => {
                 let s = match input_bytes {
-                    Some(bytes) => format!(" · receiving input ({} KB)", bytes / 1024),
-                    None => " · receiving input".to_string(),
+                    Some(bytes) => format!(" (receiving input {} KB)", bytes / 1024),
+                    None => " (receiving input)".to_string(),
                 };
                 Some(s)
             }
@@ -2748,7 +2748,7 @@ impl TranscriptMessage {
                     "execute_command" => "running",
                     _ => "executing",
                 };
-                Some(format!(" · {verb}"))
+                Some(format!(" ({verb})"))
             }
             ToolStepStatus::Ok => duration_ms.map(|ms| format!(" ({})", duration_text(Some(ms)))),
             ToolStepStatus::Failed => Some(format!(" (failed {})", duration_text(*duration_ms))),
@@ -2928,8 +2928,8 @@ impl TranscriptMessage {
             let suffix = match status {
                 ToolStepStatus::Ingesting => {
                     match (input_slot, input_bytes) {
-                        (Some(_), Some(bytes)) => format!(" · receiving input ({} KB)", bytes / 1024),
-                        (Some(_), None) => " · receiving input".to_string(),
+                        (Some(_), Some(bytes)) => format!(" (receiving input {} KB)", bytes / 1024),
+                        (Some(_), None) => " (receiving input)".to_string(),
                         (None, _) => String::new(),
                     }
                 }
@@ -2939,7 +2939,7 @@ impl TranscriptMessage {
                         "execute_command" => "running",
                         _ => "executing",
                     };
-                    format!(" · {verb}")
+                    format!(" ({verb})")
                 }
                 ToolStepStatus::Ok => format!(" ({})", duration_text(*duration_ms)),
                 ToolStepStatus::Failed => format!(" (failed {})", duration_text(*duration_ms)),

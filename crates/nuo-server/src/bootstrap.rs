@@ -485,9 +485,18 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     };
     let mut toolset: ToolSet = collect_toolset(&tool_ctx);
 
-    // Official native capability tool suite (ADR-0013)
+    let current_session_id = session.id().await;
+    let offstream_reg = crate::offstream::build_offstream_registry(
+        &current_session_id,
+        session.blob_store().clone(),
+    );
+
+    // Official native capability tool suite (ADR-0013, ADR-0070 VFS projection)
     if let Some(root) = &workspace_root {
-        let sys_ctx = Arc::new(nuo_tool_fs::SystemToolContext::new(root.clone()));
+        let sys_ctx = Arc::new(
+            nuo_tool_fs::SystemToolContext::new(root.clone())
+                .with_vfs_resolver(offstream_reg.clone()),
+        );
         for tool in nuo_tool_fs::create_fs_tools(sys_ctx.clone()) {
             toolset.upsert(tool);
         }
@@ -538,18 +547,8 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     let subagent_tool_handle = subagent_tool.clone();
     toolset.insert(subagent_tool);
 
-    // Demand-paged epistemic memory (ADR-0069, ADR-0262): provide the `recall_context` tool to the
-    // master agent for recalling subagent sessions, visual artifacts, and compacted history.
-    let current_session_id = session.id().await;
-    let offstream_reg = crate::offstream::build_offstream_registry(
-        &current_session_id,
-        session.blob_store().clone(),
-    );
-    let recall_tool = Arc::new(nuo_harness::tools::RecallContextTool::new(
-        offstream_reg,
-        current_session_id,
-    ));
-    toolset.insert(recall_tool);
+    // ADR-0070: recall_context is abolished. All offstream artifacts (subagents,
+    // visual artifacts, compacted history) are projected via VFS into read_text/read_image.
 
     let mut agent = Agent::builder_from_toolset(agent_provider, toolset, identity)
         .with_host(agent_kernel_host.clone())

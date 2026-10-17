@@ -416,7 +416,7 @@ fn subagent_started_event_labels_step_by_role() {
     // The collapsed header carries only the description — the role is
     // shown by the renderer's `[PROFILE]` badge in front of it.
     let header = task.tool_step_summary().expect("summary");
-    assert_eq!(header, "write the plan · executing");
+    assert_eq!(header, "write the plan (executing)");
 }
 
 #[test]
@@ -1413,14 +1413,14 @@ fn orphan_announced_tool_step_is_cancelled_not_left_running() {
 fn announced_tool_step_collapses_with_arguments_and_updates_summary() {
     let mut step = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
         .with_input_slot(0);
-    assert_eq!(step.tool_step_summary().expect("summary"), "Edit text · receiving input");
+    assert_eq!(step.tool_step_summary().expect("summary"), "Edit text (receiving input)");
 
     assert!(step.collapse_tool_call(
         "call_1",
         r#"{"path":"src/lib.rs","old_string":"foo","new_string":"bar"}"#,
     ));
     assert_eq!(step.tool_step_call_id(), Some("call_1"));
-    assert_eq!(step.tool_step_summary().expect("summary"), "Edit src/lib.rs +1 -1 · applying");
+    assert_eq!(step.tool_step_summary().expect("summary"), "Edit src/lib.rs +1 -1 (applying)");
 
     // When step finishes, duration suffix is added to the real summary
     assert!(step.finish_tool_step(
@@ -1444,17 +1444,17 @@ fn announced_command_and_find_steps_collapse_with_arguments() {
     let mut cmd_step = TranscriptMessage::tool_step(String::new(), "execute_command", String::new())
         .with_input_slot(0);
     assert!(cmd_step.collapse_tool_call("c1", r#"{"command":"git status"}"#));
-    assert_eq!(cmd_step.tool_step_summary().expect("summary"), "Run git · running");
+    assert_eq!(cmd_step.tool_step_summary().expect("summary"), "Run git (running)");
 
     let mut find_step = TranscriptMessage::tool_step(String::new(), "find_files", String::new())
         .with_input_slot(1);
     assert!(find_step.collapse_tool_call("c2", r#"{"patterns":["*.rs"],"path":"."}"#));
-    assert_eq!(find_step.tool_step_summary().expect("summary"), "Find *.rs · executing");
+    assert_eq!(find_step.tool_step_summary().expect("summary"), "Find *.rs (executing)");
 
     let mut find_in_path = TranscriptMessage::tool_step(String::new(), "find_files", String::new())
         .with_input_slot(2);
     assert!(find_in_path.collapse_tool_call("c3", r#"{"patterns":["*.rs"],"path":"src"}"#));
-    assert_eq!(find_in_path.tool_step_summary().expect("summary"), "Find *.rs in src · executing");
+    assert_eq!(find_in_path.tool_step_summary().expect("summary"), "Find *.rs in src (executing)");
 }
 
 #[test]
@@ -1469,10 +1469,10 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
         Some(ToolExecutionPhase::Ingesting { bytes: None })
     );
 
-    // Initial summary falls back to "Edit text · receiving input"
+    // Initial summary falls back to "Edit text (receiving input)"
     let (line, suffix) = step.tool_step_semantic_summary(None).expect("semantic summary");
     assert_eq!(line.to_plain_text(), "Edit text");
-    assert_eq!(suffix.as_deref(), Some(" · receiving input"));
+    assert_eq!(suffix.as_deref(), Some(" (receiving input)"));
 
     // 2. Stream partial arguments: path arrives first while still unclosed JSON!
     let partial_args = r#"{"path":"src/model/auth.rs","old_string":"let x = 1;""#;
@@ -1489,7 +1489,7 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
     // Semantic summary immediately projects the file path!
     let (line, suffix) = step.tool_step_semantic_summary(None).expect("semantic summary");
     assert_eq!(line.to_plain_text(), "Edit src/model/auth.rs");
-    assert_eq!(suffix.as_deref(), Some(" · receiving input (0 KB)"));
+    assert_eq!(suffix.as_deref(), Some(" (receiving input 0 KB)"));
 
     // Diff hunks can already be extracted before JSON finishes!
     let hunks = crate::tools::diff_hunks_for("edit_text", partial_args);
@@ -1506,7 +1506,7 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
 
     let (line, suffix) = step.tool_step_semantic_summary(None).expect("semantic summary");
     assert_eq!(line.to_plain_text(), "Edit src/model/auth.rs +1 -1");
-    assert_eq!(suffix.as_deref(), Some(" · applying"));
+    assert_eq!(suffix.as_deref(), Some(" (applying)"));
 
     // 4. Tool finishes execution (Terminal phase)
     assert!(step.finish_tool_step(
