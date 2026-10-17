@@ -679,6 +679,8 @@ pub struct App {
     pub switch_to_target: Option<String>,
     /// Request the runner to create and attach to a brand-new thread.
     pub switch_to_new: bool,
+    /// Optional opening prompt to submit immediately upon attaching to the new thread.
+    pub switch_to_new_prompt: Option<String>,
     /// Which full-screen overlay (if any) the TUI opened straight into at
     /// startup instead of a thread view. In that mode the overlay is not
     /// a transient modal — there is no thread the user asked for behind

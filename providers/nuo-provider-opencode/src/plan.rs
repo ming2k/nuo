@@ -484,7 +484,16 @@ mod tests {
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     dialect: nuo_model_codec::ProviderDialect::Standard,
-    protocol_roots: std::borrow::Cow::Borrowed(&[]),
+    protocol_roots: std::borrow::Cow::Borrowed(&[
+        (
+            WireProtocol::AnthropicMessages,
+            std::borrow::Cow::Borrowed("https://opencode.ai/inference/go/anthropic/v1"),
+        ),
+        (
+            WireProtocol::GoogleGemini,
+            std::borrow::Cow::Borrowed("https://opencode.ai/inference/go/google/v1beta"),
+        ),
+    ]),
     catalog_root_url: Some(std::borrow::Cow::Borrowed("https://opencode.ai/zen/go/v1")),
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
     id: std::borrow::Cow::Borrowed("opencode-plan"),

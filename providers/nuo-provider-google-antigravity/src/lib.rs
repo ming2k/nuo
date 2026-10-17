@@ -818,7 +818,7 @@ impl Provider for GoogleProvider {
     }
 }
 
-/// The Antigravity **compiled baseline** wire-entity surface (ADR-0272).
+/// The Antigravity **compiled baseline** wire-entity surface (ADR-0074).
 ///
 /// This is the *offline floor* — entity facts for model ids a live
 /// `fetchAvailableModels` snapshot may never have covered (offline session,
@@ -841,51 +841,69 @@ impl Provider for GoogleProvider {
 /// - `claude-opus-4-6` (`-thinking` remap), `gpt-oss-120b` (`-medium` remap),
 ///   `claude-sonnet-4-6`, `gemini-3.5-flash-lite`: verbatim ids / single
 ///   named entities, handled structurally in the fn body below.
-static BASELINE_WIRE_ENTITIES: &[(&str, &str, &[&str])] = &[
-    (
-        "gemini-3.8-flash",
-        "gemini-3.8-flash-tiered",
-        &[
+/// One family row of the offline floor.
+///
+/// `broadcast = true` marks an **in-band-depth** family: the first entity IS
+/// the default and the wire id never changes with effort — depth rides
+/// `thinkingConfig` (gemini-3.8-flash). `broadcast = false` marks a
+/// **suffix-depth** family: effort ranks across the per-level entities
+/// (argon, claude-5-5).
+struct BaselineWireFamily {
+    base: &'static str,
+    default_entity: &'static str,
+    entities: &'static [&'static str],
+    broadcast: bool,
+}
+
+static BASELINE_WIRE_FAMILIES: &[BaselineWireFamily] = &[
+    BaselineWireFamily {
+        base: "gemini-3.8-flash",
+        default_entity: "gemini-3.8-flash-tiered",
+        entities: &[
             "gemini-3.8-flash-tiered",
             "gemini-3.8-flash-high",
             "gemini-3.8-flash-medium",
             "gemini-3.8-flash-low",
         ],
-    ),
-    (
-        "gemini-4-argon",
-        "gemini-4-argon-medium",
-        &[
+        broadcast: true,
+    },
+    BaselineWireFamily {
+        base: "gemini-4-argon",
+        default_entity: "gemini-4-argon-medium",
+        entities: &[
             "gemini-4-argon-low",
             "gemini-4-argon-medium",
             "gemini-4-argon-high",
         ],
-    ),
-    (
-        "claude-opus-5-5",
-        "claude-opus-5-5-high",
-        &[
+        broadcast: false,
+    },
+    BaselineWireFamily {
+        base: "claude-opus-5-5",
+        default_entity: "claude-opus-5-5-high",
+        entities: &[
             "claude-opus-5-5-low",
             "claude-opus-5-5-medium",
             "claude-opus-5-5-high",
             "claude-opus-5-5-max",
         ],
-    ),
-    (
-        "claude-sonnet-5-5",
-        "claude-sonnet-5-5-high",
-        &[
+        broadcast: false,
+    },
+    BaselineWireFamily {
+        base: "claude-sonnet-5-5",
+        default_entity: "claude-sonnet-5-5-high",
+        entities: &[
             "claude-sonnet-5-5-low",
             "claude-sonnet-5-5-medium",
             "claude-sonnet-5-5-high",
             "claude-sonnet-5-5-max",
         ],
-    ),
+        broadcast: false,
+    },
 ];
 
 /// Resolve the wire model id for the Antigravity envelope.
 ///
-/// Priority (ADR-0272, evidence over inference):
+/// Priority (ADR-0074, evidence over inference):
 /// 1. **Live observation** — `capabilities.effort_entities`, the account's
 ///    real `fetchAvailableModels` surface, via the typed
 ///    [`nuo_model_codec::WireEntityResolution`] decision.
@@ -899,30 +917,36 @@ fn effective_antigravity_wire_model(
 ) -> String {
     use nuo_model_codec::WireEntityResolution;
 
-    // 1. Live observation first: the account's real wired surface.
-    match capabilities.wire_entity_resolution(model) {
-        WireEntityResolution::Verbatim => {}
-        WireEntityResolution::PerLevel { entities, .. } => {
-            return ranked_entity(entities, effort);
-        }
+    // 1. Live observation first: the account's real wired surface. The
+    //    account-default row is FIRST in the observed order the parser
+    //    recorded (envelope bare-row when upstream registered one bare, or
+    //    `agentModelSorts` head otherwise) — so `default_idx = 0` mirrors
+    //    `defaultAgentModelId` positional precedent.
+    if let WireEntityResolution::PerLevel { entities, .. } =
+        capabilities.wire_entity_resolution(model)
+    {
+        let borrowed: Vec<&str> = entities.iter().map(String::as_str).collect();
+        return WireEntityResolution::resolve_for(&borrowed, 0, effort);
     }
 
     // 2. Compiled baseline (offline floor), exact family base id match.
-    if let Some((_, default_entity, entities)) = BASELINE_WIRE_ENTITIES
+    if let Some(family) = BASELINE_WIRE_FAMILIES
         .iter()
-        .find(|(base, _, _)| *base == model)
+        .find(|f| f.base == model)
     {
-        return match effort {
-            // In-band-depth families (first entity IS the default, e.g.
-            // gemini-3.8-flash's `-tiered`): the wire id never changes with
-            // effort — depth rides `thinkingConfig`. Suffix-depth families
-            // rank across their per-level entities.
-            Some(_e) if entities[0] == *default_entity => default_entity.to_string(),
-            Some(e) => {
-                let ranked: Vec<String> = entities.iter().map(|e| e.to_string()).collect();
-                ranked_entity(&ranked, Some(e))
-            }
-            None => default_entity.to_string(),
+        return match (family.broadcast, effort) {
+            // In-band depth: the wire id never changes with effort.
+            (true, Some(_) | None) => return family.default_entity.to_string(),
+            // Suffix depth: rank via the shared codec mechanism.
+            (false, Some(_) | None) => WireEntityResolution::resolve_for(
+                family.entities,
+                family
+                    .entities
+                    .iter()
+                    .position(|e| *e == family.default_entity)
+                    .unwrap_or(0),
+                effort,
+            ),
         };
     }
     // 3. Structural single-entity remaps and verbatim ids.
@@ -931,25 +955,6 @@ fn effective_antigravity_wire_model(
         "gpt-oss-120b" => "gpt-oss-120b-medium".to_string(),
         other => other.to_string(),
     }
-}
-
-/// Rank `effort` into the registered entity list (shallow to deep). `None`
-/// resolves to the list's **first** entity — the order the table (or live
-/// observation) is written in *is* the account-default declaration: the
-/// baseline tables lead with the upstream default row (`-tiered` for
-/// `gemini-3.8-flash`, `-medium` for argon), mirroring
-/// `defaultAgentModelId`. A registered entity id passed as the channel model
-/// never reaches here (the Verbatim arm returns first).
-fn ranked_entity(entities: &[impl AsRef<str>], effort: Option<nuo_model_codec::Effort>) -> String {
-    use nuo_model_codec::Effort;
-    let rank = effort.map_or(0, |e| match e {
-        Effort::None | Effort::Minimal | Effort::Low => 0,
-        Effort::Medium => 1,
-        Effort::High | Effort::Xhigh => 2,
-        Effort::Max | Effort::Ultra => 3,
-    });
-    let idx = rank.min(entities.len().saturating_sub(1));
-    entities.get(idx).map(|s| s.as_ref().to_string()).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -1001,7 +1006,7 @@ mod tests {
     fn antigravity_envelope_preserves_canonical_antigravity_wire_ids() {
         for (id, expected) in [
             // Registered per-level entity ids are the user's explicit depth
-            // choice: they pass through verbatim (ADR-0272 Verbatim arm).
+            // choice: they pass through verbatim (ADR-0074 Verbatim arm).
             ("gemini-3.8-flash-high", "gemini-3.8-flash-high"),
             ("gemini-3.8-flash-medium", "gemini-3.8-flash-medium"),
             ("gemini-3.8-flash-low", "gemini-3.8-flash-low"),

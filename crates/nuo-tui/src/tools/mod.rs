@@ -18,7 +18,7 @@
 //! Components pane (ADR-0020).
 
 mod ask_user;
-mod diff;
+pub(crate) mod diff;
 mod edit_text;
 mod execute_command;
 mod fallback;

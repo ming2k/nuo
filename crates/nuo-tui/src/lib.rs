@@ -33,6 +33,7 @@ pub mod composer_attachments;
 pub mod composer_extension;
 pub mod composer_mode;
 pub mod config;
+pub mod declarative;
 mod event_loop;
 pub mod headless;
 pub mod input;
@@ -231,121 +232,6 @@ impl StartupOverlay {
 ///
 /// Documented alongside the other `NUO_*` acceptance toggles per
 /// ADR-0175 §6.
-fn init_dev_toast() -> (
-    Option<std::time::Instant>,
-    String,
-    bool,
-    Option<std::time::Instant>,
-    String,
-    NoticeSeverity,
-    bool,
-) {
-    let raw = std::env::var("NUO_DEV_TOAST")
-        .or_else(|_| std::env::var("NUO_TOAST"))
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-
-    let Some(val) = raw else {
-        return (
-            None,
-            String::new(),
-            false,
-            None,
-            String::new(),
-            NoticeSeverity::Info,
-            false,
-        );
-    };
-
-    let pinned = std::env::var("NUO_DEV_TOAST_PINNED")
-        .map(|v| {
-            !matches!(
-                v.trim().to_ascii_lowercase().as_str(),
-                "0" | "false" | "no" | "off"
-            )
-        })
-        .unwrap_or(true);
-
-    let duration = std::time::Duration::from_secs(3600);
-    let until = Some(std::time::Instant::now() + duration);
-
-    if val == "1" || val.eq_ignore_ascii_case("demo") {
-        let msg = "Workspace roots updated\nSkipped roots: `../opencode`".to_string();
-        return (
-            None,
-            String::new(),
-            false,
-            until,
-            msg,
-            NoticeSeverity::Warning,
-            pinned,
-        );
-    }
-
-    if let Some((kind, rest)) = val.split_once(':') {
-        let trimmed_rest = rest.trim().to_string();
-        match kind.trim().to_ascii_lowercase().as_str() {
-            "ok" | "copy" | "success" => {
-                return (
-                    until,
-                    trimmed_rest,
-                    false,
-                    None,
-                    String::new(),
-                    NoticeSeverity::Info,
-                    pinned,
-                );
-            }
-            "fail" | "failed" | "error" | "err" => {
-                return (
-                    until,
-                    trimmed_rest,
-                    true,
-                    None,
-                    String::new(),
-                    NoticeSeverity::Error,
-                    pinned,
-                );
-            }
-            "warn" | "warning" | "armed" => {
-                return (
-                    None,
-                    String::new(),
-                    false,
-                    until,
-                    trimmed_rest,
-                    NoticeSeverity::Warning,
-                    pinned,
-                );
-            }
-            "info" => {
-                return (
-                    None,
-                    String::new(),
-                    false,
-                    until,
-                    trimmed_rest,
-                    NoticeSeverity::Info,
-                    pinned,
-                );
-            }
-            _ => {}
-        }
-    }
-
-    // Default without prefix: show as Info notice toast
-    (
-        None,
-        String::new(),
-        false,
-        until,
-        val,
-        NoticeSeverity::Info,
-        pinned,
-    )
-}
-
 fn pre_attach_initial() -> Option<PreAttachState> {
     let raw = std::env::var("NUO_FORCE_PRE_ATTACH")
         .ok()
@@ -2035,19 +1921,10 @@ pub async fn run_tui_with_terminal(
         });
     }
 
-    let (
-        dev_copy_until,
-        dev_copy_msg,
-        dev_copy_failed,
-        dev_notice_until,
-        dev_notice_msg,
-        dev_notice_sev,
-        dev_pinned,
-    ) = init_dev_toast();
-
     let mut app = App {
         last_submit_ms: None,
         surface_store: crate::surfaces::SurfaceStore::new(),
+        dev_toast_pinned: std::env::var("NUO_DEV_TOAST").map(|v| !v.is_empty() && v != "0").unwrap_or(false),
         surfaces: match startup_overlay {
             StartupOverlay::SessionsPicker => {
                 crate::surfaces::SurfaceRouter::with_dialog(crate::surfaces::DialogKind::Sessions)
@@ -2179,6 +2056,7 @@ pub async fn run_tui_with_terminal(
         host_kill_confirm_id: None,
         switch_to_target: None,
         switch_to_new: false,
+        switch_to_new_prompt: None,
         startup_overlay,
         permission_confirm_always: false,
         permission_show_details: false,
@@ -2230,13 +2108,12 @@ pub async fn run_tui_with_terminal(
         key_overrides: tui_config.global_key_overrides(),
         surface_overrides: tui_config.surface_key_overrides(),
         focused_target: None,
-        copy_toast_until: dev_copy_until,
-        copy_toast_message: dev_copy_msg,
-        copy_toast_failed: dev_copy_failed,
-        notice_toast_until: dev_notice_until,
-        notice_toast_message: dev_notice_msg,
-        notice_toast_severity: dev_notice_sev,
-        dev_toast_pinned: dev_pinned,
+        copy_toast_until: None,
+        copy_toast_message: String::new(),
+        copy_toast_failed: false,
+        notice_toast_until: None,
+        notice_toast_message: String::new(),
+        notice_toast_severity: crate::model::document::NoticeSeverity::Info,
         ctrl_c_armed_until: None,
         esc_armed_until: None,
         spinner_epoch: std::time::Instant::now(),
@@ -2359,11 +2236,13 @@ pub async fn run_tui_with_terminal(
 
     let switch = app.switch_to_target.take();
     let switch_to_new = app.switch_to_new;
+    let switch_to_new_prompt = app.switch_to_new_prompt.take();
     let tabs = Some(app.surfaces.tabs().to_vec());
     Ok(TuiOutcome {
         history: app.input_history,
         switch_to: switch,
         switch_to_new,
+        switch_to_new_prompt,
         tabs,
     })
 }
@@ -2375,6 +2254,7 @@ pub struct TuiOutcome {
     pub history: Vec<nuo_wire::HistoryEntry>,
     pub switch_to: Option<String>,
     pub switch_to_new: bool,
+    pub switch_to_new_prompt: Option<String>,
     pub tabs: Option<Vec<crate::surfaces::ClientTab>>,
 }
 

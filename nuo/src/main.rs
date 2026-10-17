@@ -61,6 +61,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             print!("{}", cli::completion_script(shell));
             Ok(())
         }
+        Mode::Dev(cli::DevAction::Storybook) => {
+            let mut workbench = nuo_tui::declarative::workbench::Workbench::default();
+            workbench.run()?;
+            Ok(())
+        }
+        Mode::Dev(cli::DevAction::Export(dir)) => {
+            let count = nuo_tui::declarative::workbench::Workbench::export_all_snapshots(&dir)?;
+            println!("Exported {count} storybook snapshots to {}", dir.display());
+            Ok(())
+        }
         Mode::Thread(action) => commands::thread::run(action, project_override).await,
         Mode::Server(action) => run_server_action(action, project_override).await,
     }

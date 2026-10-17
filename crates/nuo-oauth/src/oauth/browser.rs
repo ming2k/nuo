@@ -349,7 +349,7 @@ fn escape_html(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-fn render_page(label: &str, message: &str, ok: bool) -> String {
+pub fn render_page(label: &str, message: &str, ok: bool) -> String {
     let label = escape_html(label);
     let message = escape_html(message);
     let title = if ok {
@@ -357,8 +357,40 @@ fn render_page(label: &str, message: &str, ok: bool) -> String {
     } else {
         format!("{label} • Authorization Failed")
     };
+    let headline = if ok {
+        "Authorization Successful"
+    } else {
+        "Authorization Failed"
+    };
     let accent_color = if ok { "#10B981" } else { "#EF4444" };
-    let icon = if ok { "✓" } else { "✕" };
+    let accent_glow = if ok {
+        "rgba(16, 185, 129, 0.22)"
+    } else {
+        "rgba(239, 68, 68, 0.22)"
+    };
+    let accent_soft = if ok {
+        "rgba(16, 185, 129, 0.10)"
+    } else {
+        "rgba(239, 68, 68, 0.10)"
+    };
+    let hero_icon_svg = if ok {
+        r##"<svg class="hero-svg" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>"##
+    } else {
+        r##"<svg class="hero-svg" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>"##
+    };
+    let (hint_text, shortcut_html) = if ok {
+        (
+            "You may close this tab",
+            r#"<span class="kbd-wrap"><kbd>⌘W</kbd><span class="sep">/</span><kbd>Ctrl+W</kbd></span>"#,
+        )
+    } else {
+        ("Return to terminal to retry", "")
+    };
 
     format!(
         r#"<!doctype html>
@@ -369,72 +401,283 @@ fn render_page(label: &str, message: &str, ok: bool) -> String {
   <title>{title}</title>
   <style>
     :root {{
-      --bg: #090A0F;
-      --card: #131722;
-      --text: #F3F4F6;
-      --muted: #9CA3AF;
+      --bg: #08090D;
+      --card-bg: rgba(14, 17, 24, 0.78);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-main: #F8FAFC;
+      --text-muted: #94A3B8;
+      --text-dim: #64748B;
       --accent: {accent_color};
+      --accent-glow: {accent_glow};
+      --accent-soft: {accent_soft};
+      --kbd-bg: rgba(255, 255, 255, 0.06);
+      --kbd-border: rgba(255, 255, 255, 0.12);
     }}
     @media (prefers-color-scheme: light) {{
       :root {{
         --bg: #F8FAFC;
-        --card: #FFFFFF;
-        --text: #0F172A;
-        --muted: #64748B;
+        --card-bg: rgba(255, 255, 255, 0.85);
+        --card-border: rgba(0, 0, 0, 0.07);
+        --text-main: #0F172A;
+        --text-muted: #475569;
+        --text-dim: #94A3B8;
         --accent: {accent_color};
+        --accent-glow: {accent_glow};
+        --accent-soft: {accent_soft};
+        --kbd-bg: rgba(0, 0, 0, 0.04);
+        --kbd-border: rgba(0, 0, 0, 0.10);
       }}
     }}
-    body {{
+    * {{
+      box-sizing: border-box;
       margin: 0;
+      padding: 0;
+    }}
+    body {{
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
     }}
-    .card {{
-      background: var(--card);
-      border-radius: 16px;
-      padding: 40px;
-      max-width: 460px;
-      margin: 20px;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-      text-align: center;
-      border: 1px solid rgba(255,255,255,0.08);
+    /* Central Nebula Glow */
+    .nebula {{
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 580px;
+      height: 580px;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 65%);
+      pointer-events: none;
+      z-index: 0;
+      animation: nebula-breathe 8s ease-in-out infinite;
     }}
-    .icon {{
-      width: 56px;
-      height: 56px;
+    @keyframes nebula-breathe {{
+      0%, 100% {{ transform: translate(-50%, -50%) scale(1); opacity: 0.7; }}
+      50% {{ transform: translate(-50%, -50%) scale(1.18); opacity: 0.35; }}
+    }}
+    /* Ambient Floating Particle Field */
+    .particles {{
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }}
+    .particle {{
+      position: absolute;
       border-radius: 50%;
       background: var(--accent);
-      color: #FFF;
-      font-size: 28px;
-      font-weight: bold;
+      opacity: 0.4;
+      will-change: transform, opacity;
+    }}
+    @keyframes p-drift-1 {{
+      0%, 100% {{ transform: translate(0, 0) scale(1); opacity: 0.3; }}
+      50% {{ transform: translate(40px, -65px) scale(1.3); opacity: 0.85; }}
+    }}
+    @keyframes p-drift-2 {{
+      0%, 100% {{ transform: translate(0, 0) scale(1); opacity: 0.4; }}
+      50% {{ transform: translate(-45px, -50px) scale(0.8); opacity: 0.2; }}
+    }}
+    @keyframes p-drift-3 {{
+      0%, 100% {{ transform: translate(0, 0) scale(1); opacity: 0.25; }}
+      50% {{ transform: translate(35px, 55px) scale(1.4); opacity: 0.75; }}
+    }}
+    @keyframes p-drift-4 {{
+      0%, 100% {{ transform: translate(0, 0) scale(1); opacity: 0.45; }}
+      50% {{ transform: translate(-40px, 45px) scale(0.9); opacity: 0.25; }}
+    }}
+    @keyframes p-twinkle {{
+      0%, 100% {{ opacity: 0.15; transform: scale(0.8); }}
+      50% {{ opacity: 0.75; transform: scale(1.25); }}
+    }}
+    .p1 {{ top: 18%; left: 14%; width: 4px; height: 4px; box-shadow: 0 0 12px var(--accent); animation: p-drift-1 14s ease-in-out infinite; }}
+    .p2 {{ top: 24%; left: 82%; width: 5px; height: 5px; box-shadow: 0 0 14px var(--accent); animation: p-drift-2 18s ease-in-out infinite 2s; }}
+    .p3 {{ top: 68%; left: 16%; width: 6px; height: 6px; box-shadow: 0 0 16px var(--accent); animation: p-drift-3 16s ease-in-out infinite 1s; }}
+    .p4 {{ top: 74%; left: 78%; width: 4px; height: 4px; box-shadow: 0 0 12px var(--accent); animation: p-drift-4 20s ease-in-out infinite 3s; }}
+    .p5 {{ top: 12%; left: 48%; width: 3px; height: 3px; box-shadow: 0 0 8px var(--accent); animation: p-drift-2 15s ease-in-out infinite 4s; }}
+    .p6 {{ top: 86%; left: 42%; width: 5px; height: 5px; box-shadow: 0 0 14px var(--accent); animation: p-drift-1 22s ease-in-out infinite 5s; }}
+    .p7 {{ top: 42%; left: 10%; width: 3px; height: 3px; box-shadow: 0 0 10px var(--accent); animation: p-drift-4 13s ease-in-out infinite 1.5s; }}
+    .p8 {{ top: 36%; left: 90%; width: 4px; height: 4px; box-shadow: 0 0 12px var(--accent); animation: p-drift-3 17s ease-in-out infinite 3.5s; }}
+    .p9 {{ top: 58%; left: 28%; width: 2px; height: 2px; animation: p-twinkle 6s ease-in-out infinite; }}
+    .p10 {{ top: 20%; left: 66%; width: 2px; height: 2px; animation: p-twinkle 7s ease-in-out infinite 2s; }}
+    .p11 {{ top: 72%; left: 65%; width: 2px; height: 2px; animation: p-twinkle 5s ease-in-out infinite 1s; }}
+    .p12 {{ top: 46%; left: 86%; width: 2px; height: 2px; animation: p-twinkle 8s ease-in-out infinite 3s; }}
+    .p13 {{ top: 82%; left: 24%; width: 2px; height: 2px; animation: p-twinkle 6s ease-in-out infinite 2.5s; }}
+    .p14 {{ top: 14%; left: 86%; width: 2px; height: 2px; animation: p-twinkle 7s ease-in-out infinite 4s; }}
+    .p15 {{ top: 32%; left: 26%; width: 3px; height: 3px; box-shadow: 0 0 8px var(--accent); animation: p-drift-1 19s ease-in-out infinite 6s; }}
+    .p16 {{ top: 62%; left: 72%; width: 3px; height: 3px; box-shadow: 0 0 8px var(--accent); animation: p-drift-4 16s ease-in-out infinite 4.5s; }}
+
+    /* Sleek Minimalist Card */
+    .card {{
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 420px;
+      background: var(--card-bg);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border-radius: 24px;
+      border: 1px solid var(--card-border);
+      box-shadow:
+        0 20px 48px -12px rgba(0, 0, 0, 0.5),
+        0 0 50px -15px var(--accent-glow);
+      padding: 44px 36px 36px;
+      text-align: center;
+      animation: card-appear 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }}
+    @keyframes card-appear {{
+      from {{
+        opacity: 0;
+        transform: translateY(14px) scale(0.98);
+      }}
+      to {{
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }}
+    }}
+    /* Hero Icon */
+    .hero-wrap {{
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 22px;
+    }}
+    .hero-halo {{
+      position: absolute;
+      inset: -12px;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      animation: hero-pulse 3s ease-in-out infinite;
+    }}
+    @keyframes hero-pulse {{
+      0%, 100% {{ transform: scale(1); opacity: 0.7; }}
+      50% {{ transform: scale(1.15); opacity: 0.3; }}
+    }}
+    .hero-disc {{
+      position: relative;
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent);
       display: flex;
       align-items: center;
       justify-content: center;
-      margin: 0 auto 20px;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }}
+    .hero-svg {{
+      width: 28px;
+      height: 28px;
+    }}
+    /* Typography */
+    .brand-badge {{
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 8px;
     }}
     h1 {{
       font-size: 22px;
-      margin: 0 0 12px;
       font-weight: 600;
+      letter-spacing: -0.025em;
+      color: var(--text-main);
+      margin-bottom: 10px;
     }}
     p {{
-      color: var(--muted);
-      font-size: 15px;
-      line-height: 1.5;
-      margin: 0;
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.55;
+      margin-bottom: 28px;
+    }}
+    /* Sleek Hint */
+    .hint-bar {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      background: var(--accent-soft);
+      border: 1px solid var(--card-border);
+      font-size: 12px;
+      color: var(--text-muted);
+    }}
+    .status-dot {{
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+    }}
+    .kbd-wrap {{
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: 2px;
+    }}
+    kbd {{
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--kbd-bg);
+      border: 1px solid var(--kbd-border);
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-main);
+    }}
+    .sep {{
+      color: var(--text-dim);
+      font-size: 10px;
     }}
   </style>
 </head>
 <body>
+  <div class="nebula" aria-hidden="true"></div>
+  <div class="particles" aria-hidden="true">
+    <span class="particle p1"></span>
+    <span class="particle p2"></span>
+    <span class="particle p3"></span>
+    <span class="particle p4"></span>
+    <span class="particle p5"></span>
+    <span class="particle p6"></span>
+    <span class="particle p7"></span>
+    <span class="particle p8"></span>
+    <span class="particle p9"></span>
+    <span class="particle p10"></span>
+    <span class="particle p11"></span>
+    <span class="particle p12"></span>
+    <span class="particle p13"></span>
+    <span class="particle p14"></span>
+    <span class="particle p15"></span>
+    <span class="particle p16"></span>
+  </div>
   <div class="card">
-    <div class="icon">{icon}</div>
-    <h1>{title}</h1>
+    <div class="hero-wrap">
+      <div class="hero-halo"></div>
+      <div class="hero-disc">
+        {hero_icon_svg}
+      </div>
+    </div>
+    <div class="brand-badge">NUO · {label}</div>
+    <h1>{headline}</h1>
     <p>{message}</p>
+    <div class="hint-bar">
+      <span class="status-dot"></span>
+      <span>{hint_text}</span>
+      {shortcut_html}
+    </div>
   </div>
 </body>
 </html>"#
@@ -483,6 +726,32 @@ mod tests {
         assert!(!page.contains("<provider>"));
         assert!(!page.contains("<script>"));
         assert!(page.contains("&lt;provider&gt;"));
+    }
+
+    #[test]
+    fn rendered_page_success_has_tech_elements_and_metadata() {
+        let page = render_page("GitHub", "Token exchanged successfully", true);
+        assert!(page.contains("NUO"));
+        assert!(page.contains("GitHub"));
+        assert!(page.contains("Authorization Successful"));
+        assert!(page.contains("Token exchanged successfully"));
+        assert!(page.contains("⌘W"));
+        assert!(page.contains("Ctrl+W"));
+        assert!(page.contains("#10B981"));
+        assert!(page.contains("particles"));
+        assert!(page.contains("nebula"));
+    }
+
+    #[test]
+    fn rendered_page_failure_has_error_elements() {
+        let page = render_page("Google", "access_denied", false);
+        assert!(page.contains("NUO"));
+        assert!(page.contains("Google"));
+        assert!(page.contains("Authorization Failed"));
+        assert!(page.contains("access_denied"));
+        assert!(page.contains("#EF4444"));
+        assert!(page.contains("particles"));
+        assert!(page.contains("nebula"));
     }
 
     #[tokio::test]

@@ -2573,3 +2573,141 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
     assert!(app.switch_to_new);
     assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
 }
+
+#[tokio::test]
+async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_when_non_empty() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    app.tx = tx;
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    let sid = "session-test-1";
+    app.current_session_id = sid.to_string();
+    app.open_tab(crate::surfaces::ClientTab::thread(sid, None::<String>));
+    let session = crate::SessionSource::Remote {
+        session_id: sid.to_string(),
+    };
+    assert!(app.is_current_thread_empty());
+
+    // 1. In empty tab: "/new" should send /new to reset in-place
+    super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/new".to_string()).await;
+
+    assert!(!app.switch_to_new);
+    let req = rx.try_recv().expect("/new sent for empty thread");
+    match req {
+        nuo_wire::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
+        other => panic!("expected /new slash command, got {other:?}"),
+    }
+
+    // 2. In non-empty tab: "/new" must NOT send /new over wire, but arm switch_to_new and preserve conversation
+    app.messages.clear();
+    app.messages.push(crate::model::document::TranscriptMessage::new(
+        nuo_wire::Role::User,
+        "Crucial conversation",
+    ));
+    assert!(!app.is_current_thread_empty());
+
+    super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/new".to_string()).await;
+
+    assert!(app.switch_to_new);
+    assert_eq!(app.switch_to_new_prompt, None);
+    assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
+    // Verify no destructive in-place reset command was sent
+    assert!(rx.try_recv().is_err());
+    // Verify existing messages are preserved
+    assert_eq!(app.messages.len(), 1);
+    assert_eq!(app.messages[0].raw, "Crucial conversation");
+}
+
+#[tokio::test]
+async fn slash_new_with_prompt_arms_switch_to_new_prompt_when_non_empty() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    app.tx = tx;
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    let sid = "session-test-2";
+    app.current_session_id = sid.to_string();
+    app.open_tab(crate::surfaces::ClientTab::thread(sid, None::<String>));
+    let session = crate::SessionSource::Remote {
+        session_id: sid.to_string(),
+    };
+
+    app.messages.push(crate::model::document::TranscriptMessage::new(
+        nuo_wire::Role::User,
+        "Prior turn",
+    ));
+    assert!(!app.is_current_thread_empty());
+
+    super::event_loop::handle_send_slash(
+        &mut app,
+        &runtime,
+        &session,
+        "/new optimize memory allocations".to_string(),
+    )
+    .await;
+
+    assert!(app.switch_to_new);
+    assert_eq!(
+        app.switch_to_new_prompt,
+        Some("optimize memory allocations".to_string())
+    );
+    assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn slash_session_new_behaves_identically_to_slash_new() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    app.tx = tx;
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    let sid = "session-canonical-test";
+    app.current_session_id = sid.to_string();
+    app.open_tab(crate::surfaces::ClientTab::thread(sid, None::<String>));
+    let session = crate::SessionSource::Remote {
+        session_id: sid.to_string(),
+    };
+
+    app.messages.push(crate::model::document::TranscriptMessage::new(
+        nuo_wire::Role::User,
+        "Active dialogue",
+    ));
+    assert!(!app.is_current_thread_empty());
+
+    super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/session new".to_string()).await;
+
+    assert!(
+        app.switch_to_new,
+        "/session new must arm switch_to_new on non-empty thread"
+    );
+    assert!(
+        app.should_quit.load(std::sync::atomic::Ordering::SeqCst),
+        "/session new must request runner quit to mount new tab"
+    );
+    assert!(
+        rx.try_recv().is_err(),
+        "/session new must not send destructive in-place reset"
+    );
+}
+
+#[tokio::test]
+async fn slash_new_with_round_count_greater_than_zero_opens_new_tab() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    app.tx = tx;
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    let sid = "session-rounds-test";
+    app.current_session_id = sid.to_string();
+    app.open_tab(crate::surfaces::ClientTab::thread(sid, None::<String>));
+    let session = crate::SessionSource::Remote {
+        session_id: sid.to_string(),
+    };
+
+    app.messages.clear();
+    app.round_count = 1;
+    assert!(!app.is_current_thread_empty());
+
+    super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/new".to_string()).await;
+
+    assert!(app.switch_to_new);
+    assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
+}

@@ -745,20 +745,20 @@ fn opencode_go_routes_models_by_wire_format() {
     let minimax = derive_channel(&go, "minimax-m3", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
     .unwrap();
     assert!(
-        matches!(&minimax.transport, Transport::Anthropic { base_url, .. } if base_url == "https://opencode.ai/zen/go/v1/messages"),
-        "minimax-m3 must route to Anthropic /messages surface on zen/go relay"
+        matches!(&minimax.transport, Transport::Anthropic { base_url, .. } if base_url == "https://opencode.ai/inference/go/anthropic/v1/messages"),
+        "minimax-m3 must route to the Anthropic inference/go surface"
     );
     let qwen = derive_channel(&go, "qwen3.6-plus", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
     .unwrap();
     assert!(
-        matches!(&qwen.transport, Transport::Anthropic { base_url, .. } if base_url == "https://opencode.ai/zen/go/v1/messages"),
-        "qwen3.6-plus must route to the Anthropic /messages surface on zen/go relay"
+        matches!(&qwen.transport, Transport::Anthropic { base_url, .. } if base_url == "https://opencode.ai/inference/go/anthropic/v1/messages"),
+        "qwen3.6-plus must route to the Anthropic inference/go surface"
     );
     assert_eq!(
         route_for_model("opencode-go", "qwen3.6-plus").map(|(p, b, _)| (p, b)),
         Some((
             WireProtocol::AnthropicMessages,
-            "https://opencode.ai/zen/go/v1/messages".to_string()
+            "https://opencode.ai/inference/go/anthropic/v1/messages".to_string()
         ))
     );
 }
@@ -789,6 +789,7 @@ fn opencode_console_routes_models_by_wire_format() {
 
 #[test]
 fn openai_route_uses_official_api_not_opencode_go_relay() {
+    ensure_test_init();
     // OpenAI uses its official endpoint as its remote catalog source, and
     // its inference routes MUST target https://api.openai.com, never
     // the opencode.ai relay endpoint.

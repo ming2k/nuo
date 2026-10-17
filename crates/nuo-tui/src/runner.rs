@@ -22,9 +22,7 @@ pub fn ensure_dev_environment() {
         .map(|v| v != "0")
         .unwrap_or(false);
     let dev_mode = (is_debug_build && !dev_opt_out)
-        || std::env::var("NUO_DEV").map(|v| v != "0").unwrap_or(false)
-        || std::env::var("NUO_DEV_TOAST").is_ok()
-        || std::env::var("NUO_TOAST").is_ok();
+        || std::env::var("NUO_DEV").map(|v| v != "0").unwrap_or(false);
 
     if !dev_mode {
         return;
@@ -503,6 +501,7 @@ pub async fn run_attached(
         if outcome.switch_to_new {
             target = None;
             fresh_pending = true;
+            initial_prompt = outcome.switch_to_new_prompt;
             continue;
         }
         match outcome.switch_to {

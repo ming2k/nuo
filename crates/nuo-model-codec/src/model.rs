@@ -250,7 +250,7 @@ pub struct ModelCapabilities {
     /// advertisement over the static baseline.
     pub effort_levels: Vec<crate::effort::EffortLevel>,
     /// The concrete per-level wire entities the upstream catalog registered
-    /// for this model (ADR-0272). Empty when the canonical id routes
+    /// for this model (ADR-0074). Empty when the canonical id routes
     /// verbatim — every provider except the tiered Antigravity families
     /// (`gemini-4-argon`, `claude-{opus,sonnet}-5-5`). Consumed by
     /// [`ModelCapabilities::wire_entity_resolution`]; evidentiary, not display.
@@ -339,7 +339,7 @@ impl ModelCapabilities {
     }
 
     /// The route's wire-entity decision: how the requested `(model, effort)`
-    /// selection becomes the id stamped into the request envelope (ADR-0272).
+    /// selection becomes the id stamped into the request envelope (ADR-0074).
     ///
     /// Resolution is **evidence over inference** (ADR-0068):
     /// 1. **Observed per-level entities** — when the live catalog registered
@@ -389,31 +389,77 @@ pub enum WireEntityResolution<'a> {
     Verbatim,
     /// The upstream registered concrete per-level entities and the bare
     /// canonical id is not one of them. `effort` ranks into `entities`
-    /// shallow→deep; `None` resolves to the mid entity for an odd three-rung
-    /// surface (argon's upstream default) and stays a registered entity
-    /// either way — never a 404.
+    /// shallow→deep via [`Effort::rank`] (the same total order the clapmping
+    /// uses — one rank table, never per-site duplicates); `None` resolves to
+    /// the list's **default-position entity** (the caller's surface declares
+    /// which index carries the account default). The result is always a
+    /// *registered* entity — never a bare-id 404.
     PerLevel {
         /// The canonical base id the channel was opened with.
         base: &'a str,
-        /// The observed registered entity ids, in upstream advertisement
-        /// order (shallow→deep for the known surfaces).
+        /// The observed registered entity ids, in advertisement order
+        /// (shallow→deep for the known surfaces).
         entities: &'a [String],
     },
 }
 
 impl WireEntityResolution<'_> {
-    /// Stamp the concrete wire id for the requested effort against an
-    /// entity list in advertisement order (shallow→deep). Rank exceeds the
-    /// surface's depth buckets clamp to the deepest registered entity.
-    pub fn resolve_into(entities: &[String], effort: Option<Effort>) -> String {
-        let rank = effort.map_or(entities.len().saturating_sub(1) / 2 + 1, |e| match e {
-            Effort::None | Effort::Minimal | Effort::Low => 0,
-            Effort::Medium => 1,
-            Effort::High | Effort::Xhigh => 2,
-            Effort::Max | Effort::Ultra => 3,
-        });
-        let idx = rank.min(entities.len() - 1);
-        entities[idx].clone()
+    /// Stamp the concrete wire id for the requested effort.
+    ///
+    /// Each entity id's effort rung (its trailing `-<word>`, parsed via
+    /// [`Effort::parse`]) ranks by [`Effort::rank`] — the **single shared
+    /// depth order** across every site. The best entity is the one whose
+    /// rung is the closest to the request without overshooting (a shallower
+    /// request clamps down, a deeper one clamps up to the deepest registered
+    /// bucket); within a rung the first advertised entity wins. Entities
+    /// whose suffix parses to nothing (bare / `-tiered`) rank 0 — in-band
+    /// depth, the shallowest claim. `default_idx` names the entity the
+    /// account-default row maps to for a `None` override; the caller owns
+    /// that fact, the mechanism owns the rank.
+    pub fn resolve_for(
+        entities: &[&str],
+        default_idx: usize,
+        effort: Option<Effort>,
+    ) -> String {
+        let Some(requested) = effort else {
+            let idx = default_idx.min(entities.len().saturating_sub(1));
+            return entities[idx].to_string();
+        };
+        let requested_rank = requested.rank();
+
+        // Rank every entity by its own suffixed effort rung. The best entity
+        // is the one whose rung is closest to the request: an exact rung hit
+        // wins immediately; otherwise a shallower entity ≤ the request wins
+        // (rank-maximizing), and when *no* entity is ≤ the request (a rung
+        // shallower than the surface's floor), the **shallowest** registered
+        // entity wins — the surface never reads as deeper than the request.
+        let mut best: Option<(usize, usize)> = None; // (rank, idx)
+        let mut shallowest: Option<(usize, usize)> = None; // shallowest overall
+        for (idx, entity) in entities.iter().enumerate() {
+            let entity_rank = entity
+                .rsplit('-')
+                .next()
+                .and_then(Effort::parse)
+                .map(|e| e.rank())
+                // Unparseable suffix (bare / `-tiered`): in-band depth, the
+                // shallowest claim.
+                .unwrap_or(0);
+            if entity_rank == requested_rank {
+                return entities[idx].to_string();
+            }
+            if entity_rank < requested_rank
+                && best.is_none_or(|(rank, _)| entity_rank >= rank)
+            {
+                best = Some((entity_rank, idx));
+            }
+            if shallowest.is_none_or(|(rank, _)| entity_rank < rank) {
+                shallowest = Some((entity_rank, idx));
+            }
+        }
+        match best.or(shallowest) {
+            Some((_, idx)) => entities[idx].to_string(),
+            None => entities[default_idx.min(entities.len().saturating_sub(1))].to_string(),
+        }
     }
 }
 

@@ -129,7 +129,10 @@ impl Effort {
     }
 
     /// The level's position in [`Effort::ORDER`], for comparison/clamping.
-    fn rank(self) -> usize {
+    /// Crate-private but exposed via `pub(crate)` so the wire-entity
+    /// resolution (`model.rs`, ADR-0074) shares the **same total order** —
+    /// a single rank table, never per-site duplicates.
+    pub(crate) fn rank(self) -> usize {
         Self::ORDER.iter().position(|e| *e == self).unwrap_or(2)
     }
 

@@ -12,7 +12,7 @@ use nuo_model_codec::Availability;
 use serde_json::Value;
 
 /// Effort suffixes in **shallow→deep wire order** — the canonical ordering
-/// the request builder's rank-into-entities relies on (ADR-0272). Upstream
+/// the request builder's rank-into-entities relies on (ADR-0074). Upstream
 /// catalog rows arrive in map order, which is unordered; the depth rank of
 /// each entity is a stable vocabulary fact (`-low < -medium < -high < -max`,
 /// and `-tiered`/`-minimal` are in-band-depth canonical rows that lead).
@@ -29,7 +29,7 @@ const EFFORT_OR_TIER_SUFFIXES: &[&str] = &[
 /// canonical rows carry in-band depth (`thinkingLevel`) and are depth-zero
 /// leaders; a `-minimal` row sits shallowest; `-max` is deepest.
 /// Entity id → depth rank on the canonical shallow→deep wire order
-/// (ADR-0272). The bare/`-tiered`/`-minimal` rows carry in-band depth
+/// (ADR-0074). The bare/`-tiered`/`-minimal` rows carry in-band depth
 /// (`thinkingLevel`) and lead at rank 0; `-max` is deepest.
 fn entity_rank(id: &str) -> usize {
     for (suffix, rank) in [
@@ -136,7 +136,7 @@ struct ModelFoldAccumulator {
     /// Whether the bare canonical id itself was observed as a registered
     /// upstream row (`gemini-3.8-flash` is; `claude-opus-5-5` is not). A bare
     /// registration means depth rides in-band (`thinkingConfig`) and the
-    /// canonical id leads the wire-entity list (ADR-0272).
+    /// canonical id leads the wire-entity list (ADR-0074).
     observed_bare_id: bool,
 }
 
@@ -233,7 +233,7 @@ impl ModelFoldAccumulator {
         // [INV-CATALOG-02] Lift reasoning capability to orthogonal effort
         // ladder, and record the wire-entity evidence for the request builder.
         //
-        // Priority is **observation over inference** (ADR-0272):
+        // Priority is **observation over inference** (ADR-0074):
         //
         // 1. The reconstructed ids of the parameterized variants the upstream
         //    actually registered (`base + "-suffix"`) are the wire entities —
@@ -661,7 +661,7 @@ mod tests {
     /// a bare-row registration leads the list (in-band depth), and absence
     /// of variants means no entity list at all (verbatim routing). This is
     /// the parser→`RemoteModelMetadata`→`ModelCapabilities` belt the request
-    /// builder's typed resolution consumes (ADR-0272).
+    /// builder's typed resolution consumes (ADR-0074).
     #[test]
     fn observes_wire_entities_from_live_rows() {
         let json = serde_json::json!({

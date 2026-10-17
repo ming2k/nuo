@@ -28,6 +28,7 @@ pub use credential_source::OAuthCredentialSource;
 pub use enricher::{OAuthTokenEnricher, StandardOAuthEnricher};
 pub use manual::parse_authorization_response;
 pub use oauth::AuthError;
+pub use oauth::browser::render_page;
 pub use provider::{
     DeviceLogin, OAuthProvider, oauth_config, oauth_provider, register_oauth_provider,
 };

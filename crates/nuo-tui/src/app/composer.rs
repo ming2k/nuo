@@ -366,7 +366,7 @@ impl App {
     /// cursor mutation takes effect for the user — see the event loop's key
     /// relay for the exact sequencing.
     pub fn input_selection_relays_arrows(&self) -> bool {
-        self.has_input_selection() && self.caret_owner() == CaretOwner::Composer
+        self.has_input_selection() && self.is_composer_focused()
     }
 
     /// Delete the composer text the active input selection covers (the standard
@@ -539,6 +539,35 @@ impl App {
     /// call site should re-derive visibility from raw fields.
     pub fn caret_visible(&self) -> bool {
         !self.selection.is_active() && self.caret_owner() != CaretOwner::None
+    }
+
+    /// Whether the composer currently has input focus (owns the caret).
+    pub fn is_composer_focused(&self) -> bool {
+        self.caret_owner() == CaretOwner::Composer
+    }
+
+    /// Whether the composer has any draft text, active history recall, or staged attachments.
+    pub fn has_composer_content(&self) -> bool {
+        !self.input.is_empty()
+            || self.history_index.is_some()
+            || !self.draft_capsule.is_empty()
+            || !self.pending_images.is_empty()
+            || !self.pending_text_pastes.is_empty()
+    }
+
+    /// Clear the live composer buffer, attachments, scroll offset, and active history recall state.
+    pub fn clear_composer(&mut self) {
+        self.input.clear();
+        self.set_cursor(0);
+        self.input_scroll = 0;
+        self.history_index = None;
+        self.clear_stashed_draft();
+        self.suggestion_index = None;
+        self.completion_dismissed = true;
+        self.pending_images.clear();
+        self.pending_text_pastes.clear();
+        self.selection = SelectionState::None;
+        self.arm_ctrl_c(None);
     }
 
     /// Mint the correlation id for an in-flight busy-Enter steer.

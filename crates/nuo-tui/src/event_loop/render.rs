@@ -750,19 +750,22 @@ fn compose_frame(
                             + crate::design::COMPOSER_HINT_GAP_ROWS
                             + hint_rect.height,
                     );
-                    render::draw_question_modal(
+                    let props = crate::declarative::ask_user::AskUserProps {
+                        request: qmodel.request().clone(),
+                        queue_depth: app.pending_question_depth,
+                        follow_highlight: app.question_modal_follow,
+                        show_caret: overlay_owns_caret,
+                    };
+                    let state = crate::declarative::ask_user::AskUserState {
+                        model: qmodel.clone(),
+                        scroll: app.question_scroll,
+                    };
+                    crate::declarative::ask_user::AskUser::render_with_tree(
+                        &props,
+                        &state,
                         f,
                         ui,
-                        qmodel.request(),
-                        qmodel.current(),
-                        qmodel.selected(),
-                        qmodel.other_text(),
-                        qmodel.highlight(),
-                        &mut app.question_scroll,
-                        app.question_modal_follow,
-                        app.pending_question_depth,
                         question_rect,
-                        overlay_owns_caret,
                         &app.theme,
                     );
                 }

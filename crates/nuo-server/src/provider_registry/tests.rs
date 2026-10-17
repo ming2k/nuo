@@ -170,13 +170,13 @@ fn opencode_baselines_route_by_console_surface() {
 }
 
 #[test]
-fn opencode_go_baselines_route_by_zen_go_surface() {
+fn opencode_go_baselines_route_by_inference_go_surface() {
     let (wire, endpoint, _) = route_for_model("opencode-go", "minimax-m3").unwrap();
     assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
-    assert_eq!(endpoint, "https://opencode.ai/zen/go/v1/messages");
+    assert_eq!(endpoint, "https://opencode.ai/inference/go/anthropic/v1/messages");
     let (wire, endpoint, _) = route_for_model("opencode-go", "qwen3.6-plus").unwrap();
     assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
-    assert_eq!(endpoint, "https://opencode.ai/zen/go/v1/messages");
+    assert_eq!(endpoint, "https://opencode.ai/inference/go/anthropic/v1/messages");
     let (wire, endpoint, _) = route_for_model("opencode-go", "glm-5.2").unwrap();
     assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
     assert_eq!(endpoint, "https://opencode.ai/zen/go/v1/chat/completions");
@@ -222,10 +222,10 @@ fn commandcode_deepseek_siblings_have_baselines_and_effort_ladders() {
 }
 
 #[test]
-fn opencode_zen_baselines_route_by_zen_surface() {
+fn opencode_zen_baselines_route_by_inference_surface() {
     let (wire, endpoint, _) = route_for_model("opencode-zen", "claude-sonnet-4-6").unwrap();
     assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
-    assert_eq!(endpoint, "https://opencode.ai/zen/v1/messages");
+    assert_eq!(endpoint, "https://opencode.ai/inference/anthropic/v1/messages");
     let (wire, endpoint, _) = route_for_model("opencode-zen", "glm-5.2").unwrap();
     assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
     assert_eq!(endpoint, "https://opencode.ai/zen/v1/chat/completions");

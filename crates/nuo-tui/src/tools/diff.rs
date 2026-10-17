@@ -332,7 +332,6 @@ fn word_diff_pair<'a>(old: &'a str, new: &'a str) -> (Vec<DiffFrag>, Vec<DiffFra
 /// (typically `start_line - 1` from `ToolOutput::Patch`). It is added to
 /// every emitted line number so the gutter shows real file line numbers.
 /// Pass `0` when the offset is unknown or irrelevant (e.g. `write_file`).
-#[cfg(test)]
 pub fn line_diff(old: &str, new: &str, line_offset: usize) -> Vec<DiffLine> {
     let diff = TextDiff::from_lines(old, new);
     lines_for_ops(&diff, diff.ops(), line_offset)

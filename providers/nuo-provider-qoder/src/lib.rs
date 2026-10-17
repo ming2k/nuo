@@ -318,7 +318,7 @@ fn discovered_from_scene_entry(
             .and_then(Value::as_str)
             .map(str::to_string),
         // Qoder's scene catalog carries no parameterized wire entities: its
-        // ids route verbatim (ADR-0272).
+        // ids route verbatim (ADR-0074).
         wire_entities: None,
     })
 }

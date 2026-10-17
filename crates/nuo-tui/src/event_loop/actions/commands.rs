@@ -213,7 +213,7 @@ pub(super) async fn handle_send_chat(
 /// (ADR-0110).
 pub(crate) async fn handle_send_slash(
     app: &mut App,
-    _runtime: &UiRuntime,
+    runtime: &UiRuntime,
     _session: &crate::SessionSource,
     cmd: String,
 ) -> ActionFlow {
@@ -238,6 +238,50 @@ pub(crate) async fn handle_send_slash(
     // transcript keeps one row per command, live and after resume alike.
     // The invocation is still recorded in input history for ↑/Ctrl+R recall.
     let (cmd_name, cmd_args) = split_command_word(&cmd);
+
+    let is_new_session_cmd = cmd_name == "new"
+        || (cmd_name == "session" && cmd_args.split_whitespace().next() == Some("new"));
+
+    if is_new_session_cmd {
+        app.record_input_history(cmd.clone(), Vec::new(), Vec::new());
+        let prompt_args = if cmd_name == "new" {
+            cmd_args.trim()
+        } else if cmd_name == "session" {
+            cmd_args.strip_prefix("new").map(str::trim).unwrap_or("")
+        } else {
+            ""
+        };
+
+        if app.is_current_thread_empty() {
+            if !prompt_args.is_empty() {
+                // If thread is already empty and user provided an initial prompt,
+                // submit the prompt directly in place.
+                handle_send_chat(
+                    app,
+                    runtime,
+                    &app.current_session_id.clone(),
+                    prompt_args.to_string(),
+                )
+                .await;
+                return ActionFlow::Handled;
+            }
+            // Bare reset in place without adding a new tab.
+            app.messages.push(
+                TranscriptMessage::pending_command(cmd_name, cmd_args).with_sent_at_ms(sent_at_ms),
+            );
+            app.send_intent(AgentRequest::SlashCommand("/new".to_string()));
+            return ActionFlow::Handled;
+        } else {
+            // Current thread has conversations: preserve current tab and create a fresh thread in a new tab.
+            app.switch_to_new = true;
+            if !prompt_args.is_empty() {
+                app.switch_to_new_prompt = Some(prompt_args.to_string());
+            }
+            app.should_quit.store(true, Ordering::SeqCst);
+            return ActionFlow::Handled;
+        }
+    }
+
     if (cmd_name == "sessions" || cmd_name == "resume" || cmd_name == "session")
         && !cmd_args.trim().is_empty()
         && !cmd_args.trim().starts_with("list")
@@ -349,12 +393,7 @@ pub(crate) fn handle_ctrl_c(
             app.input.clear();
             app.set_cursor(0);
             app.arm_ctrl_c(None);
-            show_local_toast(
-                app,
-                "input cleared",
-                false,
-                std::time::Duration::from_millis(1500),
-            );
+            app.copy_toast_message = "input cleared".to_string();
         } else if app.ctrl_c_armed() {
             tracing::info!(reason = "dashboard_ctrl_c_double_press", "app exiting");
             if app.startup_overlay == crate::StartupOverlay::Dashboard
@@ -382,29 +421,13 @@ pub(crate) fn handle_ctrl_c(
         // visual foreground, so Ctrl+C closes it first (the sheet beneath
         // keeps its pending decision) — mirroring the Esc arms.
         super::modals::handle_close_modal(app, viewed_session_id);
-    } else if !app.input.is_empty()
-        || app.history_index.is_some()
-        || !app.pending_images.is_empty()
-        || !app.pending_text_pastes.is_empty()
-    {
-        // Ctrl+C clears the composer text and resets any active history recall.
+    } else if app.is_composer_focused() && app.has_composer_content() {
+        // Ctrl+C clears the composer content only when the composer has input focus.
         // Clearing text consumes this shortcut and does NOT arm
         // the quit window. If the user wants to exit, they must
         // press Ctrl+C twice with an empty input.
-        app.input.clear();
-        app.set_cursor(0);
-        app.input_scroll = 0;
-        app.history_index = None;
-        app.clear_history_draft();
-        app.pending_images.clear();
-        app.pending_text_pastes.clear();
-        app.arm_ctrl_c(None);
-        show_local_toast(
-            app,
-            "input cleared",
-            false,
-            std::time::Duration::from_millis(1500),
-        );
+        app.clear_composer();
+        app.copy_toast_message = "input cleared".to_string();
     } else if app.ctrl_c_armed() {
         // Double Ctrl+C inside the thread is a client detach intent (ADR-0038 [INV-ACTION-02]).
         // Quits the TUI gracefully without sending EndSession, leaving the thread running.

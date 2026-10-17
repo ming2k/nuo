@@ -30,12 +30,21 @@ pub enum Mode {
     Thread(ThreadAction),
     /// Session server commands and lifecycle operations (`nuo server …`).
     Server(ServerAction),
+    /// Developer offline tools (`nuo dev storybook`).
+    Dev(DevAction),
     /// `nuo completions <shell>`.
     Completions(Shell),
     /// `--version` / `-V`.
     Version,
     /// `--help` / `-h` / `help [topic]`.
     Help(Option<String>),
+}
+
+/// `nuo dev …` offline developer tools (ADR-0073)
+#[derive(Debug, Clone, PartialEq)]
+pub enum DevAction {
+    Storybook,
+    Export(PathBuf),
 }
 
 /// `nuo thread …` / `nuo session …` (ADR-0043, ADR-0048, ADR-0061)
@@ -454,6 +463,18 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     let Some(cmd) = rest.first().cloned() else {
         return parse_interactive(args);
     };
+
+    if cmd == "dev" {
+        let extra = &rest[1..];
+        if extra.is_empty() || extra[0] == "storybook" || extra[0] == "ui" {
+            return ok(Mode::Dev(DevAction::Storybook));
+        } else if extra[0] == "export" {
+            let out_dir = extra.get(1).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("target/storybook-snapshots"));
+            return ok(Mode::Dev(DevAction::Export(out_dir)));
+        } else {
+            return Err("unknown dev command. Available: `nuo dev storybook`, `nuo dev ui`, or `nuo dev export [dir]`".into());
+        }
+    }
 
     if cmd == "run" {
         return Err(
