@@ -8,6 +8,28 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.32] - 2026-10-17
+
+### Added
+
+- **OpenCode 2026-10 Promotional Free Models**:
+  - Ingested `deepseek-v4.1-flash-free` and `glm-5.3-flash-free` into `nuo-provider-opencode` baselines (`plan.rs`, `zen.rs`, `console.rs`) and model seeds (`OPENCODE_GO_MODELS`, `OPENCODE_ZEN_MODELS`, `OPENCODE_CONSOLE_MODELS`).
+  - Marked models with `EPHEMERAL: OpenCode Promotional Free Tier` lifecycle tags, restricting context window to 200K (vs 1M paid) and max output to 32K.
+  - Expanded OpenCode Go and Zen baselines with latest flagship models (`glm-5.3`, `glm-5.3-flash`, `qwen3.8-max`, `qwen3.8-flash`, `claude-haiku-5-5`, `gemini-4-argon-contributor`, `kimi-k3`, `mimo-v2.6-flash`, `mimo-v2.6-pro`, `grok-4.7`).
+- **OpenCode Multi-Protocol Routing**:
+  - Configured protocol roots for OpenCode Go and Zen surfaces: routed `AnthropicMessages` to `inference/go/anthropic/v1` and `GoogleGemini` to `inference/go/google/v1beta`.
+
+### Changed
+
+- **Abolished OpenCode OAuth2 Device Flow & Console Subscription**:
+  - Removed obsolete `device.rs` and `oauth.rs` modules, along with `nuo-oauth` and `netune` dependencies from `nuo-provider-opencode`.
+  - Re-aligned the general `opencode` provider to standard API key and public keyless access over `https://opencode.ai/zen/v1` catalog.
+  - Upgraded OpenCode client profile emulation to `opencode/2.0.32`.
+- **Cognitive Memory Role Scoping**:
+  - Dialogue memory recording is now strictly guarded by presence of `recall_memory` tool (e.g. `philosophist`), permanently excluding `developer` and `ops` roles from recording conversational transcripts.
+- **TUI Surface Navigation**:
+  - Refined scene and tab transitions for Dashboard, Settings, and Thread views, including mouse click and tab switching.
+
 ## [0.0.31] - 2026-11-09
 
 ### Added
