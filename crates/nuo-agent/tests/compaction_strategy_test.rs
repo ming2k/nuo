@@ -20,7 +20,9 @@ impl CompactionStrategy for MockCausalStrategy {
     ) -> nuo_agent::error::Result<bool> {
         // Custom strategy: keep system and user messages, compress assistant turns
         messages.retain(|m| m.role != nuo_agent::message::Role::Assistant);
-        messages.push(Message::system("[Causal Compaction: folded assistant lineage]"));
+        messages.push(Message::system(
+            "[Causal Compaction: folded assistant lineage]",
+        ));
         Ok(true)
     }
 }
@@ -55,6 +57,14 @@ async fn test_custom_compaction_strategy_invocation() {
 
     assert!(modified);
     assert_eq!(messages.len(), 4);
-    assert!(messages.iter().any(|m| m.content.contains("Causal Compaction")));
-    assert!(!messages.iter().any(|m| m.content.contains("Assistant reply")));
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.content.contains("Causal Compaction"))
+    );
+    assert!(
+        !messages
+            .iter()
+            .any(|m| m.content.contains("Assistant reply"))
+    );
 }

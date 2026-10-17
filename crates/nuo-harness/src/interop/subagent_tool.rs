@@ -208,8 +208,7 @@ pub struct SubagentTool {
     /// its scoped capabilities to the model's chosen variants by snapshotting
     /// this, so a subagent — an agent on the same model — inherits the parent's
     /// overrides. `None` (the default, e.g. in tests) means default variants.
-    parent_variants:
-        std::sync::Mutex<Option<Arc<std::sync::Mutex<nuo_wire::VariantSelection>>>>,
+    parent_variants: std::sync::Mutex<Option<Arc<std::sync::Mutex<nuo_wire::VariantSelection>>>>,
     /// Live workspace authority inherited from the parent. Delegation may
     /// narrow this through the subagent's operation scope, never widen it.
     parent_workspace_security:
@@ -419,19 +418,14 @@ impl SubagentTool {
     /// ADR-0141: bind the session's channel accountant; spawned subagents
     /// inherit it (see the `run_subagent` wiring of
     /// `Agent::set_human_channel_accountant`).
-    pub fn bind_human_channel(
-        &self,
-        handle: Arc<nuo_wire::human_request::HumanChannelAccountant>,
-    ) {
+    pub fn bind_human_channel(&self, handle: Arc<nuo_wire::human_request::HumanChannelAccountant>) {
         *self
             .parent_human_channel
             .lock()
             .unwrap_or_else(|error| error.into_inner()) = Some(handle);
     }
 
-    fn parent_human_channel(
-        &self,
-    ) -> Option<Arc<nuo_wire::human_request::HumanChannelAccountant>> {
+    fn parent_human_channel(&self) -> Option<Arc<nuo_wire::human_request::HumanChannelAccountant>> {
         self.parent_human_channel
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -886,8 +880,7 @@ impl SubagentTool {
             // while leaving the parent round and every sibling running. The
             // tool's own `active_cancels` map stays the `Tool::request_cancel`
             // arm the parent's interrupt sweep uses.
-            self.registry
-                .register_cancel(id, child_cancel.clone());
+            self.registry.register_cancel(id, child_cancel.clone());
         }
         // Track the subagent's own ReAct position as `ModelRequestStarted`
         // events arrive so the streamed `StreamStart` / `ToolCall` events can
@@ -919,9 +912,7 @@ impl SubagentTool {
             attempt += 1;
             let run = subagent
                 .resume_streaming_with_events(&mut messages, &child_cancel, &mut round, |event| {
-                    if let nuo_wire::AgentEvent::ModelRequestStarted { round, turn, .. } =
-                        &event
-                    {
+                    if let nuo_wire::AgentEvent::ModelRequestStarted { round, turn, .. } = &event {
                         position = (*round, *turn);
                     }
                     Self::forward_event(event, position, Some(&origin_label), &mut on_event)
@@ -938,9 +929,7 @@ impl SubagentTool {
                     } && attempt < retry_limit =>
                 {
                     let retry_after_ms = match provider_err.retry_disposition() {
-                        nuo_wire::RetryDisposition::Retry { retry_after_ms } => {
-                            retry_after_ms
-                        }
+                        nuo_wire::RetryDisposition::Retry { retry_after_ms } => retry_after_ms,
                         _ => unreachable!(),
                     };
                     let message = provider_err.message();
@@ -1371,8 +1360,8 @@ mod tests {
 
         let resolve = |tool: &SubagentTool| {
             let model = nuo_wire::resolve_model(&CannedProvider.model());
-            let model_sel = nuo_wire::ToolSelection::unrestricted()
-                .with_variants(tool.variant_snapshot());
+            let model_sel =
+                nuo_wire::ToolSelection::unrestricted().with_variants(tool.variant_snapshot());
             tool.profile
                 .resolve_tools(&tool.toolset, &model, &model_sel)
         };

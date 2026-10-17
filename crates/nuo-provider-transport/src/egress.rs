@@ -128,12 +128,12 @@ mod owned {
     use bytes::Bytes;
     use futures::StreamExt;
     use futures::stream::BoxStream;
-    use nuo_model_codec::{ProviderError, TransportObservation, TransportTimings};
     use netune::{Connector, TcpConnector, TlsConnector};
     use netune_trace::{
         AttemptRef, ConnectionInfo, EndpointRef, EventKind, Fidelity, Recorder, RequestTrace,
         TraceId, derive,
     };
+    use nuo_model_codec::{ProviderError, TransportObservation, TransportTimings};
 
     use super::{Egress, HttpResponse, RequestParts, net_error, timeout_error};
 

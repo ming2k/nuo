@@ -439,7 +439,11 @@ impl SessionStore {
     pub async fn active_summary(&self) -> SessionSummary {
         let state = self.state.lock().await;
         let data = &state.data;
-        let real_title = data.title.as_deref().filter(|t| !t.trim().is_empty()).map(|s| s.to_string());
+        let real_title = data
+            .title
+            .as_deref()
+            .filter(|t| !t.trim().is_empty())
+            .map(|s| s.to_string());
         let overview = match &real_title {
             Some(title) => truncate_preview(title, 64),
             None => data

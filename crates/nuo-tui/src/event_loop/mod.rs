@@ -114,9 +114,8 @@ fn frozen_event_passthrough(event: &Event) -> bool {
 
 pub(crate) fn tool_verb_for(name: &str) -> crate::phase::ToolVerb {
     match name {
-        "find_files" | "list_dir" | "read_image" | "read_text" | "read_file" | "read" | "use_skill" | "read_url" => {
-            crate::phase::ToolVerb::Exploring
-        }
+        "find_files" | "list_dir" | "read_image" | "read_text" | "read_file" | "read"
+        | "use_skill" | "read_url" => crate::phase::ToolVerb::Exploring,
         "search_text" => crate::phase::ToolVerb::Searching,
         "search_web" => crate::phase::ToolVerb::WebSearching,
         "write_file" | "edit_text" => crate::phase::ToolVerb::Editing,
@@ -312,8 +311,7 @@ pub async fn run_app_loop(
             app.scroll = app.max_scroll;
         }
 
-        let empty_state_showing =
-            app.focused_messages().is_empty() && app.focus_stack.is_empty();
+        let empty_state_showing = app.focused_messages().is_empty() && app.focus_stack.is_empty();
         if empty_state_showing {
             let current_carousel_index =
                 crate::empty_state::carousel_page_for(app.carousel_epoch.elapsed().as_millis());
@@ -328,8 +326,14 @@ pub async fn run_app_loop(
             || app.has_live_transport_setback()
             || !app.pending_images.is_empty()
             || app.input_drag_scroll.is_some()
-            || ((app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().refreshing
-                || app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().refreshing)
+            || ((app
+                .surfaces
+                .dlg_mut::<crate::surfaces::ModelsDialog>()
+                .refreshing
+                || app
+                    .surfaces
+                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                    .refreshing)
                 && matches!(
                     app.active_dialog(),
                     Some(
@@ -632,9 +636,18 @@ async fn process_one_event<W: io::Write>(
         .as_ref()
         .is_some_and(|q| q.is_other_highlighted());
     let host_prompting = app.host_prompting;
-    let session_info_detail = app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail;
-    let connection_info_detail = app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail;
-    let tools_info_detail = app.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().info_detail;
+    let session_info_detail = app
+        .surfaces
+        .dlg_mut::<crate::surfaces::SessionsDialog>()
+        .info_detail;
+    let connection_info_detail = app
+        .surfaces
+        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+        .info_detail;
+    let tools_info_detail = app
+        .surfaces
+        .dlg_mut::<crate::surfaces::ToolsDialog>()
+        .info_detail;
 
     let modal_cmd_history: Option<String> = if matches!(event, Event::Key(k) if k.code == crossterm::event::KeyCode::Enter)
         && app.surfaces.active_overlay().is_none()
@@ -661,11 +674,17 @@ async fn process_one_event<W: io::Write>(
         Connections,
     }
     let edit_buffer = if app.active_dialog() == Some(crate::surfaces::DialogKind::Models)
-        && app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().search
+        && app
+            .surfaces
+            .dlg_mut::<crate::surfaces::ModelsDialog>()
+            .search
     {
         EditBuffer::Models
     } else if app.active_dialog() == Some(crate::surfaces::DialogKind::Connections)
-        && app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().search
+        && app
+            .surfaces
+            .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+            .search
     {
         EditBuffer::Connections
     } else {
@@ -674,19 +693,34 @@ async fn process_one_event<W: io::Write>(
     let composer_edit_state_before = match edit_buffer {
         EditBuffer::Composer => (app.input.len(), app.cursor_position),
         EditBuffer::Models => (
-            app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.text.len(),
-            app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.cursor,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ModelsDialog>()
+                .query
+                .text
+                .len(),
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ModelsDialog>()
+                .query
+                .cursor,
         ),
         EditBuffer::Connections => (
-            app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().query.text.len(),
-            app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().query.cursor,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                .query
+                .text
+                .len(),
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                .query
+                .cursor,
         ),
     };
-    let history_query_before = if app.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch) {
-        Some(app.input.clone())
-    } else {
-        None
-    };
+    let history_query_before =
+        if app.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch) {
+            Some(app.input.clone())
+        } else {
+            None
+        };
     let composer_owned_before = app.caret_owner() == crate::CaretOwner::Composer;
     let current_scene = app.current_scene();
 
@@ -823,12 +857,26 @@ async fn process_one_event<W: io::Write>(
     let edit_state_after = match edit_buffer {
         EditBuffer::Composer => (app.input.len(), app.cursor_position),
         EditBuffer::Models => (
-            app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.text.len(),
-            app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.cursor,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ModelsDialog>()
+                .query
+                .text
+                .len(),
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ModelsDialog>()
+                .query
+                .cursor,
         ),
         EditBuffer::Connections => (
-            app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().query.text.len(),
-            app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().query.cursor,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                .query
+                .text
+                .len(),
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                .query
+                .cursor,
         ),
     };
     if edit_state_after != composer_edit_state_before
@@ -840,7 +888,9 @@ async fn process_one_event<W: io::Write>(
         && app.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch)
         && before != app.input
     {
-        let d = &mut app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>();
+        let d = &mut app
+            .surfaces
+            .dlg_mut::<crate::surfaces::HistorySearchDialog>();
         d.index = 0;
         d.scroll = 0;
         d.follow = true;
@@ -961,11 +1011,7 @@ mod freeze_guard_tests {
 }
 
 #[cfg(test)]
-pub(crate) async fn process_event_for_test(
-    app: &mut App,
-    event: &Event,
-    viewed_session_id: &str,
-) {
+pub(crate) async fn process_event_for_test(app: &mut App, event: &Event, viewed_session_id: &str) {
     let runtime = UiRuntime::minimal_for_test();
     let session = crate::SessionSource::Remote {
         session_id: viewed_session_id.to_string(),

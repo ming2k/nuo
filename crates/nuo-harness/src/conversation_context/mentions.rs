@@ -196,11 +196,11 @@ mod tests {
         assert!(!is_reference_site(&injected));
 
         // Assistant output and tool results are not reference sites either.
-        assert!(!is_reference_site(&Message::new(Role::Assistant, "@files:a.rs")));
         assert!(!is_reference_site(&Message::new(
-            Role::Tool,
+            Role::Assistant,
             "@files:a.rs"
         )));
+        assert!(!is_reference_site(&Message::new(Role::Tool, "@files:a.rs")));
 
         // The correctness consequence: the gate is load-bearing. Called
         // directly, canonicalization WOULD rewrite the envelope body (proving

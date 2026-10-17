@@ -22,6 +22,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        wire_entities: None,
     },
     Model {
         id: "glm-5.1",
@@ -33,6 +34,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "glm-5",
@@ -44,6 +46,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "glm-4.7",
@@ -55,6 +58,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     // Kimi (Moonshot / opencode-go)
     Model {
@@ -77,6 +81,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     Model {
         id: "kimi-k2.7-code",
@@ -88,6 +93,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "kimi-k2.6",
@@ -99,6 +105,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "kimi-k2.5",
@@ -110,6 +117,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     // Claude (Anthropic, via Anthropic-compatible relays)
     // Served over the Anthropic Messages wire format. Relays forward to
@@ -126,6 +134,7 @@ const PRE_MIGRATION: &[Model] = &[
         model_guidance: "",
         // Opus 4.8 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
+        wire_entities: None,
     },
     Model {
         id: "claude-sonnet-4-6",
@@ -138,6 +147,7 @@ const PRE_MIGRATION: &[Model] = &[
         model_guidance: "",
         // Sonnet 4.6 honors `max` but NOT `xhigh` (xhigh is Opus 4.8/4.7 only).
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
+        wire_entities: None,
     },
     Model {
         id: "claude-fable-5",
@@ -155,6 +165,7 @@ const PRE_MIGRATION: &[Model] = &[
         model_guidance: "",
         // Fable 5 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
+        wire_entities: None,
     },
     Model {
         id: "claude-sonnet-5",
@@ -173,6 +184,7 @@ const PRE_MIGRATION: &[Model] = &[
         // Sonnet 5 honors the full range INCLUDING `xhigh` — the key difference
         // from Sonnet 4.6, which rejects `xhigh` (see CLAUDE_NO_XHIGH).
         effort_levels: effort_ladders::CLAUDE_FULL,
+        wire_entities: None,
     },
     Model {
         id: "claude-haiku-4-5-20251001",
@@ -187,6 +199,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     // GPT-5.6 (OpenAI)
     // The 2026-06-26 flagship family with OpenAI's tier naming scheme:
@@ -207,6 +220,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.6-sol",
@@ -218,6 +232,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.6-terra",
@@ -229,6 +244,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.6-luna",
@@ -240,6 +256,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        wire_entities: None,
     },
     // GPT (OpenAI)
     // The current frontier chat family served over the OpenAI chat-completions
@@ -256,6 +273,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.4",
@@ -267,6 +285,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.4-mini",
@@ -278,6 +297,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     // OpenAI relays and gateways can expose additional text aliases not used by the
     // official built-in preset. Keep their metadata conservative when the
@@ -292,6 +312,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.2",
@@ -303,6 +324,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.2-chat-latest",
@@ -314,6 +336,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.2-pro",
@@ -325,6 +348,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     // Legacy GPT-4o family — no longer in OpenAI's frontier chat lineup (it
     // remains only behind the TTS/transcribe specialized models) but kept
@@ -339,6 +363,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "gpt-4o-mini",
@@ -350,6 +375,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     // Google (native)
     // Native Google REST surface (`generateContent`/`streamGenerateContent`).
@@ -367,6 +393,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         id: "gemini-3.5-flash",
@@ -378,6 +405,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         id: "gemini-3-pro-preview",
@@ -389,6 +417,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         id: "gemini-3-flash-preview",
@@ -400,6 +429,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         id: "gemini-3.1-pro-preview",
@@ -411,6 +441,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         // Custom-tools variant of 3.1 Pro Preview; serves the same REST surface.
@@ -423,6 +454,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     // Antigravity / Google relay models
     // Google-native variants that advertise effort-tiered 3.1 Pro
@@ -441,6 +473,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "gemini-3.1-pro-low",
@@ -452,6 +485,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "gemini-3-flash",
@@ -463,6 +497,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "gemini-2.5-flash",
@@ -474,6 +509,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_BUDGET,
+        wire_entities: None,
     },
     Model {
         id: "gemini-2.5-pro",
@@ -485,6 +521,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_BUDGET,
+        wire_entities: None,
     },
     Model {
         id: "gemini-2.5-flash-lite",
@@ -496,6 +533,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "gemini-2.0-flash",
@@ -507,6 +545,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     // DeepSeek (opencode-go / direct)
     Model {
@@ -519,6 +558,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     Model {
         id: "deepseek-v4-pro",
@@ -530,6 +570,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     // MiMo (Xiaomi / opencode-go, OpenAI format)
     Model {
@@ -542,6 +583,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "mimo-v2.5-pro",
@@ -553,6 +595,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "mimo-v2-pro",
@@ -564,6 +607,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "mimo-v2-omni",
@@ -575,6 +619,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     // MiniMax (opencode-go, Anthropic /messages format)
     Model {
@@ -587,6 +632,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     Model {
         id: "minimax-m2.7",
@@ -598,6 +644,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     Model {
         id: "minimax-m2.5",
@@ -609,6 +656,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     // Qwen (opencode-go, OpenAI /chat/completions format)
     // models.dev records qwen3.* as `@ai-sdk/openai-compatible` under
@@ -624,6 +672,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     Model {
         id: "qwen3.7-plus",
@@ -635,6 +684,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     Model {
         id: "qwen3.6-plus",
@@ -646,6 +696,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     Model {
         id: "qwen3.5-plus",
@@ -657,6 +708,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     // xAI Grok (OpenAI-compatible; SuperGrok OAuth or XAI_API_KEY)
     Model {
@@ -669,6 +721,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::XAI_GROK,
+        wire_entities: None,
     },
     Model {
         id: "grok-4.20",
@@ -680,6 +733,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::XAI_GROK,
+        wire_entities: None,
     },
     Model {
         id: "grok-4.3",
@@ -691,6 +745,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::XAI_GROK,
+        wire_entities: None,
     },
     Model {
         id: "grok-build-0.1",
@@ -702,6 +757,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::XAI_GROK,
+        wire_entities: None,
     },
 ];
 

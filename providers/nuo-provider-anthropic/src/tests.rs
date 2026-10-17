@@ -152,7 +152,11 @@ impl Tool for DummyTool {
     fn parameters_schema(&self) -> Value {
         json!({"type":"object","properties":{}})
     }
-    async fn execute(&self, _: &nuo_tool::ToolContext, _: Value) -> std::result::Result<nuo_tool::ToolOutput, nuo_tool::ToolError> {
+    async fn execute(
+        &self,
+        _: &nuo_tool::ToolContext,
+        _: Value,
+    ) -> std::result::Result<nuo_tool::ToolOutput, nuo_tool::ToolError> {
         Ok(nuo_tool::ToolOutput::success("ok"))
     }
 }
@@ -169,7 +173,11 @@ impl Tool for DummyTool2 {
     fn parameters_schema(&self) -> Value {
         json!({"type":"object","properties":{}})
     }
-    async fn execute(&self, _: &nuo_tool::ToolContext, _: Value) -> std::result::Result<nuo_tool::ToolOutput, nuo_tool::ToolError> {
+    async fn execute(
+        &self,
+        _: &nuo_tool::ToolContext,
+        _: Value,
+    ) -> std::result::Result<nuo_tool::ToolOutput, nuo_tool::ToolError> {
         Ok(nuo_tool::ToolOutput::success("ok"))
     }
 }
@@ -586,11 +594,8 @@ fn effort_clamps_to_model_support_levels() {
         Effort::Xhigh,
         Effort::Max,
     ];
-    let claude: Vec<nuo_model_codec::EffortLevel> = claude_levels
-        .iter()
-        .copied()
-        .map(Into::into)
-        .collect();
+    let claude: Vec<nuo_model_codec::EffortLevel> =
+        claude_levels.iter().copied().map(Into::into).collect();
     let resolved_claude = cfg.resolve_for(&claude);
     assert_eq!(resolved_claude.effort, Some(Effort::Xhigh));
 }

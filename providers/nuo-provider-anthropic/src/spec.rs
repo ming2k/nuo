@@ -6,9 +6,9 @@
 use nuo_model_codec::reasoning::ReasoningSupport;
 use nuo_model_codec::{Model, WireProtocol};
 
+use nuo_model_codec::{CatalogShape, RemoteCatalogSource};
 use nuo_provider::effort_ladders;
 use nuo_provider::spec::{ModelProviderSpec, PromptCachePolicy};
-use nuo_model_codec::{CatalogShape, RemoteCatalogSource};
 
 /// Per-model `max_tokens` for the Anthropic `/messages` surface. The Messages
 /// API requires `max_tokens`; capping the response at the model's registered
@@ -71,6 +71,7 @@ pub const MODELS: &[Model] = &[
         model_guidance: "",
         // Opus 4.8 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
+        wire_entities: None,
     },
     Model {
         id: "claude-sonnet-4-6",
@@ -83,6 +84,7 @@ pub const MODELS: &[Model] = &[
         model_guidance: "",
         // Sonnet 4.6 honors `max` but NOT `xhigh` (xhigh is Opus 4.8/4.7 only).
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
+        wire_entities: None,
     },
     Model {
         id: "claude-fable-5",
@@ -100,6 +102,7 @@ pub const MODELS: &[Model] = &[
         model_guidance: "",
         // Fable 5 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
+        wire_entities: None,
     },
     Model {
         id: "claude-sonnet-5",
@@ -118,6 +121,7 @@ pub const MODELS: &[Model] = &[
         // Sonnet 5 honors the full range INCLUDING `xhigh` — the key difference
         // from Sonnet 4.6, which rejects `xhigh` (see CLAUDE_NO_XHIGH).
         effort_levels: effort_ladders::CLAUDE_FULL,
+        wire_entities: None,
     },
     Model {
         id: "claude-haiku-4-5-20251001",
@@ -132,6 +136,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
 ];
 

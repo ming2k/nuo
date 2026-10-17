@@ -1,7 +1,7 @@
 //! In-flight streaming loop detector re-exported from `nous-model-wire`.
 
 pub use nuo_model_codec::loop_detector::{
-    DegeneratePattern, StreamLoopDetector, MAX_DEGENERATE_BUDGET_CHARS, MIN_DWELL_CHARS,
+    DegeneratePattern, MAX_DEGENERATE_BUDGET_CHARS, MIN_DWELL_CHARS, StreamLoopDetector,
 };
 
 #[cfg(test)]

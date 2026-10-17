@@ -232,10 +232,7 @@ fn layout_footer_with_theme(
             AffordanceIntent::Neutral
         };
         affordances.push(super::keycap::KeyAffordance::with_intent_and_rank(
-            e.key,
-            e.label,
-            intent,
-            e.rank,
+            e.key, e.label, intent, e.rank,
         ));
     }
 
@@ -320,6 +317,9 @@ mod tests {
         let text = modal_footer_text_with_extra(&hints, &extra, 48);
         assert!(text.contains('D'), "band-70 D must survive: {text:?}");
         assert!(!text.contains('*'), "band-40 * should drop first: {text:?}");
-        assert!(text.contains("F1 more"), "overflow must reserve F1 more: {text:?}");
+        assert!(
+            text.contains("F1 more"),
+            "overflow must reserve F1 more: {text:?}"
+        );
     }
 }

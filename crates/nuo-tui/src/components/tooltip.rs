@@ -120,7 +120,12 @@ impl AnchoredTooltip {
             // surface, then center the single text line — no edge glyphs,
             // separation by background alone.
             frame.render_widget(RtBlock::default().style(Style::default().bg(bg)), rect);
-            let mid = Rect::new(rect.x, rect.y + rect.height.saturating_sub(1) / 2, rect.width, 1);
+            let mid = Rect::new(
+                rect.x,
+                rect.y + rect.height.saturating_sub(1) / 2,
+                rect.width,
+                1,
+            );
             let p = Paragraph::new(Line::from(vec![
                 Span::styled(" ", Style::default().bg(bg)),
                 Span::styled(self.text.as_str(), Style::default().fg(fg).bg(bg)),

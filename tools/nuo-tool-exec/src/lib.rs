@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use nuo_tool_fs::SystemToolContext;
 use nuo_tool::{
     BuiltinTool, RiskProfile, ShellLine, ShellStream, ShellTermination, Tool, ToolContext,
-    ToolError, ToolOutput, ToolScope, ToolSchema,
+    ToolError, ToolOutput, ToolSchema, ToolScope,
 };
+use nuo_tool_fs::SystemToolContext;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -74,8 +74,9 @@ impl Tool for ExecuteCommandTool {
     }
 
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
-        let args: ExecuteCommandArgs = serde_json::from_value(arguments)
-            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
+        let args: ExecuteCommandArgs = serde_json::from_value(arguments).map_err(|err| {
+            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
+        })?;
 
         let command = &args.command;
         let timeout_secs = args
@@ -178,10 +179,7 @@ impl Tool for ExecuteCommandTool {
                         stderr_buf.push('\n');
                     }
                 }
-                lines.push(ShellLine {
-                    stream,
-                    text: line,
-                });
+                lines.push(ShellLine { stream, text: line });
 
                 if lines.len() >= max_lines || (stdout_buf.len() + stderr_buf.len()) >= max_bytes {
                     flood_halt = true;
@@ -217,9 +215,7 @@ impl Tool for ExecuteCommandTool {
         let truncated = total_chars > nuo_tool::tool_output::SHELL_MAX_OUTPUT_CHARS
             || termination == ShellTermination::StreamGuard;
         let truncated_note = truncated.then(|| {
-            format!(
-                "Output truncated: {total_chars} chars total; full raw log spilled to disk"
-            )
+            format!("Output truncated: {total_chars} chars total; full raw log spilled to disk")
         });
 
         Ok(ToolOutput::Shell {
@@ -254,7 +250,10 @@ mod tests {
         let tool = ExecuteCommandTool::new(ctx);
         let t_ctx = ToolContext::default();
 
-        let res = tool.execute(&t_ctx, json!({"command": "echo test"})).await.unwrap();
+        let res = tool
+            .execute(&t_ctx, json!({"command": "echo test"}))
+            .await
+            .unwrap();
         assert!(res.content().contains("test"));
         assert!(tool.matches_name("execute_command"));
         assert!(!tool.matches_name("run_command"));
@@ -274,9 +273,15 @@ mod tests {
         let cmd = "powershell -Command \"Write-Output ('A' * 10000)\"";
 
         let res = tool.execute(&t_ctx, json!({"command": cmd})).await.unwrap();
-        if let ToolOutput::Shell { truncated, stdout, .. } = &res {
+        if let ToolOutput::Shell {
+            truncated, stdout, ..
+        } = &res
+        {
             if stdout.len() > nuo_tool::tool_output::SHELL_MAX_OUTPUT_CHARS {
-                assert!(truncated, "Oversized output must be marked as truncated stub");
+                assert!(
+                    truncated,
+                    "Oversized output must be marked as truncated stub"
+                );
                 assert!(res.content().contains("Output truncated"));
             }
         }
@@ -295,8 +300,16 @@ mod tests {
         #[cfg(windows)]
         let cmd = "powershell -Command \"1..3000\"";
 
-        let res = tool.execute(&t_ctx, json!({"command": cmd, "raw": false})).await.unwrap();
-        if let ToolOutput::Shell { termination, truncated, .. } = res {
+        let res = tool
+            .execute(&t_ctx, json!({"command": cmd, "raw": false}))
+            .await
+            .unwrap();
+        if let ToolOutput::Shell {
+            termination,
+            truncated,
+            ..
+        } = res
+        {
             assert_eq!(termination, ShellTermination::StreamGuard);
             assert!(truncated);
         }

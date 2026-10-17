@@ -11,8 +11,8 @@
 //! Every access goes through the single-writer actor (ADR-0231): the ledger
 //! never opens a connection of its own.
 
-use nuo_wire::{BackgroundJobInfo, BackgroundJobOutcome, JobSpec, JobState};
 use nuo_persistence::db::PersistenceHandle;
+use nuo_wire::{BackgroundJobInfo, BackgroundJobOutcome, JobSpec, JobState};
 
 const LEDGER_PREFIX: &str = "task:";
 

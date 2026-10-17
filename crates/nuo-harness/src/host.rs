@@ -36,8 +36,13 @@ pub trait RoleCatalog: Send + Sync + 'static {
 /// not fail because of it.
 pub trait RoleMemory: Send + Sync + 'static {
     /// Record one completed user↔role exchange.
-    fn record(&self, role: &str, session_id: Option<&str>, prompt: &str, response: &str)
-    -> Result<(), String>;
+    fn record(
+        &self,
+        role: &str,
+        session_id: Option<&str>,
+        prompt: &str,
+        response: &str,
+    ) -> Result<(), String>;
 
     /// Recall memories for `role` matching `query`.
     fn recall(&self, role: &str, query: &str, limit: usize) -> Result<Vec<RecalledMemory>, String>;
@@ -78,7 +83,12 @@ impl RoleMemory for NoRoleMemory {
         Ok(())
     }
 
-    fn recall(&self, _role: &str, _query: &str, _limit: usize) -> Result<Vec<RecalledMemory>, String> {
+    fn recall(
+        &self,
+        _role: &str,
+        _query: &str,
+        _limit: usize,
+    ) -> Result<Vec<RecalledMemory>, String> {
         Ok(Vec::new())
     }
 }
@@ -139,8 +149,10 @@ pub trait TitleSink: Send + Sync + 'static {
     fn title(&self) -> futures::future::BoxFuture<'static, (Option<String>, bool)>;
 
     /// Record a generated title.
-    fn set_generated_title(&self, title: String)
-    -> futures::future::BoxFuture<'static, Result<(), String>>;
+    fn set_generated_title(
+        &self,
+        title: String,
+    ) -> futures::future::BoxFuture<'static, Result<(), String>>;
 }
 
 /// A host that keeps no titles: every write is discarded.
@@ -320,7 +332,10 @@ mod tests {
             .record("developer", Some("s"), "q", "a")
             .expect("recording into a memory-less host is a no-op, not a failure");
         assert!(
-            host.memory().recall("developer", "q", 5).unwrap().is_empty(),
+            host.memory()
+                .recall("developer", "q", 5)
+                .unwrap()
+                .is_empty(),
             "a host with no memory recalls nothing rather than erroring"
         );
     }
@@ -328,7 +343,9 @@ mod tests {
     #[test]
     fn the_null_host_persists_permissions_inside_the_project() {
         let host = KernelHost::none();
-        let path = host.project_paths().permissions_file(Path::new("/srv/project"));
+        let path = host
+            .project_paths()
+            .permissions_file(Path::new("/srv/project"));
         assert!(
             path.starts_with("/srv/project"),
             "the null path stays inside the project it belongs to: {path:?}"

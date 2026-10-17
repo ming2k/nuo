@@ -102,7 +102,10 @@ impl ToolInvocation {
         let (status, execution_started_at) = if id_str.is_empty() {
             (ToolInvocationStatus::Ingesting, None)
         } else {
-            (ToolInvocationStatus::Executing, Some(std::time::Instant::now()))
+            (
+                ToolInvocationStatus::Executing,
+                Some(std::time::Instant::now()),
+            )
         };
         Self {
             id: id_str,
@@ -408,9 +411,7 @@ pub fn command_row_layout(
 /// The headline/detail split of an ack reply, when the record carries detail
 /// lines. The title is the part worth the reader's first glance; the detail
 /// is the muted explanation beneath it (ADR-0106's two-tone ack scheme).
-pub fn command_ack_split(
-    result: Option<&nuo_wire::CommandResult>,
-) -> Option<(&str, &[String])> {
+pub fn command_ack_split(result: Option<&nuo_wire::CommandResult>) -> Option<(&str, &[String])> {
     let nuo_wire::CommandResult::Ack { title, detail } = result? else {
         return None;
     };
@@ -938,7 +939,13 @@ impl TranscriptMessage {
     /// ADR-0023: stamp the provider tool-call slot on a pre-dispatch step, the
     /// correlation key for the announce → collapse handshake.
     pub fn with_input_slot(mut self, slot: usize) -> Self {
-        if let MessageKind::ToolStep { input_slot, status, execution_started_at, .. } = &mut self.kind {
+        if let MessageKind::ToolStep {
+            input_slot,
+            status,
+            execution_started_at,
+            ..
+        } = &mut self.kind
+        {
             *input_slot = Some(slot);
             *status = ToolStepStatus::Ingesting;
             *execution_started_at = None;
@@ -1391,10 +1398,7 @@ impl TranscriptMessage {
         // an explicit `failed` flag — classification is now fully data-driven.
         // Permission denial gets its own status so the UI shows it distinctly
         // from a runtime error.
-        *status = if matches!(
-            structured,
-            nuo_wire::ToolOutput::PermissionDenied { .. }
-        ) {
+        *status = if matches!(structured, nuo_wire::ToolOutput::PermissionDenied { .. }) {
             ToolStepStatus::Denied
         } else if matches!(
             &structured,
@@ -1479,12 +1483,8 @@ impl TranscriptMessage {
             // stream. Trailing empties (from the terminal `\n`) are dropped so
             // they don't paint phantom blank rows.
             let stream_tag = match stream {
-                nuo_wire::ToolStream::Stdout(_) => {
-                    nuo_wire::tool_output::ShellStream::Out
-                }
-                nuo_wire::ToolStream::Stderr(_) => {
-                    nuo_wire::tool_output::ShellStream::Err
-                }
+                nuo_wire::ToolStream::Stdout(_) => nuo_wire::tool_output::ShellStream::Out,
+                nuo_wire::ToolStream::Stderr(_) => nuo_wire::tool_output::ShellStream::Err,
             };
             let text = match stream {
                 nuo_wire::ToolStream::Stdout(s) | nuo_wire::ToolStream::Stderr(s) => s,
@@ -2242,15 +2242,11 @@ impl TranscriptMessage {
                     nuo_wire::RoundInterruptReason::Error => unreachable!(),
                 },
                 None => match record.reason {
-                    nuo_wire::RoundInterruptReason::User => {
-                        "Cancelled via [Esc Esc]".to_string()
-                    }
+                    nuo_wire::RoundInterruptReason::User => "Cancelled via [Esc Esc]".to_string(),
                     nuo_wire::RoundInterruptReason::Superseded => {
                         "Superseded by new message".to_string()
                     }
-                    nuo_wire::RoundInterruptReason::Terminated => {
-                        "Process exited".to_string()
-                    }
+                    nuo_wire::RoundInterruptReason::Terminated => "Process exited".to_string(),
                     nuo_wire::RoundInterruptReason::Error => unreachable!(),
                 },
             },
@@ -2677,16 +2673,28 @@ impl TranscriptMessage {
                 None => format!("{summary}{streaming}"),
             },
             ToolStepStatus::Failed => {
-                format!("{summary}{streaming} (failed {})", duration_text(*duration_ms))
+                format!(
+                    "{summary}{streaming} (failed {})",
+                    duration_text(*duration_ms)
+                )
             }
             ToolStepStatus::Denied => {
-                format!("{summary}{streaming} (denied {})", duration_text(*duration_ms))
+                format!(
+                    "{summary}{streaming} (denied {})",
+                    duration_text(*duration_ms)
+                )
             }
             ToolStepStatus::Cancelled => {
-                format!("{summary}{streaming} (cancelled {})", duration_text(*duration_ms))
+                format!(
+                    "{summary}{streaming} (cancelled {})",
+                    duration_text(*duration_ms)
+                )
             }
             ToolStepStatus::Interrupted => {
-                format!("{summary}{streaming} (interrupted {})", duration_text(*duration_ms))
+                format!(
+                    "{summary}{streaming} (interrupted {})",
+                    duration_text(*duration_ms)
+                )
             }
         })
     }
@@ -2722,7 +2730,8 @@ impl TranscriptMessage {
                             "path": path,
                             "old_string": old,
                             "new_string": new,
-                        }).to_string();
+                        })
+                        .to_string();
                         &effective_args_buf
                     }
                     _ => arguments.as_str(),
@@ -2733,8 +2742,12 @@ impl TranscriptMessage {
         } else {
             arguments.as_str()
         };
-        let semantic_line =
-            crate::tools::semantic_summary_for(name, effective_args, profile.as_deref(), workspace_root);
+        let semantic_line = crate::tools::semantic_summary_for(
+            name,
+            effective_args,
+            profile.as_deref(),
+            workspace_root,
+        );
         let suffix = match status {
             ToolStepStatus::Ingesting => {
                 let s = match input_bytes {
@@ -2772,7 +2785,8 @@ impl TranscriptMessage {
             execution_started_at,
             started_at,
             ..
-        } = &self.kind else {
+        } = &self.kind
+        else {
             return None;
         };
         match status {
@@ -2914,7 +2928,8 @@ impl TranscriptMessage {
                                 "path": path,
                                 "old_string": old,
                                 "new_string": new,
-                            }).to_string();
+                            })
+                            .to_string();
                             &effective_args_buf
                         }
                         _ => arguments.as_str(),
@@ -2927,13 +2942,11 @@ impl TranscriptMessage {
             };
             let summary = crate::tools::summary_for(name, effective_args, profile.as_deref());
             let suffix = match status {
-                ToolStepStatus::Ingesting => {
-                    match (input_slot, input_bytes) {
-                        (Some(_), Some(bytes)) => format!(" (receiving input {} KB)", bytes / 1024),
-                        (Some(_), None) => " (receiving input)".to_string(),
-                        (None, _) => String::new(),
-                    }
-                }
+                ToolStepStatus::Ingesting => match (input_slot, input_bytes) {
+                    (Some(_), Some(bytes)) => format!(" (receiving input {} KB)", bytes / 1024),
+                    (Some(_), None) => " (receiving input)".to_string(),
+                    (None, _) => String::new(),
+                },
                 ToolStepStatus::Executing => {
                     let verb = match name.as_str() {
                         "edit_text" | "edit" | "edit_file" | "write_file" | "write" => "applying",
@@ -3056,7 +3069,9 @@ pub fn parse_arguments_kv(arguments: &str) -> Vec<(String, String)> {
     if trimmed.is_empty() {
         return Vec::new();
     }
-    if let Ok(serde_json::Value::Object(object)) = serde_json::from_str::<serde_json::Value>(trimmed) {
+    if let Ok(serde_json::Value::Object(object)) =
+        serde_json::from_str::<serde_json::Value>(trimmed)
+    {
         return object
             .into_iter()
             .map(|(key, val)| {

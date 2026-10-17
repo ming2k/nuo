@@ -131,14 +131,23 @@ fn test_gemini_wire_request_and_response() {
     // Non-streaming URL
     let (url, headers, body) = google::build_request(&endpoint, "goog-test", &request, false);
     assert!(url.ends_with(":generateContent"), "{url}");
-    assert!(!url.contains("key="), "Key must not leak into query string: {url}");
+    assert!(
+        !url.contains("key="),
+        "Key must not leak into query string: {url}"
+    );
     assert_eq!(
         headers.get("x-goog-api-key").and_then(|v| v.to_str().ok()),
         Some("goog-test")
     );
     assert_eq!(body["contents"][0]["role"], "user");
-    assert_eq!(body["contents"][0]["parts"][0]["text"], "What time is it in Tokyo?");
-    assert_eq!(body["tools"][0]["functionDeclarations"][0]["name"], "get_time");
+    assert_eq!(
+        body["contents"][0]["parts"][0]["text"],
+        "What time is it in Tokyo?"
+    );
+    assert_eq!(
+        body["tools"][0]["functionDeclarations"][0]["name"],
+        "get_time"
+    );
     assert_eq!(
         body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
         2048
@@ -150,11 +159,20 @@ fn test_gemini_wire_request_and_response() {
     assert!(body.get("stream").is_none());
 
     // Streaming URL
-    let (stream_url, stream_headers, stream_body) = google::build_request(&endpoint, "goog-test", &request, true);
-    assert!(stream_url.ends_with(":streamGenerateContent?alt=sse"), "{stream_url}");
-    assert!(!stream_url.contains("key="), "Key must not leak into streaming query string: {stream_url}");
+    let (stream_url, stream_headers, stream_body) =
+        google::build_request(&endpoint, "goog-test", &request, true);
+    assert!(
+        stream_url.ends_with(":streamGenerateContent?alt=sse"),
+        "{stream_url}"
+    );
+    assert!(
+        !stream_url.contains("key="),
+        "Key must not leak into streaming query string: {stream_url}"
+    );
     assert_eq!(
-        stream_headers.get("x-goog-api-key").and_then(|v| v.to_str().ok()),
+        stream_headers
+            .get("x-goog-api-key")
+            .and_then(|v| v.to_str().ok()),
         Some("goog-test")
     );
     assert!(stream_body.get("stream").is_none());
@@ -220,8 +238,14 @@ fn test_gemini_wire_request_and_response() {
     });
 
     let standard_parsed = google::parse_response(&standard_gemini_resp).unwrap();
-    assert_eq!(standard_parsed.thinking.as_deref(), Some("Thinking step by step..."));
-    assert_eq!(standard_parsed.content.as_deref(), Some("The time in Tokyo is 15:00."));
+    assert_eq!(
+        standard_parsed.thinking.as_deref(),
+        Some("Thinking step by step...")
+    );
+    assert_eq!(
+        standard_parsed.content.as_deref(),
+        Some("The time in Tokyo is 15:00.")
+    );
 }
 
 #[test]
@@ -239,10 +263,7 @@ fn test_anthropic_prompt_caching_breakpoints() {
     };
 
     let (_, _, body) = anthropic::build_request(&endpoint, "sk-test", &request, false);
-    assert_eq!(
-        body["system"][0]["cache_control"]["type"],
-        "ephemeral"
-    );
+    assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
 }
 
 #[test]
@@ -251,7 +272,10 @@ fn test_canonical_block_multimodal_ir() {
         WireRole::User,
         vec![
             ContentBlock::text("Describe this architecture diagram:"),
-            ContentBlock::image("image/png", "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="),
+            ContentBlock::image(
+                "image/png",
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+            ),
         ],
     );
 

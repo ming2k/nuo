@@ -98,7 +98,10 @@ pub fn body_with_capabilities(
     // Structured InstructionBundle is the authoritative SSOT. Leading Role::System messages
     // in the conversation vector are grandfathered for backward compatibility but merged into the static block.
     let (mut static_system_text, ephemeral_system_text) = if let Some(bundle) = instructions {
-        (bundle.render_system_instructions(), bundle.render_ephemeral())
+        (
+            bundle.render_system_instructions(),
+            bundle.render_ephemeral(),
+        )
     } else {
         (String::new(), String::new())
     };
@@ -115,7 +118,10 @@ pub fn body_with_capabilities(
         conversation.push(message);
     }
 
-    let system_text = match (static_system_text.is_empty(), ephemeral_system_text.is_empty()) {
+    let system_text = match (
+        static_system_text.is_empty(),
+        ephemeral_system_text.is_empty(),
+    ) {
         (false, false) => format!("{static_system_text}\n{ephemeral_system_text}"),
         (false, true) => static_system_text.clone(),
         (true, false) => ephemeral_system_text.clone(),
@@ -170,7 +176,12 @@ pub fn body_with_capabilities(
                 body["cache_control"] = control;
             }
             nuo_model_codec::PromptCacheMode::Explicit => {
-                stamp_caching_breakpoints(&mut body, &static_system_text, &ephemeral_system_text, &control);
+                stamp_caching_breakpoints(
+                    &mut body,
+                    &static_system_text,
+                    &ephemeral_system_text,
+                    &control,
+                );
             }
             nuo_model_codec::PromptCacheMode::Implicit => {}
         }

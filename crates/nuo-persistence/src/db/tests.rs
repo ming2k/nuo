@@ -51,7 +51,9 @@ fn interim_v5_stamp_is_repaired_to_final_schema() {
     assert!(table_exists(&conn, "thread_policies").unwrap());
     assert!(!table_exists(&conn, "sessions").unwrap());
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM threads WHERE id = 's1'", [], |r| r.get(0))
+        .query_row("SELECT COUNT(*) FROM threads WHERE id = 's1'", [], |r| {
+            r.get(0)
+        })
         .unwrap();
     assert_eq!(count, 1);
 }
@@ -252,18 +254,15 @@ fn visible_harness_injections_persist_after_origin_hidden_split() {
 
     // The exact repro: a user steering insert and a command echo are both
     // visible (`hidden = false`) yet legitimately carry an `origin`.
-    let steer = Message::new(Role::User, "pls reconsider point 3").with_origin(
-        nuo_wire::InjectionOrigin::new(InjectionKind::UserSteer),
-    );
+    let steer = Message::new(Role::User, "pls reconsider point 3")
+        .with_origin(nuo_wire::InjectionOrigin::new(InjectionKind::UserSteer));
     let echo = Message::command_echo("/session list");
     let image = Message::new(Role::User, "Image from screenshot")
         .with_images(vec![nuo_wire::ImagePart {
             mime: "image/png".into(),
             data: "bytes".into(),
         }])
-        .with_origin(nuo_wire::InjectionOrigin::new(
-            InjectionKind::ToolImage,
-        ));
+        .with_origin(nuo_wire::InjectionOrigin::new(InjectionKind::ToolImage));
 
     assert!(!steer.hidden && steer.origin.is_some());
     assert!(!echo.hidden && echo.origin.is_some());
@@ -278,7 +277,9 @@ fn visible_harness_injections_persist_after_origin_hidden_split() {
     // Was the reported failure: `CHECK constraint failed: origin IS NULL OR hidden = 1`.
     session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
 
-    let reloaded = session_store::load_session_full(&engine.conn, &data.id).unwrap().unwrap();
+    let reloaded = session_store::load_session_full(&engine.conn, &data.id)
+        .unwrap()
+        .unwrap();
     let messages: Vec<_> = reloaded
         .transcript
         .entries
@@ -340,7 +341,9 @@ fn delta_save_appends_only_rows_above_the_watermark() {
         &CommitGuard::default(),
     )
     .unwrap();
-    let reloaded = session_store::load_session_full(&engine.conn, &data.id).unwrap().unwrap();
+    let reloaded = session_store::load_session_full(&engine.conn, &data.id)
+        .unwrap()
+        .unwrap();
     assert_eq!(reloaded.transcript.entries.len(), 1);
 
     // Second delta appends only the new row; the durable watermark moves.
@@ -357,7 +360,9 @@ fn delta_save_appends_only_rows_above_the_watermark() {
         &CommitGuard::default(),
     )
     .unwrap();
-    let reloaded = session_store::load_session_full(&engine.conn, &data.id).unwrap().unwrap();
+    let reloaded = session_store::load_session_full(&engine.conn, &data.id)
+        .unwrap()
+        .unwrap();
     assert_eq!(reloaded.transcript.entries.len(), 2);
     assert_eq!(reloaded.transcript.entries[1].seq, 1);
 }
@@ -388,7 +393,9 @@ fn generation_mismatch_escalates_delta_to_full_rewrite() {
     )
     .unwrap();
 
-    let reloaded = session_store::load_session_full(&engine.conn, &data.id).unwrap().unwrap();
+    let reloaded = session_store::load_session_full(&engine.conn, &data.id)
+        .unwrap()
+        .unwrap();
     assert_eq!(reloaded.transcript.entries.len(), 1);
     assert_eq!(
         reloaded.transcript.entries[0].to_message().unwrap().content,
@@ -584,7 +591,8 @@ fn image_payload_is_saved_to_cas_blob_store() {
         }])
         .with_origin(InjectionOrigin::new(InjectionKind::ToolImage));
 
-    data.transcript.push(TranscriptEntry::from_message(0, &companion_msg));
+    data.transcript
+        .push(TranscriptEntry::from_message(0, &companion_msg));
     let _engine = engine_blob_round_trip(&data, &blob_store);
 
     let expected_hash = BlobStore::hash(fake_image_bytes);
@@ -694,8 +702,9 @@ fn blob_gc_reclaims_only_blobs_absent_from_the_reference_ledger() {
             msg_count: 0,
             last_user_prompt: None,
             digest: None,
-        })
-        .unwrap();
+        },
+    )
+    .unwrap();
     engine
         .conn
         .execute(
@@ -704,7 +713,8 @@ fn blob_gc_reclaims_only_blobs_absent_from_the_reference_ledger() {
         )
         .unwrap();
 
-    let (count, _) = blob_store.retain_only(&garbage_collection::live_blob_hashes(&engine.conn).unwrap());
+    let (count, _) =
+        blob_store.retain_only(&garbage_collection::live_blob_hashes(&engine.conn).unwrap());
     assert_eq!(count, 1);
     assert!(
         blob_store.get(&referenced).is_some(),
@@ -1250,8 +1260,7 @@ mod supervision {
 
         // Operator-ish input is sanitized, not executed as FTS grammar.
         assert!(
-            history_search::search_history(&engine.conn, "retry OR NOT needle", None, 20)
-                .is_ok(),
+            history_search::search_history(&engine.conn, "retry OR NOT needle", None, 20).is_ok(),
             "sanitized query must not error"
         );
     }
@@ -1281,13 +1290,14 @@ mod supervision {
         }
 
         // Strict: both words together appear in no single entry.
-        let strict = history_search::search_history(&engine.conn, "retry border", None, 20).unwrap();
+        let strict =
+            history_search::search_history(&engine.conn, "retry border", None, 20).unwrap();
         assert!(strict.is_empty(), "strict AND must miss: {strict:?}");
 
         // Relaxed: each entry carries one word; the retry entry also
         // matches more of the query. Both are recalled, OR-joined.
-        let relaxed = history_search::search_history_relaxed(&engine.conn, "retry border", None, 20)
-            .unwrap();
+        let relaxed =
+            history_search::search_history_relaxed(&engine.conn, "retry border", None, 20).unwrap();
         assert_eq!(relaxed.len(), 2, "both entries surface: {relaxed:?}");
         let ids: std::collections::HashSet<_> =
             relaxed.iter().map(|h| h.session_id.as_str()).collect();
@@ -1364,8 +1374,7 @@ fn latest_session_filters_by_workspace_and_persona() {
     );
     // Unbound + no persona constraint still finds only unbound sessions.
     assert_eq!(
-        session_store::latest_session(&engine.conn, &WorkspaceFilter::Unbound, None)
-            .unwrap(),
+        session_store::latest_session(&engine.conn, &WorkspaceFilter::Unbound, None).unwrap(),
         Some(unbound.id)
     );
 }
@@ -1384,8 +1393,7 @@ fn role_anchored_partition_and_switch_candidates_exclude_active() {
             updated_at: time,
             ..Default::default()
         };
-        let msg =
-            nuo_wire::Message::new(nuo_wire::Role::User, format!("hello from {id}"));
+        let msg = nuo_wire::Message::new(nuo_wire::Role::User, format!("hello from {id}"));
         data.transcript
             .push(nuo_wire::TranscriptEntry::from_message(0, &msg));
         data
@@ -1406,20 +1414,20 @@ fn role_anchored_partition_and_switch_candidates_exclude_active() {
 
     let phil_partition = SessionPartition::Role("philosophist".into());
     // Active is phil-2: candidates must return phil-1 ONLY, excluding phil-2, trans-1, and dev-1
-    let candidates = session_store::list_switch_candidates(&engine.conn, &phil_partition, "phil-2")
-        .unwrap();
+    let candidates =
+        session_store::list_switch_candidates(&engine.conn, &phil_partition, "phil-2").unwrap();
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].id, "phil-1");
 
     // Active is phil-1: candidates must return phil-2 ONLY
-    let candidates = session_store::list_switch_candidates(&engine.conn, &phil_partition, "phil-1")
-        .unwrap();
+    let candidates =
+        session_store::list_switch_candidates(&engine.conn, &phil_partition, "phil-1").unwrap();
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].id, "phil-2");
 
     // Active is unknown: candidates return both phil-2 and phil-1
-    let candidates = session_store::list_switch_candidates(&engine.conn, &phil_partition, "none")
-        .unwrap();
+    let candidates =
+        session_store::list_switch_candidates(&engine.conn, &phil_partition, "none").unwrap();
     assert_eq!(candidates.len(), 2);
     assert_eq!(candidates[0].id, "phil-2");
     assert_eq!(candidates[1].id, "phil-1");
@@ -1432,8 +1440,8 @@ fn role_anchored_partition_and_switch_candidates_exclude_active() {
 
     // Workspace partition
     let ws_partition = SessionPartition::Workspace("/repo/a".into());
-    let candidates = session_store::list_switch_candidates(&engine.conn, &ws_partition, "dev-1")
-        .unwrap();
+    let candidates =
+        session_store::list_switch_candidates(&engine.conn, &ws_partition, "dev-1").unwrap();
     assert!(candidates.is_empty()); // Excluded itself, no other candidates
 }
 
@@ -1501,8 +1509,9 @@ fn fast_fts_triggers_align_rowids_and_delete_in_sync() {
     assert_eq!(fts_rowid, membership_rowid);
 
     // Verify FTS search works
-    let results = history_search::search_history(&engine.conn, "unique_needle_for_fts_test", None, 10)
-        .unwrap();
+    let results =
+        history_search::search_history(&engine.conn, "unique_needle_for_fts_test", None, 10)
+            .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].session_id, data.id);
 

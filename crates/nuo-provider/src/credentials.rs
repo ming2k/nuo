@@ -62,11 +62,23 @@ impl TokenSet {
 /// Errors occurring during credential storage read/write/lock operations.
 #[derive(Debug)]
 pub enum CredentialStoreError {
-    Read { path: PathBuf, source: std::io::Error },
-    Parse { path: PathBuf, source: toml::de::Error },
+    Read {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    Parse {
+        path: PathBuf,
+        source: toml::de::Error,
+    },
     Serialize(toml::ser::Error),
-    Write { path: PathBuf, source: std::io::Error },
-    Lock { path: PathBuf, source: std::io::Error },
+    Write {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    Lock {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     Join(String),
 }
 
@@ -276,7 +288,10 @@ impl std::fmt::Debug for FileCredentialStore {
 
 impl CredentialStore for FileCredentialStore {
     fn read(&self, connection: &str) -> Result<Option<TokenSet>, CredentialStoreError> {
-        Ok(Self::load_from(&self.auth_file)?.tokens.get(connection).cloned())
+        Ok(Self::load_from(&self.auth_file)?
+            .tokens
+            .get(connection)
+            .cloned())
     }
 
     fn lock(&self) -> BoxFuture<'static, Result<Box<dyn CredentialSession>, CredentialStoreError>> {
@@ -333,7 +348,8 @@ impl CredentialSession for FileCredentialSession {
         if !tokens.is_valid() {
             return false;
         }
-        self.staged.insert(connection.to_string(), Staged::Put(tokens));
+        self.staged
+            .insert(connection.to_string(), Staged::Put(tokens));
         true
     }
 
@@ -376,7 +392,9 @@ impl InMemoryCredentialStore {
     }
 
     fn entries(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, TokenSet>> {
-        self.tokens.lock().unwrap_or_else(|error| error.into_inner())
+        self.tokens
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
     }
 }
 
@@ -430,7 +448,8 @@ impl CredentialSession for InMemoryCredentialSession {
         if !tokens.is_valid() {
             return false;
         }
-        self.staged.insert(connection.to_string(), Staged::Put(tokens));
+        self.staged
+            .insert(connection.to_string(), Staged::Put(tokens));
         true
     }
 

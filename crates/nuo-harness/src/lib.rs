@@ -60,19 +60,19 @@
 
 // Bounded contract re-exports: only protocol types that cross the harness boundary.
 pub use nuo_wire::{
-    async_trait, AgentEvent, AgentIdentity, AgentNotice, AgentOp, AgentRequest, AgentResponse,
-    AgentRoleProfile, DynamicToolSink, Hook, HookContext, HookEvent, HookEventKind, HookOutcome,
-    InstructionTier, LoopStatus, Message, PermissionDecision, Provider, ProviderStreamEvent,
-    RetryPoint, Role, RoundEvent, SessionDelta, SessionSource, SubagentEvent, TokenUsage, Tool,
-    ToolContext, ToolOutput, ToolSet, ToolStream, Transport,
+    AgentEvent, AgentIdentity, AgentNotice, AgentOp, AgentRequest, AgentResponse, AgentRoleProfile,
+    DynamicToolSink, Hook, HookContext, HookEvent, HookEventKind, HookOutcome, InstructionTier,
+    LoopStatus, Message, PermissionDecision, Provider, ProviderStreamEvent, RetryPoint, Role,
+    RoundEvent, SessionDelta, SessionSource, SubagentEvent, TokenUsage, Tool, ToolContext,
+    ToolOutput, ToolSet, ToolStream, Transport, async_trait,
 };
 
 #[allow(unused_imports)]
 pub(crate) use nuo_wire::{
-    message, pressure, ExecutionEnvironment, HarnessError, ImagePart, InjectionKind,
-    InjectionOrigin, InputRequest, NoticeKind, NoticeSeverity, NoticeSource, NoticeSurface,
-    QueuedMessage, StdinReply, TodoList, ToolCall, UserQuestion, UserQuestionReply,
-    UserQuestionRequest, WorkspaceRoot, WorkspaceRoots,
+    ExecutionEnvironment, HarnessError, ImagePart, InjectionKind, InjectionOrigin, InputRequest,
+    NoticeKind, NoticeSeverity, NoticeSource, NoticeSurface, QueuedMessage, StdinReply, TodoList,
+    ToolCall, UserQuestion, UserQuestionReply, UserQuestionRequest, WorkspaceRoot, WorkspaceRoots,
+    message, pressure,
 };
 
 // Same ambient std/tokio prelude the Agent struct used to inherit from
@@ -130,16 +130,12 @@ pub use agent::{Agent, AgentBuilder, RequestTokenEstimate, RoundOutcome, Switche
 // Subsystem: Governance & Policy Enforcement
 // -----------------------------------------------------------------------------
 pub mod governance;
-pub(crate) use governance::{
-    bash_policy, permission_policy, permission_store, shell_input,
-};
-pub use governance::{
-    guard, interaction, stream_loop_detector, trajectory_guard,
-};
 pub use governance::{
     DegeneratePattern, GuardAction, InteractionConfig, InteractionController, RoundGuardState,
     StreamLoopDetector, TrajectoryLoopGuard,
 };
+pub(crate) use governance::{bash_policy, permission_policy, permission_store, shell_input};
+pub use governance::{guard, interaction, stream_loop_detector, trajectory_guard};
 
 // -----------------------------------------------------------------------------
 // Subsystem: Dispatch, Execution Pipeline & Tool Scheduling
@@ -147,31 +143,28 @@ pub use governance::{
 pub mod dispatch;
 #[allow(unused_imports)]
 pub(crate) use dispatch::pipeline as dispatch_pipeline;
-pub(crate) use dispatch::{
-    dynamic_tools, tool_integration, tool_manager, tool_scheduler,
-};
-pub use dispatch::{dynamic, tool_call};
 pub use dispatch::tool_call::extract_partial_string_field;
+pub use dispatch::{dynamic, tool_call};
+pub(crate) use dispatch::{dynamic_tools, tool_integration, tool_manager, tool_scheduler};
 
 // -----------------------------------------------------------------------------
 // Subsystem: Interoperability, Human Gateways & Subagents
 // -----------------------------------------------------------------------------
 pub mod interop;
-pub use interop::{agent_slot, human_broker, subagent_tool};
 pub use interop::agent_slot::AgentSlot;
 pub use interop::human_broker::*;
 pub use interop::subagent_tool::{SubagentRegistry, SubagentTool};
+pub use interop::{agent_slot, human_broker, subagent_tool};
 
 // -----------------------------------------------------------------------------
 // Subsystem: Durability, Audit & Conformance
 // -----------------------------------------------------------------------------
 pub mod durability;
-pub use durability::{
-    conformance as durability_conformance, record as execution_record,
-    Ack, ConformanceReport, FactSink, Hydrate, MemorySink, NullSink, SinkError, SinkHealth,
-    run_conformance,
-};
 pub use durability::record::*;
+pub use durability::{
+    Ack, ConformanceReport, FactSink, Hydrate, MemorySink, NullSink, SinkError, SinkHealth,
+    conformance as durability_conformance, record as execution_record, run_conformance,
+};
 
 // -----------------------------------------------------------------------------
 // Context, Compaction & Prompts
@@ -188,7 +181,9 @@ pub use model_request::system_prompt::{
     SystemPromptSection,
 };
 pub mod offstream;
-pub use offstream::{OffstreamEntry, OffstreamRegistry, OffstreamSource, OffstreamStatus, PagedOffstreamContent};
+pub use offstream::{
+    OffstreamEntry, OffstreamRegistry, OffstreamSource, OffstreamStatus, PagedOffstreamContent,
+};
 pub mod session_title;
 
 // -----------------------------------------------------------------------------
@@ -209,8 +204,8 @@ pub mod no_provider;
 pub use no_provider::{NO_PROVIDER_ID, NoProvider};
 pub mod orchestration;
 pub use orchestration::{
-    compact_round_history, compact_round_history_with_mode, round_response, send_compaction,
-    ContextProjectionSettings,
+    ContextProjectionSettings, compact_round_history, compact_round_history_with_mode,
+    round_response, send_compaction,
 };
 pub mod round_lifecycle;
 pub use round_lifecycle::{ParkedInterrupt, RoundBegin, RoundLifecycle};
@@ -223,8 +218,8 @@ pub mod extension;
 pub use extension::CodeIntelligenceExtension;
 pub mod skills;
 pub use skills::{
-    DiscoveryResult, ListSkillsTool, ShadowedSkill, Skill, SkillDependency, SkillHost,
-    SkillPolicy, SkillRegistry, SkillRoots, SkillScope, SkillTrust, UseSkillTool, discover_all,
+    DiscoveryResult, ListSkillsTool, ShadowedSkill, Skill, SkillDependency, SkillHost, SkillPolicy,
+    SkillRegistry, SkillRoots, SkillScope, SkillTrust, UseSkillTool, discover_all,
     discover_all_with_trust_state, discoverable_skill_directories, format_skill_injection,
     format_skill_list, list_skill_files, project_skills_present, resolve_mentions,
 };
@@ -237,4 +232,3 @@ pub mod tools;
 
 #[cfg(test)]
 mod tests;
-

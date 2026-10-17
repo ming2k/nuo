@@ -166,14 +166,9 @@ fn redesigned_components_render_without_panicking() {
             &theme,
         );
         let history_roster: Vec<nuo_wire::HistoryEntry> =
-            [nuo_wire::HistoryEntry::new(
-                "a".to_string(),
-                None,
-                None,
-                0,
-            )]
-            .into_iter()
-            .collect();
+            [nuo_wire::HistoryEntry::new("a".to_string(), None, None, 0)]
+                .into_iter()
+                .collect();
         let ranked: Vec<(usize, crate::fuzzy::FuzzyMatch)> = crate::fuzzy::rank(&["a"], "");
         let input_rect = nuotc::Rect::new(0, 20, 80, 3);
         let _ = draw_history_panel(
@@ -404,7 +399,10 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
     // Row 1 is Client TabBar; Row 2 is SceneBar (settings) (ADR-0062).
     assert!(grid_row(&terminal, 0).contains("C-x menu"));
     let scene_row = grid_row(&terminal, 1);
-    assert!(scene_row.contains("settings"), "scene name on row 1: {scene_row:?}");
+    assert!(
+        scene_row.contains("settings"),
+        "scene name on row 1: {scene_row:?}"
+    );
     assert!(
         scene_row.contains("Main › Settings"),
         "Row 1 must show the view stack breadcrumbs: {scene_row:?}"
@@ -618,7 +616,10 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
         );
     });
 
-    let direct_screen = (0..24).map(|y| grid_row(&term_direct, y)).collect::<Vec<_>>().join("\n");
+    let direct_screen = (0..24)
+        .map(|y| grid_row(&term_direct, y))
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(direct_screen.contains("Appearance"));
     assert!(direct_screen.contains("Zen"));
 
@@ -652,7 +653,10 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
         );
     });
 
-    let mono_screen = (0..24).map(|y| grid_row(&term_mono, y)).collect::<Vec<_>>().join("\n");
+    let mono_screen = (0..24)
+        .map(|y| grid_row(&term_mono, y))
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(mono_screen.contains("Appearance"));
     assert!(mono_screen.contains("Monochrome Hardware Mode"));
     assert!(mono_screen.contains("[ Active ]"));
@@ -1297,7 +1301,10 @@ fn main_view_shows_the_thread_scene_row() {
         "client top bar offers the C-x menu namespace: {row0:?}"
     );
     let row1 = grid_row(&terminal, 1);
-    assert!(row1.contains("THREAD"), "scene bar carries thread identity on row 1: {row1:?}");
+    assert!(
+        row1.contains("THREAD"),
+        "scene bar carries thread identity on row 1: {row1:?}"
+    );
     assert!(
         row1.contains("Fix the retry loop"),
         "scene bar carries authentic task title on row 1: {row1:?}"
@@ -1346,12 +1353,27 @@ fn main_view_thread_governance_row_carries_run_mode_flags() {
     let row0 = grid_row(&terminal, 0);
     assert!(row0.contains("C-x menu"), "client menu on row 0: {row0:?}");
     let row1 = grid_row(&terminal, 1);
-    assert!(row1.contains("THREAD"), "scene bar carries thread identity on row 1: {row1:?}");
+    assert!(
+        row1.contains("THREAD"),
+        "scene bar carries thread identity on row 1: {row1:?}"
+    );
     let row2 = grid_row(&terminal, 2);
-    assert!(row2.contains("[DEVELOPER]"), "role badge on context row 2: {row2:?}");
-    assert!(row2.contains("~/projects/xx"), "workspace on context row 2: {row2:?}");
-    assert!(row2.contains("UNATTENDED"), "unattended flag on context row: {row2:?}");
-    assert!(row2.contains("UNCONFINED"), "unconfined flag on context row: {row2:?}");
+    assert!(
+        row2.contains("[DEVELOPER]"),
+        "role badge on context row 2: {row2:?}"
+    );
+    assert!(
+        row2.contains("~/projects/xx"),
+        "workspace on context row 2: {row2:?}"
+    );
+    assert!(
+        row2.contains("UNATTENDED"),
+        "unattended flag on context row: {row2:?}"
+    );
+    assert!(
+        row2.contains("UNCONFINED"),
+        "unconfined flag on context row: {row2:?}"
+    );
     assert!(!row2.contains("Esc"), "no interrupt pair: {row2:?}");
     assert!(!row2.contains("F1"), "no global help pair: {row2:?}");
 }

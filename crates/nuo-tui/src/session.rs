@@ -257,9 +257,7 @@ pub(crate) fn resolve_subagent_key(
     {
         return Some(InputAction::TabHistoryBack);
     }
-    if ov.matches(key, SurfaceVerb::SceneHistoryForward)
-        && !keys.focused_target
-        && input.is_empty()
+    if ov.matches(key, SurfaceVerb::SceneHistoryForward) && !keys.focused_target && input.is_empty()
     {
         return Some(InputAction::TabHistoryForward);
     }
@@ -275,7 +273,11 @@ pub(crate) fn resolve_subagent_key(
     // one, `Esc` clears focus, and printables reach the shared editing layer
     // exactly as they always have.
     if key.code == KeyCode::Esc {
-        return resolve_esc(keys, keys.focused_subagent_running, InputAction::InterruptSubagent);
+        return resolve_esc(
+            keys,
+            keys.focused_subagent_running,
+            InputAction::InterruptSubagent,
+        );
     }
     resolve_chat_surface_key(key, keys, input, cursor_position)
 }
@@ -340,7 +342,8 @@ fn resolve_enter(
         let trimmed = text.trim();
         if trimmed == "/dashboard" || trimmed.starts_with("/dashboard ") {
             return Some(InputAction::WorkspaceGuardrailNotice(
-                "💡 Notice: Dashboard is a workspace view. Press 'C-x d' or switch tabs.".to_string(),
+                "💡 Notice: Dashboard is a workspace view. Press 'C-x d' or switch tabs."
+                    .to_string(),
             ));
         }
         if trimmed == "/settings"
@@ -349,7 +352,8 @@ fn resolve_enter(
             || trimmed.starts_with("/config ")
         {
             return Some(InputAction::WorkspaceGuardrailNotice(
-                "💡 Notice: Settings is a workspace view. Press 'C-x ,' or switch tabs.".to_string(),
+                "💡 Notice: Settings is a workspace view. Press 'C-x ,' or switch tabs."
+                    .to_string(),
             ));
         }
 
@@ -622,9 +626,7 @@ mod tests {
         // Each scene reads its own scene-local liveness: the aside its
         // `is_responding`, the subagent the viewed child's
         // `focused_subagent_running` — never the primary's `is_responding`.
-        for (mode, expected) in [
-            (Mode::Subagent, InputAction::InterruptSubagent),
-        ] {
+        for (mode, expected) in [(Mode::Subagent, InputAction::InterruptSubagent)] {
             let mut c = ctx(mode, |c| {
                 c.is_responding = true;
                 c.focused_subagent_running = true;
@@ -1168,13 +1170,7 @@ mod tests {
 
         // The Thread scene never emits the subagent exits.
         let c = ctx(Mode::FocusedTarget, |_| {});
-        let action = resolve_scene_key(
-            SceneKind::Thread,
-            Key::ESC,
-            &c,
-            &mut String::new(),
-            &mut 0,
-        );
+        let action = resolve_scene_key(SceneKind::Thread, Key::ESC, &c, &mut String::new(), &mut 0);
         assert_ne!(action, Some(InputAction::CloseTab));
     }
 

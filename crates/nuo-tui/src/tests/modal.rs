@@ -115,10 +115,7 @@ fn model_editor_effort_slider_uses_the_snapshot_ladder() {
         .lines()
         .find(|l| l.contains("Faster") && l.contains("Smarter"))
         .unwrap_or_else(|| panic!("no effort slider track rendered; got:\n{text}"));
-    let nodes = track
-        .chars()
-        .filter(|&c| matches!(c, '○' | '●'))
-        .count();
+    let nodes = track.chars().filter(|&c| matches!(c, '○' | '●')).count();
     assert_eq!(
         nodes,
         levels.len(),
@@ -905,72 +902,104 @@ fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
 
     // 1. List dialogs (Queue): ScrollDown increments scroll and clears follow.
     app.open_dialog(crate::surfaces::DialogKind::Queue);
-    app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().follow = true;
-    app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().scroll = 0;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::QueueDialog>()
+        .follow = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::QueueDialog>()
+        .scroll = 0;
     if let Some(mut ent) = app.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::input::InputAction::ScrollDown, &mut app, "");
         assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
         app.surfaces.put_active_view(ent);
     }
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().scroll,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::QueueDialog>()
+            .scroll,
         1
     );
     assert!(
-        !app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().follow
+        !app.surfaces
+            .dlg_mut::<crate::surfaces::QueueDialog>()
+            .follow
     );
 
     // 2. Pure-scroll dialog (UsageStats): ScrollDown increments scroll.
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
-    app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll = 5;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+        .scroll = 5;
     if let Some(mut ent) = app.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::input::InputAction::ScrollDown, &mut app, "");
         assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
         app.surfaces.put_active_view(ent);
     }
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+            .scroll,
         6
     );
 
     // 3. ThreadsDialog: in list view, scrolls list and clears follow.
     app.open_dialog(crate::surfaces::DialogKind::Threads);
-    app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().follow = true;
-    app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().scroll = 2;
-    app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = false;
-    app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll = 0;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ThreadsDialog>()
+        .follow = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ThreadsDialog>()
+        .scroll = 2;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ThreadsDialog>()
+        .info_detail = false;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ThreadsDialog>()
+        .info_scroll = 0;
     if let Some(mut ent) = app.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::input::InputAction::ScrollDown, &mut app, "");
         assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
         app.surfaces.put_active_view(ent);
     }
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().scroll,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ThreadsDialog>()
+            .scroll,
         3
     );
     assert!(
-        !app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().follow
+        !app.surfaces
+            .dlg_mut::<crate::surfaces::ThreadsDialog>()
+            .follow
     );
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ThreadsDialog>()
+            .info_scroll,
         0
     );
 
     // 4. ThreadsDialog sub-view parity [INV-SURFACE-08]: when info_detail is active,
     // scrolls info_scroll independently, leaving the main list scroll intact!
-    app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ThreadsDialog>()
+        .info_detail = true;
     if let Some(mut ent) = app.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::input::InputAction::ScrollDown, &mut app, "");
         assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
         app.surfaces.put_active_view(ent);
     }
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ThreadsDialog>()
+            .info_scroll,
         1,
         "info_scroll incremented"
     );
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().scroll,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ThreadsDialog>()
+            .scroll,
         3,
         "main list scroll untouched"
     );
@@ -978,20 +1007,30 @@ fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
     // 5. ConnectionsDialog sub-view parity [INV-SURFACE-08]: when info_detail is active,
     // scrolls info_scroll independently.
     app.open_dialog(crate::surfaces::DialogKind::Connections);
-    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail = true;
-    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll = 4;
-    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().scroll = 10;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+        .info_detail = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+        .info_scroll = 4;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+        .scroll = 10;
     if let Some(mut ent) = app.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::input::InputAction::ScrollDown, &mut app, "");
         assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
         app.surfaces.put_active_view(ent);
     }
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+            .info_scroll,
         5
     );
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().scroll,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+            .scroll,
         10
     );
 
@@ -1021,34 +1060,32 @@ fn dialog_spatial_click_to_select_and_models_section_headers() {
 
     app.provider_picker = ProviderPickerSnapshot {
         default_id: "openai".to_string(),
-        rows: vec![
-            nuo_wire::ProviderPickerRow {
-                id: "openai".to_string(),
-                name: "OpenAI".to_string(),
-                model: "gpt-5.5".to_string(),
-                models: vec!["gpt-5.5".to_string(), "gpt-5-mini".to_string()],
-                model_info: vec![
-                    nuo_wire::ProviderModelInfo {
-                        model: "gpt-5.5".to_string(),
-                        protocol: "openai".to_string(),
-                        ..Default::default()
-                    },
-                    nuo_wire::ProviderModelInfo {
-                        model: "gpt-5-mini".to_string(),
-                        protocol: "openai".to_string(),
-                        ..Default::default()
-                    },
-                ],
-                builtin: true,
-                protocol: "openai".to_string(),
-                base_url: String::new(),
-                key_ready: true,
-                provider: "openai".to_string(),
-                client_identity: Default::default(),
-                last_used_ms: Some(100),
-                auth: Default::default(),
-            },
-        ],
+        rows: vec![nuo_wire::ProviderPickerRow {
+            id: "openai".to_string(),
+            name: "OpenAI".to_string(),
+            model: "gpt-5.5".to_string(),
+            models: vec!["gpt-5.5".to_string(), "gpt-5-mini".to_string()],
+            model_info: vec![
+                nuo_wire::ProviderModelInfo {
+                    model: "gpt-5.5".to_string(),
+                    protocol: "openai".to_string(),
+                    ..Default::default()
+                },
+                nuo_wire::ProviderModelInfo {
+                    model: "gpt-5-mini".to_string(),
+                    protocol: "openai".to_string(),
+                    ..Default::default()
+                },
+            ],
+            builtin: true,
+            protocol: "openai".to_string(),
+            base_url: String::new(),
+            key_ready: true,
+            provider: "openai".to_string(),
+            client_identity: Default::default(),
+            last_used_ms: Some(100),
+            auth: Default::default(),
+        }],
     };
 
     app.open_dialog(crate::surfaces::DialogKind::Models);
@@ -1074,10 +1111,16 @@ fn dialog_spatial_click_to_select_and_models_section_headers() {
         app.surfaces.put_active_view(ent);
     }
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().index,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ModelsDialog>()
+            .index,
         0
     );
-    assert!(app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().follow);
+    assert!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ModelsDialog>()
+            .follow
+    );
 }
 
 /// The page step follows the captured modal body height (when known) and
@@ -1355,10 +1398,7 @@ fn config_view_reopen_keeps_pane_and_category() {
     // The deliberate exit verb leaves.
     app.config_focus = crate::overlays::ConfigFocus::Detail;
     app.close_scene();
-    assert_eq!(
-        app.current_scene(),
-        crate::surfaces::SceneKind::Thread
-    );
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
 
     // Reopen: the pane/category survived.
     app.switch_scene(crate::surfaces::SceneKind::Settings);
@@ -1430,18 +1470,12 @@ fn esc_never_leaves_a_scene_anywhere_in_the_dispatch() {
 #[test]
 fn close_scene_at_home_is_a_spent_gesture() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    assert_eq!(
-        app.current_scene(),
-        crate::surfaces::SceneKind::Thread
-    );
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
     assert!(
         !app.close_scene(),
         "leaving the home scene reports no navigation"
     );
-    assert_eq!(
-        app.current_scene(),
-        crate::surfaces::SceneKind::Thread
-    );
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
 }
 
 /// `C-x w` / `C-x k` dismiss a foreground dialog before touching the scene —
@@ -1466,10 +1500,7 @@ fn close_scene_spends_itself_on_a_foreground_dialog_first() {
 
     // Press 2: now the scene itself leaves.
     app.close_scene();
-    assert_eq!(
-        app.current_scene(),
-        crate::surfaces::SceneKind::Thread
-    );
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
 }
 
 #[test]
@@ -1520,10 +1551,7 @@ fn config_view_navigation_and_theme_preview() {
         "a dismiss never leaves the scene"
     );
     app.close_scene();
-    assert_eq!(
-        app.current_scene(),
-        crate::surfaces::SceneKind::Thread
-    );
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
 }
 
 #[test]
@@ -1553,7 +1581,9 @@ fn config_view_monochrome_profile_navigation_and_item_counts() {
 
 #[tokio::test]
 async fn config_view_components_toggle_and_persistence() {
-    let _guard = nuo_host::paths::TEST_OVERRIDE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = nuo_host::paths::TEST_OVERRIDE_GUARD
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let tmp = tempfile::tempdir().unwrap();
     let dirs = nuo_host::paths::Dirs {
         config_dir: tmp.path().join("config"),
@@ -1587,9 +1617,7 @@ async fn config_view_components_toggle_and_persistence() {
             .expect("row must exist in the Components panel")
     };
     let reasoning_row = index_of(&|row| row == ComponentRowId::Reasoning);
-    let command_row = index_of(&|row| {
-        matches!(row, ComponentRowId::Tool(c) if c.id == "command")
-    });
+    let command_row = index_of(&|row| matches!(row, ComponentRowId::Tool(c) if c.id == "command"));
     let diff_row = index_of(&|row| matches!(row, ComponentRowId::Tool(c) if c.id == "diff"));
     let search_row = index_of(&|row| matches!(row, ComponentRowId::Tool(c) if c.id == "search"));
     let auto_scroll_row = index_of(&|row| row == ComponentRowId::AutoScroll);
@@ -1611,7 +1639,10 @@ async fn config_view_components_toggle_and_persistence() {
     // The command component opens by default, so activating collapses it — and
     // the choice must land on every shell spelling, not just the canonical one.
     app.config_detail_index = command_row;
-    assert!(crate::config::tool_default_expanded(&app.tui_config, "execute_command"));
+    assert!(crate::config::tool_default_expanded(
+        &app.tui_config,
+        "execute_command"
+    ));
     crate::event_loop::actions::dispatch_action_for_test(
         &mut app,
         &runtime,
@@ -1619,11 +1650,17 @@ async fn config_view_components_toggle_and_persistence() {
         "s1",
     )
     .await;
-    assert!(!crate::config::tool_default_expanded(&app.tui_config, "execute_command"));
+    assert!(!crate::config::tool_default_expanded(
+        &app.tui_config,
+        "execute_command"
+    ));
 
     // The Diffs row covers edit_text and write_file together.
     app.config_detail_index = diff_row;
-    assert!(crate::config::tool_default_expanded(&app.tui_config, "edit_text"));
+    assert!(crate::config::tool_default_expanded(
+        &app.tui_config,
+        "edit_text"
+    ));
     crate::event_loop::actions::dispatch_action_for_test(
         &mut app,
         &runtime,
@@ -1631,12 +1668,21 @@ async fn config_view_components_toggle_and_persistence() {
         "s1",
     )
     .await;
-    assert!(!crate::config::tool_default_expanded(&app.tui_config, "edit_text"));
-    assert!(!crate::config::tool_default_expanded(&app.tui_config, "write_file"));
+    assert!(!crate::config::tool_default_expanded(
+        &app.tui_config,
+        "edit_text"
+    ));
+    assert!(!crate::config::tool_default_expanded(
+        &app.tui_config,
+        "write_file"
+    ));
 
     // An untouched row keeps its declared default — toggling one component
     // must never move another.
-    assert!(!crate::config::tool_default_expanded(&app.tui_config, "search_text"));
+    assert!(!crate::config::tool_default_expanded(
+        &app.tui_config,
+        "search_text"
+    ));
     app.config_detail_index = search_row;
     crate::event_loop::actions::dispatch_action_for_test(
         &mut app,
@@ -1645,8 +1691,14 @@ async fn config_view_components_toggle_and_persistence() {
         "s1",
     )
     .await;
-    assert!(crate::config::tool_default_expanded(&app.tui_config, "search_text"));
-    assert!(!crate::config::tool_default_expanded(&app.tui_config, "edit_text"));
+    assert!(crate::config::tool_default_expanded(
+        &app.tui_config,
+        "search_text"
+    ));
+    assert!(!crate::config::tool_default_expanded(
+        &app.tui_config,
+        "edit_text"
+    ));
 
     app.config_detail_index = auto_scroll_row;
     assert!(!app.expand_auto_scroll);
@@ -1663,7 +1715,10 @@ async fn config_view_components_toggle_and_persistence() {
     // Verify config file on disk has the persisted settings
     let loaded = crate::config::TuiConfig::load();
     assert!(crate::config::reasoning_default_expanded(&loaded));
-    assert!(!crate::config::tool_default_expanded(&loaded, "execute_command"));
+    assert!(!crate::config::tool_default_expanded(
+        &loaded,
+        "execute_command"
+    ));
     assert!(!crate::config::tool_default_expanded(&loaded, "bash"));
     assert!(!crate::config::tool_default_expanded(&loaded, "edit_text"));
     assert!(crate::config::tool_default_expanded(&loaded, "search_text"));
@@ -1677,8 +1732,13 @@ fn switching_picker_view_preserves_query_and_chat_draft_separately() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.input = "unsent chat".to_string();
     app.open_dialog(crate::surfaces::DialogKind::Models);
-    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().search = true;
-    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.text = "claude".to_string();
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ModelsDialog>()
+        .search = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ModelsDialog>()
+        .query
+        .text = "claude".to_string();
 
     assert_eq!(app.input, "unsent chat", "composer draft untouched");
 
@@ -1690,11 +1750,17 @@ fn switching_picker_view_preserves_query_and_chat_draft_separately() {
 
     app.open_dialog(crate::surfaces::DialogKind::Models);
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.text, "claude",
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ModelsDialog>()
+            .query
+            .text,
+        "claude",
         "picker query is retained independently"
     );
     assert!(
-        app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().search,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ModelsDialog>()
+            .search,
         "the search sub-layer is retained too"
     );
     assert!(app.dismiss_surface());
@@ -1746,12 +1812,22 @@ fn backend_navigation_waits_for_transient_and_drill_in_surfaces() {
 fn explicit_view_close_discards_retained_state_and_payload() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
-    app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll = 17;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+        .scroll = 17;
     app.close_dialog(crate::surfaces::DialogKind::UsageStats);
 
-    assert!(!app.surface_store.is_open(crate::surfaces::DialogKind::UsageStats));
+    assert!(
+        !app.surface_store
+            .is_open(crate::surfaces::DialogKind::UsageStats)
+    );
     assert!(app.surfaces.active_overlay().is_none());
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll, 0);
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+            .scroll,
+        0
+    );
     assert!(app.open_dialog(crate::surfaces::DialogKind::UsageStats));
 }
 
@@ -1792,9 +1868,16 @@ fn pop_sublayer_steps_back_one_level_at_a_time() {
     // outside-click mirror both route through here.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::SessionTrace);
-    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+        .detail = true;
     assert!(app.pop_sublayer());
-    assert!(!app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail, "drill-in closed");
+    assert!(
+        !app.surfaces
+            .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+            .detail,
+        "drill-in closed"
+    );
     assert_eq!(
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::SessionTrace),
@@ -1816,10 +1899,17 @@ fn pop_sublayer_steps_back_one_level_at_a_time() {
 
     // Connections: detail view pops back to connections list
     app.open_dialog(crate::surfaces::DialogKind::Connections);
-    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+        .info_detail = true;
     app.connection_detail = Some(Default::default());
     assert!(app.pop_sublayer());
-    assert!(!app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail, "connection detail closed");
+    assert!(
+        !app.surfaces
+            .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+            .info_detail,
+        "connection detail closed"
+    );
     assert!(app.connection_detail.is_none());
     assert_eq!(
         app.active_dialog(),
@@ -1835,21 +1925,59 @@ fn pop_sublayer_pops_trace_turn_page_before_round_detail() {
     // Esc walks back one level at a time, attempt inspector first.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::SessionTrace);
-    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail = true;
-    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn = Some((2, 1));
-    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn_cursor = 1;
-    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().scroll = 4;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+        .detail = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+        .turn = Some((2, 1));
+    app.surfaces
+        .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+        .turn_cursor = 1;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+        .scroll = 4;
     assert!(app.pop_sublayer());
     assert!(
-        app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn.is_none(),
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+            .turn
+            .is_none(),
         "attempt inspector closed first"
     );
-    assert!(app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail, "round detail stays open");
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().scroll, 0);
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn_cursor, 1, "cursor retained");
+    assert!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+            .detail,
+        "round detail stays open"
+    );
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+            .scroll,
+        0
+    );
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+            .turn_cursor,
+        1,
+        "cursor retained"
+    );
     assert!(app.pop_sublayer());
-    assert!(!app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail, "round detail closed next");
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn_cursor, 0, "cursor reset");
+    assert!(
+        !app.surfaces
+            .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+            .detail,
+        "round detail closed next"
+    );
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+            .turn_cursor,
+        0,
+        "cursor reset"
+    );
     assert_eq!(
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::SessionTrace),
@@ -1874,10 +2002,7 @@ fn dashboard_reopen_keeps_selection_and_log() {
         });
     app.modal_index = 3;
     app.close_scene();
-    assert_eq!(
-        app.current_scene(),
-        crate::surfaces::SceneKind::Thread
-    );
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
 
     app.switch_scene(crate::surfaces::SceneKind::Dashboard);
     assert_eq!(app.modal_index, 3, "dock selection retained");
@@ -1890,7 +2015,8 @@ async fn closing_dashboard_scene_closes_singleton_tab() {
     let runtime = crate::event_loop::UiRuntime::minimal_for_test();
 
     // 1. Mount initial thread tab and dashboard tab
-    app.surfaces.open_tab(crate::surfaces::ClientTab::thread("s1", Some("Thread 1")));
+    app.surfaces
+        .open_tab(crate::surfaces::ClientTab::thread("s1", Some("Thread 1")));
     app.open_tab(crate::surfaces::ClientTab::dashboard());
 
     assert_eq!(app.surfaces.tabs().len(), 2);
@@ -1907,8 +2033,16 @@ async fn closing_dashboard_scene_closes_singleton_tab() {
     .await;
 
     assert_eq!(flow, crate::event_loop::actions::ActionFlow::Handled);
-    assert_eq!(app.surfaces.tabs().len(), 1, "dashboard tab must be closed and removed");
-    assert_eq!(app.surfaces.active_tab_index(), 0, "active tab should switch to remaining thread tab");
+    assert_eq!(
+        app.surfaces.tabs().len(),
+        1,
+        "dashboard tab must be closed and removed"
+    );
+    assert_eq!(
+        app.surfaces.active_tab_index(),
+        0,
+        "active tab should switch to remaining thread tab"
+    );
     assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
     assert!(app.surfaces.tabs()[0].is_thread());
 }
@@ -1919,7 +2053,8 @@ async fn closing_sole_dashboard_tab_detaches_client() {
     let runtime = crate::event_loop::UiRuntime::minimal_for_test();
 
     // Only dashboard tab mounted
-    app.surfaces.open_tab(crate::surfaces::ClientTab::dashboard());
+    app.surfaces
+        .open_tab(crate::surfaces::ClientTab::dashboard());
     assert_eq!(app.surfaces.tabs().len(), 1);
     assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Dashboard);
 
@@ -1931,7 +2066,11 @@ async fn closing_sole_dashboard_tab_detaches_client() {
     )
     .await;
 
-    assert_eq!(flow, crate::event_loop::actions::ActionFlow::Exit, "closing sole tab exits client");
+    assert_eq!(
+        flow,
+        crate::event_loop::actions::ActionFlow::Exit,
+        "closing sole tab exits client"
+    );
     assert!(app.surfaces.tabs().is_empty());
 }
 
@@ -2004,8 +2143,6 @@ fn dialog_keys_sublayer_pop_and_deactivate_behavior() {
     assert!(!app.dialog_keys(), "dialog_keys reset on dialog deactivate");
 }
 
-
-
 #[test]
 fn modal_arrows_route_through_the_dialog_entity() {
     // `[INV-SURFACE-01]` / ADR-0035 §1: the generic ↑/↓ arrows are handled by
@@ -2013,15 +2150,25 @@ fn modal_arrows_route_through_the_dialog_entity() {
     // entity's own state.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::SessionStats);
-    app.surfaces.dlg_mut::<crate::surfaces::SessionStatsDialog>().scroll = 5;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::SessionStatsDialog>()
+        .scroll = 5;
 
     crate::event_loop::actions::handle_modal_up(&mut app, "test-session");
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::SessionStatsDialog>().scroll, 4,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionStatsDialog>()
+            .scroll,
+        4,
         "arrow handled by the session stats entity"
     );
     crate::event_loop::actions::handle_modal_down(&mut app, "test-session");
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::SessionStatsDialog>().scroll, 5);
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionStatsDialog>()
+            .scroll,
+        5
+    );
 }
 
 #[test]
@@ -2031,8 +2178,13 @@ fn dialog_reads_see_the_entity_while_it_is_rendered() {
     // still see that query, not a blank placeholder.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Models);
-    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().search = true;
-    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.text = "claude".to_string();
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ModelsDialog>()
+        .search = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ModelsDialog>()
+        .query
+        .text = "claude".to_string();
 
     let taken = app.surfaces.take_active_view().expect("models is open");
     assert_eq!(
@@ -2065,7 +2217,10 @@ async fn session_stats_slash_open_and_unbound_ctrl_o() {
     );
 
     // Ctrl+O is no longer bound canonically to OpenSessionStats
-    assert_eq!(crate::keymap::resolve_global_key(crate::keymap::Key::CTRL_O), None);
+    assert_eq!(
+        crate::keymap::resolve_global_key(crate::keymap::Key::CTRL_O),
+        None
+    );
 }
 
 #[tokio::test]
@@ -2119,22 +2274,53 @@ async fn session_trace_slash_and_drill_down_lifecycle() {
     );
 
     // Initial state: L1 rounds list, no detail, no turn
-    assert!(!app.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().detail);
-    assert!(app.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().turn.is_none());
+    assert!(
+        !app.surfaces
+            .dlg::<crate::surfaces::SessionTraceDialog>()
+            .detail
+    );
+    assert!(
+        app.surfaces
+            .dlg::<crate::surfaces::SessionTraceDialog>()
+            .turn
+            .is_none()
+    );
 
     // Enter in L1 drills into L2 (turns list) when rounds exist or directly via action
-    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail = true;
-    app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn = Some((1, 1));
-    assert!(app.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().turn.is_some());
+    app.surfaces
+        .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+        .detail = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+        .turn = Some((1, 1));
+    assert!(
+        app.surfaces
+            .dlg::<crate::surfaces::SessionTraceDialog>()
+            .turn
+            .is_some()
+    );
 
     // Esc from L3 steps back to L2
     assert!(app.pop_sublayer());
-    assert!(app.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().turn.is_none());
-    assert!(app.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().detail);
+    assert!(
+        app.surfaces
+            .dlg::<crate::surfaces::SessionTraceDialog>()
+            .turn
+            .is_none()
+    );
+    assert!(
+        app.surfaces
+            .dlg::<crate::surfaces::SessionTraceDialog>()
+            .detail
+    );
 
     // Esc from L2 steps back to L1
     assert!(app.pop_sublayer());
-    assert!(!app.surfaces.dlg::<crate::surfaces::SessionTraceDialog>().detail);
+    assert!(
+        !app.surfaces
+            .dlg::<crate::surfaces::SessionTraceDialog>()
+            .detail
+    );
     assert_eq!(
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::SessionTrace)
@@ -2187,7 +2373,11 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     );
 
     // Initial state: Level 1 list, info_detail is false
-    assert!(!app.surfaces.dlg::<crate::surfaces::ToolsDialog>().info_detail);
+    assert!(
+        !app.surfaces
+            .dlg::<crate::surfaces::ToolsDialog>()
+            .info_detail
+    );
     assert_eq!(app.surfaces.dlg::<crate::surfaces::ToolsDialog>().index, 0);
 
     let runtime = crate::event_loop::runtime::UiRuntime::minimal_for_test();
@@ -2211,11 +2401,15 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     )
     .await;
     assert!(
-        app.surfaces.dlg::<crate::surfaces::ToolsDialog>().info_detail,
+        app.surfaces
+            .dlg::<crate::surfaces::ToolsDialog>()
+            .info_detail,
         "Drilled into Level 2 tool detail"
     );
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::ToolsDialog>().info_scroll,
+        app.surfaces
+            .dlg::<crate::surfaces::ToolsDialog>()
+            .info_scroll,
         0
     );
 
@@ -2228,7 +2422,9 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     )
     .await;
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::ToolsDialog>().info_scroll,
+        app.surfaces
+            .dlg::<crate::surfaces::ToolsDialog>()
+            .info_scroll,
         1,
         "Up/Down in Level 2 scrolls info_scroll without changing tool index"
     );
@@ -2245,7 +2441,9 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     // Esc from Level 2 pops back to Level 1
     assert!(app.pop_sublayer(), "pop_sublayer pops Level 2 detail");
     assert!(
-        !app.surfaces.dlg::<crate::surfaces::ToolsDialog>().info_detail,
+        !app.surfaces
+            .dlg::<crate::surfaces::ToolsDialog>()
+            .info_detail,
         "Returned to Level 1 list"
     );
     assert_eq!(
@@ -2272,10 +2470,11 @@ async fn open_selected_session_preserves_current_running_session_messages_and_re
     let sid = "session-running-123";
     app.current_session_id = sid.to_string();
     app.running_sessions.insert(sid.to_string());
-    app.messages.push(crate::model::document::TranscriptMessage::new(
-        nuo_wire::Role::User,
-        "Hello",
-    ));
+    app.messages
+        .push(crate::model::document::TranscriptMessage::new(
+            nuo_wire::Role::User,
+            "Hello",
+        ));
     app.scroll = 42;
 
     app.sessions_overview = vec![nuo_wire::SessionOverview {
@@ -2291,7 +2490,10 @@ async fn open_selected_session_preserves_current_running_session_messages_and_re
         digest: None,
     }];
     app.open_dialog(crate::surfaces::DialogKind::Sessions);
-    assert_eq!(app.active_dialog(), Some(crate::surfaces::DialogKind::Sessions));
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::Sessions)
+    );
 
     // Dispatch OpenSelectedSession via dispatch_action_for_test
     crate::event_loop::actions::dispatch_action_for_test(
@@ -2333,7 +2535,10 @@ async fn open_selected_session_switches_to_another_thread_via_client_tab_and_run
         digest: None,
     }];
     app.open_dialog(crate::surfaces::DialogKind::Sessions);
-    assert_eq!(app.active_dialog(), Some(crate::surfaces::DialogKind::Sessions));
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::Sessions)
+    );
 
     // Dispatch OpenSelectedSession on the target thread
     crate::event_loop::actions::dispatch_action_for_test(
@@ -2347,7 +2552,12 @@ async fn open_selected_session_switches_to_another_thread_via_client_tab_and_run
     // Modal dismissed
     assert_eq!(app.active_dialog(), None);
     // ClientTab opened/focused
-    assert!(app.surfaces.tabs().iter().any(|t| t.thread_id() == Some(target_sid)));
+    assert!(
+        app.surfaces
+            .tabs()
+            .iter()
+            .any(|t| t.thread_id() == Some(target_sid))
+    );
     // Runner attach queued
     assert_eq!(app.switch_to_target, Some(target_sid.to_string()));
     assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
@@ -2437,7 +2647,10 @@ async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() 
     let empty_sid = "empty-session-1";
     let target_sid = "target-session-2";
     app.current_session_id = empty_sid.to_string();
-    app.open_tab(crate::surfaces::ClientTab::thread(empty_sid, None::<String>));
+    app.open_tab(crate::surfaces::ClientTab::thread(
+        empty_sid,
+        None::<String>,
+    ));
     assert_eq!(app.surfaces.tabs().len(), 1);
     assert_eq!(app.surfaces.tabs()[0].thread_id(), Some(empty_sid));
     assert!(app.is_current_thread_empty());
@@ -2488,12 +2701,16 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
     let active_sid = "active-session-1";
     let target_sid = "target-session-2";
     app.current_session_id = active_sid.to_string();
-    app.open_tab(crate::surfaces::ClientTab::thread(active_sid, Some("Active Thread")));
-    // Add a message to make it non-empty
-    app.messages.push(crate::model::document::TranscriptMessage::new(
-        nuo_wire::Role::User,
-        "Hello",
+    app.open_tab(crate::surfaces::ClientTab::thread(
+        active_sid,
+        Some("Active Thread"),
     ));
+    // Add a message to make it non-empty
+    app.messages
+        .push(crate::model::document::TranscriptMessage::new(
+            nuo_wire::Role::User,
+            "Hello",
+        ));
     assert!(!app.is_current_thread_empty());
 
     app.sessions_overview = vec![nuo_wire::SessionOverview {
@@ -2536,7 +2753,10 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
     let runtime = crate::event_loop::UiRuntime::minimal_for_test();
     let empty_sid = "empty-session-1";
     app.current_session_id = empty_sid.to_string();
-    app.open_tab(crate::surfaces::ClientTab::thread(empty_sid, None::<String>));
+    app.open_tab(crate::surfaces::ClientTab::thread(
+        empty_sid,
+        None::<String>,
+    ));
     assert!(app.is_current_thread_empty());
 
     // 1. In empty tab: pressing 'N' should send /new to reset in-place
@@ -2556,10 +2776,11 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
     }
 
     // 2. In non-empty tab: pressing 'N' should arm switch_to_new
-    app.messages.push(crate::model::document::TranscriptMessage::new(
-        nuo_wire::Role::User,
-        "Existing message",
-    ));
+    app.messages
+        .push(crate::model::document::TranscriptMessage::new(
+            nuo_wire::Role::User,
+            "Existing message",
+        ));
     assert!(!app.is_current_thread_empty());
 
     crate::event_loop::actions::dispatch_action_for_test(
@@ -2600,10 +2821,11 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
 
     // 2. In non-empty tab: "/new" must NOT send /new over wire, but arm switch_to_new and preserve conversation
     app.messages.clear();
-    app.messages.push(crate::model::document::TranscriptMessage::new(
-        nuo_wire::Role::User,
-        "Crucial conversation",
-    ));
+    app.messages
+        .push(crate::model::document::TranscriptMessage::new(
+            nuo_wire::Role::User,
+            "Crucial conversation",
+        ));
     assert!(!app.is_current_thread_empty());
 
     super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/new".to_string()).await;
@@ -2631,10 +2853,11 @@ async fn slash_new_with_prompt_arms_switch_to_new_prompt_when_non_empty() {
         session_id: sid.to_string(),
     };
 
-    app.messages.push(crate::model::document::TranscriptMessage::new(
-        nuo_wire::Role::User,
-        "Prior turn",
-    ));
+    app.messages
+        .push(crate::model::document::TranscriptMessage::new(
+            nuo_wire::Role::User,
+            "Prior turn",
+        ));
     assert!(!app.is_current_thread_empty());
 
     super::event_loop::handle_send_slash(
@@ -2667,13 +2890,15 @@ async fn slash_session_new_behaves_identically_to_slash_new() {
         session_id: sid.to_string(),
     };
 
-    app.messages.push(crate::model::document::TranscriptMessage::new(
-        nuo_wire::Role::User,
-        "Active dialogue",
-    ));
+    app.messages
+        .push(crate::model::document::TranscriptMessage::new(
+            nuo_wire::Role::User,
+            "Active dialogue",
+        ));
     assert!(!app.is_current_thread_empty());
 
-    super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/session new".to_string()).await;
+    super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/session new".to_string())
+        .await;
 
     assert!(
         app.switch_to_new,

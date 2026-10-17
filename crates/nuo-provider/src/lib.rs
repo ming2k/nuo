@@ -19,7 +19,6 @@ pub mod oauth {
 
 // Capability & Core Traits
 pub use capability::{Provider, QuotaTracker};
-pub use pricing::{ModelPricing, NanoUsd, PricingTier, TurnCost, resolve_model_pricing};
 pub use catalog::{
     CatalogDiscovery, CatalogSignature, CatalogSigning, DiscoveredModel, ModelListError,
     RemoteCatalogOptions, RemoteCatalogRequest, RemoteCatalogUpdate, build_catalog_signer,
@@ -33,6 +32,7 @@ pub use credentials::{
 pub use factory::{
     ProviderFactory, build_credential_source, build_provider_for_channel, register_provider_factory,
 };
+pub use pricing::{ModelPricing, NanoUsd, PricingTier, TurnCost, resolve_model_pricing};
 pub use spec::{
     ModelProviderSpec, PromptCachePolicy, QuotaPort, endpoint_for, model_provider_spec,
     register_provider_spec, register_provider_specs, route_for_model, sync_user_declared_providers,

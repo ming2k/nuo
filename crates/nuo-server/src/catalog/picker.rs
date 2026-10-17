@@ -4,12 +4,12 @@
 
 use super::derive::derive_entries;
 use super::{Stores, effective_default_connection_id};
+use nuo_persistence::config::Config;
+use nuo_persistence::connection_usage::ConnectionUsage;
 use nuo_wire::catalog::{Channel, ProviderEntry, Transport};
 use nuo_wire::{
     Effort, ProviderModelInfo, ProviderPickerRow, ProviderPickerSnapshot, ReasoningMode,
 };
-use nuo_persistence::config::Config;
-use nuo_persistence::connection_usage::ConnectionUsage;
 
 /// Whether a model id matches any pattern in `hidden_patterns` (case-insensitive glob or exact match).
 pub fn model_is_hidden(model: &str, hidden_patterns: &[String]) -> bool {
@@ -238,9 +238,7 @@ pub fn prune_stale_models_on_disk() -> bool {
 pub(super) fn channel_protocol_and_base_url(channel: &Channel) -> (String, String) {
     match &channel.transport {
         Transport::OpenAi { base_url, .. } => (
-            nuo_wire::WireProtocol::ChatCompletions
-                .as_str()
-                .to_string(),
+            nuo_wire::WireProtocol::ChatCompletions.as_str().to_string(),
             base_url.clone(),
         ),
         Transport::OpenAiResponses { base_url, .. } => (
@@ -254,9 +252,7 @@ pub(super) fn channel_protocol_and_base_url(channel: &Channel) -> (String, Strin
             base_url.clone(),
         ),
         Transport::Google { base_url, .. } => (
-            nuo_wire::WireProtocol::GoogleGemini
-                .as_str()
-                .to_string(),
+            nuo_wire::WireProtocol::GoogleGemini.as_str().to_string(),
             base_url.clone(),
         ),
     }
@@ -341,9 +337,7 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
             ProviderModelInfo {
                 model: channel.model.clone(),
                 name,
-                protocol: nuo_wire::WireProtocol::ChatCompletions
-                    .as_str()
-                    .to_string(),
+                protocol: nuo_wire::WireProtocol::ChatCompletions.as_str().to_string(),
                 effort: effective,
                 thinking: None,
                 effort_levels,
@@ -392,9 +386,7 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
             ProviderModelInfo {
                 model: channel.model.clone(),
                 name,
-                protocol: nuo_wire::WireProtocol::GoogleGemini
-                    .as_str()
-                    .to_string(),
+                protocol: nuo_wire::WireProtocol::GoogleGemini.as_str().to_string(),
                 effort: effective,
                 thinking: None,
                 effort_levels,
@@ -497,10 +489,7 @@ mod tests {
         };
         let info = channel_model_info(&openai_channel("hidden-helper", Some(unlisted_but_usable)));
         assert_eq!(info.advertised, Some(false));
-        assert_eq!(
-            info.availability,
-            Some(nuo_wire::Availability::usable())
-        );
+        assert_eq!(info.availability, Some(nuo_wire::Availability::usable()));
     }
 
     #[test]

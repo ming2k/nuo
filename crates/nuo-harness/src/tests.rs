@@ -25,10 +25,8 @@ impl Provider for TestProvider {
     async fn stream_chat(
         &self,
         _request: nuo_wire::ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         // The default `stream_chat_events` wraps this into a single
         // `TextDelta("done")`, so the streaming ReAct loop sees the same
         // terminal answer as `chat()`.
@@ -51,10 +49,8 @@ impl Provider for HintProvider {
     async fn stream_chat(
         &self,
         _request: nuo_wire::ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         Ok(Box::pin(stream::empty()))
     }
 
@@ -77,10 +73,8 @@ impl Provider for PermissionTestProvider {
     async fn stream_chat(
         &self,
         _request: nuo_wire::ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         unreachable!("stream_chat_events should be called directly")
     }
 
@@ -131,10 +125,8 @@ impl Provider for StreamingToolProvider {
     async fn stream_chat(
         &self,
         _request: nuo_wire::ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         Ok(Box::pin(stream::empty()))
     }
 
@@ -264,10 +256,7 @@ fn todo_state_is_scoped_to_one_agent() {
     let second = agent();
     let mut list = nuo_wire::TodoList::new();
     list.reconcile(
-        &[(
-            "only first".to_string(),
-            nuo_wire::TodoStatus::Pending,
-        )],
+        &[("only first".to_string(), nuo_wire::TodoStatus::Pending)],
         1,
         1,
     );
@@ -677,21 +666,19 @@ async fn streamed_tool_input_is_announced_then_progressed_before_completion() {
 
     let started = events
         .iter()
-        .position(|event| {
-            matches!(event, AgentEvent::ToolCallStarted { name, .. } if name == "big_tool")
-        })
+        .position(
+            |event| matches!(event, AgentEvent::ToolCallStarted { name, .. } if name == "big_tool"),
+        )
         .expect("the call must be announced before its arguments finish");
     let completed = events
         .iter()
-        .position(|event| {
-            matches!(event, AgentEvent::ToolCall { name, .. } if name == "big_tool")
-        })
+        .position(|event| matches!(event, AgentEvent::ToolCall { name, .. } if name == "big_tool"))
         .expect("the whole-argument ToolCall must still fire");
     let progress = events
         .iter()
-        .position(|event| {
-            matches!(event, AgentEvent::ToolInputProgress { bytes, .. } if *bytes == total)
-        })
+        .position(
+            |event| matches!(event, AgentEvent::ToolInputProgress { bytes, .. } if *bytes == total),
+        )
         .expect("count-only progress must tick at the bounded cadence");
 
     assert!(started < completed, "announcement must precede completion");
@@ -1118,14 +1105,8 @@ async fn interrupt_settles_in_flight_request_with_estimated_prompt() {
     assert!(matches!(result, Err(HarnessError::Interrupted)));
     let records = ledger.records_for_session("interrupt-session");
     assert_eq!(records.len(), 1);
-    assert_eq!(
-        records[0].status,
-        nuo_wire::RequestUsageStatus::Interrupted
-    );
-    assert_eq!(
-        records[0].source,
-        nuo_wire::RequestUsageSource::Estimated
-    );
+    assert_eq!(records[0].status, nuo_wire::RequestUsageStatus::Interrupted);
+    assert_eq!(records[0].source, nuo_wire::RequestUsageSource::Estimated);
     assert!(records[0].prompt_tokens > 0);
     assert_eq!(records[0].completion_tokens, 0);
 }
@@ -1191,9 +1172,8 @@ async fn interrupted_stream_books_exact_not_cumulative_completion_tokens() {
                 tokio::time::sleep(per_delta).await;
                 Ok(delta)
             });
-            let parked = futures::stream::pending::<
-                Result<ProviderStreamEvent, nuo_wire::ProviderError>,
-            >();
+            let parked =
+                futures::stream::pending::<Result<ProviderStreamEvent, nuo_wire::ProviderError>>();
             Ok(Box::pin(deltas.chain(parked)))
         }
     }
@@ -1237,10 +1217,7 @@ async fn interrupted_stream_books_exact_not_cumulative_completion_tokens() {
     let records = ledger.records_for_session("interrupt-quadratic");
     assert_eq!(records.len(), 1);
     let record = &records[0];
-    assert_eq!(
-        record.status,
-        nuo_wire::RequestUsageStatus::Interrupted
-    );
+    assert_eq!(record.status, nuo_wire::RequestUsageStatus::Interrupted);
     // The exact expectation: a whole-text tokenization of the very deltas
     // the attempt streamed — the same predictor the implementation uses, so
     // this pins the *arithmetic* (no cumulative summation), not the corpus.
@@ -1618,20 +1595,15 @@ impl Provider for GatedSubagentProvider {
     async fn stream_chat(
         &self,
         _request: nuo_wire::ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         Ok(Box::pin(stream::empty()))
     }
     async fn stream_chat_events(
         &self,
         _request: nuo_wire::ModelRequest,
     ) -> Result<
-        BoxStream<
-            'static,
-            Result<nuo_wire::ProviderStreamEvent, nuo_wire::ProviderError>,
-        >,
+        BoxStream<'static, Result<nuo_wire::ProviderStreamEvent, nuo_wire::ProviderError>>,
         nuo_wire::ProviderError,
     > {
         if self.requests.fetch_add(1, Ordering::SeqCst) == 0 {
@@ -1955,10 +1927,8 @@ impl Provider for ScriptedProvider {
     async fn stream_chat(
         &self,
         _request: nuo_wire::ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         Ok(Box::pin(stream::empty()))
     }
 
@@ -3185,10 +3155,8 @@ impl Provider for TwoEventProvider {
     async fn stream_chat(
         &self,
         _request: nuo_wire::ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         Err(nuo_wire::ProviderError::new(
             "mock",
             nuo_wire::ProviderErrorKind::Other,
@@ -3983,10 +3951,8 @@ impl Provider for DummyCustomProvider {
     async fn stream_chat(
         &self,
         _request: nuo_wire::ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         Ok(Box::pin(stream::empty()))
     }
 
@@ -4003,19 +3969,25 @@ impl Provider for DummyCustomProvider {
 async fn test_runtime_spend_circuit_breaker_intercepts_over_budget_connection() {
     let conn_name = "guarded-test-conn";
     let mut conns = nuo_persistence::connections::Connections::default();
-    conns.connections.push(nuo_persistence::connections::Connection {
-        name: conn_name.to_string(),
-        provider: "google".to_string(),
-        budget: nuo_wire::ConnectionBudget::local(0.05, nuo_wire::BudgetPeriod::Session),
-        ..Default::default()
-    });
+    conns
+        .connections
+        .push(nuo_persistence::connections::Connection {
+            name: conn_name.to_string(),
+            provider: "google".to_string(),
+            budget: nuo_wire::ConnectionBudget::local(0.05, nuo_wire::BudgetPeriod::Session),
+            ..Default::default()
+        });
     conns.save().unwrap();
 
     let provider: Arc<dyn Provider> = Arc::new(DummyCustomProvider {
         id: conn_name.to_string(),
         model: "gemini-2.0-flash".to_string(),
     });
-    let agent = Arc::new(Agent::new(provider, Vec::new(), crate::AgentIdentity::default()));
+    let agent = Arc::new(Agent::new(
+        provider,
+        Vec::new(),
+        crate::AgentIdentity::default(),
+    ));
 
     let mut round = agent.begin_streaming_round();
     // 600,000 prompt tokens * $0.10/1M = $0.06 -> exceeds $0.05 limit
@@ -4029,18 +4001,16 @@ async fn test_runtime_spend_circuit_breaker_intercepts_over_budget_connection() 
     let cancel = tokio_util::sync::CancellationToken::new();
 
     let res = agent
-        .resume_streaming_with_events(
-            &mut messages,
-            &cancel,
-            &mut round,
-            |_| {},
-        )
+        .resume_streaming_with_events(&mut messages, &cancel, &mut round, |_| {})
         .await;
 
     let err = res.unwrap_err();
     match err {
         HarnessError::Provider(provider_err) => {
-            assert_eq!(provider_err.kind(), nuo_wire::ProviderErrorKind::QuotaExhausted);
+            assert_eq!(
+                provider_err.kind(),
+                nuo_wire::ProviderErrorKind::QuotaExhausted
+            );
             assert!(provider_err.message().contains("[SPEND CIRCUIT BREAKER]"));
             assert!(provider_err.message().contains("$0.05"));
         }

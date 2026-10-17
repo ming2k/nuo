@@ -91,14 +91,21 @@ pub fn draw_activity_strip(
         let badge_text = format!("[{queued_count} queued] ");
         left_spans.push(Span::styled(
             badge_text,
-            Style::default().fg(theme.brand()).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.brand())
+                .add_modifier(Modifier::BOLD),
         ));
     }
     if tasks_count > 0 {
-        let badge_text = format!("[{tasks_count} task{}] ", if tasks_count > 1 { "s" } else { "" });
+        let badge_text = format!(
+            "[{tasks_count} task{}] ",
+            if tasks_count > 1 { "s" } else { "" }
+        );
         left_spans.push(Span::styled(
             badge_text,
-            Style::default().fg(theme.primary).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.primary)
+                .add_modifier(Modifier::BOLD),
         ));
     }
 
@@ -106,12 +113,20 @@ pub fn draw_activity_strip(
     if status_active || awaiting_permission {
         let liveness = classify_liveness(awaiting_permission);
         let glyph_color = dot_color(liveness, spinner_phase, theme);
-        left_spans.push(Span::styled(format!("{} ", theme.glyphs.dot), Style::default().fg(glyph_color)));
+        left_spans.push(Span::styled(
+            format!("{} ", theme.glyphs.dot),
+            Style::default().fg(glyph_color),
+        ));
 
-        let lead_fg = if awaiting_permission { theme.warning } else { theme.fg() };
+        let lead_fg = if awaiting_permission {
+            theme.warning
+        } else {
+            theme.fg()
+        };
         let lead_style = Style::default().fg(lead_fg).add_modifier(Modifier::BOLD);
 
-        let elapsed = round_started_at.map(|started| format!(" [{}]", format_elapsed(started.elapsed())));
+        let elapsed =
+            round_started_at.map(|started| format!(" [{}]", format_elapsed(started.elapsed())));
         let elapsed_text = elapsed.unwrap_or_default();
         let elapsed_w = elapsed_text.width();
 
@@ -122,7 +137,10 @@ pub fn draw_activity_strip(
 
         if let Some(clause) = backoff_clause.filter(|c| !c.is_empty()) {
             let clause_text = format!("  ({})", clause);
-            left_spans.push(Span::styled(clause_text, Style::default().fg(theme.warning)));
+            left_spans.push(Span::styled(
+                clause_text,
+                Style::default().fg(theme.warning),
+            ));
         }
 
         if !elapsed_text.is_empty() {

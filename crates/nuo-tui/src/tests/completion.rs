@@ -702,7 +702,9 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
     // NOT quit.
     app.startup_overlay = crate::StartupOverlay::SessionsPicker;
     app.open_dialog(crate::surfaces::DialogKind::Sessions);
-    app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::SessionsDialog>()
+        .info_detail = true;
     app.session_detail = Some(nuo_wire::SessionDetail {
         id: "x".to_string(),
         ..Default::default()
@@ -711,11 +713,18 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
 
     // Mirror the CloseModal arm's ordering (deepest level wins).
     let quit = if app.active_dialog() == Some(crate::surfaces::DialogKind::Sessions)
-        && app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail
+        && app
+            .surfaces
+            .dlg_mut::<crate::surfaces::SessionsDialog>()
+            .info_detail
     {
-        app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail = false;
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionsDialog>()
+            .info_detail = false;
         app.session_detail = None;
-        app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_scroll = 0;
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionsDialog>()
+            .info_scroll = 0;
         false
     } else if app.startup_overlay == crate::StartupOverlay::SessionsPicker
         && app.active_dialog() == Some(crate::surfaces::DialogKind::Sessions)
@@ -727,7 +736,9 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
     };
     assert!(!quit, "Esc from Info backs out to the list, never quits");
     assert!(
-        !app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail,
+        !app.surfaces
+            .dlg_mut::<crate::surfaces::SessionsDialog>()
+            .info_detail,
         "sub-view cleared — back on the list"
     );
     assert!(
@@ -738,7 +749,10 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
     // Now the list is showing (still at startup). A second Esc DOES quit, since
     // there is no deeper sub-view left.
     let quit = if app.active_dialog() == Some(crate::surfaces::DialogKind::Sessions)
-        && app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail
+        && app
+            .surfaces
+            .dlg_mut::<crate::surfaces::SessionsDialog>()
+            .info_detail
     {
         false
     } else if app.startup_overlay == crate::StartupOverlay::SessionsPicker
@@ -1112,15 +1126,9 @@ fn esc_interrupt_fires_on_second_press_and_rearms_after() {
 
     // Main view: arm, then fire. Driven through the real dispatch arm so
     // the wire request (not just the state flip) is asserted.
-    super::event_loop::handle_esc_interrupt(
-        &mut app,
-        super::event_loop::InterruptTarget::Primary,
-    );
+    super::event_loop::handle_esc_interrupt(&mut app, super::event_loop::InterruptTarget::Primary);
     assert!(app.esc_armed(), "the first Esc arms the window");
-    super::event_loop::handle_esc_interrupt(
-        &mut app,
-        super::event_loop::InterruptTarget::Primary,
-    );
+    super::event_loop::handle_esc_interrupt(&mut app, super::event_loop::InterruptTarget::Primary);
     assert!(matches!(rx.try_recv(), Ok(AgentRequest::Interrupt)));
     assert!(!app.esc_armed(), "firing consumes the arm");
 
@@ -1223,7 +1231,9 @@ fn finished_viewed_child_advertises_no_subagent_interrupt() {
     );
 
     // An arm taken before the child settled lapses on the next frame's tick.
-    app.arm_esc(Some(std::time::Instant::now() + std::time::Duration::from_secs(5)));
+    app.arm_esc(Some(
+        std::time::Instant::now() + std::time::Duration::from_secs(5),
+    ));
     app.tick_esc_arm();
     assert!(
         !app.esc_armed(),

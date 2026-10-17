@@ -89,7 +89,11 @@ impl ContentBlock {
         })
     }
 
-    pub fn tool_result(call_id: impl Into<String>, output: impl Into<String>, is_error: bool) -> Self {
+    pub fn tool_result(
+        call_id: impl Into<String>,
+        output: impl Into<String>,
+        is_error: bool,
+    ) -> Self {
         Self::ToolResult(WireToolResult {
             call_id: call_id.into(),
             name: None,

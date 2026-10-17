@@ -20,14 +20,12 @@ pub(super) fn transcript_message_from_core(message: Message) -> Option<Transcrip
         return None;
     }
     if message.role == Role::System {
-        if message.content.starts_with("[Conversation Summary Checkpoint") {
-            let mut card = TranscriptMessage::compacted_card(
-                0,
-                0,
-                0,
-                Some(message.content),
-                Vec::new(),
-            );
+        if message
+            .content
+            .starts_with("[Conversation Summary Checkpoint")
+        {
+            let mut card =
+                TranscriptMessage::compacted_card(0, 0, 0, Some(message.content), Vec::new());
             card.provider = message.provider;
             card.model = message.model;
             card.sent_at_ms = message.sent_at_ms.or_else(|| {
@@ -459,8 +457,7 @@ fn transcript_from_core_inner(
                     // restored steps match live (Failed/Denied expand,
                     // Ok follows per-tool config).
                     if let Some(status) = item.tool_step_status() {
-                        let default =
-                            step_interaction::default_tool_expanded(status, name, config);
+                        let default = step_interaction::default_tool_expanded(status, name, config);
                         item.set_tool_step_expanded(default);
                     }
                     continue;

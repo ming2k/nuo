@@ -4,7 +4,10 @@
 //! - L1: Compact summary `name provider [92%/5h 99%/week]`
 //! - L2: Expanded detail with progress bars (Enter to toggle)
 
-use nuo_wire::{ConnectionQuotaEntry, ConnectionUsageState, ProviderQuotaData, ProviderQuotaSnapshot, QuotaWindowKind};
+use nuo_wire::{
+    ConnectionQuotaEntry, ConnectionUsageState, ProviderQuotaData, ProviderQuotaSnapshot,
+    QuotaWindowKind,
+};
 use nuotc::{Color, Frame, Line, Modifier, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
@@ -43,7 +46,11 @@ pub fn draw_quotas_modal(
     let (header, body, footer) = if loading && snapshot.is_none() {
         (
             vec![HeaderPart::title("Provider Quotas")],
-            vec![placeholder("Querying provider quotas…", true, theme.muted())],
+            vec![placeholder(
+                "Querying provider quotas…",
+                true,
+                theme.muted(),
+            )],
             vec![FooterHint::key_always(crate::keymap::Key::ESC, "close")],
         )
     } else if let Some(snap) = snapshot {
@@ -66,7 +73,11 @@ pub fn draw_quotas_modal(
     } else {
         (
             vec![HeaderPart::title("Quotas")],
-            vec![placeholder("No quota data available.", false, theme.muted())],
+            vec![placeholder(
+                "No quota data available.",
+                false,
+                theme.muted(),
+            )],
             vec![FooterHint::key_always(crate::keymap::Key::ESC, "close")],
         )
     };
@@ -157,14 +168,20 @@ fn compact_summary(
     let mut spans = vec![
         Span::styled(format!("{}{}{active_tag}", prefix, entry.name), name_style),
         Span::styled(format!(" {}", entry.provider), provider_style),
-        Span::styled(" ", Style::default().bg(if is_selected { style.bg } else { Color::Reset })),
+        Span::styled(
+            " ",
+            Style::default().bg(if is_selected { style.bg } else { Color::Reset }),
+        ),
         quota_summary,
     ];
 
     let used_w: usize = spans.iter().map(|s| s.content.width()).sum();
     let pad = body_width.saturating_sub(used_w);
     if pad > 0 {
-        spans.push(Span::styled(" ".repeat(pad), Style::default().bg(if is_selected { style.bg } else { Color::Reset })));
+        spans.push(Span::styled(
+            " ".repeat(pad),
+            Style::default().bg(if is_selected { style.bg } else { Color::Reset }),
+        ));
     }
 
     let mut line = Line::from(spans);
@@ -184,10 +201,7 @@ fn build_quota_summary(entry: &ConnectionQuotaEntry, theme: &Theme) -> Span<'sta
             let Some(ProviderQuotaData::Periodic(p)) = &entry.quota else {
                 // Fallback: use primary_balance
                 let balance = entry.primary_balance.as_deref().unwrap_or("-");
-                return Span::styled(
-                    format!("[{balance}]"),
-                    Style::default().fg(theme.muted()),
-                );
+                return Span::styled(format!("[{balance}]"), Style::default().fg(theme.muted()));
             };
 
             // Build compact quota strings for each window, sorted by priority
@@ -217,7 +231,11 @@ fn build_quota_summary(entry: &ConnectionQuotaEntry, theme: &Theme) -> Span<'sta
                 // Color based on lowest remaining quota
                 let lowest_pct = parts
                     .iter()
-                    .filter_map(|p| p.strip_prefix(|c: char| c.is_ascii_digit()).and_then(|s| s.split('/').next()).and_then(|s| s.parse::<u32>().ok()))
+                    .filter_map(|p| {
+                        p.strip_prefix(|c: char| c.is_ascii_digit())
+                            .and_then(|s| s.split('/').next())
+                            .and_then(|s| s.parse::<u32>().ok())
+                    })
                     .min()
                     .unwrap_or(100);
 
@@ -234,9 +252,12 @@ fn build_quota_summary(entry: &ConnectionQuotaEntry, theme: &Theme) -> Span<'sta
         ConnectionUsageState::Fetching => {
             Span::styled("[querying…]", Style::default().fg(theme.info()))
         }
-        ConnectionUsageState::Error(e) => {
-            Span::styled(format!("[err: {}]", e), Style::default().fg(theme.err()).add_modifier(Modifier::BOLD))
-        }
+        ConnectionUsageState::Error(e) => Span::styled(
+            format!("[err: {}]", e),
+            Style::default()
+                .fg(theme.err())
+                .add_modifier(Modifier::BOLD),
+        ),
         ConnectionUsageState::Unsupported => {
             Span::styled("[n/a]", Style::default().fg(theme.muted()))
         }
@@ -302,10 +323,17 @@ fn quota_bar(used_fraction: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::{ConnectionQuotaEntry, ConnectionUsageState, QuotaWindowBucket, ProviderQuotaData, PeriodicQuota};
+    use nuo_wire::{
+        ConnectionQuotaEntry, ConnectionUsageState, PeriodicQuota, ProviderQuotaData,
+        QuotaWindowBucket,
+    };
 
     fn line_to_string(line: &Line<'_>) -> String {
-        line.spans.iter().map(|s| s.content.as_ref()).collect::<Vec<_>>().join("")
+        line.spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<Vec<_>>()
+            .join("")
     }
 
     fn make_theme() -> Theme {

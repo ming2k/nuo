@@ -11,10 +11,10 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue, Method, StatusCode};
-use nuo_wire::WebConfig;
 use netune::{
     Client, ClientConfig, Pool, RequestHead, Response, Target, TcpConnector, TlsConnector,
 };
+use nuo_wire::WebConfig;
 
 /// A response whose body has been read.
 #[derive(Debug)]

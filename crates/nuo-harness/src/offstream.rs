@@ -180,6 +180,9 @@ impl nuo_tool::VirtualFileResolver for OffstreamRegistry {
         }
 
         // 3. Fallback to offstream registered sources (subagent transcripts, causal folds, etc.)
-        self.read(handle, None, None, 1_000_000).await.ok().map(|p| p.text)
+        self.read(handle, None, None, 1_000_000)
+            .await
+            .ok()
+            .map(|p| p.text)
     }
 }

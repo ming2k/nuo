@@ -6,8 +6,8 @@
 
 pub use crate::chrome::{ActivityStripProps, draw_activity_strip};
 pub use crate::chrome::{
-    ModelBarProps, QueueBarProps, QueueItemProps, TasksBarProps,
-    draw_completion_menu, draw_model_bar,
+    ModelBarProps, QueueBarProps, QueueItemProps, TasksBarProps, draw_completion_menu,
+    draw_model_bar,
 };
 pub use crate::composer::{
     ComposerDrawOptions, INPUT_MSG_IDX, draw_composer, draw_composer_highlighted,
@@ -20,10 +20,9 @@ pub(crate) use crate::design::{
     CODE_BAND_GUTTER_MIN_WIDTH, COMPOSER_MAX_HEIGHT_DIVISOR, COMPOSER_MIN_HEIGHT,
     COMPOSER_PROMPT_PREFIX_COLS, COMPOSER_RIGHT_PAD_COLS, COMPOSER_VERTICAL_CHROME_ROWS,
     FOOTER_H_INSET, FOOTER_TOP_GAP_ROWS, MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS, MODEL_BAR_ROWS,
-    PAGE_HEADER_ROWS, REASONING_TRACE_BLOCK_GAP_ROWS,
-    REASONING_TRACE_BODY_TOP_GAP_ROWS, STEP_MIN_WIDTH, TOOL_STEP_BODY_INDENT_COLS,
-    TOOL_STEP_BODY_TOP_GAP_ROWS, TOOL_STEP_CHILDREN_GAP_ROWS, TRANSCRIPT_BODY_LEADING_INDENT,
-    TRANSCRIPT_H_INSET,
+    PAGE_HEADER_ROWS, REASONING_TRACE_BLOCK_GAP_ROWS, REASONING_TRACE_BODY_TOP_GAP_ROWS,
+    STEP_MIN_WIDTH, TOOL_STEP_BODY_INDENT_COLS, TOOL_STEP_BODY_TOP_GAP_ROWS,
+    TOOL_STEP_CHILDREN_GAP_ROWS, TRANSCRIPT_BODY_LEADING_INDENT, TRANSCRIPT_H_INSET,
 };
 use crate::disclosure::{StickyAnchor, draw_sticky_anchor_if_needed};
 /// Which guidance copy the empty-state hero shows beneath the logo (ADR-0057).
@@ -758,7 +757,8 @@ pub fn draw_transcript(
                 .as_ref()
                 .map_or(false, |h| h.kind == crate::surfaces::SceneKind::Thread),
     );
-    let (tab_rect, scene_rect, context_rect, viewport) = if tab_rows + scene_rows + context_rows > 0 {
+    let (tab_rect, scene_rect, context_rect, viewport) = if tab_rows + scene_rows + context_rows > 0
+    {
         debug_assert!(
             tab_rows + scene_rows + context_rows <= PAGE_HEADER_ROWS,
             "the head band is at most {PAGE_HEADER_ROWS} rows"
@@ -824,7 +824,11 @@ pub fn draw_transcript(
     let tasks_row_needed =
         !chrome_hidden && !in_subagent && tasks_bar.tasks.iter().any(|t| !t.dismissed);
     let activity_strip_needed = activity_row_needed || queue_row_needed || tasks_row_needed;
-    let activity_strip_height: u16 = if activity_strip_needed { ACTIVITY_STRIP_ROWS } else { 0 };
+    let activity_strip_height: u16 = if activity_strip_needed {
+        ACTIVITY_STRIP_ROWS
+    } else {
+        0
+    };
 
     // The input box grows with its content: the typed text wraps onto new
     // lines and the box expands to fit, up to roughly half the terminal so the
@@ -1083,7 +1087,11 @@ pub fn draw_transcript(
                     status: activity,
                     backoff_clause,
                     awaiting_permission,
-                    queued_count: if queue_row_needed { queue_bar.items.len() } else { 0 },
+                    queued_count: if queue_row_needed {
+                        queue_bar.items.len()
+                    } else {
+                        0
+                    },
                     queued_preview: queue_bar.items.first().map(|i| i.text.as_str()),
                     tasks_count: if tasks_row_needed {
                         tasks_bar.tasks.iter().filter(|t| !t.dismissed).count()

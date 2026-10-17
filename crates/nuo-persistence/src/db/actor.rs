@@ -29,11 +29,13 @@ impl PersistenceCommand {
                 let _ = ack.send(res);
             }
             Self::UpsertSession { record, ack } => {
-                let res = guarded(|| crate::db::session_store::upsert_session(&engine.conn, &record));
+                let res =
+                    guarded(|| crate::db::session_store::upsert_session(&engine.conn, &record));
                 let _ = ack.send(res);
             }
             Self::DeleteSession { session_id, ack } => {
-                let res = guarded(|| crate::db::session_store::delete_session(&engine.conn, &session_id));
+                let res =
+                    guarded(|| crate::db::session_store::delete_session(&engine.conn, &session_id));
                 let _ = ack.send(res);
             }
             Self::RenameSession {
@@ -43,12 +45,18 @@ impl PersistenceCommand {
                 ack,
             } => {
                 let res = guarded(|| {
-                    crate::db::session_store::rename_session(&engine.conn, &session_id, title.as_deref(), manual)
+                    crate::db::session_store::rename_session(
+                        &engine.conn,
+                        &session_id,
+                        title.as_deref(),
+                        manual,
+                    )
                 });
                 let _ = ack.send(res);
             }
             Self::RecordCommand { cmd, ack } => {
-                let res = guarded(|| crate::db::usage_projection::record_command(&engine.conn, &cmd));
+                let res =
+                    guarded(|| crate::db::usage_projection::record_command(&engine.conn, &cmd));
                 let _ = ack.send(res);
             }
             Self::RecordRequestProjection {
@@ -57,7 +65,11 @@ impl PersistenceCommand {
                 ack,
             } => {
                 let res = guarded(|| {
-                    crate::db::usage_projection::insert_request_projection(&engine.conn, &session_id, &record)
+                    crate::db::usage_projection::insert_request_projection(
+                        &engine.conn,
+                        &session_id,
+                        &record,
+                    )
                 });
                 let _ = ack.send(res);
             }
@@ -83,7 +95,8 @@ impl PersistenceCommand {
                 let _ = ack.send(res);
             }
             Self::CollectEntryGarbage { ack } => {
-                let res = guarded(|| crate::db::garbage_collection::collect_entry_garbage(&engine.conn));
+                let res =
+                    guarded(|| crate::db::garbage_collection::collect_entry_garbage(&engine.conn));
                 let _ = ack.send(res);
             }
             Self::CreateBackup { target_path, ack } => {
@@ -91,7 +104,9 @@ impl PersistenceCommand {
                 let _ = ack.send(res);
             }
             Self::RecordInputHistory { entry, dedup, ack } => {
-                let res = guarded(|| crate::db::input_history::record_input_history(&engine.conn, &entry, dedup));
+                let res = guarded(|| {
+                    crate::db::input_history::record_input_history(&engine.conn, &entry, dedup)
+                });
                 if let Some(ack) = ack {
                     let _ = ack.send(res);
                 }
@@ -101,7 +116,9 @@ impl PersistenceCommand {
                 dedup,
                 ack,
             } => {
-                let res = guarded(|| crate::db::input_history::save_input_history(&engine.conn, &entries, dedup));
+                let res = guarded(|| {
+                    crate::db::input_history::save_input_history(&engine.conn, &entries, dedup)
+                });
                 let _ = ack.send(res);
             }
             Self::ClearInputHistory { ack } => {
@@ -114,7 +131,11 @@ impl PersistenceCommand {
                 ack,
             } => {
                 let res = guarded(|| {
-                    crate::db::input_history::delete_input_history_entry(&engine.conn, &text, created_at_ms)
+                    crate::db::input_history::delete_input_history_entry(
+                        &engine.conn,
+                        &text,
+                        created_at_ms,
+                    )
                 });
                 if let Some(ack) = ack {
                     let _ = ack.send(res);
@@ -211,9 +232,11 @@ impl PersistenceCommand {
                 let _ = ack.send(Err(error));
             }
             Self::CommitContextFacts { ack, .. } | Self::CommitContextView { ack, .. } => {
-                let _ = ack.send(Err(crate::db::context_store::ContextCommitError::PersistenceFailure {
-                    detail: error.to_string(),
-                }));
+                let _ = ack.send(Err(
+                    crate::db::context_store::ContextCommitError::PersistenceFailure {
+                        detail: error.to_string(),
+                    },
+                ));
             }
             Self::ExecuteInspectDeletion { ack, .. } => {
                 let _ = ack.send(Err(nuo_wire::context_lifecycle::InspectError::Corrupt));

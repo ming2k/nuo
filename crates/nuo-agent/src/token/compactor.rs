@@ -144,7 +144,11 @@ pub async fn offload_tool_result(
                 .collect();
             let elided_bytes = total_len.saturating_sub(preview_len * 2);
             let elided_kb = (elided_bytes as f64) / 1024.0;
-            let elided_lines = tr.output.lines().count().saturating_sub(head.lines().count() + tail.lines().count());
+            let elided_lines = tr
+                .output
+                .lines()
+                .count()
+                .saturating_sub(head.lines().count() + tail.lines().count());
             let metric_desc = if elided_lines > 1 {
                 format!("{elided_lines} lines ({elided_kb:.1} KB)")
             } else {
@@ -223,12 +227,8 @@ impl Compactor {
         for msg in messages.iter_mut() {
             for tr in msg.tool_results.iter_mut() {
                 if tr.output.len() > max_chars {
-                    elided_total += offload_tool_result(
-                        tr,
-                        mode,
-                        self.observation_store.as_ref(),
-                    )
-                    .await;
+                    elided_total +=
+                        offload_tool_result(tr, mode, self.observation_store.as_ref()).await;
                 }
             }
         }
@@ -286,10 +286,7 @@ mod tests {
         // Verify that raw output was stored in observation store under content hash
         let hash = nuo_tool::vfs_short_hash(b"A".repeat(500).as_slice());
         assert!(obs_store.contains(&hash).await);
-        let slice = obs_store
-            .fetch_slice(&hash, 0, 10)
-            .await
-            .unwrap();
+        let slice = obs_store.fetch_slice(&hash, 0, 10).await.unwrap();
         assert_eq!(slice, "AAAAAAAAAA");
     }
 
@@ -305,7 +302,10 @@ mod tests {
 
         let elided = offload_tool_result(&mut tr, OffloadMode::Full, Some(&obs_store)).await;
         assert_eq!(elided, 1000);
-        assert!(tr.output.contains("[Context Offloaded: 1000 characters (1.0 KB) offloaded to store]"));
+        assert!(
+            tr.output
+                .contains("[Context Offloaded: 1000 characters (1.0 KB) offloaded to store]")
+        );
         assert!(tr.output.contains("/tmp/nuo/vfs/"));
         assert!(tr.output.contains("read_text"));
         // Full mode MUST NOT contain head or tail preview
@@ -314,10 +314,7 @@ mod tests {
         // Raw output still 100% accessible via observation store
         let hash = nuo_tool::vfs_short_hash(b"X".repeat(1000).as_slice());
         assert!(obs_store.contains(&hash).await);
-        let slice = obs_store
-            .fetch_slice(&hash, 0, 5)
-            .await
-            .unwrap();
+        let slice = obs_store.fetch_slice(&hash, 0, 5).await.unwrap();
         assert_eq!(slice, "XXXXX");
     }
 

@@ -13,8 +13,8 @@ use nuo_tool::{RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope}
 use serde_json::{Value, json};
 
 use crate::{
-    AgentAddress, AgentManifest, ChannelId, DelegationBudget, Fabric, MailboxHandle,
-    MessageIntent, ProtocolError, SubscriptionMode,
+    AgentAddress, AgentManifest, ChannelId, DelegationBudget, Fabric, MailboxHandle, MessageIntent,
+    ProtocolError, SubscriptionMode,
 };
 
 tokio::task_local! {
@@ -158,10 +158,9 @@ impl AcpToolContext {
 
     fn nested_budget(&self) -> std::result::Result<Option<DelegationBudget>, String> {
         match DelegationContext::current_budget() {
-            Some(budget) => budget
-                .descend()
-                .map(Some)
-                .map_err(|err| format!("cannot delegate further: {err}. Perform the task directly instead.")),
+            Some(budget) => budget.descend().map(Some).map_err(|err| {
+                format!("cannot delegate further: {err}. Perform the task directly instead.")
+            }),
             None => Ok(None),
         }
     }
@@ -225,7 +224,7 @@ impl DelegateToPeerTool {
                 Err(_) => {
                     self.ctx.handle.cancel_reply(request_id).await;
                     Err(ProtocolError::RequestTimeout(
-                        self.ctx.timeout.as_millis() as u64,
+                        self.ctx.timeout.as_millis() as u64
                     ))
                 }
             }
@@ -261,7 +260,7 @@ impl DelegateToPeerTool {
                 Err(_) => {
                     self.ctx.handle.cancel_reply(request_id).await;
                     Err(ProtocolError::RequestTimeout(
-                        self.ctx.timeout.as_millis() as u64,
+                        self.ctx.timeout.as_millis() as u64
                     ))
                 }
             }
@@ -437,9 +436,11 @@ impl PublishToChannelTool {
             }
         }
 
-        let room = self.ctx.fabric.as_ref().ok_or_else(|| {
-            "publishing to a channel requires room membership".to_string()
-        })?;
+        let room = self
+            .ctx
+            .fabric
+            .as_ref()
+            .ok_or_else(|| "publishing to a channel requires room membership".to_string())?;
 
         let (stored, notified) = room
             .publish(&self.ctx.address, &channel_id, message, mentions)
@@ -530,13 +531,16 @@ impl ReadChannelTool {
         let channel_id = ChannelId::new(raw_channel)
             .map_err(|err| format!("invalid channel `{raw_channel}`: {err}"))?;
 
-        let room = self.ctx.fabric.as_ref().ok_or_else(|| {
-            "reading a channel requires room membership".to_string()
-        })?;
+        let room = self
+            .ctx
+            .fabric
+            .as_ref()
+            .ok_or_else(|| "reading a channel requires room membership".to_string())?;
 
-        let channel = room.channel(&channel_id).await.ok_or_else(|| {
-            format!("channel `{channel_id}` does not exist in this room")
-        })?;
+        let channel = room
+            .channel(&channel_id)
+            .await
+            .ok_or_else(|| format!("channel `{channel_id}` does not exist in this room"))?;
 
         let messages = channel.recent(limit).await;
         if messages.is_empty() {
@@ -610,9 +614,11 @@ impl ListChannelsTool {
     }
 
     async fn execute_internal(&self, _arguments: Value) -> std::result::Result<String, String> {
-        let room = self.ctx.fabric.as_ref().ok_or_else(|| {
-            "listing channels requires room membership".to_string()
-        })?;
+        let room = self
+            .ctx
+            .fabric
+            .as_ref()
+            .ok_or_else(|| "listing channels requires room membership".to_string())?;
 
         let channels = room.channels().await;
         if channels.is_empty() {
@@ -689,12 +695,14 @@ impl OpenChannelTool {
             .and_then(Value::as_str)
             .ok_or_else(|| "missing required `channel`".to_string())?;
 
-        let channel_id = ChannelId::new(raw)
-            .map_err(|err| format!("invalid channel `{raw}`: {err}"))?;
+        let channel_id =
+            ChannelId::new(raw).map_err(|err| format!("invalid channel `{raw}`: {err}"))?;
 
-        let room = self.ctx.fabric.as_ref().ok_or_else(|| {
-            "opening a channel requires room membership".to_string()
-        })?;
+        let room = self
+            .ctx
+            .fabric
+            .as_ref()
+            .ok_or_else(|| "opening a channel requires room membership".to_string())?;
 
         let existed = room.channel(&channel_id).await.is_some();
         room.open_channel(channel_id.clone()).await;
@@ -790,12 +798,14 @@ impl SubscribeChannelTool {
             }
         };
 
-        let channel_id = ChannelId::new(raw)
-            .map_err(|err| format!("invalid channel `{raw}`: {err}"))?;
+        let channel_id =
+            ChannelId::new(raw).map_err(|err| format!("invalid channel `{raw}`: {err}"))?;
 
-        let room = self.ctx.fabric.as_ref().ok_or_else(|| {
-            "subscribing to a channel requires room membership".to_string()
-        })?;
+        let room = self
+            .ctx
+            .fabric
+            .as_ref()
+            .ok_or_else(|| "subscribing to a channel requires room membership".to_string())?;
 
         let subscription = room
             .subscribe(&self.ctx.address, &channel_id, mode)

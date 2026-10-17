@@ -26,8 +26,11 @@ pub fn build_request(
     );
     // Track the crate version from one place; a static literal here would drift
     // on every version bump.
-    const USER_AGENT: &str =
-        concat!("nuo-model-codec/", env!("CARGO_PKG_VERSION"), " (SystemOne; Jev)");
+    const USER_AGENT: &str = concat!(
+        "nuo-model-codec/",
+        env!("CARGO_PKG_VERSION"),
+        " (SystemOne; Jev)"
+    );
     headers.insert(
         http::header::USER_AGENT,
         http::HeaderValue::from_static(USER_AGENT),
@@ -67,8 +70,9 @@ pub fn parse_response(json_val: &serde_json::Value) -> Result<DecisionResponse> 
         });
     }
 
-    let resp: DecisionResponse = serde_json::from_value(json_val.clone())
-        .map_err(|err| WireError::Protocol(format!("failed to deserialize DecisionResponse: {err}")))?;
+    let resp: DecisionResponse = serde_json::from_value(json_val.clone()).map_err(|err| {
+        WireError::Protocol(format!("failed to deserialize DecisionResponse: {err}"))
+    })?;
 
     // Quality assertion on probabilities and bounds
     for (id, answer) in &resp.answers {

@@ -1,8 +1,8 @@
 use std::sync::RwLock;
 
 use async_trait::async_trait;
-use nuo_wire::{SharedWebConfig, Tool, WebReaderProvider, WebRuntimeConfig};
 use nuo_tool::{BuiltinTool, ToolSchema};
+use nuo_wire::{SharedWebConfig, Tool, WebReaderProvider, WebRuntimeConfig};
 use serde::Deserialize;
 
 use crate::snapshot::{WebSnapshotResult, take_snapshot};
@@ -17,10 +17,7 @@ struct WebReaderArgs {
     raw: Option<bool>,
 }
 
-type CachedClient = (
-    u64,
-    Result<std::sync::Arc<crate::http::WebHttp>, String>,
-);
+type CachedClient = (u64, Result<std::sync::Arc<crate::http::WebHttp>, String>);
 
 /// Read a web page URL and extract its clean Markdown content via the configured Reader.
 pub struct WebReaderTool {
@@ -66,8 +63,7 @@ impl WebReaderTool {
                 return built.clone().map_err(|e| e.clone());
             }
         }
-        let built =
-            crate::http::WebHttp::new(&snapshot.behavior).map(std::sync::Arc::new);
+        let built = crate::http::WebHttp::new(&snapshot.behavior).map(std::sync::Arc::new);
         *self
             .client
             .write()

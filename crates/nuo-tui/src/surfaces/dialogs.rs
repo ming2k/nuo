@@ -197,7 +197,9 @@ pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
         DialogKind::Skills => ContentModalSpec::SKILLS.modal_spec(),
         // The history panel is a composer-anchored dropdown and the switcher
         // is a command palette: neither uses a centered modal footprint.
-        DialogKind::HistorySearch | DialogKind::Switcher | DialogKind::PortShare => ContentModalSpec::TOOLS.modal_spec(),
+        DialogKind::HistorySearch | DialogKind::Switcher | DialogKind::PortShare => {
+            ContentModalSpec::TOOLS.modal_spec()
+        }
     }
 }
 
@@ -208,7 +210,10 @@ pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
 pub fn dismiss_cleanup(view: &mut dyn DialogView) {
     match view.kind() {
         DialogKind::Models => {
-            let d = view.as_any_mut().downcast_mut::<ModelsDialog>().expect("kind");
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<ModelsDialog>()
+                .expect("kind");
             d.search = false;
             d.query.clear();
         }
@@ -247,7 +252,10 @@ fn render_dialog(
     let app = ctx.app;
     match view.kind() {
         DialogKind::Tools => {
-            let d = view.as_any_mut().downcast_mut::<ToolsDialog>().expect("kind");
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<ToolsDialog>()
+                .expect("kind");
             Some(crate::overlays::draw_tools_modal(
                 frame,
                 app.session_context.as_ref(),
@@ -271,7 +279,10 @@ fn render_dialog(
             ))
         }
         DialogKind::Skills => {
-            let d = view.as_any_mut().downcast_mut::<SkillsDialog>().expect("kind");
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<SkillsDialog>()
+                .expect("kind");
             Some(crate::overlays::draw_skills_modal(
                 frame,
                 app.session_context.as_ref(),
@@ -384,7 +395,10 @@ fn render_dialog(
             ))
         }
         DialogKind::Queue => {
-            let d = view.as_any_mut().downcast_mut::<QueueDialog>().expect("kind");
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<QueueDialog>()
+                .expect("kind");
             let items: Vec<crate::render::QueueItemProps> = app
                 .pending_dispatch
                 .iter()
@@ -409,7 +423,10 @@ fn render_dialog(
             ))
         }
         DialogKind::Threads => {
-            let d = view.as_any_mut().downcast_mut::<ThreadsDialog>().expect("kind");
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<ThreadsDialog>()
+                .expect("kind");
             let projected_count = crate::overlays::session::project_session_rows(
                 &app.sessions_overview,
                 Some(&d.expanded),
@@ -483,7 +500,10 @@ fn render_dialog(
             ))
         }
         DialogKind::Models => {
-            let d = view.as_any_mut().downcast_mut::<ModelsDialog>().expect("kind");
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<ModelsDialog>()
+                .expect("kind");
             let models = app.models_flat_filtered();
             Some(crate::overlays::draw_models_modal(
                 frame,
@@ -535,7 +555,10 @@ fn render_dialog(
                 .expect("kind");
             let app_ctx = crate::keymap::AppContext {
                 has_overlay: true,
-                active_dialog: app.surfaces.underlying_dialog().or_else(|| app.active_dialog()),
+                active_dialog: app
+                    .surfaces
+                    .underlying_dialog()
+                    .or_else(|| app.active_dialog()),
                 is_responding: app.viewed_chrome().responding,
                 has_selection: !matches!(app.selection, SelectionState::None),
                 has_running_task: app.viewed_chrome().responding,
@@ -631,7 +654,10 @@ fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> Dialog
     }
     match view.kind() {
         DialogKind::Threads => {
-            let e = view.as_any_mut().downcast_mut::<ThreadsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<ThreadsDialog>()
+                .expect("kind");
             if e.info_detail {
                 apply_delta(&mut e.info_scroll, delta);
             } else {
@@ -641,7 +667,10 @@ fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> Dialog
             DialogOutcome::Consumed
         }
         DialogKind::Connections => {
-            let e = view.as_any_mut().downcast_mut::<ConnectionsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<ConnectionsDialog>()
+                .expect("kind");
             if e.info_detail {
                 apply_delta(&mut e.info_scroll, delta);
             } else {
@@ -651,7 +680,10 @@ fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> Dialog
             DialogOutcome::Consumed
         }
         DialogKind::Tools => {
-            let e = view.as_any_mut().downcast_mut::<ToolsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<ToolsDialog>()
+                .expect("kind");
             if e.info_detail {
                 apply_delta(&mut e.info_scroll, delta);
             } else {
@@ -667,63 +699,96 @@ fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> Dialog
             DialogOutcome::Consumed
         }
         DialogKind::Skills => {
-            let e = view.as_any_mut().downcast_mut::<SkillsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<SkillsDialog>()
+                .expect("kind");
             apply_delta(&mut e.scroll, delta);
             e.follow = false;
             DialogOutcome::Consumed
         }
         DialogKind::Models => {
-            let e = view.as_any_mut().downcast_mut::<ModelsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<ModelsDialog>()
+                .expect("kind");
             apply_delta(&mut e.scroll, delta);
             e.follow = false;
             DialogOutcome::Consumed
         }
         DialogKind::HistorySearch => {
-            let e = view.as_any_mut().downcast_mut::<HistorySearchDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<HistorySearchDialog>()
+                .expect("kind");
             apply_delta(&mut e.scroll, delta);
             e.follow = false;
             DialogOutcome::Consumed
         }
         DialogKind::Queue => {
-            let e = view.as_any_mut().downcast_mut::<QueueDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<QueueDialog>()
+                .expect("kind");
             apply_delta(&mut e.scroll, delta);
             e.follow = false;
             DialogOutcome::Consumed
         }
         DialogKind::SessionTree => {
-            let e = view.as_any_mut().downcast_mut::<SessionTreeDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<SessionTreeDialog>()
+                .expect("kind");
             apply_delta(&mut e.scroll, delta);
             e.follow = false;
             DialogOutcome::Consumed
         }
         DialogKind::Quotas => {
-            let e = view.as_any_mut().downcast_mut::<QuotasDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<QuotasDialog>()
+                .expect("kind");
             apply_delta(&mut e.scroll, delta);
             e.follow = false;
             DialogOutcome::Consumed
         }
         DialogKind::Permissions => {
-            let e = view.as_any_mut().downcast_mut::<PermissionsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<PermissionsDialog>()
+                .expect("kind");
             apply_delta(&mut e.scroll, delta);
             DialogOutcome::Consumed
         }
         DialogKind::UsageStats => {
-            let e = view.as_any_mut().downcast_mut::<UsageStatsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<UsageStatsDialog>()
+                .expect("kind");
             apply_delta(&mut e.scroll, delta);
             DialogOutcome::Consumed
         }
         DialogKind::SessionStats => {
-            let e = view.as_any_mut().downcast_mut::<SessionStatsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<SessionStatsDialog>()
+                .expect("kind");
             apply_delta(&mut e.scroll, delta);
             DialogOutcome::Consumed
         }
         DialogKind::SessionTrace => {
-            let e = view.as_any_mut().downcast_mut::<SessionTraceDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<SessionTraceDialog>()
+                .expect("kind");
             apply_delta(&mut e.scroll, delta);
             DialogOutcome::Consumed
         }
         DialogKind::Switcher => {
-            let e = view.as_any_mut().downcast_mut::<SwitcherDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<SwitcherDialog>()
+                .expect("kind");
             apply_delta(&mut e.scroll, delta);
             DialogOutcome::Consumed
         }
@@ -756,7 +821,10 @@ fn handle_dialog_click(
 ) -> DialogOutcome {
     match view.kind() {
         DialogKind::Threads => {
-            let e = view.as_any_mut().downcast_mut::<ThreadsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<ThreadsDialog>()
+                .expect("kind");
             if e.info_detail {
                 return DialogOutcome::Consumed;
             }
@@ -787,16 +855,19 @@ fn handle_dialog_click(
                     let target_title = target_session.title.clone();
                     if target_id != viewed_session_id {
                         let is_empty = app.is_current_thread_empty();
-                        let tab = crate::surfaces::ClientTab::thread(&target_id, target_title.as_deref());
+                        let tab =
+                            crate::surfaces::ClientTab::thread(&target_id, target_title.as_deref());
                         if is_empty {
                             app.send_intent(nuo_wire::AgentRequest::DeleteSession {
                                 id: viewed_session_id.to_string(),
                             });
                             let active_idx = app.surfaces.active_tab_index();
-                            if let Some(existing_pos) = app.surfaces.tabs().iter().position(|t| match &t.kind {
-                                crate::surfaces::TabKind::Thread(tid) => tid == &target_id,
-                                _ => false,
-                            }) {
+                            if let Some(existing_pos) =
+                                app.surfaces.tabs().iter().position(|t| match &t.kind {
+                                    crate::surfaces::TabKind::Thread(tid) => tid == &target_id,
+                                    _ => false,
+                                })
+                            {
                                 app.close_tab(active_idx);
                                 let new_pos = if existing_pos > active_idx {
                                     existing_pos - 1
@@ -811,7 +882,8 @@ fn handle_dialog_click(
                             app.open_tab(tab);
                         }
                         app.switch_to_target = Some(target_id);
-                        app.should_quit.store(true, std::sync::atomic::Ordering::SeqCst);
+                        app.should_quit
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
                     } else {
                         return DialogOutcome::Dismiss;
                     }
@@ -820,17 +892,21 @@ fn handle_dialog_click(
             DialogOutcome::Consumed
         }
         DialogKind::Models => {
-            let e = view.as_any_mut().downcast_mut::<ModelsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<ModelsDialog>()
+                .expect("kind");
             let models = app.models_flat_filtered();
             let (geometry, _) = crate::providers::models_body_lines(&models);
             let target_line = e.scroll + visual_row;
-            if let Some(crate::providers::ModelBodyLine::Row(row_idx)) =
-                geometry.get(target_line)
-            {
+            if let Some(crate::providers::ModelBodyLine::Row(row_idx)) = geometry.get(target_line) {
                 let was_selected = e.index == *row_idx;
                 e.index = *row_idx;
                 e.follow = true;
-                if was_selected && let Some(rm) = models.get(*row_idx) && rm.usable {
+                if was_selected
+                    && let Some(rm) = models.get(*row_idx)
+                    && rm.usable
+                {
                     let ready = app.key_status.get(&rm.provider_id).copied().unwrap_or(true);
                     crate::event_loop::actions::activate_picked_model(
                         app,
@@ -863,7 +939,10 @@ fn handle_dialog_click(
             DialogOutcome::Consumed
         }
         DialogKind::Tools => {
-            let e = view.as_any_mut().downcast_mut::<ToolsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<ToolsDialog>()
+                .expect("kind");
             if e.info_detail {
                 return DialogOutcome::Consumed;
             }
@@ -891,7 +970,10 @@ fn handle_dialog_click(
             DialogOutcome::Consumed
         }
         DialogKind::Skills => {
-            let e = view.as_any_mut().downcast_mut::<SkillsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<SkillsDialog>()
+                .expect("kind");
             let count = app.session_context.as_ref().map_or(0, |s| s.skills.len());
             let target_idx = e.scroll + visual_row;
             if target_idx < count {
@@ -950,7 +1032,10 @@ fn handle_dialog_click(
             DialogOutcome::Consumed
         }
         DialogKind::Quotas => {
-            let e = view.as_any_mut().downcast_mut::<QuotasDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<QuotasDialog>()
+                .expect("kind");
             let count = app.provider_quotas.as_ref().map_or(0, |q| q.entries.len());
             let target_idx = e.scroll + visual_row;
             if target_idx < count {
@@ -968,7 +1053,10 @@ fn handle_dialog_click(
             DialogOutcome::Consumed
         }
         DialogKind::Queue => {
-            let e = view.as_any_mut().downcast_mut::<QueueDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<QueueDialog>()
+                .expect("kind");
             let count = app.pending_count(viewed_session_id);
             let target_idx = e.scroll + visual_row;
             if target_idx < count {
@@ -978,10 +1066,16 @@ fn handle_dialog_click(
             DialogOutcome::Consumed
         }
         DialogKind::Switcher => {
-            let e = view.as_any_mut().downcast_mut::<SwitcherDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<SwitcherDialog>()
+                .expect("kind");
             let app_ctx = crate::keymap::AppContext {
                 has_overlay: true,
-                active_dialog: app.surfaces.underlying_dialog().or_else(|| app.active_dialog()),
+                active_dialog: app
+                    .surfaces
+                    .underlying_dialog()
+                    .or_else(|| app.active_dialog()),
                 is_responding: app.viewed_chrome().responding,
                 has_selection: !matches!(app.selection, SelectionState::None),
                 has_running_task: app.viewed_chrome().responding,
@@ -1027,13 +1121,9 @@ fn input_dialog(
     if let InputAction::DialogKeysScroll { delta } = action {
         if view.keys_open() {
             if *delta < 0 {
-                *view.keys_scroll_mut() = view
-                    .keys_scroll_mut()
-                    .saturating_sub((-delta) as usize);
+                *view.keys_scroll_mut() = view.keys_scroll_mut().saturating_sub((-delta) as usize);
             } else {
-                *view.keys_scroll_mut() = view
-                    .keys_scroll_mut()
-                    .saturating_add(*delta as usize);
+                *view.keys_scroll_mut() = view.keys_scroll_mut().saturating_add(*delta as usize);
             }
             return DialogOutcome::Consumed;
         }
@@ -1071,7 +1161,10 @@ fn input_dialog(
 
     match view.kind() {
         DialogKind::Tools => {
-            let e = view.as_any_mut().downcast_mut::<ToolsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<ToolsDialog>()
+                .expect("kind");
             if e.info_detail {
                 if forward {
                     e.info_scroll = e.info_scroll.saturating_add(1);
@@ -1109,7 +1202,10 @@ fn input_dialog(
                     e.follow = true;
                 }
                 _ => {
-                    let e = view.as_any_mut().downcast_mut::<SkillsDialog>().expect("kind");
+                    let e = view
+                        .as_any_mut()
+                        .downcast_mut::<SkillsDialog>()
+                        .expect("kind");
                     e.index = rotate(e.index, count, forward);
                     e.follow = true;
                 }
@@ -1153,7 +1249,10 @@ fn input_dialog(
             DialogOutcome::Consumed
         }
         DialogKind::Models => {
-            let e = view.as_any_mut().downcast_mut::<ModelsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<ModelsDialog>()
+                .expect("kind");
             let count = app.picker_row_count();
             if count == 0 {
                 return DialogOutcome::Unhandled;
@@ -1177,7 +1276,10 @@ fn input_dialog(
             DialogOutcome::Consumed
         }
         DialogKind::Threads => {
-            let e = view.as_any_mut().downcast_mut::<ThreadsDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<ThreadsDialog>()
+                .expect("kind");
             if arrow && e.info_detail {
                 if forward {
                     e.info_scroll = e.info_scroll.saturating_add(1);
@@ -1295,7 +1397,10 @@ fn input_dialog(
             DialogOutcome::Consumed
         }
         DialogKind::Queue => {
-            let e = view.as_any_mut().downcast_mut::<QueueDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<QueueDialog>()
+                .expect("kind");
             if arrow {
                 if forward {
                     e.scroll = e.scroll.saturating_add(1);
@@ -1318,7 +1423,10 @@ fn input_dialog(
             DialogOutcome::Consumed
         }
         DialogKind::Switcher => {
-            let e = view.as_any_mut().downcast_mut::<SwitcherDialog>().expect("kind");
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<SwitcherDialog>()
+                .expect("kind");
             let count = crate::overlays::command_palette::filter_palette_commands(
                 &e.query.text,
                 &app.recent_commands,
@@ -1350,7 +1458,10 @@ fn rotate(cur: usize, count: usize, forward: bool) -> usize {
 fn switcher_app_ctx(app: &crate::App) -> crate::keymap::AppContext {
     crate::keymap::AppContext {
         has_overlay: true,
-        active_dialog: app.surfaces.underlying_dialog().or_else(|| app.active_dialog()),
+        active_dialog: app
+            .surfaces
+            .underlying_dialog()
+            .or_else(|| app.active_dialog()),
         is_responding: app.viewed_chrome().responding,
         has_selection: !matches!(app.selection, SelectionState::None),
         has_running_task: app.viewed_chrome().responding,
@@ -1745,42 +1856,66 @@ impl Dialogs {
     #[allow(clippy::expect_used)]
     pub fn put(&mut self, kind: DialogKind, view: Box<dyn DialogView>) {
         match kind {
-            DialogKind::Tools => self.tools = *view.into_any().downcast::<ToolsDialog>().expect("kind"),
+            DialogKind::Tools => {
+                self.tools = *view.into_any().downcast::<ToolsDialog>().expect("kind")
+            }
             DialogKind::Mcp => self.mcp = *view.into_any().downcast::<McpDialog>().expect("kind"),
             DialogKind::Skills => {
                 self.skills = *view.into_any().downcast::<SkillsDialog>().expect("kind")
             }
             DialogKind::Permissions => {
-                self.permissions = *view.into_any().downcast::<PermissionsDialog>().expect("kind")
+                self.permissions = *view
+                    .into_any()
+                    .downcast::<PermissionsDialog>()
+                    .expect("kind")
             }
             DialogKind::UsageStats => {
-                self.usage_stats = *view.into_any().downcast::<UsageStatsDialog>().expect("kind")
+                self.usage_stats = *view
+                    .into_any()
+                    .downcast::<UsageStatsDialog>()
+                    .expect("kind")
             }
             DialogKind::Quotas => {
                 self.quotas = *view.into_any().downcast::<QuotasDialog>().expect("kind")
             }
             DialogKind::SessionStats => {
-                self.session_stats =
-                    *view.into_any().downcast::<SessionStatsDialog>().expect("kind")
+                self.session_stats = *view
+                    .into_any()
+                    .downcast::<SessionStatsDialog>()
+                    .expect("kind")
             }
             DialogKind::SessionTrace => {
-                self.session_trace =
-                    *view.into_any().downcast::<SessionTraceDialog>().expect("kind")
+                self.session_trace = *view
+                    .into_any()
+                    .downcast::<SessionTraceDialog>()
+                    .expect("kind")
             }
-            DialogKind::Models => self.models = *view.into_any().downcast::<ModelsDialog>().expect("kind"),
+            DialogKind::Models => {
+                self.models = *view.into_any().downcast::<ModelsDialog>().expect("kind")
+            }
             DialogKind::Connections => {
-                self.connections = *view.into_any().downcast::<ConnectionsDialog>().expect("kind")
+                self.connections = *view
+                    .into_any()
+                    .downcast::<ConnectionsDialog>()
+                    .expect("kind")
             }
             DialogKind::HistorySearch => {
-                self.history_search =
-                    *view.into_any().downcast::<HistorySearchDialog>().expect("kind")
+                self.history_search = *view
+                    .into_any()
+                    .downcast::<HistorySearchDialog>()
+                    .expect("kind")
             }
-            DialogKind::Queue => self.queue = *view.into_any().downcast::<QueueDialog>().expect("kind"),
+            DialogKind::Queue => {
+                self.queue = *view.into_any().downcast::<QueueDialog>().expect("kind")
+            }
             DialogKind::Threads => {
                 self.threads = *view.into_any().downcast::<ThreadsDialog>().expect("kind")
             }
             DialogKind::SessionTree => {
-                self.session_tree = *view.into_any().downcast::<SessionTreeDialog>().expect("kind")
+                self.session_tree = *view
+                    .into_any()
+                    .downcast::<SessionTreeDialog>()
+                    .expect("kind")
             }
             DialogKind::Switcher => {
                 self.switcher = *view.into_any().downcast::<SwitcherDialog>().expect("kind")
@@ -1952,5 +2087,3 @@ impl Dialogs {
         }
     }
 }
-
-

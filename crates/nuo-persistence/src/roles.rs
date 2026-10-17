@@ -1,7 +1,7 @@
 use nuo_wire::MainAgentRole;
+pub use nuo_wire::policy_schema::{CustomRole, RoleWorkspace};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-pub use nuo_wire::policy_schema::{CustomRole, RoleWorkspace};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -37,15 +37,15 @@ impl RolesConfig {
             for dir in &[".nuo"] {
                 for candidate in &["roles.toml", "config.toml"] {
                     let project_cfg_path = root.join(dir).join(candidate);
-                if project_cfg_path.exists()
-                    && let Ok(raw) = std::fs::read_to_string(&project_cfg_path)
-                    && let Ok(override_cfg) = Self::from_toml_str(&raw)
-                {
-                    for (id, role) in override_cfg.roles {
-                        config.roles.insert(id, role);
+                    if project_cfg_path.exists()
+                        && let Ok(raw) = std::fs::read_to_string(&project_cfg_path)
+                        && let Ok(override_cfg) = Self::from_toml_str(&raw)
+                    {
+                        for (id, role) in override_cfg.roles {
+                            config.roles.insert(id, role);
+                        }
                     }
                 }
-            }
             }
         }
         config
@@ -232,7 +232,11 @@ admit_mcp = ["internal_pg"]
     fn builtin_ops_manifest_resolves() {
         let manifest = resolve_role_manifest(None, Some("ops"));
         assert_eq!(manifest.role_id, "ops");
-        assert!(manifest.builtin_tools().contains(&nuo_wire::BuiltinTool::ExecuteCommand));
+        assert!(
+            manifest
+                .builtin_tools()
+                .contains(&nuo_wire::BuiltinTool::ExecuteCommand)
+        );
         assert!(manifest.tools.contains(&"execute_command".to_string()));
     }
 }

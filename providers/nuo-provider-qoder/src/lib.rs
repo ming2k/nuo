@@ -16,10 +16,10 @@ pub use region::{REGION_ENDPOINTS_URL, elect_infer_endpoint};
 pub use usage::*;
 pub use wire::*;
 
-use nuo_provider::spec::{ModelProviderSpec, RemoteCatalogSource};
 use nuo_model_codec::WireProtocol;
 use nuo_model_codec::model::Model;
 use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_provider::spec::{ModelProviderSpec, RemoteCatalogSource};
 use serde_json::Value;
 
 /// The offline seed ids, owned by `nuo_model_codec` so the TUI template and the
@@ -44,6 +44,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "qfmodel",
@@ -55,6 +56,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
 ];
 

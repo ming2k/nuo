@@ -141,7 +141,10 @@ mod tests {
 
     #[test]
     fn malformed_arguments_never_panic() {
-        assert_eq!(summary(&json!({ "questions": "not an array" })), "Ask 1 question");
+        assert_eq!(
+            summary(&json!({ "questions": "not an array" })),
+            "Ask 1 question"
+        );
         assert_eq!(summary(&json!({})), "Ask 1 question");
     }
 }

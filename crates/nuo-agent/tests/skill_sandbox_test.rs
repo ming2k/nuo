@@ -4,8 +4,8 @@ use nuo_agent::agent::Agent;
 use nuo_agent::provider::{MockProvider, ModelResponse};
 use nuo_agent::skill::{Skill, SkillStack};
 use nuo_tool::{RiskProfile, Tool, ToolContext, ToolOutput, ToolScope};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 struct ReadOnlyInspector;
 #[async_trait::async_trait]
@@ -81,7 +81,11 @@ async fn test_skill_zero_footprint_and_catalog_summary() {
 
     // [INV-SKILL-01]: Unmounted skill shows ONLY catalog summary, NOT full SOP
     assert!(sys_prompt.contains("Available procedural skills"));
-    assert!(sys_prompt.contains("- code-audit: Applies rigorous architectural review without disk mutations."));
+    assert!(
+        sys_prompt.contains(
+            "- code-audit: Applies rigorous architectural review without disk mutations."
+        )
+    );
     assert!(!sys_prompt.contains("MANDATORY SOP: Verify all invariants"));
 
     // Manifest parity: skill ID is exposed for P2P discovery
@@ -124,7 +128,8 @@ async fn test_ephemeral_capability_sandboxing_and_reversibility() {
     .await;
 
     // Turn 4: Final response
-    mock.push_text("Review complete and skill cleanly unmounted.").await;
+    mock.push_text("Review complete and skill cleanly unmounted.")
+        .await;
 
     let safe_skill = Skill::builder("safe-review")
         .description("Confines agent strictly to read-only tools")
@@ -144,9 +149,21 @@ async fn test_ephemeral_capability_sandboxing_and_reversibility() {
         .unwrap();
 
     // Baseline: Both tools are available before mounting
-    assert!(agent.advertised_tool_names().contains(&"read_inspection".to_string()));
-    assert!(agent.advertised_tool_names().contains(&"destructive_patch".to_string()));
-    assert!(agent.advertised_tool_names().contains(&"mount_skill".to_string()));
+    assert!(
+        agent
+            .advertised_tool_names()
+            .contains(&"read_inspection".to_string())
+    );
+    assert!(
+        agent
+            .advertised_tool_names()
+            .contains(&"destructive_patch".to_string())
+    );
+    assert!(
+        agent
+            .advertised_tool_names()
+            .contains(&"mount_skill".to_string())
+    );
 
     let answer = agent.prompt("Audit our safety posture.").await.unwrap();
     assert_eq!(answer, "Review complete and skill cleanly unmounted.");
@@ -172,7 +189,12 @@ async fn test_ephemeral_capability_sandboxing_and_reversibility() {
         .iter()
         .find(|m| m.content.contains("[Active Procedural Skill SOP]"));
     assert!(turn_2_sop_message.is_some());
-    assert!(turn_2_sop_message.unwrap().content.contains("Adhere to read-only safety boundary."));
+    assert!(
+        turn_2_sop_message
+            .unwrap()
+            .content
+            .contains("Adhere to read-only safety boundary.")
+    );
 
     // [INV-SKILL-04]: After unmounting, active skill is cleared
     assert!(agent.active_skill().is_none());

@@ -32,6 +32,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         id: "gemini-3.8-flash",
@@ -43,6 +44,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         id: "gemini-3.7-flash",
@@ -54,6 +56,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         id: "gemini-3.5-flash",
@@ -65,6 +68,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         id: "gemini-3-pro-preview",
@@ -76,6 +80,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         id: "gemini-3-flash-preview",
@@ -87,6 +92,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         id: "gemini-3.1-pro-preview",
@@ -98,6 +104,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         // Custom-tools variant of 3.1 Pro Preview; serves the same REST surface.
@@ -110,6 +117,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         id: "gemini-3.1-flash-lite",
@@ -121,6 +129,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        wire_entities: None,
     },
     Model {
         id: "gemini-2.5-flash",
@@ -132,6 +141,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_BUDGET,
+        wire_entities: None,
     },
     Model {
         id: "gemini-2.5-pro",
@@ -143,6 +153,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_BUDGET,
+        wire_entities: None,
     },
     Model {
         id: "gemini-2.5-flash-lite",
@@ -154,6 +165,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "gemini-2.0-flash",
@@ -165,6 +177,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
 ];
 

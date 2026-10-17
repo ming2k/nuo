@@ -38,17 +38,18 @@ struct WorkspaceRecord {
 impl WorkspaceRecord {
     fn normalize_legacy_keys(&mut self) -> bool {
         let mut changed = false;
-        let legacy_maps = [
-            ("rules", "instructions"),
-            ("roots", "ex-workspace"),
-        ];
+        let legacy_maps = [("rules", "instructions"), ("roots", "ex-workspace")];
         for (old_key, new_key) in legacy_maps {
             if let Some(val) = self.domain_digests.remove(old_key) {
-                self.domain_digests.entry(new_key.to_string()).or_insert(val);
+                self.domain_digests
+                    .entry(new_key.to_string())
+                    .or_insert(val);
                 changed = true;
             }
             if let Some(val) = self.denied_digests.remove(old_key) {
-                self.denied_digests.entry(new_key.to_string()).or_insert(val);
+                self.denied_digests
+                    .entry(new_key.to_string())
+                    .or_insert(val);
                 changed = true;
             }
             if let Some(val) = self.expires_at_s.remove(old_key) {
@@ -745,23 +746,34 @@ mod tests {
 
         std::fs::write(root.join("AGENTS.md"), "test agents rules").unwrap();
         std::fs::create_dir_all(root.join(".nuo")).unwrap();
-        std::fs::write(root.join(".nuo/config.toml"), "[workspace]\nadditional_roots = []\n").unwrap();
+        std::fs::write(
+            root.join(".nuo/config.toml"),
+            "[workspace]\nadditional_roots = []\n",
+        )
+        .unwrap();
 
         let root_key = canonical_string(&workspace_identity(root));
 
         // Manually inject legacy state with "rules" and "roots"
         let mut digests = BTreeMap::new();
-        let instructions_digest = domain_digest(root, TrustDomain::Instructions).unwrap().unwrap();
-        let ex_workspace_digest = domain_digest(root, TrustDomain::ExWorkspace).unwrap().unwrap();
+        let instructions_digest = domain_digest(root, TrustDomain::Instructions)
+            .unwrap()
+            .unwrap();
+        let ex_workspace_digest = domain_digest(root, TrustDomain::ExWorkspace)
+            .unwrap()
+            .unwrap();
         digests.insert("rules".to_string(), instructions_digest);
         digests.insert("roots".to_string(), ex_workspace_digest);
 
         let mut workspaces = BTreeMap::new();
-        workspaces.insert(root_key, WorkspaceRecord {
-            domain_digests: digests,
-            denied_digests: BTreeMap::new(),
-            expires_at_s: BTreeMap::new(),
-        });
+        workspaces.insert(
+            root_key,
+            WorkspaceRecord {
+                domain_digests: digests,
+                denied_digests: BTreeMap::new(),
+                expires_at_s: BTreeMap::new(),
+            },
+        );
 
         let legacy_state = PersistedWorkspaceSecurity {
             version: CURRENT_VERSION,

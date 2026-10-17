@@ -17,4 +17,3 @@ pub mod spec;
 pub use chat_completions::{ChatCompletionsProvider, OpenAiChatCompletionsProvider};
 pub use responses::{OpenAiResponsesProvider, ResponsesProvider};
 pub use spec::*;
-

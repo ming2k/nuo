@@ -37,6 +37,7 @@ pub mod usage;
 pub mod wire_protocol;
 pub mod wire_surface;
 
+pub use async_trait::async_trait;
 pub use auth::*;
 pub use cache::*;
 pub use capability::*;
@@ -48,14 +49,18 @@ pub use connection_detail::*;
 pub use credentials::{CredentialsProvider, DynamicCredentials, StaticApiKey};
 pub use decision::*;
 pub use effort::{COMMON_LADDER, Effort, EffortLevel};
-pub use async_trait::async_trait;
-pub use endpoint::{Endpoint, ProviderVendor, TransportObservation, TransportTelemetry, TransportTimings};
+pub use endpoint::{
+    Endpoint, ProviderVendor, TransportObservation, TransportTelemetry, TransportTimings,
+};
 pub use error::{Result, WireError};
 pub use instructions::{InstructionBundle, InstructionSlice, InstructionTier};
 pub use json::find_balanced_object;
 pub use loop_detector::{DegeneratePattern, StreamLoopDetector};
 pub use message::*;
-pub use model::{Availability, BaselineModels, Model, ModelCapabilities, RemoteModelMetadata, WireEntityResolution, resolve, resolve as resolve_model};
+pub use model::{
+    Availability, BaselineModels, Model, ModelCapabilities, RemoteModelMetadata,
+    WireEntityResolution, resolve, resolve as resolve_model,
+};
 pub use nuo_host::SecretString;
 pub use provider_auth::*;
 pub use provider_error::{ProviderError, ProviderErrorKind, RetryDisposition};

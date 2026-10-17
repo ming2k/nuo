@@ -1,9 +1,9 @@
 //! Component Story Specification and Offline Harness (ADR-0073).
 
-use nuotc::{Frame, Rect};
-use crossterm::event::KeyEvent;
-use crate::theme::Theme;
 use super::Component;
+use crate::theme::Theme;
+use crossterm::event::KeyEvent;
+use nuotc::{Frame, Rect};
 
 /// Outcome of a story-level interactive event dispatch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

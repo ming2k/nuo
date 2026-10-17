@@ -245,7 +245,10 @@ impl OpenAiResponsesProvider {
         self
     }
 
-    pub fn with_prompt_cache(mut self, prompt_cache: nuo_provider_transport::PromptCacheConfig) -> Self {
+    pub fn with_prompt_cache(
+        mut self,
+        prompt_cache: nuo_provider_transport::PromptCacheConfig,
+    ) -> Self {
         self.prompt_cache = prompt_cache;
         self
     }
@@ -272,22 +275,21 @@ impl OpenAiResponsesProvider {
         auth: &ResolvedAuth,
         turn_state: Option<&str>,
     ) -> nuo_provider_transport::request::RequestBuilder {
-        let mut req =
-            nuo_provider_transport::request::RequestBuilder::new(http::Method::POST, self.endpoint.base_url())
-                .header(http::header::USER_AGENT, self.endpoint.user_agent())
-                .json(body);
+        let mut req = nuo_provider_transport::request::RequestBuilder::new(
+            http::Method::POST,
+            self.endpoint.base_url(),
+        )
+        .header(http::header::USER_AGENT, self.endpoint.user_agent())
+        .json(body);
         let copilot = self.dialect == nuo_model_codec::OpenAiResponsesDialect::Copilot;
         let chatgpt = self.dialect == nuo_model_codec::OpenAiResponsesDialect::ChatGpt;
         let is_copilot_vision = copilot && request::has_input_image(body);
         let account_id = auth
             .extension::<nuo_model_codec::ChatGptAuthMetadata>()
             .map(|m| m.account_id.as_str());
-        for (name, value) in request::headers(
-            auth.token.expose_secret(),
-            account_id,
-            copilot,
-            chatgpt,
-        ) {
+        for (name, value) in
+            request::headers(auth.token.expose_secret(), account_id, copilot, chatgpt)
+        {
             req = req.header(name, value);
         }
         if is_copilot_vision {
@@ -814,16 +816,20 @@ mod stream_protocol_tests {
         impl CredentialSource for RefreshingAuth {
             fn resolve_auth(&self) -> BoxFuture<'_, Result<ResolvedAuth, String>> {
                 Box::pin(async {
-                    Ok(ResolvedAuth::new("old").with_extension(nuo_model_codec::ChatGptAuthMetadata {
-                        account_id: "account-a".to_string(),
-                    }))
+                    Ok(ResolvedAuth::new("old").with_extension(
+                        nuo_model_codec::ChatGptAuthMetadata {
+                            account_id: "account-a".to_string(),
+                        },
+                    ))
                 })
             }
             fn force_refresh(&self) -> BoxFuture<'_, Result<ResolvedAuth, String>> {
                 Box::pin(async {
-                    Ok(ResolvedAuth::new("new").with_extension(nuo_model_codec::ChatGptAuthMetadata {
-                        account_id: self.0.to_string(),
-                    }))
+                    Ok(ResolvedAuth::new("new").with_extension(
+                        nuo_model_codec::ChatGptAuthMetadata {
+                            account_id: self.0.to_string(),
+                        },
+                    ))
                 })
             }
             fn is_oauth(&self) -> bool {

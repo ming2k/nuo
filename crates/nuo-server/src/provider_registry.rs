@@ -67,7 +67,10 @@ pub fn user_declared_provider_spec(id: &str) -> Option<Arc<ModelProviderSpec>> {
 pub fn register_user_declared_provider(
     spec: ModelProviderSpec,
 ) -> Result<Arc<ModelProviderSpec>, String> {
-    if MODEL_PROVIDER_SPECS.iter().any(|builtin| builtin.id == spec.id) {
+    if MODEL_PROVIDER_SPECS
+        .iter()
+        .any(|builtin| builtin.id == spec.id)
+    {
         return Err(format!(
             "provider `{}` collides with a built-in provider",
             spec.id
@@ -232,7 +235,8 @@ pub fn build_provider_for_channel(
             {
                 provider = provider.with_max_tokens(max_tokens);
             }
-            let mut cfg = ThinkingConfig::for_model(&nuo_model_codec::model::resolve(&channel.model));
+            let mut cfg =
+                ThinkingConfig::for_model(&nuo_model_codec::model::resolve(&channel.model));
             if let Some(mode) = thinking {
                 cfg = cfg.with_mode(*mode);
             }
@@ -283,14 +287,17 @@ pub fn build_provider_for_channel(
         } => {
             let capabilities = channel.capabilities();
             let effective_effort = effective_channel_effort(*effort, &capabilities);
-            let mut provider =
-                OpenAiResponsesProvider::with_credentials(credentials, channel.model.clone(), base_url)
-                    .with_client_profile(client_profile.clone())
-                    .with_reasoning_effort(effective_effort)
-                    .with_model_capabilities(capabilities)
-                    .with_prompt_cache(prompt_cache)
-                    .with_dialect(*dialect)
-                    .with_id(entry_id.to_string());
+            let mut provider = OpenAiResponsesProvider::with_credentials(
+                credentials,
+                channel.model.clone(),
+                base_url,
+            )
+            .with_client_profile(client_profile.clone())
+            .with_reasoning_effort(effective_effort)
+            .with_model_capabilities(capabilities)
+            .with_prompt_cache(prompt_cache)
+            .with_dialect(*dialect)
+            .with_id(entry_id.to_string());
             if let Some(sid) = session_id {
                 provider = provider.with_session_id(sid);
             }

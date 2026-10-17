@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use nuo_tool::{
-    BuiltinTool, PatchOp, RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope, ToolSchema,
+    BuiltinTool, PatchOp, RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolSchema,
+    ToolScope,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -124,8 +125,9 @@ impl Tool for ReadTextTool {
     }
 
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
-        let args: ReadTextArgs = serde_json::from_value(arguments)
-            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
+        let args: ReadTextArgs = serde_json::from_value(arguments).map_err(|err| {
+            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
+        })?;
 
         let raw_path = &args.path;
         let offset = args.offset.unwrap_or(1).max(1);
@@ -135,7 +137,8 @@ impl Tool for ReadTextTool {
         let content = if nuo_tool::is_virtual_path(raw_path) {
             let resolved = if let Some(resolver) = &self.ctx.vfs_resolver {
                 resolver.resolve_virtual(raw_path).await
-            } else if let Some(resolver) = _ctx.service::<Arc<dyn nuo_tool::VirtualFileResolver>>() {
+            } else if let Some(resolver) = _ctx.service::<Arc<dyn nuo_tool::VirtualFileResolver>>()
+            {
                 resolver.resolve_virtual(raw_path).await
             } else {
                 None
@@ -257,8 +260,9 @@ impl Tool for WriteFileTool {
     }
 
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
-        let args: WriteFileArgs = serde_json::from_value(arguments)
-            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
+        let args: WriteFileArgs = serde_json::from_value(arguments).map_err(|err| {
+            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
+        })?;
 
         let raw_path = &args.path;
         let content = &args.content;
@@ -281,7 +285,10 @@ impl Tool for WriteFileTool {
         };
 
         fs::write(&path, content).map_err(|err| {
-            ToolError::execution(self.name(), format!("failed to write file `{raw_path}`: {err}"))
+            ToolError::execution(
+                self.name(),
+                format!("failed to write file `{raw_path}`: {err}"),
+            )
         })?;
 
         Ok(ToolOutput::Patch {
@@ -344,8 +351,9 @@ impl Tool for EditTextTool {
     }
 
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
-        let args: EditTextArgs = serde_json::from_value(arguments)
-            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
+        let args: EditTextArgs = serde_json::from_value(arguments).map_err(|err| {
+            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
+        })?;
 
         let raw_path = &args.path;
         let old_string = &args.old_string;
@@ -360,7 +368,10 @@ impl Tool for EditTextTool {
 
         let path = self.ctx.resolve_path(raw_path);
         let content = fs::read_to_string(&path).map_err(|err| {
-            ToolError::execution(self.name(), format!("failed to read file `{raw_path}`: {err}"))
+            ToolError::execution(
+                self.name(),
+                format!("failed to read file `{raw_path}`: {err}"),
+            )
         })?;
 
         let matches: Vec<_> = content.match_indices(old_string).collect();
@@ -388,7 +399,10 @@ impl Tool for EditTextTool {
         let start_line = content[..matches[0].0].matches('\n').count() + 1;
         let modified = content.replacen(old_string, new_string, 1);
         fs::write(&path, modified).map_err(|err| {
-            ToolError::execution(self.name(), format!("failed to write edited file `{raw_path}`: {err}"))
+            ToolError::execution(
+                self.name(),
+                format!("failed to write edited file `{raw_path}`: {err}"),
+            )
         })?;
 
         Ok(ToolOutput::Patch {
@@ -603,8 +617,9 @@ impl Tool for ListDirTool {
     }
 
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
-        let args: ListDirArgs = serde_json::from_value(arguments)
-            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
+        let args: ListDirArgs = serde_json::from_value(arguments).map_err(|err| {
+            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
+        })?;
 
         let raw_path = args.path.as_deref().unwrap_or(".");
         let limit = args.limit.unwrap_or(200).max(1);
@@ -649,7 +664,10 @@ impl Tool for ListDirTool {
         let total = items.len();
         let truncated = items.into_iter().take(limit).collect::<Vec<_>>();
 
-        let mut summary = format!("Directory: `{raw_path}` ({total} items):\n{}", truncated.join("\n"));
+        let mut summary = format!(
+            "Directory: `{raw_path}` ({total} items):\n{}",
+            truncated.join("\n")
+        );
         if total > limit {
             let omitted = total - limit;
             summary.push_str(&format!("\n... ({omitted} additional entries omitted)"));
@@ -704,8 +722,9 @@ impl Tool for FindFilesTool {
     }
 
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
-        let args: FindFilesArgs = serde_json::from_value(arguments)
-            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
+        let args: FindFilesArgs = serde_json::from_value(arguments).map_err(|err| {
+            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
+        })?;
 
         let raw_path = args.path.as_deref().unwrap_or(".");
         let limit = args.limit.unwrap_or(200).max(1);
@@ -740,8 +759,8 @@ impl Tool for FindFilesTool {
             let path = entry.path();
             let relative = display_match_path(path, &search_root, &self.ctx.workspace_root);
 
-            let matched = compiled_globs.is_empty()
-                || compiled_globs.iter().any(|g| g.matches(&relative));
+            let matched =
+                compiled_globs.is_empty() || compiled_globs.iter().any(|g| g.matches(&relative));
 
             if matched {
                 matches.push(relative.to_string());
@@ -812,8 +831,9 @@ impl Tool for SearchTextTool {
     }
 
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
-        let args: SearchTextArgs = serde_json::from_value(arguments)
-            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
+        let args: SearchTextArgs = serde_json::from_value(arguments).map_err(|err| {
+            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
+        })?;
 
         let raw_path = args.path.as_deref().unwrap_or(".");
         let limit = args.limit.unwrap_or(200).max(1);
@@ -936,7 +956,10 @@ mod tests {
 
         // 2. Read file
         let read_res = read_tool
-            .execute(&t_ctx, json!({"path": "hello.txt", "offset": 2, "limit": 1}))
+            .execute(
+                &t_ctx,
+                json!({"path": "hello.txt", "offset": 2, "limit": 1}),
+            )
             .await
             .unwrap();
         assert!(read_res.content().contains("line 2: world"));
@@ -1045,7 +1068,10 @@ mod tests {
                 assert_eq!(*start_line, 2);
                 assert_eq!(lang.as_deref(), Some("rs"));
                 assert_eq!(prefix.as_deref(), Some("[Lines 2-3 of 4 from `src.rs`]"));
-                assert_eq!(suffix.as_deref(), Some("[1 more line — read with offset=4]"));
+                assert_eq!(
+                    suffix.as_deref(),
+                    Some("[1 more line — read with offset=4]")
+                );
             }
             other => panic!("expected ToolOutput::Code, got {other:?}"),
         }
@@ -1093,7 +1119,9 @@ mod tests {
         #[async_trait]
         impl nuo_tool::VirtualFileResolver for MockVfs {
             async fn resolve_virtual(&self, path: &str) -> Option<String> {
-                if path == "/tmp/nuo/vfs/call_123.txt" || path == ".nuo/virtual/observations/call_123.txt" {
+                if path == "/tmp/nuo/vfs/call_123.txt"
+                    || path == ".nuo/virtual/observations/call_123.txt"
+                {
                     Some("alpha\nbeta\ngamma\ndelta\n".to_string())
                 } else {
                     None
@@ -1102,9 +1130,7 @@ mod tests {
         }
 
         let dir = tempdir().unwrap();
-        let ctx = Arc::new(
-            SystemToolContext::new(dir.path()).with_vfs_resolver(Arc::new(MockVfs)),
-        );
+        let ctx = Arc::new(SystemToolContext::new(dir.path()).with_vfs_resolver(Arc::new(MockVfs)));
         let t_ctx = ToolContext::default();
 
         let out = ReadTextTool::new(ctx)
@@ -1133,7 +1159,10 @@ mod tests {
                     prefix.as_deref(),
                     Some("[Lines 2-3 of 4 from `/tmp/nuo/vfs/call_123.txt`]")
                 );
-                assert_eq!(suffix.as_deref(), Some("[1 more line — read with offset=4]"));
+                assert_eq!(
+                    suffix.as_deref(),
+                    Some("[1 more line — read with offset=4]")
+                );
             }
             other => panic!("expected ToolOutput::Code, got {other:?}"),
         }
@@ -1172,7 +1201,10 @@ mod tests {
         fs::write(&file, "fn a() {}\npub(super) fn enter_scene(\nfn b() {}\n").unwrap();
 
         let out = SearchTextTool::new(ctx)
-            .execute(&t_ctx, json!({"path": "src/actions.rs", "query": "enter_scene"}))
+            .execute(
+                &t_ctx,
+                json!({"path": "src/actions.rs", "query": "enter_scene"}),
+            )
             .await
             .unwrap();
 

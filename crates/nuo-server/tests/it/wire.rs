@@ -141,10 +141,11 @@ async fn chatgpt_responses_chat_uses_streaming_transport_and_dynamic_credentials
         .create_async()
         .await;
 
-    let auth = nuo_model_codec::ResolvedAuth::new("live-oauth-token")
-        .with_extension(nuo_model_codec::ChatGptAuthMetadata {
+    let auth = nuo_model_codec::ResolvedAuth::new("live-oauth-token").with_extension(
+        nuo_model_codec::ChatGptAuthMetadata {
             account_id: "acct-test".to_string(),
-        });
+        },
+    );
     let provider = OpenAiResponsesProvider::with_credentials(
         std::sync::Arc::new(MockOAuthSource { auth }),
         "gpt-5.6-sol".to_string(),

@@ -61,6 +61,17 @@ pub struct Model {
     /// protocols without an effort field). Models with unknown effort tiers
     /// default to [`crate::effort::COMMON_LADDER`]; non-reasoning models carry `&[]`.
     pub effort_levels: &'static [crate::effort::Effort],
+    /// The model's **compiled offline-floor wire-entity table** (ADR-0074).
+    ///
+    /// `Some` when the vetted baseline carries the per-level PredictionService
+    /// entities this family registers (the Antigravity tiered surfaces). This
+    /// is the *single source of truth* for the offline floor: the provider's
+    /// compiled `BASELINE_WIRE_FAMILIES` consumed this table's rows at
+    /// definition time and the live catalog overrides it with observed
+    /// `wire_entities`. `None` (every non-tiered model) means the canonical
+    /// id routes verbatim. Declared here — a vetted registry fact — never
+    /// inferred from a family prefix in a request builder.
+    pub wire_entities: Option<&'static crate::model::BaselineWireFamily>,
 }
 
 impl Model {
@@ -252,7 +263,9 @@ pub struct ModelCapabilities {
     /// The concrete per-level wire entities the upstream catalog registered
     /// for this model (ADR-0074). Empty when the canonical id routes
     /// verbatim — every provider except the tiered Antigravity families
-    /// (`gemini-4-argon`, `claude-{opus,sonnet}-5-5`). Consumed by
+    /// (`gemini-4-argon`, `claude-{opus,sonnet}-5-5`). Resolved from the
+    /// vetted baseline's `Model::wire_entities` table when the remote layer
+    /// carried no live observation. Consumed by
     /// [`ModelCapabilities::wire_entity_resolution`]; evidentiary, not display.
     pub effort_entities: Vec<String>,
 }
@@ -280,9 +293,7 @@ impl RemoteModelMetadata {
 
 /// Materialized, route-scoped capabilities evaluated server-side via ADR-0149.
 /// Projected to frontends as the infallible single source of truth (ADR-0182).
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct RouteCapabilities {
     /// Context window size in tokens. Guaranteed > 0 for all routed channels.
     pub context_window: usize,
@@ -355,10 +366,7 @@ impl ModelCapabilities {
     /// The request builder reads this decision; it never re-derives wire
     /// mappings from family prefixes. That is the mechanism replacing the
     /// per-provider string-match ladders.
-    pub fn wire_entity_resolution<'a>(
-        &'a self,
-        model_id: &'a str,
-    ) -> WireEntityResolution<'a> {
+    pub fn wire_entity_resolution<'a>(&'a self, model_id: &'a str) -> WireEntityResolution<'a> {
         if self.effort_entities.is_empty() {
             return WireEntityResolution::Verbatim;
         }
@@ -366,11 +374,42 @@ impl ModelCapabilities {
             // The channel id is itself a registered entity — direct identity.
             return WireEntityResolution::Verbatim;
         }
+        // Live evidence resolves the account default positionally: the
+        // catalog records entities in shallow→deep advertisement order with
+        // the account-default row FIRST (bare-row lead, or `agentModelSorts`
+        // head). The baseline layer's family default lives at its own
+        // declared position — that asymmetry is exactly why the provider
+        // consults `baseline_wire_family` separately (ADR-0074).
         WireEntityResolution::PerLevel {
             base: model_id,
             entities: &self.effort_entities,
         }
     }
+}
+
+/// One family's compiled offline-floor wire-entity table (ADR-0074).
+///
+/// Owned as static data on [`Model::wire_entities`]: the vetted baseline
+/// carries the per-level entities a tiered family registers on the wire.
+/// `broadcast = true` marks an **in-band-depth** family — the default
+/// entity is the wire id for *every* effort (depth rides `thinkingConfig`,
+/// gemini-3.8-flash); `broadcast = false` marks a **suffix-depth** family —
+/// effort ranks across the per-level entities by [`Effort::rank`]
+/// (gemini-4-argon, claude-{opus,sonnet}-5-5). The live catalog's observed
+/// `wire_entities` override this table per channel; the table only serves
+/// sessions whose live snapshot never ran.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BaselineWireFamily {
+    /// The canonical base id the table routes from.
+    pub base: &'static str,
+    /// The entity the upstream names as the account default
+    /// (`defaultAgentModelId` positional precedent).
+    pub default_entity: &'static str,
+    /// The registered per-level entity ids, shallow→deep.
+    pub entities: &'static [&'static str],
+    /// Whether depth rides in-band (`thinkingConfig`) so the wire id never
+    /// changes with effort.
+    pub broadcast: bool,
 }
 
 /// The typed decision of [`ModelCapabilities::wire_entity_resolution`]: how a
@@ -404,26 +443,45 @@ pub enum WireEntityResolution<'a> {
 }
 
 impl WireEntityResolution<'_> {
-    /// Stamp the concrete wire id for the requested effort.
+    /// Stamp the concrete wire id from a [`BaselineWireFamily`] table row.
     ///
-    /// Each entity id's effort rung (its trailing `-<word>`, parsed via
-    /// [`Effort::parse`]) ranks by [`Effort::rank`] — the **single shared
-    /// depth order** across every site. The best entity is the one whose
-    /// rung is the closest to the request without overshooting (a shallower
-    /// request clamps down, a deeper one clamps up to the deepest registered
-    /// bucket); within a rung the first advertised entity wins. Entities
-    /// whose suffix parses to nothing (bare / `-tiered`) rank 0 — in-band
-    /// depth, the shallowest claim. `default_idx` names the entity the
-    /// account-default row maps to for a `None` override; the caller owns
-    /// that fact, the mechanism owns the rank.
-    pub fn resolve_for(
+    /// Broadcast families return the default entity for every effort (depth
+    /// rides in-band); suffix-depth families rank the request by
+    /// [`Effort::rank`]. The best entity is the one whose rung is closest to
+    /// the request: an exact rung hit wins immediately; otherwise a
+    /// shallower entity ≤ the request wins (rank-maximizing), and when *no*
+    /// entity is ≤ the request (a rung shallower than the surface's floor),
+    /// the **shallowest** registered entity wins — the surface never reads
+    /// as deeper than the request. The account default (family default
+    /// entity, positional `defaultAgentModelId` precedent) applies only to a
+    /// `None` override.
+    pub fn resolve_family(family: &BaselineWireFamily, effort: Option<Effort>) -> String {
+        if family.broadcast {
+            return family.default_entity.to_string();
+        }
+        Self::resolve_rung(family.entities, family.default_entity, effort)
+    }
+
+    /// Stamp the concrete wire id from an observed entity list (live-catalog
+    /// evidence, ADR-0074). `default_idx` names the account-default row
+    /// position; the ranking semantics are identical to
+    /// [`Self::resolve_family`].
+    pub fn resolve_observed(
         entities: &[&str],
         default_idx: usize,
         effort: Option<Effort>,
     ) -> String {
+        Self::resolve_rung(
+            entities,
+            entities.get(default_idx).copied().unwrap_or(""),
+            effort,
+        )
+    }
+
+    fn resolve_rung(entities: &[&str], default_entity: &str, effort: Option<Effort>) -> String {
+        // No explicit override: the caller's declared account-default row.
         let Some(requested) = effort else {
-            let idx = default_idx.min(entities.len().saturating_sub(1));
-            return entities[idx].to_string();
+            return default_entity.to_string();
         };
         let requested_rank = requested.rank();
 
@@ -447,9 +505,7 @@ impl WireEntityResolution<'_> {
             if entity_rank == requested_rank {
                 return entities[idx].to_string();
             }
-            if entity_rank < requested_rank
-                && best.is_none_or(|(rank, _)| entity_rank >= rank)
-            {
+            if entity_rank < requested_rank && best.is_none_or(|(rank, _)| entity_rank >= rank) {
                 best = Some((entity_rank, idx));
             }
             if shallowest.is_none_or(|(rank, _)| entity_rank < rank) {
@@ -458,7 +514,7 @@ impl WireEntityResolution<'_> {
         }
         match best.or(shallowest) {
             Some((_, idx)) => entities[idx].to_string(),
-            None => entities[default_idx.min(entities.len().saturating_sub(1))].to_string(),
+            None => default_entity.to_string(),
         }
     }
 }
@@ -784,11 +840,16 @@ impl ModelCapabilities {
                     .map(Into::into)
                     .collect()
             }),
-            // Wire-entity observation rides the remote layer only: no vetted
-            // baseline id carries a compiled-in entity claim. If a future
-            // family needs one, extend `Model` — never a family-prefix guess
-            // (ADR-0068).
-            effort_entities: remote.wire_entities.unwrap_or_default(),
+            // Wire-entity resolution (ADR-0074): the live observation wins;
+            // when it never ran, the vetted baseline's compiled table serves
+            // the offline floor. A referenced family's registered entities
+            // lead with the account default.
+            effort_entities: remote.wire_entities.unwrap_or_else(|| {
+                baseline
+                    .wire_entities
+                    .map(|family| family.entities.iter().map(|e| e.to_string()).collect())
+                    .unwrap_or_default()
+            }),
         }
     }
 
@@ -863,6 +924,7 @@ mod capability_tests {
     fn remote_effort_levels_can_explicitly_clear_the_static_baseline() {
         let remote = RemoteModelMetadata {
             effort_levels: Some(Vec::new()),
+            wire_entities: None,
             ..Default::default()
         };
 
@@ -949,6 +1011,7 @@ pub fn fallback_model(_id: &str) -> Model {
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     }
 }
 
@@ -966,6 +1029,7 @@ pub fn resolve(id: &str) -> Model {
         if let Some(overridden) = fitted_entry(model.id) {
             return Model {
                 effort_levels: overridden.model.effort_levels,
+                wire_entities: None,
                 ..*model
             };
         }
@@ -1082,6 +1146,7 @@ pub fn register_fitted_models(models: impl IntoIterator<Item = FittedModel>) {
                     FittedEntry {
                         model: Model {
                             effort_levels: Box::leak(levels.into_boxed_slice()),
+                            wire_entities: None,
                             ..*baseline
                         },
                         declared_vision: Some(baseline.vision),
@@ -1113,6 +1178,7 @@ pub fn register_fitted_models(models: impl IntoIterator<Item = FittedModel>) {
                     protocol: fitted.protocol,
                     model_guidance: "",
                     effort_levels: Box::leak(levels.into_boxed_slice()),
+                    wire_entities: None,
                 },
                 declared_vision: fitted.vision,
             },
@@ -1233,6 +1299,7 @@ mod tests {
             protocol: WireProtocol::ChatCompletions,
             model_guidance: "",
             effort_levels: crate::effort::COMMON_LADDER,
+            wire_entities: None,
         },
         Model {
             id: "fixture-beta",
@@ -1244,6 +1311,7 @@ mod tests {
             protocol: WireProtocol::AnthropicMessages,
             model_guidance: "",
             effort_levels: &[],
+            wire_entities: None,
         },
     ];
     const FIXTURE_B: &[Model] = &[Model {
@@ -1256,6 +1324,7 @@ mod tests {
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     }];
 
     inventory::submit!(BaselineModels(FIXTURE_A));

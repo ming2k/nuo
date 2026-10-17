@@ -45,7 +45,8 @@ pub struct ConnectionsModalProps<'a> {
     pub refreshing: bool,
     pub connection_models_expanded: bool,
     /// Ambient quota balances keyed by connection id (ADR-0036).
-    pub connection_usages: Option<&'a std::collections::HashMap<String, nuo_wire::ConnectionUsageState>>,
+    pub connection_usages:
+        Option<&'a std::collections::HashMap<String, nuo_wire::ConnectionUsageState>>,
 }
 
 /// Draw the **Connections** modal — the provider-instance management surface (`/connections`).
@@ -477,8 +478,10 @@ pub(crate) fn connection_detail_body(
         nuo_wire::ConnectionBudget::Local { limit, period, .. } => {
             let budget_str = format!("Local ({}, {} cap)", limit.format_usd(), period.label());
             rows.push(
-                SelectableRow::styled(budget_str, warning)
-                    .with_prefix(RowSegment::styled(format!("{:<16}", "Budget Policy"), label)),
+                SelectableRow::styled(budget_str, warning).with_prefix(RowSegment::styled(
+                    format!("{:<16}", "Budget Policy"),
+                    label,
+                )),
             );
         }
     }

@@ -216,7 +216,11 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             "--token" => token = Some(flag_value("--token", inline, &mut iter)?),
             "--port" => {
                 let p_str = flag_value("--port", inline, &mut iter)?;
-                port = Some(p_str.parse::<u16>().map_err(|_| format!("'{p_str}' is not a valid port number"))?);
+                port = Some(
+                    p_str
+                        .parse::<u16>()
+                        .map_err(|_| format!("'{p_str}' is not a valid port number"))?,
+                );
             }
             "--version" | "-V" => version = true,
             "--attach" => {
@@ -421,9 +425,15 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
                 out.push_str(&format!("  {:<width$}  {}\n", spec.name, spec.about));
             }
             out.push_str("\nOptions:\n");
-            out.push_str("  -t, --thread [id]      attach to existing thread (opens picker if id omitted)\n");
-            out.push_str("      --headless         execute prompt non-interactively and stream to stdout\n");
-            out.push_str("  -p, --prompt <prompt>  prompt for headless execution or initial TUI input\n");
+            out.push_str(
+                "  -t, --thread [id]      attach to existing thread (opens picker if id omitted)\n",
+            );
+            out.push_str(
+                "      --headless         execute prompt non-interactively and stream to stdout\n",
+            );
+            out.push_str(
+                "  -p, --prompt <prompt>  prompt for headless execution or initial TUI input\n",
+            );
             out.push_str("  -i, --interactive      force interactive TUI mode\n");
             out.push_str("  -j, --json             emit structured JSON where supported\n");
             out.push_str(
@@ -451,9 +461,7 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
             out.push_str(&format!("Usage: nuox {}\n", spec.name));
             match spec.name {
                 "attach" => {
-                    out.push_str(
-                        "\nWith no id the TUI thread picker opens. Supplying an id\n",
-                    );
+                    out.push_str("\nWith no id the TUI thread picker opens. Supplying an id\n");
                     out.push_str("attaches directly to that hosted thread.\n");
                 }
                 "settings" => {

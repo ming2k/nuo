@@ -116,11 +116,7 @@ impl ArchivistService {
     /// `provider` is the borrowed live channel (a hosted session's current
     /// provider). The scratch context rides along so follow-ups ("that one",
     /// "and the one before it") stay coherent within the bounded window.
-    pub async fn ask(
-        &self,
-        provider: Arc<dyn nuo_wire::Provider>,
-        text: &str,
-    ) -> ArchivistAnswer {
+    pub async fn ask(&self, provider: Arc<dyn nuo_wire::Provider>, text: &str) -> ArchivistAnswer {
         // Bind the round to the borrowed live channel. Rounds are serialized
         // by the caller (one question at a time per dashboard), so the holder
         // never races across asks.
@@ -163,10 +159,7 @@ impl ArchivistService {
         {
             let answer = collected.lock().await.clone();
             let mut scratch = self.scratch.lock().await;
-            scratch.push(nuo_wire::Message::new(
-                nuo_wire::Role::Assistant,
-                answer,
-            ));
+            scratch.push(nuo_wire::Message::new(nuo_wire::Role::Assistant, answer));
             scratch.push(nuo_wire::Message::new(
                 nuo_wire::Role::User,
                 text.to_string(),

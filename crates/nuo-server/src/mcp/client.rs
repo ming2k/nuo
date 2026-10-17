@@ -43,9 +43,7 @@ pub fn is_sandbox_trusted(root: &Path) -> bool {
 
 /// Pluggable universal asset attestation verifier (ADR-0243, ADR-0252).
 pub type McpAttestationVerifier = Arc<
-    dyn Fn(&nuo_wire::security::AssetLocator, &nuo_wire::security::AssetSpec) -> bool
-        + Send
-        + Sync,
+    dyn Fn(&nuo_wire::security::AssetLocator, &nuo_wire::security::AssetSpec) -> bool + Send + Sync,
 >;
 
 static ATTESTATION_VERIFIER: OnceLock<McpAttestationVerifier> = OnceLock::new();

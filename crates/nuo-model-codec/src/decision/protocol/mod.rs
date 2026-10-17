@@ -37,7 +37,10 @@ pub fn build_request(
 }
 
 /// Parses the vendor response into [`DecisionResponse`] according to protocol dialect.
-pub fn parse_response(endpoint: &DecisionEndpoint, json_val: &serde_json::Value) -> Result<DecisionResponse> {
+pub fn parse_response(
+    endpoint: &DecisionEndpoint,
+    json_val: &serde_json::Value,
+) -> Result<DecisionResponse> {
     match endpoint.protocol {
         DecisionProtocol::TypeSafeSystemOne => typesafe::parse_response(json_val),
     }

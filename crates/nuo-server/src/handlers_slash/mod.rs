@@ -13,16 +13,16 @@ mod tests;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
 
+use crate::mcp::McpRuntime;
 use crate::slash_handler::SlashCommandRegistry;
 use crate::startup::SessionStart;
+use nuo_harness::skills::SkillRegistry;
 use nuo_harness::{Agent, RoundLifecycle};
-use nuo_wire::{AgentRequest, AgentResponse, Provider};
-use crate::mcp::McpRuntime;
 use nuo_persistence::{
     config::Config, connection_usage::ConnectionUsage, session::SessionStore,
     workspace_security::WorkspaceSecurityStore,
 };
-use nuo_harness::skills::SkillRegistry;
+use nuo_wire::{AgentRequest, AgentResponse, Provider};
 
 pub use dispatch::dispatch;
 

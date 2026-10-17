@@ -539,8 +539,7 @@ impl LayoutMap {
 
         let mut targets = Vec::new();
         for region in regions {
-            let Some(target) =
-                InteractiveTarget::for_block(region.block_idx, region.message_idx)
+            let Some(target) = InteractiveTarget::for_block(region.block_idx, region.message_idx)
             else {
                 continue;
             };

@@ -11,10 +11,10 @@
 use std::sync::Arc;
 
 use super::sandbox_once;
-use nuo_persistence::session::SessionStore;
 use nuo::UiBridge;
 use nuo::bootstrap::{self, BootstrapParams};
 use nuo::startup::SessionStart;
+use nuo_persistence::session::SessionStore;
 
 struct HeadlessProbe;
 

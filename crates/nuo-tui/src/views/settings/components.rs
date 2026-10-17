@@ -76,7 +76,9 @@ pub fn row_for_index(index: usize) -> Option<ComponentRowId> {
     if let Some(component) = TOOL_COMPONENTS.get(tool_index) {
         return Some(ComponentRowId::Tool(component));
     }
-    BEHAVIOR_ROWS.get(tool_index - TOOL_COMPONENTS.len()).copied()
+    BEHAVIOR_ROWS
+        .get(tool_index - TOOL_COMPONENTS.len())
+        .copied()
 }
 
 /// The row's panel copy, badge kind, and current state, resolved from live

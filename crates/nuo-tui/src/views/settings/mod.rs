@@ -23,15 +23,13 @@ pub use web::{build_websearch_provider_dropdown, build_websearch_reader_dropdown
 
 use nuo_wire::ColorSchemeConfig;
 use nuotc::{
-    Block as RtBlock, Clear, Color, Constraint, Direction, Frame, Layout, Line, Modifier, Paragraph, Rect,
-    Span, Style, Wrap,
+    Block as RtBlock, Clear, Color, Constraint, Direction, Frame, Layout, Line, Modifier,
+    Paragraph, Rect, Span, Style, Wrap,
 };
 
 use crate::primitives::{ElevationContainer, SCROLL_EDGE_MARGIN, draw_scrollbar, resolve_scroll};
 use crate::render::Theme;
-use crate::view_header::{
-    ThreadHead, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar,
-};
+use crate::view_header::{ThreadHead, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar};
 /// Width of the left navigation pane (its outer rect, before inner padding).
 const NAV_WIDTH: u16 = 22;
 
@@ -375,7 +373,10 @@ fn draw_categories_pane(
         let mut spans = vec![Span::styled(cat.title(), style)];
         let used = unicode_width::UnicodeWidthStr::width(cat.title());
         if banded && nav_width > used {
-            spans.push(Span::styled(" ".repeat(nav_width - used), Style::default().bg(band)));
+            spans.push(Span::styled(
+                " ".repeat(nav_width - used),
+                Style::default().bg(band),
+            ));
         }
         let mut line = Line::from(spans);
         if banded {
@@ -635,10 +636,16 @@ mod tests {
             crate::tools::TOOL_COMPONENTS.len() + 2,
             "one row per declared component, plus reasoning, auto-scroll"
         );
-        assert_eq!(ConfigCategory::System.detail_item_count(None, None, &direct), 5);
+        assert_eq!(
+            ConfigCategory::System.detail_item_count(None, None, &direct),
+            5
+        );
 
         let mono = nuotc::TerminalProfile::dec_vt100_monochrome();
-        assert_eq!(ConfigCategory::Appearance.detail_item_count(None, None, &mono), 1);
+        assert_eq!(
+            ConfigCategory::Appearance.detail_item_count(None, None, &mono),
+            1
+        );
     }
 
     #[test]

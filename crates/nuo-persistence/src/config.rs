@@ -1323,13 +1323,21 @@ impl Config {
 
     fn apply_domain_overlays(cfg: &mut Config) {
         // 1. server.toml
-        if let Some(server) = Self::load_domain::<DomainServerFile>(&Self::server_config_file_path()) {
+        if let Some(server) =
+            Self::load_domain::<DomainServerFile>(&Self::server_config_file_path())
+        {
             if let Some(lc) = server.lifecycle {
-                if let Some(s) = lc.shutdown_grace_secs { cfg.server.shutdown_grace_secs = s; }
-                if let Some(i) = lc.idle_exit_minutes { cfg.server.idle_exit_minutes = i; }
+                if let Some(s) = lc.shutdown_grace_secs {
+                    cfg.server.shutdown_grace_secs = s;
+                }
+                if let Some(i) = lc.idle_exit_minutes {
+                    cfg.server.idle_exit_minutes = i;
+                }
             }
             if let Some(nw) = server.network {
-                if let Some(la) = nw.local_auth { cfg.server.local_auth = la; }
+                if let Some(la) = nw.local_auth {
+                    cfg.server.local_auth = la;
+                }
             }
             if let Some(d) = server.server {
                 cfg.server = d;
@@ -1337,39 +1345,75 @@ impl Config {
         }
 
         // 2. client.toml
-        if let Some(client) = Self::load_domain::<DomainClientFile>(&Self::client_config_file_path()) {
+        if let Some(client) =
+            Self::load_domain::<DomainClientFile>(&Self::client_config_file_path())
+        {
             if let Some(conn) = client.connection {
-                if let Some(c) = conn.default_connection { cfg.default_connection = c; }
-                if let Some(m) = conn.default_model { cfg.default_model = Some(m); }
+                if let Some(c) = conn.default_connection {
+                    cfg.default_connection = c;
+                }
+                if let Some(m) = conn.default_model {
+                    cfg.default_model = Some(m);
+                }
             }
             if let Some(res) = client.resilience {
-                if let Some(a) = res.retry_max_attempts { cfg.connection_retry_max_attempts = a; }
-                if let Some(b) = res.retry_base_delay_ms { cfg.connection_retry_base_ms = b; }
-                if let Some(m) = res.retry_max_delay_ms { cfg.connection_retry_max_ms = m; }
+                if let Some(a) = res.retry_max_attempts {
+                    cfg.connection_retry_max_attempts = a;
+                }
+                if let Some(b) = res.retry_base_delay_ms {
+                    cfg.connection_retry_base_ms = b;
+                }
+                if let Some(m) = res.retry_max_delay_ms {
+                    cfg.connection_retry_max_ms = m;
+                }
             }
             if let Some(models) = client.models {
-                if let Some(f) = models.favorites { cfg.favorites = f; }
-                if let Some(h) = models.hidden { cfg.hidden_models = h; }
+                if let Some(f) = models.favorites {
+                    cfg.favorites = f;
+                }
+                if let Some(h) = models.hidden {
+                    cfg.hidden_models = h;
+                }
             }
         }
 
         // 3. agent.toml
-        if let Some(agent_doc) = Self::load_domain::<DomainAgentFile>(&Self::agent_config_file_path()) {
-            if let Some(a) = agent_doc.agent { cfg.agent = a; }
+        if let Some(agent_doc) =
+            Self::load_domain::<DomainAgentFile>(&Self::agent_config_file_path())
+        {
+            if let Some(a) = agent_doc.agent {
+                cfg.agent = a;
+            }
             if let Some(c) = agent_doc.context {
                 if let Err(error) = c.validate() {
                     panic!("nuo: invalid agent.toml [context]: {error}");
                 }
                 cfg.context = c;
             }
-            if let Some(p) = agent_doc.permissions { cfg.permissions = p; }
-            if let Some(b) = agent_doc.bash_policy { cfg.bash_policy = b; }
-            if let Some(w) = agent_doc.web { cfg.web = w; }
-            if let Some(s) = agent_doc.skills { cfg.skills = s; }
-            if let Some(m) = agent_doc.mcp { cfg.mcp = m; }
-            if let Some(h) = agent_doc.hooks { cfg.hooks = h; }
-            if let Some(tv) = agent_doc.tool_variants { cfg.tool_variants = tv; }
-            if let Some(ws) = agent_doc.workspace { cfg.workspace = ws; }
+            if let Some(p) = agent_doc.permissions {
+                cfg.permissions = p;
+            }
+            if let Some(b) = agent_doc.bash_policy {
+                cfg.bash_policy = b;
+            }
+            if let Some(w) = agent_doc.web {
+                cfg.web = w;
+            }
+            if let Some(s) = agent_doc.skills {
+                cfg.skills = s;
+            }
+            if let Some(m) = agent_doc.mcp {
+                cfg.mcp = m;
+            }
+            if let Some(h) = agent_doc.hooks {
+                cfg.hooks = h;
+            }
+            if let Some(tv) = agent_doc.tool_variants {
+                cfg.tool_variants = tv;
+            }
+            if let Some(ws) = agent_doc.workspace {
+                cfg.workspace = ws;
+            }
         }
     }
 
@@ -1950,10 +1994,16 @@ pub(crate) mod tests {
     #[test]
     fn legacy_compaction_keys_are_refused_under_inv_policy_01() {
         let err = toml::from_str::<Config>("[compaction]\nutilization = 0.85\n").unwrap_err();
-        assert!(err.to_string().contains("retired under ADR-0280 [INV-POLICY-01]"));
+        assert!(
+            err.to_string()
+                .contains("retired under ADR-0280 [INV-POLICY-01]")
+        );
 
         let err2 = toml::from_str::<Config>("compaction_preserve_rounds = 6\n").unwrap_err();
-        assert!(err2.to_string().contains("retired under ADR-0280 [INV-POLICY-01]"));
+        assert!(
+            err2.to_string()
+                .contains("retired under ADR-0280 [INV-POLICY-01]")
+        );
     }
 
     #[test]
@@ -2209,7 +2259,6 @@ deepseek = "new-key"
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-
     #[test]
     fn save_does_not_resurrect_user_deleted_workspace_roots() {
         // Disk is the newer truth for user-owned tables: a long-lived snapshot
@@ -2239,7 +2288,6 @@ deepseek = "new-key"
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-
     #[test]
     fn save_preserves_user_edited_unrelated_tables() {
         let (tmp, _guard, _override_guard) = sandbox_config_dir();
@@ -2261,7 +2309,6 @@ deepseek = "new-key"
         paths::set_test_default(None);
         std::fs::remove_dir_all(&tmp).ok();
     }
-
 
     #[test]
     fn save_still_flushes_runtime_changed_selection_and_leaves_roots_to_disk() {
@@ -2297,7 +2344,6 @@ deepseek = "new-key"
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-
     #[test]
     fn save_preserving_connection_selection_keeps_disk_default() {
         let (tmp, _guard, _override_guard) = sandbox_config_dir();
@@ -2316,7 +2362,6 @@ deepseek = "new-key"
         paths::set_test_default(None);
         std::fs::remove_dir_all(&tmp).ok();
     }
-
 
     #[test]
     fn route_settings_presence_opts_in_and_is_empty_semantics() {

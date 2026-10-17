@@ -141,10 +141,7 @@ mod tests {
         );
         agent.set_project_root(Some(dir.path().to_path_buf()));
 
-        let source_messages = vec![nuo_wire::Message::new(
-            nuo_wire::Role::User,
-            "Hello",
-        )];
+        let source_messages = vec![nuo_wire::Message::new(nuo_wire::Role::User, "Hello")];
 
         let req = agent.model_request(&source_messages);
 

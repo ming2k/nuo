@@ -56,10 +56,8 @@ impl Provider for IdleProvider {
     async fn stream_chat(
         &self,
         _request: nuo_wire::ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         Ok(Box::pin(stream::once(async { Ok("done".to_string()) })))
     }
 }
@@ -223,10 +221,8 @@ impl Provider for StreamWriteCallProvider {
     async fn stream_chat(
         &self,
         _: nuo_wire::ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         Ok(Box::pin(stream::empty()))
     }
     async fn stream_chat_events(

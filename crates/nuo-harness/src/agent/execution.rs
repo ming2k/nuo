@@ -381,7 +381,10 @@ impl Agent {
         let receiver = self
             .human_broker
             .park(request.id.clone(), HumanRequestKind::Stdin);
-        tracing::info!(secret = prompt.secret, "requesting operator input for a command waiting on input");
+        tracing::info!(
+            secret = prompt.secret,
+            "requesting operator input for a command waiting on input"
+        );
         let _ = event_tx.send(AgentEvent::StdinRequest(request));
         let settled = receiver.await.ok().map(|s| s.reply);
         match settled {
@@ -416,7 +419,11 @@ impl Agent {
         }
         let command = serde_json::from_str::<serde_json::Value>(arguments)
             .ok()
-            .and_then(|v| v.get("command").and_then(|c| c.as_str()).map(str::to_string))
+            .and_then(|v| {
+                v.get("command")
+                    .and_then(|c| c.as_str())
+                    .map(str::to_string)
+            })
             .unwrap_or_default();
         if let Some(kind) = crate::shell_input::classify(&command) {
             // No human is reachable, the operator opted out, or the platform

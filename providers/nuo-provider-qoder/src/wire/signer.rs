@@ -251,11 +251,22 @@ fn mint_cosy_request_id() -> String {
     raw[8] = (raw[8] & 0x3f) | 0x80;
     format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        raw[0], raw[1], raw[2], raw[3],
-        raw[4], raw[5],
-        raw[6], raw[7],
-        raw[8], raw[9],
-        raw[10], raw[11], raw[12], raw[13], raw[14], raw[15]
+        raw[0],
+        raw[1],
+        raw[2],
+        raw[3],
+        raw[4],
+        raw[5],
+        raw[6],
+        raw[7],
+        raw[8],
+        raw[9],
+        raw[10],
+        raw[11],
+        raw[12],
+        raw[13],
+        raw[14],
+        raw[15]
     )
 }
 
@@ -303,13 +314,14 @@ impl RequestSignerPhase for CosyTransportSigner {
             )
         })?;
 
-        let cosy = CosyIdentity::parse(qoder_id.machine_key_hex.expose_secret()).ok_or_else(|| {
-            ProviderError::new(
-                "qoder",
-                ProviderErrorKind::Authentication,
-                "malformed Qoder machine key",
-            )
-        })?;
+        let cosy =
+            CosyIdentity::parse(qoder_id.machine_key_hex.expose_secret()).ok_or_else(|| {
+                ProviderError::new(
+                    "qoder",
+                    ProviderErrorKind::Authentication,
+                    "malformed Qoder machine key",
+                )
+            })?;
 
         let email = auth.user_email.as_deref().unwrap_or("");
         let bearer = auth.token.expose_secret();
@@ -349,7 +361,10 @@ impl RequestSignerPhase for CosyTransportSigner {
             req = req.header("Cosy-Organization-Id", org_id.clone());
         }
         if !qoder_id.organization_tags.is_empty() {
-            req = req.header("Cosy-Organization-Tags", qoder_id.organization_tags.join(","));
+            req = req.header(
+                "Cosy-Organization-Tags",
+                qoder_id.organization_tags.join(","),
+            );
         }
 
         Ok(req)

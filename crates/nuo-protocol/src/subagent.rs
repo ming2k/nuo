@@ -518,6 +518,7 @@ mod tests {
             protocol: crate::WireProtocol::ChatCompletions,
             model_guidance: "",
             effort_levels: &[],
+            wire_entities: None,
         }
     }
 

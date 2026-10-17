@@ -100,7 +100,10 @@ fn enter_with_workspace_view_commands_triggers_guardrail_notice() {
         let action = enter(&mut input, false);
         match action {
             InputAction::WorkspaceGuardrailNotice(msg) => {
-                assert!(msg.contains(keychord), "notice for {cmd} must mention {keychord}");
+                assert!(
+                    msg.contains(keychord),
+                    "notice for {cmd} must mention {keychord}"
+                );
             }
             other => panic!("expected WorkspaceGuardrailNotice for {cmd}, got {other:?}"),
         }

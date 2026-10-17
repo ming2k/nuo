@@ -477,8 +477,6 @@ fn test_build_overview_and_sticky_table_headers() {
     assert!(turns_header_str.contains("Turn"));
     assert!(turns_header_str.contains("TTFT"));
     assert!(turns_header_str.contains("Status"));
-
-
 }
 
 #[test]

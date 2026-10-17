@@ -783,7 +783,11 @@ mod tests {
         let dev_manifest = SessionRoleManifest::developer();
         assert_eq!(dev_manifest.role_id, "developer");
         assert_eq!(dev_manifest.builtin_tools(), MainAgentRole::DEVELOPER_TOOLS);
-        assert!(!dev_manifest.tools.contains(&BuiltinTool::CodeQuery.as_str().to_string()));
+        assert!(
+            !dev_manifest
+                .tools
+                .contains(&BuiltinTool::CodeQuery.as_str().to_string())
+        );
         assert!(
             dev_manifest
                 .identity
@@ -793,7 +797,10 @@ mod tests {
 
         let phil_manifest = SessionRoleManifest::philosophist();
         assert_eq!(phil_manifest.role_id, "philosophist");
-        assert_eq!(phil_manifest.builtin_tools(), MainAgentRole::PHILOSOPHIST_TOOLS);
+        assert_eq!(
+            phil_manifest.builtin_tools(),
+            MainAgentRole::PHILOSOPHIST_TOOLS
+        );
         assert!(
             phil_manifest
                 .identity
@@ -803,11 +810,19 @@ mod tests {
 
         let ops_manifest = SessionRoleManifest::ops();
         assert_eq!(ops_manifest.role_id, "ops");
-        assert!(ops_manifest.builtin_tools().contains(&BuiltinTool::ExecuteCommand));
+        assert!(
+            ops_manifest
+                .builtin_tools()
+                .contains(&BuiltinTool::ExecuteCommand)
+        );
         assert!(!ops_manifest.builtin_tools().contains(&BuiltinTool::AskUser));
         assert!(!ops_manifest.builtin_tools().contains(&BuiltinTool::Todo));
         assert!(!ops_manifest.builtin_tools().contains(&BuiltinTool::ListDir));
-        assert!(!ops_manifest.builtin_tools().contains(&BuiltinTool::CodeQuery));
+        assert!(
+            !ops_manifest
+                .builtin_tools()
+                .contains(&BuiltinTool::CodeQuery)
+        );
         assert!(ops_manifest.identity.preamble().starts_with("Role: ops."));
 
         let serialized = serde_json::to_string(&ops_manifest).expect("serialize ops manifest");

@@ -11,13 +11,13 @@
 use super::Stores;
 use super::derive::resolve_credential;
 use futures::stream::{self, StreamExt};
-use nuo_wire::WireProtocol;
 use nuo_persistence::config::{FittedModelInfo, ModelListCacheState, RemoteCatalogCache};
 use nuo_persistence::connections::Connections;
 use nuo_provider::{
     CatalogShape, ModelProviderSpec, RemoteCatalogOptions, RemoteCatalogRequest,
     RemoteCatalogSource, RemoteCatalogUpdate, model_provider_spec,
 };
+use nuo_wire::WireProtocol;
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 
@@ -289,9 +289,12 @@ pub async fn refresh_connection_models_for_etag(
     let Some(spec) = model_provider_spec(&connection.provider) else {
         return CatalogSyncOutcome::default();
     };
-    let Some(source) =
-        catalog_fetch_source(super::credential_host().store().as_ref(), connection, &cached, &spec)
-    else {
+    let Some(source) = catalog_fetch_source(
+        super::credential_host().store().as_ref(),
+        connection,
+        &cached,
+        &spec,
+    ) else {
         return CatalogSyncOutcome::default();
     };
     let expected_source_identity = source.identity();
@@ -362,9 +365,12 @@ async fn sync_catalogs_matching(
         let Some(spec) = model_provider_spec(&connection.provider) else {
             continue;
         };
-        let Some(mut source) =
-            catalog_fetch_source(stores.credentials.store().as_ref(), connection, &stores.cache, &spec)
-        else {
+        let Some(mut source) = catalog_fetch_source(
+            stores.credentials.store().as_ref(),
+            connection,
+            &stores.cache,
+            &spec,
+        ) else {
             continue;
         };
         let source_identity = source.identity();
@@ -594,8 +600,13 @@ pub(super) fn source_identity_for_connection(
     cache: &RemoteCatalogCache,
 ) -> Option<String> {
     let spec = model_provider_spec(&connection.provider)?;
-    catalog_fetch_source(super::credential_host().store().as_ref(), connection, cache, &spec)
-        .map(|source| source.identity())
+    catalog_fetch_source(
+        super::credential_host().store().as_ref(),
+        connection,
+        cache,
+        &spec,
+    )
+    .map(|source| source.identity())
 }
 
 /// Build the [`CatalogFetchSource::FirstParty`] variant for a connection,

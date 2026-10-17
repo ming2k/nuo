@@ -34,12 +34,12 @@ pub use provider::{
 };
 pub use session::*;
 
-pub use nuo_provider::credentials::{
-    CredentialHost, CredentialSession, CredentialStore, CredentialStoreError, DeviceIdentity,
-    FileCredentialStore, FileDeviceIdentity, InMemoryCredentialStore, PerProcessIdentity, TokenSet,
-};
 pub use nuo_model_codec::LoginMethod;
 pub use nuo_model_codec::provider_auth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, OAuthConfigBuilder, PkceMode, PortMode,
     TokenRequestFormat,
+};
+pub use nuo_provider::credentials::{
+    CredentialHost, CredentialSession, CredentialStore, CredentialStoreError, DeviceIdentity,
+    FileCredentialStore, FileDeviceIdentity, InMemoryCredentialStore, PerProcessIdentity, TokenSet,
 };

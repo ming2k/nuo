@@ -14,10 +14,10 @@
 
 use std::path::Path;
 
+use nuo_client::{self as client, ServerDiagnostics, upsert_session_row, upsert_task_row};
 use nuo_wire::{
     MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredSession, SessionHosting, SessionStatus,
 };
-use nuo_client::{self as client, ServerDiagnostics, upsert_session_row, upsert_task_row};
 
 /// How `nuo status` renders its stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -309,7 +309,10 @@ fn render(info: &client::ServerInfo, snapshot: &MonitorSnapshot, opts: StatusOpt
         snapshot.project_root.as_str()
     };
 
-    println!("● Nuo [Healthy] · Server PID {} (uptime {})", info.pid, uptime);
+    println!(
+        "● Nuo [Healthy] · Server PID {} (uptime {})",
+        info.pid, uptime
+    );
     println!("  Transport: {transport} · Project: {root}");
 
     let db_path = nuo_host::paths::get().db_file();
@@ -752,8 +755,14 @@ mod tests {
         };
         let text = format_diagnostics(&diag);
         assert!(text.contains("PID 12345"), "{text}");
-        assert!(text.contains("TCP: disabled (zero-attack-surface client-bound posture)"), "{text}");
-        assert!(text.contains("Server is running and healthy (client-bound local IPC)"), "{text}");
+        assert!(
+            text.contains("TCP: disabled (zero-attack-surface client-bound posture)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("Server is running and healthy (client-bound local IPC)"),
+            "{text}"
+        );
     }
 
     #[test]

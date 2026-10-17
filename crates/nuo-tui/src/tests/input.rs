@@ -824,9 +824,12 @@ fn esc_cancels_shift_selection() {
 async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "s1".to_string();
-    app.surfaces.open_tab(crate::surfaces::ClientTab::thread("s1", Some("Thread 1")));
-    app.surfaces.open_tab(crate::surfaces::ClientTab::dashboard());
-    app.surfaces.open_tab(crate::surfaces::ClientTab::settings());
+    app.surfaces
+        .open_tab(crate::surfaces::ClientTab::thread("s1", Some("Thread 1")));
+    app.surfaces
+        .open_tab(crate::surfaces::ClientTab::dashboard());
+    app.surfaces
+        .open_tab(crate::surfaces::ClientTab::settings());
     app.surfaces.select_tab(0);
 
     // Initial render
@@ -847,8 +850,15 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
         modifiers: crossterm::event::KeyModifiers::NONE,
     });
     crate::event_loop::process_event_for_test(&mut app, &click_down, "s1").await;
-    assert_eq!(app.surfaces.active_tab_index(), 1, "dashboard tab selected on first click");
-    assert_eq!(app.surfaces.active_scene(), crate::surfaces::SceneKind::Dashboard);
+    assert_eq!(
+        app.surfaces.active_tab_index(),
+        1,
+        "dashboard tab selected on first click"
+    );
+    assert_eq!(
+        app.surfaces.active_scene(),
+        crate::surfaces::SceneKind::Dashboard
+    );
 
     // 2. Render dashboard frame
     terminal.draw(|f| {
@@ -864,9 +874,19 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
         modifiers: crossterm::event::KeyModifiers::NONE,
     });
     crate::event_loop::process_event_for_test(&mut app, &click_thread, "s1").await;
-    assert_eq!(app.surfaces.active_tab_index(), 0, "thread tab selected on single click");
-    assert_eq!(app.surfaces.active_scene(), crate::surfaces::SceneKind::Thread);
-    assert!(!app.transcript_focused, "entering thread scene activates composer");
+    assert_eq!(
+        app.surfaces.active_tab_index(),
+        0,
+        "thread tab selected on single click"
+    );
+    assert_eq!(
+        app.surfaces.active_scene(),
+        crate::surfaces::SceneKind::Thread
+    );
+    assert!(
+        !app.transcript_focused,
+        "entering thread scene activates composer"
+    );
 
     // 4. Render thread frame
     terminal.draw(|f| {
@@ -882,8 +902,15 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
         modifiers: crossterm::event::KeyModifiers::NONE,
     });
     crate::event_loop::process_event_for_test(&mut app, &click_tabbar_bg, "s1").await;
-    assert!(app.transcript_focused, "clicking tabbar background blurs composer");
-    assert_eq!(app.caret_owner(), crate::CaretOwner::None, "caret hidden when composer blurred");
+    assert!(
+        app.transcript_focused,
+        "clicking tabbar background blurs composer"
+    );
+    assert_eq!(
+        app.caret_owner(),
+        crate::CaretOwner::None,
+        "caret hidden when composer blurred"
+    );
 
     // 6. Clicking on active thread tab also blurs the composer
     let click_active_tab = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
@@ -896,7 +923,10 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     assert!(app.transcript_focused, "clicking active tab blurs composer");
 
     // 7. Clicking back on Composer input box restores composer focus
-    let composer_bounds = app.ui.bounds(crate::ui::UiKey::Composer).expect("composer mounted");
+    let composer_bounds = app
+        .ui
+        .bounds(crate::ui::UiKey::Composer)
+        .expect("composer mounted");
     let click_composer = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
         kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
         column: composer_bounds.x + 2,
@@ -904,6 +934,13 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
         modifiers: crossterm::event::KeyModifiers::NONE,
     });
     crate::event_loop::process_event_for_test(&mut app, &click_composer, "s1").await;
-    assert!(!app.transcript_focused, "clicking composer restores active focus");
-    assert_eq!(app.caret_owner(), crate::CaretOwner::Composer, "composer owns caret again");
+    assert!(
+        !app.transcript_focused,
+        "clicking composer restores active focus"
+    );
+    assert_eq!(
+        app.caret_owner(),
+        crate::CaretOwner::Composer,
+        "composer owns caret again"
+    );
 }

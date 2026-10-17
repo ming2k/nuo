@@ -3,11 +3,11 @@ use crate::bootstrap::{self, BootstrapParams};
 use crate::monitor::MonitorTracker;
 use crate::serve::{AttachAction, AttachSyncBuffer, is_attach_sync_event};
 use nuo_harness::{Agent, AgentIdentity, AgentRoleProfile};
+use nuo_persistence::session::SessionStore;
 use nuo_wire::{
     AgentRequest, AgentResponse, MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredSession,
     PermissionDecision, SessionHosting, SessionOverview, SessionStatus,
 };
-use nuo_persistence::session::SessionStore;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -325,8 +325,7 @@ impl SessionRegistry {
     /// Stop a server-level task (the human-side control the TUI panel will
     /// drive).
     pub fn stop_server_task(&self, task_id: &str) -> Result<(), String> {
-        self.server_tasks
-            .kill_job(&nuo_wire::JobId::from(task_id))
+        self.server_tasks.kill_job(&nuo_wire::JobId::from(task_id))
     }
 
     /// Subscribe the durability-health tap (ADR-0196 D4): the persistence
@@ -425,11 +424,14 @@ impl SessionRegistry {
 
         let mut hypervisor = self.hypervisor.lock().await;
         if hypervisor.is_none() {
-            *hypervisor = Some(Arc::new(crate::hypervisor::Hypervisor::new(
-                Arc::new(nuo_harness::NoProvider),
-                self.clone(),
-                self.fabric.clone(),
-            ).await));
+            *hypervisor = Some(Arc::new(
+                crate::hypervisor::Hypervisor::new(
+                    Arc::new(nuo_harness::NoProvider),
+                    self.clone(),
+                    self.fabric.clone(),
+                )
+                .await,
+            ));
         }
         handle
     }
@@ -437,7 +439,9 @@ impl SessionRegistry {
     /// Drop one session's ACP mailbox (teardown path).
     async fn drop_session_mailbox(&self, session_id: &str) {
         if let Some(_mb) = self.session_mailboxes.lock().await.remove(session_id) {
-            if let Ok(addr) = acp::AgentAddress::parse(&format!("agent://local/session/{session_id}")) {
+            if let Ok(addr) =
+                acp::AgentAddress::parse(&format!("agent://local/session/{session_id}"))
+            {
                 self.fabric.leave(&addr).await;
             }
         }
@@ -1391,10 +1395,8 @@ impl SessionRegistry {
         // of a fresh one, partitioned truthfully by Workspace or Role.
         let mut startup = startup;
         if init_options.resume && matches!(startup, crate::startup::SessionStart::Fresh) {
-            let partition = nuo_wire::SessionPartition::from_binding(
-                workspace.as_ref(),
-                role_id.as_deref(),
-            );
+            let partition =
+                nuo_wire::SessionPartition::from_binding(workspace.as_ref(), role_id.as_deref());
             if let Some(id) = lookup_latest_session_in_partition(&partition) {
                 startup = crate::startup::SessionStart::Resume(id);
             }
@@ -1460,18 +1462,16 @@ impl SessionRegistry {
             }
         }
         let workspace_root = workspace.as_ref().map(|binding| binding.root.clone());
-        let effective_confined = if let Some(builtin) = role_id
-            .as_deref()
-            .and_then(nuo_wire::MainAgentRole::parse)
-        {
-            if !builtin.requires_workspace() {
-                builtin.default_confined() && init_options.confined
+        let effective_confined =
+            if let Some(builtin) = role_id.as_deref().and_then(nuo_wire::MainAgentRole::parse) {
+                if !builtin.requires_workspace() {
+                    builtin.default_confined() && init_options.confined
+                } else {
+                    init_options.confined
+                }
             } else {
                 init_options.confined
-            }
-        } else {
-            init_options.confined
-        };
+            };
         // The session's lifetime token (ADR-0125): shared by the driver
         // select below and the background `/schedule` scheduler inside the
         // assemble, so one cancel stops the harness *and* its tick loop.
@@ -1890,9 +1890,7 @@ async fn overview_of(session: &SessionStore, active: bool) -> SessionOverview {
         digest,
     }
 }
-fn lookup_latest_session_in_partition(
-    partition: &nuo_wire::SessionPartition,
-) -> Option<String> {
+fn lookup_latest_session_in_partition(partition: &nuo_wire::SessionPartition) -> Option<String> {
     nuo_persistence::db::get_persistence_handle()
         .reader()
         .ok()?

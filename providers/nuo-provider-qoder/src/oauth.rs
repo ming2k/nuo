@@ -22,10 +22,10 @@
 use serde::Deserialize;
 use sha2::Digest;
 
-use nuo_provider::{CredentialHost, CredentialStore, TokenSet};
 use crate::identity::{QoderRequestIdentity, QoderStoredIdentity};
-use nuo_oauth::oauth::{AuthError, TokenResponse};
 use nuo_model_codec::{ResolvedAuth, SecretString};
+use nuo_oauth::oauth::{AuthError, TokenResponse};
+use nuo_provider::{CredentialHost, CredentialStore, TokenSet};
 
 pub fn stored_qoder_request_identity(
     store: &dyn CredentialStore,
@@ -492,7 +492,11 @@ impl std::fmt::Debug for QoderApiKeyCredentialSource {
 }
 
 impl QoderApiKeyCredentialSource {
-    pub fn new(host: &CredentialHost, connection_id: impl Into<String>, token: SecretString) -> Self {
+    pub fn new(
+        host: &CredentialHost,
+        connection_id: impl Into<String>,
+        token: SecretString,
+    ) -> Self {
         Self {
             connection_id: connection_id.into(),
             token,
@@ -523,9 +527,7 @@ impl QoderApiKeyCredentialSource {
             .store()
             .read(&self.connection_id)
             .map_err(|e| e.to_string())?
-            .and_then(|tokens| {
-                tokens.get_json_attr::<crate::QoderStoredIdentity>("qoder")
-            });
+            .and_then(|tokens| tokens.get_json_attr::<crate::QoderStoredIdentity>("qoder"));
         if let Some(stored) = stored_identity {
             let uid = if stored.uid.is_empty() {
                 self.resolve_and_persist_uid(&stored).await
@@ -610,10 +612,9 @@ impl QoderApiKeyCredentialSource {
         let Ok(client) = nuo_provider_transport::http::Http::control_plane() else {
             return None;
         };
-        let elected =
-            crate::elect_infer_endpoint(&client, self.token.expose_secret())
-                .await
-                .ok()?;
+        let elected = crate::elect_infer_endpoint(&client, self.token.expose_secret())
+            .await
+            .ok()?;
         if let Ok(mut session) = self.store().lock().await
             && let Some(mut entry) = session.get(&self.connection_id)
             && let Some(mut stored) = entry.get_json_attr::<QoderStoredIdentity>("qoder")
@@ -674,7 +675,10 @@ impl QoderApiKeyCredentialSource {
                 tracing::warn!(connection = %self.connection_id, %error, "qoder: could not persist resolved uid");
             }
         } else if std::env::var("NUO_QODER_DEBUG").is_ok() {
-            eprintln!("QODER_UID_PERSIST_SKIPPED connection={}", self.connection_id);
+            eprintln!(
+                "QODER_UID_PERSIST_SKIPPED connection={}",
+                self.connection_id
+            );
         }
         uid
     }

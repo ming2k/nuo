@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use nuo_wire::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent, RoundEvent};
-use nuo_persistence::session::SessionStore;
 use nuo::monitor::MonitorTracker;
 use nuo::registry::{HostedSession, SessionRegistry};
 use nuo::serve::{self, AttachAction, Wire};
+use nuo_persistence::session::SessionStore;
+use nuo_wire::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent, RoundEvent};
 use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
@@ -423,10 +423,7 @@ async fn attach_receives_restored_todos_after_welcome() {
 
     // Give the session content so its file persists, then a non-empty list.
     session
-        .replace_messages(vec![nuo_wire::Message::new(
-            nuo_wire::Role::User,
-            "hello",
-        )])
+        .replace_messages(vec![nuo_wire::Message::new(nuo_wire::Role::User, "hello")])
         .await
         .unwrap();
     let mut todos = nuo_wire::TodoList::new();
@@ -1371,10 +1368,7 @@ async fn reaper_keeps_session_once_it_has_content() {
     // Give the session real content: this persists it, so it is user history
     // and must never be reaped no matter how idle.
     store
-        .replace_messages(vec![nuo_wire::Message::new(
-            nuo_wire::Role::User,
-            "hello",
-        )])
+        .replace_messages(vec![nuo_wire::Message::new(nuo_wire::Role::User, "hello")])
         .await
         .unwrap();
     let (registry, _tx, id) = host_bare(store, std::time::Instant::now()).await;
@@ -1393,10 +1387,7 @@ async fn reaper_keeps_session_once_it_has_content() {
 async fn suspension_removes_idle_persisted_session() {
     let (dir, store) = fresh_empty_store("suspend");
     store
-        .replace_messages(vec![nuo_wire::Message::new(
-            nuo_wire::Role::User,
-            "hello",
-        )])
+        .replace_messages(vec![nuo_wire::Message::new(nuo_wire::Role::User, "hello")])
         .await
         .unwrap();
     let (registry, _tx, id) = host_bare(store, std::time::Instant::now()).await;
@@ -1420,10 +1411,7 @@ async fn suspension_removes_idle_persisted_session() {
 async fn suspension_keeps_session_with_attached_client() {
     let (dir, store) = fresh_empty_store("suspend-attached");
     store
-        .replace_messages(vec![nuo_wire::Message::new(
-            nuo_wire::Role::User,
-            "hello",
-        )])
+        .replace_messages(vec![nuo_wire::Message::new(nuo_wire::Role::User, "hello")])
         .await
         .unwrap();
     let (registry, bc_tx, id) = host_bare(store, std::time::Instant::now()).await;
@@ -1443,10 +1431,7 @@ async fn suspension_keeps_session_with_attached_client() {
 async fn suspension_deferred_by_recent_activity() {
     let (dir, store) = fresh_empty_store("suspend-active");
     store
-        .replace_messages(vec![nuo_wire::Message::new(
-            nuo_wire::Role::User,
-            "hello",
-        )])
+        .replace_messages(vec![nuo_wire::Message::new(nuo_wire::Role::User, "hello")])
         .await
         .unwrap();
     // Hosted "recently": the idle clock has not run out yet.
@@ -1815,10 +1800,7 @@ async fn control_suspend_session_parks_a_contentful_session() {
     let id = session.id().await;
     // Real content → the session persists, so it is suspendable.
     session
-        .replace_messages(vec![nuo_wire::Message::new(
-            nuo_wire::Role::User,
-            "hello",
-        )])
+        .replace_messages(vec![nuo_wire::Message::new(nuo_wire::Role::User, "hello")])
         .await
         .unwrap();
 

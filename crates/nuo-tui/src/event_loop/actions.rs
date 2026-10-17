@@ -256,7 +256,8 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.scroll_settle_pending = true;
             }
             if app.profile.supports_mouse {
-                let _ = crossterm::execute!(std::io::stdout(), crate::mouse_mode::EnableButtonMouse);
+                let _ =
+                    crossterm::execute!(std::io::stdout(), crate::mouse_mode::EnableButtonMouse);
             }
             sgr_guard.reset();
         }
@@ -781,7 +782,12 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::RefreshProviderModels => {
-            if app.active_dialog() == Some(DialogKind::Connections) && app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail {
+            if app.active_dialog() == Some(DialogKind::Connections)
+                && app
+                    .surfaces
+                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                    .info_detail
+            {
                 let id = app
                     .connection_detail
                     .as_ref()
@@ -811,8 +817,14 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.active_dialog(),
                 Some(DialogKind::Models | DialogKind::Connections)
             ) {
-                if app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().refreshing
-                    || app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().refreshing
+                if app
+                    .surfaces
+                    .dlg_mut::<crate::surfaces::ModelsDialog>()
+                    .refreshing
+                    || app
+                        .surfaces
+                        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                        .refreshing
                 {
                     show_local_toast(
                         app,
@@ -821,8 +833,12 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         std::time::Duration::from_millis(1500),
                     );
                 } else {
-                    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().refreshing = true;
-                    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().refreshing = true;
+                    app.surfaces
+                        .dlg_mut::<crate::surfaces::ModelsDialog>()
+                        .refreshing = true;
+                    app.surfaces
+                        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                        .refreshing = true;
                     show_local_toast(
                         app,
                         if app.active_dialog() == Some(DialogKind::Connections) {
@@ -857,7 +873,11 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // is not shipped here — the user hits Enter again to send.
             let ranked = app.history_rows();
             let pick = ranked
-                .get(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index)
+                .get(
+                    app.surfaces
+                        .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+                        .index,
+                )
                 .or_else(|| ranked.first());
             let Some((orig_idx, _)) = pick else {
                 return ActionFlow::Handled;
@@ -882,7 +902,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             app.clear_stashed_draft();
             // The selection replaces the in-progress draft, and history search completes.
             app.surfaces.dismiss_all_overlays();
-            app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 0;
+            app.surfaces
+                .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+                .index = 0;
             app.input_scroll = 0;
             app.suggestion_index = None;
             // A programmatic input replacement — latch the dismissal so
@@ -969,13 +991,18 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::QuotasToggleDetail => {
             // Toggle the detail block of the selected quota row.
             let idx = app.active_index();
-            app.surfaces.dlg_mut::<crate::surfaces::QuotasDialog>().expanded =
-                if app.surfaces.dlg_mut::<crate::surfaces::QuotasDialog>().expanded == Some(idx)
-                {
-                    None
-                } else {
-                    Some(idx)
-                };
+            app.surfaces
+                .dlg_mut::<crate::surfaces::QuotasDialog>()
+                .expanded = if app
+                .surfaces
+                .dlg_mut::<crate::surfaces::QuotasDialog>()
+                .expanded
+                == Some(idx)
+            {
+                None
+            } else {
+                Some(idx)
+            };
             app.set_active_follow(true);
         }
         input::InputAction::OpenMcp => {
@@ -998,7 +1025,14 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // Toggle the detail block of the selected skill row. Re-pressing
             // Enter on an already-expanded row collapses it.
             let idx = app.active_index();
-            app.surfaces.dlg_mut::<crate::surfaces::SkillsDialog>().expanded = if app.surfaces.dlg_mut::<crate::surfaces::SkillsDialog>().expanded == Some(idx) {
+            app.surfaces
+                .dlg_mut::<crate::surfaces::SkillsDialog>()
+                .expanded = if app
+                .surfaces
+                .dlg_mut::<crate::surfaces::SkillsDialog>()
+                .expanded
+                == Some(idx)
+            {
                 None
             } else {
                 Some(idx)
@@ -1117,7 +1151,11 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             let target = {
                 let rows = crate::overlays::session::project_session_rows(
                     &app.sessions_overview,
-                    Some(&app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().expanded),
+                    Some(
+                        &app.surfaces
+                            .dlg_mut::<crate::surfaces::SessionsDialog>()
+                            .expanded,
+                    ),
                 );
                 rows.get(app.active_index().min(rows.len().saturating_sub(1)))
                     .map(|item| {
@@ -1145,10 +1183,12 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                             id: viewed_session_id.to_string(),
                         });
                         let active_idx = app.surfaces.active_tab_index();
-                        if let Some(existing_pos) = app.surfaces.tabs().iter().position(|t| match &t.kind {
-                            crate::surfaces::TabKind::Thread(tid) => tid == &id,
-                            _ => false,
-                        }) {
+                        if let Some(existing_pos) =
+                            app.surfaces.tabs().iter().position(|t| match &t.kind {
+                                crate::surfaces::TabKind::Thread(tid) => tid == &id,
+                                _ => false,
+                            })
+                        {
                             app.close_tab(active_idx);
                             let new_pos = if existing_pos > active_idx {
                                 existing_pos - 1
@@ -1201,16 +1241,19 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 let switchable = target_id != viewed_session_id;
                 if switchable {
                     let is_empty = app.is_current_thread_empty();
-                    let tab = crate::surfaces::ClientTab::thread(&target_id, target_title.as_deref());
+                    let tab =
+                        crate::surfaces::ClientTab::thread(&target_id, target_title.as_deref());
                     if is_empty {
                         app.send_intent(AgentRequest::DeleteSession {
                             id: viewed_session_id.to_string(),
                         });
                         let active_idx = app.surfaces.active_tab_index();
-                        if let Some(existing_pos) = app.surfaces.tabs().iter().position(|t| match &t.kind {
-                            crate::surfaces::TabKind::Thread(tid) => tid == &target_id,
-                            _ => false,
-                        }) {
+                        if let Some(existing_pos) =
+                            app.surfaces.tabs().iter().position(|t| match &t.kind {
+                                crate::surfaces::TabKind::Thread(tid) => tid == &target_id,
+                                _ => false,
+                            })
+                        {
                             app.close_tab(active_idx);
                             let new_pos = if existing_pos > active_idx {
                                 existing_pos - 1
@@ -1300,16 +1343,27 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::DeleteSelectedSession => {
             let rows = crate::overlays::session::project_session_rows(
                 &app.sessions_overview,
-                Some(&app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().expanded),
+                Some(
+                    &app.surfaces
+                        .dlg_mut::<crate::surfaces::SessionsDialog>()
+                        .expanded,
+                ),
             );
             let idx = app.active_index().min(rows.len().saturating_sub(1));
             if let Some(item) = rows.get(idx) {
                 let id = item.session().id.clone();
                 app.sessions_overview.retain(|s| s.id != id);
-                app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().expanded.remove(&id);
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::SessionsDialog>()
+                    .expanded
+                    .remove(&id);
                 let new_rows = crate::overlays::session::project_session_rows(
                     &app.sessions_overview,
-                    Some(&app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().expanded),
+                    Some(
+                        &app.surfaces
+                            .dlg_mut::<crate::surfaces::SessionsDialog>()
+                            .expanded,
+                    ),
                 );
                 app.set_active_index(app.active_index().min(new_rows.len().saturating_sub(1)));
                 app.send_intent(AgentRequest::DeleteSession { id });
@@ -1335,13 +1389,21 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // body shows a loading state.
             let rows = crate::overlays::session::project_session_rows(
                 &app.sessions_overview,
-                Some(&app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().expanded),
+                Some(
+                    &app.surfaces
+                        .dlg_mut::<crate::surfaces::SessionsDialog>()
+                        .expanded,
+                ),
             );
             if let Some(item) = rows.get(app.active_index().min(rows.len().saturating_sub(1))) {
                 let session = item.session();
-                app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_detail = true;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::SessionsDialog>()
+                    .info_detail = true;
                 app.session_detail = None;
-                app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_scroll = 0;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::SessionsDialog>()
+                    .info_scroll = 0;
                 app.send_intent(AgentRequest::QuerySessionDetail {
                     id: session.id.clone(),
                 });
@@ -1350,7 +1412,11 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::ToggleSessionTimelineExpand => {
             let rows = crate::overlays::session::project_session_rows(
                 &app.sessions_overview,
-                Some(&app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().expanded),
+                Some(
+                    &app.surfaces
+                        .dlg_mut::<crate::surfaces::SessionsDialog>()
+                        .expanded,
+                ),
             );
             let idx = app.active_index().min(rows.len().saturating_sub(1));
             if let Some(item) = rows.get(idx) {
@@ -1361,10 +1427,21 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         ..
                     } if *child_count > 0 => {
                         let id = session.id.clone();
-                        if app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().expanded.contains(&id) {
-                            app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().expanded.remove(&id);
+                        if app
+                            .surfaces
+                            .dlg_mut::<crate::surfaces::SessionsDialog>()
+                            .expanded
+                            .contains(&id)
+                        {
+                            app.surfaces
+                                .dlg_mut::<crate::surfaces::SessionsDialog>()
+                                .expanded
+                                .remove(&id);
                         } else {
-                            app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().expanded.insert(id);
+                            app.surfaces
+                                .dlg_mut::<crate::surfaces::SessionsDialog>()
+                                .expanded
+                                .insert(id);
                         }
                     }
                     _ => {}
@@ -1376,11 +1453,19 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             if let Some(ranked) =
                 providers.get(app.active_index().min(providers.len().saturating_sub(1)))
             {
-                app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail = true;
-                app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_standalone = false;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                    .info_detail = true;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                    .info_standalone = false;
                 app.connection_detail = None;
-                app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll = 0;
-                app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().models_expanded = false;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                    .info_scroll = 0;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                    .models_expanded = false;
                 app.send_intent(AgentRequest::QueryConnectionDetail {
                     id: ranked.id.clone(),
                     force_refresh: false,
@@ -1399,8 +1484,18 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             open_active_connection_detail(app, runtime, viewed_session_id);
         }
         input::InputAction::ToggleConnectionModelsExpanded => {
-            if app.active_dialog() == Some(DialogKind::Connections) && app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail {
-                app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().models_expanded = !app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().models_expanded;
+            if app.active_dialog() == Some(DialogKind::Connections)
+                && app
+                    .surfaces
+                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                    .info_detail
+            {
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                    .models_expanded = !app
+                    .surfaces
+                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                    .models_expanded;
             }
         }
         input::InputAction::CloseModal => {
@@ -1417,17 +1512,32 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         }
         input::InputAction::TraceInspectDetail => {
             if app.active_dialog() == Some(DialogKind::SessionTrace) {
-                if !app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail {
+                if !app
+                    .surfaces
+                    .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+                    .detail
+                {
                     let has_rounds = app
                         .token_source_report(viewed_session_id)
                         .map(|report| render::telemetry_round_count(&report) > 0)
                         .unwrap_or(false);
                     if has_rounds {
-                        app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().detail = true;
-                        app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn_cursor = 0;
-                        app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().scroll = 0;
+                        app.surfaces
+                            .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+                            .detail = true;
+                        app.surfaces
+                            .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+                            .turn_cursor = 0;
+                        app.surfaces
+                            .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+                            .scroll = 0;
                     }
-                } else if app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn.is_none() {
+                } else if app
+                    .surfaces
+                    .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+                    .turn
+                    .is_none()
+                {
                     let report = app.token_source_report(viewed_session_id);
                     let round_index = app.active_index().min(
                         report
@@ -1439,11 +1549,17 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         render::telemetry_attempt_key(
                             report,
                             round_index,
-                            app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn_cursor,
+                            app.surfaces
+                                .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+                                .turn_cursor,
                         )
                     }) {
-                        app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().turn = Some(key);
-                        app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>().scroll = 0;
+                        app.surfaces
+                            .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+                            .turn = Some(key);
+                        app.surfaces
+                            .dlg_mut::<crate::surfaces::SessionTraceDialog>()
+                            .scroll = 0;
                     }
                 }
             }
@@ -1702,30 +1818,42 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // Esc inside the Subagent scene (ADR-0205): interrupt only the
             // viewed child, with the same armed press-twice contract. It never
             // reaches the primary round, so the outer turn keeps running.
-            handle_esc_interrupt_with_runtime(
-                app,
-                runtime,
-                commands::InterruptTarget::Subagent,
-            )
-            .await;
+            handle_esc_interrupt_with_runtime(app, runtime, commands::InterruptTarget::Subagent)
+                .await;
         }
         input::InputAction::ViewSwitcherFilter { ch } => {
             if app.active_dialog() == Some(DialogKind::Switcher) {
-                app.surfaces.dlg_mut::<crate::surfaces::SwitcherDialog>().query.text.push(ch);
-                app.surfaces.dlg_mut::<crate::surfaces::SwitcherDialog>().query.cursor = app.surfaces.dlg_mut::<crate::surfaces::SwitcherDialog>().query.text.len();
-                app.surfaces.dlg_mut::<crate::surfaces::SwitcherDialog>().selected = 0;
-                app.surfaces.dlg_mut::<crate::surfaces::SwitcherDialog>().scroll = 0;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::SwitcherDialog>()
+                    .query
+                    .text
+                    .push(ch);
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::SwitcherDialog>()
+                    .query
+                    .cursor = app
+                    .surfaces
+                    .dlg_mut::<crate::surfaces::SwitcherDialog>()
+                    .query
+                    .text
+                    .len();
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::SwitcherDialog>()
+                    .selected = 0;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::SwitcherDialog>()
+                    .scroll = 0;
             }
         }
         input::InputAction::ViewSwitcherBackspace => {
             if app.active_dialog() == Some(DialogKind::Switcher) {
                 {
-                    let q = &mut app.surfaces.dlg_mut::<crate::surfaces::SwitcherDialog>().query;
+                    let q = &mut app
+                        .surfaces
+                        .dlg_mut::<crate::surfaces::SwitcherDialog>()
+                        .query;
                     if !q.is_empty() {
-                        let start = nuotc::text::floor_grapheme_boundary(
-                            &q.text,
-                            q.text.len() - 1,
-                        );
+                        let start = nuotc::text::floor_grapheme_boundary(&q.text, q.text.len() - 1);
                         q.text.truncate(start);
                     }
                     q.cursor = q.text.len();
@@ -1739,15 +1867,22 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             if app.active_dialog() == Some(DialogKind::PortShare) {
                 app.dismiss_surface();
             } else {
-                app.surfaces.dlg_mut::<crate::surfaces::PortShareDialog>().begin();
-                app.surfaces.dlg_mut::<crate::surfaces::PortShareDialog>().loading = true;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::PortShareDialog>()
+                    .begin();
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::PortShareDialog>()
+                    .loading = true;
                 app.open_dialog(DialogKind::PortShare);
                 app.send_intent(nuo_wire::AgentRequest::QueryServerEndpoints);
             }
         }
         input::InputAction::TogglePortListener => {
             if app.active_dialog() == Some(DialogKind::PortShare) {
-                let current_active = app.surfaces.dlg::<crate::surfaces::PortShareDialog>().active;
+                let current_active = app
+                    .surfaces
+                    .dlg::<crate::surfaces::PortShareDialog>()
+                    .active;
                 let d = app.surfaces.dlg_mut::<crate::surfaces::PortShareDialog>();
                 d.loading = true;
                 d.notice = None;
@@ -1776,7 +1911,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.dismiss_surface();
             } else if app.can_open_switcher() {
                 app.open_dialog(DialogKind::Switcher);
-                app.surfaces.dlg_mut::<crate::surfaces::SwitcherDialog>().begin();
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::SwitcherDialog>()
+                    .begin();
             }
         }
         input::InputAction::ViewSwitchActivate => {
@@ -1801,12 +1938,19 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 scene: app.current_scene(),
             };
             let entries = crate::overlays::command_palette::filter_palette_commands(
-                &app.surfaces.dlg_mut::<crate::surfaces::SwitcherDialog>().query.text,
+                &app.surfaces
+                    .dlg_mut::<crate::surfaces::SwitcherDialog>()
+                    .query
+                    .text,
                 &app.recent_commands,
                 &app_ctx,
             );
             if let Some(entry) = entries
-                .get(app.surfaces.dlg_mut::<crate::surfaces::SwitcherDialog>().selected)
+                .get(
+                    app.surfaces
+                        .dlg_mut::<crate::surfaces::SwitcherDialog>()
+                        .selected,
+                )
                 .or_else(|| entries.first())
                 && matches!(entry.availability, crate::keymap::Availability::Available)
             {
@@ -1977,7 +2121,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 } else if app.active_index() >= count {
                     app.set_active_index(count - 1);
                 }
-                app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().follow = true;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::QueueDialog>()
+                    .follow = true;
             }
         }
         input::InputAction::QueueMoveItem { delta } => {
@@ -1999,7 +2145,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 let count = app.pending_count(viewed_session_id);
                 if count > 0 {
                     app.set_active_index((idx as i32 + delta).clamp(0, count as i32 - 1) as usize);
-                    app.surfaces.dlg_mut::<crate::surfaces::QueueDialog>().follow = true;
+                    app.surfaces
+                        .dlg_mut::<crate::surfaces::QueueDialog>()
+                        .follow = true;
                 }
             }
         }
@@ -2311,11 +2459,19 @@ pub(crate) fn open_active_connection_detail(
     {
         app.set_active_index(pos);
     }
-    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail = true;
-    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_standalone = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+        .info_detail = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+        .info_standalone = true;
     app.connection_detail = None;
-    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll = 0;
-    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().models_expanded = false;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+        .info_scroll = 0;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+        .models_expanded = false;
     if !target_id.is_empty() {
         app.send_intent(AgentRequest::QueryConnectionDetail {
             id: target_id,
@@ -2372,9 +2528,15 @@ pub(super) fn enter_panel(
                 app.suggestion_index = None;
             }
             DialogKind::HistorySearch => {
-                app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 0;
-                app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().scroll = 0;
-                app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().follow = true;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+                    .index = 0;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+                    .scroll = 0;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+                    .follow = true;
             }
             _ => {}
         }
@@ -2474,8 +2636,7 @@ pub(super) fn enter_scene(
             app.config_focus = crate::overlays::ConfigFocus::Categories;
             app.config_category = 0;
             app.config_hover_index = None;
-            let active_category =
-                crate::overlays::ConfigCategory::from_index(app.config_category);
+            let active_category = crate::overlays::ConfigCategory::from_index(app.config_category);
             if active_category == crate::overlays::ConfigCategory::Appearance {
                 app.config_detail_index = Theme::color_scheme_index_with_workspace(
                     &app.color_scheme,
@@ -2525,192 +2686,182 @@ pub(crate) fn handle_config_activate(app: &mut App) {
     } else {
         Some(std::path::Path::new(&app.current_workspace))
     };
-    let active_category =
-        crate::overlays::ConfigCategory::from_index(app.config_category);
+    let active_category = crate::overlays::ConfigCategory::from_index(app.config_category);
     match app.config_focus {
         crate::overlays::ConfigFocus::Categories => {
             app.config_focus = crate::overlays::ConfigFocus::Detail;
             if active_category == crate::overlays::ConfigCategory::Appearance {
-                app.config_detail_index = Theme::color_scheme_index_with_workspace(
-                    &app.color_scheme,
-                    ws_path,
-                );
+                app.config_detail_index =
+                    Theme::color_scheme_index_with_workspace(&app.color_scheme, ws_path);
             } else {
                 app.config_detail_index = 0;
             }
         }
-        crate::overlays::ConfigFocus::Detail => {
-            match active_category {
-                crate::overlays::ConfigCategory::Appearance => {
-                    if app.profile.supports_color_themes() {
-                        let schemes =
-                            Theme::available_color_schemes_with_workspace(ws_path);
-                        let sel_idx = app.config_detail_index % schemes.len().max(1);
-                        if let Some(scheme) = schemes.get(sel_idx) {
-                            let name = &scheme.id;
-                            app.color_scheme = name.to_string();
-                            app.theme = Theme::resolve_with_profile(
-                                name.as_ref(),
-                                &app.custom_color_scheme,
-                                ws_path,
-                                &app.profile,
-                            );
-                            app.send_intent(AgentRequest::UpdateTuiColorScheme {
-                                name: app.color_scheme.clone(),
-                                custom: app.custom_color_scheme.clone(),
-                            });
-                            app.save_tui_config();
-                        }
+        crate::overlays::ConfigFocus::Detail => match active_category {
+            crate::overlays::ConfigCategory::Appearance => {
+                if app.profile.supports_color_themes() {
+                    let schemes = Theme::available_color_schemes_with_workspace(ws_path);
+                    let sel_idx = app.config_detail_index % schemes.len().max(1);
+                    if let Some(scheme) = schemes.get(sel_idx) {
+                        let name = &scheme.id;
+                        app.color_scheme = name.to_string();
+                        app.theme = Theme::resolve_with_profile(
+                            name.as_ref(),
+                            &app.custom_color_scheme,
+                            ws_path,
+                            &app.profile,
+                        );
+                        app.send_intent(AgentRequest::UpdateTuiColorScheme {
+                            name: app.color_scheme.clone(),
+                            custom: app.custom_color_scheme.clone(),
+                        });
+                        app.save_tui_config();
                     }
                 }
-                crate::overlays::ConfigCategory::Components => {
-                    use crate::views::settings::components::{
-                        ComponentRowId, row_for_index,
-                    };
-                    match row_for_index(app.config_detail_index) {
-                        Some(ComponentRowId::Reasoning) => {
-                            let next = !crate::config::reasoning_default_expanded(&app.tui_config);
-                            if next {
-                                app.tui_config
-                                    .default_expanded
-                                    .insert(crate::config::THINKING_KEY.to_string(), true);
-                            } else {
-                                app.tui_config
-                                    .default_expanded
-                                    .remove(crate::config::THINKING_KEY);
-                            }
-                            app.reasoning_default_expanded = next;
-                            app.save_tui_config();
+            }
+            crate::overlays::ConfigCategory::Components => {
+                use crate::views::settings::components::{ComponentRowId, row_for_index};
+                match row_for_index(app.config_detail_index) {
+                    Some(ComponentRowId::Reasoning) => {
+                        let next = !crate::config::reasoning_default_expanded(&app.tui_config);
+                        if next {
+                            app.tui_config
+                                .default_expanded
+                                .insert(crate::config::THINKING_KEY.to_string(), true);
+                        } else {
+                            app.tui_config
+                                .default_expanded
+                                .remove(crate::config::THINKING_KEY);
                         }
-                        Some(ComponentRowId::Tool(component)) => {
-                            let next = !crate::config::tool_default_expanded(
-                                &app.tui_config,
-                                component.primary_name(),
-                            );
-                            crate::config::set_component_default_expanded(
-                                &mut app.tui_config,
-                                component,
-                                next,
-                            );
-                            app.save_tui_config();
-                        }
-                        Some(ComponentRowId::AutoScroll) => {
-                            app.expand_auto_scroll = !app.expand_auto_scroll;
-                            app.tui_config.expand_auto_scroll = app.expand_auto_scroll;
-                            app.save_tui_config();
-                        }
-                        None => {}
+                        app.reasoning_default_expanded = next;
+                        app.save_tui_config();
                     }
+                    Some(ComponentRowId::Tool(component)) => {
+                        let next = !crate::config::tool_default_expanded(
+                            &app.tui_config,
+                            component.primary_name(),
+                        );
+                        crate::config::set_component_default_expanded(
+                            &mut app.tui_config,
+                            component,
+                            next,
+                        );
+                        app.save_tui_config();
+                    }
+                    Some(ComponentRowId::AutoScroll) => {
+                        app.expand_auto_scroll = !app.expand_auto_scroll;
+                        app.tui_config.expand_auto_scroll = app.expand_auto_scroll;
+                        app.save_tui_config();
+                    }
+                    None => {}
                 }
-                crate::overlays::ConfigCategory::WebSearch | crate::overlays::ConfigCategory::WebReader => {
-                    let Some(revision) =
-                        app.websearch_config.as_ref().map(|config| config.revision)
-                    else {
-                        return;
-                    };
-                    let is_search = active_category == crate::overlays::ConfigCategory::WebSearch;
-                    match app.config_detail_index {
-                        0 => {
-                            let anchor = if let Some(target_rect) =
-                                app.config_selected_rect
-                            {
-                                crate::components::dropdown::DropdownAnchor::anchored(
-                                    target_rect,
-                                    crate::components::dropdown::DropdownPlacement::Auto,
-                                )
-                            } else {
-                                crate::components::dropdown::DropdownAnchor::center_screen()
-                            };
-                            if is_search {
-                                let current = app
-                                    .websearch_config
-                                    .as_ref()
-                                    .map(|ws| ws.provider.as_str())
-                                    .unwrap_or("exa");
-                                let dropdown =
-                                    crate::views::settings::build_websearch_provider_dropdown(
-                                        current,
-                                        app.websearch_config.as_ref(),
-                                    );
-                                app.config_dropdown = Some((dropdown, anchor));
-                            } else {
-                                let current = app
-                                    .websearch_config
-                                    .as_ref()
-                                    .map(|ws| ws.reader.as_str())
-                                    .unwrap_or("disabled");
-                                let dropdown =
-                                    crate::views::settings::build_websearch_reader_dropdown(
-                                        current,
-                                        app.websearch_config.as_ref(),
-                                    );
-                                app.config_dropdown = Some((dropdown, anchor));
-                            }
-                        }
-                        1 => {
+            }
+            crate::overlays::ConfigCategory::WebSearch
+            | crate::overlays::ConfigCategory::WebReader => {
+                let Some(revision) = app.websearch_config.as_ref().map(|config| config.revision)
+                else {
+                    return;
+                };
+                let is_search = active_category == crate::overlays::ConfigCategory::WebSearch;
+                match app.config_detail_index {
+                    0 => {
+                        let anchor = if let Some(target_rect) = app.config_selected_rect {
+                            crate::components::dropdown::DropdownAnchor::anchored(
+                                target_rect,
+                                crate::components::dropdown::DropdownPlacement::Auto,
+                            )
+                        } else {
+                            crate::components::dropdown::DropdownAnchor::center_screen()
+                        };
+                        if is_search {
                             let current = app
                                 .websearch_config
                                 .as_ref()
-                                .map(|ws| ws.timeout_secs)
-                                .unwrap_or(20);
-                            let next = if current >= 120 {
-                                5
-                            } else {
-                                (current + 5).max(5)
-                            };
-                            app.send_intent(AgentRequest::UpdateWebSearchConfig(
-                                Box::new(nuo_wire::WebSearchConfigUpdate {
-                                    expected_revision: revision,
-                                    timeout_secs: Some(next),
-                                    ..Default::default()
-                                }),
-                            ));
+                                .map(|ws| ws.provider.as_str())
+                                .unwrap_or("exa");
+                            let dropdown =
+                                crate::views::settings::build_websearch_provider_dropdown(
+                                    current,
+                                    app.websearch_config.as_ref(),
+                                );
+                            app.config_dropdown = Some((dropdown, anchor));
+                        } else {
+                            let current = app
+                                .websearch_config
+                                .as_ref()
+                                .map(|ws| ws.reader.as_str())
+                                .unwrap_or("disabled");
+                            let dropdown = crate::views::settings::build_websearch_reader_dropdown(
+                                current,
+                                app.websearch_config.as_ref(),
+                            );
+                            app.config_dropdown = Some((dropdown, anchor));
                         }
-                        2 => {
-                            let editor = app.websearch_config.as_ref().and_then(|ws| {
-                                let (axis, id) = if is_search {
-                                    ("search", ws.provider.id())
-                                } else {
-                                    ("reader", ws.reader.id())
-                                };
-                                let capability = ws.capabilities.iter().find(|capability| {
-                                    capability.id == id
-                                        && capability.axis == if is_search {
+                    }
+                    1 => {
+                        let current = app
+                            .websearch_config
+                            .as_ref()
+                            .map(|ws| ws.timeout_secs)
+                            .unwrap_or(20);
+                        let next = if current >= 120 {
+                            5
+                        } else {
+                            (current + 5).max(5)
+                        };
+                        app.send_intent(AgentRequest::UpdateWebSearchConfig(Box::new(
+                            nuo_wire::WebSearchConfigUpdate {
+                                expected_revision: revision,
+                                timeout_secs: Some(next),
+                                ..Default::default()
+                            },
+                        )));
+                    }
+                    2 => {
+                        let editor = app.websearch_config.as_ref().and_then(|ws| {
+                            let (axis, id) = if is_search {
+                                ("search", ws.provider.id())
+                            } else {
+                                ("reader", ws.reader.id())
+                            };
+                            let capability = ws.capabilities.iter().find(|capability| {
+                                capability.id == id
+                                    && capability.axis
+                                        == if is_search {
                                             nuo_wire::WebProviderAxis::Search
                                         } else {
                                             nuo_wire::WebProviderAxis::Reader
                                         }
-                                })?;
-                                let endpoint = capability.endpoint
-                                    == nuo_wire::WebEndpointRequirement::UserSupplied;
-                                let target = if endpoint {
-                                    format!("web_endpoint:{id}")
-                                } else {
-                                    format!("web_credential:{axis}:{id}")
-                                };
-                                let initial = if endpoint {
-                                    ws.searxng_url.clone().unwrap_or_default()
-                                } else {
-                                    String::new()
-                                };
-                                Some((target, capability.display_name.clone(), initial))
-                            });
-                            if let Some((target, display_name, initial)) = editor {
-                                app.surfaces.present_sheet(SheetKind::ModelEditor);
-                                app.editor_target = Some(target);
-                                app.editor_model = display_name;
-                                app.editor_key.clear();
-                                app.editor_field = 0;
-                                app.input = initial;
-                                app.set_cursor(app.input.len());
-                            }
+                            })?;
+                            let endpoint = capability.endpoint
+                                == nuo_wire::WebEndpointRequirement::UserSupplied;
+                            let target = if endpoint {
+                                format!("web_endpoint:{id}")
+                            } else {
+                                format!("web_credential:{axis}:{id}")
+                            };
+                            let initial = if endpoint {
+                                ws.searxng_url.clone().unwrap_or_default()
+                            } else {
+                                String::new()
+                            };
+                            Some((target, capability.display_name.clone(), initial))
+                        });
+                        if let Some((target, display_name, initial)) = editor {
+                            app.surfaces.present_sheet(SheetKind::ModelEditor);
+                            app.editor_target = Some(target);
+                            app.editor_model = display_name;
+                            app.editor_key.clear();
+                            app.editor_field = 0;
+                            app.input = initial;
+                            app.set_cursor(app.input.len());
                         }
-                        _ => {}
                     }
+                    _ => {}
                 }
-                _ => {}
             }
-        }
+            _ => {}
+        },
     }
 }
 
@@ -2740,10 +2891,7 @@ pub(crate) fn handle_wheel(app: &mut App, up: bool, x: u16, y: u16, viewed_sessi
             };
         }
         Some(
-            UiKey::OauthUrl
-            | UiKey::OauthCode
-            | UiKey::SettingsOption(_)
-            | UiKey::SettingsRow(_),
+            UiKey::OauthUrl | UiKey::OauthCode | UiKey::SettingsOption(_) | UiKey::SettingsRow(_),
         ) => scroll_tick(app, !up),
         Some(UiKey::ProviderDelete | UiKey::PreAttach) => {}
         Some(UiKey::Sheet(crate::sheet::SheetKind::Permission) | UiKey::PermissionAction(_))
@@ -2893,12 +3041,17 @@ mod transcript_scroll_tests {
             nuotc::Rect::new(10, 5, 60, 10),
         );
         app.ui.commit();
-        app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll = 5;
+        app.surfaces
+            .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+            .scroll = 5;
 
         // 1. Wheel on backdrop (x=2, y=2) outside modal_rect: absorbed, neither modal nor transcript scrolls
         handle_wheel(&mut app, false, 2, 2, "");
         assert_eq!(
-            app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll, 5,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+                .scroll,
+            5,
             "modal scroll untouched on backdrop"
         );
         assert_eq!(app.scroll, 100, "transcript scroll untouched on backdrop");
@@ -2906,7 +3059,10 @@ mod transcript_scroll_tests {
         // 2. Wheel inside modal (x=20, y=8): scrolls modal body
         handle_wheel(&mut app, false, 20, 8, "");
         assert_eq!(
-            app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll, 6,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+                .scroll,
+            6,
             "modal scrolled inside modal_rect"
         );
         assert_eq!(app.scroll, 100, "transcript scroll untouched");
@@ -2934,24 +3090,32 @@ mod transcript_scroll_tests {
         // Must increment info_scroll and leave main list scroll untouched! [INV-SURFACE-08]
         handle_wheel(&mut app, false, 20, 8, "");
         assert_eq!(
-            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ThreadsDialog>()
+                .info_scroll,
             1,
             "info_detail scrolled down"
         );
         assert_eq!(
-            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().scroll,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ThreadsDialog>()
+                .scroll,
             2,
             "main list scroll untouched"
         );
 
         handle_wheel(&mut app, true, 20, 8, "");
         assert_eq!(
-            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_scroll,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ThreadsDialog>()
+                .info_scroll,
             0,
             "info_detail scrolled back up"
         );
         assert_eq!(
-            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().scroll,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ThreadsDialog>()
+                .scroll,
             2,
             "main list scroll untouched"
         );
@@ -2978,12 +3142,16 @@ mod transcript_scroll_tests {
         // Must increment keys_scroll on the dialog entity, not the body scroll!
         handle_wheel(&mut app, false, 20, 8, "");
         assert_eq!(
-            *app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().keys_scroll_mut(),
+            *app.surfaces
+                .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+                .keys_scroll_mut(),
             1,
             "dialog keys sublayer scrolled down"
         );
         assert_eq!(
-            app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+                .scroll,
             0,
             "main body scroll untouched"
         );
@@ -3020,27 +3188,42 @@ mod transcript_scroll_tests {
         let runtime = UiRuntime::minimal_for_test();
 
         // Mount tabs
-        app.surfaces.open_tab(crate::surfaces::ClientTab::thread("s1", Some("Thread 1")));
-        app.surfaces.open_tab(crate::surfaces::ClientTab::dashboard());
-        app.surfaces.open_tab(crate::surfaces::ClientTab::settings());
+        app.surfaces
+            .open_tab(crate::surfaces::ClientTab::thread("s1", Some("Thread 1")));
+        app.surfaces
+            .open_tab(crate::surfaces::ClientTab::dashboard());
+        app.surfaces
+            .open_tab(crate::surfaces::ClientTab::settings());
         app.surfaces.select_tab(0);
         assert_eq!(app.surfaces.active_tab_index(), 0);
 
         // Mount TabBarItem(1) (Dashboard tab) at (14, 0)
         app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
-        app.ui.mount(crate::ui::UiKey::TabBarItem(1), nuotc::Rect::new(14, 0, 14, 1));
-        app.ui.mount(crate::ui::UiKey::TabBarItem(2), nuotc::Rect::new(30, 0, 13, 1));
+        app.ui.mount(
+            crate::ui::UiKey::TabBarItem(1),
+            nuotc::Rect::new(14, 0, 14, 1),
+        );
+        app.ui.mount(
+            crate::ui::UiKey::TabBarItem(2),
+            nuotc::Rect::new(30, 0, 13, 1),
+        );
         app.ui.commit();
 
         // Click on Tab 1
         mouse::handle_selection_start(&mut app, &runtime, "s1", 16, 0).await;
         assert_eq!(app.surfaces.active_tab_index(), 1);
-        assert_eq!(app.surfaces.active_scene(), crate::surfaces::SceneKind::Dashboard);
+        assert_eq!(
+            app.surfaces.active_scene(),
+            crate::surfaces::SceneKind::Dashboard
+        );
 
         // Click on Tab 2
         mouse::handle_selection_start(&mut app, &runtime, "s1", 32, 0).await;
         assert_eq!(app.surfaces.active_tab_index(), 2);
-        assert_eq!(app.surfaces.active_scene(), crate::surfaces::SceneKind::Settings);
+        assert_eq!(
+            app.surfaces.active_scene(),
+            crate::surfaces::SceneKind::Settings
+        );
     }
 
     #[tokio::test]
@@ -3052,13 +3235,20 @@ mod transcript_scroll_tests {
 
         // Mount TabBar across full width (0..80) and TabBarItem(0) at (0..14)
         app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
-        app.ui.mount(crate::ui::UiKey::TabBar, nuotc::Rect::new(0, 0, 80, 1));
-        app.ui.mount(crate::ui::UiKey::TabBarItem(0), nuotc::Rect::new(0, 0, 14, 1));
+        app.ui
+            .mount(crate::ui::UiKey::TabBar, nuotc::Rect::new(0, 0, 80, 1));
+        app.ui.mount(
+            crate::ui::UiKey::TabBarItem(0),
+            nuotc::Rect::new(0, 0, 14, 1),
+        );
         app.ui.commit();
 
         // Click outside tabs on the TabBar background (col 50)
         mouse::handle_selection_start(&mut app, &runtime, "s1", 50, 0).await;
-        assert!(app.transcript_focused, "clicking TabBar background must blur composer");
+        assert!(
+            app.transcript_focused,
+            "clicking TabBar background must blur composer"
+        );
     }
 
     #[tokio::test]
@@ -3066,19 +3256,27 @@ mod transcript_scroll_tests {
         let mut app = crate::tests::new_app_for_relay_tests();
         let runtime = UiRuntime::minimal_for_test();
 
-        app.surfaces.open_tab(crate::surfaces::ClientTab::thread("s1", Some("Thread 1")));
+        app.surfaces
+            .open_tab(crate::surfaces::ClientTab::thread("s1", Some("Thread 1")));
         app.surfaces.select_tab(0);
         assert!(!app.transcript_focused, "composer active by default");
 
         app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
-        app.ui.mount(crate::ui::UiKey::TabBar, nuotc::Rect::new(0, 0, 80, 1));
-        app.ui.mount(crate::ui::UiKey::TabBarItem(0), nuotc::Rect::new(0, 0, 14, 1));
+        app.ui
+            .mount(crate::ui::UiKey::TabBar, nuotc::Rect::new(0, 0, 80, 1));
+        app.ui.mount(
+            crate::ui::UiKey::TabBarItem(0),
+            nuotc::Rect::new(0, 0, 14, 1),
+        );
         app.ui.commit();
 
         // Click on already-active Thread tab (col 5)
         mouse::handle_selection_start(&mut app, &runtime, "s1", 5, 0).await;
         assert_eq!(app.surfaces.active_tab_index(), 0);
-        assert!(app.transcript_focused, "clicking active tab must blur composer");
+        assert!(
+            app.transcript_focused,
+            "clicking active tab must blur composer"
+        );
     }
 
     #[tokio::test]
@@ -3090,7 +3288,10 @@ mod transcript_scroll_tests {
 
         // Click in outer unmounted zone / dead zone
         mouse::handle_selection_start(&mut app, &runtime, "s1", 79, 10).await;
-        assert!(app.transcript_focused, "clicking outside composer must blur composer");
+        assert!(
+            app.transcript_focused,
+            "clicking outside composer must blur composer"
+        );
     }
 
     #[tokio::test]
@@ -3121,38 +3322,57 @@ mod transcript_scroll_tests {
         // 1. Click on Row 1 (y = 9) inside modal: selects row 1
         mouse::handle_selection_start(&mut app, &runtime, "s1", 20, 9).await;
         assert_eq!(
-            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().index,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ThreadsDialog>()
+                .index,
             1,
             "clicking row 1 sets index to 1"
         );
-        assert!(app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().follow);
+        assert!(
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ThreadsDialog>()
+                .follow
+        );
 
         // 2. Click on Row 2 (y = 10) inside modal: selects row 2
         mouse::handle_selection_start(&mut app, &runtime, "s1", 20, 10).await;
         assert_eq!(
-            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().index,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ThreadsDialog>()
+                .index,
             2,
             "clicking row 2 sets index to 2"
         );
 
         // 3. Sub-view parity [INV-SURFACE-08]: in info_detail mode, clicking inside list area does not corrupt index
-        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = true;
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ThreadsDialog>()
+            .info_detail = true;
         mouse::handle_selection_start(&mut app, &runtime, "s1", 20, 8).await;
         assert_eq!(
-            app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().index,
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ThreadsDialog>()
+                .index,
             2,
             "info_detail mode protects list index"
         );
-        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().info_detail = false;
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ThreadsDialog>()
+            .info_detail = false;
 
         // 4. Re-clicking an already-selected thread row for a different session switches to target
         mouse::handle_selection_start(&mut app, &runtime, "s1", 20, 10).await;
         assert_eq!(app.switch_to_target, Some("s2".to_string()));
 
         // 5. Re-clicking the already-selected row for the current session dismisses the dialog
-        app.surfaces.dlg_mut::<crate::surfaces::ThreadsDialog>().index = 1;
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ThreadsDialog>()
+            .index = 1;
         mouse::handle_selection_start(&mut app, &runtime, "s1", 20, 9).await;
-        assert!(app.active_dialog().is_none(), "re-clicking current session dismisses dialog");
+        assert!(
+            app.active_dialog().is_none(),
+            "re-clicking current session dismisses dialog"
+        );
     }
 
     #[tokio::test]
@@ -3183,12 +3403,18 @@ mod transcript_scroll_tests {
 
         // Mount dropdown popup at (20, 5, 40, 10)
         app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
-        app.ui.mount(crate::ui::UiKey::ConfigDropdown, nuotc::Rect::new(20, 5, 40, 10));
+        app.ui.mount(
+            crate::ui::UiKey::ConfigDropdown,
+            nuotc::Rect::new(20, 5, 40, 10),
+        );
         app.ui.commit();
 
         // Click outside at (5, 2): dismisses dropdown
         mouse::handle_selection_start(&mut app, &runtime, "s1", 5, 2).await;
-        assert!(app.config_dropdown.is_none(), "clicking outside dismisses dropdown");
+        assert!(
+            app.config_dropdown.is_none(),
+            "clicking outside dismisses dropdown"
+        );
 
         // 2. Open dropdown again and click item 1 (Tavily) at (25, 8)
         let dropdown = crate::views::settings::build_websearch_provider_dropdown(
@@ -3197,12 +3423,18 @@ mod transcript_scroll_tests {
         );
         app.config_dropdown = Some((dropdown, anchor));
         app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
-        app.ui.mount(crate::ui::UiKey::ConfigDropdown, nuotc::Rect::new(20, 5, 40, 10));
+        app.ui.mount(
+            crate::ui::UiKey::ConfigDropdown,
+            nuotc::Rect::new(20, 5, 40, 10),
+        );
         app.ui.commit();
 
         // Items start at y = 5 + 2 = 7. Row 0 (Exa) at y=7, Row 1 (Tavily) at y=8.
         mouse::handle_selection_start(&mut app, &runtime, "s1", 25, 8).await;
-        assert!(app.config_dropdown.is_none(), "selecting item closes dropdown");
+        assert!(
+            app.config_dropdown.is_none(),
+            "selecting item closes dropdown"
+        );
     }
 
     #[tokio::test]
@@ -3216,8 +3448,14 @@ mod transcript_scroll_tests {
 
         // Mount Category 1 (Components) at (2, 4, 18, 2) and Detail Row 0 at (24, 4, 40, 2)
         app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
-        app.ui.mount(crate::ui::UiKey::SettingsCategory(1), nuotc::Rect::new(2, 4, 18, 2));
-        app.ui.mount(crate::ui::UiKey::SettingsRow(0), nuotc::Rect::new(24, 4, 40, 2));
+        app.ui.mount(
+            crate::ui::UiKey::SettingsCategory(1),
+            nuotc::Rect::new(2, 4, 18, 2),
+        );
+        app.ui.mount(
+            crate::ui::UiKey::SettingsRow(0),
+            nuotc::Rect::new(24, 4, 40, 2),
+        );
         app.ui.commit();
 
         // 1. Click Category 1: switches to Components category
@@ -3231,16 +3469,14 @@ mod transcript_scroll_tests {
         assert_eq!(app.config_focus, crate::overlays::ConfigFocus::Detail);
         assert_eq!(app.config_detail_index, 0);
         assert_eq!(
-            app.reasoning_default_expanded,
-            !initial_reasoning,
+            app.reasoning_default_expanded, !initial_reasoning,
             "clicking components row toggles setting"
         );
 
         // 3. Click Detail Row 0 again: toggles back
         mouse::handle_selection_start(&mut app, &runtime, "s1", 30, 4).await;
         assert_eq!(
-            app.reasoning_default_expanded,
-            initial_reasoning,
+            app.reasoning_default_expanded, initial_reasoning,
             "clicking components row again toggles setting back"
         );
     }
@@ -3266,7 +3502,10 @@ mod transcript_scroll_tests {
 
         // Click outside at (2, 2) dismisses the dialog
         mouse::handle_selection_start(&mut app, &runtime, "s1", 2, 2).await;
-        assert!(app.active_dialog().is_none(), "dialog dismissed on backdrop click");
+        assert!(
+            app.active_dialog().is_none(),
+            "dialog dismissed on backdrop click"
+        );
     }
 }
 
@@ -3427,12 +3666,8 @@ async fn execute_command_by_id(
             }
         }
         CommandId::InterruptTask => {
-            handle_esc_interrupt_with_runtime(
-                app,
-                runtime,
-                commands::InterruptTarget::Primary,
-            )
-            .await;
+            handle_esc_interrupt_with_runtime(app, runtime, commands::InterruptTarget::Primary)
+                .await;
         }
         CommandId::Quit => {
             // ADR-0038 [INV-ACTION-02]: Quitting the TUI client is strictly a non-destructive Detach.
@@ -3540,7 +3775,9 @@ async fn execute_command_by_id(
                     .map(|report| render::telemetry_round_count(&report) > 0)
                     .unwrap_or(false);
                 if has_rounds {
-                    let d = app.surfaces.dlg_mut::<crate::surfaces::SessionTraceDialog>();
+                    let d = app
+                        .surfaces
+                        .dlg_mut::<crate::surfaces::SessionTraceDialog>();
                     d.detail = true;
                     d.turn_cursor = 0;
                     d.scroll = 0;
@@ -3570,8 +3807,12 @@ async fn execute_command_by_id(
             if app.active_dialog() == Some(crate::surfaces::DialogKind::PortShare) {
                 app.dismiss_surface();
             } else {
-                app.surfaces.dlg_mut::<crate::surfaces::PortShareDialog>().begin();
-                app.surfaces.dlg_mut::<crate::surfaces::PortShareDialog>().loading = true;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::PortShareDialog>()
+                    .begin();
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::PortShareDialog>()
+                    .loading = true;
                 app.open_dialog(crate::surfaces::DialogKind::PortShare);
                 app.send_intent(nuo_wire::AgentRequest::QueryServerEndpoints);
             }

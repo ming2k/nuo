@@ -143,8 +143,10 @@ pub(crate) fn classify_group_darwin(
         }
 
         // Ticks converted from nanoseconds (100ns units to avoid overflow).
-        let cpu_ticks =
-            (taskinfo.pti_total_user.saturating_add(taskinfo.pti_total_system)) / 100_000;
+        let cpu_ticks = (taskinfo
+            .pti_total_user
+            .saturating_add(taskinfo.pti_total_system))
+            / 100_000;
         total_cpu_ticks = total_cpu_ticks.saturating_add(cpu_ticks);
 
         // If any thread in the task is runnable/running, the task is actively executing.
@@ -186,10 +188,12 @@ fn classify_quiescent_darwin_process(pid: libc::pid_t) -> DarwinGroupState {
         return DarwinGroupState::Otherwise;
     }
 
-    let raw_bytes: &[u8] = unsafe {
-        std::slice::from_raw_parts(vnode_fd.pvip.vip_path.as_ptr().cast::<u8>(), 1024)
-    };
-    let nul_pos = raw_bytes.iter().position(|&b| b == 0).unwrap_or(raw_bytes.len());
+    let raw_bytes: &[u8] =
+        unsafe { std::slice::from_raw_parts(vnode_fd.pvip.vip_path.as_ptr().cast::<u8>(), 1024) };
+    let nul_pos = raw_bytes
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(raw_bytes.len());
     let path = match std::str::from_utf8(&raw_bytes[..nul_pos]) {
         Ok(s) => s,
         Err(_) => return DarwinGroupState::Otherwise,

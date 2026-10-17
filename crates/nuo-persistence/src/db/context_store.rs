@@ -260,7 +260,13 @@ fn commit_facts_tx(
                 authority_str(fact.source_authority),
                 sensitivity_str(fact.sensitivity),
                 json(&fact.artifact_refs)?,
-                { use sha2::Digest; format!("{:x}", sha2::Sha256::digest(json(&fact.payload)?.as_bytes())) },
+                {
+                    use sha2::Digest;
+                    format!(
+                        "{:x}",
+                        sha2::Sha256::digest(json(&fact.payload)?.as_bytes())
+                    )
+                },
             ],
         )?;
         last_fact_id = Some(fact.id.as_str().to_string());
@@ -272,9 +278,11 @@ fn commit_facts_tx(
              WHERE a.thread_id=?1 AND a.artifact_id=?2 AND a.deletion='present'
                AND f.id=?3 AND f.deletion='present')",
             params![session_id, artifact_id.as_str(), fact_id.as_str()], |row| row.get(0))?;
-        if !published { return Err(ContextCommitError::PersistenceFailure {
-            detail: "artifact reference has no readable published manifest or fact".into(),
-        }); }
+        if !published {
+            return Err(ContextCommitError::PersistenceFailure {
+                detail: "artifact reference has no readable published manifest or fact".into(),
+            });
+        }
         tx.execute(
             "INSERT OR IGNORE INTO artifact_refs (thread_id, artifact_id, fact_id)
              VALUES (?1, ?2, ?3)",
@@ -356,9 +364,15 @@ pub fn commit_view(
         checkpoint,
         at_ms,
     } = *commit;
-    if view.branch_id.as_str() != branch_id || view.basis_revision != expected_revision
-        || checkpoint.map(|cp| Some(&cp.checkpoint_id) != view.checkpoint_id.as_ref()).unwrap_or(false) {
-        return Err(ContextCommitError::PersistenceFailure { detail: "view scope, revision, or checkpoint mismatch".into() });
+    if view.branch_id.as_str() != branch_id
+        || view.basis_revision != expected_revision
+        || checkpoint
+            .map(|cp| Some(&cp.checkpoint_id) != view.checkpoint_id.as_ref())
+            .unwrap_or(false)
+    {
+        return Err(ContextCommitError::PersistenceFailure {
+            detail: "view scope, revision, or checkpoint mismatch".into(),
+        });
     }
     let tx = conn.unchecked_transaction()?;
     if let Some(revision) = replay_of(&tx, session_id, operation_id)? {
@@ -697,7 +711,9 @@ mod tests {
             "UPDATE facts SET deletion='delete_pending', parent_ids='[\"evil\"]'",
             "UPDATE facts SET deletion='purged', payload_json='{}'",
             "UPDATE facts SET deletion='delete_pending', round_id='other'",
-        ] { assert!(conn.execute(sql, []).is_err(), "must reject {sql}"); }
+        ] {
+            assert!(conn.execute(sql, []).is_err(), "must reject {sql}");
+        }
         assert_eq!(load_facts(&conn, "s1").unwrap(), vec![fact("s1", 1)]);
     }
 
@@ -706,9 +722,19 @@ mod tests {
         let mut conn = initialize_in_memory_db().unwrap();
         for id in ["s1", "s2"] {
             seed_session(&conn, id);
-            commit_facts(&mut conn, &FactCommit { session_id: id, branch_id: "main",
-                expected_revision: 0, operation_id: "same-op", facts: &[fact(id, 1)],
-                artifact_refs: &[], at_ms: 0 }).unwrap();
+            commit_facts(
+                &mut conn,
+                &FactCommit {
+                    session_id: id,
+                    branch_id: "main",
+                    expected_revision: 0,
+                    operation_id: "same-op",
+                    facts: &[fact(id, 1)],
+                    artifact_refs: &[],
+                    at_ms: 0,
+                },
+            )
+            .unwrap();
         }
         commit(&mut conn, 1, "append", &[fact("s1", 2)]).unwrap();
         assert_eq!(branch_revision(&conn, "s1", "main").unwrap(), Some(2));

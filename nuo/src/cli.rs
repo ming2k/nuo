@@ -53,11 +53,7 @@ pub enum ThreadAction {
     /// `nuo thread` or `nuo thread open [id]` — launch interactive TUI into the thread picker or specific thread.
     Open(Option<String>),
     /// `nuo thread ls` — list hosted threads.
-    List {
-        watch: bool,
-        json: bool,
-        all: bool,
-    },
+    List { watch: bool, json: bool, all: bool },
     /// `nuo thread rm <id>` — terminate a hosted thread by id.
     Delete(String),
 }
@@ -316,7 +312,10 @@ impl Default for ServerStartFlags {
     }
 }
 
-fn parse_server_start_flags(args: &[String], default_foreground: bool) -> Result<ServerStartFlags, FlagError> {
+fn parse_server_start_flags(
+    args: &[String],
+    default_foreground: bool,
+) -> Result<ServerStartFlags, FlagError> {
     let mut flags = ServerStartFlags {
         foreground: default_foreground,
         ..ServerStartFlags::default()
@@ -469,7 +468,10 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         if extra.is_empty() || extra[0] == "storybook" || extra[0] == "ui" {
             return ok(Mode::Dev(DevAction::Storybook));
         } else if extra[0] == "export" {
-            let out_dir = extra.get(1).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("target/storybook-snapshots"));
+            let out_dir = extra
+                .get(1)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("target/storybook-snapshots"));
             return ok(Mode::Dev(DevAction::Export(out_dir)));
         } else {
             return Err("unknown dev command. Available: `nuo dev storybook`, `nuo dev ui`, or `nuo dev export [dir]`".into());
@@ -522,16 +524,14 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     }
 
     let extra: Vec<String> = rest[1..].to_vec();
-    let unexpected = |arg: &str| {
-        Err(format!(
-            "unexpected argument '{arg}' found for 'nuo {cmd}'"
-        ))
-    };
+    let unexpected = |arg: &str| Err(format!("unexpected argument '{arg}' found for 'nuo {cmd}'"));
 
     if resolve(&cmd, COMMANDS).is_none() && !cmd.starts_with('-') {
         let tip = suggest_command(&cmd);
         if let Some(s) = tip {
-            return Err(format!("unrecognized command '{cmd}'\n\n  tip: a similar command exists: '{s}'"));
+            return Err(format!(
+                "unrecognized command '{cmd}'\n\n  tip: a similar command exists: '{s}'"
+            ));
         } else {
             // Unrecognized word without command suggestion: treat as interactive session prompt
             return parse_interactive(args);
@@ -763,7 +763,10 @@ fn command_flags(cmd: &str) -> &'static [(&'static str, &'static str)] {
             ("--diagnostic", "report discovery/lock/socket/log health"),
         ],
         "thread" => &[
-            ("open [id]", "open interactive thread picker or attach by id"),
+            (
+                "open [id]",
+                "open interactive thread picker or attach by id",
+            ),
             ("ls", "list hosted threads"),
             ("rm <id>", "terminate a hosted thread by id"),
         ],
@@ -778,19 +781,27 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
     match topic {
         None => {
             out.push_str("nuo — terminal-first AI agent platform\n\n");
-            out.push_str("Usage: nuo [OPTIONS] [PROMPT]\n       nuo [OPTIONS] <COMMAND>\n\nCommands:\n");
+            out.push_str(
+                "Usage: nuo [OPTIONS] [PROMPT]\n       nuo [OPTIONS] <COMMAND>\n\nCommands:\n",
+            );
             let width = COMMANDS.iter().map(|s| s.name.len()).max().unwrap_or(0);
             for spec in COMMANDS {
                 out.push_str(&format!("  {:<width$}  {}\n", spec.name, spec.about));
             }
             out.push_str("\nOptions:\n");
-            out.push_str("  -t, --thread [ID]      attach to existing thread (opens picker if ID omitted)\n");
-            out.push_str("      --headless         execute prompt non-interactively and stream to stdout\n");
+            out.push_str(
+                "  -t, --thread [ID]      attach to existing thread (opens picker if ID omitted)\n",
+            );
+            out.push_str(
+                "      --headless         execute prompt non-interactively and stream to stdout\n",
+            );
             out.push_str("  -p, --prompt <TEXT>    headless prompt or initial TUI input\n");
             out.push_str("  -i, --interactive      force interactive TUI mode\n");
             out.push_str("  -r, --role <ROLE>      agent role (developer, ops, etc.)\n");
             out.push_str("      --resume           resume the most recent matching thread\n");
-            out.push_str("      --unattended       auto-approve permissions without confirmation\n");
+            out.push_str(
+                "      --unattended       auto-approve permissions without confirmation\n",
+            );
             out.push_str("      --no-confinement   disable workspace filesystem confinement\n");
             out.push_str("      --project <PATH>   operate on the project at <PATH>\n");
             out.push_str("  -h, --help             print help ('nuo help <command>' for more)\n");
@@ -833,9 +844,7 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
                     "`nuo server stop` drains within the server's --grace budget before escalating;\n",
                 );
                 out.push_str("`nuo status` observes without ever spawning one.\n");
-                out.push_str(
-                    "\nNUO_HOME points the whole instance (config, data, server files,\n",
-                );
+                out.push_str("\nNUO_HOME points the whole instance (config, data, server files,\n");
                 out.push_str("port default via NUO_PORT) at an isolated root — the dev/test\n");
                 out.push_str("sandbox shape. See `nuo --help` for the config paths.\n");
             }
@@ -1013,10 +1022,7 @@ mod surface_tests {
 
     #[test]
     fn bare_invocation_starts_interactive_tui() {
-        assert!(matches!(
-            parse(&[]).unwrap().mode,
-            Mode::Interactive(_)
-        ));
+        assert!(matches!(parse(&[]).unwrap().mode, Mode::Interactive(_)));
     }
 
     #[test]
@@ -1052,10 +1058,7 @@ mod surface_tests {
         let parsed_zero = parse(&["server", "start", "--zero-tcp"]).unwrap();
         assert!(matches!(
             parsed_zero.mode,
-            Mode::Server(ServerAction::Start {
-                zero_tcp: true,
-                ..
-            })
+            Mode::Server(ServerAction::Start { zero_tcp: true, .. })
         ));
 
         assert!(matches!(
@@ -1127,7 +1130,11 @@ mod surface_tests {
         ));
         assert!(matches!(
             parse(&["thread", "ls"]).unwrap().mode,
-            Mode::Thread(ThreadAction::List { watch: false, json: false, all: false })
+            Mode::Thread(ThreadAction::List {
+                watch: false,
+                json: false,
+                all: false
+            })
         ));
         // Bare `nuo thread` defaults to interactive Thread Picker
         assert!(matches!(
@@ -1143,8 +1150,14 @@ mod surface_tests {
             Mode::Thread(ThreadAction::Open(Some(ref id))) if id == "thr-0123"
         ));
         assert!(matches!(
-            parse(&["thread", "list", "--json", "--watch"]).unwrap().mode,
-            Mode::Thread(ThreadAction::List { watch: true, json: true, all: false })
+            parse(&["thread", "list", "--json", "--watch"])
+                .unwrap()
+                .mode,
+            Mode::Thread(ThreadAction::List {
+                watch: true,
+                json: true,
+                all: false
+            })
         ));
         let session_err = parse(&["session", "rm", "thr-0123"]).unwrap_err();
         assert!(session_err.contains("'session' was removed in favor of 'nuo thread'"));

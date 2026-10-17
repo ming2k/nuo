@@ -3,10 +3,16 @@
 //! Demonstrates the pure TEA (Model-Msg-Update-View) paradigm with
 //! zero dependencies on the monolithic `App` state.
 
-use nuotc::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style, widgets::{Block, Borders}};
-use crossterm::event::{KeyCode, KeyEvent};
+use super::{
+    Component,
+    story::{Story, StorybookComponent},
+};
 use crate::theme::Theme;
-use super::{Component, story::{Story, StorybookComponent}};
+use crossterm::event::{KeyCode, KeyEvent};
+use nuotc::{
+    Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style,
+    widgets::{Block, Borders},
+};
 
 /// Visual severity of the notice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,7 +105,9 @@ impl Component for NoticeCard {
         let title_line = Line::from(vec![
             Span::styled(
                 severity_badge,
-                Style::default().fg(border_color).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(border_color)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" "),
             Span::styled(
@@ -139,9 +147,7 @@ impl Component for NoticeCard {
                         .bg(border_color)
                         .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default()
-                        .fg(theme.text_muted)
-                        .bg(Color::Reset)
+                    Style::default().fg(theme.text_muted).bg(Color::Reset)
                 };
 
                 frame.render_widget(
@@ -153,11 +159,7 @@ impl Component for NoticeCard {
         }
     }
 
-    fn update(
-        props: &Self::Props,
-        state: &mut Self::State,
-        msg: Self::Msg,
-    ) -> Option<Self::Cmd> {
+    fn update(props: &Self::Props, state: &mut Self::State, msg: Self::Msg) -> Option<Self::Cmd> {
         let count = props.action_labels.len();
         match msg {
             NoticeCardMsg::NextButton => {

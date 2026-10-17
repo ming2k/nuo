@@ -7,9 +7,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub use crate::oauth::browser::{CallbackOutcome, CallbackServer};
-pub use crate::oauth::device::{
-    DeviceCodeResponse, poll_device_code, request_device_code,
-};
+pub use crate::oauth::device::{DeviceCodeResponse, poll_device_code, request_device_code};
 pub use crate::oauth::pkce::{PkceCodes, new_nonce, new_state};
 pub use crate::oauth::token::{
     ACCESS_TOKEN_REFRESH_SKEW_MS, access_token_expiry_ms, access_token_is_expiring,
@@ -17,19 +15,18 @@ pub use crate::oauth::token::{
 };
 pub use crate::oauth::{AuthError, browser, device, pkce};
 
+use crate::oauth::token::TokenResponse;
 use futures::future::BoxFuture;
 use nuo_model_codec::provider_auth::{DeviceFlowMode, OAuthConfig};
 use nuo_provider::credentials::{CredentialHost, CredentialStore, TokenSet};
 use nuo_provider_transport::http::Http;
-use crate::oauth::token::TokenResponse;
 
 use crate::enricher::{OAuthTokenEnricher, StandardOAuthEnricher, build_token_set_with_enricher};
 use crate::manual::parse_authorization_response;
 use crate::provider::{OAuthProvider, oauth_provider};
 
-
-pub use nuo_model_codec::LoginMethod;
 use nuo_host::SecretString;
+pub use nuo_model_codec::LoginMethod;
 use std::sync::{Arc, Mutex};
 
 const OAUTH_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -275,9 +272,11 @@ impl OAuth {
                         )));
                     };
                     let machine_id = self.host.device().stable_id();
-                    let Some(begin) =
-                        provider.begin_device_login(self.client.clone(), self.config.clone(), machine_id)
-                    else {
+                    let Some(begin) = provider.begin_device_login(
+                        self.client.clone(),
+                        self.config.clone(),
+                        machine_id,
+                    ) else {
                         return Err(AuthError::DeviceCode(format!(
                             "provider '{}' declares a custom device flow but registered none",
                             self.config.provider_id
@@ -472,7 +471,10 @@ impl BrowserLogin {
     }
 
     /// Wait for the callback (or manual input) and exchange the authorization code for tokens.
-    pub async fn complete(self, client: &nuo_provider_transport::http::Http) -> Result<TokenResponse, AuthError> {
+    pub async fn complete(
+        self,
+        client: &nuo_provider_transport::http::Http,
+    ) -> Result<TokenResponse, AuthError> {
         let outcome = tokio::time::timeout(std::time::Duration::from_secs(5 * 60), self.rx)
             .await
             .map_err(|_| AuthError::Timeout)?
@@ -488,13 +490,12 @@ impl BrowserLogin {
                                 .to_string(),
                         ));
                     };
-                    let claims =
-                        crate::oauth::token::jwt_claims(id_token.expose_secret())
-                            .ok_or_else(|| {
-                        AuthError::Decode(
-                            "could not parse id_token claims for nonce validation".to_string(),
-                        )
-                    })?;
+                    let claims = crate::oauth::token::jwt_claims(id_token.expose_secret())
+                        .ok_or_else(|| {
+                            AuthError::Decode(
+                                "could not parse id_token claims for nonce validation".to_string(),
+                            )
+                        })?;
                     let token_nonce = claims.get("nonce").and_then(|v| v.as_str());
                     if token_nonce != Some(&self.nonce) {
                         return Err(AuthError::Authorization(format!(

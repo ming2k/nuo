@@ -102,7 +102,10 @@ pub fn body_with_capabilities(
     let (messages, _dropped_images) =
         nuo_provider_transport::vision::project_images_for_route(model_id, messages, capabilities);
     let (mut instructions, ephemeral_instructions) = if let Some(bundle) = input_instructions {
-        (bundle.render_system_instructions(), bundle.render_ephemeral())
+        (
+            bundle.render_system_instructions(),
+            bundle.render_ephemeral(),
+        )
     } else {
         (String::new(), String::new())
     };

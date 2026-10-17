@@ -14,12 +14,10 @@ use nuo_model_codec::ResolvedAuth;
 use nuo_model_codec::provider_auth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
 };
-use nuo_oauth::{
-    DeviceLogin, OAuthLoginPrompt, OAuthProvider, OAuthTokenEnricher, TokenSet,
-};
-use nuo_provider_transport::http::Http;
 use nuo_oauth::oauth::AuthError;
 use nuo_oauth::oauth::token::TokenResponse;
+use nuo_oauth::{DeviceLogin, OAuthLoginPrompt, OAuthProvider, OAuthTokenEnricher, TokenSet};
+use nuo_provider_transport::http::Http;
 
 /// Extract the ChatGPT account id from a JWT (id_token or access_token).
 pub fn chatgpt_account_id(token: &str) -> Option<String> {
@@ -133,14 +131,17 @@ impl OAuthTokenEnricher for ChatGptOAuthEnricher {
 }
 
 fn project_metadata(tokens: &TokenSet, mut auth: ResolvedAuth) -> ResolvedAuth {
-    let account_id = tokens.get_attr("account_id").map(ToString::to_string).or_else(|| {
-        tokens
-            .id_token
-            .as_ref()
-            .map(nuo_host::SecretString::expose_secret)
-            .or(Some(tokens.access.expose_secret()))
-            .and_then(chatgpt_account_id)
-    });
+    let account_id = tokens
+        .get_attr("account_id")
+        .map(ToString::to_string)
+        .or_else(|| {
+            tokens
+                .id_token
+                .as_ref()
+                .map(nuo_host::SecretString::expose_secret)
+                .or(Some(tokens.access.expose_secret()))
+                .and_then(chatgpt_account_id)
+        });
     if let Some(acct) = account_id {
         auth = auth.with_extension(nuo_model_codec::ChatGptAuthMetadata { account_id: acct });
     }
@@ -244,8 +245,8 @@ mod tests {
             },
             "exp": 2_000_000_000
         });
-        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(payload.to_string().as_bytes());
+        let encoded =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload.to_string().as_bytes());
         let fake_jwt = format!("eyJhbGciOiJub25lIn0.{encoded}.signature");
 
         let mut tokens = TokenSet {

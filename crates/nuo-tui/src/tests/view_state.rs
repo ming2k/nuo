@@ -179,41 +179,39 @@ fn composer_image_paste_follows_picker_snapshot_vision() {
     app.reset_to_thread();
     app.current_provider = "gogo".to_string();
     app.current_model = "omen-alpha".to_string();
-    app.provider_picker
-        .rows
-        .push(nuo_wire::ProviderPickerRow {
-            id: "gogo".to_string(),
-            name: "OpenCode Go".to_string(),
+    app.provider_picker.rows.push(nuo_wire::ProviderPickerRow {
+        id: "gogo".to_string(),
+        name: "OpenCode Go".to_string(),
+        model: "omen-alpha".to_string(),
+        models: vec!["omen-alpha".to_string()],
+        model_info: vec![nuo_wire::ProviderModelInfo {
             model: "omen-alpha".to_string(),
-            models: vec!["omen-alpha".to_string()],
-            model_info: vec![nuo_wire::ProviderModelInfo {
-                model: "omen-alpha".to_string(),
-                name: None,
-                protocol: "openai".to_string(),
-                effort: None,
-                thinking: None,
-                effort_levels: Vec::new(),
-                favorite: false,
-                last_used_ms: None,
-                vision: Some(true),
-                context_window: 128_000,
-                max_output_tokens: None,
-                availability: None,
-
-                availability_overridden: false,
-
-                advertised: None,
-                availability_stale: false,
-            }],
-            builtin: true,
-            protocol: String::new(),
-            base_url: String::new(),
-            key_ready: true,
-            provider: "opencode-go".to_string(),
-            client_identity: Default::default(),
+            name: None,
+            protocol: "openai".to_string(),
+            effort: None,
+            thinking: None,
+            effort_levels: Vec::new(),
+            favorite: false,
             last_used_ms: None,
-            auth: nuo_wire::ConnectionAuth::ApiKey,
-        });
+            vision: Some(true),
+            context_window: 128_000,
+            max_output_tokens: None,
+            availability: None,
+
+            availability_overridden: false,
+
+            advertised: None,
+            availability_stale: false,
+        }],
+        builtin: true,
+        protocol: String::new(),
+        base_url: String::new(),
+        key_ready: true,
+        provider: "opencode-go".to_string(),
+        client_identity: Default::default(),
+        last_used_ms: None,
+        auth: nuo_wire::ConnectionAuth::ApiKey,
+    });
     app.input = String::new();
     app.cursor_position = 0;
 
@@ -243,41 +241,39 @@ fn active_model_context_window_follows_picker_snapshot_for_relay_models() {
     app.reset_to_thread();
     app.current_provider = "opencode-go".to_string();
     app.current_model = "glm-5.3".to_string();
-    app.provider_picker
-        .rows
-        .push(nuo_wire::ProviderPickerRow {
-            id: "opencode-go".to_string(),
-            name: "OpenCode Go".to_string(),
+    app.provider_picker.rows.push(nuo_wire::ProviderPickerRow {
+        id: "opencode-go".to_string(),
+        name: "OpenCode Go".to_string(),
+        model: "glm-5.3".to_string(),
+        models: vec!["glm-5.3".to_string()],
+        model_info: vec![nuo_wire::ProviderModelInfo {
             model: "glm-5.3".to_string(),
-            models: vec!["glm-5.3".to_string()],
-            model_info: vec![nuo_wire::ProviderModelInfo {
-                model: "glm-5.3".to_string(),
-                name: None,
-                protocol: "openai".to_string(),
-                effort: None,
-                thinking: None,
-                effort_levels: Vec::new(),
-                favorite: false,
-                last_used_ms: None,
-                vision: Some(false),
-                context_window: 1_000_000,
-                max_output_tokens: Some(131_072),
-                availability: None,
-
-                availability_overridden: false,
-
-                advertised: None,
-                availability_stale: false,
-            }],
-            builtin: true,
-            protocol: String::new(),
-            base_url: String::new(),
-            key_ready: true,
-            provider: "opencode-go".to_string(),
-            client_identity: Default::default(),
+            name: None,
+            protocol: "openai".to_string(),
+            effort: None,
+            thinking: None,
+            effort_levels: Vec::new(),
+            favorite: false,
             last_used_ms: None,
-            auth: nuo_wire::ConnectionAuth::ApiKey,
-        });
+            vision: Some(false),
+            context_window: 1_000_000,
+            max_output_tokens: Some(131_072),
+            availability: None,
+
+            availability_overridden: false,
+
+            advertised: None,
+            availability_stale: false,
+        }],
+        builtin: true,
+        protocol: String::new(),
+        base_url: String::new(),
+        key_ready: true,
+        provider: "opencode-go".to_string(),
+        client_identity: Default::default(),
+        last_used_ms: None,
+        auth: nuo_wire::ConnectionAuth::ApiKey,
+    });
 
     assert_eq!(
         app.active_model_context_window(),
@@ -295,41 +291,39 @@ fn composer_image_paste_snapshot_override_forces_off() {
     app.reset_to_thread();
     app.current_provider = "mock".to_string();
     app.current_model = "gpt-4o".to_string();
-    app.provider_picker
-        .rows
-        .push(nuo_wire::ProviderPickerRow {
-            id: "mock".to_string(),
-            name: "Mock".to_string(),
+    app.provider_picker.rows.push(nuo_wire::ProviderPickerRow {
+        id: "mock".to_string(),
+        name: "Mock".to_string(),
+        model: "gpt-4o".to_string(),
+        models: vec!["gpt-4o".to_string()],
+        model_info: vec![nuo_wire::ProviderModelInfo {
             model: "gpt-4o".to_string(),
-            models: vec!["gpt-4o".to_string()],
-            model_info: vec![nuo_wire::ProviderModelInfo {
-                model: "gpt-4o".to_string(),
-                name: None,
-                protocol: "openai".to_string(),
-                effort: None,
-                thinking: None,
-                effort_levels: Vec::new(),
-                favorite: false,
-                last_used_ms: None,
-                vision: Some(false),
-                context_window: 128_000,
-                max_output_tokens: None,
-                availability: None,
-
-                availability_overridden: false,
-
-                advertised: None,
-                availability_stale: false,
-            }],
-            builtin: true,
-            protocol: String::new(),
-            base_url: String::new(),
-            key_ready: true,
-            provider: String::new(),
-            client_identity: Default::default(),
+            name: None,
+            protocol: "openai".to_string(),
+            effort: None,
+            thinking: None,
+            effort_levels: Vec::new(),
+            favorite: false,
             last_used_ms: None,
-            auth: nuo_wire::ConnectionAuth::ApiKey,
-        });
+            vision: Some(false),
+            context_window: 128_000,
+            max_output_tokens: None,
+            availability: None,
+
+            availability_overridden: false,
+
+            advertised: None,
+            availability_stale: false,
+        }],
+        builtin: true,
+        protocol: String::new(),
+        base_url: String::new(),
+        key_ready: true,
+        provider: String::new(),
+        client_identity: Default::default(),
+        last_used_ms: None,
+        auth: nuo_wire::ConnectionAuth::ApiKey,
+    });
     app.input = String::new();
     app.cursor_position = 0;
 
@@ -452,7 +446,9 @@ fn browse_view_reopen_restores_scroll_and_selection() {
     );
     assert_eq!(app.active_index(), 0);
 
-    app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll = 42;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+        .scroll = 42;
     app.set_active_index(3);
     assert!(app.dismiss_surface());
     assert!(app.surfaces.active_overlay().is_none());
@@ -461,7 +457,10 @@ fn browse_view_reopen_restores_scroll_and_selection() {
     assert!(!app.open_dialog(crate::surfaces::DialogKind::UsageStats));
     assert_eq!(app.active_index(), 3, "selection retained across hide");
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll, 42,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+            .scroll,
+        42,
         "scroll retained across hide"
     );
 }
@@ -472,22 +471,36 @@ fn browse_view_state_is_per_view() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Permissions);
     app.set_active_index(2);
-    app.surfaces.dlg_mut::<crate::surfaces::PermissionsDialog>().scroll = 7;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::PermissionsDialog>()
+        .scroll = 7;
     assert!(app.dismiss_surface());
 
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
     app.set_active_index(1);
-    app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll = 9;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+        .scroll = 9;
     assert!(app.dismiss_surface());
 
     app.open_dialog(crate::surfaces::DialogKind::Permissions);
     assert_eq!(
-        (app.active_index(), app.surfaces.dlg_mut::<crate::surfaces::PermissionsDialog>().scroll),
+        (
+            app.active_index(),
+            app.surfaces
+                .dlg_mut::<crate::surfaces::PermissionsDialog>()
+                .scroll
+        ),
         (2, 7)
     );
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
     assert_eq!(
-        (app.active_index(), app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll),
+        (
+            app.active_index(),
+            app.surfaces
+                .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+                .scroll
+        ),
         (1, 9)
     );
 }
@@ -496,7 +509,9 @@ fn browse_view_state_is_per_view() {
 fn view_follow_mode_is_per_view_entity() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Tools);
-    app.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().follow = false;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ToolsDialog>()
+        .follow = false;
 
     app.open_dialog(crate::surfaces::DialogKind::Mcp);
     assert!(
@@ -506,7 +521,9 @@ fn view_follow_mode_is_per_view_entity() {
 
     app.open_dialog(crate::surfaces::DialogKind::Tools);
     assert!(
-        !app.surfaces.dlg_mut::<crate::surfaces::ToolsDialog>().follow,
+        !app.surfaces
+            .dlg_mut::<crate::surfaces::ToolsDialog>()
+            .follow,
         "Tools' follow is its own entity state, not a shared field"
     );
 }
@@ -517,20 +534,30 @@ fn session_change_isolates_session_scoped_dialogs() {
     // and leaves global dialog state intact.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::UsageStats);
-    app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll = 5;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+        .scroll = 5;
     app.set_active_index(1);
     app.surfaces
         .present_dialog(crate::surfaces::DialogKind::SessionStats);
-    app.surfaces.dlg_mut::<crate::surfaces::SessionStatsDialog>().scroll = 8;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::SessionStatsDialog>()
+        .scroll = 8;
 
     app.on_viewed_session_changed();
 
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::UsageStatsDialog>().scroll, 5,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::UsageStatsDialog>()
+            .scroll,
+        5,
         "global usage stats survives the session change"
     );
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::SessionStatsDialog>().scroll, 0,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionStatsDialog>()
+            .scroll,
+        0,
         "session stats is reset"
     );
     assert!(
@@ -577,8 +604,13 @@ fn pickers_never_borrow_the_composer_line() {
     app.open_dialog(crate::surfaces::DialogKind::Models);
     assert_eq!(app.input, "models draft", "composer untouched");
 
-    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().search = true;
-    app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.text = "gpt".to_string();
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ModelsDialog>()
+        .search = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ModelsDialog>()
+        .query
+        .text = "gpt".to_string();
     assert_eq!(
         app.picker_query(),
         "gpt",
@@ -587,7 +619,10 @@ fn pickers_never_borrow_the_composer_line() {
     assert!(app.dismiss_surface());
     assert_eq!(app.input, "models draft", "draft intact after dismiss");
     assert!(
-        app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().query.is_empty(),
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ModelsDialog>()
+            .query
+            .is_empty(),
         "the entity's query is self-contained"
     );
 }
@@ -599,11 +634,7 @@ fn switcher_rows_filter_and_gate_by_availability() {
     store.open(crate::surfaces::DialogKind::Tools);
 
     // "mcp" matches the MCP label (with a session present).
-    let rows = store.switcher_rows_filtered(
-        "mcp",
-        crate::surfaces::SceneKind::Thread,
-        true,
-    );
+    let rows = store.switcher_rows_filtered("mcp", crate::surfaces::SceneKind::Thread, true);
     assert_eq!(
         rows,
         vec![crate::surfaces::SwitcherTarget::Dialog(
@@ -612,11 +643,7 @@ fn switcher_rows_filter_and_gate_by_availability() {
     );
 
     // "dash" matches the Dashboard label.
-    let rows = store.switcher_rows_filtered(
-        "dash",
-        crate::surfaces::SceneKind::Thread,
-        true,
-    );
+    let rows = store.switcher_rows_filtered("dash", crate::surfaces::SceneKind::Thread, true);
     assert_eq!(
         rows,
         vec![crate::surfaces::SwitcherTarget::Scene(
@@ -635,9 +662,7 @@ fn switcher_rows_filter_and_gate_by_availability() {
     assert!(
         rows.iter().all(|r| !matches!(
             r,
-            crate::surfaces::SwitcherTarget::Dialog(
-                crate::surfaces::DialogKind::Tools
-            )
+            crate::surfaces::SwitcherTarget::Dialog(crate::surfaces::DialogKind::Tools)
         )),
         "session-scoped dialogs are gated out with no session"
     );

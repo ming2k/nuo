@@ -16,11 +16,11 @@ use crate::render::{
     BASH_FOLD_HEAD_ROWS, BASH_FOLD_TAIL_ROWS, CODE_BAND_GUTTER_GAP, CODE_BAND_GUTTER_MIN_WIDTH,
     Theme,
 };
-use crate::theme::ListingClass;
 use crate::text_layout::{
     CodeGutterParams, WrappedLine, block_selection_range, clamp_selection_range, code_gutter_line,
     line_selection, line_spans, padded_tail, wrap_text,
 };
+use crate::theme::ListingClass;
 use crate::tools::{DiffCache, DiffHunk, DiffOp, ResultKind};
 
 /// Build the summary line for a tool/subagent step: an optional expand marker
@@ -582,7 +582,9 @@ pub(crate) fn draw_listing_content(
     // `find_files` run. The distinction drives whether the top tier is a column
     // header (table) or a count band (grouped paths), and it is derived from the
     // rows themselves so a restored session (header dropped) still resolves.
-    let header_label = logical.first().and_then(|(_, line)| parse_listing_header(line));
+    let header_label = logical
+        .first()
+        .and_then(|(_, line)| parse_listing_header(line));
     let body_idx = if header_label.is_some() { 1 } else { 0 };
     let table = logical[body_idx..]
         .iter()
@@ -1025,7 +1027,8 @@ fn emit_question_text(
                 deferred_meta = Some(m.to_string());
             }
         }
-        line.spans.push(Span::styled(padded_tail(ctx.full_width, used), pad));
+        line.spans
+            .push(Span::styled(padded_tail(ctx.full_width, used), pad));
         ctx.paint_text_row(line, mi, block_idx, &block_wl, indent as u16, &[]);
     }
     *offset += text.len() + 1;
@@ -1115,7 +1118,9 @@ pub(crate) fn draw_questions_content(
     // A continuation answer (the 2nd+ option of a multi-select) aligns under the
     // first answer's label: the glyph width plus its gap.
     let label_indent = indent + QUESTION_ANSWER_GLYPH.width() + QUESTION_ANSWER_GAP_COLS;
-    let label_w = content_w.saturating_sub(label_indent.saturating_sub(indent)).max(1);
+    let label_w = content_w
+        .saturating_sub(label_indent.saturating_sub(indent))
+        .max(1);
 
     let policy_answered = output.contains("answered by policy");
     let total = questions.len();
@@ -1123,7 +1128,10 @@ pub(crate) fn draw_questions_content(
 
     for (q_idx, q) in questions.iter().enumerate() {
         if q_idx > 0 {
-            ctx.paint(Line::from(Span::styled(padded_tail(ctx.full_width, 0), pad)));
+            ctx.paint(Line::from(Span::styled(
+                padded_tail(ctx.full_width, 0),
+                pad,
+            )));
         }
 
         if let Some(header) = &q.header {
@@ -1818,9 +1826,7 @@ fn literal_query(arguments: &str) -> Option<String> {
     {
         return None;
     }
-    let query = value
-        .get("query")
-        .and_then(serde_json::Value::as_str)?;
+    let query = value.get("query").and_then(serde_json::Value::as_str)?;
     (!query.is_empty()).then(|| query.to_string())
 }
 
@@ -1898,7 +1904,10 @@ fn match_content_spans(
                     if lo_c > lo {
                         spans.push(Span::styled(text[lo..lo_c].to_string(), style));
                     }
-                    spans.push(Span::styled(text[lo_c..hi_c].to_string(), style.bg(selected_bg)));
+                    spans.push(Span::styled(
+                        text[lo_c..hi_c].to_string(),
+                        style.bg(selected_bg),
+                    ));
                     if hi_c < hi {
                         spans.push(Span::styled(text[hi_c..hi].to_string(), style));
                     }
@@ -2041,7 +2050,10 @@ pub(crate) fn draw_matches_content(
 
     // Skip the legacy `Found N match(es):` count header emitted by the filesystem
     // tool so it does not leak into match rows as raw unparsed text.
-    let header_idx = if logical.first().is_some_and(|(_, line)| is_matches_header(line)) {
+    let header_idx = if logical
+        .first()
+        .is_some_and(|(_, line)| is_matches_header(line))
+    {
         1
     } else {
         0
@@ -2154,39 +2166,20 @@ fn termination_footer(
     bg: Color,
 ) -> Option<(String, Style)> {
     use nuo_wire::tool_output::ShellTermination as T;
-    let warn_style = Style::default()
-        .bg(bg)
-        .fg(theme.warn());
-    let err_style = Style::default()
-        .bg(bg)
-        .fg(theme.err());
+    let warn_style = Style::default().bg(bg).fg(theme.warn());
+    let err_style = Style::default().bg(bg).fg(theme.err());
     match term {
         T::Exited => None,
-        T::IdleBlocked => Some((
-            "harness: idle timeout detected".to_string(),
-            warn_style,
-        )),
+        T::IdleBlocked => Some(("harness: idle timeout detected".to_string(), warn_style)),
         T::InteractiveBlocked => Some((
             "harness: interactive prompt detected".to_string(),
             warn_style,
         )),
-        T::InputUnanswered => Some((
-            "harness: unanswered input prompt".to_string(),
-            warn_style,
-        )),
-        T::Timeout => Some((
-            "harness: timed out".to_string(),
-            warn_style,
-        )),
+        T::InputUnanswered => Some(("harness: unanswered input prompt".to_string(), warn_style)),
+        T::Timeout => Some(("harness: timed out".to_string(), warn_style)),
         T::Cancelled => Some(("harness: cancelled".to_string(), err_style)),
-        T::StreamGuard => Some((
-            "harness: stream cap reached".to_string(),
-            warn_style,
-        )),
-        T::Detached => Some((
-            "harness: detached to background".to_string(),
-            warn_style,
-        )),
+        T::StreamGuard => Some(("harness: stream cap reached".to_string(), warn_style)),
+        T::Detached => Some(("harness: detached to background".to_string(), warn_style)),
     }
 }
 
@@ -2627,9 +2620,7 @@ fn emit_command_lines_folded(
     }
     // 3-row compact negative space folding (ADR-0070):
     // Row 1: blank breathing space on terminal code_surface
-    let blank_row = Line::from(vec![
-        Span::styled(padded_tail(ctx.full_width, 0), pad),
-    ]);
+    let blank_row = Line::from(vec![Span::styled(padded_tail(ctx.full_width, 0), pad)]);
     let _ = ctx.paint(blank_row.clone());
 
     // Row 2: quiet single-space indented text with lines and physical metrics
@@ -2918,10 +2909,7 @@ pub(crate) fn draw_tool_result(
     // that never reached disk and hide the actionable failure message.
     if matches!(
         structured,
-        Some(
-            nuo_wire::ToolOutput::Error { .. }
-                | nuo_wire::ToolOutput::PermissionDenied { .. }
-        )
+        Some(nuo_wire::ToolOutput::Error { .. } | nuo_wire::ToolOutput::PermissionDenied { .. })
     ) {
         draw_tool_error(ctx, mi, block_idx, output, selection, indent, inner_w);
         return;
@@ -3650,7 +3638,8 @@ mod tests {
         assert_eq!(tricky.size.as_deref(), Some("12 B"));
 
         // Human-readable size conversions for various magnitudes.
-        let session = parse_dir_entry("[FILE] BinarySessionRecords.ts           (12201 B)").unwrap();
+        let session =
+            parse_dir_entry("[FILE] BinarySessionRecords.ts           (12201 B)").unwrap();
         assert_eq!(session.name, "BinarySessionRecords.ts");
         assert_eq!(session.size.as_deref(), Some("11.9 KB"));
 
@@ -3679,7 +3668,10 @@ mod tests {
 
     #[test]
     fn split_dir_leaf_keeps_the_trailing_slash_on_the_directory() {
-        assert_eq!(split_dir_leaf("docs/adr/0001-x.md"), (Some("docs/adr/"), "0001-x.md"));
+        assert_eq!(
+            split_dir_leaf("docs/adr/0001-x.md"),
+            (Some("docs/adr/"), "0001-x.md")
+        );
         assert_eq!(split_dir_leaf("src/"), (None, "src/"));
         assert_eq!(split_dir_leaf("Cargo.toml"), (None, "Cargo.toml"));
     }
@@ -3706,7 +3698,10 @@ mod tests {
     #[test]
     fn segment_matches_none_or_empty_query_is_one_plain_range() {
         assert_eq!(segment_matches("plain text", None), vec![(0, 10, false)]);
-        assert_eq!(segment_matches("plain text", Some("")), vec![(0, 10, false)]);
+        assert_eq!(
+            segment_matches("plain text", Some("")),
+            vec![(0, 10, false)]
+        );
         assert!(segment_matches("", Some("foo")).is_empty());
     }
 

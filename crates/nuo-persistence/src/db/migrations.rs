@@ -587,7 +587,10 @@ pub fn sessions_columns(conn: &Connection) -> Result<std::collections::HashSet<S
     Ok(columns)
 }
 
-pub fn table_columns(conn: &Connection, table_name: &str) -> Result<std::collections::HashSet<String>> {
+pub fn table_columns(
+    conn: &Connection,
+    table_name: &str,
+) -> Result<std::collections::HashSet<String>> {
     let pragma = format!("PRAGMA table_info({table_name})");
     let mut stmt = conn.prepare(&pragma)?;
     let columns = stmt
@@ -788,8 +791,7 @@ pub fn apply_usage_ledger_schema(tx: &rusqlite::Transaction) -> Result<()> {
         .collect::<Vec<_>>();
     drop(stmt);
     for (session_id, json) in rows {
-        let Ok(records) = serde_json::from_str::<Vec<nuo_wire::RequestUsageRecord>>(&json)
-        else {
+        let Ok(records) = serde_json::from_str::<Vec<nuo_wire::RequestUsageRecord>>(&json) else {
             continue;
         };
         for record in &records {
@@ -1441,7 +1443,9 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                     "Applying SQLite schema migration"
                 );
                 if !migration.sql.is_empty() {
-                    if !table_exists(&tx, "sessions")? && migration.sql.contains("ALTER TABLE sessions") {
+                    if !table_exists(&tx, "sessions")?
+                        && migration.sql.contains("ALTER TABLE sessions")
+                    {
                         // Obsolete sessions table alterations skipped because sessions is dropped
                     } else {
                         tx.execute_batch(migration.sql)?;
@@ -1692,11 +1696,12 @@ pub fn apply_context_lifecycle_schema(tx: &rusqlite::Transaction) -> Result<()> 
         "#,
     )?;
 
-    let fact_col = if table_exists(tx, "facts")? && table_columns(tx, "facts")?.contains("thread_id") {
-        "thread_id"
-    } else {
-        "session_id"
-    };
+    let fact_col =
+        if table_exists(tx, "facts")? && table_columns(tx, "facts")?.contains("thread_id") {
+            "thread_id"
+        } else {
+            "session_id"
+        };
 
     let idx_sql = if fact_col == "thread_id" {
         "CREATE INDEX IF NOT EXISTS idx_facts_thread_seq ON facts(thread_id, seq ASC);"
@@ -2022,7 +2027,7 @@ pub fn apply_thread_canonical_clean_break_schema(tx: &rusqlite::Transaction) -> 
             "#
         ))?;
     }
-    
+
     if table_exists(tx, "sessions")? {
         tx.execute_batch(
             r#"
@@ -2089,7 +2094,7 @@ pub fn apply_thread_canonical_clean_break_schema(tx: &rusqlite::Transaction) -> 
             "#,
         )?;
     }
-    
+
     if table_exists(tx, "sessions")? {
         tx.execute_batch(
             r#"
@@ -2330,4 +2335,3 @@ pub fn apply_thread_canonical_clean_break_schema(tx: &rusqlite::Transaction) -> 
 
     Ok(())
 }
-

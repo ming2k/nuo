@@ -181,9 +181,7 @@ pub(crate) enum TranscriptEdit {
     /// cancelled, any in-flight provider retry is settled into a static failure
     /// notice preserving diagnostics, and a round-interrupt projection row is
     /// appended.
-    Interrupted {
-        record: nuo_wire::RoundInterrupt,
-    },
+    Interrupted { record: nuo_wire::RoundInterrupt },
     /// The newest user prompt is marked cancelled (transport-level retraction).
     CancelLastUserPrompt,
     /// Evict every provider-retry disclosure row (`RetryResolved`,

@@ -5,25 +5,19 @@
 //! (Abolition of Legacy Version Blacklists), and [INV-CATALOG-04] (Provider-Owned
 //! Dialect Ingestion) per ADR-0068.
 
-use std::collections::{HashMap, HashSet};
+use nuo_model_codec::Availability;
 use nuo_model_codec::catalog::DiscoveredModel;
 use nuo_model_codec::reasoning::ReasoningSupport;
-use nuo_model_codec::Availability;
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 
 /// Effort suffixes in **shallow→deep wire order** — the canonical ordering
 /// the request builder's rank-into-entities relies on (ADR-0074). Upstream
 /// catalog rows arrive in map order, which is unordered; the depth rank of
 /// each entity is a stable vocabulary fact (`-low < -medium < -high < -max`,
 /// and `-tiered`/`-minimal` are in-band-depth canonical rows that lead).
-const EFFORT_OR_TIER_SUFFIXES: &[&str] = &[
-    "-high",
-    "-medium",
-    "-low",
-    "-minimal",
-    "-max",
-    "-tiered",
-];
+const EFFORT_OR_TIER_SUFFIXES: &[&str] =
+    &["-high", "-medium", "-low", "-minimal", "-max", "-tiered"];
 
 /// Rank position of an entity id on the shallow→deep wire order. The bare/tiered
 /// canonical rows carry in-band depth (`thinkingLevel`) and are depth-zero
@@ -523,17 +517,33 @@ mod tests {
         );
 
         // Verify Gemini effort ladder [INV-CATALOG-02]
-        let flash38 = discovered.iter().find(|m| m.id == "gemini-3.8-flash").unwrap();
+        let flash38 = discovered
+            .iter()
+            .find(|m| m.id == "gemini-3.8-flash")
+            .unwrap();
         assert_eq!(
             flash38.effort_levels,
-            Some(vec!["minimal".to_string(), "low".to_string(), "medium".to_string(), "high".to_string()])
+            Some(vec![
+                "minimal".to_string(),
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string()
+            ])
         );
 
         // Verify Claude 5.5 effort ladder [INV-CATALOG-02]
-        let sonnet55 = discovered.iter().find(|m| m.id == "claude-sonnet-5-5").unwrap();
+        let sonnet55 = discovered
+            .iter()
+            .find(|m| m.id == "claude-sonnet-5-5")
+            .unwrap();
         assert_eq!(
             sonnet55.effort_levels,
-            Some(vec!["low".to_string(), "medium".to_string(), "high".to_string(), "max".to_string()])
+            Some(vec![
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string(),
+                "max".to_string()
+            ])
         );
     }
 
@@ -597,10 +607,16 @@ mod tests {
         let ids: Vec<String> = discovered.iter().map(|m| m.id.clone()).collect();
 
         // Deduped and folded canonical IDs in curated sort order
-        assert_eq!(ids, vec!["gemini-4-argon".to_string(), "gemini-3.8-flash".to_string()]);
+        assert_eq!(
+            ids,
+            vec!["gemini-4-argon".to_string(), "gemini-3.8-flash".to_string()]
+        );
 
         // Argon: entitlement locked because only -disabled variant was observed
-        let argon = discovered.iter().find(|m| m.id == "gemini-4-argon").unwrap();
+        let argon = discovered
+            .iter()
+            .find(|m| m.id == "gemini-4-argon")
+            .unwrap();
         assert_eq!(argon.name.as_deref(), Some("Gemini 4 Argon"));
         assert_eq!(
             argon.availability,
@@ -610,11 +626,19 @@ mod tests {
         );
         assert_eq!(
             argon.effort_levels,
-            Some(vec!["minimal".to_string(), "low".to_string(), "medium".to_string(), "high".to_string()])
+            Some(vec![
+                "minimal".to_string(),
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string()
+            ])
         );
 
         // Flash 3.8: folded into canonical base ID, clean display name, usable availability
-        let flash38 = discovered.iter().find(|m| m.id == "gemini-3.8-flash").unwrap();
+        let flash38 = discovered
+            .iter()
+            .find(|m| m.id == "gemini-3.8-flash")
+            .unwrap();
         assert_eq!(flash38.name.as_deref(), Some("Gemini 3.8 Flash"));
         assert_eq!(flash38.availability, None);
         assert_eq!(flash38.context_window, Some(1048576));
@@ -622,7 +646,12 @@ mod tests {
         assert_eq!(flash38.vision, Some(true));
         assert_eq!(
             flash38.effort_levels,
-            Some(vec!["minimal".to_string(), "low".to_string(), "medium".to_string(), "high".to_string()])
+            Some(vec![
+                "minimal".to_string(),
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string()
+            ])
         );
     }
 
@@ -696,15 +725,20 @@ mod tests {
         // Suffixed-only surface: entities in shallow→deep register order.
         assert_eq!(
             pick("gemini-4-argon").wire_entities.as_deref(),
-            Some(&[
-                "gemini-4-argon-low".to_string(),
-                "gemini-4-argon-medium".to_string(),
-                "gemini-4-argon-high".to_string()
-            ][..])
+            Some(
+                &[
+                    "gemini-4-argon-low".to_string(),
+                    "gemini-4-argon-medium".to_string(),
+                    "gemini-4-argon-high".to_string()
+                ][..]
+            )
         );
         // Bare row observed: the canonical id leads (in-band depth).
         assert_eq!(
-            pick("gemini-3.8-flash").wire_entities.as_deref().and_then(|e| e.first()),
+            pick("gemini-3.8-flash")
+                .wire_entities
+                .as_deref()
+                .and_then(|e| e.first()),
             Some(&"gemini-3.8-flash".to_string())
         );
         // Zero parameterized variants but a bare registered row: the

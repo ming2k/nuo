@@ -4,12 +4,12 @@
 //! disable server TCP listeners without interrupting ongoing prompts or
 //! polluting conversation transcripts.
 
-use nuotc::{Frame, Line, Rect, Span, Style};
 use crate::primitives::{
-    ContentModalSpec, FooterHint, content_modal_area, keyvocab,
-    modal_chrome_rows, modal_frame, modal_header, render_body, render_modal_footer,
+    ContentModalSpec, FooterHint, content_modal_area, keyvocab, modal_chrome_rows, modal_frame,
+    modal_header, render_body, render_modal_footer,
 };
 use crate::render::Theme;
+use nuotc::{Frame, Line, Rect, Span, Style};
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_port_modal(
@@ -35,7 +35,10 @@ pub fn draw_port_modal(
     if loading {
         body.push(Line::from(vec![
             Span::styled("  Status:       ", Style::default().fg(theme.muted())),
-            Span::styled("Synchronizing endpoints with server...", Style::default().fg(theme.brand())),
+            Span::styled(
+                "Synchronizing endpoints with server...",
+                Style::default().fg(theme.brand()),
+            ),
         ]));
     } else if active {
         body.push(Line::from(vec![
@@ -45,7 +48,10 @@ pub fn draw_port_modal(
         ]));
         body.push(Line::from(vec![
             Span::styled("  Address:      ", Style::default().fg(theme.muted())),
-            Span::styled(format!("ws://127.0.0.1:{}/", port), Style::default().fg(theme.brand())),
+            Span::styled(
+                format!("ws://127.0.0.1:{}/", port),
+                Style::default().fg(theme.brand()),
+            ),
         ]));
         if let Some(t) = token {
             let masked = if t.len() > 16 {
@@ -59,14 +65,20 @@ pub fn draw_port_modal(
             ]));
             body.push(Line::from(vec![
                 Span::styled("  Connect CMD:  ", Style::default().fg(theme.muted())),
-                Span::styled(format!("nuo --remote 127.0.0.1:{} --token {}", port, t), Style::default().fg(theme.dim())),
+                Span::styled(
+                    format!("nuo --remote 127.0.0.1:{} --token {}", port, t),
+                    Style::default().fg(theme.dim()),
+                ),
             ]));
         }
     } else {
         body.push(Line::from(vec![
             Span::styled("  TCP Listener: ", Style::default().fg(theme.muted())),
             Span::styled("○ Disabled ", Style::default().fg(theme.dim())),
-            Span::styled("(zero-attack-surface local IPC posture)", Style::default().fg(theme.muted())),
+            Span::styled(
+                "(zero-attack-surface local IPC posture)",
+                Style::default().fg(theme.muted()),
+            ),
         ]));
         let lp_display = if local_path.is_empty() {
             "server.sock (active)".to_string()
@@ -79,7 +91,10 @@ pub fn draw_port_modal(
         ]));
         body.push(Line::from(vec![
             Span::styled("  Hint:         ", Style::default().fg(theme.muted())),
-            Span::styled("Press [Space] to enable remote access on port 9800", Style::default().fg(theme.brand())),
+            Span::styled(
+                "Press [Space] to enable remote access on port 9800",
+                Style::default().fg(theme.brand()),
+            ),
         ]));
     }
 
@@ -103,9 +118,7 @@ pub fn draw_port_modal(
 
     if let Some(fo) = f.footer {
         let toggle_action = if active { "disable TCP" } else { "enable TCP" };
-        let mut hints = vec![
-            FooterHint::primary(keyvocab::SPACE, toggle_action),
-        ];
+        let mut hints = vec![FooterHint::primary(keyvocab::SPACE, toggle_action)];
         if active {
             hints.push(FooterHint::secondary("y", "copy connect cmd"));
         }

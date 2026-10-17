@@ -182,10 +182,13 @@ async fn execute_token_request(
     match cfg.token_format {
         TokenRequestFormat::FormUrlEncoded => {
             let body = serde_urlencoded(params);
-            let mut req = nuo_provider_transport::http::Request::new(netune::Method::POST, cfg.token_url.as_ref())
-                .header("content-type", "application/x-www-form-urlencoded")
-                .header("accept", "application/json")
-                .raw_body(body);
+            let mut req = nuo_provider_transport::http::Request::new(
+                netune::Method::POST,
+                cfg.token_url.as_ref(),
+            )
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("accept", "application/json")
+            .raw_body(body);
 
             if let Some(ua) = &cfg.user_agent {
                 req = req.header("user-agent", ua.as_ref());
@@ -218,10 +221,13 @@ async fn execute_token_request(
             for (k, v) in params {
                 map.insert(k.to_string(), serde_json::Value::String(v.to_string()));
             }
-            let mut req = nuo_provider_transport::http::Request::new(netune::Method::POST, cfg.token_url.as_ref())
-                .header("content-type", "application/json")
-                .header("accept", "application/json")
-                .json(&serde_json::Value::Object(map));
+            let mut req = nuo_provider_transport::http::Request::new(
+                netune::Method::POST,
+                cfg.token_url.as_ref(),
+            )
+            .header("content-type", "application/json")
+            .header("accept", "application/json")
+            .json(&serde_json::Value::Object(map));
 
             if let Some(ua) = &cfg.user_agent {
                 req = req.header("user-agent", ua.as_ref());

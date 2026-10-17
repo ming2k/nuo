@@ -28,11 +28,11 @@ use nuo_wire::{
 };
 
 use crate::mcp::{McpCatalog, McpRuntime};
+use nuo_harness::skills::SkillRegistry;
 use nuo_persistence::{
     config::Config, connection_usage, paths, session::SessionStore,
     workspace_security::WorkspaceSecurityStore,
 };
-use nuo_harness::skills::SkillRegistry;
 
 use crate::startup::SessionStart;
 use crate::{SessionDriver, UiBridge};
@@ -231,9 +231,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // `None` for a workspace-free persona (ADR-0226). `persona` is recorded on
     // the session as metadata (which principal staffed it), used for `--resume`.
     let workspace_root: Option<PathBuf> = project_override;
-    let workspace = workspace_root
-        .as_ref()
-        .map(nuo_wire::WorkspaceBinding::new);
+    let workspace = workspace_root.as_ref().map(nuo_wire::WorkspaceBinding::new);
 
     // Initialize Agent logic. The provider is resolved through the model
     // catalog (`build_provider_for`), the single source of truth for the
@@ -322,10 +320,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // unified server (ADR-0096) belongs to whichever client first spawned it.
     let mut skills_config = config.skills.clone();
     skills_config.project_root = workspace_root.clone();
-    let skills_registry = Arc::new(
-        SkillRegistry::load(&skills_config)
-            .await,
-    );
+    let skills_registry = Arc::new(SkillRegistry::load(&skills_config).await);
     // A content-admitted `.nuo/skills/<name>/SKILL.md` wins over a same-named
     // user or remote skill by priority. Surface every newly observed shadow so
     // that prompt injection cannot hide behind normal precedence. Install the
@@ -969,14 +964,13 @@ fn spawn_mcp_config_watcher(
 ) {
     let workspace_root = workspace_root.map(|r| r.canonicalize().unwrap_or(r));
 
-    let mut watcher =
-        match nuo_host::FsWatcher::new(nuo_host::FsWatcher::DEFAULT_DEBOUNCE) {
-            Ok(w) => w,
-            Err(err) => {
-                tracing::warn!(error = %err, "could not initialize MCP config filesystem watcher");
-                return;
-            }
-        };
+    let mut watcher = match nuo_host::FsWatcher::new(nuo_host::FsWatcher::DEFAULT_DEBOUNCE) {
+        Ok(w) => w,
+        Err(err) => {
+            tracing::warn!(error = %err, "could not initialize MCP config filesystem watcher");
+            return;
+        }
+    };
 
     // 1. Watch user config directory
     let user_config_file = nuo_host::paths::Dirs::system().config_file();

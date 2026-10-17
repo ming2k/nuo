@@ -511,7 +511,9 @@ fn draw_composer_impl(
     let hidden_below = if input.is_empty() {
         if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
             let ghost_wrapped = composer_wrapped(ghost, text_width, 0);
-            ghost_wrapped.len().saturating_sub(*input_scroll + visible_rows)
+            ghost_wrapped
+                .len()
+                .saturating_sub(*input_scroll + visible_rows)
         } else {
             0
         }
@@ -567,7 +569,10 @@ fn draw_composer_impl(
                 spans.push(Span::styled(wl.text.clone(), ghost_style));
                 let used = COMPOSER_PROMPT_PREFIX_COLS + str_len(&wl.text);
                 let tail_cols = full_w.saturating_sub(used);
-                spans.push(Span::styled(" ".repeat(tail_cols), Style::default().bg(panel_bg)));
+                spans.push(Span::styled(
+                    " ".repeat(tail_cols),
+                    Style::default().bg(panel_bg),
+                ));
                 lines.push(Line::from(spans));
             }
         } else {
@@ -703,11 +708,17 @@ fn draw_composer_impl(
                         };
                         if !ghost_first_line.is_empty() {
                             let available = full_w.saturating_sub(used);
-                            let to_show = crate::overlays::common::truncate_ellipsis(ghost_first_line, available);
+                            let to_show = crate::overlays::common::truncate_ellipsis(
+                                ghost_first_line,
+                                available,
+                            );
                             ghost_cols = str_len(&to_show);
                             spans.push(Span::styled(
                                 to_show,
-                                Style::default().bg(panel_bg).fg(theme.muted()).add_modifier(Modifier::DIM),
+                                Style::default()
+                                    .bg(panel_bg)
+                                    .fg(theme.muted())
+                                    .add_modifier(Modifier::DIM),
                             ));
                         }
                     } else if visible_rows == 1 {
@@ -718,11 +729,15 @@ fn draw_composer_impl(
                         let available = full_w.saturating_sub(used);
                         if available > 6 {
                             let preview = format!("  ↳ {ghost_first_line}");
-                            let to_show = crate::overlays::common::truncate_ellipsis(&preview, available);
+                            let to_show =
+                                crate::overlays::common::truncate_ellipsis(&preview, available);
                             ghost_cols = str_len(&to_show);
                             spans.push(Span::styled(
                                 to_show,
-                                Style::default().bg(panel_bg).fg(theme.muted()).add_modifier(Modifier::DIM),
+                                Style::default()
+                                    .bg(panel_bg)
+                                    .fg(theme.muted())
+                                    .add_modifier(Modifier::DIM),
                             ));
                         }
                     }
@@ -746,14 +761,18 @@ fn draw_composer_impl(
                     }
                     let prefix = if gi == 0 { "↳ " } else { "  " };
                     let preview_text = format!("{prefix}{}", gw.text);
-                    let to_show = crate::overlays::common::truncate_ellipsis(&preview_text, text_width);
+                    let to_show =
+                        crate::overlays::common::truncate_ellipsis(&preview_text, text_width);
                     let text_cols = str_len(&to_show);
                     let tail_cols = full_w.saturating_sub(COMPOSER_PROMPT_PREFIX_COLS + text_cols);
                     lines.push(Line::from(vec![
                         indent.clone(),
                         Span::styled(
                             to_show,
-                            Style::default().bg(panel_bg).fg(theme.muted()).add_modifier(Modifier::DIM),
+                            Style::default()
+                                .bg(panel_bg)
+                                .fg(theme.muted())
+                                .add_modifier(Modifier::DIM),
                         ),
                         Span::styled(" ".repeat(tail_cols), Style::default().bg(panel_bg)),
                     ]));
@@ -815,7 +834,8 @@ fn draw_composer_impl(
                 // If left hints overflow the available budget, collapse them to `F1 more`
                 // to guarantee non-destructive discovery without layout clipping.
                 let space_for_left = available.saturating_sub(prefix_w + target_right_w + 3);
-                let overflow_affordance = crate::components::keycap::KeyAffordance::new("F1", "more");
+                let overflow_affordance =
+                    crate::components::keycap::KeyAffordance::new("F1", "more");
                 let overflow_w = overflow_affordance.width();
                 if space_for_left >= overflow_w {
                     let [k, l] = overflow_affordance.render_spans(theme, panel_bg);

@@ -28,8 +28,8 @@
 use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::surfaces::SceneKind;
 use super::{STEP_MIN_WIDTH, TRANSCRIPT_H_INSET, Theme};
+use crate::surfaces::SceneKind;
 
 /// Canonical scene identifier alias for header presentation (ADR-0042).
 pub(crate) type ViewKind = crate::surfaces::SceneKind;
@@ -230,10 +230,7 @@ pub(crate) fn draw_tab_bar(
 
     let mut spans = vec![
         Span::styled(" ".repeat(pad), fill),
-        Span::styled(
-            brand,
-            fill.fg(theme.brand()).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(brand, fill.fg(theme.brand()).add_modifier(Modifier::BOLD)),
         Span::styled(" ".repeat(gap), fill),
     ];
 
@@ -279,7 +276,8 @@ pub(crate) fn draw_scene_bar(
     let text_width = width.saturating_sub(2 * pad);
 
     // Right side: Navigation stack / breadcrumbs (when drill-in depth > 1)
-    let (right_spans, right_width) = if let Some(crumbs) = hints.breadcrumbs.filter(|c| c.len() > 1) {
+    let (right_spans, right_width) = if let Some(crumbs) = hints.breadcrumbs.filter(|c| c.len() > 1)
+    {
         let mut spans = Vec::new();
         let mut w = 0usize;
         if hints.can_back {
@@ -418,7 +416,11 @@ pub(crate) fn draw_thread_context_bar(
     }
     let flags_width = flags.width();
 
-    let badge_w = if badge.is_empty() { 0 } else { badge.width() + 1 };
+    let badge_w = if badge.is_empty() {
+        0
+    } else {
+        badge.width() + 1
+    };
 
     // Remaining budget for workspace path
     let ws_budget = text_width.saturating_sub(badge_w + flags_width + 1);
@@ -458,11 +460,7 @@ const SCENE_NAMESPACE_LABEL: &str = "menu";
 /// Disambiguate thread ids by taking their last four characters.
 fn id_tail(id: &str) -> &str {
     let len = id.len();
-    if len <= 4 {
-        id
-    } else {
-        &id[len - 4..]
-    }
+    if len <= 4 { id } else { &id[len - 4..] }
 }
 
 /// Truncate `s` to at most `max_width` display columns using an ellipsis character.
@@ -501,11 +499,7 @@ mod tests {
         cells.iter().map(|c| c.symbol()).collect()
     }
 
-    fn render_row1_cells(
-        width: u16,
-        head: ThreadHead<'_>,
-        theme: &Theme,
-    ) -> Vec<nuotc::Cell> {
+    fn render_row1_cells(width: u16, head: ThreadHead<'_>, theme: &Theme) -> Vec<nuotc::Cell> {
         let mut terminal = nuotc::TestTerminal::new(width, 1);
         terminal.draw(|frame| {
             draw_tab_bar(frame, frame.area(), &head, theme);
@@ -536,11 +530,7 @@ mod tests {
         cells.iter().map(|c| c.symbol()).collect()
     }
 
-    fn render_row3_cells(
-        width: u16,
-        head: ThreadHead<'_>,
-        theme: &Theme,
-    ) -> Vec<nuotc::Cell> {
+    fn render_row3_cells(width: u16, head: ThreadHead<'_>, theme: &Theme) -> Vec<nuotc::Cell> {
         let mut terminal = nuotc::TestTerminal::new(width, 1);
         terminal.draw(|frame| {
             draw_thread_context_bar(frame, frame.area(), &head, theme);
@@ -569,16 +559,28 @@ mod tests {
         };
         let row = render_row1(80, head);
         assert!(row.contains("thread#b3c4"), "{row}");
-        assert!(!row.contains("1:thread#b3c4"), "tabs must not use ordinal prefix: {row}");
+        assert!(
+            !row.contains("1:thread#b3c4"),
+            "tabs must not use ordinal prefix: {row}"
+        );
         assert!(row.contains("dashboard"), "{row}");
-        assert!(!row.contains("2:dashboard"), "tabs must not use ordinal prefix: {row}");
-        assert!(row.contains("C-x menu"), "compact client menu on TabBar: {row}");
+        assert!(
+            !row.contains("2:dashboard"),
+            "tabs must not use ordinal prefix: {row}"
+        );
+        assert!(
+            row.contains("C-x menu"),
+            "compact client menu on TabBar: {row}"
+        );
     }
 
     #[test]
     fn row1_renders_semantic_tab_titles_with_wider_budget() {
         let tabs = vec![
-            crate::surfaces::ClientTab::thread("sess-01a2b3c4", Some("Refactor Database Connection")),
+            crate::surfaces::ClientTab::thread(
+                "sess-01a2b3c4",
+                Some("Refactor Database Connection"),
+            ),
             crate::surfaces::ClientTab::thread("sess-05d6e7f8", None::<String>),
             crate::surfaces::ClientTab::dashboard(),
         ];
@@ -592,9 +594,15 @@ mod tests {
             confined: true,
         };
         let row = render_row1(80, head);
-        assert!(row.contains("Refactor Database C…"), "semantic title projected with wider budget: {row}");
+        assert!(
+            row.contains("Refactor Database C…"),
+            "semantic title projected with wider budget: {row}"
+        );
         assert!(!row.contains("1:Refactor"), "no ordinal prefix: {row}");
-        assert!(row.contains("thread#e7f8"), "untitled tab falls back to placeholder thread#tail: {row}");
+        assert!(
+            row.contains("thread#e7f8"),
+            "untitled tab falls back to placeholder thread#tail: {row}"
+        );
         assert!(row.contains("dashboard"), "{row}");
     }
 
@@ -626,15 +634,29 @@ mod tests {
         assert_eq!(tab_rects[2].0, 2);
         assert_eq!(tab_rects[0].1.y, 0);
         assert_eq!(tab_rects[0].1.x, 0, "tab 0 subsumes leading pad");
-        assert_eq!(tab_rects[1].1.x, tab_rects[0].1.right(), "tab 1 starts seamlessly where tab 0 ends");
-        assert_eq!(tab_rects[2].1.x, tab_rects[1].1.right(), "tab 2 starts seamlessly where tab 1 ends");
+        assert_eq!(
+            tab_rects[1].1.x,
+            tab_rects[0].1.right(),
+            "tab 1 starts seamlessly where tab 0 ends"
+        );
+        assert_eq!(
+            tab_rects[2].1.x,
+            tab_rects[1].1.right(),
+            "tab 2 starts seamlessly where tab 1 ends"
+        );
         assert!(tab_rects[0].1.width > 0);
         assert!(tab_rects[1].1.x > tab_rects[0].1.x);
     }
 
     #[test]
     fn row1_renders_brand_when_no_tabs() {
-        let head = ThreadHead::new("sess-01a2b3c4", "~/projects/xx", Some("developer"), false, true);
+        let head = ThreadHead::new(
+            "sess-01a2b3c4",
+            "~/projects/xx",
+            Some("developer"),
+            false,
+            true,
+        );
         let row = render_row1(80, head);
         assert!(row.contains("nuo"), "brand shown: {row}");
         assert!(row.contains("C-x menu"), "client menu shown: {row}");
@@ -651,14 +673,20 @@ mod tests {
                 ..hints(SceneKind::Thread)
             },
         );
-        assert!(row.starts_with("  THREAD b3c4  Fix the retry loop"), "{row}");
+        assert!(
+            row.starts_with("  THREAD b3c4  Fix the retry loop"),
+            "{row}"
+        );
     }
 
     #[test]
     fn row2_renders_untitled_thread_without_placeholder() {
         let row = render_row2(80, Some("sess-01a2b3c4"), hints(SceneKind::Thread));
         assert!(row.starts_with("  THREAD b3c4"), "{row}");
-        assert!(!row.contains("thread#"), "clean thread identifier without redundant label: {row}");
+        assert!(
+            !row.contains("thread#"),
+            "clean thread identifier without redundant label: {row}"
+        );
     }
 
     #[test]
@@ -703,7 +731,11 @@ mod tests {
             },
             &theme,
         );
-        assert_eq!(first_fg(&quiet, "m"), theme.fg(), "quiet context is foreground");
+        assert_eq!(
+            first_fg(&quiet, "m"),
+            theme.fg(),
+            "quiet context is foreground"
+        );
         assert_eq!(
             first_fg(&urgent, "n"),
             theme.warn(),
@@ -726,9 +758,15 @@ mod tests {
                 can_forward: false,
             },
         );
-        assert!(row.contains("[EXPLORE] inspect codebase"), "shows scene context: {row}");
+        assert!(
+            row.contains("[EXPLORE] inspect codebase"),
+            "shows scene context: {row}"
+        );
         assert!(row.contains("< "), "shows back affordance: {row}");
-        assert!(row.contains("thread > subagent"), "shows breadcrumb trail: {row}");
+        assert!(
+            row.contains("thread > subagent"),
+            "shows breadcrumb trail: {row}"
+        );
         let ctx_pos = row.find("[EXPLORE]").unwrap();
         let stack_pos = row.find("< thread").unwrap();
         assert!(ctx_pos < stack_pos, "context left, stack right: {row}");
@@ -746,7 +784,10 @@ mod tests {
                 can_forward: true,
             },
         );
-        assert!(row_fwd.contains("subagent >"), "shows forward affordance: {row_fwd}");
+        assert!(
+            row_fwd.contains("subagent >"),
+            "shows forward affordance: {row_fwd}"
+        );
     }
 
     #[test]
@@ -754,7 +795,13 @@ mod tests {
         let theme = Theme::default();
         let mut terminal = nuotc::TestTerminal::new(60, 1);
         terminal.draw(|frame| {
-            draw_scene_bar(frame, frame.area(), None, &hints(SceneKind::Settings), &theme);
+            draw_scene_bar(
+                frame,
+                frame.area(),
+                None,
+                &hints(SceneKind::Settings),
+                &theme,
+            );
         });
         for cell in &terminal.buffer().content {
             assert_eq!(cell.bg, theme.scenebar_bg());
@@ -812,7 +859,13 @@ mod tests {
     #[test]
     fn row3_band_paints_the_full_row_width() {
         let theme = Theme::default();
-        let head = ThreadHead::new("sess-01a2b3c4", "~/projects/xx", Some("developer"), false, true);
+        let head = ThreadHead::new(
+            "sess-01a2b3c4",
+            "~/projects/xx",
+            Some("developer"),
+            false,
+            true,
+        );
         let mut terminal = nuotc::TestTerminal::new(60, 1);
         terminal.draw(|frame| {
             draw_thread_context_bar(frame, frame.area(), &head, &theme);

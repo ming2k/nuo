@@ -18,9 +18,7 @@ pub fn draw_persistence_health_bar(
     theme: &Theme,
 ) {
     let (label, color) = match state {
-        nuo_wire::monitor::PersistenceHealth::Recovering { .. } => {
-            ("RECOVERING", theme.warn())
-        }
+        nuo_wire::monitor::PersistenceHealth::Recovering { .. } => ("RECOVERING", theme.warn()),
         nuo_wire::monitor::PersistenceHealth::Down { .. } => ("STORAGE DOWN", theme.err()),
         // Healthy never places a row; drawing defensively keeps the
         // contract visible if a caller mis-places it.

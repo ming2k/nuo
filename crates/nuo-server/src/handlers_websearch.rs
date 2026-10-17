@@ -1,10 +1,10 @@
 //! Authoritative query/update boundary for the singleton web-tool configuration.
 
+use nuo_persistence::config::{Config, Credentials, resolve_web_config};
 use nuo_wire::{
     AgentResponse, SecretString, SharedWebConfig, WebConfigUpdate, WebConfigView,
     WebEndpointRequirement, WebProviderAxis, web_provider_capabilities,
 };
-use nuo_persistence::config::{Config, Credentials, resolve_web_config};
 use tokio::sync::mpsc;
 
 fn view(config: &Config, shared: &SharedWebConfig) -> WebConfigView {

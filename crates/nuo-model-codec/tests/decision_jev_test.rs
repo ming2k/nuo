@@ -1,8 +1,7 @@
 //! Integration and wire fidelity tests for System One decision models (TypeSafe Jev).
 
 use nuo_model_codec::decision::{
-    DecisionAnswer, DecisionEndpoint, DecisionRequest,
-    DecisionResponse, DecisionUsage, NoulAnswer,
+    DecisionAnswer, DecisionEndpoint, DecisionRequest, DecisionResponse, DecisionUsage, NoulAnswer,
 };
 use serde_json::json;
 
@@ -68,17 +67,14 @@ fn test_decision_request_builder_and_serialization() {
 
 #[test]
 fn test_typesafe_build_request_wire_framing() {
-    let endpoint = DecisionEndpoint::jev("ts_test_key_12345")
-        .with_header("X-Custom-Trace", "trace-abc-123");
+    let endpoint =
+        DecisionEndpoint::jev("ts_test_key_12345").with_header("X-Custom-Trace", "trace-abc-123");
 
     let req = DecisionRequest::with_state_text("jev-1.13.0", "State text")
         .add_noul("flag", "Is this valid?");
 
-    let (url, headers, body) = nuo_model_codec::decision::protocol::build_request(
-        &endpoint,
-        "ts_test_key_12345",
-        &req,
-    );
+    let (url, headers, body) =
+        nuo_model_codec::decision::protocol::build_request(&endpoint, "ts_test_key_12345", &req);
 
     assert_eq!(url, "https://api.typesafe.ai/v1/systemone");
     assert_eq!(headers.get("content-type").unwrap(), "application/json");
@@ -146,7 +142,9 @@ fn test_typesafe_parse_response_with_calibrated_answers() {
 
     // Choice getter assertions
     assert_eq!(resp.choice_value("department"), Some("billing"));
-    let choice_ans = resp.choice("department").expect("department answer missing");
+    let choice_ans = resp
+        .choice("department")
+        .expect("department answer missing");
     assert_eq!(choice_ans.choice, "billing");
     assert_eq!(choice_ans.confidence, 0.845);
     assert_eq!(choice_ans.probabilities.get("billing"), Some(&0.892));
@@ -157,7 +155,9 @@ fn test_typesafe_parse_response_with_calibrated_answers() {
 
     // Score getter assertions
     assert_eq!(resp.score_val("frustration"), Some(2.75));
-    let score_ans = resp.score("frustration").expect("frustration answer missing");
+    let score_ans = resp
+        .score("frustration")
+        .expect("frustration answer missing");
     assert_eq!(score_ans.score, 2.75);
     assert_eq!(score_ans.confidence, 0.792);
     assert_eq!(score_ans.legend.get("3"), Some(&"furious".to_string()));
@@ -199,7 +199,8 @@ fn test_decision_probability_out_of_bounds_rejection() {
         }
     });
 
-    let res = nuo_model_codec::decision::protocol::parse_response(&endpoint, &invalid_prob_response);
+    let res =
+        nuo_model_codec::decision::protocol::parse_response(&endpoint, &invalid_prob_response);
     assert!(res.is_err());
     let err_str = res.unwrap_err().to_string();
     assert!(err_str.contains("out of [0, 1] range"));
@@ -211,7 +212,8 @@ fn test_decision_answer_resilient_untagged_deserialization() {
     let untagged_noul = json!({
         "noul": 0.42
     });
-    let ans: DecisionAnswer = serde_json::from_value(untagged_noul).expect("Failed to deserialize untagged noul");
+    let ans: DecisionAnswer =
+        serde_json::from_value(untagged_noul).expect("Failed to deserialize untagged noul");
     assert_eq!(ans.as_noul().unwrap().noul, 0.42);
 
     let untagged_choice = json!({
@@ -219,7 +221,8 @@ fn test_decision_answer_resilient_untagged_deserialization() {
         "probabilities": {"opt_a": 0.8, "opt_b": 0.2},
         "confidence": 0.8
     });
-    let ans_choice: DecisionAnswer = serde_json::from_value(untagged_choice).expect("Failed to deserialize untagged choice");
+    let ans_choice: DecisionAnswer =
+        serde_json::from_value(untagged_choice).expect("Failed to deserialize untagged choice");
     assert_eq!(ans_choice.as_choice().unwrap().choice, "opt_a");
 }
 
@@ -251,12 +254,10 @@ fn test_decision_request_with_structured_state() {
 fn test_decision_response_roundtrip_fidelity() {
     let original = DecisionResponse {
         model: "jev-latest".to_string(),
-        answers: [
-            (
-                "q1".to_string(),
-                DecisionAnswer::Noul(NoulAnswer { noul: 0.95 }),
-            ),
-        ]
+        answers: [(
+            "q1".to_string(),
+            DecisionAnswer::Noul(NoulAnswer { noul: 0.95 }),
+        )]
         .into_iter()
         .collect(),
         usage: Some(DecisionUsage {

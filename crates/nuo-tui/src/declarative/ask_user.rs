@@ -3,13 +3,16 @@
 //! Encapsulates human-in-the-loop permission and question flows into
 //! a pure, isolated TEA component with sovereign event transitions.
 
-use nuotc::{Frame, Rect};
-use crossterm::event::{KeyCode, KeyEvent};
-use nuo_wire::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+use super::{
+    Component,
+    story::{Story, StorybookComponent},
+};
 use crate::question_model::{QuestionAction, QuestionEffect, QuestionModel};
 use crate::theme::Theme;
 use crate::ui::ComponentTree;
-use super::{Component, story::{Story, StorybookComponent}};
+use crossterm::event::{KeyCode, KeyEvent};
+use nuo_wire::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+use nuotc::{Frame, Rect};
 
 /// Pure immutable properties for the AskUser component.
 #[derive(Debug, Clone)]
@@ -134,11 +137,7 @@ impl Component for AskUser {
         Self::render_with_tree(props, state, frame, &mut hit_map, area, theme);
     }
 
-    fn update(
-        _props: &Self::Props,
-        state: &mut Self::State,
-        msg: Self::Msg,
-    ) -> Option<Self::Cmd> {
+    fn update(_props: &Self::Props, state: &mut Self::State, msg: Self::Msg) -> Option<Self::Cmd> {
         let effects = state.model.update_mut(msg.0);
         if !effects.is_empty() {
             Some(AskUserCmd::Effects(effects))
@@ -206,7 +205,8 @@ impl StorybookComponent for AskUser {
             id: "req_multi".to_string(),
             questions: vec![UserQuestion {
                 header: Some("Refactoring Scope Selection".to_string()),
-                question: "Select all targets that should be included in the migration pass:".to_string(),
+                question: "Select all targets that should be included in the migration pass:"
+                    .to_string(),
                 options: vec![
                     UserQuestionOption {
                         label: "crates/nuo-tui".to_string(),

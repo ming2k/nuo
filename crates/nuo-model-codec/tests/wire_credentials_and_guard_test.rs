@@ -2,11 +2,11 @@
 
 use futures::{SinkExt, StreamExt};
 use nuo_model_codec::{
-    CredentialsProvider, DynamicCredentials, Endpoint, StaticApiKey, StreamLoopDetector,
-    WireChunk, WireError, WireStream,
+    CredentialsProvider, DynamicCredentials, Endpoint, StaticApiKey, StreamLoopDetector, WireChunk,
+    WireError, WireStream,
 };
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[tokio::test]
 async fn test_static_credentials_provider() {
@@ -14,8 +14,7 @@ async fn test_static_credentials_provider() {
     let token = provider.get_token().await.expect("token resolution");
     assert_eq!(token, "test-secret-key-123");
 
-    let ep = Endpoint::openai("", "gpt-4o")
-        .with_credentials_provider(Arc::new(provider));
+    let ep = Endpoint::openai("", "gpt-4o").with_credentials_provider(Arc::new(provider));
     assert_eq!(ep.resolve_api_key().await.unwrap(), "test-secret-key-123");
 }
 
@@ -29,8 +28,8 @@ async fn test_dynamic_credentials_provider_rotation() {
         async move { Ok(format!("token-generation-{count}")) }
     });
 
-    let ep = Endpoint::anthropic("", "claude-3-7-sonnet")
-        .with_credentials_provider(Arc::new(dynamic));
+    let ep =
+        Endpoint::anthropic("", "claude-3-7-sonnet").with_credentials_provider(Arc::new(dynamic));
 
     assert_eq!(ep.resolve_api_key().await.unwrap(), "token-generation-0");
     assert_eq!(ep.resolve_api_key().await.unwrap(), "token-generation-1");
@@ -47,7 +46,11 @@ async fn test_wire_stream_loop_detector_intercepts_runaway() {
     tokio::spawn(async move {
         // Send a repeating pattern
         for _ in 0..50 {
-            if tx.send(Ok(WireChunk::content("repeat_cycle_"))).await.is_err() {
+            if tx
+                .send(Ok(WireChunk::content("repeat_cycle_")))
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -66,5 +69,8 @@ async fn test_wire_stream_loop_detector_intercepts_runaway() {
         }
     }
 
-    assert!(loop_detected, "Stream loop detector must trip on runaway output");
+    assert!(
+        loop_detected,
+        "Stream loop detector must trip on runaway output"
+    );
 }

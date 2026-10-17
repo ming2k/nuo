@@ -3,22 +3,30 @@
 //! Provides isolated, deterministic rendering for tool execution results,
 //! including inline diffs, command outputs, streaming state, and error handling.
 
+use crossterm::event::{KeyCode, KeyEvent};
 use nuotc::{
     Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style,
     widgets::{Block, Borders},
 };
-use crossterm::event::{KeyCode, KeyEvent};
 
+use super::{
+    Component,
+    story::{Story, StorybookComponent},
+};
 use crate::theme::Theme;
 use crate::tools::diff::{DiffLine, DiffOp, line_diff, line_diff_counts};
-use super::{Component, story::{Story, StorybookComponent}};
 
 /// Execution lifecycle status of a tool invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolStatus {
-    Running { spinner_frame: usize },
+    Running {
+        spinner_frame: usize,
+    },
     Success,
-    Failed { exit_code: Option<i32>, error_msg: String },
+    Failed {
+        exit_code: Option<i32>,
+        error_msg: String,
+    },
 }
 
 /// Rich structured payload produced by the tool.
@@ -111,8 +119,16 @@ impl Component for ToolCard {
 
         let expand_indicator = if state.expanded { "▼" } else { "▶" };
         let mut header_spans = vec![
-            Span::styled(format!("{expand_indicator} {status_badge} "), Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
-            Span::styled(&props.tool_name, Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("{expand_indicator} {status_badge} "),
+                Style::default()
+                    .fg(status_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                &props.tool_name,
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+            ),
         ];
 
         if let Some(target) = &props.target_path {
@@ -120,18 +136,34 @@ impl Component for ToolCard {
             header_spans.push(Span::styled(target, Style::default().fg(theme.system_fg)));
         }
 
-        if let ToolPayload::Diff { old_text, new_text, .. } = &props.payload {
+        if let ToolPayload::Diff {
+            old_text, new_text, ..
+        } = &props.payload
+        {
             let (added, removed) = line_diff_counts(old_text, new_text);
             header_spans.push(Span::raw(" ("));
-            header_spans.push(Span::styled(format!("+{added}"), Style::default().fg(theme.system_fg)));
+            header_spans.push(Span::styled(
+                format!("+{added}"),
+                Style::default().fg(theme.system_fg),
+            ));
             header_spans.push(Span::raw(" "));
-            header_spans.push(Span::styled(format!("-{removed}"), Style::default().fg(theme.error_fg)));
+            header_spans.push(Span::styled(
+                format!("-{removed}"),
+                Style::default().fg(theme.error_fg),
+            ));
             header_spans.push(Span::raw(")"));
         }
 
-        if let ToolStatus::Failed { exit_code: Some(code), .. } = &props.status {
+        if let ToolStatus::Failed {
+            exit_code: Some(code),
+            ..
+        } = &props.status
+        {
             header_spans.push(Span::raw(" "));
-            header_spans.push(Span::styled(format!("[exit {code}]"), Style::default().fg(theme.error_fg)));
+            header_spans.push(Span::styled(
+                format!("[exit {code}]"),
+                Style::default().fg(theme.error_fg),
+            ));
         }
 
         let header_rect = Rect::new(area.x, area.y, area.width, 1);
@@ -157,7 +189,11 @@ impl Component for ToolCard {
         frame.render_widget(body_block, body_area);
 
         match &props.payload {
-            ToolPayload::Diff { old_text, new_text, line_offset } => {
+            ToolPayload::Diff {
+                old_text,
+                new_text,
+                line_offset,
+            } => {
                 let diff_lines = line_diff(old_text, new_text, *line_offset);
                 let available_rows = inner_body.height as usize;
                 let visible_lines: Vec<&DiffLine> = diff_lines
@@ -174,12 +210,24 @@ impl Component for ToolCard {
                         DiffOp::Context => (" ", theme.text_muted, Color::Reset),
                     };
 
-                    let old_no_str = dl.old_no.map(|n| format!("{n:>4}")).unwrap_or_else(|| "    ".to_string());
-                    let new_no_str = dl.new_no.map(|n| format!("{n:>4}")).unwrap_or_else(|| "    ".to_string());
+                    let old_no_str = dl
+                        .old_no
+                        .map(|n| format!("{n:>4}"))
+                        .unwrap_or_else(|| "    ".to_string());
+                    let new_no_str = dl
+                        .new_no
+                        .map(|n| format!("{n:>4}"))
+                        .unwrap_or_else(|| "    ".to_string());
 
                     let mut spans = vec![
-                        Span::styled(format!("{old_no_str} {new_no_str} "), Style::default().fg(theme.dim_fg)),
-                        Span::styled(format!("{op_char} "), Style::default().fg(op_color).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            format!("{old_no_str} {new_no_str} "),
+                            Style::default().fg(theme.dim_fg),
+                        ),
+                        Span::styled(
+                            format!("{op_char} "),
+                            Style::default().fg(op_color).add_modifier(Modifier::BOLD),
+                        ),
                     ];
 
                     for frag in &dl.frags {
@@ -216,11 +264,7 @@ impl Component for ToolCard {
         }
     }
 
-    fn update(
-        props: &Self::Props,
-        state: &mut Self::State,
-        msg: Self::Msg,
-    ) -> Option<Self::Cmd> {
+    fn update(props: &Self::Props, state: &mut Self::State, msg: Self::Msg) -> Option<Self::Cmd> {
         match msg {
             ToolCardMsg::ToggleExpand => {
                 state.expanded = !state.expanded;
@@ -232,9 +276,11 @@ impl Component for ToolCard {
             }
             ToolCardMsg::ScrollDown(n) => {
                 let total = match &props.payload {
-                    ToolPayload::Diff { old_text, new_text, line_offset } => {
-                        line_diff(old_text, new_text, *line_offset).len()
-                    }
+                    ToolPayload::Diff {
+                        old_text,
+                        new_text,
+                        line_offset,
+                    } => line_diff(old_text, new_text, *line_offset).len(),
                     ToolPayload::Command { output, .. } => output.lines().count(),
                     ToolPayload::Generic { content } => content.lines().count(),
                 };
@@ -249,9 +295,11 @@ impl Component for ToolCard {
             }
             ToolCardMsg::ScrollToBottom => {
                 let total = match &props.payload {
-                    ToolPayload::Diff { old_text, new_text, line_offset } => {
-                        line_diff(old_text, new_text, *line_offset).len()
-                    }
+                    ToolPayload::Diff {
+                        old_text,
+                        new_text,
+                        line_offset,
+                    } => line_diff(old_text, new_text, *line_offset).len(),
                     ToolPayload::Command { output, .. } => output.lines().count(),
                     ToolPayload::Generic { content } => content.lines().count(),
                 };
@@ -288,8 +336,12 @@ impl StorybookComponent for ToolCard {
         let mut mass_old = String::new();
         let mut mass_new = String::new();
         for i in 0..100 {
-            mass_old.push_str(&format!("    let var_{i} = calculate_legacy_metric({i});\n"));
-            mass_new.push_str(&format!("    let var_{i} = calculate_fast_simd_metric({i}, ACCEL_V2);\n"));
+            mass_old.push_str(&format!(
+                "    let var_{i} = calculate_legacy_metric({i});\n"
+            ));
+            mass_new.push_str(&format!(
+                "    let var_{i} = calculate_fast_simd_metric({i}, ACCEL_V2);\n"
+            ));
         }
 
         vec![

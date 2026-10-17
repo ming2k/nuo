@@ -852,7 +852,8 @@ impl TokenSourceLedger {
             // repair is visible in the report itself.
             record.sanitize_poisoned_estimate();
         }
-        if let Some(pricing) = nuo_provider::resolve_model_pricing(&record.provider, &record.model) {
+        if let Some(pricing) = nuo_provider::resolve_model_pricing(&record.provider, &record.model)
+        {
             let tool_usage = nuo_tool::usage::TokenUsage {
                 prompt_tokens: record.prompt_tokens,
                 completion_tokens: record.completion_tokens,

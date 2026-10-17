@@ -40,5 +40,8 @@ fn test_tool_schema_derive_exported_via_nuo_tool() {
         json!("Maximum results to return")
     );
 
-    assert_eq!(schema["properties"]["include_hidden"]["type"], json!("boolean"));
+    assert_eq!(
+        schema["properties"]["include_hidden"]["type"],
+        json!("boolean")
+    );
 }

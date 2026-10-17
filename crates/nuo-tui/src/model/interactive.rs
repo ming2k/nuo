@@ -109,9 +109,9 @@ impl InteractiveEntry for TranscriptMessage {
                     }
                 })
                 .unwrap_or_else(|| self.raw.clone()),
-            MessageKind::CompactedCard { summary, .. } => summary
-                .clone()
-                .unwrap_or_else(|| self.raw.clone()),
+            MessageKind::CompactedCard { summary, .. } => {
+                summary.clone().unwrap_or_else(|| self.raw.clone())
+            }
             MessageKind::Text => self.raw.clone(),
         };
         Some(text)
@@ -265,18 +265,27 @@ mod tests {
         assert!(!text.is_focusable());
         assert_eq!(text.target_kind(), None);
         assert_eq!(text.is_expanded(), None);
-        assert_eq!(text.handle_focused_key(Key::ENTER), EntryKeyOutcome::Unhandled);
+        assert_eq!(
+            text.handle_focused_key(Key::ENTER),
+            EntryKeyOutcome::Unhandled
+        );
 
         let mut reasoning = TranscriptMessage::reasoning("thinking step");
         assert!(reasoning.is_focusable());
-        assert_eq!(reasoning.target_kind(), Some(InteractiveTargetKind::Reasoning));
+        assert_eq!(
+            reasoning.target_kind(),
+            Some(InteractiveTargetKind::Reasoning)
+        );
         assert_eq!(reasoning.is_expanded(), Some(false));
         assert_eq!(
             reasoning.handle_focused_key(Key::ENTER),
             EntryKeyOutcome::Handled { changed: true }
         );
         assert_eq!(reasoning.is_expanded(), Some(true));
-        assert_eq!(reasoning.extract_copy_text(), Some("thinking step".to_string()));
+        assert_eq!(
+            reasoning.extract_copy_text(),
+            Some("thinking step".to_string())
+        );
     }
 
     /// `Enter` and `Space` are the activation pair, matching the dialog toggle

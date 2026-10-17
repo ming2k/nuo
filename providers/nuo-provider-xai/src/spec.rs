@@ -25,6 +25,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::XAI_GROK,
+        wire_entities: None,
     },
     Model {
         id: "grok-4.20",
@@ -36,6 +37,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::XAI_GROK,
+        wire_entities: None,
     },
     Model {
         id: "grok-4.3",
@@ -47,6 +49,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::XAI_GROK,
+        wire_entities: None,
     },
     Model {
         id: "grok-build-0.1",
@@ -58,6 +61,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::XAI_GROK,
+        wire_entities: None,
     },
 ];
 

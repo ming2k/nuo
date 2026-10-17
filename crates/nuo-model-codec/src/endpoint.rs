@@ -1,8 +1,8 @@
 //! Endpoint configuration and vendor target definitions.
 
+use crate::client_identity::ClientProfile;
 use crate::credentials::CredentialsProvider;
 use crate::error::Result;
-use crate::client_identity::ClientProfile;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,8 +19,8 @@ pub enum ProviderVendor {
     Ollama,
 }
 
-use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

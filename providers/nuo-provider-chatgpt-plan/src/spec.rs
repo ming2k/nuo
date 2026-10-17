@@ -4,9 +4,9 @@
 use nuo_model_codec::reasoning::ReasoningSupport;
 use nuo_model_codec::{Model, WireProtocol};
 
+use nuo_model_codec::{CatalogShape, RemoteCatalogSource};
 use nuo_provider::effort_ladders;
 use nuo_provider::spec::ModelProviderSpec;
-use nuo_model_codec::{CatalogShape, RemoteCatalogSource};
 
 /// Empty seed: the ChatGPT Subscription backend's model set is fully
 /// catalog-derived from the account's live Codex catalog
@@ -37,6 +37,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::Responses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_6,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.6-sol",
@@ -48,6 +49,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::Responses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.6-terra",
@@ -59,6 +61,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::Responses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.6-luna",
@@ -70,6 +73,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::Responses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        wire_entities: None,
     },
     // Non-seeded models retained solely as metadata for ids returned by the
     // account-specific live Codex catalog.
@@ -83,6 +87,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::Responses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.3-codex-spark",
@@ -94,6 +99,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::Responses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
 ];
 

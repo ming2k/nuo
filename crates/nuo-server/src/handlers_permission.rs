@@ -8,8 +8,8 @@
 
 use crate::session_driver::send_harness_state_for_session;
 use nuo_harness::{Agent, RoundLifecycle, SubagentRegistry};
-use nuo_wire::{AgentResponse, LoopStatus, PermissionDecision};
 use nuo_persistence::session::SessionStore;
+use nuo_wire::{AgentResponse, LoopStatus, PermissionDecision};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 

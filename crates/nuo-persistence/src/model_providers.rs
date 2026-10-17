@@ -274,13 +274,7 @@ mod tests {
             prov.default_protocol,
             Some(nuo_wire::WireProtocol::ChatCompletions)
         );
-        assert_eq!(
-            prov.client_profile,
-            Some(nuo_wire::ClientPreset::Cursor)
-        );
-        assert_eq!(
-            prov.dialect,
-            Some(nuo_wire::ProviderDialect::DeepSeek)
-        );
+        assert_eq!(prov.client_profile, Some(nuo_wire::ClientPreset::Cursor));
+        assert_eq!(prov.dialect, Some(nuo_wire::ProviderDialect::DeepSeek));
     }
 }

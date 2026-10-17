@@ -1249,6 +1249,7 @@ mod tests {
             protocol: crate::WireProtocol::ChatCompletions,
             model_guidance: "",
             effort_levels: &[],
+            wire_entities: None,
         }
     }
 
@@ -1505,12 +1506,10 @@ mod tests {
 
     #[test]
     fn capability_and_pool_admit_aliases() {
-        let pool = ToolPool::from_tools(vec![
-            Arc::new(AliasTool {
-                name: "custom_tool",
-                aliases: &["custom_alias"],
-            }) as Arc<dyn Tool>,
-        ]);
+        let pool = ToolPool::from_tools(vec![Arc::new(AliasTool {
+            name: "custom_tool",
+            aliases: &["custom_alias"],
+        }) as Arc<dyn Tool>]);
 
         // 1. Scope naming only the alias ("custom_alias") must admit the canonical tool.
         let alias_agent = ToolSelection::only(["custom_alias"]);
@@ -1525,13 +1524,18 @@ mod tests {
 
         // 2. Scope naming the canonical name ("custom_tool") also admits it.
         let canonical_agent = ToolSelection::only(["custom_tool"]);
-        let resolved2 = pool.resolve_for(&model(true), &canonical_agent, &ToolSelection::unrestricted());
+        let resolved2 = pool.resolve_for(
+            &model(true),
+            &canonical_agent,
+            &ToolSelection::unrestricted(),
+        );
         assert_eq!(resolved2.len(), 1);
         assert_eq!(resolved2[0].name(), "custom_tool");
 
         // 3. Unrelated tool scope rejects it.
         let other_agent = ToolSelection::only(["read_text"]);
-        let resolved3 = pool.resolve_for(&model(true), &other_agent, &ToolSelection::unrestricted());
+        let resolved3 =
+            pool.resolve_for(&model(true), &other_agent, &ToolSelection::unrestricted());
         assert_eq!(resolved3.len(), 0);
     }
 

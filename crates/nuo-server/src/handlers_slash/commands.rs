@@ -18,9 +18,9 @@ use super::session_route::{
     SessionRoute, parse_confinement_arg, parse_unattended_arg, session_route,
 };
 use crate::agent_setup::active_context_window;
+use crate::handlers_chat::refuse_if_no_provider;
 use crate::project::init_nuo_config;
 use crate::session_view::{build_sessions_overview, short_session_id};
-use crate::handlers_chat::refuse_if_no_provider;
 use crate::slash_handler::SlashContext;
 use crate::startup::BuiltinCmd;
 
@@ -28,10 +28,8 @@ use crate::session_driver::{compact_round_history, send_harness_state_for_sessio
 use nuo_harness::orchestration::{
     ContextProjectionSettings, RoundInput, round_response, send_compaction,
 };
-use nuo_wire::{
-    AgentResponse, CommandResult, LoopStatus, RoundEvent, Tool, TrustDomain,
-};
 use nuo_harness::skills::ListSkillsTool;
+use nuo_wire::{AgentResponse, CommandResult, LoopStatus, RoundEvent, Tool, TrustDomain};
 
 pub(crate) async fn permissions(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
     let SlashEnv {
@@ -519,14 +517,8 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
                     } else {
                         LoopStatus::Idle
                     };
-                    send_harness_state_for_session(
-                        resp_tx,
-                        &current_id,
-                        agent,
-                        session,
-                        status,
-                    )
-                    .await;
+                    send_harness_state_for_session(resp_tx, &current_id, agent, session, status)
+                        .await;
                     return;
                 }
                 supersede_for_session_switch(lifecycle, agent, resp_tx).await;
@@ -608,9 +600,7 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
 
 pub(crate) async fn fork(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
     let SlashEnv {
-        resp_tx,
-        session,
-        ..
+        resp_tx, session, ..
     } = env;
     fork_current_session(session, resp_tx, name, args).await;
 }
@@ -730,8 +720,6 @@ pub(crate) async fn quota(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&
     .await;
 }
 
-
-
 pub(crate) async fn compact(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
     let SlashEnv {
         config,
@@ -741,8 +729,11 @@ pub(crate) async fn compact(env: SlashEnv<'_>, name: &str, args: &str, _parts: &
         ..
     } = env;
     let mut current = session.model_window().await;
-    let settings = ContextProjectionSettings::from_context_policy(&config.context, active_context_window(agent))
-        .for_request(agent.estimate_next_request_tokens(&current));
+    let settings = ContextProjectionSettings::from_context_policy(
+        &config.context,
+        active_context_window(agent),
+    )
+    .for_request(agent.estimate_next_request_tokens(&current));
 
     let _ = resp_tx.send(round_response(
         &session.id().await,
@@ -760,7 +751,10 @@ pub(crate) async fn compact(env: SlashEnv<'_>, name: &str, args: &str, _parts: &
     let mut extra = agent.fire_pre_compact().await;
     let trimmed = args.trim();
     if !trimmed.is_empty() {
-        extra.push(format!("User Focus / Instructions for Compaction: {}", trimmed));
+        extra.push(format!(
+            "User Focus / Instructions for Compaction: {}",
+            trimmed
+        ));
     }
 
     // ADR-0296: Universal Causal Compaction folds [0..N-1] and preserves round N

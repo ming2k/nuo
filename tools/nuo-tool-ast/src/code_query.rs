@@ -26,11 +26,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_wire::{ExecutionEnvironment, Tool, ToolAccesses, ToolOutput};
 use nuo_tool::{BuiltinTool, ToolSchema};
+use nuo_wire::{ExecutionEnvironment, Tool, ToolAccesses, ToolOutput};
 use serde::Deserialize;
 
-use nuo_code::syntax;
 use crate::file_search::{
     build_file_walker, resolve_search_root, search_limit, search_path_argument,
 };
@@ -38,6 +37,7 @@ use crate::helpers::{
     WorkspaceBase, content_version, env_from_root, execution_environment, resolve_workspace_path,
     workspace_base,
 };
+use nuo_code::syntax;
 
 /// Maximum entries (symbols, matches, or returned declarations) per result.
 const DEFAULT_LIMIT: usize = 200;

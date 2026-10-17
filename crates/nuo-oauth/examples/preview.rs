@@ -65,7 +65,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut buf = [0u8; 1024];
             let n = stream.read(&mut buf).await.unwrap_or(0);
             let req = String::from_utf8_lossy(&buf[..n]);
-            let path = req.lines().next().and_then(|l| l.split_whitespace().nth(1)).unwrap_or("/");
+            let path = req
+                .lines()
+                .next()
+                .and_then(|l| l.split_whitespace().nth(1))
+                .unwrap_or("/");
 
             let (body, status) = if path == "/error" {
                 (failure, "400 Bad Request")

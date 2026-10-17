@@ -64,11 +64,13 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod agent_setup;
+pub mod archivist;
+pub mod archivist_service;
 pub mod background_jobs;
 pub mod bootstrap;
 pub mod catalog;
-pub mod durability_sink;
 pub mod credentials_host;
+pub mod durability_sink;
 pub mod export;
 pub mod handlers_chat;
 pub mod handlers_history;
@@ -80,46 +82,44 @@ pub mod handlers_websearch;
 pub mod health_http;
 pub mod hooks;
 pub mod host;
+pub mod hypervisor;
 pub mod input_completion;
 pub mod kernel_host;
 pub mod log_rotate;
-pub mod monitor;
 pub mod mcp;
+pub mod monitor;
 pub mod offstream;
 pub mod project;
-pub mod provider_baselines;
 #[cfg(test)]
 mod provider_baseline_fidelity_tests;
+pub mod provider_baselines;
 pub mod provider_registry;
 pub mod registry;
 pub mod search_lexical;
 pub mod serve;
 pub mod serve_discovery;
 pub mod session_driver;
-pub mod skills_host;
 pub mod session_view;
 pub mod shutdown;
+pub mod skills_host;
 pub mod slash_handler;
 pub mod startup;
 pub mod task_fault_tolerance;
 pub mod task_ledger;
-pub mod archivist;
-pub mod archivist_service;
-pub mod hypervisor;
 pub mod ui_bridge;
 pub mod usage_cache;
 pub mod wire_channel;
 
 pub use archivist::{archivist_address, build_archivist};
 pub use background_jobs::{BackgroundJobEvent, BackgroundJobManager, SessionJobService};
-pub use hypervisor::Hypervisor;
-pub use session_driver::SessionDriver;
 pub use credentials_host::{host as credential_host, store as credential_store};
 pub use durability_sink::StoreSink;
+pub use hypervisor::Hypervisor;
 pub use kernel_host::kernel_host;
+pub use mcp::{McpCatalog, McpRuntime};
+pub use session_driver::SessionDriver;
 pub use skills_host::DurableWorkspaceTrust;
 pub use ui_bridge::{CopyOutcome, UiBridge};
-pub use mcp::{McpCatalog, McpRuntime};
 
 /// Authoritative runtime configuration shared across all hosted sessions (ADR-0209).
 pub type SharedConfig = std::sync::Arc<tokio::sync::RwLock<nuo_persistence::config::Config>>;

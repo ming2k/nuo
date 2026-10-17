@@ -7,7 +7,8 @@ mod picker;
 mod sync;
 
 pub use derive::{
-    DerivationInputs, derive_channel, derive_entries, derive_entry, resolve_credential, route_models,
+    DerivationInputs, derive_channel, derive_entries, derive_entry, resolve_credential,
+    route_models,
 };
 use picker::active_model_id_for_entry;
 pub use picker::{
@@ -19,13 +20,13 @@ pub use sync::{
     sync_remote_catalog_streaming,
 };
 
-use nuo_wire::catalog::ProviderEntry;
 use nuo_persistence::config::{Config, Credentials, RemoteCatalogCache};
 use nuo_persistence::connection_usage::ConnectionUsage;
 use nuo_persistence::connections::Connections;
 use nuo_persistence::model_providers::ModelProviders;
 use nuo_persistence::route_settings::RouteSettingsStore;
 use nuo_provider::CredentialHost;
+use nuo_wire::catalog::ProviderEntry;
 
 #[cfg(test)]
 mod tests;
@@ -142,17 +143,15 @@ pub fn build_provider_for_model(
     // and session restore all inherit it. `effective_availability` applies the
     // user's sovereign override, so an injected model still resolves.
     let usable = |channel: &&nuo_wire::catalog::Channel| {
-        let (availability, overridden) = connection.map_or(
-            (nuo_wire::Availability::usable(), false),
-            |connection| {
+        let (availability, overridden) =
+            connection.map_or((nuo_wire::Availability::usable(), false), |connection| {
                 derive::effective_availability(
                     connection,
                     &channel.model,
                     channel.remote.as_ref(),
                     &stores.providers,
                 )
-            },
-        );
+            });
         if !availability.usable {
             tracing::warn!(
                 connection = %entry.id,
@@ -176,8 +175,7 @@ pub fn build_provider_for_model(
             .find(usable)
             .or_else(|| entry.default_channel()),
     };
-    channel
-        .map(|channel| nuo_provider::build_provider_for_channel(channel, &entry.id, session_id))
+    channel.map(|channel| nuo_provider::build_provider_for_channel(channel, &entry.id, session_id))
 }
 
 pub fn resolved_model_name(config: &Config, id: &str) -> Option<String> {

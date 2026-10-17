@@ -147,13 +147,7 @@ pub fn draw_history_panel(
         )
     };
 
-    draw_header(
-        frame,
-        header_rect,
-        history.len(),
-        ranked.len(),
-        theme,
-    );
+    draw_header(frame, header_rect, history.len(), ranked.len(), theme);
 
     {
         let body = list_body(
@@ -178,13 +172,7 @@ pub fn draw_history_panel(
 }
 
 /// Header: `History` title and the count of visible/total.
-fn draw_header(
-    frame: &mut Frame,
-    rect: Rect,
-    total: usize,
-    shown: usize,
-    theme: &Theme,
-) {
+fn draw_header(frame: &mut Frame, rect: Rect, total: usize, shown: usize, theme: &Theme) {
     let title = Span::styled(
         "History",
         Style::default()

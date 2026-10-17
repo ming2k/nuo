@@ -47,6 +47,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     Model {
         id: "kimi-k2.7-code",
@@ -58,6 +59,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "kimi-k2.6",
@@ -69,6 +71,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "kimi-k2.5",
@@ -80,6 +83,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
 ];
 
@@ -109,7 +113,9 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     id: std::borrow::Cow::Borrowed("kimi-code"),
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://api.kimi.com/coding/v1"),
-    user_agent: Some(std::borrow::Cow::Borrowed(nuo_provider_transport::OPENCODE_USER_AGENT)),
+    user_agent: Some(std::borrow::Cow::Borrowed(
+        nuo_provider_transport::OPENCODE_USER_AGENT,
+    )),
     protocol: WireProtocol::ChatCompletions,
     // The Kimi Code platform exposes a live /models endpoint, so instances
     // created from this preset track the platform's actual model list.

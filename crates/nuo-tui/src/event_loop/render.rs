@@ -70,15 +70,18 @@ fn compose_frame(
         // on a clean background. Do not open/render the chat interface, empty state,
         // composer input box, status bar, or header components until a session is selected.
         f.render_widget(
-            nuotc::widgets::Block::default()
-                .style(nuotc::Style::default().bg(app.theme.app_bg)),
+            nuotc::widgets::Block::default().style(nuotc::Style::default().bg(app.theme.app_bg)),
             f.area(),
         );
 
         let spinner_phase = (app.spinner_epoch.elapsed().as_millis() / 100) as usize;
         let projected_count = crate::overlays::session::project_session_rows(
             &app.sessions_overview,
-            Some(&app.surfaces.dlg::<crate::surfaces::SessionsDialog>().expanded),
+            Some(
+                &app.surfaces
+                    .dlg::<crate::surfaces::SessionsDialog>()
+                    .expanded,
+            ),
         )
         .len();
         let startup_picker = app.startup_overlay == crate::StartupOverlay::SessionsPicker;
@@ -256,31 +259,34 @@ fn compose_frame(
             total: tasks.len(),
         })
     });
-    let (scene_kind, scene_context, scene_context_warn): (crate::surfaces::SceneKind, Option<String>, bool) =
-        if let Some(bar) = subagent_bar.as_ref() {
-            let role = bar
-                .role
-                .as_deref()
-                .map(|role| format!("[{}]", role.to_uppercase()))
-                .unwrap_or_default();
-            let count = if bar.total > 1 {
-                format!(" ({}/{})", bar.index, bar.total)
-            } else {
-                String::new()
-            };
-            let context = if role.is_empty() {
-                format!("{}{count}", bar.label)
-            } else {
-                format!("{role} {}{count}", bar.label)
-            };
-            (crate::surfaces::SceneKind::Subagent, Some(context), false)
+    let (scene_kind, scene_context, scene_context_warn): (
+        crate::surfaces::SceneKind,
+        Option<String>,
+        bool,
+    ) = if let Some(bar) = subagent_bar.as_ref() {
+        let role = bar
+            .role
+            .as_deref()
+            .map(|role| format!("[{}]", role.to_uppercase()))
+            .unwrap_or_default();
+        let count = if bar.total > 1 {
+            format!(" ({}/{})", bar.index, bar.total)
         } else {
-            (
-                crate::surfaces::SceneKind::Thread,
-                app.viewed_thread_title(),
-                false,
-            )
+            String::new()
         };
+        let context = if role.is_empty() {
+            format!("{}{count}", bar.label)
+        } else {
+            format!("{role} {}{count}", bar.label)
+        };
+        (crate::surfaces::SceneKind::Subagent, Some(context), false)
+    } else {
+        (
+            crate::surfaces::SceneKind::Thread,
+            app.viewed_thread_title(),
+            false,
+        )
+    };
     let (breadcrumbs, can_back, can_forward) = if let Some(tab) = app.surfaces.active_tab() {
         (Some(tab.breadcrumbs()), tab.can_back(), tab.can_forward())
     } else {
@@ -595,8 +601,8 @@ fn compose_frame(
             let active_extension = app.active_composer_extension();
             let step_focused = app.focused_target.is_some() || app.transcript_focused;
             let show_caret = scene_owns_caret && !step_focused;
-            let composer_focused = !step_focused
-                && (!has_overlay || scene_owns_caret || active_extension.is_some());
+            let composer_focused =
+                !step_focused && (!has_overlay || scene_owns_caret || active_extension.is_some());
             // A fully-typed known `/command` is painted in bold +
             // accent color so it reads as a resolved command
             // rather than prose; an unmatched `/`-prefix keeps
@@ -629,14 +635,19 @@ fn compose_frame(
                         .effective_binding(crate::keymap::SurfaceVerb::ToggleSendMode),
                 }
             };
-            let history_ghost: Option<String> = if app.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch) {
-                let ranked = app.history_rows();
-                let idx = app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index;
-                let pick = ranked.get(idx).or_else(|| ranked.first());
-                pick.and_then(|(orig_idx, _)| app.input_history.get(*orig_idx)).map(|e| e.text.clone())
-            } else {
-                None
-            };
+            let history_ghost: Option<String> =
+                if app.active_dialog() == Some(crate::surfaces::DialogKind::HistorySearch) {
+                    let ranked = app.history_rows();
+                    let idx = app
+                        .surfaces
+                        .dlg::<crate::surfaces::HistorySearchDialog>()
+                        .index;
+                    let pick = ranked.get(idx).or_else(|| ranked.first());
+                    pick.and_then(|(orig_idx, _)| app.input_history.get(*orig_idx))
+                        .map(|e| e.text.clone())
+                } else {
+                    None
+                };
             let composer_options = render::ComposerDrawOptions {
                 focused: composer_focused,
                 show_caret,
@@ -665,40 +676,40 @@ fn compose_frame(
                     len,
                 ),
                 None if app.input_scroll_follow_cursor => render::draw_composer(
-                        ComposerProps {
-                            frame: f,
-                            input_rect,
-                            theme: &app.theme,
-                            layout_map: &mut layout_map,
-                            input_scroll: &mut app.input_scroll,
-                            selection: &app.selection,
-                        },
-                        ComposerText {
-                            input: &app.input,
-                            byte_cursor,
-                        },
-                        composer_focused,
-                        show_caret,
-                        true,
-                        image_count,
-                        paste_count,
-                        composer_hints,
-                    ),
-                    None => render::draw_composer_with_options(
-                        ComposerProps {
-                            frame: f,
-                            input_rect,
-                            theme: &app.theme,
-                            layout_map: &mut layout_map,
-                            input_scroll: &mut app.input_scroll,
-                            selection: &app.selection,
-                        },
-                        ComposerText {
-                            input: &app.input,
-                            byte_cursor,
-                        },
-                        composer_options,
-                    ),
+                    ComposerProps {
+                        frame: f,
+                        input_rect,
+                        theme: &app.theme,
+                        layout_map: &mut layout_map,
+                        input_scroll: &mut app.input_scroll,
+                        selection: &app.selection,
+                    },
+                    ComposerText {
+                        input: &app.input,
+                        byte_cursor,
+                    },
+                    composer_focused,
+                    show_caret,
+                    true,
+                    image_count,
+                    paste_count,
+                    composer_hints,
+                ),
+                None => render::draw_composer_with_options(
+                    ComposerProps {
+                        frame: f,
+                        input_rect,
+                        theme: &app.theme,
+                        layout_map: &mut layout_map,
+                        input_scroll: &mut app.input_scroll,
+                        selection: &app.selection,
+                    },
+                    ComposerText {
+                        input: &app.input,
+                        byte_cursor,
+                    },
+                    composer_options,
+                ),
             }
         }
     }
@@ -915,7 +926,7 @@ fn compose_frame(
                 } else {
                     None
                 }
-            },
+            }
             OverlaySurface::Sheet(s) => match s {
                 SheetKind::ModelEditor => {
                     if let Some(target) = app.editor_target.as_deref()
@@ -1242,9 +1253,7 @@ fn compose_frame(
     // leave row spells the *resolved* action for the current surface stack (an
     // overlay dismiss, a scene exit, or a spent gesture at the home scene)
     // rather than a fixed promise (ADR-0238).
-    let close_label = crate::components::which_key::close_label_for(
-        app.active_dialog().is_some(),
-    );
+    let close_label = crate::components::which_key::close_label_for(app.active_dialog().is_some());
     crate::components::which_key::draw_which_key_overlay(
         f,
         &app.theme,

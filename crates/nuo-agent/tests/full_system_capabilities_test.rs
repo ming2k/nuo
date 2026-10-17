@@ -7,6 +7,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use acp::transport::in_memory_pair;
+use acp::{AgentAddress, ChannelId, Fabric, SubscriptionFilter, SubscriptionMode};
 use nuo_agent::agent::Agent;
 use nuo_agent::memory::{InMemoryMemory, Memory, MemoryQuery, MemoryScope};
 use nuo_agent::provider::MockProvider;
@@ -14,8 +16,6 @@ use nuo_agent::session::SessionKey;
 use nuo_agent::tools::{
     ApprovalDecision, ApprovalHandler, DynamicTool, ToolCallRequest, ToolContext,
 };
-use acp::transport::in_memory_pair;
-use acp::{AgentAddress, ChannelId, Fabric, SubscriptionFilter, SubscriptionMode};
 use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -679,8 +679,8 @@ async fn command_tool_executes_safely_and_triggers_approval_on_danger() {
 
 #[tokio::test]
 async fn direct_p2p_delegation_without_room_exposes_only_two_tools() {
-    use nuo_agent::provider::ModelResponse;
     use acp::{AgentManifest, Fabric};
+    use nuo_agent::provider::ModelResponse;
 
     let fabric = Fabric::new("p2p-mesh");
 
@@ -802,8 +802,8 @@ async fn peer_ping_pong_handshake_verifies_liveness_and_latency() {
 
 #[tokio::test]
 async fn peer_session_negotiation_allows_follow_up_continuation_or_fresh_start() {
-    use nuo_agent::session::InMemorySessionStore;
     use acp::Fabric;
+    use nuo_agent::session::InMemorySessionStore;
 
     let fabric = Fabric::new("session-mesh");
     let caller_addr = addr("agent://local/caller");

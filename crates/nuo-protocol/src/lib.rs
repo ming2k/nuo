@@ -63,7 +63,8 @@ pub use message::{
 pub mod transcript;
 pub use transcript::{
     DirectiveKind, DirectivePayload, EntryKind, EntryOrigin, EntryPayload, MessagePayload,
-    ProjectionDirective, PrunedMediaOutput, PrunedToolOutput, StatePayload, SubagentRef, Transcript, TranscriptEntry,
+    ProjectionDirective, PrunedMediaOutput, PrunedToolOutput, StatePayload, SubagentRef,
+    Transcript, TranscriptEntry,
 };
 
 pub mod instructions;
@@ -83,8 +84,8 @@ pub use completion::{
 
 pub mod tool_output;
 pub use tool_output::{
-    InputContract, InputExpectation, InputPrompt, PatchOp, ShellTermination, ToolOutput, ToolStream,
-    WebSearchHit,
+    InputContract, InputExpectation, InputPrompt, PatchOp, ShellTermination, ToolOutput,
+    ToolStream, WebSearchHit,
 };
 pub mod tool_access;
 pub use tool_access::{ToolAccess, ToolAccesses, ToolFileAccessOperation};
@@ -237,7 +238,6 @@ pub use provider_state::{
 pub use subagent::{SubAgentProfile, ToolPolicy};
 pub use trajectory_guard_config::TrajectoryGuardConfig;
 pub mod monitor;
-pub use monitor::*;
 pub use hooks::{
     Hook, HookContext, HookEvent, HookEventKind, HookOutcome, RestorePoint, SessionSource,
 };
@@ -254,6 +254,7 @@ pub use model::{
     baseline_models, model_by_id, register_fitted_models, resolve as resolve_model,
     sanitize_model_id, simple_glob_matches,
 };
+pub use monitor::*;
 pub use nuo_provider::{CatalogDiscovery, DiscoveredModel, ModelListError, QuotaTracker};
 pub use pressure::{
     CLEARED_TOOL_PREFIX, CRUISE_HIGH_WATERMARK, CRUISE_LOW_WATERMARK, CompactionPolicy,
@@ -545,9 +546,7 @@ pub enum Wire {
         command_catalog: nuo_tool::completion::CommandCatalog,
     },
     /// Server response to ambiguous attach / picker.
-    Pick {
-        sessions: Vec<SessionOverview>,
-    },
+    Pick { sessions: Vec<SessionOverview> },
     /// Reply to single-shot control verb.
     ControlReply {
         ok: bool,

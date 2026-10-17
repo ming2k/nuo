@@ -197,10 +197,7 @@ pub fn draw_sessions_modal(
                     Line::from(""),
                     Line::from(vec![
                         Span::styled(format!("{spin} "), Style::default().fg(theme.primary)),
-                        Span::styled(
-                            "Loading thread detail…",
-                            Style::default().fg(theme.muted()),
-                        ),
+                        Span::styled("Loading thread detail…", Style::default().fg(theme.muted())),
                     ]),
                 ]
             }
@@ -353,7 +350,8 @@ pub fn draw_sessions_modal(
                     String::new()
                 };
                 let badge_w = run_badge.width();
-                let col1_budget = body_width.saturating_sub(meta_w + prefix_w + badge_w + COL_GUTTER);
+                let col1_budget =
+                    body_width.saturating_sub(meta_w + prefix_w + badge_w + COL_GUTTER);
                 let display_title = session
                     .title
                     .as_deref()

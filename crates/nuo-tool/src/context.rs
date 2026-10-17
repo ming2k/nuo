@@ -130,7 +130,10 @@ impl ToolContext {
 
     /// The primary workspace root (first admitted root), if any.
     pub fn workspace_root(&self) -> Option<&std::path::Path> {
-        self.workspace_roots.as_ref().and_then(|r| r.first()).map(|p| p.as_path())
+        self.workspace_roots
+            .as_ref()
+            .and_then(|r| r.first())
+            .map(|p| p.as_path())
     }
 
     /// Emit one incremental output chunk, if a sink is attached.

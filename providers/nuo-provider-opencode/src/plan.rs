@@ -33,6 +33,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     Model {
         // DeepSeek V4.1 Flash. Verified against the Go endpoint table
@@ -50,6 +51,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     Model {
         id: "deepseek-v4-pro",
@@ -61,6 +63,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     Model {
         id: "glm-5",
@@ -72,6 +75,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "glm-5.1",
@@ -83,6 +87,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     // Anthropic Claude (via opencode-go Anthropic messages route)
     Model {
@@ -95,6 +100,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
+        wire_entities: None,
     },
     // Google Gemini (via opencode-go Google Gemini route)
     Model {
@@ -107,6 +113,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGemini,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     // GLM family (Zhipu / Z.AI / opencode-go)
     Model {
@@ -119,6 +126,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        wire_entities: None,
     },
     Model {
         id: "glm-5.3",
@@ -130,6 +138,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        wire_entities: None,
     },
     Model {
         id: "glm-5.3-flash",
@@ -141,6 +150,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        wire_entities: None,
     },
     Model {
         id: "grok-4.7",
@@ -152,6 +162,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     Model {
         id: "kimi-k3",
@@ -163,6 +174,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "mimo-v2.6-flash",
@@ -174,6 +186,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "mimo-v2.6-pro",
@@ -185,6 +198,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "kimi-k2.5",
@@ -196,6 +210,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "kimi-k2.6",
@@ -207,6 +222,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "kimi-k2.7-code",
@@ -218,6 +234,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "mimo-v2-omni",
@@ -229,6 +246,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "mimo-v2-pro",
@@ -240,6 +258,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     // MiMo (Xiaomi / opencode-go, OpenAI format)
     Model {
@@ -252,6 +271,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "mimo-v2.5-pro",
@@ -263,6 +283,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "minimax-m2.5",
@@ -274,6 +295,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     Model {
         id: "minimax-m2.7",
@@ -285,6 +307,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     // MiniMax (opencode-go, Anthropic /messages format)
     Model {
@@ -297,6 +320,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     Model {
         id: "qwen3.5-plus",
@@ -308,6 +332,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     Model {
         id: "qwen3.6-plus",
@@ -319,6 +344,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     // Qwen (opencode-go)
     Model {
@@ -331,6 +357,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     Model {
         id: "qwen3.7-plus",
@@ -342,6 +369,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        wire_entities: None,
     },
     Model {
         id: "qwen3.8-max",
@@ -353,6 +381,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
+        wire_entities: None,
     },
     Model {
         id: "qwen3.8-flash",
@@ -364,6 +393,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
+        wire_entities: None,
     },
     // =========================================================================
     // EPHEMERAL: OpenCode Promotional Free Tier (Oct 2026 - Limited Time)
@@ -381,6 +411,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     Model {
         id: "glm-5.3-flash-free",
@@ -392,6 +423,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        wire_entities: None,
     },
 ];
 
@@ -401,7 +433,7 @@ inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 mod tests {
     use super::{MODELS, OPENCODE_GO_MODELS};
     use nuo_model_codec::effort::Effort;
-    use nuo_model_codec::model::{resolve, BaselineModels};
+    use nuo_model_codec::model::{BaselineModels, resolve};
 
     /// A discovered id with no baseline entry falls back to the 128k/no-effort
     /// conservative default (`nuo_model_codec::model::fallback_model`), which

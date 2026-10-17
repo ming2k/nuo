@@ -1019,10 +1019,7 @@ pub fn draw_input_injection(
     // Split the composer rect into a prompt row + the input row(s).
     let chunks = Layout::default()
         .direction(nuotc::Direction::Vertical)
-        .constraints([
-            nuotc::Constraint::Length(1),
-            nuotc::Constraint::Min(0),
-        ])
+        .constraints([nuotc::Constraint::Length(1), nuotc::Constraint::Min(0)])
         .split(input_rect);
 
     let prompt_rect = chunks[0];

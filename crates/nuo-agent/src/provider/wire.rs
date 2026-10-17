@@ -271,7 +271,11 @@ impl Provider for ModelCodecAdapter {
                     .get("parameters")
                     .cloned()
                     .unwrap_or(serde_json::Value::Null);
-                Some(nuo_model_codec::ToolSpec::from_parts(name, description, parameters))
+                Some(nuo_model_codec::ToolSpec::from_parts(
+                    name,
+                    description,
+                    parameters,
+                ))
             })
             .collect();
 
@@ -289,17 +293,25 @@ impl Provider for ModelCodecAdapter {
                                     return;
                                 }
                             }
-                            Ok(nuo_model_codec::capability::ProviderStreamEvent::ReasoningDelta(r)) => {
-                                if tx.send(Ok(super::ProviderDelta::thinking(r))).await.is_err() {
+                            Ok(
+                                nuo_model_codec::capability::ProviderStreamEvent::ReasoningDelta(r),
+                            ) => {
+                                if tx
+                                    .send(Ok(super::ProviderDelta::thinking(r)))
+                                    .await
+                                    .is_err()
+                                {
                                     return;
                                 }
                             }
-                            Ok(nuo_model_codec::capability::ProviderStreamEvent::ToolCallDelta {
-                                index,
-                                id,
-                                name,
-                                arguments,
-                            }) => {
+                            Ok(
+                                nuo_model_codec::capability::ProviderStreamEvent::ToolCallDelta {
+                                    index,
+                                    id,
+                                    name,
+                                    arguments,
+                                },
+                            ) => {
                                 let delta = super::ProviderDelta::tool_call_chunk(
                                     index,
                                     id,
@@ -322,7 +334,9 @@ impl Provider for ModelCodecAdapter {
                                     return;
                                 }
                             }
-                            Ok(nuo_model_codec::capability::ProviderStreamEvent::Completed(meta)) => {
+                            Ok(nuo_model_codec::capability::ProviderStreamEvent::Completed(
+                                meta,
+                            )) => {
                                 let mut delta = super::ProviderDelta::default();
                                 if let Some(u) = meta.usage {
                                     delta.usage = Some(super::TokenUsage {
@@ -336,7 +350,11 @@ impl Provider for ModelCodecAdapter {
                                 let _ = tx.send(Ok(delta)).await;
                                 return;
                             }
-                            Ok(nuo_model_codec::capability::ProviderStreamEvent::ModelCatalogEtag(_)) => {}
+                            Ok(
+                                nuo_model_codec::capability::ProviderStreamEvent::ModelCatalogEtag(
+                                    _,
+                                ),
+                            ) => {}
                             Err(e) => {
                                 let _ = tx.send(Err(AgentError::Provider(e.to_string()))).await;
                                 return;

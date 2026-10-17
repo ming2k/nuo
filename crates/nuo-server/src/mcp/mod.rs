@@ -12,7 +12,6 @@
 //! (`DynamicToolRegistry`) and consumer — the trait object doesn't care
 //! which crate the MCP impl is compiled in.
 
-
 mod catalog;
 mod client;
 mod runtime;

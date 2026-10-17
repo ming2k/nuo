@@ -5,7 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 
-
 /// A user-visible notice emitted by the agent or harness.
 ///
 /// This is distinct from state-sync events such as [`RoundEvent::TodosUpdated`]
@@ -25,7 +24,6 @@ pub struct AgentNotice {
     pub body: Option<String>,
     pub source: NoticeSource,
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -63,7 +61,6 @@ pub enum NoticeKind {
     ImageInputWithheld,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NoticeSeverity {
@@ -71,7 +68,6 @@ pub enum NoticeSeverity {
     Warning,
     Error,
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -85,7 +81,6 @@ pub enum NoticeSurface {
     Banner,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NoticeSource {
@@ -95,7 +90,6 @@ pub enum NoticeSource {
     Review,
     Harness,
 }
-
 
 /// Events emitted by a subagent spawned through the `task` tool.
 ///
@@ -186,7 +180,6 @@ pub enum SubagentEvent {
     StdinRequest(StdinRequest),
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct PermissionRequest {
     pub id: String,
@@ -229,7 +222,6 @@ pub struct PermissionRequest {
     pub submission: Option<crate::hazard::ToolPermissionSubmission>,
 }
 
-
 /// One option offered to the user inside an `ask_user` question.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserQuestionOption {
@@ -237,7 +229,6 @@ pub struct UserQuestionOption {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
-
 
 /// A single question inside an `ask_user` tool call.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -254,7 +245,6 @@ pub struct UserQuestion {
     pub multi_select: bool,
 }
 
-
 /// Request sent from the agent to the TUI when the model calls `ask_user`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserQuestionRequest {
@@ -264,7 +254,6 @@ pub struct UserQuestionRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
 }
-
 
 /// Request sent from the agent to the TUI when a `bash` command is classified
 /// interactive and needs a line of stdin the agent cannot supply itself.

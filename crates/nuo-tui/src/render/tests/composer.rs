@@ -1709,12 +1709,7 @@ fn history_panel_uses_composer_padding_not_brand_column() {
         .into_iter()
         .enumerate()
         .map(|(i, text)| {
-            nuo_wire::HistoryEntry::new(
-                text.to_string(),
-                Some(format!("s{i}")),
-                None,
-                i as u64,
-            )
+            nuo_wire::HistoryEntry::new(text.to_string(), Some(format!("s{i}")), None, i as u64)
         })
         .collect();
     let texts: Vec<&str> = history.iter().map(|e| e.text.as_str()).collect();

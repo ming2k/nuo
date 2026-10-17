@@ -306,10 +306,7 @@ fn migrate_connection_auth(provider: &str, auth: ConnectionAuth) -> ConnectionAu
     if matches!(provider, "opencode-plan" | "opencode-go")
         && matches!(&auth, ConnectionAuth::Subscription { provider } if provider == "opencode")
     {
-        tracing::info!(
-            provider,
-            "restoring opencode-go connection to ApiKey"
-        );
+        tracing::info!(provider, "restoring opencode-go connection to ApiKey");
         ConnectionAuth::ApiKey
     } else {
         auth

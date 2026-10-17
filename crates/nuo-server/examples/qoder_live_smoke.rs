@@ -33,9 +33,10 @@ impl nuo_model_codec::CredentialSource for StoreSource {
 
 #[tokio::main]
 async fn main() {
-    let auth_toml =
-        std::fs::read_to_string(std::path::Path::new(env!("HOME")).join(".local/state/nuo/auth.toml"))
-            .expect("auth store");
+    let auth_toml = std::fs::read_to_string(
+        std::path::Path::new(env!("HOME")).join(".local/state/nuo/auth.toml"),
+    )
+    .expect("auth store");
     // Scope the grab to the qoder connection's TOML section: the first
     // `access =` in the file may belong to another provider (e.g. ChatGPT's
     // JWT), which silently poisons the smoke run.
@@ -53,7 +54,10 @@ async fn main() {
     let token = grab("access = ");
     let machine_key_hex = grab("machine_key_hex = ");
     let uid = grab("uid = ");
-    println!("uid={uid} token={}… key={machine_key_hex}…", &token[..12.min(token.len())]);
+    println!(
+        "uid={uid} token={}… key={machine_key_hex}…",
+        &token[..12.min(token.len())]
+    );
 
     let provider = OpenAiChatCompletionsProvider::with_credentials(
         Arc::new(StoreSource {

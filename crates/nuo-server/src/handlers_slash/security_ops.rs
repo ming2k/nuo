@@ -3,12 +3,12 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use nuo_harness::Agent;
-use nuo_wire::TrustDomain;
 use crate::mcp::McpRuntime;
+use nuo_harness::Agent;
+use nuo_harness::skills::SkillRegistry;
 use nuo_persistence::config::Config;
 use nuo_persistence::workspace_security::WorkspaceSecurityStore;
-use nuo_harness::skills::SkillRegistry;
+use nuo_wire::TrustDomain;
 
 pub(crate) struct AssetReloadReport {
     pub snapshot: nuo_wire::WorkspaceSecuritySnapshot,

@@ -2,9 +2,7 @@
 
 use crate::endpoint::Endpoint;
 use crate::error::{Result, WireError};
-use crate::types::{
-    ContentBlock, WireRequest, WireResponse, WireRole, WireToolCall, WireUsage,
-};
+use crate::types::{ContentBlock, WireRequest, WireResponse, WireRole, WireToolCall, WireUsage};
 use serde_json::json;
 
 pub fn build_request(
@@ -41,10 +39,7 @@ pub fn build_request(
                 headers.insert(http::header::AUTHORIZATION, val);
             }
         } else if let Ok(val) = http::HeaderValue::from_str(token) {
-            headers.insert(
-                http::header::HeaderName::from_static("x-goog-api-key"),
-                val,
-            );
+            headers.insert(http::header::HeaderName::from_static("x-goog-api-key"), val);
         }
     }
 
@@ -160,7 +155,10 @@ pub fn build_request(
         let mut thinking_config = serde_json::Map::new();
         thinking_config.insert("includeThoughts".into(), json!(true));
         thinking_config.insert("thinkingBudget".into(), json!(budget));
-        gen_config.insert("thinkingConfig".into(), serde_json::Value::Object(thinking_config));
+        gen_config.insert(
+            "thinkingConfig".into(),
+            serde_json::Value::Object(thinking_config),
+        );
     }
     if !gen_config.is_empty() {
         body["generationConfig"] = serde_json::Value::Object(gen_config);
@@ -174,7 +172,9 @@ pub fn parse_response(json_val: &serde_json::Value) -> Result<WireResponse> {
         .get("candidates")
         .and_then(|c| c.as_array())
         .and_then(|arr| arr.first())
-        .ok_or_else(|| WireError::Protocol("Google Gemini response contained no candidates".into()))?;
+        .ok_or_else(|| {
+            WireError::Protocol("Google Gemini response contained no candidates".into())
+        })?;
 
     let parts = candidate
         .get("content")
@@ -187,7 +187,10 @@ pub fn parse_response(json_val: &serde_json::Value) -> Result<WireResponse> {
     let mut tool_calls = Vec::new();
 
     for part in parts {
-        let is_thought = part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false);
+        let is_thought = part
+            .get("thought")
+            .and_then(|t| t.as_bool())
+            .unwrap_or(false);
         if is_thought {
             if let Some(txt) = part.get("text").and_then(|t| t.as_str()) {
                 thinking_acc.push_str(txt);
@@ -216,9 +219,7 @@ pub fn parse_response(json_val: &serde_json::Value) -> Result<WireResponse> {
         let total = usage_meta["totalTokenCount"]
             .as_u64()
             .unwrap_or((prompt + candidates) as u64) as usize;
-        let cached = usage_meta["cachedContentTokenCount"]
-            .as_u64()
-            .unwrap_or(0) as usize;
+        let cached = usage_meta["cachedContentTokenCount"].as_u64().unwrap_or(0) as usize;
 
         WireUsage {
             prompt_tokens: prompt,

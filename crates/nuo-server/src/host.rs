@@ -32,8 +32,8 @@ use crate::serve::{ServeExpose, ServeOptions, StartupParts, start_server};
 use crate::serve_discovery as discovery;
 use crate::shutdown::{DrainProbe, ShutdownGate, ShutdownReason, SignalGuard, TaskBook};
 use nuo_harness::{AgentIdentity, AgentRoleProfile};
-use nuo_persistence::config::Config;
 use nuo_host::lock::ProcessLock;
+use nuo_persistence::config::Config;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -462,13 +462,7 @@ async fn run_inner(
 
     // Serving
     // Wait for a trigger, or the idle-exit timer.
-    serve_until_trigger(
-        &gate,
-        &registry,
-        &handle,
-        lifecycle.idle_exit,
-    )
-    .await;
+    serve_until_trigger(&gate, &registry, &handle, lifecycle.idle_exit).await;
 
     // Draining (ADR-0034): budgeted phases, each checking `forced`
     let reason = gate
@@ -589,7 +583,9 @@ async fn takeover_conflicting_server(
             candidate_pids.insert(pid);
         }
     }
-    let db_lock_path = nuo_host::paths::get().db_file().with_extension("db.owner.lock");
+    let db_lock_path = nuo_host::paths::get()
+        .db_file()
+        .with_extension("db.owner.lock");
     if let Some(pid) = ProcessLock::probe_holder(&db_lock_path) {
         if pid != current_pid {
             candidate_pids.insert(pid);
@@ -608,8 +604,13 @@ async fn takeover_conflicting_server(
 
     if !candidate_pids.is_empty() || is_uds_in_use || is_port_in_use || is_locked || is_db_locked {
         for pid in candidate_pids {
-            tracing::warn!(pid, "interface or lock conflict detected; terminating existing instance for takeover");
-            let _ = nuo_host::process::takeover_pid(pid, nuo_host::process::TakeoverOptions::default()).await;
+            tracing::warn!(
+                pid,
+                "interface or lock conflict detected; terminating existing instance for takeover"
+            );
+            let _ =
+                nuo_host::process::takeover_pid(pid, nuo_host::process::TakeoverOptions::default())
+                    .await;
         }
 
         if let Some(path) = uds_path {

@@ -598,10 +598,7 @@ impl Theme {
     }
 
     /// Apply spatial 4-layer surface overrides onto an existing theme.
-    pub fn apply_surfaces_overrides(
-        &mut self,
-        overrides: &Option<nuo_wire::SurfacesThemeConfig>,
-    ) {
+    pub fn apply_surfaces_overrides(&mut self, overrides: &Option<nuo_wire::SurfacesThemeConfig>) {
         let Some(surfaces) = overrides else { return };
         if let Some(ref view) = surfaces.view {
             if let Some(val) = view.canvas.as_deref().and_then(Self::color_from_hex) {
@@ -631,7 +628,11 @@ impl Theme {
             if let Some(val) = overlay.toast_bg.as_deref().and_then(Self::color_from_hex) {
                 self.toast_bg = val;
             }
-            if let Some(val) = overlay.which_key_bg.as_deref().and_then(Self::color_from_hex) {
+            if let Some(val) = overlay
+                .which_key_bg
+                .as_deref()
+                .and_then(Self::color_from_hex)
+            {
                 self.which_key_bg = val;
             }
         }
@@ -1024,9 +1025,7 @@ impl Theme {
             nuotc::ElevationArchetype::Structured => {
                 Style::default().add_modifier(Modifier::REVERSE)
             }
-            nuotc::ElevationArchetype::Hybrid => {
-                Style::default().add_modifier(Modifier::BOLD)
-            }
+            nuotc::ElevationArchetype::Hybrid => Style::default().add_modifier(Modifier::BOLD),
             nuotc::ElevationArchetype::Chromatic => Style::default()
                 .fg(self.brand())
                 .add_modifier(Modifier::BOLD),
@@ -1910,7 +1909,10 @@ which_key_bg = "#282828"
         assert_eq!(theme.surfaces().modal.surface, Color::Rgb(34, 34, 34));
         assert_eq!(theme.surfaces().modal.dim_factor, 0.65);
         assert_eq!(theme.surfaces().overlay.toast_bg, Color::Rgb(51, 51, 51));
-        assert_eq!(theme.surfaces().overlay.which_key_bg, Color::Rgb(40, 40, 40));
+        assert_eq!(
+            theme.surfaces().overlay.which_key_bg,
+            Color::Rgb(40, 40, 40)
+        );
         assert_eq!(theme.toast_bg(), Color::Rgb(51, 51, 51));
         assert_eq!(theme.which_key_bg(), Color::Rgb(40, 40, 40));
     }

@@ -635,10 +635,7 @@ mod tests {
         };
         let messages = vec![
             assistant_with_call("", call),
-            tool_result(
-                "execute_command",
-                "test failed\nassertion failed\nexit 101",
-            ),
+            tool_result("execute_command", "test failed\nassertion failed\nexit 101"),
         ];
         let out = format_export_markdown(
             ExportContext {

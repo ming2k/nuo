@@ -15,8 +15,8 @@ use std::sync::atomic::AtomicBool;
 use tokio::sync::mpsc;
 
 use nuo_wire::{
-    AgentRequest, ConnectionAuth, ImagePart, LoopStatus, PermissionRequest,
-    ProviderPickerSnapshot, SessionOverview, UserQuestionRequest,
+    AgentRequest, ConnectionAuth, ImagePart, LoopStatus, PermissionRequest, ProviderPickerSnapshot,
+    SessionOverview, UserQuestionRequest,
 };
 
 use crate::chrome::tasks_bar::BackgroundTaskItem;

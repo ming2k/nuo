@@ -28,6 +28,7 @@ pub const MODELS: &[Model] = &[Model {
     protocol: WireProtocol::ChatCompletions,
     model_guidance: "",
     effort_levels: &[],
+    wire_entities: None,
 }];
 
 inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));

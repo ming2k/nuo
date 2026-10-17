@@ -7,11 +7,11 @@
 use nuo_wire::TokenSourceReport;
 use nuotc::{Frame, Rect};
 
+use super::super::common::placeholder;
 use super::attempt::build_attempt_inspector_body;
 use super::model::*;
 use super::overview::build_overview_body;
 use super::tables::{build_rounds_table, build_turns_table};
-use super::super::common::placeholder;
 use crate::components::selectable_body::{SelectableRow, render_selectable_body};
 use crate::design::MODAL_INNER_H_PADDING;
 use crate::model::layout::LayoutMap;
@@ -88,10 +88,7 @@ pub fn draw_session_stats_modal(
     let modal = modal_frame(frame, area, theme, true, true);
     modal_header_parts(frame, modal.header, &header, theme);
 
-    let rows: Vec<SelectableRow> = overview
-        .into_iter()
-        .map(SelectableRow::from_line)
-        .collect();
+    let rows: Vec<SelectableRow> = overview.into_iter().map(SelectableRow::from_line).collect();
     render_selectable_body(
         frame, modal.body, &rows, scroll, None, theme, selection, layout_map,
     );
@@ -261,8 +258,7 @@ pub fn draw_session_trace_modal(
     } else {
         // L1: Rounds Table with Sticky Header (Zero tab strip!)
         let header = vec![HeaderPart::title("Session Trace")];
-        let (table_header, rows, follow) =
-            build_rounds_table(&rounds, selected, body_width, theme);
+        let (table_header, rows, follow) = build_rounds_table(&rounds, selected, body_width, theme);
         let footer = [
             FooterHint::always(keyvocab::ARROWS_UD, "select"),
             FooterHint::key_always(crate::keymap::Key::ENTER, "turns"),

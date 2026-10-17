@@ -20,8 +20,7 @@ use nuo_wire::{
 
 /// Read-only permission check used before a hook with runtime side effects is
 /// fired. The closure receives the hook's structured hazard submission.
-pub type HookAuthorizer =
-    Arc<dyn Fn(&nuo_wire::ToolPermissionSubmission) -> bool + Send + Sync>;
+pub type HookAuthorizer = Arc<dyn Fn(&nuo_wire::ToolPermissionSubmission) -> bool + Send + Sync>;
 
 /// Evaluate a Claude-Code-style tool-name matcher against a tool name.
 ///

@@ -720,8 +720,8 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
     // upgrade unlocks) with a leading `locked` tag instead of being dropped.
     let theme = Theme::default();
     let mut picker = sectioned_snapshot();
-    let info = |model: &str, availability: Option<nuo_wire::Availability>| {
-        nuo_wire::ProviderModelInfo {
+    let info =
+        |model: &str, availability: Option<nuo_wire::Availability>| nuo_wire::ProviderModelInfo {
             model: model.to_string(),
             name: None,
             protocol: String::new(),
@@ -737,8 +737,7 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
             availability_overridden: false,
             advertised: None,
             availability_stale: false,
-        }
-    };
+        };
     picker.rows.push(nuo_wire::ProviderPickerRow {
         id: "qoder".into(),
         name: "Qoder".into(),
@@ -798,8 +797,8 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
 fn models_modal_shows_the_providers_own_reason_verbatim() {
     let theme = Theme::default();
     let mut picker = sectioned_snapshot();
-    let info = |model: &str, availability: Option<nuo_wire::Availability>| {
-        nuo_wire::ProviderModelInfo {
+    let info =
+        |model: &str, availability: Option<nuo_wire::Availability>| nuo_wire::ProviderModelInfo {
             model: model.to_string(),
             name: None,
             protocol: String::new(),
@@ -815,8 +814,7 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
             availability_overridden: false,
             advertised: None,
             availability_stale: false,
-        }
-    };
+        };
     picker.rows.push(nuo_wire::ProviderPickerRow {
         id: "qoder".into(),
         name: "Qoder".into(),
@@ -1466,30 +1464,28 @@ fn connections_modal_detail_view_renders_info_and_usage() {
         active_model: Some("deepseek-chat".to_string()),
         active_model_effort: None,
         active_model_thinking: None,
-        usage: nuo_wire::ConnectionUsageState::Available(Box::new(
-            nuo_wire::ProviderUsage {
-                plan: Some("Pay-as-you-go".to_string()),
-                description: None,
-                quota: Some(nuo_wire::ProviderQuotaData::Balance(
-                    nuo_wire::BalanceQuota {
-                        currency: "CNY".to_string(),
-                        total_balance: Some(100.50),
-                        cash_balance: Some(100.50),
-                        voucher_balance: Some(0.0),
-                        credit_limit: None,
-                        consumed_amount: None,
-                        display_primary: Some("¥100.50".to_string()),
-                    },
-                )),
-                primary_balance: Some("¥100.50".to_string()),
-                metrics: vec![nuo_wire::UsageMetric {
-                    label: "Total Balance".to_string(),
-                    value: "100.50".to_string(),
-                    unit: Some("CNY".to_string()),
-                }],
-                updated_at_ms: None,
-            },
-        )),
+        usage: nuo_wire::ConnectionUsageState::Available(Box::new(nuo_wire::ProviderUsage {
+            plan: Some("Pay-as-you-go".to_string()),
+            description: None,
+            quota: Some(nuo_wire::ProviderQuotaData::Balance(
+                nuo_wire::BalanceQuota {
+                    currency: "CNY".to_string(),
+                    total_balance: Some(100.50),
+                    cash_balance: Some(100.50),
+                    voucher_balance: Some(0.0),
+                    credit_limit: None,
+                    consumed_amount: None,
+                    display_primary: Some("¥100.50".to_string()),
+                },
+            )),
+            primary_balance: Some("¥100.50".to_string()),
+            metrics: vec![nuo_wire::UsageMetric {
+                label: "Total Balance".to_string(),
+                value: "100.50".to_string(),
+                unit: Some("CNY".to_string()),
+            }],
+            updated_at_ms: None,
+        })),
         budget: Default::default(),
     };
 
@@ -1595,43 +1591,41 @@ fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
         active_model: Some("gemini-3.7-flash".to_string()),
         active_model_effort: None,
         active_model_thinking: None,
-        usage: nuo_wire::ConnectionUsageState::Available(Box::new(
-            nuo_wire::ProviderUsage {
-                plan: Some("Google One AI Premium".to_string()),
-                description: None,
-                quota: Some(nuo_wire::ProviderQuotaData::Periodic(
-                    nuo_wire::PeriodicQuota {
-                        buckets: vec![
-                            nuo_wire::QuotaWindowBucket {
-                                window: Some(nuo_wire::QuotaWindowKind::Daily),
-                                label: "Gemini 3.7 Flash".to_string(),
-                                group: None,
-                                used_fraction: 0.15,
-                                used_amount: None,
-                                total_limit: None,
-                                unit: Some("DAY".to_string()),
-                                reset_at_ms: None,
-                                reset_time_str: Some("12:00".to_string()),
-                            },
-                            nuo_wire::QuotaWindowBucket {
-                                window: Some(nuo_wire::QuotaWindowKind::Rolling5Hour),
-                                label: "Gemini 3.1 Pro".to_string(),
-                                group: None,
-                                used_fraction: 0.40,
-                                used_amount: None,
-                                total_limit: None,
-                                unit: Some("5h".to_string()),
-                                reset_at_ms: None,
-                                reset_time_str: None,
-                            },
-                        ],
-                    },
-                )),
-                primary_balance: Some("60% Quota".to_string()),
-                metrics: Vec::new(),
-                updated_at_ms: None,
-            },
-        )),
+        usage: nuo_wire::ConnectionUsageState::Available(Box::new(nuo_wire::ProviderUsage {
+            plan: Some("Google One AI Premium".to_string()),
+            description: None,
+            quota: Some(nuo_wire::ProviderQuotaData::Periodic(
+                nuo_wire::PeriodicQuota {
+                    buckets: vec![
+                        nuo_wire::QuotaWindowBucket {
+                            window: Some(nuo_wire::QuotaWindowKind::Daily),
+                            label: "Gemini 3.7 Flash".to_string(),
+                            group: None,
+                            used_fraction: 0.15,
+                            used_amount: None,
+                            total_limit: None,
+                            unit: Some("DAY".to_string()),
+                            reset_at_ms: None,
+                            reset_time_str: Some("12:00".to_string()),
+                        },
+                        nuo_wire::QuotaWindowBucket {
+                            window: Some(nuo_wire::QuotaWindowKind::Rolling5Hour),
+                            label: "Gemini 3.1 Pro".to_string(),
+                            group: None,
+                            used_fraction: 0.40,
+                            used_amount: None,
+                            total_limit: None,
+                            unit: Some("5h".to_string()),
+                            reset_at_ms: None,
+                            reset_time_str: None,
+                        },
+                    ],
+                },
+            )),
+            primary_balance: Some("60% Quota".to_string()),
+            metrics: Vec::new(),
+            updated_at_ms: None,
+        })),
         budget: Default::default(),
     };
 
@@ -1853,68 +1847,65 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
         active_model: Some("gemini-3.7-flash".to_string()),
         active_model_effort: Some("high".to_string()),
         active_model_thinking: None,
-        usage: nuo_wire::ConnectionUsageState::Available(Box::new(
-            nuo_wire::ProviderUsage {
-                plan: Some("Antigravity Quota".to_string()),
-                description: Some(
-                    "Within each group, models share a weekly limit and a 5-hour limit."
-                        .to_string(),
-                ),
-                quota: Some(nuo_wire::ProviderQuotaData::Periodic(
-                    nuo_wire::PeriodicQuota {
-                        buckets: vec![
-                            nuo_wire::QuotaWindowBucket {
-                                window: Some(nuo_wire::QuotaWindowKind::Weekly),
-                                label: "Weekly Limit Remaining".to_string(),
-                                group: Some("Claude Models".to_string()),
-                                used_fraction: 0.99,
-                                used_amount: None,
-                                total_limit: None,
-                                unit: Some("WEEKLY".to_string()),
-                                reset_at_ms: None,
-                                reset_time_str: Some("80h 6m".to_string()),
-                            },
-                            nuo_wire::QuotaWindowBucket {
-                                window: Some(nuo_wire::QuotaWindowKind::Rolling5Hour),
-                                label: "Five Hour Limit Remaining".to_string(),
-                                group: Some("Claude Models".to_string()),
-                                used_fraction: 0.46,
-                                used_amount: None,
-                                total_limit: None,
-                                unit: Some("5h".to_string()),
-                                reset_at_ms: None,
-                                reset_time_str: Some("3h 16m".to_string()),
-                            },
-                            nuo_wire::QuotaWindowBucket {
-                                window: Some(nuo_wire::QuotaWindowKind::Weekly),
-                                label: "Weekly Limit Remaining".to_string(),
-                                group: Some("Chat Models (Gemini)".to_string()),
-                                used_fraction: 0.0,
-                                used_amount: None,
-                                total_limit: None,
-                                unit: Some("WEEKLY".to_string()),
-                                reset_at_ms: None,
-                                reset_time_str: Some("167h 59m".to_string()),
-                            },
-                            nuo_wire::QuotaWindowBucket {
-                                window: Some(nuo_wire::QuotaWindowKind::Rolling5Hour),
-                                label: "Five Hour Limit Remaining".to_string(),
-                                group: Some("Chat Models (Gemini)".to_string()),
-                                used_fraction: 0.0,
-                                used_amount: None,
-                                total_limit: None,
-                                unit: Some("5h".to_string()),
-                                reset_at_ms: None,
-                                reset_time_str: Some("4h 59m".to_string()),
-                            },
-                        ],
-                    },
-                )),
-                primary_balance: Some("1% Quota".to_string()),
-                metrics: Vec::new(),
-                updated_at_ms: None,
-            },
-        )),
+        usage: nuo_wire::ConnectionUsageState::Available(Box::new(nuo_wire::ProviderUsage {
+            plan: Some("Antigravity Quota".to_string()),
+            description: Some(
+                "Within each group, models share a weekly limit and a 5-hour limit.".to_string(),
+            ),
+            quota: Some(nuo_wire::ProviderQuotaData::Periodic(
+                nuo_wire::PeriodicQuota {
+                    buckets: vec![
+                        nuo_wire::QuotaWindowBucket {
+                            window: Some(nuo_wire::QuotaWindowKind::Weekly),
+                            label: "Weekly Limit Remaining".to_string(),
+                            group: Some("Claude Models".to_string()),
+                            used_fraction: 0.99,
+                            used_amount: None,
+                            total_limit: None,
+                            unit: Some("WEEKLY".to_string()),
+                            reset_at_ms: None,
+                            reset_time_str: Some("80h 6m".to_string()),
+                        },
+                        nuo_wire::QuotaWindowBucket {
+                            window: Some(nuo_wire::QuotaWindowKind::Rolling5Hour),
+                            label: "Five Hour Limit Remaining".to_string(),
+                            group: Some("Claude Models".to_string()),
+                            used_fraction: 0.46,
+                            used_amount: None,
+                            total_limit: None,
+                            unit: Some("5h".to_string()),
+                            reset_at_ms: None,
+                            reset_time_str: Some("3h 16m".to_string()),
+                        },
+                        nuo_wire::QuotaWindowBucket {
+                            window: Some(nuo_wire::QuotaWindowKind::Weekly),
+                            label: "Weekly Limit Remaining".to_string(),
+                            group: Some("Chat Models (Gemini)".to_string()),
+                            used_fraction: 0.0,
+                            used_amount: None,
+                            total_limit: None,
+                            unit: Some("WEEKLY".to_string()),
+                            reset_at_ms: None,
+                            reset_time_str: Some("167h 59m".to_string()),
+                        },
+                        nuo_wire::QuotaWindowBucket {
+                            window: Some(nuo_wire::QuotaWindowKind::Rolling5Hour),
+                            label: "Five Hour Limit Remaining".to_string(),
+                            group: Some("Chat Models (Gemini)".to_string()),
+                            used_fraction: 0.0,
+                            used_amount: None,
+                            total_limit: None,
+                            unit: Some("5h".to_string()),
+                            reset_at_ms: None,
+                            reset_time_str: Some("4h 59m".to_string()),
+                        },
+                    ],
+                },
+            )),
+            primary_balance: Some("1% Quota".to_string()),
+            metrics: Vec::new(),
+            updated_at_ms: None,
+        })),
         budget: Default::default(),
     };
 
@@ -2337,30 +2328,28 @@ fn connections_modal_quota_bucket_used_percentage_and_separate_reset_line() {
         active_model: Some("gemini-2.5-pro".to_string()),
         active_model_effort: None,
         active_model_thinking: None,
-        usage: nuo_wire::ConnectionUsageState::Available(Box::new(
-            nuo_wire::ProviderUsage {
-                plan: Some("Google One AI Premium".to_string()),
-                description: None,
-                quota: Some(nuo_wire::ProviderQuotaData::Periodic(
-                    nuo_wire::PeriodicQuota {
-                        buckets: vec![nuo_wire::QuotaWindowBucket {
-                            label: "Gemini Pro Agent".to_string(),
-                            used_fraction: 0.72,
-                            used_amount: None,
-                            total_limit: None,
-                            unit: None,
-                            window: Some(nuo_wire::QuotaWindowKind::Daily),
-                            reset_at_ms: None,
-                            reset_time_str: Some("in 3h 25m".to_string()),
-                            group: None,
-                        }],
-                    },
-                )),
-                primary_balance: None,
-                metrics: Vec::new(),
-                updated_at_ms: None,
-            },
-        )),
+        usage: nuo_wire::ConnectionUsageState::Available(Box::new(nuo_wire::ProviderUsage {
+            plan: Some("Google One AI Premium".to_string()),
+            description: None,
+            quota: Some(nuo_wire::ProviderQuotaData::Periodic(
+                nuo_wire::PeriodicQuota {
+                    buckets: vec![nuo_wire::QuotaWindowBucket {
+                        label: "Gemini Pro Agent".to_string(),
+                        used_fraction: 0.72,
+                        used_amount: None,
+                        total_limit: None,
+                        unit: None,
+                        window: Some(nuo_wire::QuotaWindowKind::Daily),
+                        reset_at_ms: None,
+                        reset_time_str: Some("in 3h 25m".to_string()),
+                        group: None,
+                    }],
+                },
+            )),
+            primary_balance: None,
+            metrics: Vec::new(),
+            updated_at_ms: None,
+        })),
         budget: Default::default(),
     };
 

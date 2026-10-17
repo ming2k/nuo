@@ -493,9 +493,8 @@ impl Transcript {
                     .and_then(|imgs| imgs.first())
                     .map(|img| img.mime.clone())
                     .unwrap_or_else(|| "image".to_string());
-                message.content = format!(
-                    "[cleared image payload ({mime}) to protect context budget]"
-                );
+                message.content =
+                    format!("[cleared image payload ({mime}) to protect context budget]");
                 message.images = None;
             } else {
                 last_pruned_tool = None;

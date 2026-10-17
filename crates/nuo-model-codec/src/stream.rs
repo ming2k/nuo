@@ -335,9 +335,7 @@ fn parse_google_chunk(json_val: &serde_json::Value) -> Result<Option<WireChunk>>
         let total = usage_meta["totalTokenCount"]
             .as_u64()
             .unwrap_or((prompt + candidates) as u64) as usize;
-        let cached = usage_meta["cachedContentTokenCount"]
-            .as_u64()
-            .unwrap_or(0) as usize;
+        let cached = usage_meta["cachedContentTokenCount"].as_u64().unwrap_or(0) as usize;
 
         chunk.usage = Some(WireUsage {
             prompt_tokens: prompt,

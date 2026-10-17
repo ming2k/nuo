@@ -3,10 +3,10 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use acp::Fabric;
 use nuo_agent::agent::Agent;
 use nuo_agent::provider::{MockProvider, ModelResponse};
 use nuo_agent::tools::DynamicTool;
-use acp::Fabric;
 use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

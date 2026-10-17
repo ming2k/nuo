@@ -67,13 +67,23 @@ pub struct AnthropicMessagesProvider {
 
 impl AnthropicMessagesProvider {
     pub fn new(api_key: String, model: String, base_url: &str) -> Self {
-        Self::with_base_url_and_user_agent(api_key, model, base_url, nuo_provider_transport::NUO_USER_AGENT)
+        Self::with_base_url_and_user_agent(
+            api_key,
+            model,
+            base_url,
+            nuo_provider_transport::NUO_USER_AGENT,
+        )
     }
 
     /// Build a provider targeting a custom `/messages` base URL with the
     /// default `User-Agent`.
     pub fn with_base_url(api_key: String, model: String, base_url: &str) -> Self {
-        Self::with_base_url_and_user_agent(api_key, model, base_url, nuo_provider_transport::NUO_USER_AGENT)
+        Self::with_base_url_and_user_agent(
+            api_key,
+            model,
+            base_url,
+            nuo_provider_transport::NUO_USER_AGENT,
+        )
     }
 
     /// Build a provider targeting a custom `/messages` base URL with an
@@ -141,7 +151,10 @@ impl AnthropicMessagesProvider {
         self
     }
 
-    pub fn with_prompt_cache(mut self, prompt_cache: nuo_provider_transport::PromptCacheConfig) -> Self {
+    pub fn with_prompt_cache(
+        mut self,
+        prompt_cache: nuo_provider_transport::PromptCacheConfig,
+    ) -> Self {
         self.prompt_cache = prompt_cache;
         self
     }
@@ -177,10 +190,12 @@ impl AnthropicMessagesProvider {
         body: &serde_json::Value,
         auth: &ResolvedAuth,
     ) -> nuo_provider_transport::request::RequestBuilder {
-        let mut req =
-            nuo_provider_transport::request::RequestBuilder::new(http::Method::POST, self.endpoint.base_url())
-                .header(http::header::USER_AGENT, self.endpoint.user_agent())
-                .json(body);
+        let mut req = nuo_provider_transport::request::RequestBuilder::new(
+            http::Method::POST,
+            self.endpoint.base_url(),
+        )
+        .header(http::header::USER_AGENT, self.endpoint.user_agent())
+        .json(body);
         for (name, value) in request::headers(
             auth.token.expose_secret(),
             &self.capabilities,
@@ -425,30 +440,34 @@ impl Provider for AnthropicMessagesProvider {
         // and `message_delta` (output); the accumulator merges them so the
         // emitted Usage events carry the full counts.
         let mut usage_state = response::StreamUsage::default();
-        let stream = nuo_provider_transport::sse::data_payloads(response, "Anthropic").flat_map(move |item| {
-            let events: Vec<Result<ProviderStreamEvent, nuo_model_codec::ProviderError>> = match item
-            {
-                Ok(payload) => {
-                    // Parse-once discipline (ADR-0184): each payload is
-                    // deserialized here and the resulting `Value` is handed
-                    // to every consumer — the signature stash and the stream
-                    // parser alike. Non-JSON payloads (relay keep-alives,
-                    // stray comment lines) are skipped, not errors.
-                    match serde_json::from_str::<serde_json::Value>(&payload) {
-                        Ok(event) => {
-                            sig_stash.on_event(&event);
-                            match response::stream_events(&event, &mut usage_state) {
-                                Ok(parsed) => parsed.into_iter().map(Ok).collect(),
-                                Err(e) => vec![Err(ProviderError::protocol("Anthropic", e))],
+        let stream = nuo_provider_transport::sse::data_payloads(response, "Anthropic").flat_map(
+            move |item| {
+                let events: Vec<Result<ProviderStreamEvent, nuo_model_codec::ProviderError>> =
+                    match item {
+                        Ok(payload) => {
+                            // Parse-once discipline (ADR-0184): each payload is
+                            // deserialized here and the resulting `Value` is handed
+                            // to every consumer — the signature stash and the stream
+                            // parser alike. Non-JSON payloads (relay keep-alives,
+                            // stray comment lines) are skipped, not errors.
+                            match serde_json::from_str::<serde_json::Value>(&payload) {
+                                Ok(event) => {
+                                    sig_stash.on_event(&event);
+                                    match response::stream_events(&event, &mut usage_state) {
+                                        Ok(parsed) => parsed.into_iter().map(Ok).collect(),
+                                        Err(e) => {
+                                            vec![Err(ProviderError::protocol("Anthropic", e))]
+                                        }
+                                    }
+                                }
+                                Err(_) => Vec::new(),
                             }
                         }
-                        Err(_) => Vec::new(),
-                    }
-                }
-                Err(e) => vec![Err(e)],
-            };
-            futures::stream::iter(events)
-        });
+                        Err(e) => vec![Err(e)],
+                    };
+                futures::stream::iter(events)
+            },
+        );
         let terminal = futures::stream::once(async move {
             let artifacts = terminal_stash.take().map(|signature| {
                 let mut map = serde_json::Map::new();

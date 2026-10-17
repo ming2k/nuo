@@ -20,11 +20,11 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 // ── Ports & envelopes (unchanged home: the contract leaf) ──
+pub use nuo_model_codec::CatalogShape;
 pub use nuo_provider::catalog::{
     CatalogSignature, CatalogSigning, DiscoveredModel, ModelListError, RemoteCatalogOptions,
     RemoteCatalogRequest, RemoteCatalogUpdate,
 };
-pub use nuo_model_codec::CatalogShape;
 
 // ── Body moved verbatim from list_models.rs ──
 mod list_models;

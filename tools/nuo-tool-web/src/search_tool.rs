@@ -1,8 +1,8 @@
 use std::sync::{OnceLock, RwLock};
 
 use async_trait::async_trait;
-use nuo_wire::{SharedWebConfig, Tool, WebRuntimeConfig, WebSearchProvider};
 use nuo_tool::{BuiltinTool, ToolSchema};
+use nuo_wire::{SharedWebConfig, Tool, WebRuntimeConfig, WebSearchProvider};
 use serde::Deserialize;
 
 use crate::search::SearchProvider;
@@ -62,8 +62,7 @@ impl WebSearchTool {
             }
         }
         let provider = crate::search::build_provider(&snapshot);
-        let client =
-            crate::http::WebHttp::new(&snapshot.behavior).map(std::sync::Arc::new);
+        let client = crate::http::WebHttp::new(&snapshot.behavior).map(std::sync::Arc::new);
         *self
             .provider
             .write()

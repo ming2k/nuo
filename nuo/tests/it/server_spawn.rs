@@ -103,8 +103,7 @@ async fn spawned_server_inherits_the_nuo_home_sandbox() {
     let deadline = Instant::now() + Duration::from_secs(15);
     let record = loop {
         if let Ok(bytes) = std::fs::read(&own_record)
-            && let Ok(record) =
-                serde_json::from_slice::<nuo::serve_discovery::Discovery>(&bytes)
+            && let Ok(record) = serde_json::from_slice::<nuo::serve_discovery::Discovery>(&bytes)
         {
             break record;
         }

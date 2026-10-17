@@ -582,19 +582,15 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
             },
         })
         .collect::<Vec<_>>();
-    commands.extend(
-        custom
-            .iter()
-            .map(|(name, summary)| nuo_wire::CommandSpec {
-                name: name.clone(),
-                summary: summary.clone(),
-                usage: vec![name.clone()],
-                examples: Vec::new(),
-                intent_keywords: Vec::new(),
-                category: Some("Project".to_string()),
-                subcommands: Vec::new(),
-            }),
-    );
+    commands.extend(custom.iter().map(|(name, summary)| nuo_wire::CommandSpec {
+        name: name.clone(),
+        summary: summary.clone(),
+        usage: vec![name.clone()],
+        examples: Vec::new(),
+        intent_keywords: Vec::new(),
+        category: Some("Project".to_string()),
+        subcommands: Vec::new(),
+    }));
 
     nuo_wire::CommandCatalog {
         commands,
@@ -619,13 +615,11 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
         .collect(),
         suggestions: TRIGGER_WORD_SUGGESTIONS
             .iter()
-            .map(
-                |(trigger, target, reason)| nuo_wire::CommandSuggestion {
-                    trigger: (*trigger).to_string(),
-                    target: (*target).to_string(),
-                    reason: (*reason).to_string(),
-                },
-            )
+            .map(|(trigger, target, reason)| nuo_wire::CommandSuggestion {
+                trigger: (*trigger).to_string(),
+                target: (*target).to_string(),
+                reason: (*reason).to_string(),
+            })
             .collect(),
     }
 }
@@ -681,9 +675,7 @@ pub fn init_tracing() -> Option<WorkerGuard> {
         let lvl = matches!(l.as_str(), "error" | "warn" | "info" | "debug" | "trace")
             .then_some(l.as_str())
             .unwrap_or("info");
-        tracing_subscriber::EnvFilter::new(format!(
-            "nuo={lvl},nuo_wire={lvl},nuo_server={lvl}"
-        ))
+        tracing_subscriber::EnvFilter::new(format!("nuo={lvl},nuo_wire={lvl},nuo_server={lvl}"))
     });
     tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -708,10 +700,7 @@ mod tests {
             BuiltinCmd::from_slash("/sessions"),
             Some(BuiltinCmd::Threads)
         );
-        assert_eq!(
-            BuiltinCmd::from_slash("/resume"),
-            Some(BuiltinCmd::Threads)
-        );
+        assert_eq!(BuiltinCmd::from_slash("/resume"), Some(BuiltinCmd::Threads));
         assert!(!BuiltinCmd::ALL.iter().any(|(name, _)| *name == "/resume"));
         assert!(!BuiltinCmd::ALL.iter().any(|(name, _)| *name == "/sessions"));
         assert!(BuiltinCmd::ALL.iter().any(|(name, _)| *name == "/threads"));
@@ -733,11 +722,17 @@ mod tests {
 
         let catalog = command_catalog(&[]);
         assert!(
-            !catalog.commands.iter().any(|s| s.name == "/dashboard" || s.name == "/settings"),
+            !catalog
+                .commands
+                .iter()
+                .any(|s| s.name == "/dashboard" || s.name == "/settings"),
             "catalog commands must not contain /dashboard or /settings"
         );
         assert!(
-            !catalog.aliases.iter().any(|a| a.name == "/host" || a.name == "/config" || a.target == "/dashboard" || a.target == "/settings"),
+            !catalog.aliases.iter().any(|a| a.name == "/host"
+                || a.name == "/config"
+                || a.target == "/dashboard"
+                || a.target == "/settings"),
             "catalog aliases must not reference /dashboard or /settings"
         );
     }

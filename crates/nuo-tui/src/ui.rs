@@ -292,9 +292,7 @@ impl ComponentTree {
                 InputPolicy::Modal,
                 true,
             ),
-            UiKey::SettingsCategory(_)
-            | UiKey::SettingsOption(_)
-            | UiKey::SettingsRow(_) => (
+            UiKey::SettingsCategory(_) | UiKey::SettingsOption(_) | UiKey::SettingsRow(_) => (
                 Some(UiKey::Root),
                 31,
                 PointerPolicy::Target,

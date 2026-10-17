@@ -78,7 +78,9 @@ mod tests {
             warnings: Vec::new(),
         };
         let res = mutation_output(Path::new("broken.rs"), "fn broken(", patch);
-        let ToolOutput::Patch { warnings, .. } = res else { panic!("expected patch") };
+        let ToolOutput::Patch { warnings, .. } = res else {
+            panic!("expected patch")
+        };
         assert!(!warnings.is_empty());
         assert!(warnings[0].contains("non-blocking syntax diagnostic"));
     }

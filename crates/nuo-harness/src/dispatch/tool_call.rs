@@ -262,9 +262,13 @@ mod tests {
         assert_eq!(call2.arguments, r#"{"items": []}"#);
 
         let text3 = r#"[Executed tool "read_text" with arguments: {"limit": 120, "path": "docs/adr/0046.md"}]"#;
-        let call3 = parse_text_tool_call(text3).expect("should parse executed tool with double quotes");
+        let call3 =
+            parse_text_tool_call(text3).expect("should parse executed tool with double quotes");
         assert_eq!(call3.name, "read_text");
-        assert_eq!(call3.arguments, r#"{"limit": 120, "path": "docs/adr/0046.md"}"#);
+        assert_eq!(
+            call3.arguments,
+            r#"{"limit": 120, "path": "docs/adr/0046.md"}"#
+        );
 
         // Incomplete / truncated arguments must NOT parse as a fallback tool call
         let text4 = r#"[Executed tool "read_text" with arguments: {"limit":120,"offset":1,"path": "docs/adr/018"#;

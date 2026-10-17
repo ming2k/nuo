@@ -249,7 +249,10 @@ impl<'a> CheckpointBuilder<'a> {
     }
 
     /// Build and validate a checkpoint for `plan`.
-    pub async fn build(&self, plan: &CheckpointPlan) -> Result<ValidatedCheckpoint, CheckpointError> {
+    pub async fn build(
+        &self,
+        plan: &CheckpointPlan,
+    ) -> Result<ValidatedCheckpoint, CheckpointError> {
         // INV-CKPT-01: never cut across an open execution group.
         if !plan.boundary_group.is_closed() {
             return Err(CheckpointError::OpenExecutionGroup {
@@ -269,8 +272,11 @@ impl<'a> CheckpointBuilder<'a> {
         }
         let deadline = self.clock.now_ms().saturating_add(self.total_budget_ms);
         let mut work = SummaryWork {
-            deadline: tokio::time::Instant::now() + std::time::Duration::from_millis(self.total_budget_ms),
-            calls: 0, input: 0, output: 0,
+            deadline: tokio::time::Instant::now()
+                + std::time::Duration::from_millis(self.total_budget_ms),
+            calls: 0,
+            input: 0,
+            output: 0,
         };
         let manifest = source_manifest(&plan.facts);
 
@@ -294,7 +300,9 @@ impl<'a> CheckpointBuilder<'a> {
         }
 
         // --- Reduce phase: bounded, with a deterministic join ----------------
-        let mut summary = self.reduce(parts, deadline, &mut work).await
+        let mut summary = self
+            .reduce(parts, deadline, &mut work)
+            .await
             .unwrap_or_else(|_| self.deterministic_template(plan));
         self.append_mandatory(&mut summary, plan)?;
 
@@ -340,7 +348,12 @@ impl<'a> CheckpointBuilder<'a> {
         })
     }
 
-    async fn reduce(&self, mut parts: Vec<String>, deadline: u64, work: &mut SummaryWork) -> Result<String, CheckpointError> {
+    async fn reduce(
+        &self,
+        mut parts: Vec<String>,
+        deadline: u64,
+        work: &mut SummaryWork,
+    ) -> Result<String, CheckpointError> {
         let mut depth = 0;
         loop {
             let joined = parts.join("\n\n");
@@ -376,48 +389,86 @@ impl<'a> CheckpointBuilder<'a> {
                     _ => next.push(shard.rendered.clone()),
                 }
             }
-            if next.iter().map(|p| tokenizer::count_tokens(p)).sum::<usize>() >= tokens as usize {
-                return Err(CheckpointError::OverCeiling { tokens, ceiling: self.output_ceiling });
+            if next
+                .iter()
+                .map(|p| tokenizer::count_tokens(p))
+                .sum::<usize>()
+                >= tokens as usize
+            {
+                return Err(CheckpointError::OverCeiling {
+                    tokens,
+                    ceiling: self.output_ceiling,
+                });
             }
             parts = next;
             depth += 1;
         }
     }
 
-    async fn call_summary(&self, shard: &SummaryShard, deadline_ms: u64, work: &mut SummaryWork)
-        -> Result<String, SummaryFailure> {
+    async fn call_summary(
+        &self,
+        shard: &SummaryShard,
+        deadline_ms: u64,
+        work: &mut SummaryWork,
+    ) -> Result<String, SummaryFailure> {
         // Reserve before dispatch. Failed/unknown calls do not refund budget.
         let max_total = self.output_ceiling.saturating_mul(8);
-        if shard.tokens > self.output_ceiling || work.calls >= 16
+        if shard.tokens > self.output_ceiling
+            || work.calls >= 16
             || work.input.saturating_add(shard.tokens) > max_total
-            || work.output.saturating_add(self.output_ceiling) > max_total {
-            return Err(SummaryFailure::Error("summary work budget exhausted".into()));
+            || work.output.saturating_add(self.output_ceiling) > max_total
+        {
+            return Err(SummaryFailure::Error(
+                "summary work budget exhausted".into(),
+            ));
         }
         work.calls += 1;
         work.input += shard.tokens;
         work.output += self.output_ceiling;
-        let deadline = work.deadline.min(tokio::time::Instant::now()
-            + std::time::Duration::from_millis(self.call_timeout_ms));
-        let text = tokio::time::timeout_at(deadline,
-            self.summarizer.summarize(shard, self.output_ceiling, deadline_ms, self.clock.now_ms()))
-            .await.map_err(|_| SummaryFailure::Timeout)??;
+        let deadline = work.deadline.min(
+            tokio::time::Instant::now() + std::time::Duration::from_millis(self.call_timeout_ms),
+        );
+        let text = tokio::time::timeout_at(
+            deadline,
+            self.summarizer
+                .summarize(shard, self.output_ceiling, deadline_ms, self.clock.now_ms()),
+        )
+        .await
+        .map_err(|_| SummaryFailure::Timeout)??;
         let tokens = tokenizer::count_tokens(&text) as u64;
-        if tokens > self.output_ceiling { return Err(SummaryFailure::TooLong { tokens, ceiling: self.output_ceiling }); }
-        if text.trim().is_empty() { return Err(SummaryFailure::Empty); }
+        if tokens > self.output_ceiling {
+            return Err(SummaryFailure::TooLong {
+                tokens,
+                ceiling: self.output_ceiling,
+            });
+        }
+        if text.trim().is_empty() {
+            return Err(SummaryFailure::Empty);
+        }
         Ok(text)
     }
 
-    fn append_mandatory(&self, summary: &mut String, plan: &CheckpointPlan) -> Result<(), CheckpointError> {
+    fn append_mandatory(
+        &self,
+        summary: &mut String,
+        plan: &CheckpointPlan,
+    ) -> Result<(), CheckpointError> {
         summary.push_str("\n## Required source state\n");
         for id in &plan.mandatory_fact_refs {
-            let fact = plan.facts.iter().find(|f| f.id == *id)
-                .ok_or_else(|| CheckpointError::MissingMandatoryRef { fact_id: id.clone() })?;
+            let fact = plan.facts.iter().find(|f| f.id == *id).ok_or_else(|| {
+                CheckpointError::MissingMandatoryRef {
+                    fact_id: id.clone(),
+                }
+            })?;
             summary.push_str(&render_fact(fact));
             summary.push('\n');
         }
         for call in plan.boundary_group.unresolved_external_calls() {
-            summary.push_str(&format!("External outcome remains unknown: {} ({:?}); do not replay.\n",
-                call.execution_id.as_str(), call.external));
+            summary.push_str(&format!(
+                "External outcome remains unknown: {} ({:?}); do not replay.\n",
+                call.execution_id.as_str(),
+                call.external
+            ));
         }
         Ok(())
     }
@@ -564,7 +615,9 @@ pub const DEFAULT_CAS_ATTEMPTS: u32 = nuo_wire::context_lifecycle::CAS_MAX_ATTEM
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::context_lifecycle::{ResultAcceptance, ExternalExecution, FactPayload, GroupCall, RoundId, TurnId};
+    use nuo_wire::context_lifecycle::{
+        ExternalExecution, FactPayload, GroupCall, ResultAcceptance, RoundId, TurnId,
+    };
 
     struct StubSummarizer {
         respond: bool,
@@ -572,7 +625,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-impl Summarizer for StubSummarizer {
+    impl Summarizer for StubSummarizer {
         async fn summarize(
             &self,
             _shard: &SummaryShard,
@@ -657,7 +710,13 @@ impl Summarizer for StubSummarizer {
     struct PendingSummarizer;
     #[async_trait::async_trait]
     impl Summarizer for PendingSummarizer {
-        async fn summarize(&self, _: &SummaryShard, _: u64, _: u64, _: u64) -> Result<String, SummaryFailure> {
+        async fn summarize(
+            &self,
+            _: &SummaryShard,
+            _: u64,
+            _: u64,
+            _: u64,
+        ) -> Result<String, SummaryFailure> {
             std::future::pending().await
         }
     }
@@ -669,7 +728,9 @@ impl Summarizer for StubSummarizer {
         let builder = CheckpointBuilder::new(&sum, &clock, 1, 10, 4096);
         let p = plan(vec![fact(1)], closed_group(), vec!["f1".into()]);
         let out = tokio::time::timeout(std::time::Duration::from_millis(200), builder.build(&p))
-            .await.unwrap().unwrap();
+            .await
+            .unwrap()
+            .unwrap();
         assert!(out.used_fallback);
         assert!(out.checkpoint.summary.contains("message 1"));
     }
@@ -678,7 +739,9 @@ impl Summarizer for StubSummarizer {
     async fn source_manifest_hash_covers_payload_not_only_ids() {
         let a = fact(1);
         let mut b = a.clone();
-        b.payload = FactPayload::UserMessage { text: "changed constraint".into() };
+        b.payload = FactPayload::UserMessage {
+            text: "changed constraint".into(),
+        };
         assert_ne!(source_manifest(&[a]), source_manifest(&[b]));
     }
 
@@ -772,6 +835,9 @@ impl Summarizer for StubSummarizer {
         let sum = FailingSummarizer;
         let builder = CheckpointBuilder::new(&sum, &clock, 45_000, 120_000, 4_096);
         let p = plan(vec![], closed_group(), vec![]);
-        assert_eq!(builder.build(&p).await.unwrap_err(), CheckpointError::EmptySource);
+        assert_eq!(
+            builder.build(&p).await.unwrap_err(),
+            CheckpointError::EmptySource
+        );
     }
 }

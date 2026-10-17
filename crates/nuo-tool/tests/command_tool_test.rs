@@ -80,9 +80,8 @@ async fn command_tool_enforces_cancellation() {
     #[cfg(not(windows))]
     let sleep_cmd = "sleep 5";
 
-    let handle = tokio::spawn(async move {
-        tool.execute(&ctx, json!({"command": sleep_cmd})).await
-    });
+    let handle =
+        tokio::spawn(async move { tool.execute(&ctx, json!({"command": sleep_cmd})).await });
 
     // Cancel after 50ms
     tokio::time::sleep(Duration::from_millis(50)).await;

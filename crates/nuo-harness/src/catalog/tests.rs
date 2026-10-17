@@ -2,7 +2,6 @@
 //! connections + presets + catalog cache, credential resolution, per-route
 //! reasoning, the fitted-model overlay, and live catalog sync.
 
-
 use super::derive::{
     DerivationInputs, derive_channel, derive_entries, resolve_credential, route_models,
 };
@@ -12,11 +11,6 @@ use super::{
     build_catalog, build_picker_state, refresh_connection_models_for_etag, sync_connection_catalog,
     sync_fitted_model_registry, sync_remote_catalog,
 };
-use nuo_wire::catalog::Transport;
-use nuo_wire::{
-    ConnectionAuth, ConnectionFilterPolicy, Effort, NamedFilterPolicy, OpenAiResponsesDialect,
-    ReasoningMode, WireProtocol,
-};
 use nuo_persistence::config::{
     Config, Credentials, FittedModelInfo, ModelListCacheState, RemoteCatalogCache,
 };
@@ -24,6 +18,11 @@ use nuo_persistence::connections::{Connection, Connections};
 use nuo_persistence::route_settings::RouteSettingsStore;
 use nuo_provider::oauth::{CredentialStore, TokenSet};
 use nuo_provider::{DEEPSEEK_BUILTIN_MODELS, route_for_model};
+use nuo_wire::catalog::Transport;
+use nuo_wire::{
+    ConnectionAuth, ConnectionFilterPolicy, Effort, NamedFilterPolicy, OpenAiResponsesDialect,
+    ReasoningMode, WireProtocol,
+};
 
 use std::sync::Mutex;
 
@@ -241,7 +240,15 @@ fn provider_dialect_is_inherited_independently_of_auth_and_remote_protocol() {
                         ..Default::default()
                     },
                 );
-            let channel = derive_channel(&conn, model, &inputs_of(&cache, &RouteSettingsStore::default(), &Credentials::default()))
+            let channel = derive_channel(
+                &conn,
+                model,
+                &inputs_of(
+                    &cache,
+                    &RouteSettingsStore::default(),
+                    &Credentials::default(),
+                ),
+            )
             .unwrap();
             assert!(matches!(
                 channel.transport,
@@ -256,7 +263,15 @@ fn provider_dialect_is_inherited_independently_of_auth_and_remote_protocol() {
     // Credential type cannot turn an ordinary Google service into Antigravity.
     let mut conn = instance("native-google", Some("google"));
     conn.auth = ConnectionAuth::subscription("google-antigravity");
-    let channel = derive_channel(&conn, "gemini-3.8-flash", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+    let channel = derive_channel(
+        &conn,
+        "gemini-3.8-flash",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     assert!(matches!(
         channel.transport,
@@ -299,7 +314,15 @@ fn provider_dialect_follows_model_protocol_across_service_families() {
                     ..Default::default()
                 },
             );
-        let channel = derive_channel(&conn, "remote-model", &inputs_of(&cache, &RouteSettingsStore::default(), &Credentials::default()))
+        let channel = derive_channel(
+            &conn,
+            "remote-model",
+            &inputs_of(
+                &cache,
+                &RouteSettingsStore::default(),
+                &Credentials::default(),
+            ),
+        )
         .unwrap();
         let (dialect, endpoint) = match channel.transport {
             Transport::OpenAi {
@@ -375,7 +398,15 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
         auth.set(&conn.name, t);
         auth.commit().await.unwrap();
     }
-    let channel = derive_channel(&conn, model, &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+    let channel = derive_channel(
+        &conn,
+        model,
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     let provider = nuo_provider::build_provider_for_channel(&channel, &conn.name, None);
     for streaming in [false, true] {
@@ -438,7 +469,15 @@ fn openrouter_connection_derives_gateway_dialect_and_nex_seed() {
         route_models(&connection, &RemoteCatalogCache::default(), &declarations()),
         vec!["nex-agi/nex-n2.5-pro:free"]
     );
-    let channel = derive_channel(&connection, "nex-agi/nex-n2.5-pro:free", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+    let channel = derive_channel(
+        &connection,
+        "nex-agi/nex-n2.5-pro:free",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     assert!(matches!(
         channel.transport,
@@ -498,7 +537,10 @@ fn discovered_model_list_prefers_the_cache() {
         vec!["deepseek-v4-flash".to_string()],
     );
     let deepseek = instance("deepseek", Some("deepseek"));
-    assert_eq!(route_models(&deepseek, &cache, &declarations()), vec!["deepseek-v4-flash"]);
+    assert_eq!(
+        route_models(&deepseek, &cache, &declarations()),
+        vec!["deepseek-v4-flash"]
+    );
 }
 
 #[test]
@@ -535,8 +577,14 @@ fn declared_extra_models_union_after_the_derived_set() {
     // Scoping: a second deepseek connection without extras derives nothing —
     // its snapshot floor is untouched and no extra id appears.
     let other = instance("ds-other", Some("deepseek"));
-    assert_eq!(route_models(&other, &cache, &declarations()), DEEPSEEK_BUILTIN_MODELS);
-    assert!(!route_models(&other, &cache, &declarations()).contains(&"deepseek-v4-pro-preview-0912".to_string()));
+    assert_eq!(
+        route_models(&other, &cache, &declarations()),
+        DEEPSEEK_BUILTIN_MODELS
+    );
+    assert!(
+        !route_models(&other, &cache, &declarations())
+            .contains(&"deepseek-v4-pro-preview-0912".to_string())
+    );
 
     // A declared id the catalog list already carries is deduped, not doubled.
     let mut cache_hit = RemoteCatalogCache::default();
@@ -547,7 +595,10 @@ fn declared_extra_models_union_after_the_derived_set() {
             "deepseek-v4-pro-preview-0912".to_string(),
         ],
     );
-    assert_eq!(route_models(&deepseek, &cache_hit, &declarations()).len(), 2);
+    assert_eq!(
+        route_models(&deepseek, &cache_hit, &declarations()).len(),
+        2
+    );
 }
 
 #[test]
@@ -559,7 +610,15 @@ fn declared_extra_model_rides_the_preset_route_with_declared_capabilities() {
         vision: Some(true),
         ..Default::default()
     }];
-    let channel = derive_channel(&deepseek, "deepseek-v4-pro-preview-0912", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+    let channel = derive_channel(
+        &deepseek,
+        "deepseek-v4-pro-preview-0912",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     // Routing falls through to the preset's derived route (DeepSeek Responses).
     match &channel.transport {
@@ -605,9 +664,16 @@ fn custom_instance_serves_its_declared_models() {
         route_models(&custom, &RemoteCatalogCache::default(), &declarations()),
         vec!["a", "b"]
     );
-    let entry = derive_entries(&Connections {
+    let entry = derive_entries(
+        &Connections {
             connections: vec![custom],
-        }, &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+        },
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .pop()
     .expect("one entry");
     assert_eq!(entry.name, "relay");
@@ -689,7 +755,10 @@ fn remote_catalog_provider_defaults_to_open_admission() {
         .insert("chatgpt".to_string(), vec!["gpt-6-astra".to_string()]);
     let connection = instance("chatgpt", Some("openai-subscription"));
 
-    assert_eq!(route_models(&connection, &cache, &declarations()), vec!["gpt-6-astra"]);
+    assert_eq!(
+        route_models(&connection, &cache, &declarations()),
+        vec!["gpt-6-astra"]
+    );
 
     cache.connection_models.remove("chatgpt");
     cache
@@ -719,7 +788,15 @@ fn catalog_cache_identity_tracks_client_emulation() {
 #[test]
 fn deepseek_route_is_the_responses_transport() {
     let deepseek = instance("deepseek", Some("deepseek"));
-    let channel = derive_channel(&deepseek, "deepseek-v4-flash", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+    let channel = derive_channel(
+        &deepseek,
+        "deepseek-v4-flash",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     match &channel.transport {
         Transport::OpenAiResponses {
@@ -736,19 +813,43 @@ fn deepseek_route_is_the_responses_transport() {
 fn opencode_go_routes_models_by_wire_format() {
     ensure_test_init();
     let go = instance("opencode-go", Some("opencode-go"));
-    let glm = derive_channel(&go, "glm-5.2", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+    let glm = derive_channel(
+        &go,
+        "glm-5.2",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     assert!(
         matches!(&glm.transport, Transport::OpenAi { base_url, client_profile, .. } if base_url == "https://opencode.ai/zen/go/v1/chat/completions" && *client_profile == nuo_wire::ClientProfile::OpenCode),
         "glm-5.2 must route to OpenAI chat-completions on zen/go relay with OpenCode client profile"
     );
-    let minimax = derive_channel(&go, "minimax-m3", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+    let minimax = derive_channel(
+        &go,
+        "minimax-m3",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     assert!(
         matches!(&minimax.transport, Transport::Anthropic { base_url, .. } if base_url == "https://opencode.ai/inference/go/anthropic/v1/messages"),
         "minimax-m3 must route to the Anthropic inference/go surface"
     );
-    let qwen = derive_channel(&go, "qwen3.6-plus", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+    let qwen = derive_channel(
+        &go,
+        "qwen3.6-plus",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     assert!(
         matches!(&qwen.transport, Transport::Anthropic { base_url, .. } if base_url == "https://opencode.ai/inference/go/anthropic/v1/messages"),
@@ -766,13 +867,29 @@ fn opencode_go_routes_models_by_wire_format() {
 #[test]
 fn opencode_console_routes_models_by_wire_format() {
     let console = instance("opencode", Some("opencode"));
-    let deepseek = derive_channel(&console, "deepseek-v4-flash", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+    let deepseek = derive_channel(
+        &console,
+        "deepseek-v4-flash",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     assert!(
         matches!(&deepseek.transport, Transport::OpenAi { base_url, client_profile, .. } if base_url == "https://opencode.ai/inference/openai/v1/chat/completions" && *client_profile == nuo_wire::ClientProfile::OpenCode),
         "deepseek-v4-flash must route to OpenAI chat-completions on Console inference surface"
     );
-    let claude = derive_channel(&console, "claude-sonnet-4-6", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+    let claude = derive_channel(
+        &console,
+        "claude-sonnet-4-6",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     assert!(
         matches!(&claude.transport, Transport::Anthropic { base_url, .. } if base_url == "https://opencode.ai/inference/anthropic/v1/messages"),
@@ -799,7 +916,15 @@ fn openai_route_uses_official_api_not_opencode_go_relay() {
     assert_eq!(base_url, "https://api.openai.com/v1/chat/completions");
 
     let openai_conn = instance("openai-main", Some("openai"));
-    let channel = derive_channel(&openai_conn, "gpt-4o", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+    let channel = derive_channel(
+        &openai_conn,
+        "gpt-4o",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     match &channel.transport {
         Transport::OpenAi { base_url, .. } => {
@@ -812,7 +937,15 @@ fn openai_route_uses_official_api_not_opencode_go_relay() {
 #[test]
 fn connection_uses_provider_transport_endpoint() {
     let relay_conn = instance("corp-relay", Some("openai"));
-    let channel = derive_channel(&relay_conn, "gpt-4o", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+    let channel = derive_channel(
+        &relay_conn,
+        "gpt-4o",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     match &channel.transport {
         Transport::OpenAi { base_url, .. } => {
@@ -825,7 +958,15 @@ fn connection_uses_provider_transport_endpoint() {
 #[test]
 fn preset_instance_always_uses_the_hardcoded_template_endpoint() {
     let deepseek = instance("deepseek", Some("deepseek"));
-    let channel = derive_channel(&deepseek, "deepseek-v4-flash", &inputs_of(&RemoteCatalogCache::default(), &RouteSettingsStore::default(), &Credentials::default()))
+    let channel = derive_channel(
+        &deepseek,
+        "deepseek-v4-flash",
+        &inputs_of(
+            &RemoteCatalogCache::default(),
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     match &channel.transport {
         Transport::OpenAiResponses { base_url, .. } => {
@@ -885,7 +1026,11 @@ fn reasoning_route_settings_apply_to_anthropic_routes() {
         .thinking = Some(false);
 
     let anthropic = instance("anthropic", Some("anthropic"));
-    let channel = derive_channel(&anthropic, "claude-opus-4-8", &inputs_of(&cache, &routes, &Credentials::default()))
+    let channel = derive_channel(
+        &anthropic,
+        "claude-opus-4-8",
+        &inputs_of(&cache, &routes, &Credentials::default()),
+    )
     .unwrap();
     match &channel.transport {
         Transport::Anthropic {
@@ -897,7 +1042,11 @@ fn reasoning_route_settings_apply_to_anthropic_routes() {
         other => panic!("expected Anthropic transport, got {other:?}"),
     }
     // A sibling model with no entry stays at the opt-in default (off).
-    let sonnet = derive_channel(&anthropic, "claude-sonnet-4-6", &inputs_of(&cache, &routes, &Credentials::default()))
+    let sonnet = derive_channel(
+        &anthropic,
+        "claude-sonnet-4-6",
+        &inputs_of(&cache, &routes, &Credentials::default()),
+    )
     .unwrap();
     match &sonnet.transport {
         Transport::Anthropic {
@@ -930,7 +1079,15 @@ fn copilot_route_uses_remote_endpoint_metadata() {
         auth: nuo_wire::ConnectionAuth::subscription("copilot"),
         ..Default::default()
     };
-    let channel = derive_channel(&copilot, "gpt-5", &inputs_of(&cache, &RouteSettingsStore::default(), &Credentials::default()))
+    let channel = derive_channel(
+        &copilot,
+        "gpt-5",
+        &inputs_of(
+            &cache,
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     assert!(
         matches!(
@@ -972,7 +1129,15 @@ fn model_level_protocol_cascade_resolution() {
         provider: "corp-relay-test-prov".to_string(),
         ..Default::default()
     };
-    let channel = derive_channel(&conn, "claude-custom", &inputs_of(&cache, &RouteSettingsStore::default(), &Credentials::default()))
+    let channel = derive_channel(
+        &conn,
+        "claude-custom",
+        &inputs_of(
+            &cache,
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     assert!(
         matches!(
@@ -1325,7 +1490,15 @@ async fn opencode_console_catalog_materializes_per_model_routes() {
     // Derivation honors the advertised root: the Anthropic model builds its
     // transport against the Console Anthropic surface, not the spec default.
     let conn = instance("console", Some(provider_id));
-    let channel = derive_channel(&conn, "claude-opus-5", &inputs_of(&cache, &RouteSettingsStore::default(), &Credentials::default()))
+    let channel = derive_channel(
+        &conn,
+        "claude-opus-5",
+        &inputs_of(
+            &cache,
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     assert!(
         matches!(&channel.transport, Transport::Anthropic { base_url, .. }
@@ -1563,7 +1736,14 @@ async fn successful_empty_remote_catalog_clears_previous_models() {
     let cache = RemoteCatalogCache::load();
     assert_eq!(cache.connection_models.get("deepseek"), Some(&Vec::new()));
     let connections = Connections::load();
-    assert!(route_models(connections.get("deepseek").unwrap(), &cache, &declarations()).is_empty());
+    assert!(
+        route_models(
+            connections.get("deepseek").unwrap(),
+            &cache,
+            &declarations()
+        )
+        .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -1666,16 +1846,8 @@ fn antigravity_models_derivation_and_hidden_filter() {
         .find(|r| r.id == "g11")
         .expect("g11 in picker");
 
-    assert!(
-        g11_row
-            .models
-            .contains(&"gemini-3.8-flash".to_string())
-    );
-    assert!(
-        g11_row
-            .models
-            .contains(&"gemini-4-argon".to_string())
-    );
+    assert!(g11_row.models.contains(&"gemini-3.8-flash".to_string()));
+    assert!(g11_row.models.contains(&"gemini-4-argon".to_string()));
     assert!(
         !g11_row
             .models
@@ -1881,12 +2053,10 @@ fn adr0199_preset_scope_and_instance_scope_cascade() {
 
     let mut providers = ModelProviders::default();
     let ds_preset = providers.get_or_create_mut("deepseek");
-    ds_preset
-        .include
-        .push(nuo_wire::model::DeclaredModel {
-            id: "deepseek-preset-preview".to_string(),
-            ..Default::default()
-        });
+    ds_preset.include.push(nuo_wire::model::DeclaredModel {
+        id: "deepseek-preset-preview".to_string(),
+        ..Default::default()
+    });
     // Preset excludes deepseek-chat
     ds_preset.exclude.push("deepseek-chat".to_string());
 
@@ -1894,13 +2064,10 @@ fn adr0199_preset_scope_and_instance_scope_cascade() {
     // Connection instance excludes deepseek-coder
     conn1.models.exclude.push("deepseek-coder".to_string());
     // Connection instance includes an instance-specific model
-    conn1
-        .models
-        .include
-        .push(nuo_wire::model::DeclaredModel {
-            id: "deepseek-instance-private".to_string(),
-            ..Default::default()
-        });
+    conn1.models.include.push(nuo_wire::model::DeclaredModel {
+        id: "deepseek-instance-private".to_string(),
+        ..Default::default()
+    });
 
     let models1 = route_models(&conn1, &RemoteCatalogCache::default(), &providers);
     assert!(
@@ -1950,7 +2117,15 @@ fn provider_dialect_rejects_incompatible_remote_protocol_without_panicking() {
                     ..Default::default()
                 },
             );
-        let error = derive_channel(&conn, "remote-model", &inputs_of(&cache, &RouteSettingsStore::default(), &Credentials::default()))
+        let error = derive_channel(
+            &conn,
+            "remote-model",
+            &inputs_of(
+                &cache,
+                &RouteSettingsStore::default(),
+                &Credentials::default(),
+            ),
+        )
         .unwrap_err();
         assert!(
             error
@@ -1982,7 +2157,15 @@ fn provider_dialect_selects_endpoint_after_remote_protocol_override() {
                 ..Default::default()
             },
         );
-    let channel = derive_channel(&conn, "glm-5.2", &inputs_of(&cache, &RouteSettingsStore::default(), &Credentials::default()))
+    let channel = derive_channel(
+        &conn,
+        "glm-5.2",
+        &inputs_of(
+            &cache,
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     assert!(
         matches!(channel.transport, Transport::Anthropic { ref base_url, .. }
@@ -2009,7 +2192,15 @@ fn catalog_advertised_root_replaces_the_compiled_spec_route() {
                 ..Default::default()
             },
         );
-    let channel = derive_channel(&conn, "glm-5.3", &inputs_of(&cache, &RouteSettingsStore::default(), &Credentials::default()))
+    let channel = derive_channel(
+        &conn,
+        "glm-5.3",
+        &inputs_of(
+            &cache,
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap();
     // The Google protocol carries no suffix: the advertised root is verbatim.
     assert!(
@@ -2028,7 +2219,15 @@ fn catalog_advertised_root_replaces_the_compiled_spec_route() {
         .get_mut("glm-5.3")
         .unwrap()
         .endpoint = Some("not a url".to_string());
-    let error = derive_channel(&conn, "glm-5.3", &inputs_of(&cache, &RouteSettingsStore::default(), &Credentials::default()))
+    let error = derive_channel(
+        &conn,
+        "glm-5.3",
+        &inputs_of(
+            &cache,
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
     .unwrap_err();
     assert!(error.message().contains("catalog-advertised root"));
 }

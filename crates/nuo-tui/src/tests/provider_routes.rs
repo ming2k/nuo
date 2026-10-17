@@ -87,12 +87,18 @@ fn completions_settings_and_dashboard_purged_from_session_completions() {
     app.input = "/settings".to_string();
     app.cursor_position = app.input.chars().count();
     let completions = app.completions();
-    assert!(completions.is_empty(), "expected no completion for /settings");
+    assert!(
+        completions.is_empty(),
+        "expected no completion for /settings"
+    );
 
     app.input = "/dashboard".to_string();
     app.cursor_position = app.input.chars().count();
     let completions = app.completions();
-    assert!(completions.is_empty(), "expected no completion for /dashboard");
+    assert!(
+        completions.is_empty(),
+        "expected no completion for /dashboard"
+    );
 }
 
 #[test]
@@ -632,7 +638,9 @@ fn sessions_picker_data_refresh_does_not_reset_cursor_when_already_open() {
         .collect::<Vec<_>>();
     app.open_dialog(crate::surfaces::DialogKind::Sessions);
     app.set_active_index(3);
-    app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().scroll = 2;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::SessionsDialog>()
+        .scroll = 2;
 
     // Simulate the refresh path (open_sessions signal + fresh overview) with
     // the dialog ALREADY open: cursor and scroll must be preserved.
@@ -640,12 +648,19 @@ fn sessions_picker_data_refresh_does_not_reset_cursor_when_already_open() {
     if opening {
         app.open_dialog(crate::surfaces::DialogKind::Sessions);
         app.set_active_index(0);
-        app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().scroll = 0;
-        app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().follow = true;
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionsDialog>()
+            .scroll = 0;
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionsDialog>()
+            .follow = true;
     }
     assert_eq!(app.active_index(), 3, "refresh while open keeps the cursor");
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().scroll, 2,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionsDialog>()
+            .scroll,
+        2,
         "refresh while open keeps the scroll"
     );
 
@@ -656,12 +671,19 @@ fn sessions_picker_data_refresh_does_not_reset_cursor_when_already_open() {
     if opening {
         app.open_dialog(crate::surfaces::DialogKind::Sessions);
         app.set_active_index(0);
-        app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().scroll = 0;
-        app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().follow = true;
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionsDialog>()
+            .scroll = 0;
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionsDialog>()
+            .follow = true;
     }
     assert_eq!(app.active_index(), 0, "a genuine open resets the cursor");
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().scroll, 0,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::SessionsDialog>()
+            .scroll,
+        0,
         "a genuine open resets the scroll"
     );
 }
@@ -722,7 +744,10 @@ fn custom_connection_submits_with_multiple_comma_separated_models() {
     match req1 {
         nuo_wire::AgentRequest::RegisterProvider { id, root_url, .. } => {
             assert_eq!(id, "custom-wechat-multi");
-            assert_eq!(root_url, "https://chatapi.weixin.qq.com/openai/v1/chat/completions");
+            assert_eq!(
+                root_url,
+                "https://chatapi.weixin.qq.com/openai/v1/chat/completions"
+            );
         }
         _ => panic!("Expected RegisterProvider request"),
     }
@@ -782,23 +807,21 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
     // by the new name) and then the `EditConnection` metadata update.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::surfaces::DialogKind::Connections);
-    app.provider_picker
-        .rows
-        .push(nuo_wire::ProviderPickerRow {
-            id: "my-relay".to_string(),
-            name: "My Relay".to_string(),
-            model: "glm-5.2".to_string(),
-            models: vec!["glm-5.2".to_string()],
-            model_info: Vec::new(),
-            builtin: false,
-            protocol: "chat-completions".to_string(),
-            base_url: "https://relay.example.com/v1".to_string(),
-            key_ready: true,
-            provider: "custom".to_string(),
-            client_identity: Default::default(),
-            last_used_ms: None,
-            auth: nuo_wire::ConnectionAuth::ApiKey,
-        });
+    app.provider_picker.rows.push(nuo_wire::ProviderPickerRow {
+        id: "my-relay".to_string(),
+        name: "My Relay".to_string(),
+        model: "glm-5.2".to_string(),
+        models: vec!["glm-5.2".to_string()],
+        model_info: Vec::new(),
+        builtin: false,
+        protocol: "chat-completions".to_string(),
+        base_url: "https://relay.example.com/v1".to_string(),
+        key_ready: true,
+        provider: "custom".to_string(),
+        client_identity: Default::default(),
+        last_used_ms: None,
+        auth: nuo_wire::ConnectionAuth::ApiKey,
+    });
     app.open_edit_provider_editor(
         "my-relay".to_string(),
         "My Relay".to_string(),
@@ -836,11 +859,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
     }
     let edit = rx.try_recv().expect("metadata edit third");
     match edit {
-        nuo_wire::AgentRequest::EditConnection {
-            name,
-            provider,
-            ..
-        } => {
+        nuo_wire::AgentRequest::EditConnection { name, provider, .. } => {
             assert_eq!(name, "My Relay Renamed", "the edit follows the rename");
             assert_eq!(provider, "custom");
         }
@@ -864,8 +883,16 @@ async fn open_active_connection_detail_opens_standalone_and_closes_to_none() {
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::Connections)
     );
-    assert!(app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail);
-    assert!(app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_standalone);
+    assert!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+            .info_detail
+    );
+    assert!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+            .info_standalone
+    );
 
     let req = rx.try_recv().expect("should query connection detail");
     match req {
@@ -878,8 +905,16 @@ async fn open_active_connection_detail_opens_standalone_and_closes_to_none() {
     // Esc in standalone connection detail closes directly to None (no drill-down backout)
     crate::event_loop::handle_close_modal(&mut app, "s1");
     assert!(app.surfaces.active_overlay().is_none());
-    assert!(!app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail);
-    assert!(!app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_standalone);
+    assert!(
+        !app.surfaces
+            .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+            .info_detail
+    );
+    assert!(
+        !app.surfaces
+            .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+            .info_standalone
+    );
 }
 
 #[tokio::test]
@@ -914,14 +949,21 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
         crate::event_loop::AppMutation::ConnectionDetail(detail_phase1.clone()),
     );
 
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll, 0);
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+            .info_scroll,
+        0
+    );
     assert_eq!(
         app.connection_detail.as_ref().map(|d| &d.name),
         Some(&"google-antigravity".to_string())
     );
 
     // User scrolls down while reading the connection details
-    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll = 5;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+        .info_scroll = 5;
 
     // Phase 2 quotas arrive for the same connection
     let mut detail_phase2 = detail_phase1.clone();
@@ -935,7 +977,10 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
 
     // Scroll must be preserved and not jump to 0!
     assert_eq!(
-        app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll, 5,
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+            .info_scroll,
+        5,
         "quota loading must preserve scroll position"
     );
 }
@@ -948,7 +993,9 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
     let runtime = crate::event_loop::UiRuntime::minimal_for_test();
 
     app.open_dialog(crate::surfaces::DialogKind::Connections);
-    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+        .info_detail = true;
     app.connection_detail = Some(nuo_wire::ConnectionDetail {
         name: "custom-relay".to_string(),
         provider: "custom".to_string(),
@@ -1002,7 +1049,11 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     let runtime = crate::event_loop::UiRuntime::minimal_for_test();
 
     app.open_dialog(crate::surfaces::DialogKind::Models);
-    assert!(!app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().refreshing);
+    assert!(
+        !app.surfaces
+            .dlg_mut::<crate::surfaces::ModelsDialog>()
+            .refreshing
+    );
 
     // First press: initiates refresh, sets models_refreshing, shows toast, sends request
     let flow = crate::event_loop::actions::dispatch_action_for_test(
@@ -1014,15 +1065,16 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     .await;
 
     assert_eq!(flow, crate::event_loop::actions::ActionFlow::Handled);
-    assert!(app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().refreshing);
+    assert!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ModelsDialog>()
+            .refreshing
+    );
     assert_eq!(app.copy_toast_message, "Refreshing models…");
     assert!(app.copy_toast_until.is_some());
 
     let req = rx.try_recv().expect("should send refresh request");
-    assert!(matches!(
-        req,
-        nuo_wire::AgentRequest::RefreshProviderModels
-    ));
+    assert!(matches!(req, nuo_wire::AgentRequest::RefreshProviderModels));
 
     // Second press while refreshing: warns already in progress, does not send duplicate request
     let flow2 = crate::event_loop::actions::dispatch_action_for_test(
@@ -1034,7 +1086,11 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     .await;
 
     assert_eq!(flow2, crate::event_loop::actions::ActionFlow::Handled);
-    assert!(app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().refreshing);
+    assert!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::ModelsDialog>()
+            .refreshing
+    );
     assert_eq!(app.copy_toast_message, "Model refresh already in progress…");
     assert!(rx.try_recv().is_err(), "should not send duplicate request");
 
@@ -1042,11 +1098,13 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     crate::event_loop::apply::apply(
         &mut app,
         &runtime,
-        crate::event_loop::AppMutation::ProviderPicker(
-            nuo_wire::ProviderPickerSnapshot::default(),
-        ),
+        crate::event_loop::AppMutation::ProviderPicker(nuo_wire::ProviderPickerSnapshot::default()),
     );
-    assert!(!app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().refreshing);
+    assert!(
+        !app.surfaces
+            .dlg_mut::<crate::surfaces::ModelsDialog>()
+            .refreshing
+    );
 
     // When NoticeToast arrives, local copy toast is cleared so server notice is visible
     app.copy_toast_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
@@ -1116,11 +1174,15 @@ fn test_tui_connection_editor_cycles_budget_and_renders_detail() {
         ..Default::default()
     };
     let rows = crate::overlays::provider::connections::connection_detail_body(
-        &detail,
-        false,
-        0,
-        &app.theme,
+        &detail, false, 0, &app.theme,
     );
-    let budget_row = rows.iter().find(|r| r.prefix.iter().any(|seg| seg.text.contains("Budget Policy")));
-    assert!(budget_row.is_some(), "Budget Policy row must be rendered in detail body");
+    let budget_row = rows.iter().find(|r| {
+        r.prefix
+            .iter()
+            .any(|seg| seg.text.contains("Budget Policy"))
+    });
+    assert!(
+        budget_row.is_some(),
+        "Budget Policy row must be rendered in detail body"
+    );
 }

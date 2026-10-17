@@ -92,10 +92,7 @@ pub fn modal_claims_composer_line(
     keys: &ModalKeys,
 ) -> bool {
     match overlay {
-        None => matches!(
-            scene,
-            SceneKind::Thread | SceneKind::Subagent
-        ),
+        None => matches!(scene, SceneKind::Thread | SceneKind::Subagent),
         Some(OverlaySurface::Sheet(SheetKind::ModelEditor)) => true,
         Some(OverlaySurface::Dialog(DialogKind::Models | DialogKind::Connections)) => {
             keys.model_searching
@@ -145,8 +142,7 @@ pub(crate) fn resolve_modal_key(
 
     // Bracket keys (`[` / `]`) navigate active tab's scene stack when no text editing is in flight.
     if overlay.is_none()
-        && (scene == SceneKind::Dashboard && !keys.host_prompting
-            || scene == SceneKind::Settings)
+        && (scene == SceneKind::Dashboard && !keys.host_prompting || scene == SceneKind::Settings)
         && key.modifiers.is_empty()
     {
         match key.code {
@@ -188,9 +184,7 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Dialog(DialogKind::Threads) if keys.session_info_detail => {
                         return None;
                     }
-                    OverlaySurface::Dialog(DialogKind::Threads) => {
-                        InputAction::OpenSelectedSession
-                    }
+                    OverlaySurface::Dialog(DialogKind::Threads) => InputAction::OpenSelectedSession,
                     OverlaySurface::Dialog(DialogKind::Tools) if !keys.tools_info_detail => {
                         InputAction::OpenToolDetail
                     }
@@ -247,7 +241,7 @@ pub(crate) fn resolve_modal_key(
                     }
                     OverlaySurface::Dialog(DialogKind::UsageStats | DialogKind::SessionStats) => {
                         InputAction::ScrollUp
-                    },
+                    }
                     _ => return None,
                 }
             } else {
@@ -287,7 +281,7 @@ pub(crate) fn resolve_modal_key(
                     }
                     OverlaySurface::Dialog(DialogKind::UsageStats | DialogKind::SessionStats) => {
                         InputAction::ScrollDown
-                    },
+                    }
                     _ => return None,
                 }
             } else {
@@ -300,7 +294,6 @@ pub(crate) fn resolve_modal_key(
         KeyCode::Left => {
             if let Some(overlay) = overlay {
                 match overlay {
-
                     OverlaySurface::Sheet(SheetKind::ModelEditor)
                         if keys.editor_field == Some(1) =>
                     {
@@ -322,7 +315,6 @@ pub(crate) fn resolve_modal_key(
         KeyCode::Right => {
             if let Some(overlay) = overlay {
                 match overlay {
-
                     OverlaySurface::Sheet(SheetKind::ModelEditor)
                         if keys.editor_field == Some(1) =>
                     {

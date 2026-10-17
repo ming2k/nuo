@@ -117,10 +117,7 @@ pub fn draw_tools_modal(
                     format!("{:<w$}  ", name, w = name_col),
                     Style::default().bg(style.bg).fg(style.fg),
                 ),
-                Span::styled(
-                    desc,
-                    Style::default().bg(style.bg).fg(style.dim),
-                ),
+                Span::styled(desc, Style::default().bg(style.bg).fg(style.dim)),
                 Span::styled(" ".repeat(pad), Style::default().bg(style.bg)),
                 Span::styled(badge, Style::default().bg(style.bg).fg(style.dim)),
             ]));
@@ -161,12 +158,19 @@ fn render_tool_detail(
     let mut lines = Vec::new();
 
     let status_glyph = if tool.enabled { "●" } else { "○" };
-    let status_color = if tool.enabled { theme.ok() } else { theme.muted() };
+    let status_color = if tool.enabled {
+        theme.ok()
+    } else {
+        theme.muted()
+    };
     let status_text = if tool.enabled { "Enabled" } else { "Disabled" };
 
     lines.push(Line::from(vec![
         Span::styled("Status:      ", Style::default().fg(theme.muted())),
-        Span::styled(format!("{status_glyph} {status_text}"), Style::default().fg(status_color)),
+        Span::styled(
+            format!("{status_glyph} {status_text}"),
+            Style::default().fg(status_color),
+        ),
         Span::styled("  (Space to toggle)", Style::default().fg(theme.muted())),
     ]));
 
@@ -185,14 +189,20 @@ fn render_tool_detail(
     if tool.requires_user {
         lines.push(Line::from(vec![
             Span::styled("Approval:    ", Style::default().fg(theme.muted())),
-            Span::styled("Required (prompts before execution)", Style::default().fg(theme.warn())),
+            Span::styled(
+                "Required (prompts before execution)",
+                Style::default().fg(theme.warn()),
+            ),
         ]));
     }
 
     if tool.requires_vision {
         lines.push(Line::from(vec![
             Span::styled("Vision:      ", Style::default().fg(theme.muted())),
-            Span::styled("Required (multimodal image capability)", Style::default().fg(theme.info())),
+            Span::styled(
+                "Required (multimodal image capability)",
+                Style::default().fg(theme.info()),
+            ),
         ]));
     }
 
@@ -207,7 +217,9 @@ fn render_tool_detail(
 
     lines.push(Line::from(Span::styled(
         "Description",
-        Style::default().fg(theme.brand()).add_modifier(nuotc::Modifier::BOLD),
+        Style::default()
+            .fg(theme.brand())
+            .add_modifier(nuotc::Modifier::BOLD),
     )));
 
     let desc_wrap_w = body_width.saturating_sub(2).max(1);
@@ -222,7 +234,9 @@ fn render_tool_detail(
 
     lines.push(Line::from(Span::styled(
         "Parameters",
-        Style::default().fg(theme.brand()).add_modifier(nuotc::Modifier::BOLD),
+        Style::default()
+            .fg(theme.brand())
+            .add_modifier(nuotc::Modifier::BOLD),
     )));
 
     if let Some(params_str) = &tool.parameters {
@@ -257,7 +271,11 @@ fn render_tool_detail(
                         };
                         let is_required = required_set.contains(name.as_str());
                         let req_str = if is_required { "required" } else { "optional" };
-                        let req_color = if is_required { theme.warn() } else { theme.muted() };
+                        let req_color = if is_required {
+                            theme.warn()
+                        } else {
+                            theme.muted()
+                        };
 
                         let default_info = spec.get("default").map(|d| match d {
                             serde_json::Value::String(s) => format!(" [default: \"{s}\"]"),
@@ -275,9 +293,17 @@ fn render_tool_detail(
 
                         let mut param_spans = vec![
                             Span::raw("  • "),
-                            Span::styled(name.clone(), Style::default().fg(theme.fg()).add_modifier(nuotc::Modifier::BOLD)),
+                            Span::styled(
+                                name.clone(),
+                                Style::default()
+                                    .fg(theme.fg())
+                                    .add_modifier(nuotc::Modifier::BOLD),
+                            ),
                             Span::raw(" "),
-                            Span::styled(format!("({ty_display}, "), Style::default().fg(theme.muted())),
+                            Span::styled(
+                                format!("({ty_display}, "),
+                                Style::default().fg(theme.muted()),
+                            ),
                             Span::styled(req_str, Style::default().fg(req_color)),
                             Span::styled(")", Style::default().fg(theme.muted())),
                         ];
@@ -286,7 +312,8 @@ fn render_tool_detail(
                             param_spans.push(Span::styled(def, Style::default().fg(theme.dim())));
                         }
                         if let Some(choices) = enum_info {
-                            param_spans.push(Span::styled(choices, Style::default().fg(theme.dim())));
+                            param_spans
+                                .push(Span::styled(choices, Style::default().fg(theme.dim())));
                         }
 
                         lines.push(Line::from(param_spans));
@@ -454,7 +481,10 @@ mod tests {
         assert!(text.contains("Status:"), "Should show status");
         assert!(text.contains("Enabled"), "read_text is enabled");
         // Native tool should not have category/source line
-        assert!(!text.contains("Provider:"), "Native tool has no category line");
+        assert!(
+            !text.contains("Provider:"),
+            "Native tool has no category line"
+        );
         assert!(text.contains("Risk:"), "Should show risk");
         assert!(text.contains("read_only"), "Risk is read_only");
         assert!(text.contains("Description"), "Description section");
@@ -488,8 +518,16 @@ mod tests {
                 &theme,
             );
         });
-        let mcp_text: String = term_mcp.buffer().content.iter().map(|c| c.symbol()).collect();
+        let mcp_text: String = term_mcp
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
         assert!(mcp_text.contains("Provider:"), "MCP tool shows Provider");
-        assert!(mcp_text.contains("mcp:github"), "MCP tool shows server name");
+        assert!(
+            mcp_text.contains("mcp:github"),
+            "MCP tool shows server name"
+        );
     }
 }

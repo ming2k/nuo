@@ -29,6 +29,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_6,
+        wire_entities: None,
     },
     // GPT-5.6 (OpenAI)
     // The 2026-06-26 flagship family with OpenAI's tier naming scheme:
@@ -49,6 +50,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.6-sol",
@@ -60,6 +62,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.6-terra",
@@ -71,6 +74,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.6-luna",
@@ -82,6 +86,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        wire_entities: None,
     },
     // GPT (OpenAI)
     // The current frontier chat family served over the OpenAI chat-completions
@@ -98,6 +103,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.4",
@@ -109,6 +115,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.4-mini",
@@ -120,6 +127,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     // Legacy GPT-4o family — no longer in OpenAI's frontier chat lineup (it
     // remains only behind the TTS/transcribe specialized models) but kept
@@ -134,6 +142,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "gpt-4o-mini",
@@ -145,6 +154,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.3-codex-spark",
@@ -156,6 +166,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.2",
@@ -167,6 +178,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.2-chat-latest",
@@ -178,6 +190,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.2-pro",
@@ -189,6 +202,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        wire_entities: None,
     },
 ];
 

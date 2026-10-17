@@ -7,14 +7,14 @@
 
 use std::sync::{Arc, OnceLock, RwLock};
 
+use crate::oauth::AuthError;
+use crate::oauth::token::TokenResponse;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use nuo_model_codec::ResolvedAuth;
 use nuo_model_codec::provider_auth::OAuthConfig;
 use nuo_provider::credentials::{CredentialSession, TokenSet};
 use nuo_provider_transport::http::Http;
-use crate::oauth::AuthError;
-use crate::oauth::token::TokenResponse;
 
 use crate::enricher::{OAuthTokenEnricher, StandardOAuthEnricher};
 use crate::session::OAuthLoginPrompt;

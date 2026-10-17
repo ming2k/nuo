@@ -15,7 +15,10 @@ pub struct HarnessApprovalHandler {
 }
 
 impl HarnessApprovalHandler {
-    pub(crate) fn new(permissions: Arc<PermissionStore>, bash_policy: Arc<RwLock<BashPolicy>>) -> Self {
+    pub(crate) fn new(
+        permissions: Arc<PermissionStore>,
+        bash_policy: Arc<RwLock<BashPolicy>>,
+    ) -> Self {
         Self {
             permissions,
             bash_policy,

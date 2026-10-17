@@ -1,9 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use nuo_agent::agent::Agent;
-use nuo_agent::provider::MockProvider;
 use acp::signature::HmacSigner;
 use acp::{AgentAddress, AgentEnvelope, MessageIntent, SignatureEnforcement};
+use nuo_agent::agent::Agent;
+use nuo_agent::provider::MockProvider;
 use std::sync::Arc;
 
 #[tokio::test]

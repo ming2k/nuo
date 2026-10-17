@@ -68,7 +68,8 @@ impl AntigravityUsageFetcher {
         base_url: &str,
         api_key: &str,
     ) -> Result<ProviderUsage, String> {
-        self.fetch_usage_with_project(client, base_url, api_key, None).await
+        self.fetch_usage_with_project(client, base_url, api_key, None)
+            .await
     }
 
     pub async fn fetch_usage_with_project(
@@ -131,15 +132,16 @@ pub async fn retrieve_antigravity_quota_summary(
         "project": effective_project
     });
 
-    let request =
-        nuo_provider_transport::http::Request::new(netune::Method::POST, ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL)
-            .header("authorization", format!("Bearer {access_token}"))
-            .header("user-agent", ANTIGRAVITY_USER_AGENT)
-            .json(&req_body);
-    let resp = client
-        .send(request)
-        .await
-        .map_err(|e| nuo_oauth::oauth::AuthError::Transport(format!("retrieveUserQuotaSummary failed: {e}")))?;
+    let request = nuo_provider_transport::http::Request::new(
+        netune::Method::POST,
+        ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL,
+    )
+    .header("authorization", format!("Bearer {access_token}"))
+    .header("user-agent", ANTIGRAVITY_USER_AGENT)
+    .json(&req_body);
+    let resp = client.send(request).await.map_err(|e| {
+        nuo_oauth::oauth::AuthError::Transport(format!("retrieveUserQuotaSummary failed: {e}"))
+    })?;
 
     if resp.is_success() {
         serde_json::from_str::<AntigravityQuotaSummaryResponse>(&resp.body).map_err(|e| {

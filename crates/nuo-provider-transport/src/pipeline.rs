@@ -21,10 +21,7 @@ pub trait EnvelopePhase: Send + Sync {
     /// declares for the same identity (`X-Model-Key` etc.). One resolution,
     /// two consistent artifacts: the body slots and the header carriers are
     /// stamped from the same model identity in the same call.
-    fn reshape_body(
-        &self,
-        body: &serde_json::Value,
-    ) -> Result<ReshapedEnvelope, ProviderError>;
+    fn reshape_body(&self, body: &serde_json::Value) -> Result<ReshapedEnvelope, ProviderError>;
 }
 
 /// The envelope phase's two artifacts: the reshaped body and its header
@@ -164,10 +161,7 @@ impl TransportPipeline {
                         req = req.header(name.as_str(), value.as_str());
                     }
                     if let Some(token) = &token {
-                        req = req.header(
-                            http::header::AUTHORIZATION,
-                            format!("Bearer {token}"),
-                        );
+                        req = req.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
                     }
                     Ok(req)
                 };
@@ -322,10 +316,7 @@ impl TransportPipeline {
             TransformedFrame::UpstreamFault(fault) => Err(ProviderError::new(
                 provider_label,
                 ProviderErrorKind::Upstream,
-                format!(
-                    "Upstream error ({}): {}",
-                    fault.status_code, fault.message
-                ),
+                format!("Upstream error ({}): {}", fault.status_code, fault.message),
             )),
         }
     }

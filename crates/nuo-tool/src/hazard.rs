@@ -1,13 +1,11 @@
-use serde::{Deserialize, Serialize};
 use crate::risk::RiskProfile;
+use serde::{Deserialize, Serialize};
 
 /// Consequence / threat level of a tool invocation.
 ///
 /// Distinguishes harmless read-only inspection from destructive mutations,
 /// command executions, and process lifecycle operations.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HazardLevel {
     /// Safe / Read-Only (e.g. view_file, grep, find, list_dir).
@@ -68,9 +66,7 @@ impl From<HazardLevel> for RiskProfile {
 }
 
 /// Four-tier runtime hazard taxonomy for tool invocation and prompt-injection defense (ADR-0243).
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HazardTier {
     /// Tier 0: Pure Local Query / Read-Only (silent execution with audit logging).

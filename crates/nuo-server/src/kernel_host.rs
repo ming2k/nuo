@@ -20,10 +20,10 @@ use nuo_harness::{
     CatalogMaintenance, KernelHost, ProjectPaths, RecalledMemory, RoleCatalog, RoleMemory,
     TitleSink,
 };
-use nuo_wire::CustomRole;
 use nuo_persistence::paths;
 use nuo_persistence::roles::RolesConfig;
 use nuo_persistence::session::SessionStore;
+use nuo_wire::CustomRole;
 
 /// Role declarations from the product's files.
 ///
@@ -176,8 +176,7 @@ impl CatalogMaintenance for ProductCatalogMaintenance {
     ) -> futures::future::BoxFuture<'static, bool> {
         Box::pin(async move {
             let outcome =
-                crate::catalog::refresh_connection_models_for_etag(&connection_id, &etag)
-                    .await;
+                crate::catalog::refresh_connection_models_for_etag(&connection_id, &etag).await;
             if outcome.changed {
                 crate::catalog::sync_fitted_model_registry();
                 crate::catalog::prune_stale_models_on_disk();

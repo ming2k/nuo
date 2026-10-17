@@ -251,7 +251,10 @@ impl std::fmt::Display for AdmissionRejection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoVerifierConfigured => {
-                write!(f, "strict zero-trust policy active but no verifier configured")
+                write!(
+                    f,
+                    "strict zero-trust policy active but no verifier configured"
+                )
             }
             Self::InvalidSignature => write!(f, "rejected by zero-trust policy: invalid signature"),
             Self::VerifyFailed(err) => write!(f, "signature verification failed: {err}"),

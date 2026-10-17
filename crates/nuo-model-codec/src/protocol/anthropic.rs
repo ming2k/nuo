@@ -2,9 +2,7 @@
 
 use crate::endpoint::Endpoint;
 use crate::error::{Result, WireError};
-use crate::types::{
-    ContentBlock, WireRequest, WireResponse, WireRole, WireToolCall, WireUsage,
-};
+use crate::types::{ContentBlock, WireRequest, WireResponse, WireRole, WireToolCall, WireUsage};
 use serde_json::json;
 
 pub fn build_request(
@@ -171,7 +169,9 @@ pub fn parse_response(json_val: &serde_json::Value) -> Result<WireResponse> {
     let content_blocks = json_val
         .get("content")
         .and_then(|c| c.as_array())
-        .ok_or_else(|| WireError::Protocol("Anthropic response contained no content blocks".into()))?;
+        .ok_or_else(|| {
+            WireError::Protocol("Anthropic response contained no content blocks".into())
+        })?;
 
     let mut text_acc = String::new();
     let mut thinking_acc = String::new();

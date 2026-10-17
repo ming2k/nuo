@@ -170,14 +170,11 @@ pub(super) fn format_results(query: &str, source: &str, results: Vec<SearchResul
     out
 }
 
-pub(crate) fn results_to_hits(
-    results: Vec<SearchResult>,
-) -> (Vec<nuo_wire::WebSearchHit>, bool) {
+pub(crate) fn results_to_hits(results: Vec<SearchResult>) -> (Vec<nuo_wire::WebSearchHit>, bool) {
     let hits = results
         .into_iter()
         .map(|r| {
-            let domain =
-                crate::ssrf::extract_host(&r.url).unwrap_or_else(|| "web".to_string());
+            let domain = crate::ssrf::extract_host(&r.url).unwrap_or_else(|| "web".to_string());
             nuo_wire::WebSearchHit {
                 title: r.title,
                 url: r.url,
@@ -208,8 +205,7 @@ pub(crate) fn blob_to_hits(
             let url = rest[..url_end]
                 .trim_end_matches(['.', ',', ';'])
                 .to_string();
-            let domain =
-                crate::ssrf::extract_host(&url).unwrap_or_else(|| "web".to_string());
+            let domain = crate::ssrf::extract_host(&url).unwrap_or_else(|| "web".to_string());
             let before = trimmed[..pos].trim();
             let title = if before.is_empty() {
                 format!("{query} hit")

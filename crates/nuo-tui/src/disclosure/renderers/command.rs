@@ -5,8 +5,8 @@ use nuotc::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use super::base::RenderCtx;
 use super::super::{Disclosure, Interaction, summary_text_color};
+use super::base::RenderCtx;
 use crate::design::TURN_HEADER_BODY_GAP_ROWS;
 use crate::message_body::draw_message_body;
 use crate::model::document::{CommandPhase, TranscriptMessage};

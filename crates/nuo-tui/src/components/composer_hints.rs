@@ -208,12 +208,14 @@ pub(crate) fn hint_row_parts(
     }
 
     let action_key_style = match target {
-        ComposeTarget::Running(crate::app::ComposerSendMode::Steer) => {
-            Style::default().fg(theme.warn()).bg(bg).add_modifier(Modifier::BOLD)
-        }
-        ComposeTarget::Running(crate::app::ComposerSendMode::FollowUp) => {
-            Style::default().fg(theme.info()).bg(bg).add_modifier(Modifier::BOLD)
-        }
+        ComposeTarget::Running(crate::app::ComposerSendMode::Steer) => Style::default()
+            .fg(theme.warn())
+            .bg(bg)
+            .add_modifier(Modifier::BOLD),
+        ComposeTarget::Running(crate::app::ComposerSendMode::FollowUp) => Style::default()
+            .fg(theme.info())
+            .bg(bg)
+            .add_modifier(Modifier::BOLD),
         _ => Style::default()
             .fg(theme.keycap_accent())
             .bg(bg)

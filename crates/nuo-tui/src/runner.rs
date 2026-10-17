@@ -1,8 +1,8 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-use nuo_client as client;
 use crate::cli::{self, CliArgs, Mode};
 use crate::headless;
+use nuo_client as client;
 use std::path::PathBuf;
 
 pub fn run_main() -> Result<(), Box<dyn std::error::Error>> {
@@ -341,10 +341,9 @@ pub async fn run_attached(
     let mut pick_pending = session_id.is_none() && !fresh;
     let mut startup_overlay_pending = initial_overlay;
     let mut preserved_tabs: Option<Vec<crate::surfaces::ClientTab>> = None;
-    let init_options =
-        nuo_client::SessionInitOptions::new(unattended_at_start, confined_at_start)
-            .with_role(role.clone())
-            .with_resume(resume);
+    let init_options = nuo_client::SessionInitOptions::new(unattended_at_start, confined_at_start)
+        .with_role(role.clone())
+        .with_resume(resume);
 
     // Initialize terminal once and keep it alive across thread switches to eliminate flicker.
     let profile = nuotc::TerminalProfile::detect();

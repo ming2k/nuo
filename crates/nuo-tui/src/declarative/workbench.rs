@@ -3,20 +3,19 @@
 //! A zero-dependency, hermetic full-screen terminal workbench for
 //! rapid visual inspection, viewport emulation, live theme switching, and interaction testing.
 
-use std::io::{self, Stdout};
-use std::path::Path;
 use crossterm::event::{self, Event, KeyCode};
 use nuotc::{
-    Borders, Frame, Line, Modifier, Paragraph, Rect, Span, Style, Terminal,
-    widgets::Block,
+    Borders, Frame, Line, Modifier, Paragraph, Rect, Span, Style, Terminal, widgets::Block,
 };
+use std::io::{self, Stdout};
+use std::path::Path;
 
-use crate::theme::Theme;
 use super::ask_user::AskUser;
 use super::notice_card::NoticeCard;
 use super::story::{AnyStory, StorybookComponent, instantiate_story};
 use super::testing::render_story_styled_snapshot;
 use super::tool_card::ToolCard;
+use crate::theme::Theme;
 
 /// Viewport emulation bounding box presets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,8 +56,12 @@ impl ViewportMode {
         let target_w = max_w.min(available.width.saturating_sub(2));
         let target_h = max_h.min(available.height.saturating_sub(2));
 
-        let x = available.x.saturating_add((available.width.saturating_sub(target_w)) / 2);
-        let y = available.y.saturating_add((available.height.saturating_sub(target_h)) / 2);
+        let x = available
+            .x
+            .saturating_add((available.width.saturating_sub(target_w)) / 2);
+        let y = available
+            .y
+            .saturating_add((available.height.saturating_sub(target_h)) / 2);
 
         Rect::new(x, y, target_w, target_h)
     }
@@ -172,7 +175,10 @@ impl Workbench {
         result
     }
 
-    fn run_loop(&mut self, terminal: &mut Terminal<Stdout>) -> Result<(), Box<dyn std::error::Error>> {
+    fn run_loop(
+        &mut self,
+        terminal: &mut Terminal<Stdout>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         loop {
             terminal.draw(|frame| {
                 self.draw_ui(frame);
@@ -193,63 +199,59 @@ impl Workbench {
                             }
                         }
                     }
-                    WorkbenchMode::Searching => {
-                        match key.code {
-                            KeyCode::Esc | KeyCode::Enter => {
-                                self.mode = WorkbenchMode::Browsing;
-                            }
-                            KeyCode::Backspace => {
-                                self.search_query.pop();
-                                self.recompute_filter();
-                            }
-                            KeyCode::Char(c) => {
-                                self.search_query.push(c);
-                                self.recompute_filter();
-                            }
-                            _ => {}
+                    WorkbenchMode::Searching => match key.code {
+                        KeyCode::Esc | KeyCode::Enter => {
+                            self.mode = WorkbenchMode::Browsing;
                         }
-                    }
-                    WorkbenchMode::Browsing => {
-                        match key.code {
-                            KeyCode::Char('q') | KeyCode::Esc => break,
-                            KeyCode::Char('/') => {
-                                self.mode = WorkbenchMode::Searching;
-                            }
-                            KeyCode::Down | KeyCode::Char('j') => {
-                                if !self.filtered_indices.is_empty() {
-                                    self.selected_pointer =
-                                        (self.selected_pointer + 1) % self.filtered_indices.len();
-                                }
-                            }
-                            KeyCode::Up | KeyCode::Char('k') => {
-                                if !self.filtered_indices.is_empty() {
-                                    self.selected_pointer = self
-                                        .selected_pointer
-                                        .checked_sub(1)
-                                        .unwrap_or(self.filtered_indices.len() - 1);
-                                }
-                            }
-                            KeyCode::Char(' ') | KeyCode::Enter => {
-                                if !self.filtered_indices.is_empty() {
-                                    self.mode = WorkbenchMode::Interacting;
-                                }
-                            }
-                            KeyCode::Char('v') | KeyCode::Char('V') => {
-                                self.viewport_mode = self.viewport_mode.next();
-                            }
-                            KeyCode::Char('t') | KeyCode::Char('T') => {
-                                self.cycle_theme();
-                            }
-                            KeyCode::Char('r') | KeyCode::Char('R') => {
-                                if let Some(idx) = self.current_story_index() {
-                                    if let Some(story) = self.stories.get_mut(idx) {
-                                        story.reset();
-                                    }
-                                }
-                            }
-                            _ => {}
+                        KeyCode::Backspace => {
+                            self.search_query.pop();
+                            self.recompute_filter();
                         }
-                    }
+                        KeyCode::Char(c) => {
+                            self.search_query.push(c);
+                            self.recompute_filter();
+                        }
+                        _ => {}
+                    },
+                    WorkbenchMode::Browsing => match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => break,
+                        KeyCode::Char('/') => {
+                            self.mode = WorkbenchMode::Searching;
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if !self.filtered_indices.is_empty() {
+                                self.selected_pointer =
+                                    (self.selected_pointer + 1) % self.filtered_indices.len();
+                            }
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if !self.filtered_indices.is_empty() {
+                                self.selected_pointer = self
+                                    .selected_pointer
+                                    .checked_sub(1)
+                                    .unwrap_or(self.filtered_indices.len() - 1);
+                            }
+                        }
+                        KeyCode::Char(' ') | KeyCode::Enter => {
+                            if !self.filtered_indices.is_empty() {
+                                self.mode = WorkbenchMode::Interacting;
+                            }
+                        }
+                        KeyCode::Char('v') | KeyCode::Char('V') => {
+                            self.viewport_mode = self.viewport_mode.next();
+                        }
+                        KeyCode::Char('t') | KeyCode::Char('T') => {
+                            self.cycle_theme();
+                        }
+                        KeyCode::Char('r') | KeyCode::Char('R') => {
+                            if let Some(idx) = self.current_story_index() {
+                                if let Some(story) = self.stories.get_mut(idx) {
+                                    story.reset();
+                                }
+                            }
+                        }
+                        _ => {}
+                    },
                 }
             }
         }
@@ -274,36 +276,73 @@ impl Workbench {
 
         // 1. Header Bar
         let mode_badge = match self.mode {
-            WorkbenchMode::Browsing => Span::styled(" [BROWSING] ", Style::default().fg(self.theme.system_fg)),
-            WorkbenchMode::Searching => Span::styled(" [SEARCH] ", Style::default().fg(self.theme.app_bg).bg(self.theme.system_fg).add_modifier(Modifier::BOLD)),
+            WorkbenchMode::Browsing => {
+                Span::styled(" [BROWSING] ", Style::default().fg(self.theme.system_fg))
+            }
+            WorkbenchMode::Searching => Span::styled(
+                " [SEARCH] ",
+                Style::default()
+                    .fg(self.theme.app_bg)
+                    .bg(self.theme.system_fg)
+                    .add_modifier(Modifier::BOLD),
+            ),
             WorkbenchMode::Interacting => Span::styled(
                 " [INTERACTING] ",
-                Style::default().fg(self.theme.app_bg).bg(self.theme.warning).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(self.theme.app_bg)
+                    .bg(self.theme.warning)
+                    .add_modifier(Modifier::BOLD),
             ),
         };
 
         let (_, theme_label) = THEME_PRESETS[self.theme_index % THEME_PRESETS.len()];
         let header_spans = vec![
-            Span::styled(" Nuo Storybook ", Style::default().fg(self.theme.text).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " Nuo Storybook ",
+                Style::default()
+                    .fg(self.theme.text)
+                    .add_modifier(Modifier::BOLD),
+            ),
             mode_badge,
             Span::raw(" | Viewport: "),
-            Span::styled(self.viewport_mode.label(), Style::default().fg(self.theme.warning)),
+            Span::styled(
+                self.viewport_mode.label(),
+                Style::default().fg(self.theme.warning),
+            ),
             Span::raw(" | Theme: "),
             Span::styled(theme_label, Style::default().fg(self.theme.system_fg)),
             Span::raw(" | Stories: "),
-            Span::styled(format!("{}/{}", self.selected_pointer + 1, self.filtered_indices.len()), Style::default().fg(self.theme.text)),
+            Span::styled(
+                format!(
+                    "{}/{}",
+                    self.selected_pointer + 1,
+                    self.filtered_indices.len()
+                ),
+                Style::default().fg(self.theme.text),
+            ),
         ];
-        frame.render_widget(Paragraph::new(Line::from(header_spans)).style(Style::default().bg(self.theme.panel_bg)), header_rect);
+        frame.render_widget(
+            Paragraph::new(Line::from(header_spans))
+                .style(Style::default().bg(self.theme.panel_bg)),
+            header_rect,
+        );
 
         // 2. Footer Bar
         let footer_text = match self.mode {
-            WorkbenchMode::Browsing => " [↑/↓] Select | [/] Search | [Space] Interact | [V] Box | [T] Theme | [R] Reset | [Q] Quit",
+            WorkbenchMode::Browsing => {
+                " [↑/↓] Select | [/] Search | [Space] Interact | [V] Box | [T] Theme | [R] Reset | [Q] Quit"
+            }
             WorkbenchMode::Searching => " Type query to filter | [Enter/Esc] Confirm search",
-            WorkbenchMode::Interacting => " [ESC] Exit Component Interaction back to Storybook Navigation",
+            WorkbenchMode::Interacting => {
+                " [ESC] Exit Component Interaction back to Storybook Navigation"
+            }
         };
         frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(footer_text, Style::default().fg(self.theme.text_muted))))
-                .style(Style::default().bg(self.theme.panel_bg)),
+            Paragraph::new(Line::from(Span::styled(
+                footer_text,
+                Style::default().fg(self.theme.text_muted),
+            )))
+            .style(Style::default().bg(self.theme.panel_bg)),
             footer_rect,
         );
 
@@ -335,8 +374,18 @@ impl Workbench {
 
         if !self.search_query.is_empty() || self.mode == WorkbenchMode::Searching {
             catalog_lines.push(Line::from(vec![
-                Span::styled("Filter: ", Style::default().fg(self.theme.warning).add_modifier(Modifier::BOLD)),
-                Span::styled(&self.search_query, Style::default().fg(self.theme.text).add_modifier(Modifier::UNDERLINED)),
+                Span::styled(
+                    "Filter: ",
+                    Style::default()
+                        .fg(self.theme.warning)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    &self.search_query,
+                    Style::default()
+                        .fg(self.theme.text)
+                        .add_modifier(Modifier::UNDERLINED),
+                ),
             ]));
             catalog_lines.push(Line::raw(""));
         }
@@ -348,7 +397,9 @@ impl Workbench {
                 last_category = story.category();
                 catalog_lines.push(Line::from(Span::styled(
                     format!("▼ {}", last_category),
-                    Style::default().fg(self.theme.warning).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(self.theme.warning)
+                        .add_modifier(Modifier::BOLD),
                 )));
             }
 
@@ -356,13 +407,22 @@ impl Workbench {
             let prefix = if is_selected { " ▶ " } else { "   " };
             let title = format!("{}: {}", story.component_name(), story.story_name());
             let line_style = if is_selected {
-                Style::default().fg(self.theme.text).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(self.theme.text)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(self.theme.text_muted)
             };
 
             catalog_lines.push(Line::from(vec![
-                Span::styled(prefix, if is_selected { Style::default().fg(self.theme.system_fg) } else { Style::default() }),
+                Span::styled(
+                    prefix,
+                    if is_selected {
+                        Style::default().fg(self.theme.system_fg)
+                    } else {
+                        Style::default()
+                    },
+                ),
                 Span::styled(title, line_style),
             ]));
         }

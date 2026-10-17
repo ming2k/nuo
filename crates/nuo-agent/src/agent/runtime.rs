@@ -391,9 +391,14 @@ impl Agent {
     /// Programmatically mounts a procedural skill onto this agent's active skill stack.
     pub fn mount_skill(&self, skill_id: &str) -> Result<()> {
         let Some(skill) = self.skills.get(skill_id) else {
-            return Err(AgentError::Session(format!("Skill `{skill_id}` not found in registry")));
+            return Err(AgentError::Session(format!(
+                "Skill `{skill_id}` not found in registry"
+            )));
         };
-        let mut stack = self.skill_stack.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut stack = self
+            .skill_stack
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let prev_scopes = stack.effective_scopes(self.active_scopes.as_ref());
         stack.push(skill.clone(), prev_scopes);
         Ok(())
@@ -401,13 +406,20 @@ impl Agent {
 
     /// Programmatically unmounts the active skill, restoring baseline capabilities.
     pub fn unmount_skill(&self) -> Option<crate::skill::Skill> {
-        let mut stack = self.skill_stack.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut stack = self
+            .skill_stack
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         stack.pop().map(|frame| frame.skill)
     }
 
     /// Returns the currently active skill, if any.
     pub fn active_skill(&self) -> Option<crate::skill::Skill> {
-        self.skill_stack.lock().unwrap_or_else(std::sync::PoisonError::into_inner).active_skill().cloned()
+        self.skill_stack
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .active_skill()
+            .cloned()
     }
 
     /// Applies an inbound steering instruction to the matching in-flight turn.
@@ -497,8 +509,7 @@ impl Agent {
             p.session_intent = Some(acp::SessionIntent::Continue(t_str));
         }
 
-        let envelope =
-            acp::AgentEnvelope::new(self.manifest.address.clone(), peer.clone(), intent);
+        let envelope = acp::AgentEnvelope::new(self.manifest.address.clone(), peer.clone(), intent);
 
         let reply = collab
             .mailbox()
@@ -834,22 +845,20 @@ impl Agent {
                     if self.signature_enforcement == acp::SignatureEnforcement::Strict
                         || envelope.signature.is_some()
                     {
-                        return Err(AgentError::Protocol(
-                            acp::ProtocolError::RoutingError(format!(
+                        return Err(AgentError::Protocol(acp::ProtocolError::RoutingError(
+                            format!(
                                 "envelope from `{}` rejected by zero-trust security policy: invalid signature",
                                 envelope.source
-                            )),
-                        ));
+                            ),
+                        )));
                     }
                 }
                 Err(err) => return Err(AgentError::Protocol(err)),
             }
         } else if self.signature_enforcement == acp::SignatureEnforcement::Strict {
-            return Err(AgentError::Protocol(
-                acp::ProtocolError::RoutingError(
-                    "strict zero-trust policy active but no verifier configured".into(),
-                ),
-            ));
+            return Err(AgentError::Protocol(acp::ProtocolError::RoutingError(
+                "strict zero-trust policy active but no verifier configured".into(),
+            )));
         }
 
         match &envelope.intent {
@@ -908,9 +917,7 @@ impl Agent {
                 // separate thread or explicit session intent.
                 let key = if let Some(thread) = &payload.thread {
                     SessionKey::for_thread(&envelope.source, thread)
-                } else if let Some(acp::SessionIntent::Continue(sid)) =
-                    &payload.session_intent
-                {
+                } else if let Some(acp::SessionIntent::Continue(sid)) = &payload.session_intent {
                     SessionKey::for_thread(&envelope.source, sid)
                 } else if let Some(acp::SessionIntent::New) = &payload.session_intent {
                     SessionKey::for_thread(&envelope.source, format!("sess_{}", Uuid::new_v4()))
@@ -1002,19 +1009,15 @@ impl Agent {
                 }
             }
 
-            MessageIntent::Signal(payload) if payload.kind == acp::SignalKind::Ping => {
-                Ok(envelope.reply(
+            MessageIntent::Signal(payload) if payload.kind == acp::SignalKind::Ping => Ok(envelope
+                .reply(
                     self.manifest.address.clone(),
                     MessageIntent::signal(acp::SignalKind::Pong),
-                ))
-            }
-
-            other => Err(AgentError::Protocol(
-                acp::ProtocolError::RoutingError(format!(
-                    "agent cannot act on intent `{}`",
-                    other.summary()
                 )),
-            )),
+
+            other => Err(AgentError::Protocol(acp::ProtocolError::RoutingError(
+                format!("agent cannot act on intent `{}`", other.summary()),
+            ))),
         }
     }
 

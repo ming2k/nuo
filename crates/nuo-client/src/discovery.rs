@@ -1,7 +1,7 @@
 //! Discovery file: how clients find a live session server's endpoint.
 
-use std::path::{Path, PathBuf};
 use nuo_host::paths;
+use std::path::{Path, PathBuf};
 
 /// The discovery record, written once the bound port is known.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]

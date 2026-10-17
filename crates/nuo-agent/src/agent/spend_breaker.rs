@@ -3,11 +3,11 @@
 //! Enforces pre-flight interception before HTTP egress when local connection budget
 //! ceilings are reached, and atomically records cost post-flight (`[INV-BREAKER-01]`).
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use crate::error::AgentError;
 use nuo_wire::budget::ConnectionBudget;
 use nuo_wire::pricing::NanoUsd;
-use crate::error::AgentError;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Thread-safe local spend circuit breaker.
 #[derive(Debug, Clone)]

@@ -517,10 +517,7 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
 
     // Press Esc Esc to interrupt
     app.esc_armed_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
-    crate::event_loop::handle_esc_interrupt(
-        &mut app,
-        crate::event_loop::InterruptTarget::Primary,
-    );
+    crate::event_loop::handle_esc_interrupt(&mut app, crate::event_loop::InterruptTarget::Primary);
 
     // Verify interrupt request was sent to agent
     let req = rx.try_recv().expect("must send interrupt request");

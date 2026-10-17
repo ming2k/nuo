@@ -3,9 +3,9 @@
 use super::SkillsConfig;
 use super::metadata::{Skill, SkillScope, parse_skill_metadata};
 use super::remote::{cached_remote_roots, fetch_remote_repo};
-use nuo_wire::WorkspaceTrustState;
 use nuo_persistence::paths;
 use nuo_persistence::workspace_security::WorkspaceSecurityStore;
+use nuo_wire::WorkspaceTrustState;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 

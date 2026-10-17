@@ -19,9 +19,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_wire::Tool;
 use nuo_harness::{Agent, AgentIdentity};
 use nuo_persistence::db::{DbReader, get_persistence_handle};
+use nuo_wire::Tool;
 use serde_json::json;
 
 use acp::{AgentAddress, AgentEnvelope, Fabric, MessageIntent, SteerAction};

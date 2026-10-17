@@ -268,7 +268,10 @@ pub async fn takeover_pid(pid: u32, opts: TakeoverOptions) -> io::Result<()> {
     }
 
     if process_is_alive(identity) {
-        tracing::warn!(pid, "process did not terminate gracefully; escalating to force terminate");
+        tracing::warn!(
+            pid,
+            "process did not terminate gracefully; escalating to force terminate"
+        );
         let _ = force_terminate(identity);
         let force_deadline = tokio::time::Instant::now() + opts.grace_period;
         while tokio::time::Instant::now() < force_deadline && process_is_alive(identity) {
@@ -303,7 +306,10 @@ pub fn takeover_pid_sync(pid: u32, opts: TakeoverOptions) -> io::Result<()> {
     }
 
     if process_is_alive(identity) {
-        tracing::warn!(pid, "process did not terminate gracefully; escalating to force terminate");
+        tracing::warn!(
+            pid,
+            "process did not terminate gracefully; escalating to force terminate"
+        );
         let _ = force_terminate(identity);
         let force_deadline = std::time::Instant::now() + opts.grace_period;
         while std::time::Instant::now() < force_deadline && process_is_alive(identity) {
@@ -389,8 +395,8 @@ pub fn current_exe_digest_len() -> Option<(u64, String)> {
 /// budget. A relink rewrites the ELF head (build-id note) and tail (section
 /// headers), so the sampled signal is strong for the case that matters.
 fn digest_sampled(file: &mut std::fs::File, len: u64) -> Option<String> {
-    use std::io::{Read, Seek, SeekFrom};
     use sha2::{Digest, Sha256};
+    use std::io::{Read, Seek, SeekFrom};
 
     let mut hasher = Sha256::new();
     hasher.update(len.to_le_bytes());
@@ -493,7 +499,8 @@ mod native {
     /// setup, so the `dup2` here overrides the placeholder stdin and leaves the
     /// child reading/writing prompts on the terminal while stdout/stderr stay
     /// pipes.
-    pub(super) fn open_pty_master() -> io::Result<(Option<super::PtyMaster>, Option<PtyChildSetup>)> {
+    pub(super) fn open_pty_master() -> io::Result<(Option<super::PtyMaster>, Option<PtyChildSetup>)>
+    {
         // SAFETY: `posix_openpt`/`grantpt`/`unlockpt` operate on a freshly
         // opened fd and perform no allocation.
         let master = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY) };
@@ -782,8 +789,8 @@ mod native {
     /// spawn degrades to a held-open stdin pipe only. The command exporting a
     /// terminal does not skip this: the caller reports `unsupported` rather
     /// than silently misbehaving.
-    pub(super) fn open_pty_master(
-    ) -> io::Result<(Option<super::PtyMaster>, Option<super::PtyChildSetup>)> {
+    pub(super) fn open_pty_master()
+    -> io::Result<(Option<super::PtyMaster>, Option<super::PtyChildSetup>)> {
         Ok((None, None))
     }
 
@@ -975,4 +982,3 @@ mod native {
         true
     }
 }
-

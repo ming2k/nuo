@@ -117,7 +117,9 @@ pub(crate) fn list_subagent_sessions(
 ) -> Result<Vec<SessionRecord>> {
     const COLS: &str = "id, parent_id, fork_kind, title, created_at_s, updated_at_s, \
                         workspace_root, persona, msg_count, last_user_prompt, digest";
-    let sql = format!("SELECT {COLS} FROM thread_list_view WHERE parent_id = ?1 AND fork_kind = 'subagent' ORDER BY created_at_s ASC");
+    let sql = format!(
+        "SELECT {COLS} FROM thread_list_view WHERE parent_id = ?1 AND fork_kind = 'subagent' ORDER BY created_at_s ASC"
+    );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params![parent_id], map_session_row)?;
     let mut sessions = Vec::new();
@@ -295,14 +297,24 @@ pub(crate) fn save_session_inner(
                 workspace_root.as_deref().unwrap_or(""),
                 persona.as_deref().unwrap_or("general"),
                 if data.unattended { 1 } else { 0 },
-                data.provider_selection.as_ref().and_then(|s| serde_json::to_string(s).ok()),
-                serde_json::to_string(&data.disabled_tools.iter().collect::<Vec<_>>()).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                data.provider_selection
+                    .as_ref()
+                    .and_then(|s| serde_json::to_string(s).ok()),
+                serde_json::to_string(&data.disabled_tools.iter().collect::<Vec<_>>())
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
                 additional_roots,
-                serde_json::to_string(&data.commands).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                serde_json::to_string(&data.round_interrupts).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                serde_json::to_string(&data.retry_resolutions).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                data.retry_pending.as_ref().and_then(|s| serde_json::to_string(s).ok()),
-                data.role_manifest.as_ref().and_then(|m| serde_json::to_string(m).ok()),
+                serde_json::to_string(&data.commands)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                serde_json::to_string(&data.round_interrupts)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                serde_json::to_string(&data.retry_resolutions)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                data.retry_pending
+                    .as_ref()
+                    .and_then(|s| serde_json::to_string(s).ok()),
+                data.role_manifest
+                    .as_ref()
+                    .and_then(|m| serde_json::to_string(m).ok()),
                 data.updated_at as i64,
             ],
         )?;
@@ -334,16 +346,19 @@ pub(crate) fn save_session_inner(
                 insert_membership(conn, data.id.as_str(), entry.seq, entry.id.as_str())?;
             }
             for unknown in &data.unknown_entries {
-                upsert_entry_row(conn, EntryEnvelope {
-                    id: unknown.id.as_str(),
-                    kind: unknown.kind.as_str(),
-                    role: unknown.role.as_deref(),
-                    content: unknown.content.as_deref(),
-                    origin: unknown.origin.as_deref(),
-                    hidden: unknown.hidden,
-                    created_at_ms: unknown.created_at_ms,
-                    payload: unknown.payload_json.as_str(),
-                })?;
+                upsert_entry_row(
+                    conn,
+                    EntryEnvelope {
+                        id: unknown.id.as_str(),
+                        kind: unknown.kind.as_str(),
+                        role: unknown.role.as_deref(),
+                        content: unknown.content.as_deref(),
+                        origin: unknown.origin.as_deref(),
+                        hidden: unknown.hidden,
+                        created_at_ms: unknown.created_at_ms,
+                        payload: unknown.payload_json.as_str(),
+                    },
+                )?;
                 insert_membership(conn, data.id.as_str(), unknown.seq, unknown.id.as_str())?;
             }
             record_blob_refs(
@@ -517,20 +532,23 @@ fn upsert_entry(
     }
     let payload = serde_json::to_string(&payload)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-    upsert_entry_row(conn, EntryEnvelope {
-        id: entry.id.as_str(),
-        kind: if entry.kind == nuo_wire::EntryKind::State {
-            "state"
-        } else {
-            "message"
+    upsert_entry_row(
+        conn,
+        EntryEnvelope {
+            id: entry.id.as_str(),
+            kind: if entry.kind == nuo_wire::EntryKind::State {
+                "state"
+            } else {
+                "message"
+            },
+            role: entry.role.map(role_str),
+            content: content.as_deref(),
+            origin: entry.origin.map(origin_str),
+            hidden: entry.hidden,
+            created_at_ms: entry.created_at_ms,
+            payload: payload.as_str(),
         },
-        role: entry.role.map(role_str),
-        content: content.as_deref(),
-        origin: entry.origin.map(origin_str),
-        hidden: entry.hidden,
-        created_at_ms: entry.created_at_ms,
-        payload: payload.as_str(),
-    })
+    )
 }
 
 fn upsert_entry_row(conn: &Connection, row: EntryEnvelope<'_>) -> Result<()> {
@@ -751,8 +769,7 @@ pub(crate) fn load_session_full(
                 };
                 let role = role.as_deref().and_then(role_from_str);
                 let origin = origin.as_deref().and_then(origin_from_str);
-                let payload: nuo_wire::EntryPayload =
-                    serde_json::from_str(&payload).ok()?;
+                let payload: nuo_wire::EntryPayload = serde_json::from_str(&payload).ok()?;
                 Some(nuo_wire::TranscriptEntry {
                     id: eid.clone(),
                     seq: seq.max(0) as u64,
@@ -812,8 +829,7 @@ pub(crate) fn load_session_full(
                     "freeze" => nuo_wire::DirectiveKind::Freeze,
                     _ => return None,
                 };
-                let payload: nuo_wire::DirectivePayload =
-                    serde_json::from_str(&payload).ok()?;
+                let payload: nuo_wire::DirectivePayload = serde_json::from_str(&payload).ok()?;
                 Some(nuo_wire::ProjectionDirective {
                     seq: seq.max(0) as u64,
                     kind,
@@ -1000,9 +1016,8 @@ pub(crate) fn resolve_session_prefix(
             }
         }
         _ => {
-            let mut stmt = conn.prepare(
-                "SELECT id FROM threads WHERE id LIKE ?1 ORDER BY updated_at_ms DESC",
-            )?;
+            let mut stmt = conn
+                .prepare("SELECT id FROM threads WHERE id LIKE ?1 ORDER BY updated_at_ms DESC")?;
             let rows = stmt.query_map(params![pattern], |row| row.get(0))?;
             for id in rows {
                 matches.push(id?);
@@ -1212,7 +1227,9 @@ pub(crate) fn latest_session(
             false,
         ),
         (WorkspaceFilter::Unbound, false) => (
-            format!("{base} AND (workspace_root IS NULL OR workspace_root = '') ORDER BY updated_at_s DESC LIMIT 1"),
+            format!(
+                "{base} AND (workspace_root IS NULL OR workspace_root = '') ORDER BY updated_at_s DESC LIMIT 1"
+            ),
             false,
         ),
         (WorkspaceFilter::Any, true) => (
@@ -1254,8 +1271,7 @@ pub(crate) fn latest_session_in_partition(
     let get = |row: &Row| row.get::<_, String>(0);
     let found = match partition {
         nuo_wire::SessionPartition::Workspace(path) => {
-            let sql =
-                format!("{base} AND workspace_root = ?1 ORDER BY updated_at_s DESC LIMIT 1");
+            let sql = format!("{base} AND workspace_root = ?1 ORDER BY updated_at_s DESC LIMIT 1");
             let mut stmt = conn.prepare(&sql)?;
             stmt.query_row(params![path.to_string_lossy()], get)
                 .optional()?

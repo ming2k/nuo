@@ -25,8 +25,8 @@ pub mod risk;
 pub mod scope;
 pub mod skills_config;
 pub mod stream;
-pub mod tokenizer;
 pub mod todos;
+pub mod tokenizer;
 pub mod tool_output;
 pub mod usage;
 pub mod validation;
@@ -35,7 +35,6 @@ pub mod vfs;
 pub use access::{ToolAccess, ToolAccesses, ToolFileAccessOperation};
 pub use approval::{AlwaysApprove, ApprovalDecision, ApprovalHandler, ToolCallRequest};
 pub use builtin::BuiltinTool;
-pub use guard::TrajectoryGuardConfig;
 pub use command::{CommandTool, ShellKind};
 pub use completion::{
     CommandAlias, CommandCatalog, CommandExample, CommandSpec, CommandSubcommandSpec,
@@ -46,22 +45,31 @@ pub use context::{ServiceMap, ServiceMapBuilder, ToolContext, ToolInvocation, To
 pub use descriptor::{ToolDescriptor, ToolDescriptorBuilder};
 pub use dynamic::DynamicTool;
 pub use error::{Result, ToolError};
+pub use guard::TrajectoryGuardConfig;
 pub use mcp::McpTool;
 pub use mention::*;
-pub use message::{ImagePart, InjectionKind, InjectionOrigin, Message, Role, SubagentMeta, ToolCall, ToolResult};
+pub use message::{
+    ImagePart, InjectionKind, InjectionOrigin, Message, Role, SubagentMeta, ToolCall, ToolResult,
+};
 pub use output::ToolOutput;
-pub use tool_output::PatchOp;
 pub use policy::ToolPolicy;
 pub use registry::ToolRegistry;
 pub use risk::RiskProfile;
 pub use scope::{ScopeTarget, ToolScope};
 pub use skills_config::SkillsConfig;
-pub use stream::{InputContract, InputExpectation, InputHandler, InputPrompt, ShellLine, ShellStream, ShellTermination, ToolStream};
-pub use tokenizer::{StreamingCounter, Tokenizer, count_tokens, truncate_to_tokens};
+pub use stream::{
+    InputContract, InputExpectation, InputHandler, InputPrompt, ShellLine, ShellStream,
+    ShellTermination, ToolStream,
+};
 pub use todos::{MAX_TODOS, TodoId, TodoItem, TodoList, TodoStatus, unix_now};
+pub use tokenizer::{StreamingCounter, Tokenizer, count_tokens, truncate_to_tokens};
+pub use tool_output::PatchOp;
 pub use usage::TokenUsage;
 pub use validation::validate_tool_arguments;
-pub use vfs::{VFS_ROOT_PREFIX, VirtualFileResolver, extract_virtual_handle, is_virtual_path, vfs_canonical_path, vfs_root_dir, vfs_short_hash};
+pub use vfs::{
+    VFS_ROOT_PREFIX, VirtualFileResolver, extract_virtual_handle, is_virtual_path,
+    vfs_canonical_path, vfs_root_dir, vfs_short_hash,
+};
 
 pub use nuo_tool_derive::ToolSchema;
 
@@ -229,10 +237,7 @@ pub trait Tool: Send + Sync {
     }
 
     /// Build the tool-specific permission submission for a given set of arguments.
-    fn permission_submission(
-        &self,
-        arguments: &str,
-    ) -> Option<ToolPermissionSubmission> {
+    fn permission_submission(&self, arguments: &str) -> Option<ToolPermissionSubmission> {
         if !self.hazard_level().requires_permission() {
             return None;
         }
@@ -266,7 +271,11 @@ pub trait Tool: Send + Sync {
     ///
     /// Exactly one of `execute` / `call` must be overridden; a tool that
     /// overrides neither recurses (guarded by a debug assertion in the default).
-    async fn execute(&self, _ctx: &ToolContext, arguments: serde_json::Value) -> Result<ToolOutput> {
+    async fn execute(
+        &self,
+        _ctx: &ToolContext,
+        arguments: serde_json::Value,
+    ) -> Result<ToolOutput> {
         debug_assert!(
             false,
             "tool `{}` overrides neither `execute` nor `call`; one is required",
@@ -333,4 +342,6 @@ pub trait Tool: Send + Sync {
 }
 
 pub mod hazard;
-pub use hazard::{HazardLevel, HazardTier, ProcessKillSpec, ToolPermissionPayload, ToolPermissionSubmission};
+pub use hazard::{
+    HazardLevel, HazardTier, ProcessKillSpec, ToolPermissionPayload, ToolPermissionSubmission,
+};

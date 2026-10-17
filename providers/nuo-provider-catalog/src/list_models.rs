@@ -49,9 +49,7 @@
 
 use std::collections::HashSet;
 
-use nuo_model_codec::{
-    Availability, ReasoningSupport, WireProtocol,
-};
+use nuo_model_codec::{Availability, ReasoningSupport, WireProtocol};
 use serde_json::Value;
 
 pub use nuo_model_codec::CatalogShape;
@@ -60,8 +58,8 @@ pub use nuo_model_codec::CatalogShape;
 /// first channel. Fields mirror what a chat request would use so the auth
 /// matches exactly.
 pub use nuo_provider::catalog::{
-    CatalogSigning, DiscoveredModel, ModelListError, RemoteCatalogOptions,
-    RemoteCatalogRequest, RemoteCatalogUpdate,
+    CatalogSigning, DiscoveredModel, ModelListError, RemoteCatalogOptions, RemoteCatalogRequest,
+    RemoteCatalogUpdate,
 };
 
 /// Append `key=value` pairs to a URL, percent-encoding as needed.
@@ -121,9 +119,12 @@ pub async fn fetch_remote_catalog(
     options: RemoteCatalogOptions<'_>,
 ) -> Result<RemoteCatalogUpdate, ModelListError> {
     let endpoint = models_endpoint_for(req.protocol, req.base_url)?;
-    let user_agent = req.user_agent.unwrap_or(nuo_provider_transport::NUO_USER_AGENT);
+    let user_agent = req
+        .user_agent
+        .unwrap_or(nuo_provider_transport::NUO_USER_AGENT);
 
-    let client = nuo_provider_transport::http::Http::control_plane().map_err(ModelListError::Http)?;
+    let client =
+        nuo_provider_transport::http::Http::control_plane().map_err(ModelListError::Http)?;
 
     let response = match req.protocol {
         CatalogShape::SceneMap => {
@@ -163,8 +164,9 @@ pub async fn fetch_remote_catalog(
         CatalogShape::OpenAi => {
             // OpenAI auth: a bearer when a key is set, NO header when keyless
             // (some relays reject a malformed bearer). Mirrors the chat path.
-            let mut request = nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
-                .header("user-agent", user_agent);
+            let mut request =
+                nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
+                    .header("user-agent", user_agent);
             if !req.api_key.expose_secret().trim().is_empty() {
                 request = request.header(
                     "authorization",
@@ -189,9 +191,10 @@ pub async fn fetch_remote_catalog(
                     nuo_model_codec::client_identity::CODEX_VERSION,
                 )],
             );
-            let mut request = nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
-                .header("user-agent", user_agent)
-                .header("originator", "codex_cli_rs");
+            let mut request =
+                nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
+                    .header("user-agent", user_agent)
+                    .header("originator", "codex_cli_rs");
             if !req.api_key.expose_secret().trim().is_empty() {
                 request = request.header(
                     "authorization",
@@ -213,10 +216,11 @@ pub async fn fetch_remote_catalog(
             // Anthropic auth: x-api-key + the pinned API version. The version
             // header is mandatory on every Anthropic request including the
             // models list endpoint.
-            let mut request = nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
-                .header("user-agent", user_agent)
-                .header("x-api-key", req.api_key.expose_secret())
-                .header("anthropic-version", anthropic_version());
+            let mut request =
+                nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
+                    .header("user-agent", user_agent)
+                    .header("x-api-key", req.api_key.expose_secret())
+                    .header("anthropic-version", anthropic_version());
             if req.api_key.expose_secret().trim().is_empty() {
                 // A keyless request still sends the headers (harmless) but
                 // most Anthropic relays require a key; the snapshot fallback
@@ -238,9 +242,10 @@ pub async fn fetch_remote_catalog(
                 .account_id
                 .filter(|id| !id.trim().is_empty())
                 .unwrap_or("aicode-consumers");
-            let mut request = nuo_provider_transport::http::Request::new(netune::Method::POST, &endpoint)
-                .header("user-agent", user_agent)
-                .json(&serde_json::json!({ "project": project }));
+            let mut request =
+                nuo_provider_transport::http::Request::new(netune::Method::POST, &endpoint)
+                    .header("user-agent", user_agent)
+                    .json(&serde_json::json!({ "project": project }));
             if !req.api_key.expose_secret().trim().is_empty() {
                 request = request.header(
                     "authorization",
@@ -256,8 +261,9 @@ pub async fn fetch_remote_catalog(
             // Google AI Studio auth: x-goog-api-key header is the official standard.
             // OAuth/IAM bearer tokens use Authorization: Bearer.
             // Avoid leaking credentials in URL query parameters.
-            let mut request = nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
-                .header("user-agent", user_agent);
+            let mut request =
+                nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
+                    .header("user-agent", user_agent);
             let secret = req.api_key.expose_secret().trim();
             if !secret.is_empty() {
                 if secret.starts_with("ya29.") || secret.starts_with("Bearer ") {
@@ -281,9 +287,10 @@ pub async fn fetch_remote_catalog(
             // plus the `x-org-id` workspace header — the catalog's own spelling,
             // distinct from the inference surface's `x-opencode-org-id`. The
             // server answers 400 `OrgRequired` without an org selection.
-            let mut request = nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
-                .header("user-agent", user_agent)
-                .header("accept", "application/json");
+            let mut request =
+                nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
+                    .header("user-agent", user_agent)
+                    .header("accept", "application/json");
             if !req.api_key.expose_secret().trim().is_empty() {
                 request = request.header(
                     "authorization",
@@ -665,7 +672,9 @@ fn discovered_model_from_entry(entry: &Value) -> Option<DiscoveredModel> {
         .and_then(Value::as_array)
         .and_then(|endpoints| {
             let has_messages = endpoints.iter().any(|e| e.as_str() == Some("/messages"));
-            let has_chat = endpoints.iter().any(|e| e.as_str() == Some("/chat/completions"));
+            let has_chat = endpoints
+                .iter()
+                .any(|e| e.as_str() == Some("/chat/completions"));
             if has_messages && !has_chat {
                 Some(WireProtocol::AnthropicMessages)
             } else if has_chat {
@@ -900,36 +909,33 @@ fn parse_google_models(json: &Value) -> Vec<DiscoveredModel> {
                     .get("outputTokenLimit")
                     .and_then(Value::as_u64)
                     .map(|v| v as u32);
-                entry
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .map(|name| {
-                        let id = name.strip_prefix("models/").unwrap_or(name).to_string();
-                        let reasoning = entry
-                            .get("thinking")
-                            .and_then(Value::as_bool)
-                            .unwrap_or_else(|| {
-                                id.contains("gemini-2.5")
-                                    || id.contains("gemini-3")
-                                    || id.contains("gemini-4")
-                                    || id.contains("argon")
-                            });
-                        DiscoveredModel {
-                            id,
-                            // Gemini's model resource carries the label in
-                            // `displayName` (`name` is the `models/<id>` path), so
-                            // the display label must not be read from `name` here.
-                            name: entry
-                                .get("displayName")
-                                .and_then(Value::as_str)
-                                .map(str::to_string),
-                            context_window,
-                            max_output_tokens,
-                            reasoning: reasoning.then_some(true),
-                            family: Some("google".to_string()),
-                            ..DiscoveredModel::default()
-                        }
-                    })
+                entry.get("name").and_then(Value::as_str).map(|name| {
+                    let id = name.strip_prefix("models/").unwrap_or(name).to_string();
+                    let reasoning = entry
+                        .get("thinking")
+                        .and_then(Value::as_bool)
+                        .unwrap_or_else(|| {
+                            id.contains("gemini-2.5")
+                                || id.contains("gemini-3")
+                                || id.contains("gemini-4")
+                                || id.contains("argon")
+                        });
+                    DiscoveredModel {
+                        id,
+                        // Gemini's model resource carries the label in
+                        // `displayName` (`name` is the `models/<id>` path), so
+                        // the display label must not be read from `name` here.
+                        name: entry
+                            .get("displayName")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        context_window,
+                        max_output_tokens,
+                        reasoning: reasoning.then_some(true),
+                        family: Some("google".to_string()),
+                        ..DiscoveredModel::default()
+                    }
+                })
             })
             .collect();
     }
@@ -1073,17 +1079,33 @@ mod tests {
         );
 
         // Verify Gemini effort ladder [INV-CATALOG-02]
-        let flash38 = discovered.iter().find(|m| m.id == "gemini-3.8-flash").unwrap();
+        let flash38 = discovered
+            .iter()
+            .find(|m| m.id == "gemini-3.8-flash")
+            .unwrap();
         assert_eq!(
             flash38.effort_levels,
-            Some(vec!["minimal".to_string(), "low".to_string(), "medium".to_string(), "high".to_string()])
+            Some(vec![
+                "minimal".to_string(),
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string()
+            ])
         );
 
         // Verify Claude 5.5 effort ladder [INV-CATALOG-02]
-        let sonnet55 = discovered.iter().find(|m| m.id == "claude-sonnet-5-5").unwrap();
+        let sonnet55 = discovered
+            .iter()
+            .find(|m| m.id == "claude-sonnet-5-5")
+            .unwrap();
         assert_eq!(
             sonnet55.effort_levels,
-            Some(vec!["low".to_string(), "medium".to_string(), "high".to_string(), "max".to_string()])
+            Some(vec![
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string(),
+                "max".to_string()
+            ])
         );
     }
 
@@ -1107,10 +1129,7 @@ mod tests {
             }
         });
         let discovered = parse_models(CatalogShape::GoogleCloudCode, &json);
-        let got: Vec<String> = discovered
-            .iter()
-            .map(|model| model.id.clone())
-            .collect();
+        let got: Vec<String> = discovered.iter().map(|model| model.id.clone()).collect();
         assert!(got.contains(&"gemini-3.8-flash".to_string()));
         assert!(got.contains(&"gemini-4-argon".to_string()));
         assert!(got.contains(&"gemini-pro-agent".to_string()));

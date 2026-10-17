@@ -1,6 +1,7 @@
 use futures::{SinkExt, StreamExt};
 use nuo_client::wire::{
-    ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, protocol_accepts,
+    ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
+    protocol_accepts,
 };
 use nuo_wire::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
 use std::net::SocketAddr;
@@ -8,7 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{RwLock, broadcast};
 use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request};
 use tokio_tungstenite::tungstenite::http::StatusCode;
@@ -229,9 +230,7 @@ fn workspace_trust_notice(
         ("hooks (lifecycle hooks)", snapshot.hooks),
     ]
     .into_iter()
-    .filter_map(|(name, state)| {
-        (state == nuo_wire::WorkspaceTrustState::Changed).then_some(name)
-    })
+    .filter_map(|(name, state)| (state == nuo_wire::WorkspaceTrustState::Changed).then_some(name))
     .collect::<Vec<_>>();
 
     let changed_desc = if changed.is_empty() {
@@ -262,8 +261,7 @@ pub(crate) fn is_attach_sync_event(response: &AgentResponse) -> bool {
         | AgentResponse::ProviderPicker(_) => true,
         AgentResponse::Round { event, .. } => matches!(
             event,
-            nuo_wire::RoundEvent::ContextTokens(_)
-                | nuo_wire::RoundEvent::HarnessState(_)
+            nuo_wire::RoundEvent::ContextTokens(_) | nuo_wire::RoundEvent::HarnessState(_)
         ),
         _ => false,
     }
@@ -274,11 +272,7 @@ pub(crate) fn is_attach_sync_event(response: &AgentResponse) -> bool {
 /// before any session work. Directional: a too-old client hears "update",
 /// a too-new client hears "restart the server".
 fn protocol_mismatch_error(client: u32, client_version: Option<&str>) -> String {
-    let window = format!(
-        "{}..={}",
-        MIN_PROTOCOL_VERSION,
-        PROTOCOL_VERSION
-    );
+    let window = format!("{}..={}", MIN_PROTOCOL_VERSION, PROTOCOL_VERSION);
     let builds = match client_version {
         Some(v) => format!(" (client build {v}, server build {})", server_version()),
         None => format!(" (server build {})", server_version()),
@@ -389,11 +383,17 @@ impl ConnTable {
     }
 
     pub fn interactive_count(&self) -> usize {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).interactive_count
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .interactive_count
     }
 
     pub fn has_had_interactive(&self) -> bool {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).has_had_interactive
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .has_had_interactive
     }
 
     pub async fn notified(&self) {
@@ -596,7 +596,10 @@ pub struct TcpManager {
 }
 
 impl TcpManager {
-    pub async fn open_tcp(&self, requested_port: Option<u16>) -> Result<nuo_wire::ServerEndpointsReport, String> {
+    pub async fn open_tcp(
+        &self,
+        requested_port: Option<u16>,
+    ) -> Result<nuo_wire::ServerEndpointsReport, String> {
         let current_port = self.port.load(Ordering::SeqCst);
         let target_port = requested_port.unwrap_or_else(|| {
             if current_port > 0 {
@@ -753,7 +756,9 @@ pub async fn get_current_endpoints() -> nuo_wire::ServerEndpointsReport {
     }
 }
 
-pub async fn open_dynamic_tcp(port: Option<u16>) -> Result<nuo_wire::ServerEndpointsReport, String> {
+pub async fn open_dynamic_tcp(
+    port: Option<u16>,
+) -> Result<nuo_wire::ServerEndpointsReport, String> {
     let mgr_opt = TCP_MANAGER.read().ok().and_then(|guard| guard.clone());
     if let Some(mgr) = mgr_opt {
         mgr.open_tcp(port).await
@@ -1439,8 +1444,7 @@ async fn handle_wire_stream(
         None => {
             let config = nuo_persistence::config::Config::load();
             let provider = crate::catalog::default_provider_id(&config).to_string();
-            let model =
-                crate::catalog::resolved_model_name(&config, &provider).unwrap_or_default();
+            let model = crate::catalog::resolved_model_name(&config, &provider).unwrap_or_default();
             (provider, model)
         }
     };
@@ -1550,7 +1554,8 @@ async fn handle_wire_stream(
     );
     // ADR-0049: Emit declarative SessionSnapshot for deterministic universal hydration
     if !bound.sync_buffer.lock().await.is_empty() {
-        let session_snapshot = build_declarative_snapshot(&bound.sync_buffer, &attached_session_id).await;
+        let session_snapshot =
+            build_declarative_snapshot(&bound.sync_buffer, &attached_session_id).await;
         let _ = wire_sink
             .send(Wire::Response {
                 response: AgentResponse::SessionSnapshot(Box::new(session_snapshot)),
@@ -1584,10 +1589,7 @@ async fn handle_wire_stream(
     //   there is nothing to gate on — the user already made a trust
     //   decision for this workspace — so a banner is the honest escalation.
     let snap = bound.security_snapshot();
-    if matches!(
-        snap.aggregate(),
-        nuo_wire::WorkspaceTrustState::Changed
-    ) {
+    if matches!(snap.aggregate(), nuo_wire::WorkspaceTrustState::Changed) {
         let session_id = bound.session.id().await;
         let response = workspace_trust_notice(&session_id, &snap);
         wire_sink
@@ -1750,7 +1752,16 @@ where
     .map_err(|e| format!("ws handshake: {e}"))?;
 
     let (wire_sink, wire_source) = websocket_split(ws_stream);
-    handle_wire_stream(wire_sink, wire_source, registry, gate, listeners, conns, tcp_manager).await
+    handle_wire_stream(
+        wire_sink,
+        wire_source,
+        registry,
+        gate,
+        listeners,
+        conns,
+        tcp_manager,
+    )
+    .await
 }
 
 /// Serve a host-observability client (ADR-0093): send one snapshot, then —
@@ -2081,7 +2092,10 @@ mod tests {
         assert!(!initial.tcp_active);
 
         // Open ephemeral port
-        let opened = mgr.open_tcp(Some(0)).await.expect("dynamic open tcp succeeds");
+        let opened = mgr
+            .open_tcp(Some(0))
+            .await
+            .expect("dynamic open tcp succeeds");
         assert!(opened.tcp_port > 0);
         assert!(opened.tcp_active);
         assert!(opened.token.is_some());
@@ -2313,12 +2327,10 @@ mod tests {
         for i in 1..=10 {
             let tokens = AgentResponse::Round {
                 session_id: "s1".to_string(),
-                event: nuo_wire::RoundEvent::ContextTokens(
-                    nuo_wire::ContextTokenSnapshot::new(
-                        i * 100,
-                        nuo_wire::ContextTokenSource::Projection,
-                    ),
-                ),
+                event: nuo_wire::RoundEvent::ContextTokens(nuo_wire::ContextTokenSnapshot::new(
+                    i * 100,
+                    nuo_wire::ContextTokenSource::Projection,
+                )),
             };
             buf.observe(&tokens);
         }

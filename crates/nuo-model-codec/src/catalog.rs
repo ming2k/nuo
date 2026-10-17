@@ -665,7 +665,6 @@ mod tests {
         assert!(entry.offers_model("glm-5.2"));
     }
 
-
     #[test]
     fn context_window_resolves_from_model_registry() {
         // Uses the `fixture-alpha` baseline registered in `model::tests` (core's

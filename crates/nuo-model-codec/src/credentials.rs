@@ -68,8 +68,6 @@ where
     Fut: std::future::Future<Output = std::result::Result<String, String>> + Send,
 {
     async fn get_token(&self) -> Result<String> {
-        (self.fetcher)()
-            .await
-            .map_err(WireError::Credentials)
+        (self.fetcher)().await.map_err(WireError::Credentials)
     }
 }

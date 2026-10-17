@@ -11,38 +11,38 @@ pub mod clipboard;
 pub mod color_scheme;
 pub mod environment;
 pub mod fs;
-pub mod fsutil;
 pub mod fs_watcher;
+pub mod fsutil;
 pub mod ipc;
 pub mod lock;
 pub mod opener;
 pub mod paths;
 pub mod process;
-pub mod supervised;
+pub mod secret;
 pub mod secure_file;
 pub mod security;
-pub mod secret;
 pub mod shared_roots;
 pub mod shell;
+pub mod supervised;
 pub mod web_config;
 pub mod workspace;
 pub mod workspace_sandbox;
 
+pub use color_scheme::*;
 pub use environment::{detect_device_fingerprint, detect_runtime_environment, generate_session_id};
+pub use fs_watcher::{FsEvent, FsEventKind, FsWatcher};
 pub use secret::SecretString;
-pub use supervised::{
-    BackgroundJobInfo, BackgroundJobOutcome, BackgroundJobService, JobId, JobKind, JobSpec,
-    JobState, Readiness, RestartPolicy,
-};
 pub use security::{
     AssetLocator, AssetSpec, AttestationStatus, TrustDomain, WorkspaceSecuritySnapshot,
     WorkspaceTrustState,
 };
 pub use shared_roots::SharedAdditionalRoots;
-pub use workspace::{WorkspaceBinding, WorkspaceFilter};
-pub use color_scheme::*;
-pub use fs_watcher::{FsEvent, FsEventKind, FsWatcher};
+pub use supervised::{
+    BackgroundJobInfo, BackgroundJobOutcome, BackgroundJobService, JobId, JobKind, JobSpec,
+    JobState, Readiness, RestartPolicy,
+};
 pub use web_config::*;
+pub use workspace::{WorkspaceBinding, WorkspaceFilter};
 
 #[cfg(windows)]
 mod windows_security;

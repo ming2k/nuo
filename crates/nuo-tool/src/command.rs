@@ -329,7 +329,10 @@ fn build_powershell_command(command_str: &str) -> tokio::process::Command {
 /// Windows auto-detection: pwsh -> powershell -> cmd
 #[cfg(windows)]
 fn build_windows_auto_command(command_str: &str) -> tokio::process::Command {
-    if is_executable_available("pwsh") || is_executable_available("powershell") || is_windows_powershell_installed() {
+    if is_executable_available("pwsh")
+        || is_executable_available("powershell")
+        || is_windows_powershell_installed()
+    {
         build_powershell_command(command_str)
     } else {
         let mut c = tokio::process::Command::new("cmd");
@@ -529,11 +532,18 @@ impl Tool for CommandTool {
                 .collect();
             let middle_chars = result.chars().count().saturating_sub(head_len + tail_len);
             let middle_kb = (middle_chars as f64) / 1024.0;
-            let middle_lines = result.lines().count().saturating_sub(head_part.lines().count() + tail_part.lines().count());
+            let middle_lines = result
+                .lines()
+                .count()
+                .saturating_sub(head_part.lines().count() + tail_part.lines().count());
             let banner = if middle_lines > 1 {
-                format!("--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---")
+                format!(
+                    "--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---"
+                )
             } else {
-                format!("--- [Middle {middle_chars} characters ({middle_kb:.1} KB) omitted to protect context budget] ---")
+                format!(
+                    "--- [Middle {middle_chars} characters ({middle_kb:.1} KB) omitted to protect context budget] ---"
+                )
             };
             result = format!("{head_part}\n\n{banner}\n\n{tail_part}");
         }
@@ -554,7 +564,10 @@ mod tests {
     #[test]
     fn test_shell_kind_parse() {
         assert_eq!(ShellKind::parse_loose("auto"), Some(ShellKind::Auto));
-        assert_eq!(ShellKind::parse_loose("POWERSHELL"), Some(ShellKind::PowerShell));
+        assert_eq!(
+            ShellKind::parse_loose("POWERSHELL"),
+            Some(ShellKind::PowerShell)
+        );
         assert_eq!(ShellKind::parse_loose("pwsh"), Some(ShellKind::PowerShell));
         assert_eq!(ShellKind::parse_loose("sh"), Some(ShellKind::Sh));
         assert_eq!(ShellKind::parse_loose("bash"), Some(ShellKind::Bash));
@@ -567,19 +580,29 @@ mod tests {
         assert!(CommandTool::is_high_risk_command("rm -rf /"));
         assert!(CommandTool::is_high_risk_command("rm -fr /home/user"));
         assert!(CommandTool::is_high_risk_command("rm -r -f test"));
-        assert!(CommandTool::is_high_risk_command("rm --recursive --force ."));
+        assert!(CommandTool::is_high_risk_command(
+            "rm --recursive --force ."
+        ));
         assert!(CommandTool::is_high_risk_command("mkfs.ext4 /dev/sdb"));
-        assert!(CommandTool::is_high_risk_command("dd if=/dev/zero of=/dev/sda"));
+        assert!(CommandTool::is_high_risk_command(
+            "dd if=/dev/zero of=/dev/sda"
+        ));
         assert!(CommandTool::is_high_risk_command("chmod -R 777 /"));
         assert!(CommandTool::is_high_risk_command("echo hello > /dev/sda"));
-        assert!(CommandTool::is_high_risk_command("cat malicious > /dev/nvme0n1"));
+        assert!(CommandTool::is_high_risk_command(
+            "cat malicious > /dev/nvme0n1"
+        ));
         assert!(CommandTool::is_high_risk_command("shutdown -h now"));
         assert!(CommandTool::is_high_risk_command("reboot"));
         assert!(CommandTool::is_high_risk_command(":(){ :|:& };:"));
-        assert!(CommandTool::is_high_risk_command("DROP DATABASE production;"));
+        assert!(CommandTool::is_high_risk_command(
+            "DROP DATABASE production;"
+        ));
 
         // Safe commands must not trigger high risk
-        assert!(!CommandTool::is_high_risk_command("echo 'hello world' > /dev/null"));
+        assert!(!CommandTool::is_high_risk_command(
+            "echo 'hello world' > /dev/null"
+        ));
         assert!(!CommandTool::is_high_risk_command("cargo test --all"));
         assert!(!CommandTool::is_high_risk_command("git status"));
         assert!(!CommandTool::is_high_risk_command("ls -la"));
@@ -593,21 +616,35 @@ mod tests {
         assert!(CommandTool::is_high_risk_command("del /f /s /q *.dll"));
         assert!(CommandTool::is_high_risk_command("erase /s /f C:\\"));
         assert!(CommandTool::is_high_risk_command("format C: /fs:ntfs"));
-        assert!(CommandTool::is_high_risk_command("vssadmin delete shadows /all"));
-        assert!(CommandTool::is_high_risk_command("reg delete HKLM\\Software\\Test"));
+        assert!(CommandTool::is_high_risk_command(
+            "vssadmin delete shadows /all"
+        ));
+        assert!(CommandTool::is_high_risk_command(
+            "reg delete HKLM\\Software\\Test"
+        ));
 
         // PowerShell destructive cmdlets
-        assert!(CommandTool::is_high_risk_command("Remove-Item -Path C:\\Temp -Recurse -Force"));
-        assert!(CommandTool::is_high_risk_command("ri -Recurse -Force C:\\Logs"));
-        assert!(CommandTool::is_high_risk_command("Clear-Disk -Number 1 -RemoveData"));
-        assert!(CommandTool::is_high_risk_command("Initialize-Disk -Number 2"));
+        assert!(CommandTool::is_high_risk_command(
+            "Remove-Item -Path C:\\Temp -Recurse -Force"
+        ));
+        assert!(CommandTool::is_high_risk_command(
+            "ri -Recurse -Force C:\\Logs"
+        ));
+        assert!(CommandTool::is_high_risk_command(
+            "Clear-Disk -Number 1 -RemoveData"
+        ));
+        assert!(CommandTool::is_high_risk_command(
+            "Initialize-Disk -Number 2"
+        ));
         assert!(CommandTool::is_high_risk_command("Stop-Computer -Force"));
         assert!(CommandTool::is_high_risk_command("Restart-Computer"));
 
         // Safe Windows/PowerShell commands
         assert!(!CommandTool::is_high_risk_command("Get-ChildItem -Path ."));
         assert!(!CommandTool::is_high_risk_command("dir"));
-        assert!(!CommandTool::is_high_risk_command("Get-Process | Where-Object WorkingSet -gt 100MB"));
+        assert!(!CommandTool::is_high_risk_command(
+            "Get-Process | Where-Object WorkingSet -gt 100MB"
+        ));
     }
 
     #[tokio::test]

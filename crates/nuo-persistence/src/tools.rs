@@ -1,19 +1,21 @@
 //! Canonical persistence and role memory tools for cognitive agents.
 
-use std::sync::Arc;
 use async_trait::async_trait;
 use nuo_tool::{
-    BuiltinTool, RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolScope, ToolSchema,
+    BuiltinTool, RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolSchema, ToolScope,
 };
 use serde::Deserialize;
 use serde_json::Value;
+use std::sync::Arc;
 
 use crate::role_memory::RoleMemoryStore;
 
 /// Typed parameters for [`RecallMemoryTool`].
 #[derive(Debug, Clone, Deserialize, ToolSchema)]
 pub struct RecallMemoryArgs {
-    #[tool(desc = "The topic, concept, question, or keyword to recall from past dialogues with the user")]
+    #[tool(
+        desc = "The topic, concept, question, or keyword to recall from past dialogues with the user"
+    )]
     pub query: String,
     #[tool(desc = "The specific role boundary to search memories for (default: current role)")]
     pub role: Option<String>,
@@ -66,8 +68,9 @@ impl Tool for RecallMemoryTool {
     }
 
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
-        let args: RecallMemoryArgs = serde_json::from_value(arguments)
-            .map_err(|err| ToolError::execution(self.name(), format!("invalid arguments: {err}")))?;
+        let args: RecallMemoryArgs = serde_json::from_value(arguments).map_err(|err| {
+            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
+        })?;
 
         let query = &args.query;
         let role = args.role.as_deref().unwrap_or(&self.default_role);
@@ -83,7 +86,10 @@ impl Tool for RecallMemoryTool {
             )));
         }
 
-        let mut lines = vec![format!("Recalled {} relevant dialogue memories:", memories.len())];
+        let mut lines = vec![format!(
+            "Recalled {} relevant dialogue memories:",
+            memories.len()
+        )];
         for (idx, mem) in memories.iter().enumerate() {
             lines.push(format!(
                 "[{}] (retention: {:.0}%, score: {:.2})\nUser: {}\nAssistant: {}",

@@ -104,8 +104,7 @@ impl TelemetryRound {
             return None;
         }
         let tps = tokens as f64 * 1_000_000.0 / span_us as f64;
-        (tps.is_finite() && tps > 0.0 && tps <= nuo_wire::MAX_PLAUSIBLE_STREAM_TPS)
-            .then_some(tps)
+        (tps.is_finite() && tps > 0.0 && tps <= nuo_wire::MAX_PLAUSIBLE_STREAM_TPS).then_some(tps)
     }
 }
 
@@ -267,9 +266,7 @@ pub(crate) fn fmt_duration_us(us: u64) -> String {
 pub(crate) fn fmt_tps(tps: Option<f64>) -> String {
     match tps {
         Some(rate)
-            if rate > 0.0
-                && rate.is_finite()
-                && rate <= nuo_wire::MAX_PLAUSIBLE_STREAM_TPS =>
+            if rate > 0.0 && rate.is_finite() && rate <= nuo_wire::MAX_PLAUSIBLE_STREAM_TPS =>
         {
             format!("{rate:.1} tok/s")
         }

@@ -841,10 +841,7 @@ mod tests {
         fn scope_target(&self, args: &str) -> ScopeTarget {
             ScopeTarget::Command(args.to_string())
         }
-        fn permission_submission(
-            &self,
-            args: &str,
-        ) -> Option<nuo_wire::ToolPermissionSubmission> {
+        fn permission_submission(&self, args: &str) -> Option<nuo_wire::ToolPermissionSubmission> {
             Some(nuo_wire::ToolPermissionSubmission {
                 hazard_level: nuo_wire::HazardLevel::CommandExecution,
                 label: format!("Execute command: `{args}`"),

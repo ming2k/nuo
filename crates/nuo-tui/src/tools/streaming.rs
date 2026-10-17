@@ -122,8 +122,8 @@ fn scan_extract_key_values(input: &str) -> serde_json::Map<String, Value> {
         }
         let Some(k_end) = key_end else { break };
         let raw_key = &input[key_start..k_end];
-        let key: String =
-            serde_json::from_str(&format!("\"{}\"", raw_key)).unwrap_or_else(|_| raw_key.to_string());
+        let key: String = serde_json::from_str(&format!("\"{}\"", raw_key))
+            .unwrap_or_else(|_| raw_key.to_string());
 
         // Skip whitespace to colon
         while i < len && matches!(bytes[i], b' ' | b'\t' | b'\r' | b'\n') {
@@ -214,7 +214,10 @@ mod tests {
         let input = r#"{"path": "src/lib.rs", "old_string": "fn foo() {"#;
         let map = parse_streaming_arguments(input);
         assert_eq!(map.get("path").and_then(Value::as_str), Some("src/lib.rs"));
-        assert_eq!(map.get("old_string").and_then(Value::as_str), Some("fn foo() {"));
+        assert_eq!(
+            map.get("old_string").and_then(Value::as_str),
+            Some("fn foo() {")
+        );
     }
 
     #[test]

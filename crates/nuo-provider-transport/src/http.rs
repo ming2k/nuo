@@ -97,9 +97,7 @@ impl Http {
     /// Build a handle with an overall per-request deadline.
     pub fn new(timeout: Duration) -> Result<Self, String> {
         Ok(Self {
-            client: Arc::new(crate::network::direct_client(
-                ClientConfig::default(),
-            )?),
+            client: Arc::new(crate::network::direct_client(ClientConfig::default())?),
             timeout,
         })
     }

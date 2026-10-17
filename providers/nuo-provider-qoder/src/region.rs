@@ -61,10 +61,7 @@ pub struct RegionEndpoints {
 /// Fetch and decode the region map, returning the elected inference endpoint
 /// (e.g. `https://api3.qoder.sh`). `Err` carries the reason the map was not
 /// adopted — the caller falls back to the pin.
-pub async fn elect_infer_endpoint(
-    client: &Http,
-    bearer: &str,
-) -> Result<String, String> {
+pub async fn elect_infer_endpoint(client: &Http, bearer: &str) -> Result<String, String> {
     elect_infer_endpoint_at(client, REGION_ENDPOINTS_URL, bearer).await
 }
 
@@ -93,8 +90,8 @@ pub async fn elect_infer_endpoint_at(
     let raw = crate::wire::wire_decode(&response.body)
         .ok_or_else(|| "region body is not QoderEncoding".to_string())?;
     let text = String::from_utf8(raw).map_err(|_| "region body is not UTF-8".to_string())?;
-    let region: RegionEndpoints = serde_json::from_str(&text)
-        .map_err(|e| format!("region payload malformed: {e}"))?;
+    let region: RegionEndpoints =
+        serde_json::from_str(&text).map_err(|e| format!("region payload malformed: {e}"))?;
     let elected = region
         .infer_nodes
         .first()
@@ -134,7 +131,11 @@ mod tests {
         let (addr, _keep) = spawn_scripted_server(vec![(500, "boom".to_string())]).await;
         let client = Http::control_plane().unwrap();
         let url = format!("http://{addr}/region/endpoints");
-        assert!(elect_infer_endpoint_at(&client, &url, "dt-token").await.is_err());
+        assert!(
+            elect_infer_endpoint_at(&client, &url, "dt-token")
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -160,9 +161,8 @@ mod tests {
             "https://qoder.sh.evil.com",
             "not a url",
         ] {
-            let body = encode_region_payload(&format!(
-                r#"{{"inferNodes":[{{"url":"{hostile}"}}]}}"#
-            ));
+            let body =
+                encode_region_payload(&format!(r#"{{"inferNodes":[{{"url":"{hostile}"}}]}}"#));
             let (addr, _keep) = spawn_scripted_server(vec![(200, body)]).await;
             let client = Http::control_plane().unwrap();
             let url = format!("http://{addr}/region/endpoints");
@@ -179,7 +179,11 @@ mod tests {
         let (addr, _keep) = spawn_scripted_server(vec![(200, body)]).await;
         let client = Http::control_plane().unwrap();
         let url = format!("http://{addr}/region/endpoints");
-        assert!(elect_infer_endpoint_at(&client, &url, "dt-token").await.is_err());
+        assert!(
+            elect_infer_endpoint_at(&client, &url, "dt-token")
+                .await
+                .is_err()
+        );
     }
 
     /// Minimal HTTP test server serving a scripted list of (status, body)

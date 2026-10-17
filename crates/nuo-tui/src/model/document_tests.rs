@@ -406,11 +406,9 @@ fn subagent_started_event_labels_step_by_role() {
     );
     assert_eq!(task.subagent_description(), "write the plan");
     assert_eq!(task.subagent_role(), None);
-    assert!(
-        task.push_subagent_event(&nuo_wire::SubagentEvent::Started {
-            profile: "explore".to_string()
-        })
-    );
+    assert!(task.push_subagent_event(&nuo_wire::SubagentEvent::Started {
+        profile: "explore".to_string()
+    }));
     assert_eq!(task.subagent_role().as_deref(), Some("explore"));
     assert_eq!(task.subagent_description(), "write the plan");
     // The collapsed header carries only the description — the role is
@@ -777,12 +775,7 @@ fn cancel_all_running_is_a_defensive_sweep_that_skips_terminal_steps() {
     let mut a = TranscriptMessage::tool_step("a", "read_text", "{}");
     let mut b = TranscriptMessage::tool_step("b", "read_text", "{}");
     // `b` already finished successfully; the sweep must not clobber it.
-    assert!(b.finish_tool_step(
-        "b",
-        "contents",
-        nuo_wire::ToolOutput::text("contents"),
-        5
-    ));
+    assert!(b.finish_tool_step("b", "contents", nuo_wire::ToolOutput::text("contents"), 5));
     assert_eq!(b.tool_step_status(), Some(ToolStepStatus::Ok));
 
     // The sweep cancels a running step and is then a no-op on it.
@@ -947,7 +940,10 @@ fn round_interrupt_creates_structured_notice() {
     };
     let parts = parts.as_ref().expect("must have parts");
     assert_eq!(parts.topic.as_deref(), Some("interrupted"));
-    assert_eq!(parts.detail, None, "interrupted draft must not duplicate into notice detail");
+    assert_eq!(
+        parts.detail, None,
+        "interrupted draft must not duplicate into notice detail"
+    );
     assert_eq!(
         parts.origin,
         Some(crate::model::document::NoticeOrigin::System {
@@ -1398,8 +1394,8 @@ fn announced_tool_step_collapses_and_tracks_input_bytes() {
 #[test]
 fn orphan_announced_tool_step_is_cancelled_not_left_running() {
     // ADR-0023 safety net: an announced-but-never-dispatched step must not hang.
-    let mut step = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
-        .with_input_slot(0);
+    let mut step =
+        TranscriptMessage::tool_step(String::new(), "edit_text", String::new()).with_input_slot(0);
     assert!(step.set_tool_input_bytes("", 1024));
     assert!(step.cancel_pending_announced_tool_step());
     assert_eq!(step.tool_step_status(), Some(ToolStepStatus::Cancelled));
@@ -1408,21 +1404,30 @@ fn orphan_announced_tool_step_is_cancelled_not_left_running() {
     let mut dispatched = TranscriptMessage::tool_step("call_1", "read_text", "{}");
     assert!(dispatched.push_tool_stream("call_1", &nuo_wire::ToolStream::Stdout("y\n".into())));
     assert!(!dispatched.cancel_pending_announced_tool_step());
-    assert_eq!(dispatched.tool_step_status(), Some(ToolStepStatus::Executing));
+    assert_eq!(
+        dispatched.tool_step_status(),
+        Some(ToolStepStatus::Executing)
+    );
 }
 
 #[test]
 fn announced_tool_step_collapses_with_arguments_and_updates_summary() {
-    let mut step = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
-        .with_input_slot(0);
-    assert_eq!(step.tool_step_summary().expect("summary"), "Edit text (receiving input)");
+    let mut step =
+        TranscriptMessage::tool_step(String::new(), "edit_text", String::new()).with_input_slot(0);
+    assert_eq!(
+        step.tool_step_summary().expect("summary"),
+        "Edit text (receiving input)"
+    );
 
     assert!(step.collapse_tool_call(
         "call_1",
         r#"{"path":"src/lib.rs","old_string":"foo","new_string":"bar"}"#,
     ));
     assert_eq!(step.tool_step_call_id(), Some("call_1"));
-    assert_eq!(step.tool_step_summary().expect("summary"), "Edit src/lib.rs +1 -1 (applying)");
+    assert_eq!(
+        step.tool_step_summary().expect("summary"),
+        "Edit src/lib.rs +1 -1 (applying)"
+    );
 
     // When step finishes, duration suffix is added to the real summary
     assert!(step.finish_tool_step(
@@ -1438,25 +1443,38 @@ fn announced_tool_step_collapses_with_arguments_and_updates_summary() {
         },
         5,
     ));
-    assert_eq!(step.tool_step_summary().expect("summary"), "Edit src/lib.rs +1 -1 (5ms)");
+    assert_eq!(
+        step.tool_step_summary().expect("summary"),
+        "Edit src/lib.rs +1 -1 (5ms)"
+    );
 }
 
 #[test]
 fn announced_command_and_find_steps_collapse_with_arguments() {
-    let mut cmd_step = TranscriptMessage::tool_step(String::new(), "execute_command", String::new())
-        .with_input_slot(0);
+    let mut cmd_step =
+        TranscriptMessage::tool_step(String::new(), "execute_command", String::new())
+            .with_input_slot(0);
     assert!(cmd_step.collapse_tool_call("c1", r#"{"command":"git status"}"#));
-    assert_eq!(cmd_step.tool_step_summary().expect("summary"), "Run git (running)");
+    assert_eq!(
+        cmd_step.tool_step_summary().expect("summary"),
+        "Run git (running)"
+    );
 
-    let mut find_step = TranscriptMessage::tool_step(String::new(), "find_files", String::new())
-        .with_input_slot(1);
+    let mut find_step =
+        TranscriptMessage::tool_step(String::new(), "find_files", String::new()).with_input_slot(1);
     assert!(find_step.collapse_tool_call("c2", r#"{"patterns":["*.rs"],"path":"."}"#));
-    assert_eq!(find_step.tool_step_summary().expect("summary"), "Find *.rs (executing)");
+    assert_eq!(
+        find_step.tool_step_summary().expect("summary"),
+        "Find *.rs (executing)"
+    );
 
-    let mut find_in_path = TranscriptMessage::tool_step(String::new(), "find_files", String::new())
-        .with_input_slot(2);
+    let mut find_in_path =
+        TranscriptMessage::tool_step(String::new(), "find_files", String::new()).with_input_slot(2);
     assert!(find_in_path.collapse_tool_call("c3", r#"{"patterns":["*.rs"],"path":"src"}"#));
-    assert_eq!(find_in_path.tool_step_summary().expect("summary"), "Find *.rs in src (executing)");
+    assert_eq!(
+        find_in_path.tool_step_summary().expect("summary"),
+        "Find *.rs in src (executing)"
+    );
 }
 
 #[test]
@@ -1464,15 +1482,17 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
     use crate::model::document::ToolExecutionPhase;
 
     // 1. Announce step with slot 0 (Ingesting phase)
-    let mut step = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
-        .with_input_slot(0);
+    let mut step =
+        TranscriptMessage::tool_step(String::new(), "edit_text", String::new()).with_input_slot(0);
     assert_eq!(
         step.tool_execution_phase(),
         Some(ToolExecutionPhase::Ingesting { bytes: None })
     );
 
     // Initial summary falls back to "Edit text (receiving input)"
-    let (line, suffix) = step.tool_step_semantic_summary(None).expect("semantic summary");
+    let (line, suffix) = step
+        .tool_step_semantic_summary(None)
+        .expect("semantic summary");
     assert_eq!(line.to_plain_text(), "Edit text");
     assert_eq!(suffix.as_deref(), Some(" (receiving input)"));
 
@@ -1489,7 +1509,9 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
     }
 
     // Semantic summary immediately projects the file path!
-    let (line, suffix) = step.tool_step_semantic_summary(None).expect("semantic summary");
+    let (line, suffix) = step
+        .tool_step_semantic_summary(None)
+        .expect("semantic summary");
     assert_eq!(line.to_plain_text(), "Edit src/model/auth.rs");
     assert_eq!(suffix.as_deref(), Some(" (receiving input 0 KB)"));
 
@@ -1506,7 +1528,9 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
         other => panic!("expected Executing phase, got: {other:?}"),
     }
 
-    let (line, suffix) = step.tool_step_semantic_summary(None).expect("semantic summary");
+    let (line, suffix) = step
+        .tool_step_semantic_summary(None)
+        .expect("semantic summary");
     assert_eq!(line.to_plain_text(), "Edit src/model/auth.rs +1 -1");
     assert_eq!(suffix.as_deref(), Some(" (applying)"));
 
@@ -1528,7 +1552,9 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
         step.tool_execution_phase(),
         Some(ToolExecutionPhase::Terminal(ToolStepStatus::Ok))
     );
-    let (line, suffix) = step.tool_step_semantic_summary(None).expect("semantic summary");
+    let (line, suffix) = step
+        .tool_step_semantic_summary(None)
+        .expect("semantic summary");
     assert_eq!(line.to_plain_text(), "Edit src/model/auth.rs +1 -1");
     assert_eq!(suffix.as_deref(), Some(" (120ms)"));
 }
@@ -1548,13 +1574,20 @@ fn parse_arguments_kv_never_dumps_raw_syntax_on_incomplete_json() {
     assert!(!kv.iter().any(|(k, _)| k == "raw" || k == "value"));
     // Valid closed fields were safely extracted
     assert_eq!(
-        kv.iter().find(|(k, _)| k == "limit").map(|(_, v)| v.as_str()),
+        kv.iter()
+            .find(|(k, _)| k == "limit")
+            .map(|(_, v)| v.as_str()),
         Some("120")
     );
     assert_eq!(
-        kv.iter().find(|(k, _)| k == "offset").map(|(_, v)| v.as_str()),
+        kv.iter()
+            .find(|(k, _)| k == "offset")
+            .map(|(_, v)| v.as_str()),
         Some("1")
     );
     // Unclosed "path" field was not leaked with broken syntax
-    assert!(kv.iter().all(|(k, _)| k != "path" || !k.contains("docs/adr/018")));
+    assert!(
+        kv.iter()
+            .all(|(k, _)| k != "path" || !k.contains("docs/adr/018"))
+    );
 }

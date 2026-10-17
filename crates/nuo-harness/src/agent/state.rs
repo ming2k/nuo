@@ -41,11 +41,7 @@ impl Agent {
         tools: Vec<Arc<dyn Tool>>,
         identity: AgentIdentity,
     ) -> AgentBuilder {
-        AgentBuilder::new(
-            provider,
-            nuo_wire::ToolSet::from_tools(tools),
-            identity,
-        )
+        AgentBuilder::new(provider, nuo_wire::ToolSet::from_tools(tools), identity)
     }
 
     /// Start configuring an agent from a full multi-variant tool set.
@@ -68,11 +64,7 @@ impl Agent {
         tools: Vec<Arc<dyn Tool>>,
         identity: AgentIdentity,
     ) -> Self {
-        Self::from_toolset(
-            provider,
-            nuo_wire::ToolSet::from_tools(tools),
-            identity,
-        )
+        Self::from_toolset(provider, nuo_wire::ToolSet::from_tools(tools), identity)
     }
 
     /// Construct an agent from a full [`nuo_wire::ToolSet`], preserving every
@@ -147,9 +139,7 @@ impl Agent {
         Self {
             host: crate::host::KernelHost::none(),
             provider,
-            execution_policy: std::sync::RwLock::new(
-                nuo_wire::ExecutionPolicy::root_default(),
-            ),
+            execution_policy: std::sync::RwLock::new(nuo_wire::ExecutionPolicy::root_default()),
             pool,
             toolset,
             resolved_tools,
@@ -195,9 +185,7 @@ impl Agent {
             request_projection_persist: std::sync::Mutex::new(None),
             title_established: std::sync::Mutex::new(None),
             model_request_assembler,
-            variant_selection: Arc::new(std::sync::Mutex::new(
-                nuo_wire::VariantSelection::new(),
-            )),
+            variant_selection: Arc::new(std::sync::Mutex::new(nuo_wire::VariantSelection::new())),
             tools: std::sync::Mutex::new(tools),
             token_ledger: std::sync::Mutex::new(None),
             token_weights: std::sync::Arc::new(nuo_wire::MessageTokenWeights::new()),
@@ -292,10 +280,22 @@ impl Agent {
     /// configured provider, identity, and resolved tools (ADR-0010).
     pub async fn to_cognitive_agent(&self) -> Result<nuo_agent::Agent, nuo_agent::AgentError> {
         let adapter = nuo_agent::ModelCodecAdapter::new(self.provider.clone());
-        let id = self.identity.read().unwrap_or_else(|e| e.into_inner()).clone();
-        let name = if id.name.is_empty() { "agent" } else { &id.name };
+        let id = self
+            .identity
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let name = if id.name.is_empty() {
+            "agent"
+        } else {
+            &id.name
+        };
         let addr = format!("agent://local/{name}");
-        let mission = if id.mission.is_empty() { "Autonomous Nuo Agent" } else { &id.mission };
+        let mission = if id.mission.is_empty() {
+            "Autonomous Nuo Agent"
+        } else {
+            &id.mission
+        };
         let mut builder = nuo_agent::Agent::builder(&addr)
             .name(name)
             .description(mission)
@@ -306,7 +306,10 @@ impl Agent {
         let approval = crate::governance::HarnessApprovalHandler::new(
             Arc::clone(&self.permissions),
             Arc::new(std::sync::RwLock::new(
-                self.bash_policy.read().unwrap_or_else(|e| e.into_inner()).clone(),
+                self.bash_policy
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone(),
             )),
         );
         builder = builder.with_approval_handler_arc(Arc::new(approval));
@@ -355,7 +358,9 @@ impl Agent {
                 .iter()
                 .map(|p| p.display().to_string())
                 .collect(),
-            workspace_topology: self.workspace_root().and_then(|p| detect_workspace_topology(&p)),
+            workspace_topology: self
+                .workspace_root()
+                .and_then(|p| detect_workspace_topology(&p)),
             workspace_root: self.workspace_root().map(|p| p.display().to_string()),
         }
     }
@@ -375,7 +380,10 @@ fn detect_workspace_topology(root: &std::path::Path) -> Option<String> {
                 let member_cargo = root.join(m_str).join("Cargo.toml");
                 let desc = std::fs::read_to_string(&member_cargo).ok().and_then(|c| {
                     let v: toml::Value = toml::from_str(&c).ok()?;
-                    v.get("package")?.get("description")?.as_str().map(|s| s.to_string())
+                    v.get("package")?
+                        .get("description")?
+                        .as_str()
+                        .map(|s| s.to_string())
                 });
                 if let Some(desc) = desc {
                     lines.push(format!("- {m_str}: {desc}"));
@@ -395,7 +403,6 @@ fn detect_workspace_topology(root: &std::path::Path) -> Option<String> {
 }
 
 impl Agent {
-
     /// Build one immutable provider request from a borrowed conversation window.
     ///
     /// No disk I/O happens here, ever: `@file:` injection ran once when the
@@ -454,14 +461,10 @@ impl Agent {
         // is never committed to the durable transcript.
         let mut temporary_context: Vec<Message> = Vec::new();
         let ws_root = self.workspace_root();
-        let hook_ctx =
-            nuo_wire::extension::HookContext::temporary_context(ws_root.as_deref());
+        let hook_ctx = nuo_wire::extension::HookContext::temporary_context(ws_root.as_deref());
         for extension in self.extensions() {
-            if let nuo_wire::extension::HookOutcome::TemporaryContext(projection) = extension
-                .run(
-                    nuo_wire::HookPhase::ProjectTemporaryContext,
-                    &hook_ctx,
-                )
+            if let nuo_wire::extension::HookOutcome::TemporaryContext(projection) =
+                extension.run(nuo_wire::HookPhase::ProjectTemporaryContext, &hook_ctx)
             {
                 if projection.is_empty() {
                     continue;
@@ -491,14 +494,10 @@ impl Agent {
     ) -> Result<nuo_wire::CompilationArtifact, nuo_wire::CompilerError> {
         let mut temporary_context: Vec<Message> = Vec::new();
         let ws_root = self.workspace_root();
-        let hook_ctx =
-            nuo_wire::extension::HookContext::temporary_context(ws_root.as_deref());
+        let hook_ctx = nuo_wire::extension::HookContext::temporary_context(ws_root.as_deref());
         for extension in self.extensions() {
-            if let nuo_wire::extension::HookOutcome::TemporaryContext(projection) = extension
-                .run(
-                    nuo_wire::HookPhase::ProjectTemporaryContext,
-                    &hook_ctx,
-                )
+            if let nuo_wire::extension::HookOutcome::TemporaryContext(projection) =
+                extension.run(nuo_wire::HookPhase::ProjectTemporaryContext, &hook_ctx)
                 && !projection.is_empty()
             {
                 temporary_context.push(crate::conversation_context::hidden_user(
@@ -625,11 +624,7 @@ impl Agent {
         &self,
         request: &nuo_wire::ModelRequest,
     ) -> nuo_wire::LayeredRequestWeights {
-        nuo_wire::layered_request_weights(
-            request,
-            &self.token_weights,
-            &self.tool_schema_weights,
-        )
+        nuo_wire::layered_request_weights(request, &self.token_weights, &self.tool_schema_weights)
     }
 
     pub(super) fn estimate_model_request(
@@ -671,9 +666,7 @@ impl Agent {
         if !req.instructions.is_empty() {
             debug_messages.push(
                 Message::new(Role::System, req.instructions.render_combined()).with_origin(
-                    nuo_wire::InjectionOrigin::new(
-                        nuo_wire::InjectionKind::SystemPrompt,
-                    ),
+                    nuo_wire::InjectionOrigin::new(nuo_wire::InjectionKind::SystemPrompt),
                 ),
             );
         }
@@ -686,9 +679,7 @@ impl Agent {
     /// agent on the same model — resolves its admitted capabilities to the same
     /// variants the parent uses, tracking model switches live. The profile still
     /// owns the orthogonal **scope** axis.
-    pub fn variant_selection_handle(
-        &self,
-    ) -> Arc<std::sync::Mutex<nuo_wire::VariantSelection>> {
+    pub fn variant_selection_handle(&self) -> Arc<std::sync::Mutex<nuo_wire::VariantSelection>> {
         Arc::clone(&self.variant_selection)
     }
 
@@ -856,11 +847,7 @@ impl Agent {
             state.token_usage.cache_creation_input_tokens += usage.cache_creation_input_tokens;
             state.token_usage.cache_read_input_tokens += usage.cache_read_input_tokens;
             state.token_usage.cache_miss_input_tokens += usage.cache_miss_input_tokens;
-            request.settle(
-                nuo_wire::RequestUsageStatus::Completed,
-                Some(usage),
-                0,
-            );
+            request.settle(nuo_wire::RequestUsageStatus::Completed, Some(usage), 0);
             request.performance_snapshot(
                 usage.completion_tokens,
                 nuo_wire::RequestUsageSource::Reported,
@@ -875,11 +862,7 @@ impl Agent {
             state.token_usage.total_tokens += estimated;
             state.token_usage.prompt_tokens += prompt;
             state.token_usage.completion_tokens += completion;
-            request.settle(
-                nuo_wire::RequestUsageStatus::Completed,
-                None,
-                completion,
-            );
+            request.settle(nuo_wire::RequestUsageStatus::Completed, None, completion);
             request.performance_snapshot(completion, nuo_wire::RequestUsageSource::Estimated)
         }
     }
@@ -953,10 +936,7 @@ impl Agent {
     /// Fire the request-projection archive sink if installed. Synchronous and
     /// infallible: the sink only enqueues the record, so request dispatch is
     /// never blocked or failed by forensic persistence.
-    pub(super) fn fire_request_projection_persist(
-        &self,
-        projection: nuo_wire::RequestProjection,
-    ) {
+    pub(super) fn fire_request_projection_persist(&self, projection: nuo_wire::RequestProjection) {
         let f = self
             .request_projection_persist
             .lock()

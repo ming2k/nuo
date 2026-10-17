@@ -37,6 +37,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::Responses,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     Model {
         id: "deepseek-v4-pro",
@@ -48,6 +49,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::Responses,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     Model {
         id: "deepseek-v4-flash-vision-exp",
@@ -59,6 +61,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::Responses,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
 ];
 

@@ -17,14 +17,13 @@ fn subagent_view_groups_children_into_turn_bands() {
         "spawn_agent",
         r#"{"description":"explore the codebase","prompt":"..."}"#,
     );
-    let call =
-        |id: &str, name: &str, round: u64, turn: usize| nuo_wire::SubagentEvent::ToolCall {
-            id: id.into(),
-            name: name.into(),
-            arguments: r#"{"p":"x"}"#.into(),
-            round,
-            turn,
-        };
+    let call = |id: &str, name: &str, round: u64, turn: usize| nuo_wire::SubagentEvent::ToolCall {
+        id: id.into(),
+        name: name.into(),
+        arguments: r#"{"p":"x"}"#.into(),
+        round,
+        turn,
+    };
     let result = |id: &str, name: &str| nuo_wire::SubagentEvent::ToolResult {
         id: id.into(),
         name: name.into(),
@@ -614,10 +613,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
     );
     assert_eq!(
         rendered.hint_rect,
-        expect(
-            status_y + 1 + rendered.input_rect.height,
-            MODEL_BAR_ROWS
-        ),
+        expect(status_y + 1 + rendered.input_rect.height, MODEL_BAR_ROWS),
         "model bar rect sits directly below composer"
     );
     // The registry contains the three interactive rows (TopGap is 0-height and omitted).
@@ -655,7 +651,10 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
         "client row carries namespace pair: {row0:?}"
     );
     let row1 = grid_row(&terminal, 1);
-    assert!(row1.starts_with("  subagent"), "scene name leads row 1: {row1:?}");
+    assert!(
+        row1.starts_with("  subagent"),
+        "scene name leads row 1: {row1:?}"
+    );
     assert!(
         row1.contains("[EXPLORE] inspect the renderer (1/2)"),
         "task context follows on row 1: {row1:?}"
@@ -677,7 +676,8 @@ fn search_text_block_layers_title_and_content_backgrounds() {
         "search_text",
         r#"{"query":"foo","path":"src"}"#,
     );
-    let output = "Found 3 match(es):\nsrc/a.rs:10:let foo = 1;\nsrc/a.rs:22:foo();\nsrc/b.rs:5:foo,";
+    let output =
+        "Found 3 match(es):\nsrc/a.rs:10:let foo = 1;\nsrc/a.rs:22:foo();\nsrc/b.rs:5:foo,";
     if let crate::model::document::MessageKind::ToolStep {
         output: out,
         expanded,
@@ -724,7 +724,11 @@ fn search_text_block_layers_title_and_content_backgrounds() {
 
     // Sampled at column 40 (past the short heading text, inside each full-width band).
     assert_eq!(bg_at(title_y, 40), title_bg, "title row band background");
-    assert_eq!(bg_at(match_y, 40), content_bg, "match row surface background");
+    assert_eq!(
+        bg_at(match_y, 40),
+        content_bg,
+        "match row surface background"
+    );
 }
 
 /// A `list_dir` table colours each row's name the way the shell's `ls` does:
@@ -810,7 +814,8 @@ fn search_text_single_file_omits_count_band_and_renders_file_title() {
         r#"{"query":"enter_scene","path":"nuo-tui/src/event_loop/actions.rs"}"#,
     );
     // Post-fix tool output: the path is present (workspace-relative).
-    let output = "Found 1 match(es):\nnuo-tui/src/event_loop/actions.rs:2452: pub(super) fn enter_scene(";
+    let output =
+        "Found 1 match(es):\nnuo-tui/src/event_loop/actions.rs:2452: pub(super) fn enter_scene(";
     if let crate::model::document::MessageKind::ToolStep {
         output: out,
         expanded,

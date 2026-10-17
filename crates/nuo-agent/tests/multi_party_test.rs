@@ -3,11 +3,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use acp::{AgentAddress, ChannelId, Fabric, SubscriptionMode};
 use nuo_agent::ChannelWake;
 use nuo_agent::agent::Agent;
 use nuo_agent::provider::MockProvider;
 use nuo_agent::session::{InMemorySessionStore, SessionKey, SessionStore};
-use acp::{AgentAddress, ChannelId, Fabric, SubscriptionMode};
 use std::sync::Arc;
 
 fn addr(uri: &str) -> AgentAddress {

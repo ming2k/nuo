@@ -155,14 +155,13 @@ impl SkillRegistry {
             Err(err) => err.into_inner().config.clone(),
         };
         let roots = discoverable_skill_directories(&config);
-        let mut watcher =
-            match nuo_host::FsWatcher::new(nuo_host::FsWatcher::DEFAULT_DEBOUNCE) {
-                Ok(w) => w,
-                Err(e) => {
-                    tracing::warn!("failed to initialize reactive skills fs watcher: {e}");
-                    return None;
-                }
-            };
+        let mut watcher = match nuo_host::FsWatcher::new(nuo_host::FsWatcher::DEFAULT_DEBOUNCE) {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::warn!("failed to initialize reactive skills fs watcher: {e}");
+                return None;
+            }
+        };
 
         for root in roots {
             let _ = watcher.watch_if_exists(&root, true);

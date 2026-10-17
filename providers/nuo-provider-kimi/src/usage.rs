@@ -29,7 +29,10 @@ pub struct KimiUsageFetcher;
 
 impl KimiUsageFetcher {
     pub fn matches(&self, provider: &str, base_url: &str) -> bool {
-        provider == "kimi" || provider == "kimi-code" || base_url.contains("moonshot.cn") || base_url.contains("kimi.com")
+        provider == "kimi"
+            || provider == "kimi-code"
+            || base_url.contains("moonshot.cn")
+            || base_url.contains("kimi.com")
     }
 
     pub async fn fetch_usage(

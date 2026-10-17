@@ -1,3 +1,4 @@
+use super::spend_breaker::SpendCircuitBreaker;
 use crate::error::{AgentError, Result};
 use crate::message::{Message, ToolCall};
 use crate::provider::{ModelRequest, Provider};
@@ -6,7 +7,6 @@ use crate::token::Compactor;
 use crate::tools::ToolRegistry;
 use nuo_tool::{ToolContext, ToolPolicy, ToolScope};
 use nuo_wire::pricing::ModelPricing;
-use super::spend_breaker::SpendCircuitBreaker;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -193,7 +193,10 @@ impl CognitiveLoop {
             // Infer: unified stream-driven state machine with scoped tools.
             // ---------------------------------------------------------------
             let (effective_scopes, active_instructions) = {
-                let stack = self.skill_stack.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let stack = self
+                    .skill_stack
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 (
                     stack.effective_scopes(self.active_scopes.as_ref()),
                     stack.active_instructions(),
@@ -235,12 +238,18 @@ impl CognitiveLoop {
                     #[cfg(feature = "wire")]
                     if let Some(pattern) = stream_guard.push_and_check(&content) {
                         tracing::warn!(pattern = %pattern.description(), "Runaway token loop intercepted in cognitive stream");
-                        content_acc = nuo_model_codec::StreamLoopDetector::trim_suffix(&content_acc, &pattern);
+                        content_acc = nuo_model_codec::StreamLoopDetector::trim_suffix(
+                            &content_acc,
+                            &pattern,
+                        );
                         emit(
                             &events,
                             SessionEvent::Steered {
                                 round,
-                                instruction: format!("[INTERCEPTED]: Streaming aborted due to {}", pattern.description()),
+                                instruction: format!(
+                                    "[INTERCEPTED]: Streaming aborted due to {}",
+                                    pattern.description()
+                                ),
                                 action: "stream_loop_abort".into(),
                             },
                         )
@@ -261,7 +270,10 @@ impl CognitiveLoop {
                     #[cfg(feature = "wire")]
                     if let Some(pattern) = stream_guard.push_and_check(&thinking) {
                         tracing::warn!(pattern = %pattern.description(), "Runaway thinking loop intercepted in cognitive stream");
-                        thinking_acc = nuo_model_codec::StreamLoopDetector::trim_suffix(&thinking_acc, &pattern);
+                        thinking_acc = nuo_model_codec::StreamLoopDetector::trim_suffix(
+                            &thinking_acc,
+                            &pattern,
+                        );
                         break;
                     }
 
@@ -522,8 +534,10 @@ impl CognitiveLoop {
                 }
 
                 // Check window recurrence count (max 3 occurrences of identical call in sliding window)
-                let occurrences_in_window =
-                    trajectory_window.iter().filter(|sig| **sig == current_sig).count();
+                let occurrences_in_window = trajectory_window
+                    .iter()
+                    .filter(|sig| **sig == current_sig)
+                    .count();
                 if occurrences_in_window > 3 {
                     let err_msg = format!(
                         "[TRAJECTORY EXHAUSTION]: Tool '{}' with identical arguments called {} times within sliding window. Halting execution.",

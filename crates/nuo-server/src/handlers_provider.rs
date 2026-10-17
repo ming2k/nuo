@@ -7,20 +7,20 @@
 //! which is what these handlers persist there. Routes are derived by the
 //! catalog at activation time.
 
-use nuo_harness::Agent;
 use crate::catalog;
+use nuo_harness::Agent;
 use nuo_harness::orchestration::round_response;
-use nuo_wire::model::ModelTargetScope;
-use nuo_wire::{
-    AgentNotice, AgentResponse, ClientIdentity, CommandRecord, CommandResult, Provider, RoundEvent,
-    SecretString, WireProtocol,
-};
 use nuo_persistence::config::{Config, Credentials, RemoteCatalogCache};
 use nuo_persistence::connection_usage::ConnectionUsage;
 use nuo_persistence::connections::{Connection, Connections};
 use nuo_persistence::model_providers::ModelProviders;
 use nuo_persistence::route_settings::RouteSettingsStore;
 use nuo_persistence::session::{ProviderSelection, SessionStore};
+use nuo_wire::model::ModelTargetScope;
+use nuo_wire::{
+    AgentNotice, AgentResponse, ClientIdentity, CommandRecord, CommandResult, Provider, RoundEvent,
+    SecretString, WireProtocol,
+};
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
 
@@ -264,8 +264,8 @@ pub(crate) async fn add(
         );
         return;
     };
-    let is_open_universe = spec.baselines.is_empty()
-        && spec.catalog_source == nuo_provider::RemoteCatalogSource::None;
+    let is_open_universe =
+        spec.baselines.is_empty() && spec.catalog_source == nuo_provider::RemoteCatalogSource::None;
     let trimmed_key = api_key.expose_secret().trim();
     // Pasted API key on an OAuth provider → ordinary ApiKey auth.
     let auth = match (auth, !trimmed_key.is_empty()) {
@@ -401,12 +401,10 @@ pub(crate) async fn add(
     if is_open_universe {
         for id in declared_models {
             if !model_rules.include.iter().any(|model| model.id == id) {
-                model_rules
-                    .include
-                    .push(nuo_wire::model::DeclaredModel {
-                        id,
-                        ..Default::default()
-                    });
+                model_rules.include.push(nuo_wire::model::DeclaredModel {
+                    id,
+                    ..Default::default()
+                });
             }
         }
     }
@@ -454,9 +452,11 @@ pub(crate) async fn add(
     //   * no default connection is configured yet (`default_connection` empty).
     // Everything else leaves the current selection untouched: the user picks a
     // model explicitly via `/models` (`SwitchConnection` / `SetDefaultModel`).
-    let no_live_provider = nuo_harness::NoProvider::is(&**provider_for_task
-        .read()
-        .unwrap_or_else(|error| error.into_inner()));
+    let no_live_provider = nuo_harness::NoProvider::is(
+        &**provider_for_task
+            .read()
+            .unwrap_or_else(|error| error.into_inner()),
+    );
     let no_default_configured = config.default_connection.trim().is_empty();
     if !no_live_provider && !no_default_configured {
         // Still record the new connection as *known-good* telemetry for the
@@ -1016,14 +1016,13 @@ pub(crate) async fn edit_model(
     let Some(conn) = stores.connections.get(&connection) else {
         return;
     };
-    let channel =
-        match catalog::derive_channel(conn, &model, &stores.inputs()) {
-            Ok(channel) => channel,
-            Err(error) => {
-                let _ = resp_tx.send(AgentResponse::Error(error.to_string()));
-                return;
-            }
-        };
+    let channel = match catalog::derive_channel(conn, &model, &stores.inputs()) {
+        Ok(channel) => channel,
+        Err(error) => {
+            let _ = resp_tx.send(AgentResponse::Error(error.to_string()));
+            return;
+        }
+    };
     let transport = channel.transport;
 
     let mut routes = RouteSettingsStore::load();
@@ -1316,10 +1315,7 @@ pub async fn authorize(
     method: nuo_wire::LoginMethod,
     auth: nuo_wire::ConnectionAuth,
 ) -> Option<nuo_oauth::TokenSet> {
-    let Some(cfg) = auth
-        .oauth_provider_id()
-        .and_then(nuo_oauth::oauth_config)
-    else {
+    let Some(cfg) = auth.oauth_provider_id().and_then(nuo_oauth::oauth_config) else {
         let _ = resp_tx.send(AgentResponse::ConnectStatus(
             nuo_wire::ConnectStatus::Failed {
                 provider: "oauth".to_string(),
@@ -1524,8 +1520,7 @@ async fn run_oauth(
         }
     };
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let token_set =
-        nuo_oauth::build_token_set_from_login(&oauth, &label, tokens, now_ms).await;
+    let token_set = nuo_oauth::build_token_set_from_login(&oauth, &label, tokens, now_ms).await;
     Some(token_set)
 }
 
@@ -1537,12 +1532,11 @@ pub(crate) async fn refresh_oauth_if_needed(_config: &Config, provider_id: &str)
     if !instance.auth.is_oauth() {
         return;
     }
-    let source =
-        nuo_oauth::OAuthCredentialSource::new(
-            &crate::credentials_host::host(),
-            provider_id,
-            instance.auth.clone(),
-        );
+    let source = nuo_oauth::OAuthCredentialSource::new(
+        &crate::credentials_host::host(),
+        provider_id,
+        instance.auth.clone(),
+    );
     if let Err(error) = nuo_wire::CredentialSource::resolve_auth(&source).await {
         tracing::warn!(error = %error, provider = %provider_id, "OAuth token resolution failed");
     }
@@ -1959,7 +1953,12 @@ pub(crate) async fn fetch_usage_for_connection(
                     .extension::<nuo_model_codec::GoogleAuthMetadata>()
                     .map(|m| m.project_id.clone());
                 let account_id = auth.user_email.clone().or_else(|| project.clone());
-                (auth.token.expose_secret().to_string(), project, account_id, true)
+                (
+                    auth.token.expose_secret().to_string(),
+                    project,
+                    account_id,
+                    true,
+                )
             }
             Err(err) => {
                 return (nuo_wire::ConnectionUsageState::Error(err), None);
@@ -1988,8 +1987,7 @@ pub(crate) async fn fetch_usage_for_connection(
         );
         let rejected = SecretString::from(api_key.as_str());
         if let Ok(refreshed) =
-            nuo_wire::CredentialSource::force_refresh_after_rejection(&source, &rejected)
-                .await
+            nuo_wire::CredentialSource::force_refresh_after_rejection(&source, &rejected).await
         {
             let refreshed_project = refreshed
                 .extension::<nuo_model_codec::GoogleAuthMetadata>()
@@ -2010,7 +2008,12 @@ pub(crate) async fn fetch_usage_for_connection(
 
 fn extract_quota_metrics(
     usage_state: &nuo_wire::ConnectionUsageState,
-) -> (Option<String>, Option<nuo_wire::ProviderQuotaData>, Option<String>, Option<u64>) {
+) -> (
+    Option<String>,
+    Option<nuo_wire::ProviderQuotaData>,
+    Option<String>,
+    Option<u64>,
+) {
     match usage_state {
         nuo_wire::ConnectionUsageState::Available(u) => {
             let reset = u.quota.as_ref().and_then(|q| match q {
@@ -2019,7 +2022,12 @@ fn extract_quota_metrics(
                 }
                 _ => None,
             });
-            (u.primary_balance.clone(), u.quota.clone(), u.plan.clone(), reset)
+            (
+                u.primary_balance.clone(),
+                u.quota.clone(),
+                u.plan.clone(),
+                reset,
+            )
         }
         _ => (None, None, None, None),
     }
@@ -2038,11 +2046,10 @@ fn build_provider_quota_snapshot(
         .iter()
         .filter(|e| match &e.state {
             nuo_wire::ConnectionUsageState::Error(_) => true,
-            nuo_wire::ConnectionUsageState::Available(u) => {
-                u.primary_balance
-                    .as_deref()
-                    .map_or(false, |b| b.starts_with("0%") || b.contains("DEPLETED"))
-            }
+            nuo_wire::ConnectionUsageState::Available(u) => u
+                .primary_balance
+                .as_deref()
+                .map_or(false, |b| b.starts_with("0%") || b.contains("DEPLETED")),
             _ => false,
         })
         .count();
@@ -2079,7 +2086,8 @@ pub async fn query_provider_quotas(
         .iter()
         .filter(|c| {
             if let Some(ref filter) = provider_filter {
-                if c.provider != *filter && c.auth.subscription_provider() != Some(filter.as_str()) {
+                if c.provider != *filter && c.auth.subscription_provider() != Some(filter.as_str())
+                {
                     return false;
                 }
             }
@@ -2118,7 +2126,8 @@ pub async fn query_provider_quotas(
         entries.push(nuo_wire::ConnectionQuotaEntry {
             name: conn.name.clone(),
             provider: conn.provider.clone(),
-            provider_label: nuo_wire::model_providers::model_provider_label(&conn.provider).to_string(),
+            provider_label: nuo_wire::model_providers::model_provider_label(&conn.provider)
+                .to_string(),
             account_id: cached_account_id,
             is_default: conn.name == default_conn_id,
             primary_balance,
@@ -2131,14 +2140,15 @@ pub async fn query_provider_quotas(
 
     // Sort entries stably: active connection first, then by name
     entries.sort_by(|a, b| {
-        b.is_default.cmp(&a.is_default).then_with(|| a.name.cmp(&b.name))
+        b.is_default
+            .cmp(&a.is_default)
+            .then_with(|| a.name.cmp(&b.name))
     });
 
     // Phase 1: Emit initial skeleton snapshot immediately so UI renders instantaneously.
-    let _ = resp_tx.send(AgentResponse::ProviderQuotas(build_provider_quota_snapshot(
-        &provider_filter,
-        &entries,
-    )));
+    let _ = resp_tx.send(AgentResponse::ProviderQuotas(
+        build_provider_quota_snapshot(&provider_filter, &entries),
+    ));
 
     if needs_fetch.is_empty() {
         return;
@@ -2173,7 +2183,8 @@ pub async fn query_provider_quotas(
 
     while let Some((conn_name, usage_state, acct)) = stream.next().await {
         if let Some(entry) = entries.iter_mut().find(|e| e.name == conn_name) {
-            let (primary_balance, quota, plan, earliest_reset_ms) = extract_quota_metrics(&usage_state);
+            let (primary_balance, quota, plan, earliest_reset_ms) =
+                extract_quota_metrics(&usage_state);
             entry.state = usage_state;
             entry.primary_balance = primary_balance;
             entry.quota = quota;
@@ -2184,10 +2195,9 @@ pub async fn query_provider_quotas(
             }
 
             // Immediately emit updated snapshot as each item resolves
-            let _ = resp_tx.send(AgentResponse::ProviderQuotas(build_provider_quota_snapshot(
-                &provider_filter,
-                &entries,
-            )));
+            let _ = resp_tx.send(AgentResponse::ProviderQuotas(
+                build_provider_quota_snapshot(&provider_filter, &entries),
+            ));
         }
     }
 }
@@ -2808,10 +2818,15 @@ mod tests {
     async fn query_provider_quotas_snapshot_aggregates_connections() {
         let (resp_tx, mut resp_rx) = mpsc::unbounded_channel();
         query_provider_quotas(&resp_tx, Some("google-antigravity".to_string()), false).await;
-        let resp = resp_rx.try_recv().expect("must receive ProviderQuotas response");
+        let resp = resp_rx
+            .try_recv()
+            .expect("must receive ProviderQuotas response");
         match resp {
             AgentResponse::ProviderQuotas(snapshot) => {
-                assert_eq!(snapshot.provider_filter.as_deref(), Some("google-antigravity"));
+                assert_eq!(
+                    snapshot.provider_filter.as_deref(),
+                    Some("google-antigravity")
+                );
                 // Connections from default store or empty test environment
                 assert_eq!(snapshot.total_accounts, snapshot.entries.len());
             }
@@ -2833,12 +2848,14 @@ mod tests {
 
         // Add a dummy quota-capable connection
         let mut conns = Connections::default();
-        conns.connections.push(nuo_persistence::connections::Connection {
-            name: "test-antigravity".into(),
-            provider: "google-antigravity".into(),
-            auth: nuo_wire::ConnectionAuth::ApiKey,
-            ..Default::default()
-        });
+        conns
+            .connections
+            .push(nuo_persistence::connections::Connection {
+                name: "test-antigravity".into(),
+                provider: "google-antigravity".into(),
+                auth: nuo_wire::ConnectionAuth::ApiKey,
+                ..Default::default()
+            });
         conns.save().unwrap();
 
         let (resp_tx, mut resp_rx) = mpsc::unbounded_channel();
@@ -2846,22 +2863,32 @@ mod tests {
         query_provider_quotas(&resp_tx, Some("google-antigravity".to_string()), true).await;
 
         // Phase 1 response must be received first
-        let first = resp_rx.try_recv().expect("must receive phase 1 skeleton snapshot");
+        let first = resp_rx
+            .try_recv()
+            .expect("must receive phase 1 skeleton snapshot");
         if let AgentResponse::ProviderQuotas(snap1) = first {
             assert_eq!(snap1.entries.len(), 1);
             assert_eq!(snap1.entries[0].name, "test-antigravity");
-            assert!(matches!(snap1.entries[0].state, nuo_wire::ConnectionUsageState::Fetching));
+            assert!(matches!(
+                snap1.entries[0].state,
+                nuo_wire::ConnectionUsageState::Fetching
+            ));
         } else {
             panic!("expected ProviderQuotas, got {first:?}");
         }
 
         // Phase 2 updated response must follow
-        let second = resp_rx.try_recv().expect("must receive phase 2 update snapshot");
+        let second = resp_rx
+            .try_recv()
+            .expect("must receive phase 2 update snapshot");
         if let AgentResponse::ProviderQuotas(snap2) = second {
             assert_eq!(snap2.entries.len(), 1);
             assert_eq!(snap2.entries[0].name, "test-antigravity");
             // Since it's a dummy connection with no real credentials, state will transition away from Fetching
-            assert!(!matches!(snap2.entries[0].state, nuo_wire::ConnectionUsageState::Fetching));
+            assert!(!matches!(
+                snap2.entries[0].state,
+                nuo_wire::ConnectionUsageState::Fetching
+            ));
         } else {
             panic!("expected ProviderQuotas, got {second:?}");
         }

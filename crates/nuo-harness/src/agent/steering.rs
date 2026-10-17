@@ -285,10 +285,8 @@ impl Agent {
         );
         if let Some(user_role) = roles_config.get(trimmed) {
             let identity = user_role.identity();
-            let mut profile = nuo_wire::AgentRoleProfile::with_identity(
-                trimmed.to_string(),
-                identity.clone(),
-            );
+            let mut profile =
+                nuo_wire::AgentRoleProfile::with_identity(trimmed.to_string(), identity.clone());
             profile.tools = nuo_wire::ToolSelection::from_allowlist(&user_role.tools);
             profile.admit_mcp = user_role.admit_mcp.clone();
             if user_role.resolved_workspace().requires_binding() {
@@ -542,10 +540,7 @@ impl Agent {
         &self,
         session_id: impl Into<String>,
         generation: u64,
-    ) -> (
-        Vec<nuo_wire::QueuedMessage>,
-        Vec<nuo_wire::QueuedMessage>,
-    ) {
+    ) -> (Vec<nuo_wire::QueuedMessage>, Vec<nuo_wire::QueuedMessage>) {
         let steering_mode = self.steering_mode();
         let follow_up_mode = self.follow_up_mode();
         let previous = self
@@ -662,10 +657,7 @@ impl Agent {
     pub fn close_session_queues(
         &self,
         generation: u64,
-    ) -> (
-        Vec<nuo_wire::QueuedMessage>,
-        Vec<nuo_wire::QueuedMessage>,
-    ) {
+    ) -> (Vec<nuo_wire::QueuedMessage>, Vec<nuo_wire::QueuedMessage>) {
         let mut queues = self
             .session_queues
             .lock()

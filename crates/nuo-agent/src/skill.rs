@@ -432,7 +432,10 @@ impl nuo_tool::Tool for MountSkillTool {
             )));
         };
 
-        let mut stack = self.stack.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut stack = self
+            .stack
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let prev_scopes = stack.effective_scopes(None);
         stack.push(skill.clone(), prev_scopes);
 
@@ -493,7 +496,10 @@ impl nuo_tool::Tool for UnmountSkillTool {
         _ctx: &nuo_tool::ToolContext,
         _arguments: serde_json::Value,
     ) -> nuo_tool::Result<nuo_tool::ToolOutput> {
-        let mut stack = self.stack.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut stack = self
+            .stack
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(frame) = stack.pop() {
             Ok(nuo_tool::ToolOutput::success(format!(
                 "Unmounted skill `{}`. Capabilities restored to baseline.",
@@ -538,7 +544,10 @@ Always run `cargo check` and follow idiomatic Rust.
         assert_eq!(skill.id, "rust-eng");
         assert_eq!(skill.name, "rust-engineer");
         assert_eq!(skill.description, "Rust software development guidelines");
-        assert_eq!(skill.scopes, vec![ToolScope::ReadOnly, ToolScope::Workspace]);
+        assert_eq!(
+            skill.scopes,
+            vec![ToolScope::ReadOnly, ToolScope::Workspace]
+        );
         assert_eq!(skill.cache_control, Some(CacheControl::Ephemeral));
         assert!(skill.instructions.contains("Always run `cargo check`"));
     }
@@ -565,6 +574,9 @@ Review pull requests thoroughly.
         assert_eq!(skill.id, "simple");
         assert_eq!(skill.name, "simple");
         assert!(skill.scopes.is_empty());
-        assert_eq!(skill.instructions, "# Simple Instructions\nJust do the work.");
+        assert_eq!(
+            skill.instructions,
+            "# Simple Instructions\nJust do the work."
+        );
     }
 }

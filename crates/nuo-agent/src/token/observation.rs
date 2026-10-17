@@ -52,10 +52,7 @@ impl ObservationStore for InMemoryObservationStore {
     async fn fetch_slice(&self, handle: &str, offset: usize, limit: usize) -> Result<String> {
         let guard = self.store.read().await;
         let content = guard.get(handle).ok_or_else(|| {
-            AgentError::Tool(
-                "vfs".into(),
-                format!("context handle `{handle}` not found"),
-            )
+            AgentError::Tool("vfs".into(), format!("context handle `{handle}` not found"))
         })?;
 
         if offset >= content.len() {
@@ -156,7 +153,10 @@ impl nuo_tool::VirtualFileResolver for InMemoryObservationStore {
     async fn resolve_virtual(&self, path: &str) -> Option<String> {
         let handle = nuo_tool::extract_virtual_handle(path);
         let guard = self.store.read().await;
-        guard.get(handle).cloned().or_else(|| guard.get(path).cloned())
+        guard
+            .get(handle)
+            .cloned()
+            .or_else(|| guard.get(path).cloned())
     }
 }
 

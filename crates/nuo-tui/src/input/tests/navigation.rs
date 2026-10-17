@@ -906,7 +906,10 @@ fn alt_digits_route_to_select_tab() {
         let mut cursor = 0;
         let mut drag = SelectionDrag::default();
         let action = route_event(
-            Event::Key(crossterm::event::KeyEvent::new(KeyCode::Char(digit), KeyModifiers::ALT)),
+            Event::Key(crossterm::event::KeyEvent::new(
+                KeyCode::Char(digit),
+                KeyModifiers::ALT,
+            )),
             &mut input,
             &mut cursor,
             Dispatch::default(),
@@ -926,7 +929,10 @@ fn alt_w_routes_to_close_tab() {
     let mut cursor = 0;
     let mut drag = SelectionDrag::default();
     let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)),
+        Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('w'),
+            KeyModifiers::ALT,
+        )),
         &mut input,
         &mut cursor,
         Dispatch::default(),
@@ -944,7 +950,10 @@ fn alt_arrows_route_to_tab_history() {
     let mut cursor = 0;
     let mut drag = SelectionDrag::default();
     let back = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(KeyCode::Left, KeyModifiers::ALT)),
+        Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Left,
+            KeyModifiers::ALT,
+        )),
         &mut input,
         &mut cursor,
         Dispatch::default(),
@@ -956,7 +965,10 @@ fn alt_arrows_route_to_tab_history() {
     assert_eq!(back, InputAction::TabHistoryBack);
 
     let fwd = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)),
+        Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Right,
+            KeyModifiers::ALT,
+        )),
         &mut input,
         &mut cursor,
         Dispatch::default(),

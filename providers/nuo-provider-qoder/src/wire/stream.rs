@@ -1,7 +1,9 @@
 //! Qoder's SSE stream frame decoder and HTTP envelope unwrapper.
 
 use nuo_model_codec::ProviderError;
-use nuo_provider_transport::pipeline::{ProviderFault, StreamMetrics, StreamTransformer, TransformedFrame};
+use nuo_provider_transport::pipeline::{
+    ProviderFault, StreamMetrics, StreamTransformer, TransformedFrame,
+};
 use serde_json::Value;
 
 /// An unwrapped Qoder SSE event envelope.
@@ -67,8 +69,7 @@ impl StreamTransformer for QoderStreamTransformer {
                 metrics.first_token_duration_ms =
                     val.get("firstTokenDuration").and_then(|v| v.as_u64());
                 metrics.total_duration_ms = val.get("totalDuration").and_then(|v| v.as_u64());
-                metrics.server_duration_ms =
-                    val.get("serverDuration").and_then(|v| v.as_u64());
+                metrics.server_duration_ms = val.get("serverDuration").and_then(|v| v.as_u64());
             }
             return Ok(TransformedFrame::Terminal(metrics));
         }

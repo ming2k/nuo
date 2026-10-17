@@ -188,8 +188,12 @@ impl nuo_model_codec::capability::Provider for CodecMockProvider {
     ) -> Result<nuo_model_codec::capability::ProviderEventStream, nuo_wire::ProviderError> {
         use futures::StreamExt;
         let events = vec![
-            Ok(nuo_model_codec::capability::ProviderStreamEvent::TextDelta("Hello from codec!".into())),
-            Ok(nuo_model_codec::capability::ProviderStreamEvent::Completed(nuo_model_codec::ProviderCompletionMeta::default())),
+            Ok(nuo_model_codec::capability::ProviderStreamEvent::TextDelta(
+                "Hello from codec!".into(),
+            )),
+            Ok(nuo_model_codec::capability::ProviderStreamEvent::Completed(
+                nuo_model_codec::ProviderCompletionMeta::default(),
+            )),
         ];
         Ok(futures::stream::iter(events).boxed())
     }

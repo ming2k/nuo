@@ -34,10 +34,7 @@ impl App {
     /// frontend has: the shared in-process ledger (standalone path) or the
     /// on-demand harness snapshot (attach path). `None` in attach mode while
     /// the `QueryTokenUsage` round-trip is still in flight.
-    pub fn token_source_report(
-        &self,
-        session_id: &str,
-    ) -> Option<nuo_wire::TokenSourceReport> {
+    pub fn token_source_report(&self, session_id: &str) -> Option<nuo_wire::TokenSourceReport> {
         if let Some(ledger) = &self.token_ledger {
             Some(ledger.snapshot_for_session(session_id))
         } else {
@@ -804,12 +801,23 @@ impl App {
             Some(crate::surfaces::DialogKind::Models)
                 if self.surfaces.dlg::<crate::surfaces::ModelsDialog>().search =>
             {
-                self.surfaces.dlg::<crate::surfaces::ModelsDialog>().query.text.trim()
+                self.surfaces
+                    .dlg::<crate::surfaces::ModelsDialog>()
+                    .query
+                    .text
+                    .trim()
             }
             Some(crate::surfaces::DialogKind::Connections)
-                if self.surfaces.dlg::<crate::surfaces::ConnectionsDialog>().search =>
+                if self
+                    .surfaces
+                    .dlg::<crate::surfaces::ConnectionsDialog>()
+                    .search =>
             {
-                self.surfaces.dlg::<crate::surfaces::ConnectionsDialog>().query.text.trim()
+                self.surfaces
+                    .dlg::<crate::surfaces::ConnectionsDialog>()
+                    .query
+                    .text
+                    .trim()
             }
             _ => "",
         }

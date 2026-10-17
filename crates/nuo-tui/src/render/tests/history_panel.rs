@@ -136,12 +136,7 @@ fn history_panel_collapses_to_actual_row_count() {
         .into_iter()
         .enumerate()
         .map(|(i, text)| {
-            nuo_wire::HistoryEntry::new(
-                text.to_string(),
-                Some(format!("s{i}")),
-                None,
-                i as u64,
-            )
+            nuo_wire::HistoryEntry::new(text.to_string(), Some(format!("s{i}")), None, i as u64)
         })
         .collect();
     let texts: Vec<&str> = history.iter().map(|e| e.text.as_str()).collect();
@@ -185,9 +180,7 @@ fn history_panel_reserves_activity_bar_rows() {
     // Enough entries that, absent the reservation, the panel would want to
     // grow tall and run past the activity bar.
     let history: Vec<nuo_wire::HistoryEntry> = (0..25)
-        .map(|i| {
-            nuo_wire::HistoryEntry::new(format!("entry {i}"), Some(format!("s{i}")), None, i)
-        })
+        .map(|i| nuo_wire::HistoryEntry::new(format!("entry {i}"), Some(format!("s{i}")), None, i))
         .collect();
     let texts: Vec<&str> = history.iter().map(|e| e.text.as_str()).collect();
     let ranked = crate::fuzzy::rank(&texts, "");

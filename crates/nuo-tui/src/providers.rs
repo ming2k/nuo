@@ -1430,10 +1430,7 @@ mod tests {
             .expect("opencode-zen template offered in the chooser");
         assert_eq!(tmpl.label, "OpenCode Zen");
         assert_eq!(tmpl.protocol, WireProtocol::ChatCompletions);
-        assert_eq!(
-            tmpl.models,
-            nuo_wire::model_providers::OPENCODE_ZEN_MODELS
-        );
+        assert_eq!(tmpl.models, nuo_wire::model_providers::OPENCODE_ZEN_MODELS);
         assert_eq!(
             tmpl.default_url,
             Some("https://opencode.ai/zen/v1/chat/completions")
@@ -1687,13 +1684,13 @@ mod tests {
                 "google" | "google-ai-studio" | "ai-studio" | "gemini" => {
                     Some(nuo_wire::model_providers::GOOGLE_BUILTIN_MODELS)
                 }
-                "google-antigravity" => {
-                    Some(nuo_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS)
-                }
+                "google-antigravity" => Some(nuo_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS),
                 "kimi-code" => Some(nuo_wire::model_providers::KIMI_CODE_MODELS),
                 "openai" => Some(nuo_wire::model_providers::OPENAI_BUILTIN_MODELS),
                 "openrouter" => Some(nuo_wire::model_providers::OPENROUTER_BUILTIN_MODELS),
-                "opencode-plan" | "opencode-go" => Some(nuo_wire::model_providers::OPENCODE_GO_MODELS),
+                "opencode-plan" | "opencode-go" => {
+                    Some(nuo_wire::model_providers::OPENCODE_GO_MODELS)
+                }
                 "opencode-zen" => Some(nuo_wire::model_providers::OPENCODE_ZEN_MODELS),
                 "opencode" => Some(nuo_wire::model_providers::OPENCODE_CONSOLE_MODELS),
                 "glm-cn" => Some(nuo_wire::model_providers::ZAI_CODE_MODELS),
@@ -1785,10 +1782,7 @@ mod tests {
         // seeded provider id, otherwise every openai-wire flow would be
         // headed "ChatGPT Subscription".
         assert_eq!(provider_label_for(Some("openai")), "OpenAI Platform");
-        assert_eq!(
-            provider_label_for(Some("chatgpt-plan")),
-            "ChatGPT Plan"
-        );
+        assert_eq!(provider_label_for(Some("chatgpt-plan")), "ChatGPT Plan");
         assert_eq!(provider_label_for(Some("custom")), "Custom connection");
         assert_eq!(provider_label_for(Some("deepseek")), "DeepSeek");
         // Unknown / unseeded ids fall back to the generic header.
@@ -1872,11 +1866,7 @@ mod tests {
             if prow.id == "kimi-code" {
                 let mut i = info("kimi-k2.7-code");
                 i.effort = Some("high".to_string());
-                i.effort_levels = vec![
-                    "low".to_string(),
-                    "high".to_string(),
-                    "max".to_string(),
-                ];
+                i.effort_levels = vec!["low".to_string(), "high".to_string(), "max".to_string()];
                 prow.model_info = vec![i];
             }
         }

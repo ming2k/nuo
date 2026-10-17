@@ -55,6 +55,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
+        wire_entities: None,
     },
     Model {
         id: "qwen3.8-flash",
@@ -66,6 +67,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
+        wire_entities: None,
     },
     Model {
         id: "qwen3.6-flash",
@@ -77,6 +79,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
+        wire_entities: None,
     },
     // GLM (Zhipu, Alibaba-hosted), DeepSeek (V4 / V4.1), and Kimi K2.7 Code
     // are deliberately NOT re-declared here: the same ids are already owned
@@ -118,9 +121,9 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_provider::effort_ladders::{DEEPSEEK_V4_PLAN, QWEN_MIXED};
     use nuo_model_codec::effort::Effort;
     use nuo_model_codec::model::resolve;
+    use nuo_provider::effort_ladders::{DEEPSEEK_V4_PLAN, QWEN_MIXED};
 
     /// Every seeded id is registered (the same invariant
     /// `builtin_provider_models_resolve_with_expected_wire_formats` enforces

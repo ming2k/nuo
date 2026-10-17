@@ -586,10 +586,7 @@ impl App {
 
     /// Delete an entry from input history at `orig_idx` (an index into [`App::input_history`]),
     /// cascading to SQLite persistence, session backfill, and attachment cache.
-    pub fn delete_history_entry_at(
-        &mut self,
-        orig_idx: usize,
-    ) -> Option<nuo_wire::HistoryEntry> {
+    pub fn delete_history_entry_at(&mut self, orig_idx: usize) -> Option<nuo_wire::HistoryEntry> {
         if orig_idx >= self.input_history.len() {
             return None;
         }
@@ -616,15 +613,28 @@ impl App {
     pub fn delete_selected_history_entry(&mut self) -> Option<nuo_wire::HistoryEntry> {
         let ranked = self.history_rows();
         let pick = ranked
-            .get(self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index)
+            .get(
+                self.surfaces
+                    .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+                    .index,
+            )
             .or_else(|| ranked.first());
         let &(orig_idx, _) = pick?;
         let removed = self.delete_history_entry_at(orig_idx);
         let new_len = self.history_rows().len();
-        if self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index >= new_len {
-            self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = new_len.saturating_sub(1);
+        if self
+            .surfaces
+            .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+            .index
+            >= new_len
+        {
+            self.surfaces
+                .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+                .index = new_len.saturating_sub(1);
         }
-        self.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().follow = true;
+        self.surfaces
+            .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+            .follow = true;
         removed
     }
 }

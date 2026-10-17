@@ -306,11 +306,26 @@ fn read_text_unstructured_strips_lines_framing_and_embedded_numbers() {
     );
     let grid = render_grid(&m, 80, 40);
     assert!(!grid.contains("[Lines"), "lines framing leaked:\n{grid}");
-    assert!(!grid.contains("1 |"), "redundant line number column leaked:\n{grid}");
-    assert!(!grid.contains("2 |"), "redundant line number column leaked:\n{grid}");
-    assert!(grid.contains("1 ---"), "first line not rendered with gutter 1:\n{grid}");
-    assert!(grid.contains("2 id: ADR-0024"), "second line not rendered with gutter 2:\n{grid}");
-    assert!(grid.contains("9 ---"), "ninth line not rendered with gutter 9:\n{grid}");
+    assert!(
+        !grid.contains("1 |"),
+        "redundant line number column leaked:\n{grid}"
+    );
+    assert!(
+        !grid.contains("2 |"),
+        "redundant line number column leaked:\n{grid}"
+    );
+    assert!(
+        grid.contains("1 ---"),
+        "first line not rendered with gutter 1:\n{grid}"
+    );
+    assert!(
+        grid.contains("2 id: ADR-0024"),
+        "second line not rendered with gutter 2:\n{grid}"
+    );
+    assert!(
+        grid.contains("9 ---"),
+        "ninth line not rendered with gutter 9:\n{grid}"
+    );
 }
 
 #[test]
@@ -329,8 +344,14 @@ fn read_text_unstructured_with_offset_and_continuation_hint() {
     );
     let grid = render_grid(&m, 80, 40);
     assert!(!grid.contains("[Lines"), "lines framing leaked:\n{grid}");
-    assert!(!grid.contains("more lines"), "continuation hint leaked:\n{grid}");
-    assert!(!grid.contains("100 |"), "redundant line column leaked:\n{grid}");
+    assert!(
+        !grid.contains("more lines"),
+        "continuation hint leaked:\n{grid}"
+    );
+    assert!(
+        !grid.contains("100 |"),
+        "redundant line column leaked:\n{grid}"
+    );
     assert!(grid.contains("100 fn a() {}"), "line 100 missing:\n{grid}");
     assert!(grid.contains("101 fn b() {}"), "line 101 missing:\n{grid}");
     assert!(grid.contains("102 fn c() {}"), "line 102 missing:\n{grid}");
@@ -446,9 +467,7 @@ fn search_text_expanded_renders_grouped_matches() {
     let m = tool_step(
         "search_text",
         r#"{"query":"foo","path":"src"}"#,
-        Some(
-            "Found 3 match(es):\nsrc/a.rs:10:let foo = 1;\nsrc/a.rs:22:foo();\nsrc/b.rs:5:foo,",
-        ),
+        Some("Found 3 match(es):\nsrc/a.rs:10:let foo = 1;\nsrc/a.rs:22:foo();\nsrc/b.rs:5:foo,"),
         true,
     );
     insta::assert_snapshot!(render_grid(&m, 80, 40));
@@ -1000,7 +1019,10 @@ fn resize_resolves_an_anchor_far_outside_the_stale_window() {
         "alphabet soup words words words ".repeat(120),
     )];
     for i in 0..40 {
-        messages.push(TranscriptMessage::new(Role::User, format!("MARK{i:02} line")));
+        messages.push(TranscriptMessage::new(
+            Role::User,
+            format!("MARK{i:02} line"),
+        ));
     }
     let mut cache = HeightCache::default();
 
@@ -2208,8 +2230,8 @@ fn user_steer_and_followup_render_clean_unified_headers() {
     );
 
     // Queued steer
-    let mut queued_steer = TranscriptMessage::new(nuo_wire::Role::User, "Pending steer")
-        .with_sent_at_ms(epoch_ms);
+    let mut queued_steer =
+        TranscriptMessage::new(nuo_wire::Role::User, "Pending steer").with_sent_at_ms(epoch_ms);
     queued_steer.origin = UserMessageOrigin::Steer;
     queued_steer.delivery = DeliveryStatus::Queued;
 
@@ -2237,8 +2259,7 @@ fn user_steer_and_followup_render_clean_unified_headers() {
 
     // Queued follow-up
     let mut queued_followup =
-        TranscriptMessage::new(nuo_wire::Role::User, "Queued next step")
-            .with_sent_at_ms(epoch_ms);
+        TranscriptMessage::new(nuo_wire::Role::User, "Queued next step").with_sent_at_ms(epoch_ms);
     queued_followup.origin = UserMessageOrigin::FollowUp;
     queued_followup.delivery = DeliveryStatus::Queued;
 
@@ -2350,5 +2371,3 @@ fn ask_user_expanded_cancelled_renders_no_answer() {
     );
     insta::assert_snapshot!(render_grid(&m, 80, 8));
 }
-
-

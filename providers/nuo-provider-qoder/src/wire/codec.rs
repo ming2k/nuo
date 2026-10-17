@@ -73,7 +73,8 @@ mod tests {
 
     #[test]
     fn qoder_encoding_roundtrips() {
-        let input = b"{\"model\":\"qfmodel\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}";
+        let input =
+            b"{\"model\":\"qfmodel\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}";
         let encoded = encode_body(input);
         let decoded = decode_body(&encoded).expect("valid decode");
         assert_eq!(input.as_slice(), decoded.as_slice());

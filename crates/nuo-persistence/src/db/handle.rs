@@ -674,7 +674,8 @@ impl PersistenceHandle {
     pub async fn commit_context_facts(
         &self,
         commit: crate::db::context_store::OwnedFactCommit,
-    ) -> Result<crate::db::context_store::CommitOutcome, crate::db::context_store::ContextCommitError> {
+    ) -> Result<crate::db::context_store::CommitOutcome, crate::db::context_store::ContextCommitError>
+    {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
             .send(PersistenceCommand::CommitContextFacts {
@@ -682,21 +683,24 @@ impl PersistenceHandle {
                 ack: ack_tx,
             })
             .await
-            .map_err(|_| crate::db::context_store::ContextCommitError::PersistenceFailure {
-                detail: "writer supervisor is closed".into(),
-            })?;
-        ack_rx
-            .await
-            .map_err(|_| crate::db::context_store::ContextCommitError::PersistenceFailure {
+            .map_err(
+                |_| crate::db::context_store::ContextCommitError::PersistenceFailure {
+                    detail: "writer supervisor is closed".into(),
+                },
+            )?;
+        ack_rx.await.map_err(|_| {
+            crate::db::context_store::ContextCommitError::PersistenceFailure {
                 detail: "writer dropped response".into(),
-            })?
+            }
+        })?
     }
 
     /// Commit a branch context view asynchronously through the single writer (ADR-0275 §7, ADR-0278).
     pub async fn commit_context_view(
         &self,
         commit: crate::db::context_store::OwnedViewCommit,
-    ) -> Result<crate::db::context_store::CommitOutcome, crate::db::context_store::ContextCommitError> {
+    ) -> Result<crate::db::context_store::CommitOutcome, crate::db::context_store::ContextCommitError>
+    {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
             .send(PersistenceCommand::CommitContextView {
@@ -704,14 +708,16 @@ impl PersistenceHandle {
                 ack: ack_tx,
             })
             .await
-            .map_err(|_| crate::db::context_store::ContextCommitError::PersistenceFailure {
-                detail: "writer supervisor is closed".into(),
-            })?;
-        ack_rx
-            .await
-            .map_err(|_| crate::db::context_store::ContextCommitError::PersistenceFailure {
+            .map_err(
+                |_| crate::db::context_store::ContextCommitError::PersistenceFailure {
+                    detail: "writer supervisor is closed".into(),
+                },
+            )?;
+        ack_rx.await.map_err(|_| {
+            crate::db::context_store::ContextCommitError::PersistenceFailure {
                 detail: "writer dropped response".into(),
-            })?
+            }
+        })?
     }
 
     /// Execute an inspect deletion job asynchronously through the single writer (ADR-0279 §6).
@@ -720,7 +726,8 @@ impl PersistenceHandle {
         session_id: impl Into<String>,
         job_id: impl Into<String>,
         now_ms: u64,
-    ) -> Result<crate::db::inspect_service::DeletionReport, nuo_wire::context_lifecycle::InspectError> {
+    ) -> Result<crate::db::inspect_service::DeletionReport, nuo_wire::context_lifecycle::InspectError>
+    {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
             .send(PersistenceCommand::ExecuteInspectDeletion {
@@ -743,7 +750,10 @@ impl PersistenceHandle {
         now_ms: u64,
         batch_limit: u32,
         batch_ms: u64,
-    ) -> Result<crate::db::inspect_service::CollectionProgress, nuo_wire::context_lifecycle::InspectError> {
+    ) -> Result<
+        crate::db::inspect_service::CollectionProgress,
+        nuo_wire::context_lifecycle::InspectError,
+    > {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
             .send(PersistenceCommand::CollectInspectGarbage {

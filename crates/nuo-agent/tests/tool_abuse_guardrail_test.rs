@@ -22,10 +22,7 @@ async fn test_circuit_breaker_halts_infinite_tool_loop() {
             let count = count_clone.clone();
             async move {
                 count.fetch_add(1, Ordering::SeqCst);
-                Err(nuo_tool::ToolError::execution(
-                    "cat_file",
-                    "File not found",
-                ))
+                Err(nuo_tool::ToolError::execution("cat_file", "File not found"))
             }
         },
     );

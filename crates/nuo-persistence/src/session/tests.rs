@@ -398,9 +398,7 @@ async fn commit_turn_honors_the_revision_precondition() {
 
 #[tokio::test]
 async fn crash_residue_is_durably_settled_as_abandoned() {
-    use nuo_wire::{
-        RequestUsageKey, RequestUsageRecord, RequestUsageSource, RequestUsageStatus,
-    };
+    use nuo_wire::{RequestUsageKey, RequestUsageRecord, RequestUsageSource, RequestUsageStatus};
     let dir = temp_dir("abandoned");
     let path = dir.join("session.json");
     let store = SessionStore::for_path(path.clone());
@@ -449,10 +447,7 @@ fn row_checksum_and_delta_ignore_retained_attempts() {
     use nuo_wire::{RequestUsageKey, RequestUsageRecord, RequestUsageStatus};
     let mut data = SessionData::default();
     data.transcript
-        .push(nuo_wire::TranscriptEntry::from_message(
-            0,
-            &user("hello"),
-        ));
+        .push(nuo_wire::TranscriptEntry::from_message(0, &user("hello")));
     let baseline = compute_checksum(&data).unwrap();
 
     for attempt in 1..=1_000 {
@@ -568,10 +563,8 @@ async fn fork_at_round_slices_transcript_and_preserves_parent() {
         .unwrap();
 
     let parent_id_before = store.id().await;
-    let (child_id, parent_id, target_round, _title) = store
-        .fork_at(ForkTarget::Round(1))
-        .await
-        .unwrap();
+    let (child_id, parent_id, target_round, _title) =
+        store.fork_at(ForkTarget::Round(1)).await.unwrap();
 
     // Sovereign invariant [INV-FORK-04]: parent pointer stays untouched!
     assert_eq!(store.id().await, parent_id_before);
@@ -874,10 +867,7 @@ async fn subagent_children_become_subagent_sessions_with_pointer() {
         entry.session_id
     };
     let subagent = reader.load_session_full(&subagent_id).unwrap().unwrap();
-    assert_eq!(
-        subagent.fork_kind,
-        nuo_wire::SessionForkKind::Subagent
-    );
+    assert_eq!(subagent.fork_kind, nuo_wire::SessionForkKind::Subagent);
     assert_eq!(
         subagent.parent_id.as_deref(),
         Some(store.id().await.as_str())

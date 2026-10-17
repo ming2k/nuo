@@ -27,10 +27,8 @@ impl Provider for IdleProvider {
     async fn stream_chat(
         &self,
         _request: nuo_wire::ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         Ok(Box::pin(stream::once(async { Ok("done".to_owned()) })))
     }
 }
@@ -95,7 +93,9 @@ fn embedding_configuration_errors_are_structured() {
     });
     assert!(matches!(
         result,
-        Err(SystemPromptRegistryError::DuplicateId("system.identity_preamble"))
+        Err(SystemPromptRegistryError::DuplicateId(
+            "system.identity_preamble"
+        ))
     ));
 
     let result = builder().disable_system_prompt_section("system.missing");
@@ -119,11 +119,15 @@ fn default_prompt_is_free_of_nanny_prompting() {
             "system message must not contain tool micromanagement"
         );
         assert!(
-            !system_msg.content.contains("Finite Foreground Execution Axiom"),
+            !system_msg
+                .content
+                .contains("Finite Foreground Execution Axiom"),
             "system message must not contain execution axioms"
         );
         assert!(
-            !system_msg.content.contains("See the task through to a real result"),
+            !system_msg
+                .content
+                .contains("See the task through to a real result"),
             "system message must not contain persistence lecturing"
         );
     }

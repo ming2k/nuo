@@ -272,7 +272,10 @@ impl ConnectionUsage {
     /// Record financial spend on a connection and model in nano-USD (ADR-0065).
     pub fn record_spend(&mut self, connection_id: &str, model_id: &str, nano_usd: u64) {
         let now = now_ms();
-        let conn_entry = self.connections.entry(connection_id.to_string()).or_default();
+        let conn_entry = self
+            .connections
+            .entry(connection_id.to_string())
+            .or_default();
         conn_entry.last_used_ms = now;
         conn_entry.spend_nano_usd = conn_entry.spend_nano_usd.saturating_add(nano_usd);
 

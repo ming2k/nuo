@@ -1,10 +1,10 @@
 #![cfg(test)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use nuo_persistence::config::{Config, Credentials, resolve_web_config};
 use nuo_wire::{
     SecretString, WebCredentialStatus, WebProviderAxis, WebReaderProvider, WebSearchProvider,
 };
-use nuo_persistence::config::{Config, Credentials, resolve_web_config};
 
 fn sandbox() -> (tempfile::TempDir, std::sync::MutexGuard<'static, ()>) {
     let guard = nuo_persistence::paths::TEST_OVERRIDE_GUARD

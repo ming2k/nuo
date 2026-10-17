@@ -103,50 +103,79 @@ impl<'a> InspectService<'a> {
             |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)),
         ).optional().map_err(|_| InspectError::Corrupt)?;
         let (branch, deletion, content_hash, seq, length) = row.ok_or(InspectError::NotFound)?;
-        if !auth.covers_branch(&branch.into()) { return Err(InspectError::NotAuthorized); }
+        if !auth.covers_branch(&branch.into()) {
+            return Err(InspectError::NotAuthorized);
+        }
         match deletion.as_str() {
             "purged" => return Err(InspectError::Purged),
             "delete_pending" => return Err(InspectError::Expired),
-            "present" => {},
+            "present" => {}
             _ => return Err(InspectError::Corrupt),
         }
-        if content_hash.len() != 64 { return Err(InspectError::Corrupt); }
+        if content_hash.len() != 64 {
+            return Err(InspectError::Corrupt);
+        }
         let start = cursor.map(|c| c.offset).unwrap_or(0);
-        if start > length || cursor.is_some_and(|c| !c.matches(&content_hash, query.unwrap_or(""), seq)) {
+        if start > length
+            || cursor.is_some_and(|c| !c.matches(&content_hash, query.unwrap_or(""), seq))
+        {
             return Err(InspectError::CursorMismatch);
         }
         let ceiling = limits.bytes.min(64 * 1024);
-        let bytes: Vec<u8> = self.conn.query_row(
-            "SELECT substr(CAST(payload_json AS BLOB), ?3, ?4) FROM facts
+        let bytes: Vec<u8> = self
+            .conn
+            .query_row(
+                "SELECT substr(CAST(payload_json AS BLOB), ?3, ?4) FROM facts
              WHERE thread_id=?1 AND id=?2 AND deletion='present'",
-            params![auth.session_id, fact_id, start.saturating_add(1), ceiling], |r| r.get(0),
-        ).optional().map_err(|_| InspectError::Corrupt)?.ok_or(InspectError::Purged)?;
+                params![auth.session_id, fact_id, start.saturating_add(1), ceiling],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|_| InspectError::Corrupt)?
+            .ok_or(InspectError::Purged)?;
         let text = match std::str::from_utf8(&bytes) {
             Ok(text) => text,
-            Err(e) if e.error_len().is_none() => std::str::from_utf8(&bytes[..e.valid_up_to()]).map_err(|_| InspectError::Corrupt)?,
+            Err(e) if e.error_len().is_none() => {
+                std::str::from_utf8(&bytes[..e.valid_up_to()]).map_err(|_| InspectError::Corrupt)?
+            }
             Err(_) => return Err(InspectError::CursorMismatch),
         };
-        let content = nuo_wire::tokenizer::truncate_str_to_tokens(text, limits.tokens.min(8192) as usize).to_owned();
+        let content =
+            nuo_wire::tokenizer::truncate_str_to_tokens(text, limits.tokens.min(8192) as usize)
+                .to_owned();
         let count = content.len() as u64;
-        if count == 0 && start < length { return Err(InspectError::BudgetExceeded); }
-        if started.elapsed().as_millis() >= limits.compute_ms as u128 { return Err(InspectError::BudgetExceeded); }
+        if count == 0 && start < length {
+            return Err(InspectError::BudgetExceeded);
+        }
+        if started.elapsed().as_millis() >= limits.compute_ms as u128 {
+            return Err(InspectError::BudgetExceeded);
+        }
         // Recheck deletion at delivery, including changes made through another
         // connection while this bounded page was decoded.
         let readable: bool = self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM facts WHERE thread_id=?1 AND id=?2 AND deletion='present')",
             params![auth.session_id, fact_id], |r| r.get(0),
         ).map_err(|_| InspectError::Corrupt)?;
-        if !readable { return Err(InspectError::Purged); }
+        if !readable {
+            return Err(InspectError::Purged);
+        }
         Ok(ArtifactPage {
             tokens: nuo_wire::tokenizer::count_tokens(&content) as u64,
             bytes: count,
             content,
-            next_cursor: (start + count < length).then(|| serialize_cursor(&CursorBinding {
-                content_hash, query: query.unwrap_or("").into(), revision: seq, offset: start + count,
-            })),
+            next_cursor: (start + count < length).then(|| {
+                serialize_cursor(&CursorBinding {
+                    content_hash,
+                    query: query.unwrap_or("").into(),
+                    revision: seq,
+                    offset: start + count,
+                })
+            }),
             status: InspectStatus {
-                deletion: Deletion::Present, capture: Capture::Complete,
-                validity: Validity::Unknown, representation: Representation::Excerpt,
+                deletion: Deletion::Present,
+                capture: Capture::Complete,
+                validity: Validity::Unknown,
+                representation: Representation::Excerpt,
             },
         })
     }
@@ -288,26 +317,38 @@ pub fn begin_deletion(
     scope: &str,
     now_ms: u64,
 ) -> Result<(), InspectError> {
-    let tx = conn.unchecked_transaction().map_err(|_| InspectError::Corrupt)?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|_| InspectError::Corrupt)?;
     let existing: Option<(String, String, String)> = tx.query_row(
         "SELECT target_kind,target_id,scope FROM deletion_jobs WHERE thread_id=?1 AND job_id=?2",
         params![session_id,job_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
     ).optional().map_err(|_| InspectError::Corrupt)?;
     if let Some(existing) = existing {
-        return if existing == (target_kind.into(),target_id.into(),scope.into()) { Ok(()) } else { Err(InspectError::Corrupt) };
+        return if existing == (target_kind.into(), target_id.into(), scope.into()) {
+            Ok(())
+        } else {
+            Err(InspectError::Corrupt)
+        };
     }
     let sql = match target_kind {
-        "fact" => "UPDATE facts SET deletion='delete_pending' WHERE thread_id=?1 AND id=?2 AND deletion='present'",
-        "artifact" => "UPDATE artifact_manifests SET deletion='delete_pending' WHERE thread_id=?1 AND artifact_id=?2 AND deletion='present'",
+        "fact" => {
+            "UPDATE facts SET deletion='delete_pending' WHERE thread_id=?1 AND id=?2 AND deletion='present'"
+        }
+        "artifact" => {
+            "UPDATE artifact_manifests SET deletion='delete_pending' WHERE thread_id=?1 AND artifact_id=?2 AND deletion='present'"
+        }
         _ => return Err(InspectError::NotFound),
     };
-    tx.execute(sql, params![session_id,target_id]).map_err(|_| InspectError::Corrupt)?;
+    tx.execute(sql, params![session_id, target_id])
+        .map_err(|_| InspectError::Corrupt)?;
     tx.execute(
         "INSERT INTO deletion_jobs
             (thread_id, job_id, target_kind, target_id, scope, state, created_at_ms, updated_at_ms)
          VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?6)",
         params![session_id, job_id, target_kind, target_id, scope, now_ms],
-    ).map_err(|_| InspectError::Corrupt)?;
+    )
+    .map_err(|_| InspectError::Corrupt)?;
     tx.commit().map_err(|_| InspectError::Corrupt)
 }
 
@@ -319,7 +360,9 @@ pub fn execute_deletion(
     job_id: &str,
     now_ms: u64,
 ) -> Result<DeletionReport, InspectError> {
-    let tx = conn.unchecked_transaction().map_err(|_| InspectError::Corrupt)?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|_| InspectError::Corrupt)?;
     let conn = &tx;
     let (target_kind, target_id): (String, String) = conn
         .query_row(
@@ -465,26 +508,53 @@ mod tests {
     #[test]
     fn deletion_revokes_reads_before_collection_and_rejects_job_rebinding() {
         let conn = initialize_in_memory_db().unwrap();
-        seed(&conn); insert_fact(&conn, "f1", 1, "retained constraint");
+        seed(&conn);
+        insert_fact(&conn, "f1", 1, "retained constraint");
         begin_deletion(&conn, "s1", "job", "fact", "f1", "session", 1).unwrap();
-        assert!(matches!(InspectService::new(&conn).read_fact(&auth(), "f1", None, None, limits()), Err(InspectError::Expired)));
+        assert!(matches!(
+            InspectService::new(&conn).read_fact(&auth(), "f1", None, None, limits()),
+            Err(InspectError::Expired)
+        ));
         assert!(begin_deletion(&conn, "s1", "job", "fact", "f2", "session", 2).is_err());
     }
 
     #[test]
     fn unicode_pages_obey_both_token_and_byte_limits() {
         let conn = initialize_in_memory_db().unwrap();
-        seed(&conn); insert_fact(&conn, "f1", 1, &"日本語😀".repeat(100));
+        seed(&conn);
+        insert_fact(&conn, "f1", 1, &"日本語😀".repeat(100));
         let service = InspectService::new(&conn);
         let mut cursor = None;
         let mut restored = String::new();
         loop {
-            let page = service.read_fact(&auth(), "f1", None, cursor.as_ref(), PageLimits { tokens: 8, bytes: 17, compute_ms: 1000 }).unwrap();
-            assert!(page.tokens <= 8); assert!(page.bytes <= 17);
+            let page = service
+                .read_fact(
+                    &auth(),
+                    "f1",
+                    None,
+                    cursor.as_ref(),
+                    PageLimits {
+                        tokens: 8,
+                        bytes: 17,
+                        compute_ms: 1000,
+                    },
+                )
+                .unwrap();
+            assert!(page.tokens <= 8);
+            assert!(page.bytes <= 17);
             restored.push_str(&page.content);
-            match page.next_cursor { Some(next) => cursor = Some(serde_json::from_str::<CursorBinding>(&next).unwrap()), None => break }
+            match page.next_cursor {
+                Some(next) => cursor = Some(serde_json::from_str::<CursorBinding>(&next).unwrap()),
+                None => break,
+            }
         }
-        assert_eq!(restored, format!("{{\"user_message\":{{\"text\":\"{}\"}}}}", "日本語😀".repeat(100)));
+        assert_eq!(
+            restored,
+            format!(
+                "{{\"user_message\":{{\"text\":\"{}\"}}}}",
+                "日本語😀".repeat(100)
+            )
+        );
     }
 
     #[test]

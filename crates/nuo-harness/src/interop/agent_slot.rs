@@ -40,10 +40,7 @@ impl AgentSlot {
     }
 
     /// Attach sub-agent registry for coordinated lifecycle management.
-    pub fn with_subagent_registry(
-        mut self,
-        subagent_registry: Arc<SubagentRegistry>,
-    ) -> Self {
+    pub fn with_subagent_registry(mut self, subagent_registry: Arc<SubagentRegistry>) -> Self {
         self.subagent_registry = Some(subagent_registry);
         self
     }

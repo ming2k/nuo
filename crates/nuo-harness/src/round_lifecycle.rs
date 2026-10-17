@@ -205,11 +205,7 @@ impl RoundLifecycle {
     /// is the newer message's send time, so the marker re-projects before
     /// that message on resume (the seam rule, `transcript.rs`). `sent_at_ms`
     /// of `None` (a message with no captured send time) falls back to now.
-    pub fn record_interrupt_at(
-        &self,
-        reason: nuo_wire::RoundInterruptReason,
-        at_ms: Option<u64>,
-    ) {
+    pub fn record_interrupt_at(&self, reason: nuo_wire::RoundInterruptReason, at_ms: Option<u64>) {
         self.interrupted
             .store(true, std::sync::atomic::Ordering::SeqCst);
         let parked = ParkedInterrupt {
@@ -361,17 +357,11 @@ mod tests {
         // stamped when the unwinding round's cleanup finally runs can land
         // after the superseding message and misplace the marker on resume.
         let lifecycle = RoundLifecycle::new();
-        lifecycle.record_interrupt_at(
-            nuo_wire::RoundInterruptReason::Superseded,
-            Some(1_000),
-        );
+        lifecycle.record_interrupt_at(nuo_wire::RoundInterruptReason::Superseded, Some(1_000));
         let parked = lifecycle
             .take_interrupt()
             .expect("park survives until taken");
-        assert_eq!(
-            parked.reason,
-            nuo_wire::RoundInterruptReason::Superseded
-        );
+        assert_eq!(parked.reason, nuo_wire::RoundInterruptReason::Superseded);
         assert_eq!(parked.at_ms, 1_000);
 
         // A park without an explicit instant falls back to the wall clock,

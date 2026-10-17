@@ -6,9 +6,7 @@
 //! so terminal and browser apps cannot drift into separate completion products.
 
 use ignore::WalkBuilder;
-use nuo_wire::{
-    AgentResponse, CommandCatalog, CommandSpec, InputCompletion, InputCompletionKind,
-};
+use nuo_wire::{AgentResponse, CommandCatalog, CommandSpec, InputCompletion, InputCompletionKind};
 use std::path::{Path, PathBuf};
 use tokio::sync::OnceCell;
 

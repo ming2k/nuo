@@ -11,15 +11,15 @@
 //! by the original inline task. This keeps the dispatch body unchanged while
 //! making its ownership boundary explicit.
 
-use crate::handlers_slash::SlashEnv;
-use crate::handlers_chat::ChatEnv;
 use crate::catalog;
-use nuo_harness::orchestration::round_response;
-use nuo_harness::{Agent, RoundLifecycle, SubagentRegistry};
-use nuo_wire::{AgentRequest, AgentResponse, LoopStatus, Provider};
+use crate::handlers_chat::ChatEnv;
+use crate::handlers_slash::SlashEnv;
 use crate::mcp::McpRuntime;
-use nuo_persistence::{session::SessionStore, workspace_security::WorkspaceSecurityStore};
+use nuo_harness::orchestration::round_response;
 use nuo_harness::skills::SkillRegistry;
+use nuo_harness::{Agent, RoundLifecycle, SubagentRegistry};
+use nuo_persistence::{session::SessionStore, workspace_security::WorkspaceSecurityStore};
+use nuo_wire::{AgentRequest, AgentResponse, LoopStatus, Provider};
 
 pub async fn send_harness_state_for_session(
     tx: &mpsc::UnboundedSender<AgentResponse>,
@@ -200,10 +200,7 @@ impl FollowUpQueue {
     }
 
     /// Dequeue and return the first shippable item for `session_id`, if any.
-    pub(crate) fn dequeue_front(
-        &mut self,
-        session_id: &str,
-    ) -> Option<nuo_wire::QueuedMessage> {
+    pub(crate) fn dequeue_front(&mut self, session_id: &str) -> Option<nuo_wire::QueuedMessage> {
         let position = self
             .items
             .iter()
@@ -639,9 +636,7 @@ impl SessionDriver {
                     // A round the operator interrupted parks its queue — the
                     // user said stop; auto-firing more prompts after an Esc is
                     // never the intent. Ctrl+P / a fresh send re-arms it.
-                    if session.id().await == wake_target
-                        && lifecycle.was_interrupted()
-                    {
+                    if session.id().await == wake_target && lifecycle.was_interrupted() {
                         followup_queue.set_paused(&wake_target, true);
                         crate::handlers_chat::emit_queue_snapshot(
                             &resp_tx,
@@ -674,9 +669,7 @@ impl SessionDriver {
                             );
                             continue;
                         }
-                        if lifecycle.is_running().await
-                            || followup_queue.is_paused(&target_id)
-                        {
+                        if lifecycle.is_running().await || followup_queue.is_paused(&target_id) {
                             continue;
                         }
                         if let Some(message) = followup_queue.dequeue_front(&target_id) {
@@ -905,8 +898,12 @@ impl SessionDriver {
                     let resp_tx_clone = resp_tx.clone();
                     let provider = auth.oauth_provider_id().unwrap_or("oauth").to_string();
                     active_oauth_task = Some(tokio::spawn(async move {
-                        let tokens =
-                            crate::handlers_provider::authorize(&resp_tx_clone, method, auth.clone()).await;
+                        let tokens = crate::handlers_provider::authorize(
+                            &resp_tx_clone,
+                            method,
+                            auth.clone(),
+                        )
+                        .await;
                         OAuthResult::Authorize {
                             auth,
                             provider,
@@ -1114,19 +1111,36 @@ impl SessionDriver {
                 AgentRequest::QueryConnectionDetail { id, force_refresh } => {
                     let resp_tx = resp_tx.clone();
                     tokio::spawn(async move {
-                        crate::handlers_provider::query_connection_detail(&resp_tx, id, force_refresh).await;
+                        crate::handlers_provider::query_connection_detail(
+                            &resp_tx,
+                            id,
+                            force_refresh,
+                        )
+                        .await;
                     });
                 }
                 AgentRequest::QueryAllConnectionsUsage { force_refresh } => {
                     let resp_tx = resp_tx.clone();
                     tokio::spawn(async move {
-                        crate::handlers_provider::query_all_connections_usage(&resp_tx, force_refresh).await;
+                        crate::handlers_provider::query_all_connections_usage(
+                            &resp_tx,
+                            force_refresh,
+                        )
+                        .await;
                     });
                 }
-                AgentRequest::QueryProviderQuotas { provider, force_refresh } => {
+                AgentRequest::QueryProviderQuotas {
+                    provider,
+                    force_refresh,
+                } => {
                     let resp_tx = resp_tx.clone();
                     tokio::spawn(async move {
-                        crate::handlers_provider::query_provider_quotas(&resp_tx, provider, force_refresh).await;
+                        crate::handlers_provider::query_provider_quotas(
+                            &resp_tx,
+                            provider,
+                            force_refresh,
+                        )
+                        .await;
                     });
                 }
                 AgentRequest::QuerySessionsOverview => {
@@ -1298,11 +1312,9 @@ impl SessionDriver {
                             tracing::error!(?error, "failed to persist workspace trust");
                             let _ = resp_tx.send(round_response(
                                 &session.id().await,
-                                nuo_wire::RoundEvent::Notice(
-                                    nuo_wire::AgentNotice::trust_changed(format!(
-                                        "Workspace trust failed: {error}"
-                                    )),
-                                ),
+                                nuo_wire::RoundEvent::Notice(nuo_wire::AgentNotice::trust_changed(
+                                    format!("Workspace trust failed: {error}"),
+                                )),
                             ));
                         }
 
@@ -1431,10 +1443,8 @@ impl SessionDriver {
                     session_id,
                     message,
                 } => {
-                    crate::handlers_chat::steer(
-                        &agent, &session, &resp_tx, session_id, message,
-                    )
-                    .await;
+                    crate::handlers_chat::steer(&agent, &session, &resp_tx, session_id, message)
+                        .await;
                 }
                 AgentRequest::CancelSteer {
                     session_id,
@@ -1477,12 +1487,8 @@ impl SessionDriver {
                     .await;
                 }
                 AgentRequest::QueueClear { session_id } => {
-                    crate::handlers_chat::queue_clear(
-                        &resp_tx,
-                        &mut followup_queue,
-                        session_id,
-                    )
-                    .await;
+                    crate::handlers_chat::queue_clear(&resp_tx, &mut followup_queue, session_id)
+                        .await;
                 }
                 AgentRequest::QueueReorder {
                     session_id,
@@ -1619,12 +1625,10 @@ impl SessionDriver {
                     .total_tokens;
                 let _ = resp_tx.send(round_response(
                     &post_session_id,
-                    nuo_wire::RoundEvent::ContextTokens(
-                        nuo_wire::ContextTokenSnapshot::new(
-                            post_projection,
-                            nuo_wire::ContextTokenSource::Projection,
-                        ),
-                    ),
+                    nuo_wire::RoundEvent::ContextTokens(nuo_wire::ContextTokenSnapshot::new(
+                        post_projection,
+                        nuo_wire::ContextTokenSource::Projection,
+                    )),
                 ));
             }
         }

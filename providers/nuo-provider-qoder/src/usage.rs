@@ -98,9 +98,7 @@ impl QoderUsageFetcher {
     }
 }
 
-pub(crate) fn parse_qoder_userinfo(
-    body: QoderUserInfoResponse,
-) -> Result<ProviderUsage, String> {
+pub(crate) fn parse_qoder_userinfo(body: QoderUserInfoResponse) -> Result<ProviderUsage, String> {
     // Non-zero codes are errors; a missing code with data present is fine.
     if let Some(code) = body.code
         && code != 0
@@ -234,16 +232,17 @@ mod tests {
 
     #[test]
     fn parses_trial_shape_without_usage() {
-        let body: QoderUserInfoResponse = serde_json::from_str(
-            r#"{"code":0,"data":{"uid":"u2","email":"x@y.z"}}"#,
-        )
-        .unwrap();
+        let body: QoderUserInfoResponse =
+            serde_json::from_str(r#"{"code":0,"data":{"uid":"u2","email":"x@y.z"}}"#).unwrap();
         let usage = parse_qoder_userinfo(body).unwrap();
         assert!(usage.primary_balance.is_none());
         // Trial accounts report only account identity (Account + UID), no
         // credit metrics.
         assert!(
-            usage.metrics.iter().all(|m| m.label == "Account" || m.label == "UID"),
+            usage
+                .metrics
+                .iter()
+                .all(|m| m.label == "Account" || m.label == "UID"),
             "trial metrics must carry identity only: {:?}",
             usage.metrics
         );

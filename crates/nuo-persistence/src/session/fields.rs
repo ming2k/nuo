@@ -397,10 +397,7 @@ mod tests {
         assert!(manifest.is_some());
         let m = manifest.unwrap();
         assert_eq!(m.role_id, "philosophist");
-        assert_eq!(
-            m.tools,
-            vec!["read_url", "search_web", "recall_memory"]
-        );
+        assert_eq!(m.tools, vec!["read_url", "search_web", "recall_memory"]);
         assert!(m.identity.preamble().starts_with("Role: philosophist."));
     }
 }

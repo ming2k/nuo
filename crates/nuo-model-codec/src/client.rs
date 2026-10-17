@@ -24,7 +24,10 @@ impl WireStream {
     }
 
     /// Wraps this stream with a [`StreamLoopDetector`] to intercept degenerative token loops.
-    pub fn with_loop_detector(self, mut detector: crate::loop_detector::StreamLoopDetector) -> Self {
+    pub fn with_loop_detector(
+        self,
+        mut detector: crate::loop_detector::StreamLoopDetector,
+    ) -> Self {
         let (mut tx, rx) = futures::channel::mpsc::channel(64);
         let mut source = self.receiver;
 
@@ -33,11 +36,16 @@ impl WireStream {
             while let Some(item) = source.next().await {
                 match item {
                     Ok(chunk) => {
-                        let text_to_check = chunk.delta_content.as_deref().or(chunk.delta_thinking.as_deref());
+                        let text_to_check = chunk
+                            .delta_content
+                            .as_deref()
+                            .or(chunk.delta_thinking.as_deref());
                         if let Some(text) = text_to_check
                             && let Some(pat) = detector.push_and_check(text)
                         {
-                            let _ = tx.send(Err(WireError::DegenerativeLoop(pat.description()))).await;
+                            let _ = tx
+                                .send(Err(WireError::DegenerativeLoop(pat.description())))
+                                .await;
                             return;
                         }
                         if tx.send(Ok(chunk)).await.is_err() {
@@ -316,7 +324,8 @@ impl WireClient {
         request: &crate::decision::types::DecisionRequest,
     ) -> Result<crate::decision::types::DecisionResponse> {
         let token = endpoint.resolve_api_key().await?;
-        let (_url, _headers, _body) = crate::decision::protocol::build_request(endpoint, &token, request);
+        let (_url, _headers, _body) =
+            crate::decision::protocol::build_request(endpoint, &token, request);
 
         #[cfg(feature = "netune")]
         {

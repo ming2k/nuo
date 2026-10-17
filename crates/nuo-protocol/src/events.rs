@@ -742,7 +742,6 @@ pub enum AgentResponse {
     StateDelta(StateDelta),
 }
 
-
 /// Session-scoped events emitted while a user round runs, carried under an
 /// [`AgentResponse::Round`] envelope. Splitting these off
 /// `AgentResponse` makes "which session does this belong to" a first-class

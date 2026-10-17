@@ -23,12 +23,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nuo_wire::MonitorEvent;
-use nuo_persistence::session::SessionStore;
 use nuo::host::{HostIdentity, HostOptions, LifecycleOptions, RunOutcome};
 use nuo::registry::{HostedSession, SessionRegistry};
 use nuo::serve::ServeExpose;
 use nuo::shutdown::{DrainProbe, ShutdownGate, ShutdownReason};
+use nuo_persistence::session::SessionStore;
+use nuo_wire::MonitorEvent;
 use tokio::sync::{Mutex, broadcast, mpsc};
 
 /// Sandbox the process-wide dirs once, before any `paths::get()` call can
@@ -66,9 +66,7 @@ fn nuo_home_redirects_the_server_footprint() {
     }
     assert_eq!(
         dirs.instance_dir(),
-        std::path::PathBuf::from(&root)
-            .join("nuo")
-            .join("instance")
+        std::path::PathBuf::from(&root).join("nuo").join("instance")
     );
     // And the server-facing paths derive from the instance dir.
     for path in [
@@ -113,12 +111,10 @@ async fn host_one(registry: &Arc<SessionRegistry>, project: &str) -> String {
     let (bc_tx, _) = broadcast::channel::<nuo_wire::AgentResponse>(16);
     let id = session.id().await;
     let id_ret = id.clone();
-    let tracker = Arc::new(Mutex::new(
-        nuo::monitor::MonitorTracker::bootstrap(
-            nuo_wire::MonitoredSession::empty(id),
-            nuo_wire::SessionStatus::Idle,
-        ),
-    ));
+    let tracker = Arc::new(Mutex::new(nuo::monitor::MonitorTracker::bootstrap(
+        nuo_wire::MonitoredSession::empty(id),
+        nuo_wire::SessionStatus::Idle,
+    )));
     registry
         .host(HostedSession {
             workspace_root: Some(std::path::PathBuf::from(project)),
@@ -156,11 +152,8 @@ fn options(uds: std::path::PathBuf, port: u16) -> HostOptions {
         // Tests drive the control plane without credentials.
         local_auth: false,
         port_fallback: false,
-        local_endpoint: nuo_host::ipc::endpoint_for_instance(
-            uds,
-            &format!("lifecycle-{port}"),
-        )
-        .ok(),
+        local_endpoint: nuo_host::ipc::endpoint_for_instance(uds, &format!("lifecycle-{port}"))
+            .ok(),
         disable_tcp: false,
     }
 }
@@ -376,12 +369,10 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
     ) {
         let (req_tx, _req_rx) = mpsc::channel::<nuo_wire::AgentRequest>(512);
         let (bc_tx, _) = broadcast::channel::<nuo_wire::AgentResponse>(16);
-        let tracker = Arc::new(Mutex::new(
-            nuo::monitor::MonitorTracker::bootstrap(
-                nuo_wire::MonitoredSession::empty(session.id().await),
-                nuo_wire::SessionStatus::Idle,
-            ),
-        ));
+        let tracker = Arc::new(Mutex::new(nuo::monitor::MonitorTracker::bootstrap(
+            nuo_wire::MonitoredSession::empty(session.id().await),
+            nuo_wire::SessionStatus::Idle,
+        )));
         registry
             .host(HostedSession {
                 workspace_root: Some(project_root.to_path_buf()),
@@ -491,7 +482,10 @@ async fn client_driven_lifecycle_stops_when_interactive_client_disconnects() {
 
     // Under ADR-0038 [INV-SERVER-07], disconnecting an interactive client does NOT kill the server
     tokio::time::sleep(Duration::from_millis(1500)).await;
-    assert!(!run.is_finished(), "server must remain running after client disconnect (ADR-0038 [INV-SERVER-07])");
+    assert!(
+        !run.is_finished(),
+        "server must remain running after client disconnect (ADR-0038 [INV-SERVER-07])"
+    );
 
     // Cleanly stop for test completion
     gate.request(ShutdownReason::ControlVerb, false);
@@ -516,10 +510,14 @@ async fn client_detach_spares_active_autonomous_work() {
     // Simulate active in-flight work on the hosted session (ADR-0038 [INV-ACTION-02])
     {
         let hosted = registry.get(&session_id).await.expect("hosted session");
-        hosted.tracker.lock().await.observe(&nuo_wire::AgentResponse::Round {
-            session_id: session_id.clone(),
-            event: nuo_wire::RoundEvent::TurnStarted { round: 1, turn: 1 },
-        });
+        hosted
+            .tracker
+            .lock()
+            .await
+            .observe(&nuo_wire::AgentResponse::Round {
+                session_id: session_id.clone(),
+                event: nuo_wire::RoundEvent::TurnStarted { round: 1, turn: 1 },
+            });
     }
     assert!(registry.has_active_work().await);
 
@@ -573,7 +571,10 @@ async fn client_detach_spares_active_autonomous_work() {
 
     // Give it 2 seconds: because active autonomous work is running, server must NOT terminate!
     tokio::time::sleep(Duration::from_millis(2000)).await;
-    assert!(!run.is_finished(), "server must remain running while autonomous work is active");
+    assert!(
+        !run.is_finished(),
+        "server must remain running while autonomous work is active"
+    );
 
     // Cleanly stop for test completion
     gate.request(ShutdownReason::ControlVerb, false);

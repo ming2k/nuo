@@ -69,7 +69,10 @@ mod tests {
         let findings = check_config_file(None);
         assert_eq!(findings.len(), 1, "got: {findings:?}");
         assert_eq!(findings[0].key, "client.toml");
-        assert!(findings[0].message.contains("unknown field"), "{findings:?}");
+        assert!(
+            findings[0].message.contains("unknown field"),
+            "{findings:?}"
+        );
     }
 
     #[test]

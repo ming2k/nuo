@@ -1,6 +1,8 @@
 //! Collapsible, inspectable compaction checkpoint card renderer (ADR-0296).
 
-use nuotc::{Modifier, Style, {Line, Span}};
+use nuotc::{
+    Modifier, Style, {Line, Span},
+};
 
 use super::super::{Disclosure, Interaction, summary_text_color};
 use super::base::{MARKER_COLLAPSED, MARKER_EXPANDED, RenderCtx};
@@ -112,10 +114,7 @@ pub fn draw_compacted_card(
         "  •  ",
         Style::default().fg(ctx.theme.muted()),
     ));
-    spans.push(Span::styled(
-        stat_label,
-        Style::default().fg(summary_color),
-    ));
+    spans.push(Span::styled(stat_label, Style::default().fg(summary_color)));
     spans.push(Span::styled(
         "  •  ",
         Style::default().fg(ctx.theme.muted()),

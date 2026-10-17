@@ -8,10 +8,10 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use acp::AgentAddress;
 use nuo_agent::agent::Agent;
 use nuo_agent::provider::MockProvider;
 use nuo_agent::session::SessionKey;
-use acp::AgentAddress;
 use std::sync::Arc;
 
 #[tokio::test]

@@ -916,10 +916,8 @@ pub fn build_excerpt_summary(
         if remaining < 16 {
             break;
         }
-        let excerpt = nuo_wire::tokenizer::truncate_str_to_tokens(
-            content,
-            remaining.min(EXCERPT_CAP_TOKENS),
-        );
+        let excerpt =
+            nuo_wire::tokenizer::truncate_str_to_tokens(content, remaining.min(EXCERPT_CAP_TOKENS));
         output.push_str(label);
         output.push_str(": ");
         output.push_str(excerpt);
@@ -1196,9 +1194,7 @@ pub async fn summarize_with_provider(
     const SUMMARIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
     let response = match tokio::time::timeout(
         SUMMARIZATION_TIMEOUT,
-        provider.chat(
-            nuo_wire::ModelRequest::ephemeral(messages).with_instructions(instructions),
-        ),
+        provider.chat(nuo_wire::ModelRequest::ephemeral(messages).with_instructions(instructions)),
     )
     .await
     {
@@ -1335,9 +1331,9 @@ pub async fn run_doctor(project_root: Option<&std::path::Path>) -> Result<(), St
 mod fields;
 mod history;
 
-pub use history::{CommitTurn, ForkTarget};
 #[cfg(test)]
 pub(crate) use history::rebuild_transcript_from_messages as rebuild_for_test;
+pub use history::{CommitTurn, ForkTarget};
 mod store;
 #[cfg(test)]
 mod tests;

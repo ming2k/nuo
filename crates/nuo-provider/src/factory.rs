@@ -1,8 +1,8 @@
 //! Provider and credential construction factory ports (ADR-0015).
 
-use std::sync::Arc;
 use nuo_model_codec::catalog::Channel;
 use nuo_model_codec::{ConnectionAuth, CredentialSource, ProviderDialect, SecretString};
+use std::sync::Arc;
 
 use crate::capability::Provider;
 use crate::credentials::CredentialHost;
@@ -26,8 +26,7 @@ pub trait ProviderFactory: Send + Sync {
     ) -> Arc<dyn CredentialSource>;
 }
 
-static PROVIDER_FACTORY: std::sync::OnceLock<Box<dyn ProviderFactory>> =
-    std::sync::OnceLock::new();
+static PROVIDER_FACTORY: std::sync::OnceLock<Box<dyn ProviderFactory>> = std::sync::OnceLock::new();
 
 /// Register the application-wide ProviderFactory.
 pub fn register_provider_factory(factory: Box<dyn ProviderFactory>) {

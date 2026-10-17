@@ -10,8 +10,8 @@
 
 use tokio::sync::mpsc::UnboundedSender;
 
-use nuo_wire::events::AgentResponse;
 use nuo_persistence::db::get_persistence_handle;
+use nuo_wire::events::AgentResponse;
 
 /// `AgentRequest::QueryInputHistory`: load the persisted prompt history.
 pub fn query_input_history(resp_tx: &UnboundedSender<AgentResponse>) {

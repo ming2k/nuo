@@ -2,7 +2,9 @@
 
 use nuo_provider_transport::pipeline::TransportPipeline;
 
-use super::wire::{CosyTransportSigner, QoderAgentEnvelope, QoderBodyCodec, QoderStreamTransformer};
+use super::wire::{
+    CosyTransportSigner, QoderAgentEnvelope, QoderBodyCodec, QoderStreamTransformer,
+};
 
 /// Construct a fully wired PhasedTransportPipeline for Qoder.
 pub fn build_qoder_pipeline() -> TransportPipeline {

@@ -225,10 +225,15 @@ pub fn command_with_roots(
         // fragile distro-specific path lists while preserving developer toolchains,
         // glibc NSS databases, and SSL certificates across all Linux distributions.
         invocation.args([
-            "--ro-bind", "/", "/",
-            "--dev", "/dev",
-            "--proc", "/proc",
-            "--tmpfs", "/tmp",
+            "--ro-bind",
+            "/",
+            "/",
+            "--dev",
+            "/dev",
+            "--proc",
+            "/proc",
+            "--tmpfs",
+            "/tmp",
         ]);
 
         invocation
@@ -254,8 +259,9 @@ pub fn command_with_roots(
 
         invocation.arg("--chdir").arg(&root);
 
-        let path = std::env::var("PATH")
-            .unwrap_or_else(|_| "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".to_string());
+        let path = std::env::var("PATH").unwrap_or_else(|_| {
+            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".to_string()
+        });
         invocation.args([
             "--clearenv",
             "--setenv",

@@ -8,12 +8,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_wire::{NodePayload, Role};
 use nuo_harness::offstream::{
     OffstreamEntry, OffstreamRegistry, OffstreamSource, OffstreamStatus, PagedOffstreamContent,
 };
 use nuo_persistence::blobs::BlobStore;
 use nuo_persistence::db::get_persistence_handle;
+use nuo_wire::{NodePayload, Role};
 
 /// Pagination and text filtering helper for offstream sources.
 pub fn paginate_text(
@@ -26,7 +26,8 @@ pub fn paginate_text(
     let total_lines = lines.len();
 
     // 1. Filter lines if query is specified
-    let filtered_lines: Vec<(usize, &str)> = if let Some(q) = query.filter(|s| !s.trim().is_empty()) {
+    let filtered_lines: Vec<(usize, &str)> = if let Some(q) = query.filter(|s| !s.trim().is_empty())
+    {
         let q_lower = q.to_lowercase();
         lines
             .iter()
@@ -35,13 +36,15 @@ pub fn paginate_text(
             .map(|(idx, line)| (idx + 1, *line))
             .collect()
     } else {
-        lines.iter().enumerate().map(|(idx, line)| (idx + 1, *line)).collect()
+        lines
+            .iter()
+            .enumerate()
+            .map(|(idx, line)| (idx + 1, *line))
+            .collect()
     };
 
     // 2. Resolve cursor offset
-    let start_idx = cursor
-        .and_then(|c| c.parse::<usize>().ok())
-        .unwrap_or(0);
+    let start_idx = cursor.and_then(|c| c.parse::<usize>().ok()).unwrap_or(0);
 
     let mut accumulated_tokens = 0;
     let mut collected = Vec::new();
@@ -180,14 +183,21 @@ impl OffstreamSource for SubagentSource {
                         formatted.push_str(&format!("### [{role_label}]\n{}\n\n", message.content));
                         if let Some(calls) = &message.tool_calls {
                             for c in calls {
-                                formatted.push_str(&format!("-> Tool Call: {}({})\n\n", c.name, c.arguments));
+                                formatted.push_str(&format!(
+                                    "-> Tool Call: {}({})\n\n",
+                                    c.name, c.arguments
+                                ));
                             }
                         }
                     }
                     NodePayload::Compaction { summary, .. } => {
                         formatted.push_str(&format!("### [Compacted Checkpoint]\n{summary}\n\n"));
                     }
-                    NodePayload::Termination { reason, partial_output, .. } => {
+                    NodePayload::Termination {
+                        reason,
+                        partial_output,
+                        ..
+                    } => {
                         formatted.push_str(&format!(
                             "### [Execution Terminated: {:?}]\n{}\n\n",
                             reason,
@@ -378,10 +388,14 @@ impl OffstreamSource for ArtifactSource {
             use base64::{Engine, engine::general_purpose::STANDARD};
             let b64 = STANDARD.encode(&bytes);
             return Ok(PagedOffstreamContent::new(
-                format!("[Rehydrated visual artifact: mime={mime} ({} bytes) | handle: artifact:{key}]", bytes.len()),
+                format!(
+                    "[Rehydrated visual artifact: mime={mime} ({} bytes) | handle: artifact:{key}]",
+                    bytes.len()
+                ),
                 None,
                 1,
-            ).with_media(nuo_wire::ImagePart {
+            )
+            .with_media(nuo_wire::ImagePart {
                 mime: mime.to_string(),
                 data: b64,
             }));
@@ -393,7 +407,10 @@ impl OffstreamSource for ArtifactSource {
         }
 
         // Binary non-image
-        let summary = format!("[Binary artifact: {} bytes | handle: artifact:{key}]", bytes.len());
+        let summary = format!(
+            "[Binary artifact: {} bytes | handle: artifact:{key}]",
+            bytes.len()
+        );
         Ok(PagedOffstreamContent::new(summary, None, 1))
     }
 }
@@ -462,4 +479,3 @@ mod tests {
         assert!(!media.data.is_empty());
     }
 }
-

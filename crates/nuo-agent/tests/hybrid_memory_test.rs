@@ -1,11 +1,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use acp::AgentAddress;
 use async_trait::async_trait;
 use nuo_agent::memory::{
     EmbeddingProvider, InMemoryMemory, Memory, MemoryFact, MemoryQuery, MemoryScope,
 };
 use nuo_agent::session::SessionKey;
-use acp::AgentAddress;
 
 struct MockEmbeddingProvider;
 

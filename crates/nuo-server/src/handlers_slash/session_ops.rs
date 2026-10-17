@@ -5,13 +5,13 @@ use tokio::sync::mpsc;
 
 use super::SlashEnv;
 use super::record::{record_command, record_error};
+use crate::session_driver::send_harness_state_for_session;
 use nuo_harness::Agent;
 use nuo_harness::RoundLifecycle;
-use crate::session_driver::send_harness_state_for_session;
 use nuo_harness::orchestration::round_response;
-use nuo_wire::{AgentNotice, AgentResponse, CommandResult, LoopStatus, RoundEvent};
 use nuo_persistence::config::Config;
 use nuo_persistence::session::SessionStore;
+use nuo_wire::{AgentNotice, AgentResponse, CommandResult, LoopStatus, RoundEvent};
 
 pub(crate) async fn supersede_for_session_switch(
     lifecycle: &RoundLifecycle,
@@ -292,9 +292,7 @@ pub(crate) async fn start_fresh_session_with_role(
         let sec_snapshot = workspace_security.snapshot(&ws.root);
         agent.set_workspace_security(sec_snapshot);
     } else {
-        agent.set_workspace_security(nuo_wire::WorkspaceSecuritySnapshot::new(
-            "workspace-free",
-        ));
+        agent.set_workspace_security(nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free"));
     }
 
     match session
@@ -311,12 +309,11 @@ pub(crate) async fn start_fresh_session_with_role(
                     RoundEvent::UnattendedChanged(fresh_posture),
                 ));
             }
-            let default_confined =
-                if let Some(builtin) = nuo_wire::MainAgentRole::parse(role_id) {
-                    builtin.default_confined()
-                } else {
-                    true
-                };
+            let default_confined = if let Some(builtin) = nuo_wire::MainAgentRole::parse(role_id) {
+                builtin.default_confined()
+            } else {
+                true
+            };
             if shared_confinement.is_confined() != default_confined {
                 shared_confinement.set_confined(default_confined);
                 let _ = resp_tx.send(round_response(

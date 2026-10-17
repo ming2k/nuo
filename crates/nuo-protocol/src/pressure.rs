@@ -579,9 +579,8 @@ fn apply_prune(
                 .unwrap_or_else(|| "image".to_string());
             next_msg.images = None;
             let _id_str = call_id.as_deref().unwrap_or("unknown");
-            next_msg.content = format!(
-                "[cleared image payload ({mime}) to protect context budget]"
-            );
+            next_msg.content =
+                format!("[cleared image payload ({mime}) to protect context budget]");
             outcome.reclaimed_tokens += 1600;
         }
         // A `task` result carries the subagent's whole transcript as
@@ -1592,14 +1591,30 @@ mod tests {
 
     #[test]
     fn prior_build_command_is_superseded_by_later_build_command() {
-        let call1 = call("c1", "execute_command", "{\"command\":\"ninja -C build test\"}");
-        let call2 = call("c2", "execute_command", "{\"command\":\"ninja -C build test\"}");
+        let call1 = call(
+            "c1",
+            "execute_command",
+            "{\"command\":\"ninja -C build test\"}",
+        );
+        let call2 = call(
+            "c2",
+            "execute_command",
+            "{\"command\":\"ninja -C build test\"}",
+        );
         let log1 = "FAILED: test_embed\nAssertionError: failed\n".repeat(15);
         let log2 = "PASSED: all 134 tests passed\n".repeat(15);
         let mut messages = vec![
-            assistant_with_call("c1", "execute_command", "{\"command\":\"ninja -C build test\"}"),
+            assistant_with_call(
+                "c1",
+                "execute_command",
+                "{\"command\":\"ninja -C build test\"}",
+            ),
             Message::tool_result(&call1, log1),
-            assistant_with_call("c2", "execute_command", "{\"command\":\"ninja -C build test\"}"),
+            assistant_with_call(
+                "c2",
+                "execute_command",
+                "{\"command\":\"ninja -C build test\"}",
+            ),
             Message::tool_result(&call2, log2),
         ];
 
@@ -1611,7 +1626,11 @@ mod tests {
 
     #[test]
     fn prior_build_command_is_invalidated_by_code_mutation() {
-        let call1 = call("c1", "execute_command", "{\"command\":\"ninja -C build test\"}");
+        let call1 = call(
+            "c1",
+            "execute_command",
+            "{\"command\":\"ninja -C build test\"}",
+        );
         let call2 = call(
             "c2",
             "edit_text",
@@ -1619,7 +1638,11 @@ mod tests {
         );
         let log1 = "error: undefined reference to foo in embed.c\n".repeat(15);
         let mut messages = vec![
-            assistant_with_call("c1", "execute_command", "{\"command\":\"ninja -C build test\"}"),
+            assistant_with_call(
+                "c1",
+                "execute_command",
+                "{\"command\":\"ninja -C build test\"}",
+            ),
             Message::tool_result(&call1, log1),
             assistant_with_call(
                 "c2",
@@ -1673,9 +1696,11 @@ mod tests {
         assert!(out.cleared_count >= 1);
         assert!(messages[0].images.is_none());
         assert!(messages[0].content.starts_with("User prompt with visual"));
-        assert!(messages[0].content.contains(
-            "[Image Offloaded: image/png elided to relieve context pressure]"
-        ));
+        assert!(
+            messages[0]
+                .content
+                .contains("[Image Offloaded: image/png elided to relieve context pressure]")
+        );
         // The VFS invoice carries the CAS Virtual Path and the rehydrate tool.
         assert!(messages[0].content.contains("/tmp/nuo/vfs/"));
         assert!(messages[0].content.contains("read_image"));

@@ -50,8 +50,7 @@ mod guarded_get_tests {
     }
 
     fn test_client() -> crate::http::WebHttp {
-        crate::http::WebHttp::new(&nuo_wire::WebConfig::default())
-            .expect("test client")
+        crate::http::WebHttp::new(&nuo_wire::WebConfig::default()).expect("test client")
     }
 
     #[tokio::test]

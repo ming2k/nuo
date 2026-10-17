@@ -109,8 +109,7 @@ pub(crate) use completion::CompletionKind;
 pub(crate) use providers::{CustomField, PROVIDER_PRESETS, provider_label_for};
 
 use nuo_wire::{
-    AgentRequest, AgentResponse, LoopStatus, Message, ProviderPickerSnapshot, Role,
-    RoundEvent,
+    AgentRequest, AgentResponse, LoopStatus, Message, ProviderPickerSnapshot, Role, RoundEvent,
 };
 use nuotc::{Backend, Terminal};
 use std::{
@@ -1008,11 +1007,14 @@ pub async fn run_tui_with_terminal(
                                 let (provider, model) = attribution!();
                                 let effort = picker_effort!();
                                 let position = positions_by_session.get(&session_id).copied();
-                                let mut message =
-                                    TranscriptMessage::tool_step(String::new(), name.clone(), String::new())
-                                        .with_attribution(provider, model)
-                                        .with_effort(effort)
-                                        .with_input_slot(index);
+                                let mut message = TranscriptMessage::tool_step(
+                                    String::new(),
+                                    name.clone(),
+                                    String::new(),
+                                )
+                                .with_attribution(provider, model)
+                                .with_effort(effort)
+                                .with_input_slot(index);
                                 if let Some((round, turn)) = position {
                                     message = message.with_round(round).with_turn(turn);
                                 }
@@ -1813,11 +1815,9 @@ pub async fn run_tui_with_terminal(
                                         "{provider}: could not refresh the model list ({message}). Showing the previous list."
                                     ),
                                 };
-                                let notice = TranscriptMessage::notice(
-                                NoticeSeverity::Warning,
-                                text,
-                            )
-                            .with_sent_at_ms(now_ms!());
+                                let notice =
+                                    TranscriptMessage::notice(NoticeSeverity::Warning, text)
+                                        .with_sent_at_ms(now_ms!());
                                 mutations
                                     .send(M::Transcript {
                                         buffer: event_loop::mutations::Buffer::Primary,
@@ -1889,31 +1889,41 @@ pub async fn run_tui_with_terminal(
                             mutations.send(M::ProviderPicker(picker)).await;
                         }
                         if let Some(keys) = snapshot.provider_keys {
-                            mutations.send(M::KeyStatus(keys.into_iter().collect())).await;
+                            mutations
+                                .send(M::KeyStatus(keys.into_iter().collect()))
+                                .await;
                         }
                         if let Some(ct) = snapshot.context_tokens {
-                            mutations.send(M::ContextTokens {
-                                session_id: sid,
-                                snapshot: ct,
-                            }).await;
+                            mutations
+                                .send(M::ContextTokens {
+                                    session_id: sid,
+                                    snapshot: ct,
+                                })
+                                .await;
                         }
                         if let Some(harness) = snapshot.harness_state {
                             mutations.send(M::Harness(harness)).await;
                         }
-                        mutations.send(M::ProviderSwitched {
-                            provider: snapshot.provider,
-                            model: snapshot.model,
-                        }).await;
+                        mutations
+                            .send(M::ProviderSwitched {
+                                provider: snapshot.provider,
+                                model: snapshot.model,
+                            })
+                            .await;
                     }
                     AgentResponse::StateDelta(delta) => {
                         if let (Some(provider), Some(model)) = (delta.provider, delta.model) {
-                            mutations.send(M::ProviderSwitched { provider, model }).await;
+                            mutations
+                                .send(M::ProviderSwitched { provider, model })
+                                .await;
                         }
                         if let Some(ct) = delta.context_tokens {
-                            mutations.send(M::ContextTokens {
-                                session_id: delta.session_id,
-                                snapshot: ct,
-                            }).await;
+                            mutations
+                                .send(M::ContextTokens {
+                                    session_id: delta.session_id,
+                                    snapshot: ct,
+                                })
+                                .await;
                         }
                     }
                 }
@@ -1924,7 +1934,9 @@ pub async fn run_tui_with_terminal(
     let mut app = App {
         last_submit_ms: None,
         surface_store: crate::surfaces::SurfaceStore::new(),
-        dev_toast_pinned: std::env::var("NUO_DEV_TOAST").map(|v| !v.is_empty() && v != "0").unwrap_or(false),
+        dev_toast_pinned: std::env::var("NUO_DEV_TOAST")
+            .map(|v| !v.is_empty() && v != "0")
+            .unwrap_or(false),
         surfaces: match startup_overlay {
             StartupOverlay::SessionsPicker => {
                 crate::surfaces::SurfaceRouter::with_dialog(crate::surfaces::DialogKind::Sessions)
@@ -2195,9 +2207,11 @@ pub async fn run_tui_with_terminal(
             None::<String>,
         ));
         if matches!(startup_overlay, StartupOverlay::Dashboard) {
-            app.surfaces.open_tab(crate::surfaces::ClientTab::dashboard());
+            app.surfaces
+                .open_tab(crate::surfaces::ClientTab::dashboard());
         } else if matches!(startup_overlay, StartupOverlay::Settings { .. }) {
-            app.surfaces.open_tab(crate::surfaces::ClientTab::settings());
+            app.surfaces
+                .open_tab(crate::surfaces::ClientTab::settings());
         }
     }
 

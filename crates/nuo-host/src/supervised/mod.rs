@@ -140,7 +140,11 @@ impl SupervisedChild {
 
     /// Await the child's exit and return its code (if it exited normally).
     pub async fn wait(&mut self) -> Option<i32> {
-        self.child.wait().await.ok().and_then(|status| status.code())
+        self.child
+            .wait()
+            .await
+            .ok()
+            .and_then(|status| status.code())
     }
 
     /// Terminate the child's whole process tree. Idempotent.

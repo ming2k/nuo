@@ -13,9 +13,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Order determines placement priority when flattening or setting cache breakpoints:
 /// lower numerical value = more static / earlier prefix.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InstructionTier {
     /// Immutable base identity, persona, safety ethos, host environment & tool discipline.

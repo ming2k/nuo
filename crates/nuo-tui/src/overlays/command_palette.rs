@@ -231,7 +231,10 @@ pub(crate) fn draw_command_palette(
             ];
 
             if entry.danger == DangerLevel::Dangerous {
-                left_spans.push(Span::styled(" ", Style::default().bg(if is_sel { style.bg } else { Color::Reset })));
+                left_spans.push(Span::styled(
+                    " ",
+                    Style::default().bg(if is_sel { style.bg } else { Color::Reset }),
+                ));
                 left_spans.push(Span::styled(
                     "[DANGER]",
                     Style::default()
@@ -240,7 +243,10 @@ pub(crate) fn draw_command_palette(
                         .add_modifier(Modifier::BOLD),
                 ));
             } else if entry.danger == DangerLevel::Cautious {
-                left_spans.push(Span::styled(" ", Style::default().bg(if is_sel { style.bg } else { Color::Reset })));
+                left_spans.push(Span::styled(
+                    " ",
+                    Style::default().bg(if is_sel { style.bg } else { Color::Reset }),
+                ));
                 left_spans.push(Span::styled(
                     "[CAUTION]",
                     Style::default()
@@ -272,14 +278,20 @@ pub(crate) fn draw_command_palette(
             let row_line = if body_w >= left_w + right_w + 2 {
                 let gap = body_w - left_w - right_w;
                 let mut spans = left_spans;
-                spans.push(Span::styled(" ".repeat(gap), Style::default().bg(if is_sel { style.bg } else { Color::Reset })));
+                spans.push(Span::styled(
+                    " ".repeat(gap),
+                    Style::default().bg(if is_sel { style.bg } else { Color::Reset }),
+                ));
                 spans.push(Span::styled(right_text, right_style));
                 Line::from(spans)
             } else {
                 let mut spans = left_spans;
                 let pad = body_w.saturating_sub(left_w);
                 if pad > 0 {
-                    spans.push(Span::styled(" ".repeat(pad), Style::default().bg(if is_sel { style.bg } else { Color::Reset })));
+                    spans.push(Span::styled(
+                        " ".repeat(pad),
+                        Style::default().bg(if is_sel { style.bg } else { Color::Reset }),
+                    ));
                 }
                 Line::from(spans)
             };
@@ -328,36 +340,12 @@ mod tests {
         let entries = filter_palette_commands("", &[], &ctx);
 
         // Client commands present
-        assert!(
-            entries
-                .iter()
-                .any(|e| e.id == CommandId::OpenModels)
-        );
-        assert!(
-            entries
-                .iter()
-                .any(|e| e.id == CommandId::NavigateSettings)
-        );
-        assert!(
-            entries
-                .iter()
-                .any(|e| e.id == CommandId::OpenConnections)
-        );
-        assert!(
-            entries
-                .iter()
-                .any(|e| e.id == CommandId::OpenPortShare)
-        );
-        assert!(
-            entries
-                .iter()
-                .any(|e| e.id == CommandId::NavigateDashboard)
-        );
-        assert!(
-            entries
-                .iter()
-                .any(|e| e.id == CommandId::Quit)
-        );
+        assert!(entries.iter().any(|e| e.id == CommandId::OpenModels));
+        assert!(entries.iter().any(|e| e.id == CommandId::NavigateSettings));
+        assert!(entries.iter().any(|e| e.id == CommandId::OpenConnections));
+        assert!(entries.iter().any(|e| e.id == CommandId::OpenPortShare));
+        assert!(entries.iter().any(|e| e.id == CommandId::NavigateDashboard));
+        assert!(entries.iter().any(|e| e.id == CommandId::Quit));
     }
 
     #[test]
@@ -366,7 +354,11 @@ mod tests {
         let entries = filter_palette_commands("", &[], &ctx);
 
         // Harness commands must NOT be in client command palette
-        assert!(!entries.iter().any(|e| e.slash.as_deref() == Some("/compact")));
+        assert!(
+            !entries
+                .iter()
+                .any(|e| e.slash.as_deref() == Some("/compact"))
+        );
         assert!(!entries.iter().any(|e| e.slash.as_deref() == Some("/undo")));
         assert!(!entries.iter().any(|e| e.slash.as_deref() == Some("/fork")));
         assert!(!entries.iter().any(|e| e.slash.as_deref() == Some("/diff")));
@@ -386,7 +378,11 @@ mod tests {
 
         let port_matches = filter_palette_commands("port", &[], &ctx);
         assert!(!port_matches.is_empty());
-        assert!(port_matches.iter().any(|e| e.id == CommandId::OpenPortShare));
+        assert!(
+            port_matches
+                .iter()
+                .any(|e| e.id == CommandId::OpenPortShare)
+        );
 
         let model_matches = filter_palette_commands("model", &[], &ctx);
         assert!(!model_matches.is_empty());
@@ -394,7 +390,11 @@ mod tests {
 
         let conn_matches = filter_palette_commands("connections", &[], &ctx);
         assert!(!conn_matches.is_empty());
-        assert!(conn_matches.iter().any(|e| e.id == CommandId::OpenConnections));
+        assert!(
+            conn_matches
+                .iter()
+                .any(|e| e.id == CommandId::OpenConnections)
+        );
     }
 
     #[test]

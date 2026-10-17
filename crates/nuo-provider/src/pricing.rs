@@ -5,9 +5,9 @@
 //! including prompt cache discounts, cache creation overheads, and context window thresholds (`[INV-PRICING-03]`).
 //! Depends downward on `nuo_model_codec::TokenBreakdown` via Dependency Inversion (`[INV-DIP-01]`).
 
-use serde::{Deserialize, Serialize};
-use nuo_model_codec::token_classification::TokenBreakdown;
 use nuo_model_codec::TokenUsage;
+use nuo_model_codec::token_classification::TokenBreakdown;
+use serde::{Deserialize, Serialize};
 
 /// Fixed-point nanodollar amount (1 USD = 1,000,000,000 nano-USD).
 ///
@@ -148,10 +148,18 @@ impl ModelPricing {
             None => return TurnCost::default(),
         };
 
-        let input_cost = PricingTier::calculate_factor_cost(breakdown.uncached_input, tier.input_standard_nano_per_m);
-        let cache_read_cost = PricingTier::calculate_factor_cost(breakdown.cache_read, tier.cache_read_nano_per_m);
-        let cache_write_cost = PricingTier::calculate_factor_cost(breakdown.cache_write, tier.cache_write_nano_per_m);
-        let output_cost = PricingTier::calculate_factor_cost(breakdown.total_output(), tier.output_standard_nano_per_m);
+        let input_cost = PricingTier::calculate_factor_cost(
+            breakdown.uncached_input,
+            tier.input_standard_nano_per_m,
+        );
+        let cache_read_cost =
+            PricingTier::calculate_factor_cost(breakdown.cache_read, tier.cache_read_nano_per_m);
+        let cache_write_cost =
+            PricingTier::calculate_factor_cost(breakdown.cache_write, tier.cache_write_nano_per_m);
+        let output_cost = PricingTier::calculate_factor_cost(
+            breakdown.total_output(),
+            tier.output_standard_nano_per_m,
+        );
 
         let total_nano = input_cost + cache_read_cost + cache_write_cost + output_cost;
 

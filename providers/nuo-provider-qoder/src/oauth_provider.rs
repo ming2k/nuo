@@ -11,17 +11,15 @@ use async_trait::async_trait;
 use futures::future::BoxFuture;
 use nuo_model_codec::LoginMethod;
 use nuo_model_codec::ResolvedAuth;
+use nuo_model_codec::SecretString;
 use nuo_model_codec::provider_auth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
 };
-use nuo_model_codec::SecretString;
-use nuo_oauth::{
-    DeviceLogin, OAuthLoginPrompt, OAuthProvider, OAuthTokenEnricher, TokenSet,
-};
-use nuo_provider::credentials::CredentialSession;
-use nuo_provider_transport::http::Http;
 use nuo_oauth::oauth::AuthError;
 use nuo_oauth::oauth::token::TokenResponse;
+use nuo_oauth::{DeviceLogin, OAuthLoginPrompt, OAuthProvider, OAuthTokenEnricher, TokenSet};
+use nuo_provider::credentials::CredentialSession;
+use nuo_provider_transport::http::Http;
 
 use crate::identity::QoderStoredIdentity;
 
@@ -70,8 +68,7 @@ pub fn qoder_cn_preset() -> OAuthConfig {
     cfg.authorize_url = Cow::Borrowed("https://qoder.com.cn/device/selectAccounts");
     cfg.token_url = Cow::Borrowed("https://openapi.qoder.com.cn/api/v1/deviceToken/poll");
     cfg.device_authorization_url = Cow::Borrowed("https://qoder.com.cn/device/selectAccounts");
-    cfg.device_token_url =
-        Cow::Borrowed("https://openapi.qoder.com.cn/api/v1/deviceToken/poll");
+    cfg.device_token_url = Cow::Borrowed("https://openapi.qoder.com.cn/api/v1/deviceToken/poll");
     cfg
 }
 
@@ -186,17 +183,19 @@ impl OAuthProvider for QoderOAuthProvider {
         let authorize_url = config.authorize_url.to_string();
         let client_id = config.client_id.to_string();
         Some(Box::pin(async move {
-            let session =
-                crate::oauth::QoderDeviceSession::with_authorize_url(&machine_id, &client_id, &authorize_url);
+            let session = crate::oauth::QoderDeviceSession::with_authorize_url(
+                &machine_id,
+                &client_id,
+                &authorize_url,
+            );
             let prompt = OAuthLoginPrompt {
                 method: LoginMethod::Device,
                 url: session.user_url(),
                 user_code: None,
                 message: "Open the URL and approve this device in your Qoder account.".to_string(),
             };
-            let completion = Box::pin(async move {
-                crate::oauth::device_login(&client, &session).await
-            });
+            let completion =
+                Box::pin(async move { crate::oauth::device_login(&client, &session).await });
             Ok(DeviceLogin { prompt, completion })
         }))
     }
@@ -218,7 +217,9 @@ impl OAuthProvider for QoderOAuthProvider {
         self.is_intl()
             && stored
                 .get_json_attr::<QoderStoredIdentity>("qoder")
-                .is_some_and(|identity| identity.uid.is_empty() || identity.infer_endpoint.is_none())
+                .is_some_and(|identity| {
+                    identity.uid.is_empty() || identity.infer_endpoint.is_none()
+                })
     }
 
     async fn repair(
@@ -236,7 +237,8 @@ impl OAuthProvider for QoderOAuthProvider {
         let mut changed = false;
         if identity.uid.is_empty() {
             if let Ok(client) = Http::control_plane()
-                && let Ok(uid) = crate::oauth::fetch_uid(&client, stored.access.expose_secret()).await
+                && let Ok(uid) =
+                    crate::oauth::fetch_uid(&client, stored.access.expose_secret()).await
                 && !uid.is_empty()
             {
                 identity.uid = uid;

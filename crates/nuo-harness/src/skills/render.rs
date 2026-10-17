@@ -248,10 +248,7 @@ mod tests {
         // Non-word-boundary
         assert!(resolve_mentions("foo@skill:rust-expert", &skills).is_empty());
         // Valid boundary
-        assert_eq!(
-            resolve_mentions("(@skill:rust-expert)", &skills).len(),
-            1
-        );
+        assert_eq!(resolve_mentions("(@skill:rust-expert)", &skills).len(), 1);
     }
 
     #[test]

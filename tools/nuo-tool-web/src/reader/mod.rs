@@ -77,8 +77,7 @@ mod tests {
     /// The reader field is an enum now: an unknown name fails at parse time,
     /// so `build_reader` can never receive one.
     fn runtime_from_toml(text: &str) -> nuo_wire::WebRuntimeConfig {
-        let behavior: nuo_wire::WebConfig =
-            toml::from_str(text).expect("reader field parses");
+        let behavior: nuo_wire::WebConfig = toml::from_str(text).expect("reader field parses");
         nuo_wire::WebRuntimeConfig {
             behavior,
             search_credential: None,

@@ -300,9 +300,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         id: "command",
         label: "Command Execution Logs",
         description: "Expand shell execution output logs and terminal commands by default",
-        members: &[
-            ("execute_command", &execute_command::ExecuteCommandPresenter),
-        ],
+        members: &[("execute_command", &execute_command::ExecuteCommandPresenter)],
         expanded_by_default: true,
     },
     ToolComponent {
@@ -678,11 +676,17 @@ mod tests {
     #[test]
     fn namespaced_tool_names_resolve_to_canonical_presenters() {
         assert_eq!(
-            summary("default_api:read_text", serde_json::json!({"path": "src/main.rs"})),
+            summary(
+                "default_api:read_text",
+                serde_json::json!({"path": "src/main.rs"})
+            ),
             "Read src/main.rs"
         );
         assert_eq!(
-            summary("default_api:execute_command", serde_json::json!({"command": "cargo test"})),
+            summary(
+                "default_api:execute_command",
+                serde_json::json!({"command": "cargo test"})
+            ),
             "Run cargo"
         );
         assert_eq!(

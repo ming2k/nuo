@@ -10,7 +10,9 @@ pub fn parse_mcp_tool_name(name: &str) -> Option<(&str, &str)> {
 }
 
 pub fn extract_prominent_arg(args: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
-    for key in &["path", "file", "url", "uri", "query", "command", "prompt", "text", "name", "id"] {
+    for key in &[
+        "path", "file", "url", "uri", "query", "command", "prompt", "text", "name", "id",
+    ] {
         if let Some(val) = args.get(*key) {
             if let Some(s) = val.as_str() {
                 return Some(format!("{s:?}"));
@@ -69,8 +71,14 @@ mod tests {
 
     #[test]
     fn parse_mcp_tool_name_splits_server_and_tool() {
-        assert_eq!(parse_mcp_tool_name("mcp__github__create_issue"), Some(("github", "create_issue")));
-        assert_eq!(parse_mcp_tool_name("github__create_issue"), Some(("github", "create_issue")));
+        assert_eq!(
+            parse_mcp_tool_name("mcp__github__create_issue"),
+            Some(("github", "create_issue"))
+        );
+        assert_eq!(
+            parse_mcp_tool_name("github__create_issue"),
+            Some(("github", "create_issue"))
+        );
         assert_eq!(parse_mcp_tool_name("plain_tool"), None);
     }
 
@@ -79,7 +87,10 @@ mod tests {
         let mut map = serde_json::Map::new();
         map.insert("path".to_string(), json!("/foo/bar.rs"));
         map.insert("extra".to_string(), json!("ignore"));
-        assert_eq!(extract_prominent_arg(&map), Some("\"/foo/bar.rs\"".to_string()));
+        assert_eq!(
+            extract_prominent_arg(&map),
+            Some("\"/foo/bar.rs\"".to_string())
+        );
     }
 
     #[test]

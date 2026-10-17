@@ -57,13 +57,19 @@ pub(super) async fn handle_selection_start(
                     crate::surfaces::TabKind::Thread(id) => {
                         if id != viewed_session_id {
                             app.switch_to_target = Some(id.clone());
-                            app.should_quit.store(true, std::sync::atomic::Ordering::SeqCst);
+                            app.should_quit
+                                .store(true, std::sync::atomic::Ordering::SeqCst);
                             app.drag.cancel();
                             app.ui.runtime.release_pointer();
                         } else {
-                            let was_in_thread = app.current_scene() == crate::surfaces::SceneKind::Thread;
+                            let was_in_thread =
+                                app.current_scene() == crate::surfaces::SceneKind::Thread;
                             if !was_in_thread {
-                                super::enter_scene(app, crate::surfaces::SceneKind::Thread, runtime);
+                                super::enter_scene(
+                                    app,
+                                    crate::surfaces::SceneKind::Thread,
+                                    runtime,
+                                );
                             }
                             app.surfaces.select_tab(index);
                             app.transcript_focused = was_in_thread;
@@ -126,8 +132,7 @@ pub(super) async fn handle_selection_start(
         Some(UiKey::ConfigDropdown) => {
             if let Some((dropdown, _anchor)) = app.config_dropdown.take() {
                 if let Some(popup_area) = app.ui.bounds(UiKey::ConfigDropdown) {
-                    let has_descriptions =
-                        dropdown.items.iter().any(|it| it.description.is_some());
+                    let has_descriptions = dropdown.items.iter().any(|it| it.description.is_some());
                     let rows_per_item = if has_descriptions { 2 } else { 1 };
                     let items_top = popup_area.y + 2;
                     let items_bottom = popup_area.y + popup_area.height.saturating_sub(1);
@@ -193,8 +198,7 @@ pub(super) async fn handle_selection_start(
                 && app.config_detail_index == index;
             app.config_focus = crate::overlays::ConfigFocus::Detail;
             app.config_detail_index = index;
-            let active_category =
-                crate::overlays::ConfigCategory::from_index(app.config_category);
+            let active_category = crate::overlays::ConfigCategory::from_index(app.config_category);
             // Click-to-toggle for Components, click-to-apply for Appearance,
             // or re-clicking an already-selected row activates:
             if was_selected

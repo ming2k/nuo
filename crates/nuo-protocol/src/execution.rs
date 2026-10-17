@@ -369,12 +369,7 @@ pub fn global_skills_roots() -> Vec<PathBuf> {
     }
     if let Some(home) = dirs::home_dir() {
         roots.push(home.join(".nuo").join("skills"));
-        roots.push(
-            home.join(".local")
-                .join("share")
-                .join("nuo")
-                .join("skills"),
-        );
+        roots.push(home.join(".local").join("share").join("nuo").join("skills"));
         roots.push(home.join(".cache").join("nuo").join("skills"));
     }
     let raw_roots = roots.clone();

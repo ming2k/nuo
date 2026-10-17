@@ -63,7 +63,12 @@ impl OpenAiChatCompletionsProvider {
     }
 
     pub fn with_base_url(api_key: String, model: String, base_url: &str) -> Self {
-        Self::with_base_url_and_user_agent(api_key, model, base_url, nuo_provider_transport::NUO_USER_AGENT)
+        Self::with_base_url_and_user_agent(
+            api_key,
+            model,
+            base_url,
+            nuo_provider_transport::NUO_USER_AGENT,
+        )
     }
 
     pub fn with_base_url_and_user_agent(
@@ -119,7 +124,10 @@ impl OpenAiChatCompletionsProvider {
         self
     }
 
-    pub fn with_prompt_cache(mut self, prompt_cache: nuo_provider_transport::PromptCacheConfig) -> Self {
+    pub fn with_prompt_cache(
+        mut self,
+        prompt_cache: nuo_provider_transport::PromptCacheConfig,
+    ) -> Self {
         self.prompt_cache = prompt_cache;
         self
     }
@@ -200,10 +208,12 @@ impl OpenAiChatCompletionsProvider {
         body: &serde_json::Value,
         auth: &ResolvedAuth,
     ) -> nuo_provider_transport::request::RequestBuilder {
-        let mut req =
-            nuo_provider_transport::request::RequestBuilder::new(http::Method::POST, self.endpoint.base_url())
-                .header(http::header::USER_AGENT, self.endpoint.user_agent())
-                .json(body);
+        let mut req = nuo_provider_transport::request::RequestBuilder::new(
+            http::Method::POST,
+            self.endpoint.base_url(),
+        )
+        .header(http::header::USER_AGENT, self.endpoint.user_agent())
+        .json(body);
         let copilot = self.dialect == nuo_model_codec::OpenAiChatDialect::Copilot;
         for (name, value) in request::headers(auth.token.expose_secret(), self.dialect) {
             req = req.header(name, value);
@@ -305,8 +315,9 @@ impl OpenAiChatCompletionsProvider {
         let plan = self
             .pipeline
             .plan_request(self.endpoint.base_url(), body, auth)?;
-        let seed = nuo_provider_transport::request::RequestBuilder::new(http::Method::POST, plan.url)
-            .header(http::header::USER_AGENT, self.endpoint.user_agent());
+        let seed =
+            nuo_provider_transport::request::RequestBuilder::new(http::Method::POST, plan.url)
+                .header(http::header::USER_AGENT, self.endpoint.user_agent());
         let stamped = (plan.stamp_headers)(seed)?;
         let mut req = stamped
             .header(http::header::CONTENT_TYPE, "application/json")
@@ -643,7 +654,11 @@ mod tests {
         fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({"type": "object"})
         }
-        async fn execute(&self, _: &nuo_tool::ToolContext, _: serde_json::Value) -> std::result::Result<nuo_tool::ToolOutput, nuo_tool::ToolError> {
+        async fn execute(
+            &self,
+            _: &nuo_tool::ToolContext,
+            _: serde_json::Value,
+        ) -> std::result::Result<nuo_tool::ToolOutput, nuo_tool::ToolError> {
             Ok(nuo_tool::ToolOutput::success(""))
         }
     }

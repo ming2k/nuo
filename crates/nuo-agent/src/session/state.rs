@@ -139,7 +139,12 @@ impl Session {
     /// This is an application-level orchestration operation and is NEVER executed
     /// implicitly inside the active inference loop, preserving prompt cache prefixes
     /// and deterministic message causality.
-    pub async fn compact(&mut self, compactor: &crate::token::Compactor) -> crate::error::Result<bool> {
-        compactor.compact_messages(&mut self.messages, &self.budget).await
+    pub async fn compact(
+        &mut self,
+        compactor: &crate::token::Compactor,
+    ) -> crate::error::Result<bool> {
+        compactor
+            .compact_messages(&mut self.messages, &self.budget)
+            .await
     }
 }

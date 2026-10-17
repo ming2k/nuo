@@ -140,7 +140,8 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             let tab = crate::surfaces::ClientTab::thread(&child_id, label);
             app.surfaces.open_tab(tab);
             app.switch_to_target = Some(child_id);
-            app.should_quit.store(true, std::sync::atomic::Ordering::SeqCst);
+            app.should_quit
+                .store(true, std::sync::atomic::Ordering::SeqCst);
             true
         }
 
@@ -359,8 +360,12 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
         AppMutation::ProviderPicker(snapshot) => {
             app.provider_picker = snapshot;
-            app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().refreshing = false;
-            app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().refreshing = false;
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ModelsDialog>()
+                .refreshing = false;
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                .refreshing = false;
             true
         }
         AppMutation::SessionsOverview(mut sessions) => {
@@ -377,7 +382,9 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             sessions.retain(|s| !s.active);
             app.modal_index = app.modal_index.min(sessions.len().saturating_sub(1));
             app.sessions_overview = sessions;
-            app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().loading = false;
+            app.surfaces
+                .dlg_mut::<crate::surfaces::SessionsDialog>()
+                .loading = false;
             true
         }
         AppMutation::OpenSessionsPanel => {
@@ -398,7 +405,9 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             let same_id = app.session_detail.as_ref().map(|s| &s.id) == Some(&detail.id);
             app.session_detail = Some(detail);
             if !same_id {
-                app.surfaces.dlg_mut::<crate::surfaces::SessionsDialog>().info_scroll = 0;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::SessionsDialog>()
+                    .info_scroll = 0;
             }
             true
         }
@@ -406,7 +415,9 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             let same_id = app.connection_detail.as_ref().map(|c| &c.name) == Some(&detail.name);
             app.connection_detail = Some(detail);
             if !same_id {
-                app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_scroll = 0;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                    .info_scroll = 0;
             }
             true
         }
@@ -420,7 +431,8 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
         AppMutation::ProviderQuotas(snapshot) => {
             for entry in &snapshot.entries {
-                app.connection_usages.insert(entry.name.clone(), entry.state.clone());
+                app.connection_usages
+                    .insert(entry.name.clone(), entry.state.clone());
             }
             app.provider_quotas = Some(snapshot);
             true
@@ -694,11 +706,8 @@ fn apply_transcript(app: &mut App, buffer: Buffer, edit: TranscriptEdit) -> bool
                 // A just-pushed message has no cached height to evict.
                 let mut message = message;
                 if let Some(status) = message.tool_step_status() {
-                    let default = crate::step_interaction::default_tool_expanded(
-                        status,
-                        &name,
-                        &tui_config,
-                    );
+                    let default =
+                        crate::step_interaction::default_tool_expanded(status, &name, &tui_config);
                     message.set_tool_step_expanded(default);
                 }
                 messages.push(message);
@@ -715,7 +724,11 @@ fn apply_transcript(app: &mut App, buffer: Buffer, edit: TranscriptEdit) -> bool
                     post = PostEdit::Invalidate(step.id);
                 }
             }
-            TranscriptEdit::ToolInputProgress { slot, bytes, arguments } => {
+            TranscriptEdit::ToolInputProgress {
+                slot,
+                bytes,
+                arguments,
+            } => {
                 if let Some(step) = find_pending_announced_tool_step_mut(messages, slot) {
                     let id = step.tool_step_call_id().unwrap_or_default().to_string();
                     let mut changed = step.set_tool_input_bytes(&id, bytes);

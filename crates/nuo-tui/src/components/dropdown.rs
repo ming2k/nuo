@@ -6,9 +6,7 @@
 //! badges, shortcuts, multi-line descriptions, and scroll indicators.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use nuotc::anchor::{
-    AnchorAlignment, AnchorConstraints, AnchorPlacement, compute_anchored_rect,
-};
+use nuotc::anchor::{AnchorAlignment, AnchorConstraints, AnchorPlacement, compute_anchored_rect};
 use nuotc::{
     Alignment, Block as RtBlock, BorderType, Borders, Clear, Frame, Line, Modifier, Paragraph,
     Rect, Span, Style,
@@ -614,32 +612,52 @@ pub fn draw_dropdown<T>(
 
             let cursor_span = Span::styled(
                 "  ",
-                Style::default().bg(if is_selected { style.bg } else { nuotc::Color::Reset }),
+                Style::default().bg(if is_selected {
+                    style.bg
+                } else {
+                    nuotc::Color::Reset
+                }),
             );
 
             let indicator_span = match item.indicator {
                 Some(DropdownIndicator::Ready) => Span::styled(
                     "● ",
                     Style::default()
-                        .bg(if is_selected { style.bg } else { nuotc::Color::Reset })
+                        .bg(if is_selected {
+                            style.bg
+                        } else {
+                            nuotc::Color::Reset
+                        })
                         .fg(if is_selected { style.fg } else { theme.ok() }),
                 ),
                 Some(DropdownIndicator::Warning) => Span::styled(
                     "▲ ",
                     Style::default()
-                        .bg(if is_selected { style.bg } else { nuotc::Color::Reset })
+                        .bg(if is_selected {
+                            style.bg
+                        } else {
+                            nuotc::Color::Reset
+                        })
                         .fg(if is_selected { style.fg } else { theme.warn() }),
                 ),
                 Some(DropdownIndicator::Inactive) => Span::styled(
                     "○ ",
                     Style::default()
-                        .bg(if is_selected { style.bg } else { nuotc::Color::Reset })
+                        .bg(if is_selected {
+                            style.bg
+                        } else {
+                            nuotc::Color::Reset
+                        })
                         .fg(if is_selected { style.dim } else { theme.err() }),
                 ),
                 Some(DropdownIndicator::Custom(c)) => Span::styled(
                     format!("{c} "),
                     Style::default()
-                        .bg(if is_selected { style.bg } else { nuotc::Color::Reset })
+                        .bg(if is_selected {
+                            style.bg
+                        } else {
+                            nuotc::Color::Reset
+                        })
                         .fg(if is_selected { style.fg } else { theme.brand() }),
                 ),
                 None => Span::raw(""),
@@ -647,7 +665,11 @@ pub fn draw_dropdown<T>(
 
             let title_style = if item.disabled {
                 Style::default()
-                    .bg(if is_selected { style.bg } else { nuotc::Color::Reset })
+                    .bg(if is_selected {
+                        style.bg
+                    } else {
+                        nuotc::Color::Reset
+                    })
                     .fg(if is_selected { style.dim } else { theme.dim() })
                     .add_modifier(Modifier::STRIKETHROUGH)
             } else if is_selected {
@@ -673,29 +695,61 @@ pub fn draw_dropdown<T>(
                 } else {
                     theme.dim()
                 };
-                header_spans.push(Span::styled(" ", Style::default().bg(if is_selected { style.bg } else { nuotc::Color::Reset })));
+                header_spans.push(Span::styled(
+                    " ",
+                    Style::default().bg(if is_selected {
+                        style.bg
+                    } else {
+                        nuotc::Color::Reset
+                    }),
+                ));
                 header_spans.push(Span::styled(
                     format!("[{badge}]"),
                     Style::default()
-                        .bg(if is_selected { style.bg } else { nuotc::Color::Reset })
+                        .bg(if is_selected {
+                            style.bg
+                        } else {
+                            nuotc::Color::Reset
+                        })
                         .fg(badge_color),
                 ));
             }
 
             if let Some(sc) = &item.shortcut {
-                header_spans.push(Span::styled(" ", Style::default().bg(if is_selected { style.bg } else { nuotc::Color::Reset })));
+                header_spans.push(Span::styled(
+                    " ",
+                    Style::default().bg(if is_selected {
+                        style.bg
+                    } else {
+                        nuotc::Color::Reset
+                    }),
+                ));
                 header_spans.push(Span::styled(
                     format!("({sc})"),
                     Style::default()
-                        .bg(if is_selected { style.bg } else { nuotc::Color::Reset })
+                        .bg(if is_selected {
+                            style.bg
+                        } else {
+                            nuotc::Color::Reset
+                        })
                         .fg(if is_selected { style.dim } else { theme.dim() }),
                 ));
             }
 
-            let used_w: usize = header_spans.iter().map(|s| unicode_width::UnicodeWidthStr::width(s.content.as_ref())).sum();
+            let used_w: usize = header_spans
+                .iter()
+                .map(|s| unicode_width::UnicodeWidthStr::width(s.content.as_ref()))
+                .sum();
             let pad = (inner_width as usize).saturating_sub(used_w);
             if pad > 0 {
-                header_spans.push(Span::styled(" ".repeat(pad), Style::default().bg(if is_selected { style.bg } else { nuotc::Color::Reset })));
+                header_spans.push(Span::styled(
+                    " ".repeat(pad),
+                    Style::default().bg(if is_selected {
+                        style.bg
+                    } else {
+                        nuotc::Color::Reset
+                    }),
+                ));
             }
 
             let mut header_line = Line::from(header_spans);
@@ -714,13 +768,27 @@ pub fn draw_dropdown<T>(
                 };
                 let desc_text = item.description.as_deref().unwrap_or("");
                 let mut desc_spans = vec![
-                    Span::styled("    ", Style::default().bg(if is_selected { style.bg } else { nuotc::Color::Reset })),
+                    Span::styled(
+                        "    ",
+                        Style::default().bg(if is_selected {
+                            style.bg
+                        } else {
+                            nuotc::Color::Reset
+                        }),
+                    ),
                     Span::styled(desc_text, desc_style),
                 ];
                 let used_desc = 4 + unicode_width::UnicodeWidthStr::width(desc_text);
                 let pad_desc = (inner_width as usize).saturating_sub(used_desc);
                 if pad_desc > 0 {
-                    desc_spans.push(Span::styled(" ".repeat(pad_desc), Style::default().bg(if is_selected { style.bg } else { nuotc::Color::Reset })));
+                    desc_spans.push(Span::styled(
+                        " ".repeat(pad_desc),
+                        Style::default().bg(if is_selected {
+                            style.bg
+                        } else {
+                            nuotc::Color::Reset
+                        }),
+                    ));
                 }
                 let mut desc_line = Line::from(desc_spans);
                 if is_selected && theme.elevation.is_structured() {

@@ -444,14 +444,13 @@ impl SessionStore {
                 {
                     return Err("request usage record belongs to another session".to_string());
                 }
-                let mut index: std::collections::HashMap<nuo_wire::RequestUsageKey, usize> =
-                    state
-                        .data
-                        .request_usage_records
-                        .iter()
-                        .enumerate()
-                        .map(|(i, record)| (record.key.clone(), i))
-                        .collect();
+                let mut index: std::collections::HashMap<nuo_wire::RequestUsageKey, usize> = state
+                    .data
+                    .request_usage_records
+                    .iter()
+                    .enumerate()
+                    .map(|(i, record)| (record.key.clone(), i))
+                    .collect();
                 for record in commit.usage_records {
                     match index.get(&record.key) {
                         Some(&i) => {
@@ -528,11 +527,7 @@ impl SessionStore {
     /// second call finds nothing to settle.
     pub async fn settle_abandoned_attempts(&self) -> Result<usize, String> {
         use nuo_wire::{RequestUsageSource, RequestUsageStatus};
-        let (path, data, settled): (
-            PathBuf,
-            SessionData,
-            Vec<nuo_wire::RequestUsageRecord>,
-        ) = {
+        let (path, data, settled): (PathBuf, SessionData, Vec<nuo_wire::RequestUsageRecord>) = {
             let mut state = self.state.lock().await;
             let mut settled = Vec::new();
             for record in state.data.request_usage_records.iter_mut() {
@@ -757,10 +752,7 @@ impl SessionStore {
     }
 
     /// Insert an entry directly into the session tree and persist snapshot.
-    pub async fn insert_tree_entry(
-        &self,
-        entry: nuo_wire::SessionEntry,
-    ) -> Result<String, String> {
+    pub async fn insert_tree_entry(&self, entry: nuo_wire::SessionEntry) -> Result<String, String> {
         let (data, id) = {
             let mut state = self.state.lock().await;
             let id = entry.id.clone();
@@ -814,10 +806,9 @@ impl SessionStore {
     pub async fn commit_session_ir(&self, ir: &nuo_wire::SessionIR) -> Result<(), String> {
         // Direct O(Δ) persistence to sessions_v2 and causal_nodes tables (INV-SESSION-05, ADR-0275)
         let delta = ir.drain_delta(0);
-        self.writer
-            .save_session_delta(delta)
-            .await
-            .map_err(|e| format!("failed to persist SessionDelta directly to canonical storage: {e}"))
+        self.writer.save_session_delta(delta).await.map_err(|e| {
+            format!("failed to persist SessionDelta directly to canonical storage: {e}")
+        })
     }
 
     /// Commit an incremental [`nuo_wire::SessionDelta`] directly into SQLite (ADR-0241/ADR-0249, INV-SESSION-05).
@@ -1042,7 +1033,10 @@ fn translate_projection(
                 seq: 0,
                 kind: nuo_wire::DirectiveKind::Prune,
                 up_to_seq: last_seq,
-                payload: nuo_wire::DirectivePayload::Prune { elided, pruned_media },
+                payload: nuo_wire::DirectivePayload::Prune {
+                    elided,
+                    pruned_media,
+                },
             });
             if wire_eq(&transcript.project_messages(), target) {
                 return Some(());
@@ -1057,9 +1051,7 @@ fn translate_projection(
 mod tests {
     use super::*;
     use crate::session::{ContextProjectionCheckpoint, ContextProjectionResult};
-    use nuo_wire::{
-        ImagePart, InjectionKind, InjectionOrigin, Message, Role, ToolCall,
-    };
+    use nuo_wire::{ImagePart, InjectionKind, InjectionOrigin, Message, Role, ToolCall};
 
     #[test]
     fn test_translate_projection_prunes_tool_and_companion_image() {
@@ -1079,23 +1071,16 @@ mod tests {
             }])
             .with_origin(InjectionOrigin::new(InjectionKind::ToolImage));
 
-        transcript.push(nuo_wire::TranscriptEntry::from_message(
-            0,
-            &assistant_msg,
-        ));
+        transcript.push(nuo_wire::TranscriptEntry::from_message(0, &assistant_msg));
         transcript.push(nuo_wire::TranscriptEntry::from_message(1, &tool_msg));
-        transcript.push(nuo_wire::TranscriptEntry::from_message(
-            2,
-            &companion_msg,
-        ));
+        transcript.push(nuo_wire::TranscriptEntry::from_message(2, &companion_msg));
 
         let mut target_messages = vec![
             assistant_msg.clone(),
             tool_msg.clone(),
             companion_msg.clone(),
         ];
-        let out =
-            nuo_wire::pressure::prune_tool_results(&mut target_messages, 0, 1).unwrap();
+        let out = nuo_wire::pressure::prune_tool_results(&mut target_messages, 0, 1).unwrap();
         assert!(out.cleared_count >= 1);
 
         let res = ContextProjectionResult {
@@ -1123,22 +1108,18 @@ mod tests {
     #[test]
     fn test_translate_projection_prunes_user_uploaded_image() {
         let mut transcript = nuo_wire::Transcript::new();
-        let user_msg = Message::new(Role::User, "User prompt with visual")
-            .with_images(vec![ImagePart {
+        let user_msg =
+            Message::new(Role::User, "User prompt with visual").with_images(vec![ImagePart {
                 mime: "image/png".to_string(),
                 data: "base64_data".to_string(),
             }]);
         let assistant_msg = Message::new(Role::Assistant, "I see the image.");
 
         transcript.push(nuo_wire::TranscriptEntry::from_message(0, &user_msg));
-        transcript.push(nuo_wire::TranscriptEntry::from_message(
-            1,
-            &assistant_msg,
-        ));
+        transcript.push(nuo_wire::TranscriptEntry::from_message(1, &assistant_msg));
 
         let mut target_messages = vec![user_msg.clone(), assistant_msg.clone()];
-        let out =
-            nuo_wire::pressure::prune_tool_results(&mut target_messages, 0, 1).unwrap();
+        let out = nuo_wire::pressure::prune_tool_results(&mut target_messages, 0, 1).unwrap();
         assert!(out.cleared_count >= 1);
 
         let res = ContextProjectionResult {

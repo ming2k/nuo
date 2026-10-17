@@ -162,9 +162,15 @@ mod tests {
         assert!(BuiltinTool::ExecuteCommand.matches("execute_command"));
         assert!(!BuiltinTool::ExecuteCommand.matches("run_command"));
 
-        assert_eq!(BuiltinTool::from_name("execute_command"), Some(BuiltinTool::ExecuteCommand));
+        assert_eq!(
+            BuiltinTool::from_name("execute_command"),
+            Some(BuiltinTool::ExecuteCommand)
+        );
         assert_eq!(BuiltinTool::from_name("run_command"), None);
-        assert_eq!(BuiltinTool::from_name("read_text"), Some(BuiltinTool::ReadText));
+        assert_eq!(
+            BuiltinTool::from_name("read_text"),
+            Some(BuiltinTool::ReadText)
+        );
         assert_eq!(BuiltinTool::from_name("non_existent"), None);
     }
 

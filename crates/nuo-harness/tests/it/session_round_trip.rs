@@ -50,10 +50,8 @@ impl Provider for TestStreamProvider {
     async fn stream_chat(
         &self,
         _request: ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         let chunks = [
             "This ",
             "is ",
@@ -70,10 +68,8 @@ impl Provider for TestStreamProvider {
 
 #[tokio::test]
 async fn execute_round_persists_a_session_that_resume_reopens() {
-    let directory = std::env::temp_dir().join(format!(
-        "nuo-it-session-roundtrip-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let directory =
+        std::env::temp_dir().join(format!("nuo-it-session-roundtrip-{}", uuid::Uuid::new_v4()));
     let session_path = directory.join("session.json");
     let session = Arc::new(SessionStore::for_path(session_path.clone()));
     let agent = Arc::new(Agent::new(

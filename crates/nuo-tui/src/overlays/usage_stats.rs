@@ -251,8 +251,7 @@ fn daily_chart(report: &UsageStatsReport, body_width: usize, theme: &Theme) -> L
 
 /// The daily table, newest day first.
 fn daily_table(report: &UsageStatsReport, body: &mut Vec<Line<'static>>, theme: &Theme) {
-    let days: Vec<&nuo_wire::usage_stats::UsageDayTotals> =
-        report.days.iter().rev().collect();
+    let days: Vec<&nuo_wire::usage_stats::UsageDayTotals> = report.days.iter().rev().collect();
     // Column widths sized to content.
     let mut tokens_w = "Tokens".len();
     let mut io_w = "In / Out".len();
@@ -521,9 +520,7 @@ fn truncate(text: &str, max_width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::usage_stats::{
-        UsageDayTotals, UsageModelRow, UsageModelTotals, UsageStatRecord,
-    };
+    use nuo_wire::usage_stats::{UsageDayTotals, UsageModelRow, UsageModelTotals, UsageStatRecord};
     use nuo_wire::{RequestUsageKey, RequestUsageRecord, RequestUsageSource};
 
     fn sample_report() -> UsageStatsReport {

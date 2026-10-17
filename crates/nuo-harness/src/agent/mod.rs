@@ -529,9 +529,7 @@ impl RoundState {
     /// `Agent::apply_guard_actions` — so the guard state is always present
     /// even when disabled (it just never fires). It lives and dies with this
     /// `RoundState`, so loop state never crosses user rounds.
-    fn guards_default(
-        config: nuo_wire::TrajectoryGuardConfig,
-    ) -> crate::guard::RoundGuardState {
+    fn guards_default(config: nuo_wire::TrajectoryGuardConfig) -> crate::guard::RoundGuardState {
         crate::guard::RoundGuardState::new()
             .with_trajectory(crate::trajectory_guard::TrajectoryLoopGuard::new(config))
     }
@@ -661,9 +659,7 @@ impl PendingMessageQueue {
     pub fn drain(&mut self) -> Vec<nuo_wire::QueuedMessage> {
         match self.mode {
             nuo_wire::QueueMode::All => self.messages.drain(..).collect(),
-            nuo_wire::QueueMode::OneAtATime => {
-                self.messages.pop_front().into_iter().collect()
-            }
+            nuo_wire::QueueMode::OneAtATime => self.messages.pop_front().into_iter().collect(),
         }
     }
 
@@ -1248,8 +1244,8 @@ mod rounds;
 mod state;
 mod steering;
 pub use steering::SwitchedRole;
-mod tools_admin;
 pub mod cognitive_bridge;
+mod tools_admin;
 pub use cognitive_bridge::session_event_to_agent_events;
 
 pub(crate) use rounds::ToolResultRecord;
@@ -1708,7 +1704,9 @@ mod tests {
             == nuo_host::supervised::InputSupervision::Supervised
         {
             match contract {
-                nuo_wire::InputContract::Supervised { expectation: Some(exp) } => {
+                nuo_wire::InputContract::Supervised {
+                    expectation: Some(exp),
+                } => {
                     assert!(exp.secret, "sudo expectation must be masked");
                 }
                 other => panic!("expected Supervised with a secret expectation, got {other:?}"),
@@ -1723,7 +1721,8 @@ mod tests {
     /// `apply_preset` must seed `skip_interactive_input` from the
     /// profile's runtime config — the wiring the bootstrap path relies on.
     #[test]
-    fn apply_preset_seeds_skip_interactive_input() {        let agent = stdin_test_agent();
+    fn apply_preset_seeds_skip_interactive_input() {
+        let agent = stdin_test_agent();
         assert!(!agent.skip_interactive_input(), "default off");
         let profile = nuo_wire::AgentRoleProfile::with_identity(
             "developer",

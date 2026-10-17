@@ -53,9 +53,9 @@ impl StdioTransport {
         cmd.stderr(Stdio::piped());
         cmd.kill_on_drop(true);
 
-        let mut child = cmd.spawn().map_err(|err| {
-            McpError::process(format!("failed to spawn MCP process: {err}"))
-        })?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|err| McpError::process(format!("failed to spawn MCP process: {err}")))?;
 
         let stdin = child
             .stdin

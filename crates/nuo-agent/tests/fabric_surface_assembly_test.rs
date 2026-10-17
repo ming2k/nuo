@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use acp::Fabric;
 use nuo_agent::Agent;
 use nuo_agent::provider::MockProvider;
-use acp::Fabric;
 
 #[tokio::test]
 async fn test_agent_connect_to_unified_fabric_with_orthogonal_surfaces() {

@@ -23,8 +23,7 @@ async fn test_routing_policy_intercepts_unauthorized_steer() {
     // Policy: Subagents can never command/steer siblings directly
     fabric
         .set_routing_policy(Arc::new(FnRoutingPolicy::new(|env: &AgentEnvelope| {
-            if env.source.as_str().contains("subagent") && env.target.as_str().contains("sibling")
-            {
+            if env.source.as_str().contains("subagent") && env.target.as_str().contains("sibling") {
                 RoutingDecision::Deny {
                     reason: "Subagent cannot command sibling agent".into(),
                 }

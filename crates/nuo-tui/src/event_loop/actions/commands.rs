@@ -346,8 +346,12 @@ pub(crate) fn handle_ctrl_c(
         if !app.input.is_empty() {
             app.input.clear();
             app.cursor_position = 0;
-            app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 0;
-            app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().follow = true;
+            app.surfaces
+                .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+                .index = 0;
+            app.surfaces
+                .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+                .follow = true;
         } else {
             app.dismiss_surface();
         }

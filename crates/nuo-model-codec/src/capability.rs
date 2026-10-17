@@ -86,7 +86,11 @@ pub struct ToolSpec {
 }
 
 impl ToolSpec {
-    pub fn new(name: impl Into<String>, description: impl Into<String>, parameters: serde_json::Value) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: serde_json::Value,
+    ) -> Self {
         Self {
             name: name.into(),
             description: description.into(),
@@ -354,11 +358,7 @@ impl ModelRequest {
     /// [`crate::CachePlan`] and ADR-0217.
     pub fn cache_plan(&self) -> crate::CachePlan {
         crate::CachePlan::new(
-            crate::request_prefix_fingerprint(
-                &self.instructions,
-                &self.messages,
-                &self.tool_specs,
-            ),
+            crate::request_prefix_fingerprint(&self.instructions, &self.messages, &self.tool_specs),
             self.messages.len(),
             self.temporary_context.len(),
         )
@@ -552,7 +552,9 @@ pub trait Provider: Send + Sync {
 #[async_trait]
 pub trait CatalogDiscovery: Send + Sync {
     /// Discover available models from the provider endpoint.
-    async fn list_models(&self) -> Result<Vec<crate::catalog::DiscoveredModel>, crate::catalog::ModelListError>;
+    async fn list_models(
+        &self,
+    ) -> Result<Vec<crate::catalog::DiscoveredModel>, crate::catalog::ModelListError>;
 }
 
 /// Optional orthogonal capability: token quota and usage balance query (ADR-0015).

@@ -12,7 +12,10 @@ impl ToolPresenter for ExecuteCommandPresenter {
             .unwrap_or_else(|| "Run command".to_string())
     }
 
-    fn render_summary<'a>(&self, view: &'a ToolView) -> crate::components::inline_layout::SemanticLine<'a> {
+    fn render_summary<'a>(
+        &self,
+        view: &'a ToolView,
+    ) -> crate::components::inline_layout::SemanticLine<'a> {
         if let Some(cmd) = view.str("command") {
             if let Some(comm) = extract_comm(&cmd) {
                 return crate::components::inline_layout::SemanticLine::new()

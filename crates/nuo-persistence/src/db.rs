@@ -33,9 +33,7 @@ pub mod usage_projection;
 
 pub use handle::get_persistence_handle;
 pub(crate) use migrations::*;
-pub use migrations::{
-    CURRENT_DB_VERSION, SessionTranscriptView, open_in_memory_for_tests,
-};
+pub use migrations::{CURRENT_DB_VERSION, SessionTranscriptView, open_in_memory_for_tests};
 
 #[cfg(test)]
 mod tests;
@@ -167,7 +165,10 @@ fn push_summary(
     if final_msg_count == 0 && id != active_id {
         return;
     }
-    let real_title = title.as_deref().filter(|t| !t.trim().is_empty()).map(|s| s.to_string());
+    let real_title = title
+        .as_deref()
+        .filter(|t| !t.trim().is_empty())
+        .map(|s| s.to_string());
     let overview = if let Some(ref t) = real_title {
         crate::session::truncate_preview(t, 64)
     } else if let Some(prompt) = last_user_prompt.as_deref().filter(|p| !p.trim().is_empty()) {
@@ -909,19 +910,34 @@ pub(crate) enum PersistenceCommand {
     /// Commit immutable execution facts to the canonical context store (ADR-0275 §7).
     CommitContextFacts {
         commit: Box<crate::db::context_store::OwnedFactCommit>,
-        ack: oneshot::Sender<Result<crate::db::context_store::CommitOutcome, crate::db::context_store::ContextCommitError>>,
+        ack: oneshot::Sender<
+            Result<
+                crate::db::context_store::CommitOutcome,
+                crate::db::context_store::ContextCommitError,
+            >,
+        >,
     },
     /// Commit a branch context view to the canonical context store (ADR-0275 §7, ADR-0278).
     CommitContextView {
         commit: Box<crate::db::context_store::OwnedViewCommit>,
-        ack: oneshot::Sender<Result<crate::db::context_store::CommitOutcome, crate::db::context_store::ContextCommitError>>,
+        ack: oneshot::Sender<
+            Result<
+                crate::db::context_store::CommitOutcome,
+                crate::db::context_store::ContextCommitError,
+            >,
+        >,
     },
     /// Execute an inspect deletion job (ADR-0279 §6).
     ExecuteInspectDeletion {
         session_id: String,
         job_id: String,
         now_ms: u64,
-        ack: oneshot::Sender<Result<crate::db::inspect_service::DeletionReport, nuo_wire::context_lifecycle::InspectError>>,
+        ack: oneshot::Sender<
+            Result<
+                crate::db::inspect_service::DeletionReport,
+                nuo_wire::context_lifecycle::InspectError,
+            >,
+        >,
     },
     /// Collect a bounded garbage collection batch for artifacts/leases (ADR-0279 §5).
     CollectInspectGarbage {
@@ -929,7 +945,12 @@ pub(crate) enum PersistenceCommand {
         now_ms: u64,
         batch_limit: u32,
         batch_ms: u64,
-        ack: oneshot::Sender<Result<crate::db::inspect_service::CollectionProgress, nuo_wire::context_lifecycle::InspectError>>,
+        ack: oneshot::Sender<
+            Result<
+                crate::db::inspect_service::CollectionProgress,
+                nuo_wire::context_lifecycle::InspectError,
+            >,
+        >,
     },
     /// Test-only: the writer acks and then exits its loop, simulating actor
     /// death so the supervisor's respawn path is exercisable (ADR-0196 D6).

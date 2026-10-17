@@ -85,8 +85,7 @@ pub async fn stop_server() -> Result<(), Box<dyn std::error::Error>> {
                         uds_path: Some(nuo::serve_discovery::default_uds_path()),
                         #[cfg(not(unix))]
                         uds_path: None,
-                        local_endpoint: nuo::serve_discovery::default_local_endpoint()
-                            .ok(),
+                        local_endpoint: nuo::serve_discovery::default_local_endpoint().ok(),
                         version: None,
                         grace_secs: None,
                         protocol: None,
@@ -112,8 +111,7 @@ pub async fn stop_server() -> Result<(), Box<dyn std::error::Error>> {
 /// re-read its configuration and re-sync MCP servers + skills without dropping
 /// any connection.
 pub async fn reload_server() -> Result<(), Box<dyn std::error::Error>> {
-    let info = client::discover(Path::new("."))
-        .ok_or("no local nuo server is running")?;
+    let info = client::discover(Path::new(".")).ok_or("no local nuo server is running")?;
     client::reload(&info).await?;
     eprintln!("nuo: server reloaded (configuration, MCP servers, skills).");
     Ok(())
@@ -155,7 +153,8 @@ pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std
 
     // [INV-SERVER-03] Zero TCP on Client-Bound Posture:
     // When running with zero_tcp or without an explicit port/env, do not bind TCP.
-    let disable_tcp = flags.zero_tcp || (flags.port.is_none() && std::env::var("NUO_PORT").is_err());
+    let disable_tcp =
+        flags.zero_tcp || (flags.port.is_none() && std::env::var("NUO_PORT").is_err());
     let port = flags.port.unwrap_or(nuo::startup::env_default_port());
     let preset = agent_code();
     let outcome = nuo::host::run_with_gate(
@@ -176,8 +175,7 @@ pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std
                 && nuo_persistence::config::Config::load().server.local_auth,
             port_fallback: flags.port.is_none(),
             local_endpoint: Some(
-                nuo::serve_discovery::default_local_endpoint()
-                    .map_err(std::io::Error::other)?,
+                nuo::serve_discovery::default_local_endpoint().map_err(std::io::Error::other)?,
             ),
             disable_tcp,
         },
@@ -201,4 +199,3 @@ pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std
     }
     std::process::exit(outcome.exit_code());
 }
-

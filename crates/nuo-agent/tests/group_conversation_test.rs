@@ -4,10 +4,10 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use acp::{ChannelId, Fabric, SubscriptionMode};
 use nuo_agent::agent::Agent;
 use nuo_agent::provider::MockProvider;
 use nuo_agent::session::SessionKey;
-use acp::{ChannelId, Fabric, SubscriptionMode};
 use std::time::Duration;
 
 async fn member(room: &Fabric, uri: &str, name: &str) -> Agent {

@@ -6,11 +6,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use acp::{AgentAddress, SteerAction};
 use nuo_agent::agent::Agent;
 use nuo_agent::provider::{MockProvider, ModelResponse};
 use nuo_agent::session::{InMemorySessionStore, SessionKey, SessionStore};
 use nuo_agent::tools::DynamicTool;
-use acp::{AgentAddress, SteerAction};
 use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

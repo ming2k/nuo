@@ -349,7 +349,10 @@ impl DbReader {
     pub fn load_context_facts(
         &self,
         session_id: &str,
-    ) -> std::result::Result<Vec<nuo_wire::context_lifecycle::FactNode>, crate::db::context_store::ContextCommitError> {
+    ) -> std::result::Result<
+        Vec<nuo_wire::context_lifecycle::FactNode>,
+        crate::db::context_store::ContextCommitError,
+    > {
         crate::db::context_store::load_facts(&self.engine.conn, session_id)
     }
 

@@ -726,12 +726,7 @@ pub(crate) fn draw_scrollbar(
 
 /// Index a buffer cell by absolute (x, y) via direct `content` indexing.
 /// The caller guarantees the coordinate lies inside `area`.
-fn cell_at_index(
-    buf: &mut nuotc::Grid,
-    area: Rect,
-    x: u16,
-    y: u16,
-) -> &mut nuotc::Cell {
+fn cell_at_index(buf: &mut nuotc::Grid, area: Rect, x: u16, y: u16) -> &mut nuotc::Cell {
     let idx = (y as usize - area.y as usize) * area.width as usize + (x as usize - area.x as usize);
     &mut buf.content[idx]
 }
@@ -836,7 +831,10 @@ mod tests {
         );
         // ADR-0054 Floor-1 rule: width pressure allocates the final slot to F1 more
         let mid = modal_footer_text(&hints, 35);
-        assert!(mid.contains("F1 more"), "narrow width reserves F1 more: {mid}");
+        assert!(
+            mid.contains("F1 more"),
+            "narrow width reserves F1 more: {mid}"
+        );
     }
 
     #[test]

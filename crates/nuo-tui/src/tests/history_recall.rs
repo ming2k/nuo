@@ -408,9 +408,14 @@ fn history_modal_never_borrows_the_draft_and_resets_its_own_query() {
     app.cursor_position = "my draft".chars().count();
     app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
     assert_eq!(app.input, "", "composer input cleared for search query");
-    assert_eq!(app.draft_capsule.text, "my draft", "composer draft stashed in capsule");
+    assert_eq!(
+        app.draft_capsule.text, "my draft",
+        "composer draft stashed in capsule"
+    );
     app.input = "git".to_string();
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 4;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+        .index = 4;
 
     assert!(app.dismiss_surface());
 
@@ -447,7 +452,9 @@ fn history_insert_clears_search_query_buffer_and_places_entry() {
     let text = app.input_history[orig_idx].text.clone();
     app.adopt_as_draft(text, vec![], vec![], crate::app::DraftAdoption::Replace);
     app.clear_stashed_draft();
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 0;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+        .index = 0;
     app.surfaces.dismiss_all_overlays();
 
     // Composer now holds the selected history entry, not the search query or old draft
@@ -1082,24 +1089,14 @@ fn test_delete_selected_history_entry_and_cascade() {
 
     // 1. Setup 3 history entries
     app.input_history = vec![
-        nuo_wire::HistoryEntry::new(
-            "first entry".into(),
-            Some("session-test".into()),
-            None,
-            100,
-        ),
+        nuo_wire::HistoryEntry::new("first entry".into(), Some("session-test".into()), None, 100),
         nuo_wire::HistoryEntry::new(
             "target entry".into(),
             Some("session-test".into()),
             None,
             200,
         ),
-        nuo_wire::HistoryEntry::new(
-            "third entry".into(),
-            Some("session-test".into()),
-            None,
-            300,
-        ),
+        nuo_wire::HistoryEntry::new("third entry".into(), Some("session-test".into()), None, 300),
     ];
     // Backfill has target entry
     app.session_history_backfill = vec![
@@ -1129,7 +1126,9 @@ fn test_delete_selected_history_entry_and_cascade() {
 
     // History order newest first: "third entry" (idx 2), "target entry" (idx 1), "first entry" (idx 0).
     // Let's select row 1 ("target entry")
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 1;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+        .index = 1;
     let removed = app.delete_selected_history_entry();
     assert!(removed.is_some());
     let removed = removed.unwrap();
@@ -1148,14 +1147,24 @@ fn test_delete_selected_history_entry_and_cascade() {
     assert!(!app.history_attachments_order.iter().any(|k| k == &identity));
 
     // Verify the panel's index is clamped
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index, 1);
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+            .index,
+        1
+    );
 
     // Delete remaining entries
     app.delete_selected_history_entry();
     assert_eq!(app.input_history.len(), 1);
     app.delete_selected_history_entry();
     assert_eq!(app.input_history.len(), 0);
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index, 0);
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+            .index,
+        0
+    );
 
     // Deleting from empty history is a safe no-op
     assert!(app.delete_selected_history_entry().is_none());
@@ -1251,7 +1260,10 @@ fn test_shift_delete_and_bare_delete_dispatch() {
         &mut String::new(),
         &mut 0,
     );
-    assert_eq!(action_ctrl_shift_r, Some(crate::input::InputAction::ModalUp));
+    assert_eq!(
+        action_ctrl_shift_r,
+        Some(crate::input::InputAction::ModalUp)
+    );
 }
 
 #[tokio::test]
@@ -1353,7 +1365,9 @@ async fn test_ctrl_c_in_history_search() {
     // Case 1: Filter query is non-empty -> Ctrl+C clears the filter and resets cursor
     app.input = "my search query".to_string();
     app.cursor_position = 5;
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 2;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+        .index = 2;
 
     let (copy_tx, _copy_rx) = mpsc::unbounded_channel();
     let copy_pending = Arc::new(AtomicUsize::new(0));
@@ -1366,7 +1380,12 @@ async fn test_ctrl_c_in_history_search() {
         Some(crate::surfaces::DialogKind::HistorySearch)
     );
     assert_eq!(app.input, "");
-    assert_eq!(app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index, 0);
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+            .index,
+        0
+    );
 
     // Case 2: Filter query is empty -> Ctrl+C dismisses history dialog
     crate::event_loop::handle_ctrl_c(&mut app, "test-session", &copy_tx, &copy_pending);
@@ -1599,7 +1618,11 @@ async fn oldest_history_entry_up_arrow_does_not_cycle_cursor() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "session-a".to_string();
     app.current_workspace = "~/p".to_string();
-    app.record_input_history("multiline\nentry\nbottom".to_string(), Vec::new(), Vec::new());
+    app.record_input_history(
+        "multiline\nentry\nbottom".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
     let rows = app.current_session_history();
     assert_eq!(rows.len(), 1);
 
@@ -1607,14 +1630,26 @@ async fn oldest_history_entry_up_arrow_does_not_cycle_cursor() {
     app.input = "".to_string();
     assert!(app.history_prev(&rows));
     assert_eq!(app.input, "multiline\nentry\nbottom");
-    assert_eq!(app.cursor_position, "multiline\nentry\nbottom".chars().count());
+    assert_eq!(
+        app.cursor_position,
+        "multiline\nentry\nbottom".chars().count()
+    );
 
     // Move cursor up line-by-line
-    assert!(crate::input::cursor_line_up(&app.input, &mut app.cursor_position));
-    assert!(crate::input::cursor_line_up(&app.input, &mut app.cursor_position));
+    assert!(crate::input::cursor_line_up(
+        &app.input,
+        &mut app.cursor_position
+    ));
+    assert!(crate::input::cursor_line_up(
+        &app.input,
+        &mut app.cursor_position
+    ));
     // Cursor is now on the top line
     let top_line_cursor = app.cursor_position;
-    assert!(!crate::input::cursor_line_up(&app.input, &mut app.cursor_position));
+    assert!(!crate::input::cursor_line_up(
+        &app.input,
+        &mut app.cursor_position
+    ));
     assert_eq!(app.cursor_position, top_line_cursor);
 
     // Pressing Up at the top line tries history_prev: already at oldest entry, must be a no-op!
@@ -1709,7 +1744,10 @@ fn adr0044_composer_owns_caret_and_direct_typing_filters_history() {
     app.input = "cargo".to_string();
     let rows = app.history_rows();
     assert_eq!(rows.len(), 1);
-    assert_eq!(app.input_history[rows[0].0].text, "cargo test --package nuo-tui");
+    assert_eq!(
+        app.input_history[rows[0].0].text,
+        "cargo test --package nuo-tui"
+    );
 
     app.input = "git".to_string();
     let rows = app.history_rows();
@@ -1730,13 +1768,20 @@ fn adr0044_atomic_draft_stashing_and_esc_rollback() {
     // Pre-populate an in-progress draft with text and attachments
     app.input = "uncommitted work in progress".to_string();
     app.cursor_position = app.input.len();
-    app.pending_text_pastes.push("staged paste block".to_string());
+    app.pending_text_pastes
+        .push("staged paste block".to_string());
 
     // Opening history search stashes the draft atomically ([INV-HIST-03], [INV-COMP-03])
     app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
     assert_eq!(app.draft_capsule.text, "uncommitted work in progress");
-    assert_eq!(app.draft_capsule.pending_text_pastes, vec!["staged paste block".to_string()]);
-    assert_eq!(app.input, "", "Composer input should clear for live query typing");
+    assert_eq!(
+        app.draft_capsule.pending_text_pastes,
+        vec!["staged paste block".to_string()]
+    );
+    assert_eq!(
+        app.input, "",
+        "Composer input should clear for live query typing"
+    );
 
     // Operator types a query, filtering candidates
     app.input = "historical".to_string();
@@ -1748,8 +1793,14 @@ fn adr0044_atomic_draft_stashing_and_esc_rollback() {
     // Draft is restored 100% loss-free
     assert_eq!(app.input, "uncommitted work in progress");
     assert_eq!(app.cursor_position, "uncommitted work in progress".len());
-    assert_eq!(app.pending_text_pastes, vec!["staged paste block".to_string()]);
-    assert!(app.draft_capsule.is_empty(), "Stash should be cleared on rollback");
+    assert_eq!(
+        app.pending_text_pastes,
+        vec!["staged paste block".to_string()]
+    );
+    assert!(
+        app.draft_capsule.is_empty(),
+        "Stash should be cleared on rollback"
+    );
 }
 
 #[test]
@@ -1791,8 +1842,14 @@ fn adr0044_ghost_preview_rendering() {
     let buf = terminal.buffer();
     // Ghost text content must be visible in the buffer
     let text = buf.content.iter().map(|c| c.symbol()).collect::<String>();
-    assert!(text.contains("multi-line"), "Buffer must contain ghost preview line 1");
-    assert!(text.contains("ghost candidate"), "Buffer must contain ghost preview line 2");
+    assert!(
+        text.contains("multi-line"),
+        "Buffer must contain ghost preview line 1"
+    );
+    assert!(
+        text.contains("ghost candidate"),
+        "Buffer must contain ghost preview line 2"
+    );
 }
 
 #[tokio::test]
@@ -1814,7 +1871,10 @@ async fn test_history_search_composer_pinned_to_bottom_with_multiline_candidate(
         crate::event_loop::render_frame(&mut app, f, "session-a");
     });
     app.ui.commit();
-    let normal_composer_rect = app.ui.bounds(crate::ui::UiKey::Composer).expect("composer rect");
+    let normal_composer_rect = app
+        .ui
+        .bounds(crate::ui::UiKey::Composer)
+        .expect("composer rect");
     // Under normal empty/single-line input, composer is 4 rows high pinned at rows 19..23 (above 1-row model bar at row 23)
     assert_eq!(normal_composer_rect.height, 4);
     assert_eq!(normal_composer_rect.y, 19);
@@ -1832,7 +1892,10 @@ async fn test_history_search_composer_pinned_to_bottom_with_multiline_candidate(
         crate::event_loop::render_frame(&mut app, f, "session-a");
     });
     app.ui.commit();
-    let hist_composer_rect = app.ui.bounds(crate::ui::UiKey::Composer).expect("composer rect in history search");
+    let hist_composer_rect = app
+        .ui
+        .bounds(crate::ui::UiKey::Composer)
+        .expect("composer rect in history search");
 
     // CRITICAL: Composer position MUST NOT change or drift towards the vertical center!
     // It must remain pinned to the bottom (y = 19, height = 4) rather than expanding to size.height / 2 (y = 11, height = 12).
@@ -1848,13 +1911,18 @@ async fn test_history_search_composer_pinned_to_bottom_with_multiline_candidate(
     );
 
     // 4. Navigate to the single-line candidate (index 1)
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 1;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+        .index = 1;
     let mut terminal_hist_short = nuotc::TestTerminal::new(80, 24);
     terminal_hist_short.draw(|f| {
         crate::event_loop::render_frame(&mut app, f, "session-a");
     });
     app.ui.commit();
-    let hist_short_composer_rect = app.ui.bounds(crate::ui::UiKey::Composer).expect("composer rect");
+    let hist_short_composer_rect = app
+        .ui
+        .bounds(crate::ui::UiKey::Composer)
+        .expect("composer rect");
 
     // Switching between long and short candidates must NEVER cause the composer to jump
     assert_eq!(
@@ -1879,14 +1947,21 @@ async fn test_history_search_stashes_and_restores_attachments_with_empty_text() 
         data: "abc".to_string(),
     };
     app.pending_images.push(img.clone());
-    app.pending_text_pastes.push("staged paste without text".to_string());
+    app.pending_text_pastes
+        .push("staged paste without text".to_string());
 
     // 1. Open HistorySearch
     app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
     assert!(app.draft_capsule.text.is_empty());
     assert_eq!(app.draft_capsule.pending_images, vec![img.clone()]);
-    assert_eq!(app.draft_capsule.pending_text_pastes, vec!["staged paste without text".to_string()]);
-    assert!(app.pending_images.is_empty(), "Pending attachments cleared for query typing");
+    assert_eq!(
+        app.draft_capsule.pending_text_pastes,
+        vec!["staged paste without text".to_string()]
+    );
+    assert!(
+        app.pending_images.is_empty(),
+        "Pending attachments cleared for query typing"
+    );
     assert!(app.pending_text_pastes.is_empty());
 
     // 2. Type search query
@@ -1898,7 +1973,10 @@ async fn test_history_search_stashes_and_restores_attachments_with_empty_text() 
     // 4. Staged attachments are 100% restored
     assert_eq!(app.input, "");
     assert_eq!(app.pending_images, vec![img]);
-    assert_eq!(app.pending_text_pastes, vec!["staged paste without text".to_string()]);
+    assert_eq!(
+        app.pending_text_pastes,
+        vec!["staged paste without text".to_string()]
+    );
 }
 
 #[tokio::test]
@@ -1911,7 +1989,9 @@ async fn test_history_search_empty_placeholder_visible_and_index_clamped() {
     app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
 
     // Operator navigates down to index 1
-    app.surfaces.dlg_mut::<crate::surfaces::HistorySearchDialog>().index = 1;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::HistorySearchDialog>()
+        .index = 1;
 
     // Operator types a query with no matches
     app.input = "nomatch_query".to_string();
@@ -2016,7 +2096,9 @@ async fn adr0051_ctrl_r_continuous_cycling_in_history_search() {
         Some(crate::surfaces::DialogKind::HistorySearch)
     );
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        app.surfaces
+            .dlg::<crate::surfaces::HistorySearchDialog>()
+            .index,
         0
     );
 
@@ -2044,7 +2126,9 @@ async fn adr0051_ctrl_r_continuous_cycling_in_history_search() {
     )
     .await;
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        app.surfaces
+            .dlg::<crate::surfaces::HistorySearchDialog>()
+            .index,
         1
     );
 
@@ -2056,7 +2140,9 @@ async fn adr0051_ctrl_r_continuous_cycling_in_history_search() {
     )
     .await;
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        app.surfaces
+            .dlg::<crate::surfaces::HistorySearchDialog>()
+            .index,
         2
     );
 
@@ -2069,7 +2155,9 @@ async fn adr0051_ctrl_r_continuous_cycling_in_history_search() {
     )
     .await;
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        app.surfaces
+            .dlg::<crate::surfaces::HistorySearchDialog>()
+            .index,
         0
     );
 
@@ -2084,7 +2172,10 @@ async fn adr0051_ctrl_r_continuous_cycling_in_history_search() {
         &mut String::new(),
         &mut 0,
     );
-    assert_eq!(action_ctrl_shift_r, Some(crate::input::InputAction::ModalUp));
+    assert_eq!(
+        action_ctrl_shift_r,
+        Some(crate::input::InputAction::ModalUp)
+    );
 
     crate::event_loop::actions::dispatch_action_for_test(
         &mut app,
@@ -2094,7 +2185,9 @@ async fn adr0051_ctrl_r_continuous_cycling_in_history_search() {
     )
     .await;
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        app.surfaces
+            .dlg::<crate::surfaces::HistorySearchDialog>()
+            .index,
         2
     );
 }
@@ -2153,7 +2246,9 @@ async fn test_history_search_up_down_arrow_navigation_through_event_loop() {
         Some(crate::surfaces::DialogKind::HistorySearch)
     );
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        app.surfaces
+            .dlg::<crate::surfaces::HistorySearchDialog>()
+            .index,
         0
     );
 
@@ -2161,7 +2256,9 @@ async fn test_history_search_up_down_arrow_navigation_through_event_loop() {
     let down_event = Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     crate::event_loop::process_event_for_test(&mut app, &down_event, "session-test").await;
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        app.surfaces
+            .dlg::<crate::surfaces::HistorySearchDialog>()
+            .index,
         1,
         "Down arrow must advance candidate index to 1 without being reset to 0"
     );
@@ -2169,7 +2266,9 @@ async fn test_history_search_up_down_arrow_navigation_through_event_loop() {
     // 3. Press Down arrow again -> index advances to 2
     crate::event_loop::process_event_for_test(&mut app, &down_event, "session-test").await;
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        app.surfaces
+            .dlg::<crate::surfaces::HistorySearchDialog>()
+            .index,
         2,
         "Down arrow must advance candidate index to 2"
     );
@@ -2178,7 +2277,9 @@ async fn test_history_search_up_down_arrow_navigation_through_event_loop() {
     let up_event = Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
     crate::event_loop::process_event_for_test(&mut app, &up_event, "session-test").await;
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        app.surfaces
+            .dlg::<crate::surfaces::HistorySearchDialog>()
+            .index,
         1,
         "Up arrow must move candidate index back to 1"
     );
@@ -2187,7 +2288,9 @@ async fn test_history_search_up_down_arrow_navigation_through_event_loop() {
     let type_event = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
     crate::event_loop::process_event_for_test(&mut app, &type_event, "session-test").await;
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        app.surfaces
+            .dlg::<crate::surfaces::HistorySearchDialog>()
+            .index,
         0,
         "Typing query text must reset candidate index to 0"
     );
@@ -2196,7 +2299,9 @@ async fn test_history_search_up_down_arrow_navigation_through_event_loop() {
     // 6. Press Down arrow with filter active -> index advances to 1
     crate::event_loop::process_event_for_test(&mut app, &down_event, "session-test").await;
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::HistorySearchDialog>().index,
+        app.surfaces
+            .dlg::<crate::surfaces::HistorySearchDialog>()
+            .index,
         1,
         "Down arrow must advance index on filtered results"
     );
@@ -2207,6 +2312,8 @@ async fn test_history_search_up_down_arrow_navigation_through_event_loop() {
     assert_eq!(app.active_dialog(), None);
     // Newest-first order: index 0 is "command 3", index 1 is "command 2", index 2 is "command 1"
     assert_eq!(app.input, "command 2");
-    assert!(app.draft_capsule.is_empty(), "Draft capsule must be cleared on successful history insertion");
+    assert!(
+        app.draft_capsule.is_empty(),
+        "Draft capsule must be cleared on successful history insertion"
+    );
 }
-

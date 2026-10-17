@@ -9,16 +9,14 @@ pub mod discovery;
 pub mod wire;
 
 pub use discovery::{
-    Discovery as ServerInfo, global_discovery_path,
-    global_spawn_lock_path, instance_dir,
-};
-pub use wire::{
-    AttachAction, BoxWireSink, BoxWireStream, ControlRequest, NativeWireCodec,
-    SessionInitOptions, Wire, ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH,
-    MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, native_framed_split, protocol_accepts,
-    websocket_split,
+    Discovery as ServerInfo, global_discovery_path, global_spawn_lock_path, instance_dir,
 };
 pub use nuo_host::clipboard::CopyOutcome;
+pub use wire::{
+    AttachAction, BoxWireSink, BoxWireStream, ControlRequest, ERR_PROTOCOL_MISMATCH,
+    ERR_VERSION_MISMATCH, MIN_PROTOCOL_VERSION, NativeWireCodec, PROTOCOL_VERSION,
+    SessionInitOptions, Wire, native_framed_split, protocol_accepts, websocket_split,
+};
 
 #[async_trait::async_trait]
 pub trait UiBridge: Send + Sync {
@@ -37,9 +35,8 @@ pub fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     }
     let file_appender = tracing_appender::rolling::daily(&dir, "client.log");
     let (writer, guard) = tracing_appender::non_blocking(file_appender);
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        tracing_subscriber::EnvFilter::new("info")
-    });
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(writer)
@@ -51,35 +48,422 @@ pub fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
 /// Standard slash command catalog for frontend client auto-completion.
 pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog {
     let raw_specs: &[(&str, &str, &[&str], &[(&str, &str)])] = &[
-        ("/models", "Switch the active model (context preserved)", &["model", "llm", "switch", "provider", "gpt", "claude", "gemini", "deepseek", "change-model"], &[]),
-        ("/connections", "Manage LLM provider connections", &["connection", "provider", "api-key", "auth", "endpoint", "credentials", "token", "login"], &[]),
-        ("/tools", "Manage session tools (enable/disable)", &["tools", "tool", "function", "bash", "toggle", "disable", "enable", "mcp-tools"], &[]),
-        ("/mcp", "Manage MCP servers (status, reconnect)", &["mcp", "server", "protocol", "context", "reconnect", "mcp-server"], &[]),
-        ("/compact", "Compact older rounds into durable context memory", &["compact", "compress", "summarize", "prune", "truncate", "shrink", "clean-context", "context"], &[]),
-        ("/new", "Start a new session, keeping history", &["clear", "reset", "clean", "restart", "fresh", "cls", "wipe", "blank", "new-session"], &[]),
-        ("/permissions", "Show or clear always-allowed tool rules", &["permission", "allow", "rule", "policy", "security", "approve", "always-allow", "grant"], &[("clear", "Clear all always-allowed tool rules")]),
-        ("/unattended", "Toggle unattended execution posture", &["unattended", "auto", "autopilot", "yolo", "delegate", "autonomous", "headless", "skip-confirm", "auto-approve", "bypass"], &[("on", "Enable unattended decisions and tool auto-approval"), ("off", "Return to interactive confirmation mode")]),
-        ("/delegate", "Delegate tasks to subagents", &["delegate", "subagent"], &[("on", "Enable delegation"), ("off", "Disable delegation")]),
-        ("/confinement", "Toggle workspace filesystem confinement (confine file tools to workspace)", &["confinement", "confined", "unconfine", "unconfined", "jail", "escape", "sandbox"], &[("on", "Enable workspace confinement (confine file tools to workspace)"), ("off", "Disable confinement (allow full host filesystem access)")]),
-        ("/role", "Switch agent role (identity, capability, and workspace)", &["role", "preset", "mode", "identity", "developer", "philosophist", "ops", "switch", "switch-role"], &[("developer", "the default developer role (full native capabilities with workspace)"), ("ops", "system administration, infrastructure maintenance & remote operations (workspace-free)"), ("philosophist", "philosophical inquiry & reflection (workspace-free)")]),
-        ("/search", "Semantic search over session history", &["search", "find", "query", "grep", "history", "lookup", "recall", "past-messages"], &[]),
-        ("/threads", "Browse or resume past threads", &["threads", "thread", "sessions", "session", "resume", "continue", "history", "list", "reopen", "browse", "switch-thread"], &[]),
-        ("/fork", "Fork thread into a sovereign child thread tab (round/turn granular)", &["fork", "branch", "clone", "duplicate", "split", "copy-thread", "aside", "side", "btw"], &[]),
-        ("/tree", "Visual DAG session tree and branch navigation", &["tree", "dag", "branch", "branches", "lineage", "timeline", "history-tree", "checkout"], &[]),
-        ("/diff", "View workspace modifications made in this session", &["diff", "changes", "modified", "patch", "git-diff", "review-changes"], &[]),
-        ("/undo", "Undo the last thread turn and file changes", &["undo", "revert", "rollback", "back", "pop", "discard-turn"], &[]),
-        ("/stats", "View context token accounting and session stats", &["stats", "tokens", "context", "session-stats", "tps", "streaming-rate"], &[]),
-        ("/trace", "Inspect session execution trace and latency waterfall", &["trace", "waterfall", "latency", "ttft", "tps", "profiler", "execution"], &[]),
-        ("/usage", "Cross-session token usage statistics overlay", &["usage", "stats", "statistics", "tokens", "tokens-per-day", "daily", "consumption", "spend", "quota"], &[]),
-        ("/jobs", "Inspect and manage background processes and sub-subagents", &["jobs", "job", "background", "process", "task", "tasks", "running", "kill", "ps", "async"], &[("kill", "Terminate an active background job"), ("logs", "Show recent stdout/stderr output of a background job")]),
-        ("/skills", "Browse available skills and view trust status", &["skills", "skill", "capabilities", "extensions"], &[("list", "List discovered project and user skills"), ("status", "Show skills health and trust state")]),
-        ("/init", "Scaffold a project-local .nuo/ config tree", &["init", "scaffold", "bootstrap", "create-config"], &[]),
-        ("/trust", "Trust project-authored asset domains", &["trust", "authorize", "asset-trust", "project-assets", "security"], &[("all", "Trust every present project asset domain"), ("instructions", "Trust project instructions and AGENTS.md"), ("ex-workspace", "Trust project external workspace roots"), ("mcp", "Trust project MCP definitions only"), ("skills", "Trust project skills only"), ("hooks", "Trust project hooks only"), ("status", "Show trust state for every asset domain"), ("revoke", "Revoke every asset-domain grant")]),
-        ("/untrust", "Revoke project asset trust", &["untrust", "revoke", "quarantine", "asset-trust"], &[]),
-        ("/export", "Export thread to clipboard as Markdown", &["export", "copy", "share", "clipboard", "markdown", "dump", "save"], &[]),
-        ("/retry", "Retry last failed model request", &["retry", "again", "resend", "redo", "re-run"], &[]),
-        ("/help", "Show available commands and keybindings", &["help", "man", "docs", "guide", "info", "usage", "?", "shortcuts", "keybindings"], &[]),
-        ("/exit", "Exit the program", &["exit", "quit", "q", "leave", "bye", "shutdown"], &[]),
+        (
+            "/models",
+            "Switch the active model (context preserved)",
+            &[
+                "model",
+                "llm",
+                "switch",
+                "provider",
+                "gpt",
+                "claude",
+                "gemini",
+                "deepseek",
+                "change-model",
+            ],
+            &[],
+        ),
+        (
+            "/connections",
+            "Manage LLM provider connections",
+            &[
+                "connection",
+                "provider",
+                "api-key",
+                "auth",
+                "endpoint",
+                "credentials",
+                "token",
+                "login",
+            ],
+            &[],
+        ),
+        (
+            "/tools",
+            "Manage session tools (enable/disable)",
+            &[
+                "tools",
+                "tool",
+                "function",
+                "bash",
+                "toggle",
+                "disable",
+                "enable",
+                "mcp-tools",
+            ],
+            &[],
+        ),
+        (
+            "/mcp",
+            "Manage MCP servers (status, reconnect)",
+            &[
+                "mcp",
+                "server",
+                "protocol",
+                "context",
+                "reconnect",
+                "mcp-server",
+            ],
+            &[],
+        ),
+        (
+            "/compact",
+            "Compact older rounds into durable context memory",
+            &[
+                "compact",
+                "compress",
+                "summarize",
+                "prune",
+                "truncate",
+                "shrink",
+                "clean-context",
+                "context",
+            ],
+            &[],
+        ),
+        (
+            "/new",
+            "Start a new session, keeping history",
+            &[
+                "clear",
+                "reset",
+                "clean",
+                "restart",
+                "fresh",
+                "cls",
+                "wipe",
+                "blank",
+                "new-session",
+            ],
+            &[],
+        ),
+        (
+            "/permissions",
+            "Show or clear always-allowed tool rules",
+            &[
+                "permission",
+                "allow",
+                "rule",
+                "policy",
+                "security",
+                "approve",
+                "always-allow",
+                "grant",
+            ],
+            &[("clear", "Clear all always-allowed tool rules")],
+        ),
+        (
+            "/unattended",
+            "Toggle unattended execution posture",
+            &[
+                "unattended",
+                "auto",
+                "autopilot",
+                "yolo",
+                "delegate",
+                "autonomous",
+                "headless",
+                "skip-confirm",
+                "auto-approve",
+                "bypass",
+            ],
+            &[
+                ("on", "Enable unattended decisions and tool auto-approval"),
+                ("off", "Return to interactive confirmation mode"),
+            ],
+        ),
+        (
+            "/delegate",
+            "Delegate tasks to subagents",
+            &["delegate", "subagent"],
+            &[("on", "Enable delegation"), ("off", "Disable delegation")],
+        ),
+        (
+            "/confinement",
+            "Toggle workspace filesystem confinement (confine file tools to workspace)",
+            &[
+                "confinement",
+                "confined",
+                "unconfine",
+                "unconfined",
+                "jail",
+                "escape",
+                "sandbox",
+            ],
+            &[
+                (
+                    "on",
+                    "Enable workspace confinement (confine file tools to workspace)",
+                ),
+                (
+                    "off",
+                    "Disable confinement (allow full host filesystem access)",
+                ),
+            ],
+        ),
+        (
+            "/role",
+            "Switch agent role (identity, capability, and workspace)",
+            &[
+                "role",
+                "preset",
+                "mode",
+                "identity",
+                "developer",
+                "philosophist",
+                "ops",
+                "switch",
+                "switch-role",
+            ],
+            &[
+                (
+                    "developer",
+                    "the default developer role (full native capabilities with workspace)",
+                ),
+                (
+                    "ops",
+                    "system administration, infrastructure maintenance & remote operations (workspace-free)",
+                ),
+                (
+                    "philosophist",
+                    "philosophical inquiry & reflection (workspace-free)",
+                ),
+            ],
+        ),
+        (
+            "/search",
+            "Semantic search over session history",
+            &[
+                "search",
+                "find",
+                "query",
+                "grep",
+                "history",
+                "lookup",
+                "recall",
+                "past-messages",
+            ],
+            &[],
+        ),
+        (
+            "/threads",
+            "Browse or resume past threads",
+            &[
+                "threads",
+                "thread",
+                "sessions",
+                "session",
+                "resume",
+                "continue",
+                "history",
+                "list",
+                "reopen",
+                "browse",
+                "switch-thread",
+            ],
+            &[],
+        ),
+        (
+            "/fork",
+            "Fork thread into a sovereign child thread tab (round/turn granular)",
+            &[
+                "fork",
+                "branch",
+                "clone",
+                "duplicate",
+                "split",
+                "copy-thread",
+                "aside",
+                "side",
+                "btw",
+            ],
+            &[],
+        ),
+        (
+            "/tree",
+            "Visual DAG session tree and branch navigation",
+            &[
+                "tree",
+                "dag",
+                "branch",
+                "branches",
+                "lineage",
+                "timeline",
+                "history-tree",
+                "checkout",
+            ],
+            &[],
+        ),
+        (
+            "/diff",
+            "View workspace modifications made in this session",
+            &[
+                "diff",
+                "changes",
+                "modified",
+                "patch",
+                "git-diff",
+                "review-changes",
+            ],
+            &[],
+        ),
+        (
+            "/undo",
+            "Undo the last thread turn and file changes",
+            &["undo", "revert", "rollback", "back", "pop", "discard-turn"],
+            &[],
+        ),
+        (
+            "/stats",
+            "View context token accounting and session stats",
+            &[
+                "stats",
+                "tokens",
+                "context",
+                "session-stats",
+                "tps",
+                "streaming-rate",
+            ],
+            &[],
+        ),
+        (
+            "/trace",
+            "Inspect session execution trace and latency waterfall",
+            &[
+                "trace",
+                "waterfall",
+                "latency",
+                "ttft",
+                "tps",
+                "profiler",
+                "execution",
+            ],
+            &[],
+        ),
+        (
+            "/usage",
+            "Cross-session token usage statistics overlay",
+            &[
+                "usage",
+                "stats",
+                "statistics",
+                "tokens",
+                "tokens-per-day",
+                "daily",
+                "consumption",
+                "spend",
+                "quota",
+            ],
+            &[],
+        ),
+        (
+            "/jobs",
+            "Inspect and manage background processes and sub-subagents",
+            &[
+                "jobs",
+                "job",
+                "background",
+                "process",
+                "task",
+                "tasks",
+                "running",
+                "kill",
+                "ps",
+                "async",
+            ],
+            &[
+                ("kill", "Terminate an active background job"),
+                (
+                    "logs",
+                    "Show recent stdout/stderr output of a background job",
+                ),
+            ],
+        ),
+        (
+            "/skills",
+            "Browse available skills and view trust status",
+            &["skills", "skill", "capabilities", "extensions"],
+            &[
+                ("list", "List discovered project and user skills"),
+                ("status", "Show skills health and trust state"),
+            ],
+        ),
+        (
+            "/init",
+            "Scaffold a project-local .nuo/ config tree",
+            &["init", "scaffold", "bootstrap", "create-config"],
+            &[],
+        ),
+        (
+            "/trust",
+            "Trust project-authored asset domains",
+            &[
+                "trust",
+                "authorize",
+                "asset-trust",
+                "project-assets",
+                "security",
+            ],
+            &[
+                ("all", "Trust every present project asset domain"),
+                ("instructions", "Trust project instructions and AGENTS.md"),
+                ("ex-workspace", "Trust project external workspace roots"),
+                ("mcp", "Trust project MCP definitions only"),
+                ("skills", "Trust project skills only"),
+                ("hooks", "Trust project hooks only"),
+                ("status", "Show trust state for every asset domain"),
+                ("revoke", "Revoke every asset-domain grant"),
+            ],
+        ),
+        (
+            "/untrust",
+            "Revoke project asset trust",
+            &["untrust", "revoke", "quarantine", "asset-trust"],
+            &[],
+        ),
+        (
+            "/export",
+            "Export thread to clipboard as Markdown",
+            &[
+                "export",
+                "copy",
+                "share",
+                "clipboard",
+                "markdown",
+                "dump",
+                "save",
+            ],
+            &[],
+        ),
+        (
+            "/retry",
+            "Retry last failed model request",
+            &["retry", "again", "resend", "redo", "re-run"],
+            &[],
+        ),
+        (
+            "/help",
+            "Show available commands and keybindings",
+            &[
+                "help",
+                "man",
+                "docs",
+                "guide",
+                "info",
+                "usage",
+                "?",
+                "shortcuts",
+                "keybindings",
+            ],
+            &[],
+        ),
+        (
+            "/exit",
+            "Exit the program",
+            &["exit", "quit", "q", "leave", "bye", "shutdown"],
+            &[],
+        ),
     ];
 
     let mut catalog = nuo_wire::CommandCatalog::default();
@@ -90,7 +474,11 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
             usage: vec![name.to_string()],
             examples: vec![],
             intent_keywords: kws.iter().map(|s| s.to_string()).collect(),
-            category: Some(if name == "/models" { "Model".into() } else { "system".into() }),
+            category: Some(if name == "/models" {
+                "Model".into()
+            } else {
+                "system".into()
+            }),
             subcommands: subcmds
                 .iter()
                 .map(|(s, desc)| nuo_wire::CommandSubcommandSpec {
@@ -138,7 +526,6 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
     }
     catalog
 }
-
 
 use nuo_wire::{CommandCatalog, CommandSpec, InputCompletion, InputCompletionKind};
 
@@ -398,8 +785,6 @@ pub(crate) fn expand_usage_options(usage: &str) -> Vec<String> {
         .collect()
 }
 
-
-
 pub fn complete_for_frontend_test(
     catalog: nuo_wire::CommandCatalog,
     project_root: std::path::PathBuf,
@@ -443,7 +828,10 @@ pub fn complete_for_frontend_test(
             } else if let Some(stripped) = query.strip_prefix("./") {
                 (Some(project_root.clone()), stripped)
             } else {
-                (Some(std::path::PathBuf::from("/")), query.strip_prefix('/').unwrap_or(query))
+                (
+                    Some(std::path::PathBuf::from("/")),
+                    query.strip_prefix('/').unwrap_or(query),
+                )
             };
             if let Some(dir) = base_dir {
                 let mut items = Vec::new();
@@ -479,18 +867,40 @@ pub fn complete_for_frontend_test(
                     for entry in entries.flatten() {
                         let path = entry.path();
                         let filename = path.file_name().unwrap_or_default().to_string_lossy();
-                        if filename == ".git" { continue; }
+                        if filename == ".git" {
+                            continue;
+                        }
                         let is_dir = path.is_dir();
-                        let label = if is_dir { format!("@file:{filename}/") } else { format!("@file:{filename}") };
-                        let needs_space = input.get(cursor..).and_then(|suffix| suffix.chars().next()).map(|ch| !ch.is_whitespace()).unwrap_or(true);
-                        let insert = if !is_dir && needs_space { format!("{label} ") } else { label.clone() };
+                        let label = if is_dir {
+                            format!("@file:{filename}/")
+                        } else {
+                            format!("@file:{filename}")
+                        };
+                        let needs_space = input
+                            .get(cursor..)
+                            .and_then(|suffix| suffix.chars().next())
+                            .map(|ch| !ch.is_whitespace())
+                            .unwrap_or(true);
+                        let insert = if !is_dir && needs_space {
+                            format!("{label} ")
+                        } else {
+                            label.clone()
+                        };
                         items.push(nuo_wire::InputCompletion {
                             label,
-                            description: if is_dir { "Workspace directory".into() } else { "Workspace file".into() },
+                            description: if is_dir {
+                                "Workspace directory".into()
+                            } else {
+                                "Workspace file".into()
+                            },
                             insert_text: insert,
                             replace_start: at_idx,
                             replace_end: cursor,
-                            kind: if is_dir { nuo_wire::ComposerCompletionKind::PathDir } else { nuo_wire::ComposerCompletionKind::PathFile },
+                            kind: if is_dir {
+                                nuo_wire::ComposerCompletionKind::PathDir
+                            } else {
+                                nuo_wire::ComposerCompletionKind::PathFile
+                            },
                             alias_of: None,
                             command: None,
                         });
@@ -514,24 +924,53 @@ pub fn complete_for_frontend_test(
                         command: None,
                     });
                 }
-                fn collect_descendants(base: &std::path::Path, current: &std::path::Path, input: &str, items: &mut Vec<nuo_wire::InputCompletion>, at_idx: usize, cursor: usize) {
+                fn collect_descendants(
+                    base: &std::path::Path,
+                    current: &std::path::Path,
+                    input: &str,
+                    items: &mut Vec<nuo_wire::InputCompletion>,
+                    at_idx: usize,
+                    cursor: usize,
+                ) {
                     if let Ok(entries) = std::fs::read_dir(current) {
                         for entry in entries.flatten() {
                             let path = entry.path();
-                            if path.file_name().unwrap_or_default() == ".git" { continue; }
+                            if path.file_name().unwrap_or_default() == ".git" {
+                                continue;
+                            }
                             if let Ok(rel) = path.strip_prefix(base) {
                                 let rel_str = rel.to_string_lossy().replace('\\', "/");
                                 let is_dir = path.is_dir();
-                                let label = if is_dir { format!("@file:{rel_str}/") } else { format!("@file:{rel_str}") };
-                                let needs_space = input.get(cursor..).and_then(|suffix| suffix.chars().next()).map(|ch| !ch.is_whitespace()).unwrap_or(true);
-                                let insert = if !is_dir && needs_space { format!("{label} ") } else { label.clone() };
+                                let label = if is_dir {
+                                    format!("@file:{rel_str}/")
+                                } else {
+                                    format!("@file:{rel_str}")
+                                };
+                                let needs_space = input
+                                    .get(cursor..)
+                                    .and_then(|suffix| suffix.chars().next())
+                                    .map(|ch| !ch.is_whitespace())
+                                    .unwrap_or(true);
+                                let insert = if !is_dir && needs_space {
+                                    format!("{label} ")
+                                } else {
+                                    label.clone()
+                                };
                                 items.push(nuo_wire::InputCompletion {
                                     label,
-                                    description: if is_dir { "Workspace directory".into() } else { "Workspace file".into() },
+                                    description: if is_dir {
+                                        "Workspace directory".into()
+                                    } else {
+                                        "Workspace file".into()
+                                    },
                                     insert_text: insert,
                                     replace_start: at_idx,
                                     replace_end: cursor,
-                                    kind: if is_dir { nuo_wire::ComposerCompletionKind::PathDir } else { nuo_wire::ComposerCompletionKind::PathFile },
+                                    kind: if is_dir {
+                                        nuo_wire::ComposerCompletionKind::PathDir
+                                    } else {
+                                        nuo_wire::ComposerCompletionKind::PathFile
+                                    },
                                     alias_of: None,
                                     command: None,
                                 });
@@ -542,30 +981,67 @@ pub fn complete_for_frontend_test(
                         }
                     }
                 }
-                collect_descendants(&project_root, &target_dir, input, &mut items, at_idx, cursor);
+                collect_descendants(
+                    &project_root,
+                    &target_dir,
+                    input,
+                    &mut items,
+                    at_idx,
+                    cursor,
+                );
                 return items;
             }
 
             // Substring query across all files
-            fn collect_matching(base: &std::path::Path, current: &std::path::Path, query: &str, input: &str, items: &mut Vec<nuo_wire::InputCompletion>, at_idx: usize, cursor: usize) {
+            fn collect_matching(
+                base: &std::path::Path,
+                current: &std::path::Path,
+                query: &str,
+                input: &str,
+                items: &mut Vec<nuo_wire::InputCompletion>,
+                at_idx: usize,
+                cursor: usize,
+            ) {
                 if let Ok(entries) = std::fs::read_dir(current) {
                     for entry in entries.flatten() {
                         let path = entry.path();
-                        if path.file_name().unwrap_or_default() == ".git" { continue; }
+                        if path.file_name().unwrap_or_default() == ".git" {
+                            continue;
+                        }
                         if let Ok(rel) = path.strip_prefix(base) {
                             let rel_str = rel.to_string_lossy().replace('\\', "/");
                             let is_dir = path.is_dir();
                             if rel_str.contains(query) {
-                                let label = if is_dir { format!("@file:{rel_str}/") } else { format!("@file:{rel_str}") };
-                                let needs_space = input.get(cursor..).and_then(|suffix| suffix.chars().next()).map(|ch| !ch.is_whitespace()).unwrap_or(true);
-                                let insert = if !is_dir && needs_space { format!("{label} ") } else { label.clone() };
+                                let label = if is_dir {
+                                    format!("@file:{rel_str}/")
+                                } else {
+                                    format!("@file:{rel_str}")
+                                };
+                                let needs_space = input
+                                    .get(cursor..)
+                                    .and_then(|suffix| suffix.chars().next())
+                                    .map(|ch| !ch.is_whitespace())
+                                    .unwrap_or(true);
+                                let insert = if !is_dir && needs_space {
+                                    format!("{label} ")
+                                } else {
+                                    label.clone()
+                                };
                                 items.push(nuo_wire::InputCompletion {
                                     label,
-                                    description: if is_dir { "Workspace directory".into() } else { "Workspace file".into() },
+                                    description: if is_dir {
+                                        "Workspace directory".into()
+                                    } else {
+                                        "Workspace file".into()
+                                    },
                                     insert_text: insert,
                                     replace_start: at_idx,
                                     replace_end: cursor,
-                                    kind: if is_dir { nuo_wire::ComposerCompletionKind::PathDir } else { nuo_wire::ComposerCompletionKind::PathFile },
+                                    kind: if is_dir {
+                                        nuo_wire::ComposerCompletionKind::PathDir
+                                    } else {
+                                        nuo_wire::ComposerCompletionKind::PathFile
+                                    },
                                     alias_of: None,
                                     command: None,
                                 });
@@ -577,30 +1053,35 @@ pub fn complete_for_frontend_test(
                     }
                 }
             }
-            collect_matching(&project_root, &project_root, file_query, input, &mut items, at_idx, cursor);
+            collect_matching(
+                &project_root,
+                &project_root,
+                file_query,
+                input,
+                &mut items,
+                at_idx,
+                cursor,
+            );
             return items;
         }
 
         if let Some(skill_query) = query.strip_prefix("skill:") {
-            let mut items = vec![
-                nuo_wire::InputCompletion {
-                    label: "skill-creator".into(),
-                    description: "Built-in skill creator".into(),
-                    insert_text: "@skill:skill-creator".into(),
-                    replace_start: at_idx,
-                    replace_end: cursor,
-                    kind: nuo_wire::ComposerCompletionKind::PathFile,
-                    alias_of: None,
-                    command: None,
-                }
-            ];
+            let mut items = vec![nuo_wire::InputCompletion {
+                label: "skill-creator".into(),
+                description: "Built-in skill creator".into(),
+                insert_text: "@skill:skill-creator".into(),
+                replace_start: at_idx,
+                replace_end: cursor,
+                kind: nuo_wire::ComposerCompletionKind::PathFile,
+                alias_of: None,
+                command: None,
+            }];
             items.retain(|i| i.label.starts_with(skill_query));
             return items;
         }
     }
     Vec::new()
 }
-
 
 // Client side of the server control plane: discovery, the attach handshake
 // (`connect`), one-shot control verbs (`control`), and the monitor stream.
@@ -623,7 +1104,6 @@ use nuo_wire::{
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
-
 
 /// ADR-0141: the human-channel posture this process declares when attaching.
 /// Defaults to `Interactive` (a TUI is a human by construction). Headless
@@ -766,8 +1246,7 @@ pub fn discover(_project_root: &Path) -> Option<ServerInfo> {
             .is_some_and(|endpoint| nuo_host::ipc::probe(endpoint).connectable);
 
         let default_port = env_default_port();
-        let tcp_addr =
-            std::net::SocketAddr::from(([127, 0, 0, 1], default_port));
+        let tcp_addr = std::net::SocketAddr::from(([127, 0, 0, 1], default_port));
         let tcp_connectable =
             std::net::TcpStream::connect_timeout(&tcp_addr, Duration::from_millis(300)).is_ok();
 
@@ -860,10 +1339,7 @@ pub fn compare_versions(client: &str, server: &str) -> VersionRelation {
 /// entry point callers should use after `versions_compatible` reports
 /// false.
 pub fn incompatibility_error(info: &ServerInfo) -> String {
-    if info
-        .protocol
-        .is_some_and(|p| !protocol_accepts(p))
-    {
+    if info.protocol.is_some_and(|p| !protocol_accepts(p)) {
         protocol_mismatch(info)
     } else if info.version.as_deref() == Some(env!("CARGO_PKG_VERSION"))
         && !server_image_is_current(info)
@@ -978,9 +1454,9 @@ fn drift_refusal_error(info: &ServerInfo, activity: &ServerActivity) -> String {
                 held.join(" and ")
             )
         }
-        ServerActivity::Unreachable | ServerActivity::Idle { .. } => format!(
-            "{head} Stop it with `nuo stop` and rerun — the server restarts on demand."
-        ),
+        ServerActivity::Unreachable | ServerActivity::Idle { .. } => {
+            format!("{head} Stop it with `nuo stop` and rerun — the server restarts on demand.")
+        }
     }
 }
 
@@ -1157,7 +1633,9 @@ fn content_matches_record(installed: Option<(u64, String)>, info: &ServerInfo) -
         Some((len, digest)) => {
             // Cheap length pre-gate, then the digest. A size change is enough
             // to prove the image differs.
-            let len_matches = info.image_len.is_none_or(|expected_len| expected_len == len);
+            let len_matches = info
+                .image_len
+                .is_none_or(|expected_len| expected_len == len);
             len_matches && digest.eq_ignore_ascii_case(published)
         }
         None => true,
@@ -1269,8 +1747,7 @@ pub async fn open_tcp_listener(
     port: Option<u16>,
 ) -> Result<nuo_wire::ServerEndpointsReport, String> {
     let reply = control_with_reply(info, ControlRequest::OpenTcpListener { port }).await?;
-    serde_json::from_str(&reply)
-        .map_err(|e| format!("invalid server endpoints reply: {e}"))
+    serde_json::from_str(&reply).map_err(|e| format!("invalid server endpoints reply: {e}"))
 }
 
 /// Dynamically close the TCP listener on the running server (ADR-0045).
@@ -1278,8 +1755,7 @@ pub async fn close_tcp_listener(
     info: &ServerInfo,
 ) -> Result<nuo_wire::ServerEndpointsReport, String> {
     let reply = control_with_reply(info, ControlRequest::CloseTcpListener).await?;
-    serde_json::from_str(&reply)
-        .map_err(|e| format!("invalid server endpoints reply: {e}"))
+    serde_json::from_str(&reply).map_err(|e| format!("invalid server endpoints reply: {e}"))
 }
 
 /// Query runtime server endpoint status (ADR-0045).
@@ -1287,8 +1763,7 @@ pub async fn get_server_endpoints(
     info: &ServerInfo,
 ) -> Result<nuo_wire::ServerEndpointsReport, String> {
     let reply = control_with_reply(info, ControlRequest::GetServerEndpoints).await?;
-    serde_json::from_str(&reply)
-        .map_err(|e| format!("invalid server endpoints reply: {e}"))
+    serde_json::from_str(&reply).map_err(|e| format!("invalid server endpoints reply: {e}"))
 }
 
 pub async fn stop(info: &ServerInfo) -> Result<(), String> {
@@ -1341,8 +1816,7 @@ pub async fn stop(info: &ServerInfo) -> Result<(), String> {
     }
 
     let gone = stopped
-        || target_identity
-            .is_none_or(|identity| !nuo_host::process::process_is_alive(identity));
+        || target_identity.is_none_or(|identity| !nuo_host::process::process_is_alive(identity));
     // Tier 4: hold the same instance lock a successor requires before touching
     // shared discovery state. If a successor already owns it, its record is
     // categorically not ours to remove. Never unlink a Unix socket here; the
@@ -1426,7 +1900,9 @@ pub async fn ensure_server_explicit(
 
     // Check if another server is holding the instance lock or database owner lock
     let lock_path = discovery::global_lock_path();
-    let db_lock_path = nuo_host::paths::get().db_file().with_extension("db.owner.lock");
+    let db_lock_path = nuo_host::paths::get()
+        .db_file()
+        .with_extension("db.owner.lock");
     let mut candidate_pids = std::collections::HashSet::new();
     if nuo_host::lock::ProcessLock::is_locked(&lock_path)
         && let Some(holder_pid) = nuo_host::lock::ProcessLock::probe_holder(&lock_path)
@@ -1664,10 +2140,13 @@ pub fn diagnose_server() -> ServerDiagnostics {
     // legible without reasoning about inodes.
     let installed_image = server_program();
     let installed_image = installed_image.is_file().then_some(installed_image);
-    let installed_image_digest =
-        installed_image.as_ref().and_then(|p| image_content_digest(p).map(|(_, d)| d));
+    let installed_image_digest = installed_image
+        .as_ref()
+        .and_then(|p| image_content_digest(p).map(|(_, d)| d));
     let discovery_record = discovery_record.or(raw_record);
-    let server_image_digest = discovery_record.as_ref().and_then(|r| r.image_digest.clone());
+    let server_image_digest = discovery_record
+        .as_ref()
+        .and_then(|r| r.image_digest.clone());
     let server_image_current = discovery_record
         .as_ref()
         .is_none_or(server_image_is_current);
@@ -1734,7 +2213,10 @@ pub async fn connect(info: &ServerInfo, action: AttachAction) -> Result<Handshak
         return finish_handshake((sink, source), action).await;
     }
     if info.port == 0 {
-        return Err("server runs in client-bound mode (UDS only) and local endpoint is not reachable".into());
+        return Err(
+            "server runs in client-bound mode (UDS only) and local endpoint is not reachable"
+                .into(),
+        );
     }
     let url = format!("ws://127.0.0.1:{}/", info.port);
     let mut request = url
@@ -1905,10 +2387,7 @@ async fn finish_handshake(
 /// as a session client. The dashboard's session-management keys (`i` interrupt,
 /// `p` prompt, `n` new session) go through here. Prefers native local IPC and
 /// falls back to TCP, exactly like [`connect`].
-pub async fn control(
-    info: &ServerInfo,
-    request: ControlRequest,
-) -> Result<(), String> {
+pub async fn control(info: &ServerInfo, request: ControlRequest) -> Result<(), String> {
     control_with_reply(info, request).await.map(|_| ())
 }
 
@@ -2119,10 +2598,7 @@ pub fn upsert_session_row(rows: &mut Vec<MonitoredSession>, row: MonitoredSessio
     rows.sort_by_key(|r| std::cmp::Reverse(r.updated_at));
 }
 
-pub fn upsert_task_row(
-    rows: &mut Vec<nuo_wire::MonitoredTask>,
-    row: nuo_wire::MonitoredTask,
-) {
+pub fn upsert_task_row(rows: &mut Vec<nuo_wire::MonitoredTask>, row: nuo_wire::MonitoredTask) {
     match rows.iter_mut().find(|existing| existing.id == row.id) {
         Some(existing) => *existing = row,
         None => rows.push(row),
@@ -2323,13 +2799,25 @@ mod tests {
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
             ..Default::default()
         };
-        let busy = drift_refusal_error(&info, &ServerActivity::Busy { sessions: 2, tasks: 1 });
+        let busy = drift_refusal_error(
+            &info,
+            &ServerActivity::Busy {
+                sessions: 2,
+                tasks: 1,
+            },
+        );
         assert!(busy.contains("binary mismatch"), "{busy}");
         assert!(busy.contains("2 active session(s)"), "{busy}");
         assert!(busy.contains("1 server task(s)"), "{busy}");
         assert!(busy.contains("nuo stop"), "{busy}");
 
-        let idle = drift_refusal_error(&info, &ServerActivity::Idle { sessions: 0, tasks: 0 });
+        let idle = drift_refusal_error(
+            &info,
+            &ServerActivity::Idle {
+                sessions: 0,
+                tasks: 0,
+            },
+        );
         assert!(idle.contains("restarts on demand"), "{idle}");
     }
 

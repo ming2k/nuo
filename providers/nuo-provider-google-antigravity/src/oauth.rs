@@ -13,11 +13,11 @@ use nuo_model_codec::ResolvedAuth;
 use nuo_model_codec::provider_auth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
 };
+use nuo_oauth::oauth::AuthError;
+use nuo_oauth::oauth::token::TokenResponse;
 use nuo_oauth::{OAuthProvider, OAuthTokenEnricher};
 use nuo_provider::credentials::TokenSet;
 use nuo_provider_transport::http::Http;
-use nuo_oauth::oauth::AuthError;
-use nuo_oauth::oauth::token::TokenResponse;
 
 pub const ANTIGRAVITY_LOAD_CODE_ASSIST_URL: &str =
     "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
@@ -51,9 +51,10 @@ pub async fn fetch_google_userinfo(
     client: &nuo_provider_transport::http::Http,
     access_token: &str,
 ) -> Result<GoogleUserInfo, AuthError> {
-    let request = nuo_provider_transport::http::Request::new(netune::Method::GET, GOOGLE_USERINFO_URL)
-        .header("authorization", format!("Bearer {access_token}"))
-        .header("accept", "application/json");
+    let request =
+        nuo_provider_transport::http::Request::new(netune::Method::GET, GOOGLE_USERINFO_URL)
+            .header("authorization", format!("Bearer {access_token}"))
+            .header("accept", "application/json");
     let resp = client
         .send(request)
         .await
@@ -223,7 +224,10 @@ pub fn extract_cloudaicompanion_project(val: &serde_json::Value) -> Option<Strin
             trimmed.to_string()
         });
     }
-    if let Some(name) = project.get("name").and_then(|n| n.as_str()).filter(|n| !n.trim().is_empty())
+    if let Some(name) = project
+        .get("name")
+        .and_then(|n| n.as_str())
+        .filter(|n| !n.trim().is_empty())
     {
         let trimmed = name.trim();
         return Some(if trimmed.starts_with("projects/") {
@@ -234,7 +238,11 @@ pub fn extract_cloudaicompanion_project(val: &serde_json::Value) -> Option<Strin
             trimmed.to_string()
         });
     }
-    if let Some(id) = project.get("id").and_then(|i| i.as_str()).filter(|id| !id.trim().is_empty()) {
+    if let Some(id) = project
+        .get("id")
+        .and_then(|i| i.as_str())
+        .filter(|id| !id.trim().is_empty())
+    {
         let trimmed = id.trim();
         return Some(if trimmed.starts_with("projects/") {
             trimmed.to_string()
@@ -406,7 +414,8 @@ impl OAuthTokenEnricher for AntigravityOAuthEnricher {
             }
         }
         if user_email.is_none()
-            && let Ok(info) = fetch_google_userinfo(client, refreshed.access_token.expose_secret()).await
+            && let Ok(info) =
+                fetch_google_userinfo(client, refreshed.access_token.expose_secret()).await
         {
             user_email = info.email;
         }
@@ -475,7 +484,10 @@ impl OAuthProvider for AntigravityCliProvider {
 
 /// The provider surfaces this crate registers.
 pub fn providers() -> Vec<Arc<dyn OAuthProvider>> {
-    vec![Arc::new(AntigravityProvider), Arc::new(AntigravityCliProvider)]
+    vec![
+        Arc::new(AntigravityProvider),
+        Arc::new(AntigravityCliProvider),
+    ]
 }
 
 #[cfg(test)]
@@ -505,7 +517,9 @@ mod tests {
     #[test]
     fn antigravity_preset_advertises_cli_brand_user_agent() {
         let cfg = antigravity_preset();
-        let ua = cfg.user_agent.expect("antigravity preset declares a User-Agent");
+        let ua = cfg
+            .user_agent
+            .expect("antigravity preset declares a User-Agent");
         assert!(ua.starts_with("antigravity/cli/"));
         assert_eq!(ua, nuo_model_codec::client_identity::ANTIGRAVITY_USER_AGENT);
     }
@@ -514,7 +528,10 @@ mod tests {
     fn antigravity_scope_requests_aicode() {
         let cfg = antigravity_preset();
         assert!(cfg.scope.contains("https://www.googleapis.com/auth/aicode"));
-        assert!(cfg.scope.contains("https://www.googleapis.com/auth/cloud-platform"));
+        assert!(
+            cfg.scope
+                .contains("https://www.googleapis.com/auth/cloud-platform")
+        );
     }
 
     /// OAuth wire-fact freeze (binary-extracted 2026-10-14, see

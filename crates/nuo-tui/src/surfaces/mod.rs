@@ -29,8 +29,9 @@ mod dialogs;
 #[allow(unused_imports)]
 pub use dialogs::{
     ConnectionsDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs, HistorySearchDialog,
-    McpDialog, ModelsDialog, PermissionsDialog, QueueDialog, QuotasDialog, SessionTreeDialog, SessionsDialog,
-    SessionStatsDialog, SessionTraceDialog, SkillsDialog, SwitcherDialog, PortShareDialog, ThreadsDialog, ToolsDialog, UsageStatsDialog,
+    McpDialog, ModelsDialog, PermissionsDialog, PortShareDialog, QueueDialog, QuotasDialog,
+    SessionStatsDialog, SessionTraceDialog, SessionTreeDialog, SessionsDialog, SkillsDialog,
+    SwitcherDialog, ThreadsDialog, ToolsDialog, UsageStatsDialog,
 };
 
 /// Root full-screen scene identifier (closed set of destinations).
@@ -451,11 +452,14 @@ impl ClientTab {
     }
 
     pub fn current_scene(&self) -> SceneKind {
-        self.history.get(self.cursor).copied().unwrap_or(match &self.kind {
-            TabKind::Thread(_) => SceneKind::Thread,
-            TabKind::Dashboard => SceneKind::Dashboard,
-            TabKind::Settings => SceneKind::Settings,
-        })
+        self.history
+            .get(self.cursor)
+            .copied()
+            .unwrap_or(match &self.kind {
+                TabKind::Thread(_) => SceneKind::Thread,
+                TabKind::Dashboard => SceneKind::Dashboard,
+                TabKind::Settings => SceneKind::Settings,
+            })
     }
 
     pub fn can_back(&self) -> bool {
@@ -813,7 +817,8 @@ impl SurfaceRouter {
     /// (every kind always has one).
     #[allow(clippy::expect_used)]
     pub fn dlg<T: DialogView + 'static>(&self) -> &T {
-        self.view::<T>().expect("dialog entity exists for every kind")
+        self.view::<T>()
+            .expect("dialog entity exists for every kind")
     }
 
     /// A typed mutable reference to the entity for `T`.
@@ -1175,7 +1180,10 @@ mod tests {
     fn scope_matrix_assigns_exactly_one_domain_per_dialog() {
         // `[INV-SURFACE-02]`: the matrix is total and each dialog has exactly
         // one scope.
-        assert_eq!(DialogKind::HistorySearch.scope(), DialogScope::Scene(SceneKind::Thread));
+        assert_eq!(
+            DialogKind::HistorySearch.scope(),
+            DialogScope::Scene(SceneKind::Thread)
+        );
         for id in [
             DialogKind::Switcher,
             DialogKind::Threads,
@@ -1213,8 +1221,14 @@ mod tests {
 
     #[test]
     fn retention_policies_follow_scope() {
-        assert_eq!(DialogKind::Switcher.retention_policy(), RetentionPolicy::Ephemeral);
-        assert_eq!(DialogKind::Models.retention_policy(), RetentionPolicy::Retained);
+        assert_eq!(
+            DialogKind::Switcher.retention_policy(),
+            RetentionPolicy::Ephemeral
+        );
+        assert_eq!(
+            DialogKind::Models.retention_policy(),
+            RetentionPolicy::Retained
+        );
         assert_eq!(
             DialogKind::SessionStats.retention_policy(),
             RetentionPolicy::SessionScoped
@@ -1396,17 +1410,26 @@ mod tests {
 
         // 6. Non-destructive close / Detach (ADR-0039 [INV-TAB-03])
         let closed = router.close_tab(0);
-        assert_eq!(closed, Some(ClientTab::thread("conv-1", Some("Refactor DB"))));
+        assert_eq!(
+            closed,
+            Some(ClientTab::thread("conv-1", Some("Refactor DB")))
+        );
         assert_eq!(router.tabs().len(), 2);
         assert_eq!(router.active_tab_index(), 0);
-        assert_eq!(router.tabs()[0], ClientTab::thread("conv-2", Some("Quick Query")));
+        assert_eq!(
+            router.tabs()[0],
+            ClientTab::thread("conv-2", Some("Quick Query"))
+        );
 
         // 7. Autonomous Tab History Stack (ADR-0040 [INV-HEAD-02], ADR-0042)
         // Push Subagent on Tab 0 (conv-2)
         router.tabs[0].push_scene(SceneKind::Subagent);
         assert_eq!(router.tabs[0].current_scene(), SceneKind::Subagent);
         assert!(router.tabs[0].can_back());
-        assert_eq!(router.tabs[0].breadcrumbs(), &[SceneKind::Thread, SceneKind::Subagent]);
+        assert_eq!(
+            router.tabs[0].breadcrumbs(),
+            &[SceneKind::Thread, SceneKind::Subagent]
+        );
 
         // Push Settings on Tab 0
         router.tabs[0].push_scene(SceneKind::Settings);
@@ -1427,7 +1450,10 @@ mod tests {
         // 8. switch_scene and back_scene sync with active tab (ADR-0042)
         router.switch_scene(SceneKind::Subagent);
         assert_eq!(router.active_scene(), SceneKind::Subagent);
-        assert_eq!(router.active_tab().unwrap().current_scene(), SceneKind::Subagent);
+        assert_eq!(
+            router.active_tab().unwrap().current_scene(),
+            SceneKind::Subagent
+        );
         assert_eq!(router.back_scene(), SceneKind::Settings);
         assert_eq!(router.active_scene(), SceneKind::Settings);
     }

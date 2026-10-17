@@ -74,7 +74,10 @@ impl Default for ToolDescriptor {
 
 impl ToolDescriptor {
     /// Start building a descriptor for a named tool.
-    pub fn builder(name: impl Into<String>, description: impl Into<String>) -> ToolDescriptorBuilder {
+    pub fn builder(
+        name: impl Into<String>,
+        description: impl Into<String>,
+    ) -> ToolDescriptorBuilder {
         ToolDescriptorBuilder {
             descriptor: ToolDescriptor {
                 name: name.into(),

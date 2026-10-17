@@ -13,12 +13,9 @@
 // field is the most useful failure mode here.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use nuo_model_codec::{
-    ClientPreset, ResolvedAuth, SecretString,
-    TransportTelemetry,
-};
+use nuo_model_codec::{ClientPreset, ResolvedAuth, SecretString, TransportTelemetry};
 use nuo_provider_openai::OpenAiChatCompletionsProvider;
-use nuo_provider_qoder::{build_qoder_pipeline, QoderRequestIdentity};
+use nuo_provider_qoder::{QoderRequestIdentity, build_qoder_pipeline};
 
 /// A static OAuth-like credential source: token + typed Qoder identity.
 #[derive(Debug)]
@@ -29,9 +26,9 @@ struct StaticOAuthSource {
 
 impl nuo_model_codec::CredentialSource for StaticOAuthSource {
     fn resolve_auth(&self) -> futures::future::BoxFuture<'_, Result<ResolvedAuth, String>> {
-        Box::pin(async move {
-            Ok(ResolvedAuth::new(self.token).with_extension(self.identity.clone()))
-        })
+        Box::pin(
+            async move { Ok(ResolvedAuth::new(self.token).with_extension(self.identity.clone())) },
+        )
     }
     fn force_refresh(&self) -> futures::future::BoxFuture<'_, Result<ResolvedAuth, String>> {
         unimplemented!("golden-wire tests never trigger a refresh")
@@ -86,7 +83,9 @@ fn planned_request(
 #[test]
 fn qoder_golden_wire_url_is_the_surface_inference_url() {
     let auth = ResolvedAuth::new("exchange-token-1").with_extension(qoder_test_identity());
-    let req = planned_request(&qoder_wire_provider(), &auth).build("QoderGoldenWire").expect("build");
+    let req = planned_request(&qoder_wire_provider(), &auth)
+        .build("QoderGoldenWire")
+        .expect("build");
 
     // The surface's inference path + fixed query — NOT the bare root (the
     // regression: a flat JSON POST to the root → HTTP 404). The base URL is
@@ -110,8 +109,16 @@ fn elected_endpoint_overrides_the_pinned_base_url() {
         ..qoder_test_identity()
     };
     let auth = ResolvedAuth::new("exchange-token-1").with_extension(identity);
-    let req = planned_request(&qoder_wire_provider(), &auth).build("QoderGoldenWire").expect("build");
-    assert!(req.url.starts_with(&format!("{elected}/algo/api/v2/service/pro/sse/agent_chat_generation")), "url: {}", req.url);
+    let req = planned_request(&qoder_wire_provider(), &auth)
+        .build("QoderGoldenWire")
+        .expect("build");
+    assert!(
+        req.url.starts_with(&format!(
+            "{elected}/algo/api/v2/service/pro/sse/agent_chat_generation"
+        )),
+        "url: {}",
+        req.url
+    );
     // The COSY signature still validates against the same identity — the
     // body and header set are unchanged by the host override.
     let authorization = req.headers.get("authorization").unwrap().to_str().unwrap();
@@ -123,14 +130,23 @@ fn elected_endpoint_overrides_the_pinned_base_url() {
 #[test]
 fn missing_election_falls_back_to_the_pinned_base() {
     let auth = ResolvedAuth::new("exchange-token-1").with_extension(qoder_test_identity());
-    let req = planned_request(&qoder_wire_provider(), &auth).build("QoderGoldenWire").expect("build");
-    assert!(req.url.starts_with("https://api2.qoder.sh/algo/api/v2/service/pro/sse"), "url: {}", req.url);
+    let req = planned_request(&qoder_wire_provider(), &auth)
+        .build("QoderGoldenWire")
+        .expect("build");
+    assert!(
+        req.url
+            .starts_with("https://api2.qoder.sh/algo/api/v2/service/pro/sse"),
+        "url: {}",
+        req.url
+    );
 }
 
 #[test]
 fn qoder_golden_wire_headers_carry_the_cosy_signature_set() {
     let auth = ResolvedAuth::new("exchange-token-1").with_extension(qoder_test_identity());
-    let req = planned_request(&qoder_wire_provider(), &auth).build("QoderGoldenWire").expect("build");
+    let req = planned_request(&qoder_wire_provider(), &auth)
+        .build("QoderGoldenWire")
+        .expect("build");
     let h = &req.headers;
 
     let authorization = h.get("authorization").unwrap().to_str().unwrap();
@@ -166,8 +182,8 @@ fn qoder_golden_wire_body_is_the_qoderencoded_agent_chat_envelope() {
     );
 
     // Round-trip through the codec, then assert the envelope structurally.
-    let decoded = nuo_provider_qoder::wire_decode(body_text)
-        .expect("body decodes through the Qoder codec");
+    let decoded =
+        nuo_provider_qoder::wire_decode(body_text).expect("body decodes through the Qoder codec");
     let envelope: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
     assert_eq!(envelope["chat_task"], "FREE_INPUT");
     assert_eq!(envelope["agent_id"], "agent_common");
@@ -254,7 +270,10 @@ fn envelope_for(body: &serde_json::Value) -> serde_json::Value {
 #[test]
 fn qoder_golden_wire_projects_the_requested_effort_into_parameters() {
     let body = nuo_provider_openai::chat_completions::request::body_with_capabilities(
-        vec![nuo_model_codec::Message::new(nuo_model_codec::Role::User, "Say OK only.")],
+        vec![nuo_model_codec::Message::new(
+            nuo_model_codec::Role::User,
+            "Say OK only.",
+        )],
         nuo_provider_openai::chat_completions::request::BodyInput {
             model: "qfmodel",
             stream: true,
@@ -305,7 +324,10 @@ fn qoder_golden_wire_without_a_catalog_ladder_invents_no_effort() {
         "the baseline declares no ladder; this test is about the offline path"
     );
     let body = nuo_provider_openai::chat_completions::request::body_with_capabilities(
-        vec![nuo_model_codec::Message::new(nuo_model_codec::Role::User, "Say OK only.")],
+        vec![nuo_model_codec::Message::new(
+            nuo_model_codec::Role::User,
+            "Say OK only.",
+        )],
         nuo_provider_openai::chat_completions::request::BodyInput {
             model: "qfmodel",
             stream: true,

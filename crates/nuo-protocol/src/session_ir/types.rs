@@ -5,8 +5,8 @@
 //! - [`SessionState`]: mutable cursor, status machine, and event mailbox (`state`)
 //! - [`SessionPolicy`]: declarative governance rules, capabilities, and budgets (`policy`)
 
-use crate::message::Message;
 use crate::Role;
+use crate::message::Message;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

@@ -78,12 +78,11 @@ impl HarnessTaskPipeline {
         input: T::Input,
     ) -> Result<T::Output, HarnessTaskError> {
         let timeout = Duration::from_millis(task.timeout_ms());
-        let instructions =
-            nuo_wire::InstructionBundle::new(vec![nuo_wire::InstructionSlice::new(
-                "harness.cognitive_task",
-                nuo_wire::InstructionTier::Task,
-                task.system_prompt(),
-            )]);
+        let instructions = nuo_wire::InstructionBundle::new(vec![nuo_wire::InstructionSlice::new(
+            "harness.cognitive_task",
+            nuo_wire::InstructionTier::Task,
+            task.system_prompt(),
+        )]);
         let messages = vec![Message::new(Role::User, task.render_prompt(&input))];
         tracing::debug!(task = task.name(), "cognitive pipeline consult");
 

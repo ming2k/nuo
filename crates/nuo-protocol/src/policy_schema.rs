@@ -322,10 +322,7 @@ mod tests {
     fn role_workspace_round_trips_through_its_string_form() {
         for raw in ["none", "inherit"] {
             let mut table = std::collections::BTreeMap::new();
-            table.insert(
-                "w".to_string(),
-                RoleWorkspace::parse(raw),
-            );
+            table.insert("w".to_string(), RoleWorkspace::parse(raw));
             let encoded = toml::to_string(&table).unwrap();
             assert!(
                 encoded.contains(raw),

@@ -57,9 +57,7 @@ impl SearchProvider for ExaProvider {
 fn endpoint_with_key(api_key: Option<&str>) -> String {
     let key = api_key.map(str::trim).filter(|s| !s.is_empty());
     match key {
-        Some(key) => {
-            crate::http::with_query(EXA_SEARCH_ENDPOINT, &[("exaApiKey", key)])
-        }
+        Some(key) => crate::http::with_query(EXA_SEARCH_ENDPOINT, &[("exaApiKey", key)]),
         None => EXA_SEARCH_ENDPOINT.to_string(),
     }
 }

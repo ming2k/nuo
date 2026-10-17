@@ -4,11 +4,11 @@
 //! enricher lives in its owning provider crate and is returned by
 //! [`crate::provider::OAuthProvider::enricher`].
 
+use crate::oauth::AuthError;
+use crate::oauth::token::{TokenResponse, access_token_expiry_ms};
 use async_trait::async_trait;
 use nuo_provider::credentials::TokenSet;
 use nuo_provider_transport::http::Http;
-use crate::oauth::AuthError;
-use crate::oauth::token::{TokenResponse, access_token_expiry_ms};
 
 /// Lifecycle hook for post-login and post-refresh provider-specific metadata enrichment.
 #[async_trait]

@@ -4,13 +4,13 @@
 //! Extracted verbatim from `main.rs` to keep the binary entry-point focused on
 //! wiring rather than presentation shaping.
 
-use nuo_harness::Agent;
 use crate::catalog;
+use nuo_harness::Agent;
+use nuo_harness::skills::SkillRegistry;
+use nuo_persistence::{config::Config, session::SessionStore};
 use nuo_wire::{
     McpConnectionStatus, McpServerInfo, ModelInfo, SessionContextSnapshot, SessionOverview,
 };
-use nuo_persistence::{config::Config, session::SessionStore};
-use nuo_harness::skills::SkillRegistry;
 
 /// First 8 characters of a session id — short enough for picker rows while
 /// still disambiguating in practice.

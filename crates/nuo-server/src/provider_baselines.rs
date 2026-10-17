@@ -17,6 +17,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        wire_entities: None,
     },
     Model {
         id: "Deepseek-v4-flash",
@@ -28,6 +29,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
 ];
 

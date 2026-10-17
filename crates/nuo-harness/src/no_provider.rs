@@ -56,10 +56,8 @@ impl Provider for NoProvider {
     async fn stream_chat(
         &self,
         _request: ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         Err(nuo_wire::ProviderError::new(
             "none",
             nuo_wire::ProviderErrorKind::Unavailable,
@@ -100,8 +98,7 @@ mod tests {
             async fn chat(
                 &self,
                 _request: ModelRequest,
-            ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError>
-            {
+            ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
                 unreachable!()
             }
             async fn stream_chat(

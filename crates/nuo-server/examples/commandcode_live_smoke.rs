@@ -37,20 +37,22 @@ async fn main() {
         Ok(models) => {
             println!("Discovered {} models from Command Code!", models.len());
             for m in models.iter().take(8) {
-                println!("  - {} (name: {:?}, protocol: {:?})", m.id, m.name, m.protocol);
+                println!(
+                    "  - {} (name: {:?}, protocol: {:?})",
+                    m.id, m.name, m.protocol
+                );
             }
         }
         Err(e) => eprintln!("Catalog fetch failed: {e}"),
     }
 
     println!("\n=== 2. Chat Completions Streaming (deepseek/deepseek-v4-flash) ===");
-    let provider_chat = nuo_provider_openai::OpenAiChatCompletionsProvider::
-        with_base_url(
-            secret.expose_secret().to_string(),
-            "deepseek/deepseek-v4-flash".to_string(),
-            "https://api.commandcode.ai/provider/v1/chat/completions",
-        )
-        .with_id("cmd-smoke-chat".to_string());
+    let provider_chat = nuo_provider_openai::OpenAiChatCompletionsProvider::with_base_url(
+        secret.expose_secret().to_string(),
+        "deepseek/deepseek-v4-flash".to_string(),
+        "https://api.commandcode.ai/provider/v1/chat/completions",
+    )
+    .with_id("cmd-smoke-chat".to_string());
 
     let req_chat = nuo_model_codec::ModelRequest::new(vec![Message::new(
         Role::User,
@@ -62,7 +64,9 @@ async fn main() {
             while let Some(event) = stream.next().await {
                 match event {
                     Ok(ProviderStreamEvent::TextDelta(delta)) => print!("{delta}"),
-                    Ok(ProviderStreamEvent::ReasoningDelta(delta)) => eprint!("[thinking: {delta}]"),
+                    Ok(ProviderStreamEvent::ReasoningDelta(delta)) => {
+                        eprint!("[thinking: {delta}]")
+                    }
                     Ok(ProviderStreamEvent::Completed(meta)) => {
                         println!("\n[Stream completed, usage: {:?}]", meta.usage);
                     }
@@ -75,8 +79,9 @@ async fn main() {
     }
 
     println!("\n=== 3. Anthropic Messages Streaming (claude-sonnet-5-5) ===");
-    let cred_source: Arc<dyn nuo_model_codec::CredentialSource> =
-        Arc::new(nuo_model_codec::auth::StaticCredentialSource::new(secret.clone()));
+    let cred_source: Arc<dyn nuo_model_codec::CredentialSource> = Arc::new(
+        nuo_model_codec::auth::StaticCredentialSource::new(secret.clone()),
+    );
     let provider_anthropic = nuo_provider_anthropic::AnthropicMessagesProvider::with_credentials(
         cred_source,
         "claude-sonnet-5-5".to_string(),
@@ -95,7 +100,9 @@ async fn main() {
             while let Some(event) = stream.next().await {
                 match event {
                     Ok(ProviderStreamEvent::TextDelta(delta)) => print!("{delta}"),
-                    Ok(ProviderStreamEvent::ReasoningDelta(delta)) => eprint!("[thinking: {delta}]"),
+                    Ok(ProviderStreamEvent::ReasoningDelta(delta)) => {
+                        eprint!("[thinking: {delta}]")
+                    }
                     Ok(ProviderStreamEvent::Completed(meta)) => {
                         println!("\n[Stream completed, usage: {:?}]", meta.usage);
                     }
@@ -109,11 +116,19 @@ async fn main() {
 
     println!("\n=== 4. Provider Usage / Credits ===");
     let http = nuo_provider_transport::http::Http::control_plane().unwrap();
-    match CommandCodeUsageFetcher.fetch_usage(&http, "https://api.commandcode.ai/provider/v1", &key).await {
+    match CommandCodeUsageFetcher
+        .fetch_usage(&http, "https://api.commandcode.ai/provider/v1", &key)
+        .await
+    {
         Ok(usage) => {
             println!("Balance: {:?}", usage.primary_balance);
             for m in usage.metrics {
-                println!("  - {}: {} {:?}", m.label, m.value, m.unit.unwrap_or_default());
+                println!(
+                    "  - {}: {} {:?}",
+                    m.label,
+                    m.value,
+                    m.unit.unwrap_or_default()
+                );
             }
         }
         Err(e) => eprintln!("Usage fetch failed: {e}"),

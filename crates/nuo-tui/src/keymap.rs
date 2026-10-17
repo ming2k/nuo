@@ -2389,9 +2389,7 @@ pub fn resolve_global_key(key: Key) -> Option<CommandId> {
 pub fn commands_for_palette(ctx: &AppContext) -> Vec<(&'static CommandSpec, Availability)> {
     COMMAND_REGISTRY
         .iter()
-        .filter(|cmd| {
-            cmd.scope == Scope::Global && cmd.disclosure == DisclosurePriority::L2Palette
-        })
+        .filter(|cmd| cmd.scope == Scope::Global && cmd.disclosure == DisclosurePriority::L2Palette)
         .map(|cmd| (cmd, (cmd.availability)(ctx)))
         .collect()
 }

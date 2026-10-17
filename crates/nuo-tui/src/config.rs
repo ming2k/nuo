@@ -132,11 +132,15 @@ impl TuiConfig {
 /// wins; otherwise the declared component default applies; a tool with no
 /// declared component (MCP / unknown) stays collapsed.
 pub fn tool_default_expanded(config: &TuiConfig, name: &str) -> bool {
-    config.default_expanded.get(name).copied().unwrap_or_else(|| {
-        crate::tools::component_for(name)
-            .map(|component| component.default_expanded())
-            .unwrap_or(false)
-    })
+    config
+        .default_expanded
+        .get(name)
+        .copied()
+        .unwrap_or_else(|| {
+            crate::tools::component_for(name)
+                .map(|component| component.default_expanded())
+                .unwrap_or(false)
+        })
 }
 
 /// Effective default-expand state for a reasoning trace. Defaults to
@@ -164,9 +168,7 @@ pub fn set_component_default_expanded(
         if expanded == component.default_expanded() {
             config.default_expanded.remove(name);
         } else {
-            config
-                .default_expanded
-                .insert(name.to_string(), expanded);
+            config.default_expanded.insert(name.to_string(), expanded);
         }
     }
 }

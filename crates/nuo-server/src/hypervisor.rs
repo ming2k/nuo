@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use acp::{AgentAddress, AgentEnvelope, AgentManifest, Fabric, MessageIntent, SteerAction};
-use nuo_wire::{MonitorAction, Tool};
 use nuo_harness::{Agent, AgentIdentity};
+use nuo_wire::{MonitorAction, Tool};
 
 use crate::registry::SessionRegistry;
 
@@ -31,7 +31,8 @@ impl Hypervisor {
         registry: SessionRegistry,
         fabric: Fabric,
     ) -> Self {
-        let address = AgentAddress::parse("agent://local/hypervisor").expect("valid hypervisor address");
+        let address =
+            AgentAddress::parse("agent://local/hypervisor").expect("valid hypervisor address");
 
         let manifest = AgentManifest::new(
             address.clone(),
@@ -202,7 +203,10 @@ impl Tool for HypervisorInspectSessionTool {
             .await
             .ok_or_else(|| format!("Session '{session_id}' not found in registry"))?;
 
-        let project_root = host.workspace_root.as_ref().map(|p| p.to_string_lossy().to_string());
+        let project_root = host
+            .workspace_root
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string());
         let turns = host.session.commands().await.len();
 
         let details = json!({
@@ -345,15 +349,9 @@ impl Tool for HypervisorCoordinateDebugTool {
         let args: serde_json::Value =
             serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {e}"))?;
 
-        let session_a = args["session_a"]
-            .as_str()
-            .ok_or("Missing 'session_a'")?;
-        let session_b = args["session_b"]
-            .as_str()
-            .ok_or("Missing 'session_b'")?;
-        let objective = args["objective"]
-            .as_str()
-            .ok_or("Missing 'objective'")?;
+        let session_a = args["session_a"].as_str().ok_or("Missing 'session_a'")?;
+        let session_b = args["session_b"].as_str().ok_or("Missing 'session_b'")?;
+        let objective = args["objective"].as_str().ok_or("Missing 'objective'")?;
 
         if self.registry.get(session_a).await.is_none() {
             return Err(format!("Session A '{session_a}' not found"));
@@ -368,7 +366,9 @@ impl Tool for HypervisorCoordinateDebugTool {
                 .map_err(|e| format!("Invalid recipient address: {e}"))?;
 
             let intent = MessageIntent::steer(
-                format!("[Joint Debugging Coordination]: You are paired with sibling session for: {objective}"),
+                format!(
+                    "[Joint Debugging Coordination]: You are paired with sibling session for: {objective}"
+                ),
                 SteerAction::Note,
             );
             let envelope = AgentEnvelope::new(self.hypervisor_address.clone(), recipient, intent);

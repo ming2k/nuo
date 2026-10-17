@@ -211,35 +211,45 @@ impl<'de> Deserialize<'de> for DecisionAnswer {
         if let Some(kind) = value.get("type").and_then(|v| v.as_str()) {
             match kind {
                 "noul" => {
-                    let ans: NoulAnswer = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+                    let ans: NoulAnswer =
+                        serde_json::from_value(value).map_err(serde::de::Error::custom)?;
                     return Ok(Self::Noul(ans));
                 }
                 "choice" => {
-                    let ans: ChoiceAnswer = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+                    let ans: ChoiceAnswer =
+                        serde_json::from_value(value).map_err(serde::de::Error::custom)?;
                     return Ok(Self::Choice(ans));
                 }
                 "score" => {
-                    let ans: ScoreAnswer = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+                    let ans: ScoreAnswer =
+                        serde_json::from_value(value).map_err(serde::de::Error::custom)?;
                     return Ok(Self::Score(ans));
                 }
                 other => {
-                    return Err(serde::de::Error::custom(format!("unrecognized answer type: {other}")));
+                    return Err(serde::de::Error::custom(format!(
+                        "unrecognized answer type: {other}"
+                    )));
                 }
             }
         }
 
         // Resilient fallback by inspecting characteristic fields
         if value.get("noul").is_some() {
-            let ans: NoulAnswer = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+            let ans: NoulAnswer =
+                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
             Ok(Self::Noul(ans))
         } else if value.get("choice").is_some() {
-            let ans: ChoiceAnswer = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+            let ans: ChoiceAnswer =
+                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
             Ok(Self::Choice(ans))
         } else if value.get("score").is_some() {
-            let ans: ScoreAnswer = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+            let ans: ScoreAnswer =
+                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
             Ok(Self::Score(ans))
         } else {
-            Err(serde::de::Error::custom("missing type and unidentifiable answer payload"))
+            Err(serde::de::Error::custom(
+                "missing type and unidentifiable answer payload",
+            ))
         }
     }
 }

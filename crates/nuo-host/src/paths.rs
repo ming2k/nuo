@@ -254,15 +254,14 @@ mod tests {
     }
 }
 
-
 // --- High-level application path resolution and Dirs ---
 
 //  Centralised path resolution for nuo's on-disk footprint.
-// 
+//
 //  Every persistent path the program writes flows through [`Dirs`]. Resolution
 //  honours the XDG Base Directory Specification and layers overrides in this
 //  precedence order (highest first):
-// 
+//
 //  1. `NUO_CONFIG_DIR` / `NUO_DATA_DIR` / `NUO_STATE_DIR` /
 //     `NUO_CACHE_DIR` environment variables (app-specific
 //     per-category overrides; more specific than the root, so one
@@ -278,7 +277,7 @@ mod tests {
 //     `data_dir`, `state_dir`, `cache_dir`).
 //  5. `$HOME/.config`, `$HOME/.local/share`, ... fallbacks when even the
 //     `directories` crate cannot resolve a native location.
-// 
+//
 //  On Linux `$XDG_RUNTIME_DIR` is honoured for the server's runtime files;
 //  if it is unset macOS/Linux use the data directory and Windows uses a
 //  machine-local state subdirectory. The server-facing derivation of that
@@ -956,7 +955,14 @@ fn app_dir_from_root(root: PathBuf) -> PathBuf {
 /// repository and project markers (`.nuo`, `.git`, `Cargo.toml`, `package.json`, etc.).
 /// Falls back to `start` if no marker is found.
 pub fn find_project_root(start: &Path) -> PathBuf {
-    const MARKERS: &[&str] = &[".nuo", ".git", "Cargo.toml", "package.json", "pyproject.toml", "go.mod"];
+    const MARKERS: &[&str] = &[
+        ".nuo",
+        ".git",
+        "Cargo.toml",
+        "package.json",
+        "pyproject.toml",
+        "go.mod",
+    ];
     let temp_dir = std::env::temp_dir();
     for ancestor in start.ancestors() {
         if ancestor == temp_dir && ancestor != start {
@@ -1352,7 +1358,10 @@ mod dir_tests {
             config_dir: Some(PathBuf::from("/tmp/nc")),
             ..Default::default()
         });
-        assert_eq!(dirs.server_config_file(), PathBuf::from("/tmp/nc/nuo/server.toml"));
+        assert_eq!(
+            dirs.server_config_file(),
+            PathBuf::from("/tmp/nc/nuo/server.toml")
+        );
         assert_eq!(
             dirs.terminal_config_file(),
             PathBuf::from("/tmp/nc/nuo/terminal.toml")

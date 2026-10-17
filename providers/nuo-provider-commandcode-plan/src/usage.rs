@@ -201,7 +201,11 @@ fn parse_commandcode_credits(body: CommandCodeCreditsResponse) -> ProviderUsage 
     if let Some(wl) = body.window_limits {
         let mut buckets = Vec::new();
         if let Some(fh) = wl.five_hour {
-            buckets.push(window_bucket("5-Hour Limit", QuotaWindowKind::Rolling5Hour, fh));
+            buckets.push(window_bucket(
+                "5-Hour Limit",
+                QuotaWindowKind::Rolling5Hour,
+                fh,
+            ));
         }
         if let Some(w) = wl.weekly {
             buckets.push(window_bucket("Weekly Limit", QuotaWindowKind::Weekly, w));

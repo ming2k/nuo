@@ -265,11 +265,25 @@ fn activity_strip_renders_consolidated_queued_badge_and_active_status() {
             &theme,
         );
     });
-    let text: String = terminal.buffer().content.iter().map(|c| c.symbol()).collect();
-    assert!(text.contains("[2 queued]"), "must show queued badge: {text:?}");
+    let text: String = terminal
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect();
+    assert!(
+        text.contains("[2 queued]"),
+        "must show queued badge: {text:?}"
+    );
     assert!(text.contains("[1 task]"), "must show tasks badge: {text:?}");
-    assert!(text.contains("responding"), "must show active status: {text:?}");
-    assert!(text.contains("interrupt"), "must show interrupt affordance: {text:?}");
+    assert!(
+        text.contains("responding"),
+        "must show active status: {text:?}"
+    );
+    assert!(
+        text.contains("interrupt"),
+        "must show interrupt affordance: {text:?}"
+    );
 }
 
 #[test]
@@ -294,9 +308,17 @@ fn activity_strip_renders_idle_queued_preview() {
             &theme,
         );
     });
-    let text: String = terminal.buffer().content.iter().map(|c| c.symbol()).collect();
+    let text: String = terminal
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect();
     assert!(text.contains("[1 queued]"), "shows badge: {text:?}");
-    assert!(text.contains("Follow-up: \"Check edge cases\""), "shows preview: {text:?}");
+    assert!(
+        text.contains("Follow-up: \"Check edge cases\""),
+        "shows preview: {text:?}"
+    );
     assert!(text.contains("C-x"), "shows C-x chord: {text:?}");
 }
 
@@ -392,8 +414,7 @@ fn model_bar_orders_context_then_model() {
     // Justified split: the identity cluster pins flush to the row's
     // right edge (mirrored `inner` indent).
     assert!(
-        wide.trim_end()
-            .ends_with("kimi-k2.7-code max @kimi-code"),
+        wide.trim_end().ends_with("kimi-k2.7-code max @kimi-code"),
         "identity must end at the right edge: {wide:?}"
     );
 
@@ -547,11 +568,7 @@ fn model_bar_click_rects_follow_context_and_connection_layout() {
             .collect::<String>()
     };
     assert_eq!(slice(ctx), "0 (0%)", "context rect mismatch");
-    assert_eq!(
-        slice(conn),
-        "kimi-k2.7-code",
-        "connection rect mismatch"
-    );
+    assert_eq!(slice(conn), "kimi-k2.7-code", "connection rect mismatch");
     // The identity cluster sits right of the gauges, pinned to the row's
     // right edge (one trailing indent cell).
     let row: String = (0..80).map(|x| buf[(x, 0)].symbol().to_string()).collect();

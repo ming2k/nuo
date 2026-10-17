@@ -21,9 +21,7 @@ impl ReasoningMode {
 }
 
 /// What kind of extended thinking a model supports, and how it is encoded on the wire.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReasoningSupport {
     /// The model cannot think.

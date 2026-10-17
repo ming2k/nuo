@@ -3,8 +3,8 @@
 //! This module defines the architectural foundation for pure, isolated,
 //! state-sovereign UI components in `nuo-tui`.
 
-use nuotc::{Frame, Rect};
 use crate::theme::Theme;
+use nuotc::{Frame, Rect};
 
 pub mod ask_user;
 pub mod notice_card;
@@ -45,19 +45,17 @@ pub trait Component {
     ///
     /// Invariant `[INV-TUI-DECL-02]`: State transitions must occur exclusively
     /// within this function in response to a typed `Msg`.
-    fn update(
-        props: &Self::Props,
-        state: &mut Self::State,
-        msg: Self::Msg,
-    ) -> Option<Self::Cmd>;
+    fn update(props: &Self::Props, state: &mut Self::State, msg: Self::Msg) -> Option<Self::Cmd>;
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::notice_card::{NoticeCard, NoticeCardMsg, NoticeCardProps, NoticeCardState, Severity};
+    use super::notice_card::{
+        NoticeCard, NoticeCardMsg, NoticeCardProps, NoticeCardState, Severity,
+    };
     use super::story::{StorybookComponent, instantiate_story};
     use super::testing::render_story_styled_snapshot;
+    use super::*;
 
     #[test]
     fn test_inv_tui_decl_02_sovereign_state_transition() {
@@ -88,13 +86,19 @@ mod tests {
     #[test]
     fn test_inv_tui_story_01_hermetic_offline_styled_snapshot() {
         let stories = NoticeCard::stories();
-        assert!(!stories.is_empty(), "NoticeCard must declare canonical stories");
+        assert!(
+            !stories.is_empty(),
+            "NoticeCard must declare canonical stories"
+        );
 
         for story in stories {
             let story_instance = instantiate_story::<NoticeCard>(story);
             let snapshot = render_story_styled_snapshot(story_instance.as_ref(), 80, 8);
             assert!(!snapshot.is_empty());
-            assert!(snapshot.contains("styles"), "Snapshot must preserve style/color layer");
+            assert!(
+                snapshot.contains("styles"),
+                "Snapshot must preserve style/color layer"
+            );
         }
     }
 
@@ -103,7 +107,11 @@ mod tests {
         use super::ask_user::AskUser;
 
         let stories = AskUser::stories();
-        assert_eq!(stories.len(), 4, "AskUser must declare all 4 canonical stories");
+        assert_eq!(
+            stories.len(),
+            4,
+            "AskUser must declare all 4 canonical stories"
+        );
 
         for story in stories {
             let mut story_instance = instantiate_story::<AskUser>(story);
@@ -124,7 +132,11 @@ mod tests {
         use super::tool_card::ToolCard;
 
         let stories = ToolCard::stories();
-        assert_eq!(stories.len(), 5, "ToolCard must declare all 5 canonical stories");
+        assert_eq!(
+            stories.len(),
+            5,
+            "ToolCard must declare all 5 canonical stories"
+        );
 
         for story in stories {
             let mut story_instance = instantiate_story::<ToolCard>(story);
@@ -145,7 +157,11 @@ mod tests {
         use super::workbench::default_catalog;
 
         let catalog = default_catalog();
-        assert_eq!(catalog.len(), 12, "Default catalog must aggregate all 12 canonical stories");
+        assert_eq!(
+            catalog.len(),
+            12,
+            "Default catalog must aggregate all 12 canonical stories"
+        );
 
         for story in &catalog {
             assert!(!story.category().is_empty());

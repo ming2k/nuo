@@ -193,7 +193,8 @@ impl<'a> ChoiceOptionRow<'a> {
         // question/header text above).
         let marker_glyph = style.marker_glyph(self.marker, self.selected);
         let is_filled = self.highlighted && self.tone == ChoiceTone::Filled;
-        let mut marker_style = style.marker_style(self.marker, self.selected, self.highlighted, theme);
+        let mut marker_style =
+            style.marker_style(self.marker, self.selected, self.highlighted, theme);
         if is_filled {
             marker_style = marker_style.bg(style.bg).fg(style.fg);
         }
@@ -264,14 +265,14 @@ fn push_wrapped_styled_with_prefix_style(
         .max(1);
     let wrapped = wrap_text(text, wrap_width);
     if wrapped.is_empty() {
-        let mut spans = vec![Span::styled(
-            first_prefix.to_string(),
-            first_prefix_style,
-        )];
+        let mut spans = vec![Span::styled(first_prefix.to_string(), first_prefix_style)];
         if text_style.bg != Color::Reset {
             let used: usize = spans.iter().map(|s| s.content.width()).sum();
             if body_width > used {
-                spans.push(Span::styled(" ".repeat(body_width - used), Style::default().bg(text_style.bg)));
+                spans.push(Span::styled(
+                    " ".repeat(body_width - used),
+                    Style::default().bg(text_style.bg),
+                ));
             }
         }
         lines.push(Line::from(spans));
@@ -299,7 +300,10 @@ fn push_wrapped_styled_with_prefix_style(
         if text_style.bg != Color::Reset {
             let used: usize = spans.iter().map(|s| s.content.width()).sum();
             if body_width > used {
-                spans.push(Span::styled(" ".repeat(body_width - used), Style::default().bg(text_style.bg)));
+                spans.push(Span::styled(
+                    " ".repeat(body_width - used),
+                    Style::default().bg(text_style.bg),
+                ));
             }
         }
         lines.push(Line::from(spans));
@@ -346,7 +350,10 @@ pub(crate) fn push_wrapped_styled(
         if style.bg != Color::Reset {
             let used: usize = spans.iter().map(|s| s.content.width()).sum();
             if body_width > used {
-                spans.push(Span::styled(" ".repeat(body_width - used), Style::default().bg(style.bg)));
+                spans.push(Span::styled(
+                    " ".repeat(body_width - used),
+                    Style::default().bg(style.bg),
+                ));
             }
         }
         lines.push(Line::from(spans));

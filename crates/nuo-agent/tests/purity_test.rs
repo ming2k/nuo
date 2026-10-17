@@ -6,10 +6,10 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use acp::{AgentAddress, AgentManifest, Fabric};
 use nuo_agent::agent::Agent;
 use nuo_agent::collaboration::CollaborationTool;
 use nuo_agent::provider::MockProvider;
-use acp::{AgentAddress, AgentManifest, Fabric};
 
 fn manifest(uri: &str, name: &str, description: &str) -> AgentManifest {
     AgentManifest::new(AgentAddress::parse(uri).unwrap(), name, description)

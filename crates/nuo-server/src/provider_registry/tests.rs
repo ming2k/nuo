@@ -87,12 +87,7 @@ fn shared_baseline_ids_are_identical_across_provider_tables() {
     fn signature(m: &nuo_model_codec::Model) -> String {
         format!(
             "{:?}|{:?}|{}|{}|{:?}|{:?}",
-            m.context_window,
-            m.thinking,
-            m.tool_call,
-            m.vision,
-            m.model_guidance,
-            m.effort_levels,
+            m.context_window, m.thinking, m.tool_call, m.vision, m.model_guidance, m.effort_levels,
         )
     }
 
@@ -173,10 +168,16 @@ fn opencode_baselines_route_by_console_surface() {
 fn opencode_go_baselines_route_by_inference_go_surface() {
     let (wire, endpoint, _) = route_for_model("opencode-go", "minimax-m3").unwrap();
     assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
-    assert_eq!(endpoint, "https://opencode.ai/inference/go/anthropic/v1/messages");
+    assert_eq!(
+        endpoint,
+        "https://opencode.ai/inference/go/anthropic/v1/messages"
+    );
     let (wire, endpoint, _) = route_for_model("opencode-go", "qwen3.6-plus").unwrap();
     assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
-    assert_eq!(endpoint, "https://opencode.ai/inference/go/anthropic/v1/messages");
+    assert_eq!(
+        endpoint,
+        "https://opencode.ai/inference/go/anthropic/v1/messages"
+    );
     let (wire, endpoint, _) = route_for_model("opencode-go", "glm-5.2").unwrap();
     assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
     assert_eq!(endpoint, "https://opencode.ai/zen/go/v1/chat/completions");
@@ -187,8 +188,7 @@ fn commandcode_baselines_route_by_surface() {
     let (wire, endpoint, _) = route_for_model("commandcode", "claude-sonnet-5-5").unwrap();
     assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
     assert_eq!(endpoint, "https://api.commandcode.ai/provider/v1/messages");
-    let (wire, endpoint, _) =
-        route_for_model("commandcode", "deepseek/deepseek-v4-flash").unwrap();
+    let (wire, endpoint, _) = route_for_model("commandcode", "deepseek/deepseek-v4-flash").unwrap();
     assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
     assert_eq!(
         endpoint,
@@ -205,7 +205,10 @@ fn commandcode_deepseek_siblings_have_baselines_and_effort_ladders() {
     ] {
         let baseline = nuo_model_codec::model::model_by_id(id)
             .unwrap_or_else(|| panic!("{id} is not a registered baseline"));
-        assert_eq!(baseline.family, "deepseek", "{id}: family must group under deepseek");
+        assert_eq!(
+            baseline.family, "deepseek",
+            "{id}: family must group under deepseek"
+        );
         assert_eq!(
             baseline.effort_levels,
             nuo_provider::effort_ladders::LOW_HIGH_MAX,
@@ -225,7 +228,10 @@ fn commandcode_deepseek_siblings_have_baselines_and_effort_ladders() {
 fn opencode_zen_baselines_route_by_inference_surface() {
     let (wire, endpoint, _) = route_for_model("opencode-zen", "claude-sonnet-4-6").unwrap();
     assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
-    assert_eq!(endpoint, "https://opencode.ai/inference/anthropic/v1/messages");
+    assert_eq!(
+        endpoint,
+        "https://opencode.ai/inference/anthropic/v1/messages"
+    );
     let (wire, endpoint, _) = route_for_model("opencode-zen", "glm-5.2").unwrap();
     assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
     assert_eq!(endpoint, "https://opencode.ai/zen/v1/chat/completions");
@@ -266,9 +272,13 @@ fn kimi_code_connection_resolves_a_quota_port() {
 }
 
 #[test]
-fn every_declared_quota_port_is_reachable_from_the_dispatch() {    // Guards `[INV-PROV-07]` for `QuotaPort`: each declared built-in port is
+fn every_declared_quota_port_is_reachable_from_the_dispatch() {
+    // Guards `[INV-PROV-07]` for `QuotaPort`: each declared built-in port is
     // used by at least one spec (the dispatch match handles all variants).
-    let declared: Vec<QuotaPort> = MODEL_PROVIDER_SPECS.iter().filter_map(|s| s.quota).collect();
+    let declared: Vec<QuotaPort> = MODEL_PROVIDER_SPECS
+        .iter()
+        .filter_map(|s| s.quota)
+        .collect();
     for port in declared {
         match port {
             QuotaPort::DeepSeekBalance
@@ -497,4 +507,3 @@ fn init_registers_every_vendor_oauth_surface() {
         "chatgpt"
     );
 }
-

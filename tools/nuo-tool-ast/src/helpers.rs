@@ -30,31 +30,53 @@ struct SimpleFsProvider;
 #[async_trait::async_trait]
 impl nuo_wire::execution::FsProvider for SimpleFsProvider {
     async fn read(&self, path: &Path) -> Result<Vec<u8>, nuo_wire::execution::FsError> {
-        tokio::fs::read(path).await.map_err(nuo_wire::execution::FsError::from)
+        tokio::fs::read(path)
+            .await
+            .map_err(nuo_wire::execution::FsError::from)
     }
     async fn write(&self, path: &Path, content: &[u8]) -> Result<(), nuo_wire::execution::FsError> {
-        tokio::fs::write(path, content).await.map_err(nuo_wire::execution::FsError::from)
+        tokio::fs::write(path, content)
+            .await
+            .map_err(nuo_wire::execution::FsError::from)
     }
     async fn exists(&self, path: &Path) -> bool {
         tokio::fs::try_exists(path).await.unwrap_or(false)
     }
     async fn is_dir(&self, path: &Path) -> bool {
-        tokio::fs::metadata(path).await.map(|m| m.is_dir()).unwrap_or(false)
+        tokio::fs::metadata(path)
+            .await
+            .map(|m| m.is_dir())
+            .unwrap_or(false)
     }
     async fn is_file(&self, path: &Path) -> bool {
-        tokio::fs::metadata(path).await.map(|m| m.is_file()).unwrap_or(false)
+        tokio::fs::metadata(path)
+            .await
+            .map(|m| m.is_file())
+            .unwrap_or(false)
     }
-    async fn list_dir(&self, _path: &Path) -> Result<Vec<nuo_wire::execution::DirEntry>, nuo_wire::execution::FsError> {
+    async fn list_dir(
+        &self,
+        _path: &Path,
+    ) -> Result<Vec<nuo_wire::execution::DirEntry>, nuo_wire::execution::FsError> {
         Ok(Vec::new())
     }
     async fn create_dir_all(&self, path: &Path) -> Result<(), nuo_wire::execution::FsError> {
-        tokio::fs::create_dir_all(path).await.map_err(nuo_wire::execution::FsError::from)
+        tokio::fs::create_dir_all(path)
+            .await
+            .map_err(nuo_wire::execution::FsError::from)
     }
     async fn remove_file(&self, path: &Path) -> Result<(), nuo_wire::execution::FsError> {
-        tokio::fs::remove_file(path).await.map_err(nuo_wire::execution::FsError::from)
+        tokio::fs::remove_file(path)
+            .await
+            .map_err(nuo_wire::execution::FsError::from)
     }
-    async fn metadata(&self, path: &Path) -> Result<nuo_wire::execution::FsMetadata, nuo_wire::execution::FsError> {
-        let meta = tokio::fs::metadata(path).await.map_err(nuo_wire::execution::FsError::from)?;
+    async fn metadata(
+        &self,
+        path: &Path,
+    ) -> Result<nuo_wire::execution::FsMetadata, nuo_wire::execution::FsError> {
+        let meta = tokio::fs::metadata(path)
+            .await
+            .map_err(nuo_wire::execution::FsError::from)?;
         Ok(nuo_wire::execution::FsMetadata {
             is_dir: meta.is_dir(),
             is_file: meta.is_file(),
@@ -114,9 +136,7 @@ impl nuo_wire::execution::ExecutionEnvironment for SimpleExecutionEnvironment {
 pub(crate) fn execution_environment(
     ctx: &nuo_wire::tool_registry::ToolContext,
 ) -> std::sync::Arc<dyn nuo_wire::execution::ExecutionEnvironment> {
-    if let Some(env) =
-        ctx.get::<std::sync::Arc<dyn nuo_wire::execution::ExecutionEnvironment>>()
-    {
+    if let Some(env) = ctx.get::<std::sync::Arc<dyn nuo_wire::execution::ExecutionEnvironment>>() {
         return env.clone();
     }
     let root = ctx

@@ -228,7 +228,9 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
             app.editor_field = 1;
             app.input = app.editor_effort.clone();
             app.set_cursor_end();
-            app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>().search = false;
+            app.surfaces
+                .dlg_mut::<crate::surfaces::ModelsDialog>()
+                .search = false;
         }
     } else if app.active_dialog() == Some(DialogKind::Connections) {
         // `e` in the Connections list. A built-in provider opens
@@ -259,7 +261,9 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                 app.editor_thinking = true;
                 app.input.clear();
                 app.set_cursor(0);
-                app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().search = false;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                    .search = false;
             } else {
                 // Pre-fill the edit form from the snapshot row.
                 let row = app
@@ -287,7 +291,9 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                         true,
                         nuo_wire::ClientIdentity::Native,
                     ));
-                app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().search = false;
+                app.surfaces
+                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+                    .search = false;
                 app.open_edit_provider_editor(
                     id,
                     name,
@@ -296,7 +302,10 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                     auth,
                     curated,
                     client_identity,
-                    app.connection_detail.as_ref().map(|d| d.budget.clone()).unwrap_or_default(),
+                    app.connection_detail
+                        .as_ref()
+                        .map(|d| d.budget.clone())
+                        .unwrap_or_default(),
                 );
             }
         }
@@ -572,7 +581,8 @@ pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
                     } else {
                         Some(std::path::Path::new(&app.current_workspace))
                     };
-                    let active_category = crate::overlays::ConfigCategory::from_index(app.config_category);
+                    let active_category =
+                        crate::overlays::ConfigCategory::from_index(app.config_category);
                     let count = active_category.detail_item_count(
                         ws_path,
                         app.websearch_config.as_ref(),
@@ -592,7 +602,11 @@ pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
 pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
     if app.active_dialog().is_some() {
         if let Some(mut ent) = app.surfaces.take_active_view() {
-            let _ = ent.handle_input(&crate::input::InputAction::ModalDown, app, viewed_session_id);
+            let _ = ent.handle_input(
+                &crate::input::InputAction::ModalDown,
+                app,
+                viewed_session_id,
+            );
             app.surfaces.put_active_view(ent);
         }
     } else {
@@ -621,7 +635,8 @@ pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
                     } else {
                         Some(std::path::Path::new(&app.current_workspace))
                     };
-                    let active_category = crate::overlays::ConfigCategory::from_index(app.config_category);
+                    let active_category =
+                        crate::overlays::ConfigCategory::from_index(app.config_category);
                     let count = active_category.detail_item_count(
                         ws_path,
                         app.websearch_config.as_ref(),

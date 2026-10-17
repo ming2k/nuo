@@ -24,13 +24,13 @@
 
 use nuo_model_codec::CatalogShape;
 use nuo_model_codec::{ConnectionAuth, CredentialSource as _};
-use nuo_provider_transport::http::{Http, Request};
 use nuo_oauth::OAuthCredentialSource;
-use nuo_provider_qoder::oauth::stored_qoder_request_identity;
-use nuo_provider_qoder::QoderCatalogSigning;
 use nuo_provider::CatalogSigning;
 use nuo_provider::catalog_root_for_connection;
 use nuo_provider_catalog::models_endpoint_for;
+use nuo_provider_qoder::QoderCatalogSigning;
+use nuo_provider_qoder::oauth::stored_qoder_request_identity;
+use nuo_provider_transport::http::{Http, Request};
 
 /// The catalog URL, built from the connection's elected inference host (falling
 /// back to the pinned spec root) exactly as the catalog sync layer does, so the

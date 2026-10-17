@@ -307,7 +307,11 @@ impl StreamLoopDetector {
                 None => continue,
             };
             let run = n - run_start;
-            if run >= 2 * p && best.as_ref().is_none_or(|(b, bp)| run > *b || (run == *b && p < *bp)) {
+            if run >= 2 * p
+                && best
+                    .as_ref()
+                    .is_none_or(|(b, bp)| run > *b || (run == *b && p < *bp))
+            {
                 best = Some((run, p));
             }
         }
@@ -500,6 +504,9 @@ mod tests {
                 break;
             }
         }
-        assert!(matches!(detected, Some(DegeneratePattern::MonotonicSequence { .. })));
+        assert!(matches!(
+            detected,
+            Some(DegeneratePattern::MonotonicSequence { .. })
+        ));
     }
 }

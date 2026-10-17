@@ -44,7 +44,6 @@ pub use nuo_model_codec::capability::ProviderPromptHints;
 pub use nuo_model_codec::ToolSpec;
 pub use nuo_model_codec::capability::ModelRequest;
 
-
 /// A shared empty [`VariantSelection`] map, handy as a default borrow target so
 /// callers can always hand out `&VariantSelection` without an `Option`.
 pub fn empty_variant_selection() -> &'static VariantSelection {
@@ -56,7 +55,6 @@ pub fn empty_variant_selection() -> &'static VariantSelection {
 pub use nuo_model_codec::capability::{
     Provider, ProviderEventStream, ProviderStreamEvent, ProviderTextStream,
 };
-
 
 /// Runtime input supervisor for a supervised command invocation. Relocated to
 /// the tool leaf (`nuo_tool::stream::InputHandler`) per ADR-0008; re-exported

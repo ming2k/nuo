@@ -104,9 +104,7 @@ impl OAuthCredentialSource {
     ) -> Result<TokenSet, String> {
         match self.provider() {
             Some(provider) if provider.needs_repair(&stored) => {
-                provider
-                    .repair(session, &self.connection_id, stored)
-                    .await
+                provider.repair(session, &self.connection_id, stored).await
             }
             _ => Ok(stored),
         }
@@ -314,11 +312,7 @@ mod tests {
             config.provider_id = std::borrow::Cow::Borrowed("test-provider");
             config
         }
-        fn project_metadata(
-            &self,
-            _tokens: &TokenSet,
-            mut auth: ResolvedAuth,
-        ) -> ResolvedAuth {
+        fn project_metadata(&self, _tokens: &TokenSet, mut auth: ResolvedAuth) -> ResolvedAuth {
             auth = auth.with_extension(nuo_model_codec::GoogleAuthMetadata {
                 project_id: "proj-1".to_string(),
             });

@@ -20,18 +20,18 @@
 //! be exercised with hand-built inputs and cannot observe a change between two
 //! reads of the same input.
 
-use nuo_wire::catalog::{Channel, ProviderEntry, Transport};
-use nuo_wire::model::CapabilityOverrides;
-use nuo_wire::{
-    ClientProfile, ConnectionFilterPolicy, Effort, NamedFilterPolicy, ProviderDialect,
-    ReasoningMode, SecretString, WireProtocol,
-};
 use nuo_persistence::config::{Credentials, RemoteCatalogCache};
 use nuo_persistence::connections::Connection;
 use nuo_persistence::connections::Connections;
 use nuo_persistence::model_providers::ModelProviders;
 use nuo_persistence::route_settings::RouteSettingsStore;
 use nuo_provider::{CredentialHost, RemoteCatalogSource, model_provider_spec};
+use nuo_wire::catalog::{Channel, ProviderEntry, Transport};
+use nuo_wire::model::CapabilityOverrides;
+use nuo_wire::{
+    ClientProfile, ConnectionFilterPolicy, Effort, NamedFilterPolicy, ProviderDialect,
+    ReasoningMode, SecretString, WireProtocol,
+};
 
 /// Everything a derivation reads. Borrowed, never lifted from disk here.
 pub struct DerivationInputs<'a> {
@@ -45,7 +45,10 @@ pub struct DerivationInputs<'a> {
 }
 
 /// Derive every entry from the connections store, in declaration order.
-pub fn derive_entries(connections: &Connections, inputs: &DerivationInputs<'_>) -> Vec<ProviderEntry> {
+pub fn derive_entries(
+    connections: &Connections,
+    inputs: &DerivationInputs<'_>,
+) -> Vec<ProviderEntry> {
     connections
         .connections
         .iter()
@@ -272,10 +275,7 @@ fn base_route(
     remote: Option<&nuo_wire::RemoteModelMetadata>,
 ) -> Result<(WireProtocol, String, ClientProfile, ProviderDialect), nuo_wire::ProviderError> {
     let spec = model_provider_spec(&connection.provider).ok_or_else(|| {
-        nuo_wire::ProviderError::invalid_request(
-            &connection.provider,
-            "unknown model provider",
-        )
+        nuo_wire::ProviderError::invalid_request(&connection.provider, "unknown model provider")
     })?;
     let protocol = remote
         .and_then(|r| r.protocol)

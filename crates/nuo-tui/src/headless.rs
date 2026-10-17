@@ -1,8 +1,8 @@
+use nuo_client::{self as client, AttachAction, Handshake};
 use nuo_wire::{
     AgentRequest, AgentResponse, PermissionDecision, PermissionRequest, RoundEvent,
     UserQuestionRequest,
 };
-use nuo_client::{self as client, AttachAction, Handshake};
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 

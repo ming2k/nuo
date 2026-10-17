@@ -95,9 +95,7 @@ pub struct PreAttachSignal {
 pub enum PreAttachDecision {
     /// User chose to trust the workspace. Direct control-plane admission
     /// request — does not route through slash commands or pollute the transcript.
-    Trust {
-        domains: Vec<nuo_wire::TrustDomain>,
-    },
+    Trust { domains: Vec<nuo_wire::TrustDomain> },
     /// User chose to keep the workspace untrusted (`Keep quarantined`
     /// option or `Esc`). The TUI should quit — there is no chat
     /// surface to fall through to under ADR-0175 §4.

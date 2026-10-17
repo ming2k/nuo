@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use acp::{AgentAddress, Fabric};
 use nuo_agent::Agent;
 use nuo_agent::provider::MockProvider;
-use acp::{AgentAddress, Fabric};
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;

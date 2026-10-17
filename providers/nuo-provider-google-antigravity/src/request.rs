@@ -379,7 +379,9 @@ fn sanitize_assistant_content(text: &str) -> String {
         while let Some(start) = result.find(marker) {
             if let Some(end) = result[start..].find(']') {
                 let candidate = &result[start..=start + end];
-                if candidate.contains("with arguments:") || candidate.contains("incomplete arguments") {
+                if candidate.contains("with arguments:")
+                    || candidate.contains("incomplete arguments")
+                {
                     result.replace_range(start..=start + end, "");
                     continue;
                 }
@@ -1240,17 +1242,9 @@ mod tests {
         // Gemini 3.x uses a level ladder; each rung maps to thinkingLevel,
         // clamping down from unsupported depths.
         use nuo_model_codec::effort::Effort;
-        let gemini_level: &[Effort] = &[
-            Effort::Minimal,
-            Effort::Low,
-            Effort::Medium,
-            Effort::High,
-        ];
-        let level: Vec<nuo_model_codec::EffortLevel> = gemini_level
-            .iter()
-            .copied()
-            .map(Into::into)
-            .collect();
+        let gemini_level: &[Effort] = &[Effort::Minimal, Effort::Low, Effort::Medium, Effort::High];
+        let level: Vec<nuo_model_codec::EffortLevel> =
+            gemini_level.iter().copied().map(Into::into).collect();
         assert_eq!(
             resolve_thinking(Some(Effort::High), &level, 0),
             Some(GoogleThinking::Level(Effort::High))
@@ -1280,11 +1274,8 @@ mod tests {
             Effort::High,
             Effort::Max,
         ];
-        let budget: Vec<nuo_model_codec::EffortLevel> = gemini_budget
-            .iter()
-            .copied()
-            .map(Into::into)
-            .collect();
+        let budget: Vec<nuo_model_codec::EffortLevel> =
+            gemini_budget.iter().copied().map(Into::into).collect();
         assert_eq!(
             resolve_thinking(Some(Effort::Medium), &budget, 24576),
             Some(GoogleThinking::Budget(12288))

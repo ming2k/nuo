@@ -11,16 +11,16 @@
 
 use nuo_harness::Agent;
 use nuo_harness::RoundLifecycle;
+use nuo_harness::SkillRegistry;
 use nuo_harness::orchestration::{
     ContextProjectionSettings, InteractiveRoundContext, ProxyProvider, RoundContext, RoundInput,
     apply_jitter_ms, execute_round, retry_delay_ms, start_interactive_round,
 };
+use nuo_persistence::session::SessionStore;
 use nuo_wire::{
     AgentResponse, Message, Provider, ProviderStreamEvent, Role, RoundEvent, ToolContextBuilder,
     async_trait, collect_toolset,
 };
-use nuo_persistence::session::SessionStore;
-use nuo_harness::SkillRegistry;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::mpsc;
@@ -145,8 +145,10 @@ fn registry_collects_all_self_registered_tools() {
     // Role-to-ToolSet integration invariant: developer role must resolve execute_command
     let dev = nuo_wire::AgentRoleProfile::developer();
     let model = nuo_wire::resolve_model("test");
-    let resolved = collected.resolve_for(&model, &dev.tools, &nuo_wire::ToolSelection::unrestricted());
-    let resolved_names: std::collections::HashSet<&str> = resolved.iter().map(|t| t.name()).collect();
+    let resolved =
+        collected.resolve_for(&model, &dev.tools, &nuo_wire::ToolSelection::unrestricted());
+    let resolved_names: std::collections::HashSet<&str> =
+        resolved.iter().map(|t| t.name()).collect();
     assert!(
         resolved_names.contains(nuo_wire::BuiltinTool::ExecuteCommand.as_str()),
         "developer role failed to resolve execute_command from collected toolset"
@@ -184,10 +186,7 @@ impl Provider for RetryOnceProvider {
         &self,
         _request: nuo_wire::ModelRequest,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_wire::ProviderError>,
-        >,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
         nuo_wire::ProviderError,
     > {
         if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
@@ -238,10 +237,7 @@ impl Provider for PartialToolRetryProvider {
         &self,
         _request: nuo_wire::ModelRequest,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_wire::ProviderError>,
-        >,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
         nuo_wire::ProviderError,
     > {
         if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
@@ -297,10 +293,7 @@ impl Provider for ToolThenRetryProvider {
         &self,
         request: nuo_wire::ModelRequest,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_wire::ProviderError>,
-        >,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
         nuo_wire::ProviderError,
     > {
         self.requests
@@ -365,10 +358,7 @@ impl Provider for AlwaysRetryableProvider {
         &self,
         _request: nuo_wire::ModelRequest,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_wire::ProviderError>,
-        >,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
         nuo_wire::ProviderError,
     > {
         // Every request fails with a retryable error so the turn exhausts
@@ -424,10 +414,7 @@ fn context_overflow_detection() {
         nuo_wire::ProviderErrorKind::ContextOverflow,
         "context exceeded",
     );
-    assert_eq!(
-        err.kind(),
-        nuo_wire::ProviderErrorKind::ContextOverflow
-    );
+    assert_eq!(err.kind(), nuo_wire::ProviderErrorKind::ContextOverflow);
 }
 
 /// Stands in for the transport: publishes known timings into whatever handle
@@ -463,10 +450,7 @@ impl Provider for TelemetryPublishingProvider {
         &self,
         request: nuo_wire::ModelRequest,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_wire::ProviderError>,
-        >,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
         nuo_wire::ProviderError,
     > {
         // What the owned transport does: fill the handle it was handed, without
@@ -699,15 +683,9 @@ async fn turn_retries_transient_provider_failure_before_tool_activity() {
     let attempts = ledger.records_for_session(&session_id);
     assert_eq!(attempts.len(), 2);
     assert_eq!(attempts[0].key.attempt, 1);
-    assert_eq!(
-        attempts[0].status,
-        nuo_wire::RequestUsageStatus::Failed
-    );
+    assert_eq!(attempts[0].status, nuo_wire::RequestUsageStatus::Failed);
     assert_eq!(attempts[1].key.attempt, 2);
-    assert_eq!(
-        attempts[1].status,
-        nuo_wire::RequestUsageStatus::Completed
-    );
+    assert_eq!(attempts[1].status, nuo_wire::RequestUsageStatus::Completed);
     assert_eq!(session.request_usage_records().await, attempts);
     let _ = std::fs::remove_dir_all(directory);
 }
@@ -1074,10 +1052,7 @@ impl Provider for FailThenSucceedProvider {
         &self,
         request: nuo_wire::ModelRequest,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_wire::ProviderError>,
-        >,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
         nuo_wire::ProviderError,
     > {
         self.requests
@@ -1113,8 +1088,7 @@ impl Provider for FailThenSucceedProvider {
 /// so a second `/retry` has nothing to resume.
 #[tokio::test]
 async fn retry_resumes_stopped_round_without_breaking_turn_sequence() {
-    let directory =
-        std::env::temp_dir().join(format!("nuo-retry-resume-{}", uuid::Uuid::new_v4()));
+    let directory = std::env::temp_dir().join(format!("nuo-retry-resume-{}", uuid::Uuid::new_v4()));
     let _ = std::fs::create_dir_all(&directory);
     let session = Arc::new(SessionStore::for_path(directory.join("session.json")));
     let requests = Arc::new(Mutex::new(Vec::new()));
@@ -1624,19 +1598,14 @@ async fn real_interrupt_of_a_live_round_still_records() {
     );
     let records = session.round_interrupts().await;
     assert_eq!(records.len(), 1, "exactly one durable record: {records:?}");
-    assert_eq!(
-        records[0].reason,
-        nuo_wire::RoundInterruptReason::User
-    );
+    assert_eq!(records[0].reason, nuo_wire::RoundInterruptReason::User);
     // The HangingProvider round was interrupted before model output.
     // The prompt is preserved in session history (never retracted) and records
     // its admitted round number (round 1 for the first round).
     assert_eq!(records[0].round, Some(1));
     let messages = session.model_window().await;
     assert!(
-        messages
-            .iter()
-            .any(|m| m.role == nuo_wire::Role::User),
+        messages.iter().any(|m| m.role == nuo_wire::Role::User),
         "sent prompt is preserved in transcript"
     );
     let _ = std::fs::remove_dir_all(directory);
@@ -1782,10 +1751,7 @@ async fn supersede_record_is_stamped_at_the_message_send_time() {
     // explicit send time wins over the park-moment clock.
     let lifecycle = RoundLifecycle::new();
     lifecycle.begin().await;
-    lifecycle.record_interrupt_at(
-        nuo_wire::RoundInterruptReason::Superseded,
-        Some(42_000),
-    );
+    lifecycle.record_interrupt_at(nuo_wire::RoundInterruptReason::Superseded, Some(42_000));
     let parked = lifecycle
         .take_interrupt()
         .expect("park survives until taken");
@@ -1852,10 +1818,7 @@ impl Provider for ImageRejectingProvider {
         &self,
         request: nuo_wire::ModelRequest,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_wire::ProviderError>,
-        >,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
         nuo_wire::ProviderError,
     > {
         let images = request

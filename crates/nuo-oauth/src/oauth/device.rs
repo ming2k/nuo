@@ -137,11 +137,13 @@ where
             cfg.client_id,
             crate::oauth::token::percent_encode_form_value(device.device_code.expose_secret())
         );
-        let request =
-            nuo_provider_transport::http::Request::new(netune::Method::POST, cfg.device_token_url.as_ref())
-                .header("content-type", "application/x-www-form-urlencoded")
-                .header("accept", "application/json")
-                .raw_body(body);
+        let request = nuo_provider_transport::http::Request::new(
+            netune::Method::POST,
+            cfg.device_token_url.as_ref(),
+        )
+        .header("content-type", "application/x-www-form-urlencoded")
+        .header("accept", "application/json")
+        .raw_body(body);
         let response = client.send(request).await.map_err(|e| {
             crate::oauth::AuthError::Transport(format!("device token poll failed: {e}"))
         })?;

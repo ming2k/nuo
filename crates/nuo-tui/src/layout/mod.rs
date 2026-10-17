@@ -504,8 +504,7 @@ impl<'a, 'f> Stream<'a, 'f> {
         let focused_reasoning = self.focused_target == Some(InteractiveTarget::reasoning(mi));
         let focused_command = self.focused_target == Some(InteractiveTarget::command_result(mi));
         let focused_notice = self.focused_target == Some(InteractiveTarget::notice(mi));
-        let focused_compacted =
-            self.focused_target == Some(InteractiveTarget::compacted_card(mi));
+        let focused_compacted = self.focused_target == Some(InteractiveTarget::compacted_card(mi));
 
         let body_before = self.content_lines;
         // Streaming Thinking messages participate in the height cache like

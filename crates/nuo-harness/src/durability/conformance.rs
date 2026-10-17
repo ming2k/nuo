@@ -134,10 +134,7 @@ pub async fn run_conformance(
             return report;
         }
     };
-    report.record(
-        "append_is_acknowledged",
-        check_ack_covers(&ack, &first),
-    );
+    report.record("append_is_acknowledged", check_ack_covers(&ack, &first));
 
     // 2. Replay is idempotent.
     let replay = sink.append(first.clone()).await;
@@ -161,7 +158,10 @@ pub async fn run_conformance(
     } else {
         match hydrate(expected.clone()).await {
             Ok(hydrated) => {
-                report.record("hydration_is_lossless", check_lossless(&expected, &hydrated));
+                report.record(
+                    "hydration_is_lossless",
+                    check_lossless(&expected, &hydrated),
+                );
                 report.record("order_is_preserved", check_order(&hydrated));
             }
             Err(error) => {
@@ -174,10 +174,7 @@ pub async fn run_conformance(
     // 4. Discards are declared. The suite cannot force a sink to discard, so it
     // checks the *declaration*: an ack that reports a discard must name the fact,
     // and one that reports none must have stored what it was sent.
-    report.record(
-        "discards_are_declared",
-        check_discards(&first, &ack),
-    );
+    report.record("discards_are_declared", check_discards(&first, &ack));
 
     report
 }
@@ -217,7 +214,10 @@ fn check_lossless(expected: &[CausalNode], hydrated: &[CausalNode]) -> Result<()
             ));
         }
         if found.kind != wanted.kind {
-            return Err(format!("fact '{}' came back as a different kind", wanted.id));
+            return Err(format!(
+                "fact '{}' came back as a different kind",
+                wanted.id
+            ));
         }
     }
     Ok(())
@@ -242,7 +242,9 @@ fn check_discards(batch: &SessionDelta, ack: &Ack) -> Result<(), String> {
     let sent: Vec<&String> = batch.new_nodes.iter().map(|node| &node.id).collect();
     for id in &declared {
         if !sent.contains(id) {
-            return Err(format!("declared a discard of '{id}', which was never sent"));
+            return Err(format!(
+                "declared a discard of '{id}', which was never sent"
+            ));
         }
     }
     Ok(())
@@ -311,10 +313,7 @@ impl FactSink for MemorySink {
     fn append(&self, batch: SessionDelta) -> BoxFuture<'static, Result<Ack, crate::SinkError>> {
         let watermark = batch.new_watermark_seq;
         {
-            let mut nodes = self
-                .nodes
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
+            let mut nodes = self.nodes.lock().unwrap_or_else(|error| error.into_inner());
             for node in batch.new_nodes {
                 // Keyed by sequence: a replay writes the same key with the same
                 // value, which is what makes it idempotent.
@@ -363,7 +362,10 @@ mod tests {
         )
         .await;
         assert!(
-            report.outcomes.iter().any(|o| o.name == "append_is_acknowledged" && o.passed),
+            report
+                .outcomes
+                .iter()
+                .any(|o| o.name == "append_is_acknowledged" && o.passed),
             "a legal sink still acknowledges honestly"
         );
         assert!(
@@ -429,8 +431,7 @@ mod tests {
         report.record("another", Err("fact 'x' vanished".into()));
         assert!(!report.passed());
         let panic = std::panic::catch_unwind(|| report.assert_all_passed());
-        let message = panic
-            .expect_err("a failing report must panic");
+        let message = panic.expect_err("a failing report must panic");
         let text = message
             .downcast_ref::<String>()
             .cloned()

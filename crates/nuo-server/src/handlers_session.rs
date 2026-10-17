@@ -5,11 +5,11 @@
 //! match the original loop locals (`session`, `agent`, `resp_tx`, `side`, …)
 //! so the body reads exactly as it did inline.
 
-use nuo_harness::Agent;
-use nuo_wire::AgentResponse;
 use crate::mcp::McpRuntime;
-use nuo_persistence::{config::Config, session::SessionStore};
+use nuo_harness::Agent;
 use nuo_harness::skills::SkillRegistry;
+use nuo_persistence::{config::Config, session::SessionStore};
+use nuo_wire::AgentResponse;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -289,10 +289,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(SessionStore::for_path(dir.path().join("session.json")));
         store
-            .replace_messages(vec![Message::new(
-                nuo_wire::Role::User,
-                "first prompt",
-            )])
+            .replace_messages(vec![Message::new(nuo_wire::Role::User, "first prompt")])
             .await
             .unwrap();
         (dir, store)

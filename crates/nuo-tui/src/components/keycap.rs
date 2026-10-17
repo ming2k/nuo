@@ -300,15 +300,18 @@ pub(crate) fn layout_affordances(
 
     // Tag items with original caller order for stable relative positioning
     // Sort candidates by priority rank descending; tie-break with original index ascending
-    let mut ranked: Vec<(usize, KeyAffordance)> =
-        items.iter().copied().enumerate().collect();
+    let mut ranked: Vec<(usize, KeyAffordance)> = items.iter().copied().enumerate().collect();
     ranked.sort_by(|a, b| b.1.rank.cmp(&a.1.rank).then_with(|| a.0.cmp(&b.0)));
 
     // Calculate maximum number of ranked items M that fit without overflow slot
     let mut max_fit = 0usize;
     let mut test_w = 0usize;
     for (i, (_, item)) in ranked.iter().enumerate() {
-        let added_w = if i == 0 { item.width() } else { AFFORDANCE_GAP_WIDTH + item.width() };
+        let added_w = if i == 0 {
+            item.width()
+        } else {
+            AFFORDANCE_GAP_WIDTH + item.width()
+        };
         if test_w + added_w <= available_width {
             test_w += added_w;
             max_fit += 1;
@@ -326,7 +329,8 @@ pub(crate) fn layout_affordances(
         if target_k == 0 {
             break;
         }
-        let mut subset: Vec<(usize, KeyAffordance)> = ranked.iter().take(target_k).copied().collect();
+        let mut subset: Vec<(usize, KeyAffordance)> =
+            ranked.iter().take(target_k).copied().collect();
         // Measure in caller original display order
         subset.sort_by_key(|(idx, _)| *idx);
 
@@ -468,10 +472,10 @@ mod tests {
         // item 3: "Esc close" (9)
         // Total = 10 + 2 + 9 + 2 + 8 + 2 + 9 = 42 cols.
         let items = [
-            KeyAffordance::primary("Enter", "send"),      // rank 80
-            KeyAffordance::navigation("↑↓", "select"),   // rank 60
-            KeyAffordance::secondary("Tab", "edit"),     // rank 40
-            KeyAffordance::always("Esc", "close"),       // rank 100
+            KeyAffordance::primary("Enter", "send"),   // rank 80
+            KeyAffordance::navigation("↑↓", "select"), // rank 60
+            KeyAffordance::secondary("Tab", "edit"),   // rank 40
+            KeyAffordance::always("Esc", "close"),     // rank 100
         ];
 
         // With width 35:

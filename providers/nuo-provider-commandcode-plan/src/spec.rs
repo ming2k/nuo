@@ -20,6 +20,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
+        wire_entities: None,
     },
     Model {
         id: "gpt-5.6-sol",
@@ -31,6 +32,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        wire_entities: None,
     },
     Model {
         id: "deepseek/deepseek-v4-flash",
@@ -42,6 +44,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     // CommandCode names its models `vendor/model`, and the server resolves the
     // upstream family per turn (ADR-0014): a declared `deepseek/deepseek-v4-flash`
@@ -61,6 +64,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     Model {
         id: "deepseek/deepseek-v4-pro",
@@ -72,6 +76,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
 ];
 

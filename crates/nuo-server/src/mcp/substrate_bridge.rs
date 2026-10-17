@@ -1,8 +1,8 @@
 //! Substrate MCP Bridge connecting `nous-mcp` to Nuo's dynamic tool registry (ADR-0002).
 
-use std::sync::Arc;
-use nuo_wire::Tool;
 use nuo_mcp::{McpClient, McpNativeTool, McpToolDefinition};
+use nuo_wire::Tool;
+use std::sync::Arc;
 
 /// Connect to a local stdio MCP server via the `nous-mcp` substrate client and return
 /// its discovered tools adapted to Nuo's application `Tool` trait.
@@ -14,10 +14,9 @@ pub async fn load_substrate_mcp_tools(
         .await
         .map_err(|err| format!("failed to connect to substrate MCP server '{program}': {err}"))?;
 
-    let tools_res = client
-        .list_tools()
-        .await
-        .map_err(|err| format!("failed to list tools from substrate MCP server '{program}': {err}"))?;
+    let tools_res = client.list_tools().await.map_err(|err| {
+        format!("failed to list tools from substrate MCP server '{program}': {err}")
+    })?;
 
     let adapted_tools: Vec<Arc<dyn Tool>> = tools_res
         .into_iter()
@@ -64,7 +63,10 @@ done
         let tool = &tools[0];
         assert_eq!(tool.name(), "test_mcp_tool");
         assert_eq!(tool.description(), "A mock tool from substrate");
-        assert_eq!(tool.hazard_level(), nuo_wire::HazardLevel::NetworkOrExternal);
+        assert_eq!(
+            tool.hazard_level(),
+            nuo_wire::HazardLevel::NetworkOrExternal
+        );
 
         let result = tool.call("{}").await.expect("execute tool");
         assert_eq!(result, "executed via substrate mcp");

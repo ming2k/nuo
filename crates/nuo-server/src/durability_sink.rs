@@ -21,8 +21,8 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use nuo_harness::{Ack, FactSink, SinkError, SinkHealth};
-use nuo_wire::{CausalNode, SessionDelta};
 use nuo_persistence::db::{PersistenceError, get_persistence_handle};
+use nuo_wire::{CausalNode, SessionDelta};
 
 /// One instance's facts, stored in the product's SQLite engine.
 pub struct StoreSink {
@@ -113,9 +113,7 @@ fn classify(error: PersistenceError) -> SinkError {
         }
         // An orderly shutdown is not a transient condition the kernel should
         // grind against.
-        PersistenceError::Closed => {
-            SinkError::permanent("the store was shut down".to_string())
-        }
+        PersistenceError::Closed => SinkError::permanent("the store was shut down".to_string()),
         PersistenceError::StaleRevision { expected, actual } => SinkError::permanent(format!(
             "the instance revision moved (expected {expected}, found {actual})"
         )),

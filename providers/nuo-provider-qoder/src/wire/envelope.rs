@@ -1,8 +1,8 @@
 //! The `agent_chat_generation` request envelope (Qoder's agent surface).
 
+use nuo_model_codec::ProviderError;
 use nuo_model_codec::model::ModelCapabilities;
 use nuo_model_codec::wire_surface::{AgentChatSpec, IdentityValue, ModelBinding, ModelCarrier};
-use nuo_model_codec::ProviderError;
 use nuo_provider_transport::pipeline::{EnvelopePhase, ReshapedEnvelope};
 use serde_json::{Map, Value, json};
 
@@ -206,10 +206,7 @@ pub fn wrap(body: &Value, spec: &AgentChatSpec, input: &EnvelopeInput<'_>) -> Va
 pub struct QoderAgentEnvelope;
 
 impl EnvelopePhase for QoderAgentEnvelope {
-    fn reshape_body(
-        &self,
-        body: &serde_json::Value,
-    ) -> Result<ReshapedEnvelope, ProviderError> {
+    fn reshape_body(&self, body: &serde_json::Value) -> Result<ReshapedEnvelope, ProviderError> {
         // The flat chat-completions body always carries `model` (it is the
         // request's identity), so its absence is a construction bug rather than
         // a wire condition. Fail closed: stamping a placeholder here would send
@@ -253,8 +250,7 @@ impl EnvelopePhase for QoderAgentEnvelope {
         // One identity resolution feeds both artifacts: the body slots were
         // just stamped from `input`, so the header carriers resolve from the
         // same values — consistent by construction.
-        let (identity_headers, _) =
-            apply_model_bindings(MODEL_BINDINGS, &input, &mut Value::Null);
+        let (identity_headers, _) = apply_model_bindings(MODEL_BINDINGS, &input, &mut Value::Null);
 
         Ok(ReshapedEnvelope {
             body: wrapped,

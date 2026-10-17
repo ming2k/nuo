@@ -238,7 +238,12 @@ impl ExecutionRecord {
     }
 
     /// Append a dialogue message.
-    pub fn append_message(&mut self, id: impl Into<String>, timestamp_ms: u64, message: Message) -> String {
+    pub fn append_message(
+        &mut self,
+        id: impl Into<String>,
+        timestamp_ms: u64,
+        message: Message,
+    ) -> String {
         self.append_fact(
             id,
             timestamp_ms,
@@ -514,7 +519,10 @@ mod tests {
         record.append_message("n2", 2_000, message("second"));
         let window = record.model_window();
         assert_eq!(
-            window.iter().map(|m| m.content.as_str()).collect::<Vec<_>>(),
+            window
+                .iter()
+                .map(|m| m.content.as_str())
+                .collect::<Vec<_>>(),
             vec!["first", "second"]
         );
     }
@@ -540,7 +548,10 @@ mod tests {
         );
         let window = record.model_window();
         assert_eq!(
-            window.iter().map(|m| m.content.as_str()).collect::<Vec<_>>(),
+            window
+                .iter()
+                .map(|m| m.content.as_str())
+                .collect::<Vec<_>>(),
             vec!["earlier rounds folded"],
             "the summary is context; the folded round is not re-sent"
         );
@@ -586,7 +597,10 @@ mod tests {
         let mut record = record(sink.clone());
         let ack = record.commit().await.expect("commit succeeds");
         assert_eq!(ack.durable_upto, 0);
-        assert!(sink.nodes().is_empty(), "nothing was sent, nothing was stored");
+        assert!(
+            sink.nodes().is_empty(),
+            "nothing was sent, nothing was stored"
+        );
     }
 
     #[tokio::test]
@@ -612,7 +626,10 @@ mod tests {
                 &self,
                 batch: SessionDelta,
             ) -> futures::future::BoxFuture<'static, Result<Ack, SinkError>> {
-                let first = self.attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
+                let first = self
+                    .attempts
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                    == 0;
                 if first {
                     return Box::pin(async { Err(SinkError::retryable("transient failure")) });
                 }

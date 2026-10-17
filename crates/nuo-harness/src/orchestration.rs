@@ -31,15 +31,15 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{Agent, RequestTokenEstimate, RoundBegin, RoundLifecycle};
-use nuo_wire::{
-    AgentEvent, AgentResponse, HarnessError, HarnessSnapshot, ImagePart, InjectionKind, LoopStatus,
-    Message, ModelRequest, NoticeKind, NoticeSeverity, NoticeSource, NoticeSurface, Provider,
-    ProviderStreamEvent, Role, RoundEvent,
-};
 use nuo_persistence::{
     CommitTurn,
     config::Config,
     session::{ContextProjectionCheckpoint, ContextProjectionResult, SessionStore},
+};
+use nuo_wire::{
+    AgentEvent, AgentResponse, HarnessError, HarnessSnapshot, ImagePart, InjectionKind, LoopStatus,
+    Message, ModelRequest, NoticeKind, NoticeSeverity, NoticeSource, NoticeSurface, Provider,
+    ProviderStreamEvent, Role, RoundEvent,
 };
 
 /// Wrap a session-scoped [`RoundEvent`] in the [`AgentResponse::Round`]
@@ -243,10 +243,8 @@ impl Provider for ProxyProvider {
     async fn stream_chat(
         &self,
         request: ModelRequest,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
-    > {
+    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
+    {
         let p = self
             .holder
             .read()
@@ -481,7 +479,10 @@ impl ContextProjectionSettings {
     /// is the live model's context window (tokens); `0` means unknown and the
     /// policy's fallback window is substituted.
     /// Resolve settings from a modern versioned context policy (ADR-0280 / ADR-0031).
-    pub fn from_context_policy(policy: &nuo_wire::context_lifecycle::ContextPolicy, window_tokens: usize) -> Self {
+    pub fn from_context_policy(
+        policy: &nuo_wire::context_lifecycle::ContextPolicy,
+        window_tokens: usize,
+    ) -> Self {
         Self {
             budget: policy.resolve_budget(window_tokens),
             preserve_rounds: policy.preferred_recent_rounds as usize,
@@ -761,10 +762,9 @@ pub async fn start_interactive_round(context: InteractiveRoundContext, input: Ro
         // dropping the marker below the newer round's answer where it reads
         // as an interrupt of a round that completed normally. A hidden or
         // clock-less input falls back to the park moment.
-        context.lifecycle.record_interrupt_at(
-            nuo_wire::RoundInterruptReason::Superseded,
-            input.sent_at_ms,
-        );
+        context
+            .lifecycle
+            .record_interrupt_at(nuo_wire::RoundInterruptReason::Superseded, input.sent_at_ms);
         context.agent.reject_pending_permissions();
         context.agent.reject_pending_user_questions();
         context.agent.reject_pending_inputs();
@@ -1231,8 +1231,7 @@ pub async fn execute_round(
     // breaches the model-relative prune threshold watermark. In the healthy cruise zone,
     // history mutation is completely deactivated to preserve 100% KV-cache prefix stability
     // and eliminate artificial context size drops across round boundaries.
-    if projection.prune
-        && request_estimate.total_tokens > projection.budget.prune_threshold_tokens
+    if projection.prune && request_estimate.total_tokens > projection.budget.prune_threshold_tokens
     {
         prune_and_commit(
             &mut round_history,
@@ -1804,14 +1803,12 @@ async fn estimate_session_weight_off_executor(
     messages: &[Message],
 ) -> usize {
     let snapshot = messages.to_vec();
-    tokio::task::spawn_blocking(move || {
-        nuo_wire::estimate_tokens_weighted(&snapshot, &weights)
-    })
-    .await
-    .unwrap_or_else(|error| {
-        tracing::warn!(%error, "session-weight estimate task aborted; treating as zero");
-        0
-    })
+    tokio::task::spawn_blocking(move || nuo_wire::estimate_tokens_weighted(&snapshot, &weights))
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "session-weight estimate task aborted; treating as zero");
+            0
+        })
 }
 
 pub fn retry_delay_ms(
@@ -1967,13 +1964,22 @@ pub fn relay_agent_event(
         AgentEvent::ToolStream { id, stream } => {
             round_response(session_id, RoundEvent::ToolStream { id, stream })
         }
-        AgentEvent::ToolCallStarted { index, id, name } => round_response(
+        AgentEvent::ToolCallStarted { index, id, name } => {
+            round_response(session_id, RoundEvent::ToolCallStarted { index, id, name })
+        }
+        AgentEvent::ToolInputProgress {
+            index,
+            id,
+            bytes,
+            arguments,
+        } => round_response(
             session_id,
-            RoundEvent::ToolCallStarted { index, id, name },
-        ),
-        AgentEvent::ToolInputProgress { index, id, bytes, arguments } => round_response(
-            session_id,
-            RoundEvent::ToolInputProgress { index, id, bytes, arguments },
+            RoundEvent::ToolInputProgress {
+                index,
+                id,
+                bytes,
+                arguments,
+            },
         ),
         AgentEvent::TodosUpdated(todos) => {
             round_response(session_id, RoundEvent::TodosUpdated(todos))

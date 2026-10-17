@@ -70,7 +70,9 @@ async fn strict_policy_rejects_unsigned_and_forged_envelopes() {
     // 1. Unsigned envelope -> rejected under Strict.
     let unsigned = AgentEnvelope::new(source.clone(), target.clone(), MessageIntent::delegate("x"));
     assert_eq!(
-        unsigned.enforce(Some(&dev), SignatureEnforcement::Strict, skew).await,
+        unsigned
+            .enforce(Some(&dev), SignatureEnforcement::Strict, skew)
+            .await,
         Err(AdmissionRejection::InvalidSignature),
         "Strict must reject an unsigned envelope"
     );
@@ -80,7 +82,9 @@ async fn strict_policy_rejects_unsigned_and_forged_envelopes() {
         AgentEnvelope::new(source.clone(), target.clone(), MessageIntent::delegate("y"));
     forged.sign_with(&evil).await.unwrap();
     assert_eq!(
-        forged.enforce(Some(&dev), SignatureEnforcement::Strict, skew).await,
+        forged
+            .enforce(Some(&dev), SignatureEnforcement::Strict, skew)
+            .await,
         Err(AdmissionRejection::InvalidSignature),
         "Strict must reject a forged signature"
     );
@@ -90,14 +94,18 @@ async fn strict_policy_rejects_unsigned_and_forged_envelopes() {
         AgentEnvelope::new(source.clone(), target.clone(), MessageIntent::delegate("z"));
     valid.sign_with(&dev).await.unwrap();
     assert_eq!(
-        valid.enforce(Some(&dev), SignatureEnforcement::Strict, skew).await,
+        valid
+            .enforce(Some(&dev), SignatureEnforcement::Strict, skew)
+            .await,
         Ok(()),
         "a validly signed envelope must be admitted"
     );
 
     // 4. Strict with no verifier -> rejected.
     assert_eq!(
-        valid.enforce(None, SignatureEnforcement::Strict, skew).await,
+        valid
+            .enforce(None, SignatureEnforcement::Strict, skew)
+            .await,
         Err(AdmissionRejection::NoVerifierConfigured)
     );
 }

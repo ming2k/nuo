@@ -1,7 +1,7 @@
-mod server_spawn;
 mod lifecycle_integration;
 mod retry_restore_integration;
 mod serve_integration;
+mod server_spawn;
 mod unattended_restore_integration;
 
 pub fn sandbox_once() {

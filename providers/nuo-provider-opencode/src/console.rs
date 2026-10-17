@@ -28,6 +28,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
+        wire_entities: None,
     },
     Model {
         id: "deepseek-v4-flash",
@@ -39,6 +40,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     Model {
         id: "glm-5.2",
@@ -50,6 +52,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        wire_entities: None,
     },
     Model {
         id: "glm-5.3-flash",
@@ -61,6 +64,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        wire_entities: None,
     },
     Model {
         id: "deepseek-v4.1-flash",
@@ -72,6 +76,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     // =========================================================================
     // EPHEMERAL: OpenCode Promotional Free Tier (Oct 2026 - Limited Time)
@@ -89,6 +94,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        wire_entities: None,
     },
     Model {
         id: "glm-5.3-flash-free",
@@ -100,6 +106,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        wire_entities: None,
     },
 ];
 
@@ -209,9 +216,7 @@ struct DevModalities {
 
 /// Extract the account catalog from a Console `/api/config` response:
 /// `{"config":{"provider":{"opencode":{npm, models:{…}}}}}` (ADR-0269).
-pub fn parse_config_catalog(
-    json: &serde_json::Value,
-) -> Vec<nuo_provider::DiscoveredModel> {
+pub fn parse_config_catalog(json: &serde_json::Value) -> Vec<nuo_provider::DiscoveredModel> {
     let Some(provider_json) = json
         .get("config")
         .and_then(|config| config.get("provider"))

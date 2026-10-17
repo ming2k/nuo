@@ -31,9 +31,7 @@ pub(super) fn enter_terminal(profile: &nuotc::TerminalProfile) -> io::Result<()>
         MOUSE_CAPTURE_ENABLED.store(true, Ordering::Relaxed);
     }
 
-    if profile.supports_color()
-        && execute!(stdout, EnableBracketedPaste).is_ok()
-    {
+    if profile.supports_color() && execute!(stdout, EnableBracketedPaste).is_ok() {
         BRACKETED_PASTE_ENABLED.store(true, Ordering::Relaxed);
     }
 

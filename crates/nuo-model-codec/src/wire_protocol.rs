@@ -3,15 +3,7 @@
 /// The exact inference wire protocol used by a route. Provider dialects alter
 /// authentication and envelopes without changing this protocol identity.
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
 )]
 pub enum WireProtocol {
     #[default]

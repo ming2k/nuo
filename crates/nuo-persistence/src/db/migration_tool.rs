@@ -633,11 +633,9 @@ mod tests {
         assert_eq!(report.sessions.len(), 1);
         assert_eq!(report.sessions[0].facts_migrated, 3);
         let count: i64 = target
-            .query_row(
-                "SELECT COUNT(*) FROM facts WHERE thread_id='s1'",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM facts WHERE thread_id='s1'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(count, 3);
         // Authority is preserved per role: assistant is inference, not user.

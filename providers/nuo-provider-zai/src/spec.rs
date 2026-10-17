@@ -34,6 +34,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        wire_entities: None,
     },
     Model {
         // GLM-5.3-Flash — the GLM-5 family's first natively multimodal model
@@ -51,6 +52,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        wire_entities: None,
     },
     Model {
         id: "glm-5.2",
@@ -62,6 +64,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        wire_entities: None,
     },
     Model {
         id: "glm-5.1",
@@ -73,6 +76,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "glm-5",
@@ -84,6 +88,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "glm-4.7",
@@ -95,6 +100,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "glm-4.6",
@@ -106,6 +112,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
     Model {
         id: "glm-4.5",
@@ -117,6 +124,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        wire_entities: None,
     },
 ];
 
@@ -130,7 +138,9 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     id: std::borrow::Cow::Borrowed("glm-cn"),
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://open.bigmodel.cn/api/coding/paas/v4"),
-    user_agent: Some(std::borrow::Cow::Borrowed(nuo_provider_transport::ZCODE_USER_AGENT)),
+    user_agent: Some(std::borrow::Cow::Borrowed(
+        nuo_provider_transport::ZCODE_USER_AGENT,
+    )),
     protocol: WireProtocol::ChatCompletions,
     // Live-verified (2026-08): the coding endpoint serves GET /models and
     // returns the plan's current model ids (OpenAI list shape, ids only — no

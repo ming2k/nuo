@@ -384,15 +384,13 @@ impl Agent {
             // per logical invocation. A transport retry reuses `pending_request`
             // (so `resuming_provider_request` is true) and must not re-record.
             if !resuming_provider_request {
-                self.fire_request_projection_persist(
-                    nuo_wire::RequestProjection::from_request(
-                        request,
-                        request_estimate.temporary_context_tokens,
-                        self.round_count(),
-                        round.turn_index as u64,
-                        crate::orchestration::unix_epoch_ms(),
-                    ),
-                );
+                self.fire_request_projection_persist(nuo_wire::RequestProjection::from_request(
+                    request,
+                    request_estimate.temporary_context_tokens,
+                    self.round_count(),
+                    round.turn_index as u64,
+                    crate::orchestration::unix_epoch_ms(),
+                ));
             }
             let request_projection = request_estimate.total_tokens;
             let request_provider = self.provider.provider_id();
@@ -437,19 +435,25 @@ impl Agent {
 
             // ADR-0065: Pre-flight local spend circuit breaker check.
             let connection_id = self.provider.provider_id();
-            if let Some(conn) = nuo_persistence::connections::Connections::load().get(&connection_id) {
+            if let Some(conn) =
+                nuo_persistence::connections::Connections::load().get(&connection_id)
+            {
                 if let nuo_wire::ConnectionBudget::Local { limit, period, .. } = &conn.budget {
                     let current_spend = match period {
                         nuo_wire::BudgetPeriod::Session => {
-                            if let Some(pricing) = nuo_provider::resolve_model_pricing(&conn.provider, &self.provider.model()) {
+                            if let Some(pricing) = nuo_provider::resolve_model_pricing(
+                                &conn.provider,
+                                &self.provider.model(),
+                            ) {
                                 pricing.calculate_cost(&round.state.token_usage).amount
                             } else {
                                 nuo_wire::pricing::NanoUsd::ZERO
                             }
                         }
                         nuo_wire::BudgetPeriod::Daily | nuo_wire::BudgetPeriod::Total => {
-                            let total_nano = nuo_persistence::connection_usage::ConnectionUsage::load()
-                                .connection_spend(&connection_id);
+                            let total_nano =
+                                nuo_persistence::connection_usage::ConnectionUsage::load()
+                                    .connection_spend(&connection_id);
                             nuo_wire::pricing::NanoUsd(total_nano)
                         }
                     };
@@ -1598,9 +1602,7 @@ impl Agent {
                 .with_children(sub_messages.to_vec())
                 .with_subagent_meta(meta)
             }
-            None => {
-                format_tool_result_message(call, call_id, result, &text)
-            }
+            None => format_tool_result_message(call, call_id, result, &text),
         };
         messages.push(tool_message);
 
@@ -1650,15 +1652,27 @@ pub(crate) fn format_tool_result_message(
 
         let log_dir = nuo_host::paths::get().exec_logs_dir();
         let _ = std::fs::create_dir_all(&log_dir);
-        let _ = std::fs::write(log_dir.join(format!("{short_hash}.log")), raw_full.as_bytes());
-        let _ = std::fs::write(log_dir.join(format!("exec_{call_id}.log")), raw_full.as_bytes());
+        let _ = std::fs::write(
+            log_dir.join(format!("{short_hash}.log")),
+            raw_full.as_bytes(),
+        );
+        let _ = std::fs::write(
+            log_dir.join(format!("exec_{call_id}.log")),
+            raw_full.as_bytes(),
+        );
 
         let formatted = format!("[{} result]:\n{}", call.name, text);
         let message_content = format!(
             "{formatted}\n\n- Virtual Path: \"{vfs_path}\"\n[Guidance: Use `read_text(path: \"{vfs_path}\", offset: 1, limit: 100)` or `execute_command` with grep/tail to inspect.]"
         );
         Message::tool_result(call, message_content)
-    } else if call.name == "read_text" && (call.arguments.contains("/tmp/nuo/vfs") || call.arguments.contains("/tmp/vfs") || call.arguments.contains("/virtual") || call.arguments.contains(".nuo/virtual") || call.arguments.contains("virtual://")) {
+    } else if call.name == "read_text"
+        && (call.arguments.contains("/tmp/nuo/vfs")
+            || call.arguments.contains("/tmp/vfs")
+            || call.arguments.contains("/virtual")
+            || call.arguments.contains(".nuo/virtual")
+            || call.arguments.contains("virtual://"))
+    {
         // ADR-0070: VFS virtual reads are line-budgeted in-process and immune to secondary spilling
         let formatted = format!("[{} result]:\n{}", call.name, text);
         Message::tool_result(call, formatted)
@@ -1688,16 +1702,25 @@ pub(crate) fn format_tool_result_message(
             .collect();
         let middle_chars = text.chars().count().saturating_sub(head_len + tail_len);
         let middle_kb = (middle_chars as f64) / 1024.0;
-        let middle_lines = text.lines().count().saturating_sub(head_part.lines().count() + tail_part.lines().count());
+        let middle_lines = text
+            .lines()
+            .count()
+            .saturating_sub(head_part.lines().count() + tail_part.lines().count());
         let banner = if middle_lines > 1 {
-            format!("--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---")
+            format!(
+                "--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---"
+            )
         } else {
-            format!("--- [Middle {middle_chars} characters ({middle_kb:.1} KB) omitted to protect context budget] ---")
+            format!(
+                "--- [Middle {middle_chars} characters ({middle_kb:.1} KB) omitted to protect context budget] ---"
+            )
         };
         let guidance = if middle_lines <= 1 {
             "[Guidance: Large single-line content detected. Use `execute_command` with cut/jq/head on the log or `read_text` to inspect.]".to_string()
         } else {
-            format!("[Guidance: Use `read_text(path: \"{vfs_path}\", offset: 1, limit: 100)` or `execute_command` with grep/tail to inspect.]")
+            format!(
+                "[Guidance: Use `read_text(path: \"{vfs_path}\", offset: 1, limit: 100)` or `execute_command` with grep/tail to inspect.]"
+            )
         };
         let stub_content = format!(
             "[{name} result]:\n{head_part}\n\n{banner}\n\n{tail_part}\n\n- Virtual Path: \"{vfs_path}\"\n{guidance}",
@@ -1744,7 +1767,9 @@ mod tests {
         assert!(!content.contains("call:call_test_spill_123"));
 
         // Verify the log file was actually created on disk
-        let log_file = nuo_host::paths::get().exec_logs_dir().join("exec_call_test_spill_123.log");
+        let log_file = nuo_host::paths::get()
+            .exec_logs_dir()
+            .join("exec_call_test_spill_123.log");
         assert!(log_file.exists());
         let disk_content = std::fs::read_to_string(&log_file).unwrap();
         assert!(disk_content.contains("line 1\nline 2"));

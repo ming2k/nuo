@@ -23,8 +23,8 @@ use nuo_model_codec::{
 use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
 
-use nuo_provider_transport::{Client, ClientProfile, Endpoint};
 use nuo_provider_transport::transport::{decode_response_json, ensure_success};
+use nuo_provider_transport::{Client, ClientProfile, Endpoint};
 
 pub mod catalog;
 pub mod request;
@@ -106,7 +106,12 @@ impl GoogleProvider {
     /// Google-format relay). A trailing slash on `base_url` is tolerated
     /// (stripped).
     pub fn with_base_url(api_key: String, model: String, base_url: &str) -> Self {
-        Self::with_base_url_and_user_agent(api_key, model, base_url, nuo_provider_transport::NUO_USER_AGENT)
+        Self::with_base_url_and_user_agent(
+            api_key,
+            model,
+            base_url,
+            nuo_provider_transport::NUO_USER_AGENT,
+        )
     }
 
     /// Build a provider targeting a custom versioned base URL with an explicit
@@ -188,7 +193,10 @@ impl GoogleProvider {
         self
     }
 
-    pub fn with_prompt_cache(mut self, prompt_cache: nuo_provider_transport::PromptCacheConfig) -> Self {
+    pub fn with_prompt_cache(
+        mut self,
+        prompt_cache: nuo_provider_transport::PromptCacheConfig,
+    ) -> Self {
         self.prompt_cache = prompt_cache;
         self
     }
@@ -253,10 +261,11 @@ impl GoogleProvider {
         let (url, headers, body) =
             self.prepare_request_for_auth(request.clone(), is_stream, omit_thinking, &auth);
 
-        let mut req_builder = nuo_provider_transport::request::RequestBuilder::new(http::Method::POST, &url)
-            .headers(headers.clone())
-            .json(&body)
-            .with_telemetry(request.transport_telemetry.clone());
+        let mut req_builder =
+            nuo_provider_transport::request::RequestBuilder::new(http::Method::POST, &url)
+                .headers(headers.clone())
+                .json(&body)
+                .with_telemetry(request.transport_telemetry.clone());
         if let Some(t) = timeout {
             req_builder = req_builder.timeout(t);
         }
@@ -278,11 +287,13 @@ impl GoogleProvider {
                 omit_thinking,
                 &refreshed_auth,
             );
-            let mut retry_builder =
-                nuo_provider_transport::request::RequestBuilder::new(http::Method::POST, &retry_url)
-                    .headers(retry_headers)
-                    .json(&retry_body)
-                    .with_telemetry(request.transport_telemetry.clone());
+            let mut retry_builder = nuo_provider_transport::request::RequestBuilder::new(
+                http::Method::POST,
+                &retry_url,
+            )
+            .headers(retry_headers)
+            .json(&retry_body)
+            .with_telemetry(request.transport_telemetry.clone());
             if let Some(t) = timeout {
                 retry_builder = retry_builder.timeout(t);
             }
@@ -577,10 +588,7 @@ impl GoogleProvider {
             .endpoint
             .session_affinity_headers(self.prompt_cache.routing_key());
         let scoped_headers = self.endpoint.auth_scoped_headers(auth);
-        for (k, v) in client_headers
-            .chain(affinity_headers)
-            .chain(scoped_headers)
-        {
+        for (k, v) in client_headers.chain(affinity_headers).chain(scoped_headers) {
             if let (Ok(hname), Ok(hval)) = (
                 http::header::HeaderName::from_bytes(k.as_bytes()),
                 http::header::HeaderValue::from_str(&v),
@@ -651,10 +659,7 @@ impl GoogleProvider {
                         headers.insert(http::header::AUTHORIZATION, val);
                     }
                 } else if let Ok(val) = http::header::HeaderValue::from_str(key) {
-                    headers.insert(
-                        http::header::HeaderName::from_static("x-goog-api-key"),
-                        val,
-                    );
+                    headers.insert(http::header::HeaderName::from_static("x-goog-api-key"), val);
                 }
             }
             let url = if is_stream {
@@ -926,19 +931,16 @@ fn effective_antigravity_wire_model(
         capabilities.wire_entity_resolution(model)
     {
         let borrowed: Vec<&str> = entities.iter().map(String::as_str).collect();
-        return WireEntityResolution::resolve_for(&borrowed, 0, effort);
+        return WireEntityResolution::resolve_observed(&borrowed, 0, effort);
     }
 
     // 2. Compiled baseline (offline floor), exact family base id match.
-    if let Some(family) = BASELINE_WIRE_FAMILIES
-        .iter()
-        .find(|f| f.base == model)
-    {
+    if let Some(family) = BASELINE_WIRE_FAMILIES.iter().find(|f| f.base == model) {
         return match (family.broadcast, effort) {
             // In-band depth: the wire id never changes with effort.
             (true, Some(_) | None) => return family.default_entity.to_string(),
             // Suffix depth: rank via the shared codec mechanism.
-            (false, Some(_) | None) => WireEntityResolution::resolve_for(
+            (false, Some(_) | None) => WireEntityResolution::resolve_observed(
                 family.entities,
                 family
                     .entities
@@ -977,7 +979,10 @@ mod tests {
             p.endpoint.base_url(),
             "https://generativelanguage.googleapis.com/v1beta"
         );
-        assert_eq!(p.endpoint.user_agent(), nuo_provider_transport::NUO_USER_AGENT);
+        assert_eq!(
+            p.endpoint.user_agent(),
+            nuo_provider_transport::NUO_USER_AGENT
+        );
     }
 
     #[test]
@@ -1077,7 +1082,8 @@ mod tests {
         )
         .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
         .with_project_id("proj-1");
-        let (_, _, body_claude) = p_claude.prepare_request(ModelRequest::new(Vec::new()), false, false);
+        let (_, _, body_claude) =
+            p_claude.prepare_request(ModelRequest::new(Vec::new()), false, false);
         assert!(body_claude["request"]["generationConfig"]["thinkingConfig"].is_null());
     }
 
@@ -1111,15 +1117,14 @@ mod tests {
         }
 
         // No effort override: the account default entity applies.
-        let p =
-            GoogleProvider::with_base_url_and_user_agent(
-                "k".to_string(),
-                "gemini-4-argon".to_string(),
-                "https://daily-cloudcode-pa.googleapis.com",
-                "ua",
-            )
-            .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
-            .with_project_id("proj-1");
+        let p = GoogleProvider::with_base_url_and_user_agent(
+            "k".to_string(),
+            "gemini-4-argon".to_string(),
+            "https://daily-cloudcode-pa.googleapis.com",
+            "ua",
+        )
+        .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+        .with_project_id("proj-1");
         let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
         assert_eq!(body["model"], "gemini-4-argon-medium");
     }
@@ -1142,7 +1147,10 @@ mod tests {
         .collect();
         for (effort, expected) in [
             (Some(nuo_model_codec::Effort::Low), "claude-opus-5-5-low"),
-            (Some(nuo_model_codec::Effort::Medium), "claude-opus-5-5-medium"),
+            (
+                Some(nuo_model_codec::Effort::Medium),
+                "claude-opus-5-5-medium",
+            ),
             (Some(nuo_model_codec::Effort::High), "claude-opus-5-5-high"),
             (Some(nuo_model_codec::Effort::Max), "claude-opus-5-5-max"),
         ] {
@@ -1170,8 +1178,16 @@ mod tests {
     #[test]
     fn antigravity_baseline_table_covers_the_offline_floor() {
         for (model, effort, expected) in [
-            ("claude-opus-5-5", Some(nuo_model_codec::Effort::High), "claude-opus-5-5-high"),
-            ("claude-sonnet-5-5", Some(nuo_model_codec::Effort::Max), "claude-sonnet-5-5-max"),
+            (
+                "claude-opus-5-5",
+                Some(nuo_model_codec::Effort::High),
+                "claude-opus-5-5-high",
+            ),
+            (
+                "claude-sonnet-5-5",
+                Some(nuo_model_codec::Effort::Max),
+                "claude-sonnet-5-5-max",
+            ),
             ("gemini-4-argon", None, "gemini-4-argon-medium"),
             ("gemini-3.8-flash", None, "gemini-3.8-flash-tiered"),
         ] {
@@ -1223,11 +1239,7 @@ mod tests {
                 nuo_model_codec::Effort::Medium,
                 nuo_model_codec::Effort::High,
             ];
-            caps.effort_levels = levels
-                .iter()
-                .copied()
-                .map(Into::into)
-                .collect();
+            caps.effort_levels = levels.iter().copied().map(Into::into).collect();
             caps
         };
         let p = GoogleProvider::new("k".to_string(), "gemini-3.7-flash".to_string())
@@ -1264,11 +1276,7 @@ mod tests {
                 nuo_model_codec::Effort::High,
                 nuo_model_codec::Effort::Max,
             ];
-            caps.effort_levels = budget_levels
-                .iter()
-                .copied()
-                .map(Into::into)
-                .collect();
+            caps.effort_levels = budget_levels.iter().copied().map(Into::into).collect();
             caps
         };
         let p = GoogleProvider::new("k".to_string(), "gemini-2.5-pro".to_string())
@@ -1294,7 +1302,10 @@ mod tests {
         let (url, headers, _) =
             p.prepare_request_for_auth(ModelRequest::new(Vec::new()), false, true, &auth);
         assert!(url.ends_with(":generateContent"), "{url}");
-        assert!(!url.contains("key="), "API key must not leak into URL: {url}");
+        assert!(
+            !url.contains("key="),
+            "API key must not leak into URL: {url}"
+        );
         assert_eq!(
             headers.get("x-goog-api-key").and_then(|v| v.to_str().ok()),
             Some("AIza-key")

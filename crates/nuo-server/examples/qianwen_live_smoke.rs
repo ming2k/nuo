@@ -29,7 +29,11 @@ impl Tool for WeatherTool {
             "required": ["city"]
         })
     }
-    async fn execute(&self, _: &nuo_tool::context::ToolContext, _: serde_json::Value) -> Result<nuo_tool::output::ToolOutput, nuo_tool::error::ToolError> {
+    async fn execute(
+        &self,
+        _: &nuo_tool::context::ToolContext,
+        _: serde_json::Value,
+    ) -> Result<nuo_tool::output::ToolOutput, nuo_tool::error::ToolError> {
         Ok(nuo_tool::output::ToolOutput::success(""))
     }
 }
@@ -62,10 +66,16 @@ async fn main() {
             .collect::<Vec<_>>(),
     );
 
-    let provider = nuo_provider_openai::OpenAiChatCompletionsProvider::
-        with_base_url(secret.expose_secret().to_string(), model.clone(), &url)
-        .with_id("qianwen-smoke".to_string())
-        .with_model_capabilities(nuo_model_codec::ModelCapabilities::for_channel(baseline.id, None));
+    let provider = nuo_provider_openai::OpenAiChatCompletionsProvider::with_base_url(
+        secret.expose_secret().to_string(),
+        model.clone(),
+        &url,
+    )
+    .with_id("qianwen-smoke".to_string())
+    .with_model_capabilities(nuo_model_codec::ModelCapabilities::for_channel(
+        baseline.id,
+        None,
+    ));
 
     // Round 1: plain streaming text.
     let stream = provider
@@ -107,10 +117,13 @@ async fn main() {
 
     // Round 2: effort ladder — `none` must stream zero reasoning deltas, the
     // Qwen hybrid off switch verified upstream.
-    let provider_off = nuo_provider_openai::OpenAiChatCompletionsProvider::
-        with_base_url(secret.expose_secret().to_string(), model.clone(), &url)
-        .with_id("qianwen-smoke".to_string())
-        .with_reasoning_effort(Some(Effort::None));
+    let provider_off = nuo_provider_openai::OpenAiChatCompletionsProvider::with_base_url(
+        secret.expose_secret().to_string(),
+        model.clone(),
+        &url,
+    )
+    .with_id("qianwen-smoke".to_string())
+    .with_reasoning_effort(Some(Effort::None));
     let stream = provider_off
         .stream_chat_events(vec![Message::new(Role::User, "Reply with exactly: OK")].into())
         .await

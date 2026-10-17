@@ -4,8 +4,8 @@
 //! provider counters (Gemini, Claude, OpenAI) into unambiguous, non-overlapping classes.
 //! Contains zero monetary or pricing concepts.
 
-use serde::{Deserialize, Serialize};
 use nuo_tool::usage::TokenUsage;
+use serde::{Deserialize, Serialize};
 
 /// Semantic classification of tokens crossing provider wire protocols.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

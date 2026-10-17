@@ -3,8 +3,8 @@
 //! Delineates between remote-enforced providers (upstream controls quota/rejection)
 //! and local-enforced budgets (client-side pre-flight spend caps) (`[INV-BUDGET-01]`).
 
-use serde::{Deserialize, Serialize};
 use crate::pricing::NanoUsd;
+use serde::{Deserialize, Serialize};
 
 /// Scope of the local spend counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -57,7 +57,7 @@ fn default_currency() -> String {
 
 mod usd_nano_serde {
     use super::*;
-    use serde::{de, Deserializer, Serializer};
+    use serde::{Deserializer, Serializer, de};
 
     pub fn serialize<S>(value: &NanoUsd, serializer: S) -> Result<S::Ok, S::Error>
     where

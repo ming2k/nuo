@@ -4,9 +4,9 @@
 //! instances remain stateless transports and can therefore be shared safely by
 //! forks, subagents, retries, and concurrently active sessions.
 
+use crate::message::{Message, Role};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use crate::message::{Message, Role};
 
 pub const CONTINUATION_ARTIFACT_KEY: &str = "nuo.continuation";
 pub const OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY: &str = "openai.response.output";

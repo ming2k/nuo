@@ -1,8 +1,8 @@
 //! Testing Utilities for Declarative Components and Stories (ADR-0073).
 
-use nuotc::{Color, Modifier, TestTerminal};
 use super::story::AnyStory;
 use crate::theme::Theme;
+use nuotc::{Color, Modifier, TestTerminal};
 
 /// Render an `AnyStory` in a fresh headless terminal and extract the full
 /// cell grid including foreground, background, and modifier state.
@@ -51,7 +51,9 @@ fn style_matrix(buf: &nuotc::Grid) -> String {
     for y in 0..bh {
         for x in 0..bw {
             let style = buf.content[y * bw + x].style();
-            if (style.fg != Color::Reset || style.bg != Color::Reset || style.add != Modifier::empty())
+            if (style.fg != Color::Reset
+                || style.bg != Color::Reset
+                || style.add != Modifier::empty())
                 && !distinct_styles.contains(&style)
             {
                 distinct_styles.push(style);

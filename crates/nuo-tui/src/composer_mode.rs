@@ -126,7 +126,9 @@ impl DraftCapsule {
 
     /// Whether the capsule contains any non-empty draft data.
     pub fn is_empty(&self) -> bool {
-        self.text.is_empty() && self.pending_images.is_empty() && self.pending_text_pastes.is_empty()
+        self.text.is_empty()
+            && self.pending_images.is_empty()
+            && self.pending_text_pastes.is_empty()
     }
 
     /// Restore the captured snapshot into the live prompt state and clear the capsule.
@@ -189,12 +191,8 @@ mod tests {
 
     #[test]
     fn test_draft_capsule_lifecycle() {
-        let mut capsule = DraftCapsule::capture(
-            "my draft".into(),
-            8,
-            vec![],
-            vec!["paste block".into()],
-        );
+        let mut capsule =
+            DraftCapsule::capture("my draft".into(), 8, vec![], vec!["paste block".into()]);
         assert!(!capsule.is_empty());
         assert_eq!(capsule.text, "my draft");
         assert_eq!(capsule.cursor_position, 8);

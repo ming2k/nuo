@@ -1464,8 +1464,14 @@ mod tests {
 
         // Row 2: the polymorphic SceneBar (ADR-0062).
         let scene = row_text(1);
-        assert!(scene.contains("dashboard"), "scene name on row 2: {scene:?}");
-        assert!(scene.contains("1 session(s)"), "fleet summary context: {scene:?}");
+        assert!(
+            scene.contains("dashboard"),
+            "scene name on row 2: {scene:?}"
+        );
+        assert!(
+            scene.contains("1 session(s)"),
+            "fleet summary context: {scene:?}"
+        );
         assert!(scene.contains("1 running"), "running count: {scene:?}");
         assert!(
             !scene.contains("Esc"),
@@ -1590,11 +1596,17 @@ mod tests {
         assert!(text.contains("nuo"), "{text}");
         assert!(text.contains("2h14m"), "{text}");
         assert!(text.contains("running"), "{text}");
-        assert!(!text.contains('▶'), "dock card must not contain '▶': {text}");
+        assert!(
+            !text.contains('▶'),
+            "dock card must not contain '▶': {text}"
+        );
 
         let cur_line = dock_card_line(&entries[0], 60, true, false, now, &theme);
         let cur_text: String = cur_line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(!cur_text.contains('▶'), "current dock card must not contain '▶': {cur_text}");
+        assert!(
+            !cur_text.contains('▶'),
+            "current dock card must not contain '▶': {cur_text}"
+        );
     }
 
     #[test]

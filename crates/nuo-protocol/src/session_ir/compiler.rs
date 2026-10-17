@@ -401,12 +401,14 @@ fn lower_messages_for_google(messages: Vec<Message>) -> Vec<Message> {
                             let parsed = if call.arguments.trim().is_empty() {
                                 Some(serde_json::json!({}))
                             } else {
-                                serde_json::from_str::<serde_json::Value>(call.arguments.trim()).ok()
+                                serde_json::from_str::<serde_json::Value>(call.arguments.trim())
+                                    .ok()
                             };
 
                             degraded_call_names.insert(call.id.clone(), call.name.clone());
                             if let Some(valid_json) = parsed {
-                                let canonical_args = serde_json::to_string(&valid_json).unwrap_or_else(|_| "{}".to_string());
+                                let canonical_args = serde_json::to_string(&valid_json)
+                                    .unwrap_or_else(|_| "{}".to_string());
                                 degraded_call_prose.push(format!(
                                     "[Executed tool \"{}\" with arguments: {}]",
                                     call.name, canonical_args
@@ -566,7 +568,11 @@ mod tests {
         ir.append_message("u1", 1_000_000, Message::new(Role::User, "run command"));
 
         // Assistant turn from foreign provider (no thought signatures)
-        let call = ToolCall::new("call_run_1", "default_api:execute_command", r#"{"command":"ls"}"#);
+        let call = ToolCall::new(
+            "call_run_1",
+            "default_api:execute_command",
+            r#"{"command":"ls"}"#,
+        );
         let mut foreign_assistant = Message::new(Role::Assistant, "Running command");
         foreign_assistant.tool_calls = Some(vec![call.clone()]);
         ir.append_message("a1", 1_001_000, foreign_assistant);
@@ -602,17 +608,26 @@ mod tests {
         assert_eq!(messages[1].role, Role::Assistant);
         assert!(messages[1].tool_calls.is_none());
         assert!(messages[1].content.contains("Running command"));
-        assert!(messages[1].content.contains(r#"[Executed tool "default_api:execute_command" with arguments: {"command":"ls"}]"#));
+        assert!(messages[1].content.contains(
+            r#"[Executed tool "default_api:execute_command" with arguments: {"command":"ls"}]"#
+        ));
 
         // Foreign tool message: lowered to User role dialogue fact
         assert_eq!(messages[2].role, Role::User);
         assert!(messages[2].tool_call_id.is_none());
-        assert!(messages[2].content.contains(r#"[Tool result for "default_api:execute_command"]:"#));
+        assert!(
+            messages[2]
+                .content
+                .contains(r#"[Tool result for "default_api:execute_command"]:"#)
+        );
 
         // Gemini assistant message: retains native tool_calls because it has valid thought signature
         assert_eq!(messages[3].role, Role::Assistant);
         assert!(messages[3].tool_calls.is_some());
-        assert_eq!(messages[3].tool_calls.as_ref().unwrap()[0].id, "call_gemini_1");
+        assert_eq!(
+            messages[3].tool_calls.as_ref().unwrap()[0].id,
+            "call_gemini_1"
+        );
 
         // Gemini tool message: retains native Tool role and tool_call_id
         assert_eq!(messages[4].role, Role::Tool);
@@ -646,6 +661,10 @@ mod tests {
         assert_eq!(messages[1].role, Role::Assistant);
         // Ensure no unclosed JSON syntax or raw parameter string leaked
         assert!(!messages[1].content.contains(r#"{"limit":120"#));
-        assert!(messages[1].content.contains(r#"[Aborted tool "read_text" (incomplete arguments)]"#));
+        assert!(
+            messages[1]
+                .content
+                .contains(r#"[Aborted tool "read_text" (incomplete arguments)]"#)
+        );
     }
 }

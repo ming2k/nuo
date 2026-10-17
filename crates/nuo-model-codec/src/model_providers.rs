@@ -346,10 +346,7 @@ mod provider_id_tests {
             canonical_provider_id("ai-studio").as_deref(),
             Some("google")
         );
-        assert_eq!(
-            canonical_provider_id("gemini").as_deref(),
-            Some("google")
-        );
+        assert_eq!(canonical_provider_id("gemini").as_deref(), Some("google"));
         assert!(canonical_provider_id("does-not-exist").is_none());
         assert!(canonical_provider_id("").is_none());
     }
@@ -364,17 +361,8 @@ mod provider_id_tests {
             model_provider_label("google-antigravity"),
             "Google Antigravity"
         );
-        assert_eq!(
-            model_provider_label("chatgpt-plan"),
-            "ChatGPT Plan"
-        );
-        assert_eq!(
-            model_provider_label("commandcode-plan"),
-            "CommandCode Plan"
-        );
-        assert_eq!(
-            model_provider_label("opencode-plan"),
-            "OpenCode Plan"
-        );
+        assert_eq!(model_provider_label("chatgpt-plan"), "ChatGPT Plan");
+        assert_eq!(model_provider_label("commandcode-plan"), "CommandCode Plan");
+        assert_eq!(model_provider_label("opencode-plan"), "OpenCode Plan");
     }
 }

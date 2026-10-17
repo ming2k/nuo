@@ -237,7 +237,9 @@ pub enum PatchOp {
 ///   ever reach the transcript.
 /// How a child process's input channels are provisioned. Relocated to the tool
 /// leaf (`crate::stream`) per ADR-0008; re-exported here for call sites.
-pub use crate::stream::{InputContract, InputExpectation, InputPrompt, ShellLine, ShellStream, ShellTermination};
+pub use crate::stream::{
+    InputContract, InputExpectation, InputPrompt, ShellLine, ShellStream, ShellTermination,
+};
 
 /// Strip CSI / OSC / 8-bit ESC ANSI sequences from `s`. Applied at shell
 /// capture time so neither the model-facing text nor the TUI renderer ever
@@ -646,7 +648,9 @@ impl ToolOutput {
     /// transcript and token usage so the harness can attach `children` to the
     /// parent's tool-result message and accumulate real cost into the parent
     /// turn's accounting. Returns `None` for every other variant.
-    pub fn subagent_payload(&self) -> Option<(&[crate::message::Message], crate::usage::TokenUsage)> {
+    pub fn subagent_payload(
+        &self,
+    ) -> Option<(&[crate::message::Message], crate::usage::TokenUsage)> {
         match self {
             ToolOutput::Subagent {
                 messages, usage, ..
@@ -770,9 +774,13 @@ fn shell_body_to_text(
         let middle_chars = middle_slice.chars().count();
         let middle_kb = middle_slice.len() as f64 / 1024.0;
         let banner = if middle_lines > 1 {
-            format!("--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---")
+            format!(
+                "--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---"
+            )
         } else {
-            format!("--- [Middle {middle_chars} characters ({middle_kb:.1} KB) omitted to protect context budget] ---")
+            format!(
+                "--- [Middle {middle_chars} characters ({middle_kb:.1} KB) omitted to protect context budget] ---"
+            )
         };
         if tail_part.is_empty() {
             format!("{head_part}\n\n{banner}")
@@ -792,27 +800,15 @@ fn shell_body_to_text(
 pub fn termination_model_note(termination: ShellTermination) -> Option<&'static str> {
     match termination {
         ShellTermination::Exited => None,
-        ShellTermination::IdleBlocked => {
-            Some("[killed by harness: idle timeout detected]")
-        }
+        ShellTermination::IdleBlocked => Some("[killed by harness: idle timeout detected]"),
         ShellTermination::InteractiveBlocked => {
             Some("[killed by harness: interactive prompt detected in non-interactive environment]")
         }
-        ShellTermination::InputUnanswered => {
-            Some("[killed by harness: unanswered input prompt]")
-        }
-        ShellTermination::Timeout => {
-            Some("[killed by harness: timeout reached]")
-        }
-        ShellTermination::Cancelled => {
-            Some("[killed by harness: cancelled by operator]")
-        }
-        ShellTermination::StreamGuard => {
-            Some("[killed by harness: stream budget reached]")
-        }
-        ShellTermination::Detached => {
-            Some("[detached job: adopted by background runner]")
-        }
+        ShellTermination::InputUnanswered => Some("[killed by harness: unanswered input prompt]"),
+        ShellTermination::Timeout => Some("[killed by harness: timeout reached]"),
+        ShellTermination::Cancelled => Some("[killed by harness: cancelled by operator]"),
+        ShellTermination::StreamGuard => Some("[killed by harness: stream budget reached]"),
+        ShellTermination::Detached => Some("[detached job: adopted by background runner]"),
     }
 }
 
@@ -1246,7 +1242,10 @@ mod tests {
             total_tokens: 1200,
             ..Default::default()
         };
-        let messages = vec![crate::message::Message::new(crate::Role::Assistant, "internal")];
+        let messages = vec![crate::message::Message::new(
+            crate::Role::Assistant,
+            "internal",
+        )];
         let o = ToolOutput::Subagent {
             summary: "external summary".into(),
             messages,

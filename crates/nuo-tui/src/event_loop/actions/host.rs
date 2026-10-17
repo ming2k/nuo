@@ -10,9 +10,9 @@
 
 use std::sync::Arc;
 
-use nuo_client;
 use crate::App;
 use crate::overlays::{ConsoleCommand, ConsoleLine, ConsoleVerb};
+use nuo_client;
 
 use super::UiRuntime;
 

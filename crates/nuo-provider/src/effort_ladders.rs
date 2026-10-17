@@ -26,12 +26,7 @@ pub const CLAUDE_FULL: &[Effort] = &[
 
 /// Claude ladder without `xhigh` (`low`/`medium`/`high`/`max`).
 /// Claude Sonnet 4.6 and Opus 4.6, which honor `max` but reject `xhigh`.
-pub const CLAUDE_NO_XHIGH: &[Effort] = &[
-    Effort::Low,
-    Effort::Medium,
-    Effort::High,
-    Effort::Max,
-];
+pub const CLAUDE_NO_XHIGH: &[Effort] = &[Effort::Low, Effort::Medium, Effort::High, Effort::Max];
 
 /// OpenAI GPT <= 5.5: `none`/`minimal`/`low`/`medium`/`high`/`xhigh`.
 pub const OPENAI_GPT: &[Effort] = &[
@@ -65,12 +60,7 @@ pub const OPENAI_GPT_6: &[Effort] = &[
 ];
 
 /// xAI Grok 4.x: `none`/`low`/`medium`/`high`.
-pub const XAI_GROK: &[Effort] = &[
-    Effort::None,
-    Effort::Low,
-    Effort::Medium,
-    Effort::High,
-];
+pub const XAI_GROK: &[Effort] = &[Effort::None, Effort::Low, Effort::Medium, Effort::High];
 
 /// `low`/`high`/`max`: shared capability set for DeepSeek and Moonshot Kimi K3.
 ///
@@ -84,27 +74,13 @@ pub const XAI_GROK: &[Effort] = &[
 /// Omitting a supported rung is the failure mode to avoid here; see
 /// `docs/reference/commandcode-api.yml` `x-reasoning-effort-ladder` for the
 /// full per-family reference table.
-pub const LOW_HIGH_MAX: &[Effort] = &[
-    Effort::Low,
-    Effort::High,
-    Effort::Max,
-];
+pub const LOW_HIGH_MAX: &[Effort] = &[Effort::Low, Effort::High, Effort::Max];
 
 /// Z.AI GLM-5.2 / GLM-5.3: `low`/`high`/`xhigh`/`max`.
-pub const GLM_5: &[Effort] = &[
-    Effort::Low,
-    Effort::High,
-    Effort::Xhigh,
-    Effort::Max,
-];
+pub const GLM_5: &[Effort] = &[Effort::Low, Effort::High, Effort::Xhigh, Effort::Max];
 
 /// Google Gemini 3.x thinkingLevel ladder: `minimal`/`low`/`medium`/`high`.
-pub const GEMINI_LEVEL: &[Effort] = &[
-    Effort::Minimal,
-    Effort::Low,
-    Effort::Medium,
-    Effort::High,
-];
+pub const GEMINI_LEVEL: &[Effort] = &[Effort::Minimal, Effort::Low, Effort::Medium, Effort::High];
 
 /// Google Gemini 2.5 thinkingBudget ladder: `minimal`/`low`/`medium`/`high`/`max`.
 pub const GEMINI_BUDGET: &[Effort] = &[

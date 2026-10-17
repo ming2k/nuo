@@ -96,18 +96,12 @@ pub fn draw_queue_modal(
             let left_w = GUTTER_W + TIME_W + 2 + text.width();
             let pad = body_width.saturating_sub(left_w);
             body.push(Line::from(vec![
-                Span::styled(
-                    " ".repeat(GUTTER_W),
-                    nuotc::Style::default().bg(style.bg),
-                ),
+                Span::styled(" ".repeat(GUTTER_W), nuotc::Style::default().bg(style.bg)),
                 Span::styled(
                     format!("{time}  "),
                     nuotc::Style::default().bg(style.bg).fg(style.dim),
                 ),
-                Span::styled(
-                    text,
-                    nuotc::Style::default().bg(style.bg).fg(style.fg),
-                ),
+                Span::styled(text, nuotc::Style::default().bg(style.bg).fg(style.fg)),
                 Span::styled(" ".repeat(pad), nuotc::Style::default().bg(style.bg)),
             ]));
         }

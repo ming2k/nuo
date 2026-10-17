@@ -89,26 +89,14 @@ fn piece_tokens(category: CharCategory, slice: &str) -> usize {
                     spaces += 1;
                 }
             }
-            let nl_tokens = if newlines > 0 {
-                (newlines + 1) / 2
-            } else {
-                0
-            };
-            let sp_tokens = if spaces > 0 {
-                (spaces + 3) / 4
-            } else {
-                0
-            };
+            let nl_tokens = if newlines > 0 { (newlines + 1) / 2 } else { 0 };
+            let sp_tokens = if spaces > 0 { (spaces + 3) / 4 } else { 0 };
             (nl_tokens + sp_tokens).max(1)
         }
         CharCategory::AsciiWord => {
             // For words: short words (1..5 chars) are 1 token. Longer words break into subwords.
             let len = slice.len();
-            if len <= 5 {
-                1
-            } else {
-                1 + (len - 5 + 3) / 4
-            }
+            if len <= 5 { 1 } else { 1 + (len - 5 + 3) / 4 }
         }
         CharCategory::Cjk => {
             // Modern models (DeepSeek, Qwen, Claude, GPT-4o) encode CJK at ~1 token per character.
@@ -117,11 +105,7 @@ fn piece_tokens(category: CharCategory, slice: &str) -> usize {
         CharCategory::Punctuation => {
             // Runs of identical punctuation (e.g. `===`, `---`, `///`): (len + 2) / 3
             let len = slice.len();
-            if len <= 1 {
-                1
-            } else {
-                (len + 2) / 3
-            }
+            if len <= 1 { 1 } else { (len + 2) / 3 }
         }
         CharCategory::Other => {
             // Other unicode graphemes / symbols: 1 token each
@@ -464,10 +448,7 @@ mod tests {
         let text = "The quick brown fox jumps over the lazy dog. ".repeat(20);
         for budget in [0, 1, 5, 10, 25, 50, 100, 500] {
             let (prefix, tokens) = truncate_to_tokens(&text, budget);
-            assert!(
-                tokens <= budget,
-                "tokens {tokens} exceeded budget {budget}"
-            );
+            assert!(tokens <= budget, "tokens {tokens} exceeded budget {budget}");
             assert!(
                 text.starts_with(prefix),
                 "prefix {prefix:?} is not a prefix of text"
