@@ -8,6 +8,24 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.31] - 2026-11-09
+
+### Added
+
+- **Unified CAS & VFS In-Process Projection Architecture (ADR-0070)**:
+  - Established rootless sovereign VFS addressing under `/tmp/nuo/vfs/{sha256}.{ext}`, operating with zero root requirements across workspace-bound (`developer`) and workspace-free (`ops`, `philosophist`) roles.
+  - Implemented in-process virtual path resolution in `read_text` and `read_image`, resolving offstream context directly from memory/CAS with 0 disk I/O and zero workspace git pollution.
+  - Abolished the legacy `recall_context` meta-tool, unifying all context inspection under standard POSIX tools (`read_text`, `execute_command (grep)`, `read_image`).
+  - Added deterministic physical metrics (`lines` + `KB` for multi-line streams; `characters` + `KB` with `cut/jq` guidance for giant single-line blobs), completely replacing volatile local token estimations.
+
+### Changed
+
+- **TUI `execute_command` Presentation Modernization**:
+  - Implemented three-tier flush stacking layout (Part 1: Terminal canvas, Part 2: Process exit status, Part 3: Harness governance) with zero gap intervals, differentiated purely by layered surface background colors (`code_surface`, `match_title_surface`, `harness_bg`).
+  - Transformed output folding into a 3-row compact negative space gap (`blank` + `  N lines omitted (KB)` + `blank`), eliminating all intrusive glyph symbols and dashed lines.
+  - Eliminated decorative middle dots (`·`) from step headers, standardizing on clean typography: `Run cargo (running)`, `Run cargo (120ms)`, `Run cargo (failed 0ms)`.
+  - Replaced aggressive yellow-bold markers with an unaggressive, distinct metadata status footer explaining canonical POSIX exit codes (`exit 1 (general error)`, `exit 127 (command not found)`, `exit 137 (killed / SIGKILL)`).
+
 ## [0.0.30] - 2026-10-17
 
 ### Fixed
