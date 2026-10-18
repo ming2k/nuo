@@ -99,6 +99,18 @@ impl PersistenceCommand {
                     guarded(|| crate::db::garbage_collection::collect_entry_garbage(&engine.conn));
                 let _ = ack.send(res);
             }
+            // Supervisor-only: `run_supervisor` intercepts `RebuildEngine`
+            // before any writer forwarding, so `execute` never observes it.
+            // A deflected ack is the honest outcome — the rebuild was not
+            // performed — never a fabricated success.
+            Self::RebuildEngine { ack } => {
+                let _ = ack.send(Err(PersistenceError::WriterDown));
+            }
+            // Internal handshake: the writer loop intercepts `RetireEngine`
+            // before `execute` (the engine is closed there, not here), and
+            // the supervisor is its only sender, so this arm is unreachable
+            // by construction.
+            Self::RetireEngine { .. } => {}
             Self::CreateBackup { target_path, ack } => {
                 let res = guarded(|| engine.create_backup(&target_path));
                 let _ = ack.send(res);
@@ -268,6 +280,13 @@ impl PersistenceCommand {
             Self::CollectEntryGarbage { ack } => {
                 let _ = ack.send(Err(error));
             }
+            Self::RebuildEngine { ack } => {
+                let _ = ack.send(Err(error));
+            }
+            // Internal handshake (supervisor → live writer only); the
+            // drain-while-down path can never observe it — no ack, which
+            // the awaiting supervisor reads as "retire never happened".
+            Self::RetireEngine { .. } => {}
             Self::RecordInputHistory { ack, .. } => {
                 if let Some(ack) = ack {
                     let _ = ack.send(Err(error));
@@ -322,6 +341,72 @@ pub(super) async fn run_supervisor(
     let mut backoff = BASE_BACKOFF;
 
     while let Some(mut command) = front_rx.recv().await {
+        // A deliberate engine rebuild never forwards to a writer generation.
+        // Dropping the current sender lets the writer thread finish; its
+        // engine close checkpoints any live WAL back into the main database,
+        // and the fresh generation recreates the on-disk `-wal`/`-shm` pair
+        // that heals subsequent read-only reader opens (ADR-0231).
+        if let PersistenceCommand::RebuildEngine { ack } = command {
+            attempt = 1;
+            since_ms = unix_ms();
+            last_error = "engine rebuild requested".to_string();
+            let _ = health.send_if_modified(|current| {
+                *current = WriterHealth::Recovering {
+                    attempt,
+                    since_ms,
+                    error: last_error.clone(),
+                };
+                true
+            });
+            // Retire the live generation with the deterministic handshake:
+            // the ack resolves only after the engine is closed — a clean
+            // close checkpoints any live WAL (including an unlinked one)
+            // into the main database, so nothing committed is stranded in
+            // the deleted inode. Opening the fresh generation only after
+            // this avoids the concurrent-open SQLite disk-I/O failure.
+            if let Some(tx) = writer.take() {
+                let (retire_tx, retire_rx) = oneshot::channel();
+                if tx
+                    .send(PersistenceCommand::RetireEngine { ack: retire_tx })
+                    .await
+                    .is_ok()
+                {
+                    let _ = retire_rx.await;
+                }
+            }
+            match spawn_writer(
+                &db_path,
+                blob_store.as_ref(),
+                &health,
+                lease.clone(),
+                initial_engine.take(),
+                reader_ages.clone(),
+            )
+            .await
+            {
+                Ok(tx) => {
+                    writer = Some(tx);
+                    attempt = 0;
+                    let _ = ack.send(Ok(()));
+                }
+                Err(e) => {
+                    attempt += 1;
+                    last_error = e.to_string();
+                    next_try = Instant::now();
+                    backoff = BASE_BACKOFF;
+                    let _ = health.send_if_modified(|current| {
+                        *current = WriterHealth::Down {
+                            attempt,
+                            since_ms,
+                            error: last_error.clone(),
+                        };
+                        true
+                    });
+                    let _ = ack.send(Err(PersistenceError::WriterDown));
+                }
+            }
+            continue;
+        }
         'serve: loop {
             if let Some(tx) = &writer {
                 match tx.send(command).await {
@@ -553,6 +638,11 @@ async fn spawn_writer(
         .name("nuo-persistence-writer".into())
         .spawn(move || {
             let _lease = lease;
+            // The engine is owned as an `Option` so the `RetireEngine`
+            // handshake can close it deterministically *before* the ack —
+            // a fresh generation must never open while a wedged engine is
+            // still live (ADR-0231).
+            let mut engine = Some(engine);
             let mut foreground = 0u32;
             // ADR-0236 D7 measurement contract: sample storage pressure on the
             // writer thread (the only place with the engine) and never log
@@ -560,18 +650,22 @@ async fn spawn_writer(
             const METRICS_INTERVAL: Duration = Duration::from_secs(5);
             let mut last_metrics = Instant::now();
             loop {
-                if last_metrics.elapsed() >= METRICS_INTERVAL {
+                if last_metrics.elapsed() >= METRICS_INTERVAL
+                    && let Some(engine) = engine.as_ref()
+                {
                     last_metrics = Instant::now();
-                    log_storage_metrics(&metrics_path, &engine, &reader_ages);
+                    log_storage_metrics(&metrics_path, engine, &reader_ages);
                     maintain_storage_pressure(
                         &metrics_path,
-                        &engine,
+                        engine,
                         &reader_ages,
                         WAL_CHECKPOINT_THRESHOLD_BYTES,
                         READER_AGE_WARN_MS,
                     );
                 }
-                if rx.is_empty() || foreground >= 16 {
+                if let Some(engine) = engine.as_ref()
+                    && (rx.is_empty() || foreground >= 16)
+                {
                     foreground = 0;
                     match crate::db::usage_projection::project_usage_batch(&engine.conn, 64) {
                         Ok(n) if n > 0 && rx.is_empty() => {
@@ -585,8 +679,47 @@ async fn spawn_writer(
                 let Some(command) = rx.blocking_recv() else {
                     break;
                 };
+                if let PersistenceCommand::RetireEngine { ack } = command {
+                    // Copy every WAL frame into the main database while the
+                    // engine is still fully functional (ADR-0231): the
+                    // close-time checkpoint is a heuristic — it can be
+                    // skipped, or deferred by close-v2 teardown — and the
+                    // fresh generation must never depend on it. A live
+                    // checkpoint against an unlinked WAL recovers the frames
+                    // deterministically, because the fd-backed read and the
+                    // main-database write are both still valid inodes.
+                    if let Some(engine) = engine.take() {
+                        match engine
+                            .conn
+                            .query_row("PRAGMA wal_checkpoint(FULL)", [], |row| {
+                                Ok((
+                                    row.get::<_, i64>(0)?,
+                                    row.get::<_, i64>(1)?,
+                                    row.get::<_, i64>(2)?,
+                                ))
+                            }) {
+                            Ok((0, frames, copied)) => {
+                                tracing::debug!(frames, copied, "retire checkpoint drained the WAL")
+                            }
+                            Ok((busy, frames, copied)) => warn!(
+                                busy,
+                                frames, copied, "retire checkpoint could not drain the WAL"
+                            ),
+                            Err(error) => {
+                                warn!(%error, "retire checkpoint failed; frames may be stranded")
+                            }
+                        }
+                        // Clean close: nothing left to checkpoint.
+                        drop(engine);
+                    }
+                    let _ = ack.send(());
+                    break;
+                }
                 foreground += 1;
-                if !command.execute(&engine) {
+                let Some(engine) = engine.as_ref() else {
+                    break;
+                };
+                if !command.execute(engine) {
                     break;
                 }
                 // D1: `Healthy` is restored by the first *successful*

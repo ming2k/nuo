@@ -56,6 +56,8 @@ impl PersistenceHandle {
                     startup_error: None,
                     readers: owner.readers.clone(),
                     reader_ages: owner.reader_ages.clone(),
+                    reader_open_failures: owner.reader_open_failures.clone(),
+                    rebuild_requested: owner.rebuild_requested.clone(),
                 };
             }
             // A previous local owner is draining accepted commands. Do not
@@ -84,6 +86,8 @@ impl PersistenceHandle {
         .unwrap_or_else(|_| Err("database initialization panicked".into()));
         let readers = Arc::new(tokio::sync::Semaphore::new(READER_POOL_CAPACITY));
         let reader_ages = Arc::new(ReaderAges::default());
+        let reader_open_failures = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let rebuild_requested = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let startup_error = match opened {
             Ok((engine, lease)) => {
                 registry.insert(
@@ -94,6 +98,8 @@ impl PersistenceHandle {
                         blob_store: blob_store.clone(),
                         readers: readers.clone(),
                         reader_ages: reader_ages.clone(),
+                        reader_open_failures: reader_open_failures.clone(),
+                        rebuild_requested: rebuild_requested.clone(),
                         lease: Arc::downgrade(&lease),
                     },
                 );
@@ -136,6 +142,8 @@ impl PersistenceHandle {
             startup_error,
             readers,
             reader_ages,
+            reader_open_failures,
+            rebuild_requested,
         }
     }
 
@@ -521,35 +529,58 @@ impl PersistenceHandle {
         let permit = self.readers.clone().try_acquire_owned().map_err(|_| {
             rusqlite::Error::InvalidParameterName("database reader capacity exhausted".into())
         })?;
-        let conn = Connection::open_with_flags(
-            &self.db_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
-        conn.pragma_update(None, "query_only", true)?;
-        conn.busy_timeout(Duration::from_millis(250))?;
-        let version: u32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if version != CURRENT_DB_VERSION {
-            return Err(rusqlite::Error::InvalidParameterName(format!(
-                "reader schema mismatch: {version}"
-            )));
+        // The whole construction sequence is wedge-sensitive: against a
+        // missing `-wal`/`-shm` pair, the open itself succeeds and the first
+        // access that attaches the WAL index fails. Every fallible step is
+        // therefore inside one scope so any failure counts toward the
+        // rebuild threshold (and drops the permit with it).
+        let outcome = (|| {
+            let conn = Connection::open_with_flags(
+                &self.db_path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )?;
+            conn.pragma_update(None, "query_only", true)?;
+            conn.busy_timeout(Duration::from_millis(250))?;
+            let version: u32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+            if version != CURRENT_DB_VERSION {
+                return Err(rusqlite::Error::InvalidParameterName(format!(
+                    "reader schema mismatch: {version}"
+                )));
+            }
+            conn.execute_batch("BEGIN DEFERRED")?;
+            // Register only after every fallible step: an error must not leak a
+            // registration whose guard was never constructed.
+            let reader_ages = self.reader_ages.clone();
+            let age = ReaderAgeGuard {
+                id: reader_ages.register(),
+                reader_ages,
+            };
+            Ok(DbReader {
+                engine: DatabaseEngine {
+                    conn,
+                    blob_store: self.blob_store.clone(),
+                },
+                db_path: self.db_path.clone(),
+                _permit: Some(permit),
+                _age: Some(age),
+            })
+        })();
+        match outcome {
+            Ok(reader) => {
+                // A successful open ends any wedge episode the failures were
+                // counting.
+                self.reader_open_failures
+                    .store(0, std::sync::atomic::Ordering::SeqCst);
+                self.rebuild_requested
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                Ok(reader)
+            }
+            Err(error) => {
+                self.note_reader_open_failure(&error);
+                Err(error)
+            }
         }
-        conn.execute_batch("BEGIN DEFERRED")?;
-        // Register only after every fallible step: an error must not leak a
-        // registration whose guard was never constructed.
-        let reader_ages = self.reader_ages.clone();
-        let age = ReaderAgeGuard {
-            id: reader_ages.register(),
-            reader_ages,
-        };
-        Ok(DbReader {
-            engine: DatabaseEngine {
-                conn,
-                blob_store: self.blob_store.clone(),
-            },
-            db_path: self.db_path.clone(),
-            _permit: Some(permit),
-            _age: Some(age),
-        })
     }
 
     /// Execute a scoped read closure against a fresh [`DbReader`].
@@ -563,6 +594,79 @@ impl PersistenceHandle {
     {
         let reader = self.reader()?;
         f(&reader)
+    }
+
+    /// Count one failed fresh-reader open and, past the bounded threshold,
+    /// ask the supervisor to rebuild the engine (ADR-0231).
+    ///
+    /// The wedge this heals: the on-disk `-wal`/`-shm` pair removed under a
+    /// live writer. The writer keeps serving into the unlinked inode, but
+    /// every *new* read-only open fails, and nothing else in the system can
+    /// detect that state — the writer health stays `Healthy`. A rebuild is
+    /// the only cure, and its clean engine close is safe: SQLite checkpoints
+    /// the still-valid deleted WAL back into the main database before the
+    /// fresh generation opens a new `-wal`/`-shm`.
+    ///
+    /// Bounded by construction: the counter only advances on open failures,
+    /// a CAS latch admits exactly one rebuild request per wedge episode, and
+    /// the next successful open resets both. Non-owner handles (another
+    /// process sharing the WAL) never request a rebuild — there is no engine
+    /// here to rebuild, and the owner process runs its own detector.
+    fn note_reader_open_failure(&self, error: &rusqlite::Error) {
+        if self.startup_error.is_some() {
+            return;
+        }
+        let failures = self
+            .reader_open_failures
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        if failures < READER_REBUILD_FAILURE_THRESHOLD {
+            return;
+        }
+        if self
+            .rebuild_requested
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            )
+            .is_err()
+        {
+            return; // a rebuild is already in flight for this episode.
+        }
+        let (ack_tx, ack_rx) = oneshot::channel();
+        match self
+            .supervisor
+            .try_send(PersistenceCommand::RebuildEngine { ack: ack_tx })
+        {
+            Ok(()) => {
+                warn!(
+                    db_path = %self.db_path.display(),
+                    failures,
+                    error = %error,
+                    "fresh reader opens keep failing; requesting persistence engine rebuild"
+                );
+                // Fire-and-forget: `reader()` is synchronous and must not
+                // block on the rebuild. The ack is dropped — the supervisor
+                // performs the rebuild regardless, and the next reader open
+                // (this caller's retry, or the next security snapshot) is
+                // the success probe that clears the latch.
+                drop(ack_rx);
+            }
+            Err(send_error) => {
+                // Supervisor gone or front channel saturated: clear the
+                // latch so a later failure can retry the request instead
+                // of latching a wedge forever.
+                self.rebuild_requested
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                warn!(
+                    db_path = %self.db_path.display(),
+                    error = %send_error,
+                    "could not deliver the engine rebuild request"
+                );
+            }
+        }
     }
 
     /// Create an online hot backup snapshot of the database using SQLite's `VACUUM INTO`.

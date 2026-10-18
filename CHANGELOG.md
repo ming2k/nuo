@@ -6,6 +6,50 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [Unreleased]
+
+### Added
+
+- **Orthogonal Workspace Container Topology and Intra-Tab Scene Discipline (ADR-0075)**:
+  Decoupled horizontal workspace containers (Row 1 TabBar: Thread, Dashboard, Settings) from
+  vertical intra-tab drill-in depth (Row 3 SceneBar: Thread, Subagent).
+  - Enforced `[INV-TAB-10]` Workspace Container Purity: opening Dashboard or Settings strictly
+    allocates or focuses its dedicated sovereign Tab container rather than polluting active thread history.
+  - Enforced `[INV-SCENE-02]` Container-Scoped Scene Discipline: `ClientTab::push_scene` mechanically
+    rejects cross-container scene injections.
+  - Ratified `[INV-COMP-01]` Component Nesting Boundary: code diffs and tool execution outputs remain
+    encapsulated as components within the active scene canvas, eliminating scene inflation.
+  - Regression tests: `surfaces::tests::test_inv_tab_10_and_inv_scene_02_discipline`.
+
+### Fixed
+
+- **Trust gate confirm loop (workspace trust could never persist)**: a
+  wedged SQLite WAL state in the daemon — the on-disk `nuo.db-wal`/`-shm`
+  pair removed while the daemon was live — made every fresh read-only open
+  fail with `disk I/O error`, so workspace-security reads failed closed and
+  the `[file asset trust]` pre-attach gate re-presented itself on every
+  Enter with no visible cause. Two-sided hardening:
+  - *Persistence (ADR-0231 reader-wedge self-heal)*: the supervisor gained a
+    typed `RebuildEngine` verb with a `RetireEngine` handshake — the live
+    engine is drained with an explicit `wal_checkpoint(FULL)` *while still
+    fully functional* (an unlinked WAL's frames are recovered
+    deterministically, since the fd-backed read and the main-database write
+    are both valid inodes), the engine is then closed cleanly, and only
+    after that does the fresh generation open and recreate the sidecar
+    pair. `PersistenceHandle::reader()` counts consecutive construction
+    failures and requests exactly one rebuild per wedge episode at the
+    3-failure threshold (CAS latch, cleared by the next successful open);
+    non-owner handles never request a rebuild.
+  - *TUI (ADR-0175 attestation outcome)*: a failed trust-grant round-trip is
+    now rendered on the gate itself (the server's `trust_changed` notice
+    text), clearing the submitting spinner so the user can retry with full
+    knowledge of the cause instead of looping a silent dialog; trust
+    notices with no gate mounted keep their normal transcript/toast flow.
+  - Regression tests: `supervision::reader_wedge_heals_through_engine_rebuild`
+    (wedge → threshold → rebuild → recovery → durability) and
+    `tests::pre_attach_gate::*`. Blameless record:
+    `docs/dev/postmortems/2026-10-18-trust-gate-loop-persistence-reader-wedge.md`.
+
 ## [0.0.34] - 2026-10-18
 
 ### Fixed

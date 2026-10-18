@@ -269,11 +269,24 @@ impl App {
     }
 
     /// Navigate to a root scene, running each dropped sheet's teardown.
+    ///
+    /// [INV-TAB-10]: If navigating to a workspace scene (Dashboard, Settings),
+    /// this cleanly allocates or focuses the respective sovereign Tab container.
     pub(crate) fn switch_scene(&mut self, scene: SceneKind) {
-        let sheets = self.surfaces.take_sheets();
-        self.surfaces.switch_scene(scene);
-        for s in sheets {
-            self.on_sheet_dismissed(s);
+        match scene {
+            SceneKind::Dashboard => {
+                self.open_tab(crate::surfaces::ClientTab::dashboard());
+            }
+            SceneKind::Settings => {
+                self.open_tab(crate::surfaces::ClientTab::settings());
+            }
+            _ => {
+                let sheets = self.surfaces.take_sheets();
+                self.surfaces.switch_scene(scene);
+                for s in sheets {
+                    self.on_sheet_dismissed(s);
+                }
+            }
         }
     }
 

@@ -51,7 +51,7 @@ pub use dialog_keys::draw_dialog_keys;
 pub use history::draw_history_panel;
 pub use mcp::draw_mcp_modal;
 pub use permission::{
-    draw_input_injection, draw_permission_sheet, draw_question_modal, permission_action_count,
+    draw_input_injection, draw_permission_sheet, permission_action_count,
 };
 pub use permissions_manager::draw_permissions_manager;
 pub use port::draw_port_modal;

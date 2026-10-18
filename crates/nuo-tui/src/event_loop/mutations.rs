@@ -375,6 +375,11 @@ pub(crate) enum AppMutation {
     WebSearchConfig(Option<nuo_wire::WebSearchConfigView>),
     ServerEndpoints(nuo_wire::ServerEndpointsReport),
     PreAttach(PreAttachSignal),
+    /// A failed trust-grant round-trip for the mounted PreAttach surface
+    /// (ADR-0175): the server could not persist the trust decision. The
+    /// applier gates on the surface being mounted — with no gate up, the
+    /// notice keeps its normal transcript/toast flow.
+    PreAttachAttestationError(String),
     ProviderSwitched {
         provider: String,
         model: String,

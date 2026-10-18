@@ -493,6 +493,19 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             }
             true
         }
+        AppMutation::PreAttachAttestationError(message) => {
+            // Gate on the surface being mounted: with no gate up, a trust
+            // notice is ordinary session flow (in-session `/trust`, the
+            // attach banner) and must keep its transcript/toast path.
+            if let Some(pa) = app.pre_attach.as_mut() {
+                tracing::warn!(
+                    %message,
+                    "nuo: PreAttach trust grant failed; resuming the decision surface"
+                );
+                pa.note_attestation_error(message);
+            }
+            true
+        }
         AppMutation::ProviderSwitched { provider, model } => {
             app.current_provider = provider;
             app.current_model = model;

@@ -897,6 +897,29 @@ pub(crate) enum PersistenceCommand {
     CollectEntryGarbage {
         ack: oneshot::Sender<Result<usize, PersistenceError>>,
     },
+    /// Rebuild the writer generation from scratch (ADR-0231): stop the live
+    /// writer — a clean engine close checkpoints any live WAL back into the
+    /// main database — then open a fresh generation, which recreates the
+    /// on-disk `-wal`/`-shm` pair.
+    ///
+    /// The one cure for a wedged on-disk WAL state (e.g. the `-wal`/`-shm`
+    /// files being removed under a live writer): fresh read-only reader
+    /// opens fail until the engine is rebuilt, while the old writer keeps
+    /// serving into the unlinked inode. Supervisor-only: this command is
+    /// intercepted before any writer forwarding, so it must never be
+    /// observed by [`PersistenceCommand::execute`].
+    RebuildEngine {
+        ack: oneshot::Sender<Result<(), PersistenceError>>,
+    },
+    /// Retire the current writer generation with a deterministic handshake:
+    /// the ack resolves only **after** the engine is closed (its clean close
+    /// checkpoints the WAL into the main database). This is what lets the
+    /// supervisor's [`PersistenceCommand::RebuildEngine`] open the fresh
+    /// generation without racing the wedged engine — a concurrent open
+    /// against a live wedged WAL fails with a SQLite disk I/O error.
+    /// Internal: sent by the supervisor through the writer channel only,
+    /// never through the front door.
+    RetireEngine { ack: oneshot::Sender<()> },
     /// Create an online hot backup snapshot using `VACUUM INTO`.
     CreateBackup {
         target_path: PathBuf,
@@ -1014,10 +1037,23 @@ pub struct PersistenceHandle {
     startup_error: Option<Arc<str>>,
     readers: Arc<tokio::sync::Semaphore>,
     reader_ages: Arc<ReaderAges>,
+    /// Consecutive fresh-reader open failures (ADR-0231 reader wedge
+    /// detection). Reset on every successful open; crossing
+    /// [`READER_REBUILD_FAILURE_THRESHOLD`] requests exactly one
+    /// `RebuildEngine` until the next success clears the latch.
+    reader_open_failures: Arc<std::sync::atomic::AtomicUsize>,
+    rebuild_requested: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Reader-pool capacity (ADR-0231: one lease per read session).
 const READER_POOL_CAPACITY: usize = 16;
+
+/// Consecutive fresh-reader open failures tolerated before the handle asks
+/// the supervisor to rebuild the engine (ADR-0231 reader-wedge self-heal).
+/// Three: low enough to heal within one user-visible interaction burst (the
+/// trust gate polls several reads per snapshot), high enough that a single
+/// transient open failure never tears down a healthy writer generation.
+const READER_REBUILD_FAILURE_THRESHOLD: usize = 3;
 
 /// Live reader registrations for the ADR-0236 D7 measurement contract: a
 /// long-lived reader snapshot is what pins the WAL, so its age is the useful
@@ -1096,6 +1132,8 @@ struct RegisteredOwner {
     blob_store: Option<BlobStore>,
     readers: Arc<tokio::sync::Semaphore>,
     reader_ages: Arc<ReaderAges>,
+    reader_open_failures: Arc<std::sync::atomic::AtomicUsize>,
+    rebuild_requested: Arc<std::sync::atomic::AtomicBool>,
     lease: std::sync::Weak<nuo_host::lock::ProcessLock>,
 }
 

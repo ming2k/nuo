@@ -703,6 +703,20 @@ pub async fn run_tui_with_terminal(
                                 transcript!(E::Interrupted { record });
                             }
                             RoundEvent::Notice(notice) => {
+                                // While the PreAttach trust gate owns the screen, a
+                                // trust notice is the gate's round-trip outcome
+                                // (e.g. the server could not persist the trust
+                                // grant) — deliver it to the surface so the failure
+                                // renders where the submitting spinner was, instead
+                                // of burying it in a transcript the full-screen
+                                // interstitial hides. The applier drops it when no
+                                // gate is mounted, so in-session trust notices keep
+                                // their normal disclosure below.
+                                if notice.kind == nuo_wire::NoticeKind::TrustChanged {
+                                    mutations
+                                        .send(M::PreAttachAttestationError(notice.render_text()))
+                                        .await;
+                                }
                                 // Provider retry has a dedicated, self-refreshing
                                 // transcript disclosure driven by RetryScheduled.
                                 // Toast-surfaced notices (command acknowledgments)

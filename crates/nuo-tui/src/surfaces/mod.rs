@@ -474,6 +474,38 @@ impl ClientTab {
         if self.current_scene() == scene {
             return;
         }
+        // [INV-SCENE-02] Container-Scoped Scene Discipline (ADR-0075):
+        // Enforce container-scene compatibility. A tab container accepts only
+        // scenes matching its domain, rejecting cross-container pollution.
+        match &self.kind {
+            TabKind::Thread(_) => {
+                if !matches!(scene, SceneKind::Thread | SceneKind::Subagent) {
+                    tracing::warn!(
+                        ?scene,
+                        "rejected cross-container scene push onto thread tab"
+                    );
+                    return;
+                }
+            }
+            TabKind::Dashboard => {
+                if !matches!(scene, SceneKind::Dashboard) {
+                    tracing::warn!(
+                        ?scene,
+                        "rejected cross-container scene push onto dashboard tab"
+                    );
+                    return;
+                }
+            }
+            TabKind::Settings => {
+                if !matches!(scene, SceneKind::Settings) {
+                    tracing::warn!(
+                        ?scene,
+                        "rejected cross-container scene push onto settings tab"
+                    );
+                    return;
+                }
+            }
+        }
         self.history.truncate(self.cursor + 1);
         self.history.push(scene);
         self.cursor = self.history.len() - 1;
@@ -956,6 +988,10 @@ impl SurfaceRouter {
     }
 
     /// Navigate to a root scene, unwinding the leaving scene's bound dialogs.
+    ///
+    /// [INV-TAB-10], [INV-ROUTER-02]: For workspace targets (`Dashboard`, `Settings`),
+    /// this routes through sovereign tab allocation (`open_tab`), ensuring the
+    /// active tab's scene stack is never polluted with cross-container scenes.
     pub fn switch_scene(&mut self, scene: SceneKind) {
         if scene != self.scene {
             let leaving = self.scene;
@@ -965,17 +1001,32 @@ impl SurfaceRouter {
             self.overlay_stack
                 .retain(|e| matches!(e.overlay, OverlaySurface::Dialog(_)));
         }
+        match scene {
+            SceneKind::Dashboard => {
+                self.open_tab(ClientTab::dashboard());
+                return;
+            }
+            SceneKind::Settings => {
+                self.open_tab(ClientTab::settings());
+                return;
+            }
+            SceneKind::Thread | SceneKind::Subagent => {}
+        }
         self.scene = scene;
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.push_scene(scene);
         }
     }
 
-    /// Navigate back to the previous scene in history, or Thread.
+    /// Navigate back to the previous scene in history, or the root scene of the active tab.
     pub fn back_scene(&mut self) -> SceneKind {
         let leaving = self.scene;
         let next = if let Some(tab) = self.tabs.get_mut(self.active_tab) {
-            tab.back().unwrap_or(SceneKind::Thread)
+            tab.back().unwrap_or(match &tab.kind {
+                TabKind::Thread(_) => SceneKind::Thread,
+                TabKind::Dashboard => SceneKind::Dashboard,
+                TabKind::Settings => SceneKind::Settings,
+            })
         } else {
             SceneKind::Thread
         };
@@ -1431,31 +1482,54 @@ mod tests {
             &[SceneKind::Thread, SceneKind::Subagent]
         );
 
-        // Push Settings on Tab 0
+        // Under [INV-SCENE-02], cross-container scenes (Settings, Dashboard) are strictly
+        // rejected when pushed onto a Thread tab's intra-tab scene stack.
         router.tabs[0].push_scene(SceneKind::Settings);
-        assert_eq!(router.tabs[0].current_scene(), SceneKind::Settings);
+        assert_eq!(
+            router.tabs[0].current_scene(),
+            SceneKind::Subagent,
+            "cross-container Settings push onto Thread tab must be rejected"
+        );
+        assert_eq!(
+            router.tabs[0].breadcrumbs(),
+            &[SceneKind::Thread, SceneKind::Subagent]
+        );
+
+        router.tabs[0].push_scene(SceneKind::Dashboard);
+        assert_eq!(
+            router.tabs[0].current_scene(),
+            SceneKind::Subagent,
+            "cross-container Dashboard push onto Thread tab must be rejected"
+        );
 
         // History back on Tab 0
-        assert_eq!(router.tabs[0].back(), Some(SceneKind::Subagent));
-        assert_eq!(router.tabs[0].current_scene(), SceneKind::Subagent);
+        assert_eq!(router.tabs[0].back(), Some(SceneKind::Thread));
+        assert_eq!(router.tabs[0].current_scene(), SceneKind::Thread);
 
         // History forward on Tab 0
-        assert_eq!(router.tabs[0].forward(), Some(SceneKind::Settings));
-        assert_eq!(router.tabs[0].current_scene(), SceneKind::Settings);
+        assert_eq!(router.tabs[0].forward(), Some(SceneKind::Subagent));
+        assert_eq!(router.tabs[0].current_scene(), SceneKind::Subagent);
 
         // Verify Tab 1 (Dashboard) is completely isolated from Tab 0's history
         assert_eq!(router.tabs[1].current_scene(), SceneKind::Dashboard);
         assert!(!router.tabs[1].can_back());
 
-        // 8. switch_scene and back_scene sync with active tab (ADR-0042)
-        router.switch_scene(SceneKind::Subagent);
+        // 8. switch_scene and back_scene sync with active tab (ADR-0042, ADR-0075)
+        // Tab 0 is active and currently at Subagent
+        router.select_tab(0);
         assert_eq!(router.active_scene(), SceneKind::Subagent);
+        assert_eq!(router.back_scene(), SceneKind::Thread);
+        assert_eq!(router.active_scene(), SceneKind::Thread);
+
+        // switch_scene to Dashboard activates Tab 1 under [INV-TAB-10]
+        router.switch_scene(SceneKind::Dashboard);
+        assert_eq!(router.active_tab_index(), 1);
+        assert_eq!(router.active_scene(), SceneKind::Dashboard);
         assert_eq!(
-            router.active_tab().unwrap().current_scene(),
-            SceneKind::Subagent
+            router.tabs()[0].current_scene(),
+            SceneKind::Thread,
+            "Tab 0 history must not be polluted by Dashboard switch"
         );
-        assert_eq!(router.back_scene(), SceneKind::Settings);
-        assert_eq!(router.active_scene(), SceneKind::Settings);
     }
 
     #[test]
@@ -1479,5 +1553,69 @@ mod tests {
         let tab = router.tabs().first().unwrap();
         assert_eq!(tab.label(), "thread");
         assert_eq!(tab.display_title(), None);
+    }
+
+    #[test]
+    fn test_inv_tab_10_and_inv_scene_02_discipline() {
+        let mut router = SurfaceRouter::new();
+
+        // Start with a thread tab
+        let idx0 = router.open_tab(ClientTab::thread("conv-main", Some("Main Thread")));
+        assert_eq!(idx0, 0);
+        assert_eq!(router.active_scene(), SceneKind::Thread);
+        assert_eq!(router.tabs()[0].breadcrumbs(), &[SceneKind::Thread]);
+
+        // [INV-SCENE-02]: Thread tab rejects cross-container scenes
+        let thread_tab = &mut router.tabs[0];
+        thread_tab.push_scene(SceneKind::Dashboard);
+        assert_eq!(thread_tab.current_scene(), SceneKind::Thread);
+        assert_eq!(thread_tab.breadcrumbs(), &[SceneKind::Thread]);
+
+        thread_tab.push_scene(SceneKind::Settings);
+        assert_eq!(thread_tab.current_scene(), SceneKind::Thread);
+        assert_eq!(thread_tab.breadcrumbs(), &[SceneKind::Thread]);
+
+        // Thread tab accepts intra-tab drill-in (Subagent)
+        thread_tab.push_scene(SceneKind::Subagent);
+        assert_eq!(thread_tab.current_scene(), SceneKind::Subagent);
+        assert_eq!(
+            thread_tab.breadcrumbs(),
+            &[SceneKind::Thread, SceneKind::Subagent]
+        );
+
+        // [INV-TAB-10]: switch_scene to Dashboard allocates/focuses Dashboard tab container
+        router.switch_scene(SceneKind::Dashboard);
+        assert_eq!(router.tabs().len(), 2);
+        assert_eq!(router.active_tab_index(), 1);
+        assert_eq!(router.active_scene(), SceneKind::Dashboard);
+
+        // Tab 0 history remains strictly intact and unpolluted
+        assert_eq!(
+            router.tabs()[0].breadcrumbs(),
+            &[SceneKind::Thread, SceneKind::Subagent],
+            "Tab 0 scene stack must be completely unaffected by opening Dashboard tab"
+        );
+
+        // Tab 1 (Dashboard) owns its own isolated history
+        assert_eq!(router.tabs()[1].kind, TabKind::Dashboard);
+        assert_eq!(router.tabs()[1].breadcrumbs(), &[SceneKind::Dashboard]);
+        assert!(!router.tabs()[1].can_back());
+
+        // [INV-SCENE-02]: Dashboard tab rejects thread scenes
+        let dash_tab = &mut router.tabs[1];
+        dash_tab.push_scene(SceneKind::Thread);
+        assert_eq!(dash_tab.current_scene(), SceneKind::Dashboard);
+        dash_tab.push_scene(SceneKind::Subagent);
+        assert_eq!(dash_tab.current_scene(), SceneKind::Dashboard);
+
+        // Back navigation on Dashboard tab stays at root Dashboard scene
+        assert_eq!(router.back_scene(), SceneKind::Dashboard);
+        assert_eq!(router.active_scene(), SceneKind::Dashboard);
+
+        // Switch back to Tab 0: restores Subagent scene depth
+        router.select_tab(0);
+        assert_eq!(router.active_scene(), SceneKind::Subagent);
+        assert_eq!(router.back_scene(), SceneKind::Thread);
+        assert_eq!(router.active_scene(), SceneKind::Thread);
     }
 }

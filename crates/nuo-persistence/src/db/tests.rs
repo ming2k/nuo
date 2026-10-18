@@ -1061,6 +1061,79 @@ mod supervision {
         assert_eq!(reader.get_kv("after").unwrap().as_deref(), Some("v"));
     }
 
+    /// ADR-0231 reader-wedge self-heal: removing the on-disk `-wal`/`-shm`
+    /// pair under a live writer leaves every fresh read-only open failing at
+    /// the WAL-index attach (`disk I/O error`) while the writer keeps
+    /// serving and its health stays `Healthy`. Past the failure threshold
+    /// the handle requests an engine rebuild; the supervisor retires the old
+    /// generation with the `RetireEngine` handshake — the engine's clean
+    /// close checkpoints the still-open unlinked WAL back into the main
+    /// database — and only then opens the fresh generation. Both are
+    /// asserted: the pre-wedge write survives (recovery), and reader opens
+    /// succeed afterwards (service). A concurrent fresh open against a live
+    /// wedged engine is itself a disk-I/O failure, which is why the
+    /// handshake exists.
+    #[tokio::test]
+    async fn reader_wedge_heals_through_engine_rebuild() {
+        let (_dir, path) = temp_db();
+        let handle = PersistenceHandle::spawn(path.clone(), None);
+        // A small commit stays far under the 1000-page autocheckpoint
+        // boundary, so its frames live only in the WAL — the wedge deletes
+        // exactly the file holding the durable copy.
+        let value = format!("pre-wedge-{}", std::process::id());
+        handle
+            .set_kv("wedge-key".into(), value.clone())
+            .await
+            .expect("writer must be serving before the wedge");
+
+        // The wedge: delete the WAL sidecars while the writer is live.
+        let wedge = |suffix: &str| {
+            let sidecar = std::path::PathBuf::from(format!("{}{}", path.display(), suffix));
+            let _ = std::fs::remove_file(&sidecar);
+        };
+        wedge("-wal");
+        wedge("-shm");
+
+        // Fresh read-only opens now fail. Crossing the threshold fires the
+        // one-shot rebuild request (fire-and-forget; the call stays sync).
+        for _ in 0..READER_REBUILD_FAILURE_THRESHOLD {
+            assert!(
+                handle.reader().is_err(),
+                "read-only open must fail against the wedged WAL state"
+            );
+        }
+
+        // The rebuild lands asynchronously: poll until reader opens succeed.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let healed = loop {
+            if Instant::now() >= deadline {
+                break false;
+            }
+            if handle.reader().is_ok() {
+                break true;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        };
+        assert!(healed, "engine rebuild never restored reader opens");
+
+        // The pre-wedge write is durable: the retired generation's clean
+        // close checkpointed the unlinked WAL into the main database before
+        // the fresh generation opened.
+        let reader = handle.reader().unwrap();
+        assert_eq!(
+            reader.get_kv("wedge-key").unwrap().as_deref(),
+            Some(value.as_str())
+        );
+        // A subsequent failure burst starts a fresh episode: the latch and
+        // counter were cleared by the successful open.
+        assert_eq!(
+            handle
+                .reader_open_failures
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+    }
+
     /// ADR-0236 D3: a commit that is durable but whose acknowledgement was
     /// lost (writer death between COMMIT and ack) is resolved by operation
     /// identity on replay — exactly one committed result, no duplicated

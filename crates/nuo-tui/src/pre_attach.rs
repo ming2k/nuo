@@ -69,6 +69,13 @@ pub struct PreAttachState {
     /// immediate visual feedback and swallowing further keystrokes while the
     /// trusted snapshot round-trips.
     submitting: bool,
+    /// The server's attestation outcome for the last submitted decision
+    /// (ADR-0175): `Some(message)` when the grant could not be persisted
+    /// (e.g. the durable trust store is unavailable). Rendered on the
+    /// surface so a failed confirmation is an actionable message instead of
+    /// a silent loop of the same dialog, and reset with `submitting` so the
+    /// user can retry or quit.
+    attestation_error: Option<String>,
     /// The quarantined domains present in this workspace.
     domains: Vec<nuo_wire::TrustDomain>,
 }
@@ -116,6 +123,7 @@ impl PreAttachState {
             model,
             acceptance: false,
             submitting: false,
+            attestation_error: None,
             domains,
         })
     }
@@ -145,6 +153,7 @@ impl PreAttachState {
             model,
             acceptance: true,
             submitting: false,
+            attestation_error: None,
             domains,
         }
     }
@@ -160,6 +169,23 @@ impl PreAttachState {
     /// `true` when a trust decision has been submitted and is pending unmount.
     pub fn submitting(&self) -> bool {
         self.submitting
+    }
+
+    /// The server's attestation outcome for the last submitted decision, if
+    /// it failed (ADR-0175). `Some` also implies `!submitting`: the
+    /// round-trip resolved with a failure, so the surface is interactive
+    /// again and renders the failure where the submitting spinner was.
+    pub fn attestation_error(&self) -> Option<&str> {
+        self.attestation_error.as_deref()
+    }
+
+    /// Record a failed trust-grant round-trip (ADR-0175). Resets
+    /// `submitting` so the surface resumes the decision instead of spinning,
+    /// and keeps the question mounted — the user retries or quits with full
+    /// knowledge of why the last confirmation did not take effect.
+    pub fn note_attestation_error(&mut self, message: String) {
+        self.submitting = false;
+        self.attestation_error = Some(message);
     }
 
     /// The trust-gate [`QuestionModel`] backing this surface. The
@@ -293,6 +319,41 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
             panel,
         );
         return;
+    }
+
+    // Failed attestation of the last decision (ADR-0175): render the
+    // server's outcome instead of looping the dialog silently.
+    if let Some(error) = state.attestation_error() {
+        push_wrapped_styled(
+            &mut lines,
+            INDENT,
+            INDENT,
+            "Trust could not be applied:",
+            Style::default()
+                .fg(theme.err())
+                .add_modifier(Modifier::BOLD),
+            body_width,
+        );
+        lines.push(Line::default());
+        push_wrapped_styled(
+            &mut lines,
+            INDENT,
+            INDENT,
+            error,
+            Style::default().fg(theme.err()),
+            body_width,
+        );
+        lines.push(Line::default());
+        push_wrapped_styled(
+            &mut lines,
+            INDENT,
+            INDENT,
+            "Adjust the selection and press Enter to retry, or Esc to keep quarantined.",
+            Style::default().fg(theme.muted()),
+            body_width,
+        );
+        lines.push(Line::default());
+        lines.push(Line::default());
     }
 
     // Question body
@@ -538,6 +599,26 @@ mod tests {
         let mut state = PreAttachState::from_snapshot(&quarantined_snapshot()).unwrap();
         let decision = state.apply(QuestionAction::Cancel);
         assert_eq!(decision, Some(PreAttachDecision::Quit));
+    }
+
+    /// A failed attestation round-trip (ADR-0175): the failure message is
+    /// carried on the surface, `submitting` clears so the decision resumes,
+    /// and the next submit re-dispatches the complete selection.
+    #[test]
+    fn attestation_failure_resumes_the_decision() {
+        let mut state = PreAttachState::from_snapshot(&quarantined_snapshot()).unwrap();
+        assert_eq!(state.attestation_error(), None);
+        let _ = state.apply(QuestionAction::Submit);
+        assert!(state.submitting());
+
+        state.note_attestation_error("cannot open sqlite db".to_string());
+        assert!(!state.submitting());
+        assert_eq!(state.attestation_error(), Some("cannot open sqlite db"));
+
+        let retry = state.apply(QuestionAction::Submit);
+        assert!(matches!(retry, Some(PreAttachDecision::Trust { .. })));
+        assert!(state.submitting());
+        assert_eq!(state.attestation_error(), Some("cannot open sqlite db"));
     }
 
     #[test]

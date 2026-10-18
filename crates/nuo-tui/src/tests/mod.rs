@@ -437,6 +437,7 @@ mod elevation_pipeline;
 mod history_recall;
 mod input;
 mod modal;
+mod pre_attach_gate;
 mod provider_routes;
 mod runtime_views;
 mod transcript;
