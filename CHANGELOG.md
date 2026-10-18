@@ -6,6 +6,17 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.38] - 2026-10-18
+
+### Added
+
+- **Dynamic Composer Height Scroll Reflow & Sticky Viewport Underflow Protection**:
+  - Unified composer height calculation across the event loop and transcript renderer via `calculate_composer_height`, eliminating geometry drift during multiline editing.
+  - Interactive transcript view now adjusts dynamically in real time when multiline input expands or shrinks the composer box, maintaining proper viewport scroll anchors and preventing content jumping.
+  - Added sticky collapse underflow guard: collapses transcript scroll to top when total content fits within the viewport.
+  - Sanitized connection quota headers in `/connections`: suppressed redundant provider/quota plan names (e.g. `Antigravity Quota`, `google-antigravity`) to keep badge rows clean and uncluttered.
+  - Cleaned Google Antigravity quota parser to emit `None` for plan names when upstream responses echo generic service titles rather than actual tier names.
+
 ## [0.0.37] - 2026-11-17
 
 ### Added
