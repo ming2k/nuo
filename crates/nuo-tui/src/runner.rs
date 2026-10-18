@@ -187,6 +187,8 @@ pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::er
                 crate::StartupOverlay::Settings { category: cat },
                 prompt,
                 port,
+                remote,
+                token,
             )
             .await
         }
@@ -207,6 +209,8 @@ pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::er
                 overlay,
                 prompt,
                 port,
+                remote,
+                token,
             )
             .await
         }
@@ -225,6 +229,8 @@ pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::er
                     overlay,
                     Some(prompt),
                     port,
+                    remote,
+                    token,
                 )
                 .await
             } else {
@@ -256,6 +262,8 @@ pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::er
                 overlay,
                 prompt,
                 port,
+                remote,
+                token,
             )
             .await
         }
@@ -311,6 +319,8 @@ pub async fn run_dashboard(
         crate::StartupOverlay::Dashboard,
         None,
         None,
+        None,
+        None,
     )
     .await
 }
@@ -327,15 +337,26 @@ pub async fn run_attached(
     initial_overlay: crate::StartupOverlay,
     mut initial_prompt: Option<String>,
     explicit_port: Option<u16>,
+    remote: Option<String>,
+    token: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let raw_root = project_override
-        .clone()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let project_root = nuo_host::paths::find_project_root(&raw_root);
-    let info = client::ensure_server_explicit(&project_root, explicit_port).await?;
-    if !client::versions_compatible(&info) {
-        return Err(client::incompatibility_error(&info).into());
-    }
+    let target_server = match remote {
+        Some(addr) => {
+            let remote_server = client::RemoteServer::parse(&addr, token)?;
+            client::ClientTarget::Remote(remote_server)
+        }
+        None => {
+            let raw_root = project_override
+                .clone()
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            let project_root = nuo_host::paths::find_project_root(&raw_root);
+            let info = client::ensure_server_explicit(&project_root, explicit_port).await?;
+            if !client::versions_compatible(&info) {
+                return Err(client::incompatibility_error(&info).into());
+            }
+            client::ClientTarget::Local(info)
+        }
+    };
     let mut target = session_id.clone();
     let mut fresh_pending = fresh;
     let mut pick_pending = session_id.is_none() && !fresh;
@@ -378,7 +399,7 @@ pub async fn run_attached(
         };
         fresh_pending = false;
         pick_pending = false;
-        let handshake = client::connect(&info, action).await?;
+        let handshake = target_server.connect(action).await?;
         let (
             tx,
             rx,
@@ -415,11 +436,9 @@ pub async fn run_attached(
                 command_catalog,
             ),
             client::Handshake::Pick(_) => {
-                let handshake = client::connect(
-                    &info,
-                    client::AttachAction::Picker(Some(init_options.clone())),
-                )
-                .await?;
+                let handshake = target_server
+                    .connect(client::AttachAction::Picker(Some(init_options.clone())))
+                    .await?;
                 match handshake {
                     client::Handshake::Attached {
                         req_tx,
@@ -511,11 +530,22 @@ pub async fn run_attached(
             None => {
                 guard.0 = false;
                 crate::terminal::restore_terminal();
-                if info.port > 0 {
-                    eprintln!(
-                        "nuo: detached from hosted server (PID {}, port {}).\n  • Reconnect:   nuo\n  • Terminate:   nuo stop",
-                        info.pid, info.port
-                    );
+                match &target_server {
+                    client::ClientTarget::Local(info) => {
+                        if info.port > 0 {
+                            eprintln!(
+                                "nuo: detached from hosted server (PID {}, port {}).\n  • Reconnect:   nuo\n  • Terminate:   nuo stop",
+                                info.pid, info.port
+                            );
+                        }
+                    }
+                    client::ClientTarget::Remote(rem) => {
+                        eprintln!(
+                            "nuo: detached from remote server ({}).\n  • Reconnect:   nuo --remote {} --token <token>",
+                            rem.endpoint_display(),
+                            rem.endpoint_display()
+                        );
+                    }
                 }
                 return Ok(());
             }

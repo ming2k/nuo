@@ -127,9 +127,7 @@ impl ConnectionAuth {
         match self {
             ConnectionAuth::Subscription { provider } => match provider.as_ref() {
                 "chatgpt" | "google-antigravity" => Some(LoginMethod::Browser),
-                "xai" | "copilot" | "qoder" | "opencode" | "opencode-go" => {
-                    Some(LoginMethod::Device)
-                }
+                "xai" | "copilot" | "qoder" => Some(LoginMethod::Device),
                 _ => Some(LoginMethod::Browser),
             },
             ConnectionAuth::ApiKey => None,
@@ -143,7 +141,7 @@ impl ConnectionAuth {
                 "chatgpt" => true,
                 "google-antigravity" => method == LoginMethod::Browser,
                 "xai" => true,
-                "copilot" | "qoder" | "opencode" | "opencode-go" => method == LoginMethod::Device,
+                "copilot" | "qoder" => method == LoginMethod::Device,
                 _ => true,
             },
             ConnectionAuth::ApiKey => false,
@@ -187,17 +185,6 @@ mod tests {
             ConnectionAuth::subscription("xai").default_login_method(),
             Some(LoginMethod::Device)
         );
-        assert_eq!(
-            ConnectionAuth::subscription("opencode").default_login_method(),
-            Some(LoginMethod::Device)
-        );
-    }
-
-    #[test]
-    fn opencode_is_device_only() {
-        let opencode = ConnectionAuth::subscription("opencode");
-        assert!(opencode.supports_login_method(LoginMethod::Device));
-        assert!(!opencode.supports_login_method(LoginMethod::Browser));
     }
 
     #[test]

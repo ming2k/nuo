@@ -82,7 +82,7 @@ pub const COMMANDCODE_BUILTIN_MODELS: &[&str] = &[
     "deepseek/deepseek-v4-pro",
 ];
 
-pub const OPENCODE_GO_MODELS: &[&str] = &[
+pub const OPENCODE_PLAN_MODELS: &[&str] = &[
     "deepseek-v4.1-flash",
     "deepseek-v4-pro",
     "glm-5.3-flash",
@@ -95,17 +95,8 @@ pub const OPENCODE_GO_MODELS: &[&str] = &[
     "glm-5.3-flash-free",
 ];
 
-pub const OPENCODE_CONSOLE_MODELS: &[&str] = &[
-    "deepseek-v4.1-flash",
-    "glm-5.3-flash",
-    "claude-sonnet-4-6",
-    "deepseek-v4.1-flash-free",
-    "glm-5.3-flash-free",
-];
+pub const OPENCODE_GO_MODELS: &[&str] = OPENCODE_PLAN_MODELS;
 
-/// OpenCode Zen relay seeds. The key-authenticated `/zen/v1` surface publishes
-/// a public `/zen/v1/models` catalog, which is authoritative; this is the
-/// offline seed before the first refresh.
 pub const OPENCODE_ZEN_MODELS: &[&str] = &[
     "deepseek-v4.1-flash",
     "glm-5.3-flash",
@@ -234,7 +225,6 @@ pub const MODEL_PROVIDER_IDS: &[&str] = &[
     "glm-cn",
     "kimi-code",
     "openrouter",
-    "opencode",
     "opencode-zen",
     "opencode-plan",
     "qoder",
@@ -255,6 +245,9 @@ pub fn is_known_model_provider(id: &str) -> bool {
 /// aliases exist **only** to migrate an existing `connections.toml` on load —
 /// nothing serializes them back.
 pub fn canonical_provider_id(id: &str) -> Option<String> {
+    // The OpenCode Console surface (`opencode`) was retired outright
+    // (ADR-0079): its id deliberately does not canonicalize, so a stale
+    // `connections.toml` row fails loudly as an unknown provider.
     let canonical = match id {
         "chatgpt" | "chatgpt-oauth" | "openai-subscription" => "chatgpt-plan",
         "commandcode" | "command-code" => "commandcode-plan",
@@ -347,6 +340,8 @@ mod provider_id_tests {
             Some("google")
         );
         assert_eq!(canonical_provider_id("gemini").as_deref(), Some("google"));
+        // The retired OpenCode Console id must not resurrect (ADR-0079).
+        assert!(canonical_provider_id("opencode").is_none());
         assert!(canonical_provider_id("does-not-exist").is_none());
         assert!(canonical_provider_id("").is_none());
     }

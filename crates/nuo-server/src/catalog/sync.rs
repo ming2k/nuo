@@ -107,7 +107,6 @@ const fn catalog_shape_id(protocol: CatalogShape) -> &'static str {
         CatalogShape::Google => "google",
         CatalogShape::GoogleCloudCode => "google-cloud-code",
         CatalogShape::Codex => "codex",
-        CatalogShape::OpencodeConsole => "opencode-console",
         CatalogShape::SceneMap => "scene-map",
     }
 }
@@ -192,9 +191,6 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
                             .map(|m| m.project_id.as_str())
                             .filter(|s| !s.trim().is_empty())
                     }),
-                org_id: auth
-                    .extension::<nuo_wire::OpencodeAuthMetadata>()
-                    .map(|m| m.org_id.as_str()),
                 user_agent: Some(client_profile.user_agent()),
                 extra_headers: &extra_headers,
                 catalog_signing,

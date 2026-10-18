@@ -810,9 +810,9 @@ fn deepseek_route_is_the_responses_transport() {
 }
 
 #[test]
-fn opencode_go_routes_models_by_wire_format() {
+fn opencode_plan_routes_models_by_wire_format() {
     ensure_test_init();
-    let go = instance("opencode-go", Some("opencode-go"));
+    let go = instance("opencode-plan", Some("opencode-plan"));
     let glm = derive_channel(
         &go,
         "glm-5.2",
@@ -856,50 +856,10 @@ fn opencode_go_routes_models_by_wire_format() {
         "qwen3.6-plus must route to the Anthropic inference/go surface"
     );
     assert_eq!(
-        route_for_model("opencode-go", "qwen3.6-plus").map(|(p, b, _)| (p, b)),
+        route_for_model("opencode-plan", "qwen3.6-plus").map(|(p, b, _)| (p, b)),
         Some((
             WireProtocol::AnthropicMessages,
             "https://opencode.ai/inference/go/anthropic/v1/messages".to_string()
-        ))
-    );
-}
-
-#[test]
-fn opencode_console_routes_models_by_wire_format() {
-    let console = instance("opencode", Some("opencode"));
-    let deepseek = derive_channel(
-        &console,
-        "deepseek-v4-flash",
-        &inputs_of(
-            &RemoteCatalogCache::default(),
-            &RouteSettingsStore::default(),
-            &Credentials::default(),
-        ),
-    )
-    .unwrap();
-    assert!(
-        matches!(&deepseek.transport, Transport::OpenAi { base_url, client_profile, .. } if base_url == "https://opencode.ai/inference/openai/v1/chat/completions" && *client_profile == nuo_wire::ClientProfile::OpenCode),
-        "deepseek-v4-flash must route to OpenAI chat-completions on Console inference surface"
-    );
-    let claude = derive_channel(
-        &console,
-        "claude-sonnet-4-6",
-        &inputs_of(
-            &RemoteCatalogCache::default(),
-            &RouteSettingsStore::default(),
-            &Credentials::default(),
-        ),
-    )
-    .unwrap();
-    assert!(
-        matches!(&claude.transport, Transport::Anthropic { base_url, .. } if base_url == "https://opencode.ai/inference/anthropic/v1/messages"),
-        "claude-sonnet-4-6 must route to the Anthropic /messages surface on Console inference surface"
-    );
-    assert_eq!(
-        route_for_model("opencode", "claude-sonnet-4-6").map(|(p, b, _)| (p, b)),
-        Some((
-            WireProtocol::AnthropicMessages,
-            "https://opencode.ai/inference/anthropic/v1/messages".to_string()
         ))
     );
 }
@@ -1378,135 +1338,6 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
     assert!(
         !models.contains(&"gemini-2.5-flash".to_string()),
         "legacy 2.5 flash generation must stay suppressed"
-    );
-}
-
-#[tokio::test]
-async fn opencode_console_catalog_materializes_per_model_routes() {
-    // The Console `/api/config` response is the account's catalog AND routing
-    // authority (ADR-0269): each advertised id materializes with its
-    // per-model wire protocol and, when overridden, its inference root. The
-    // compiled `opencode-go` preset targets the real Console, so the same
-    // shape is served here by a mockito-backed user-declared provider.
-    let _sandbox = sandboxed_paths();
-    let mut server = mockito::Server::new_async().await;
-    let _mock = server
-        .mock("GET", "/api/config")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(
-            r#"{
-                "config": {
-                    "provider": {
-                        "opencode": {
-                            "npm": "@ai-sdk/openai-compatible",
-                            "api": "https://opencode.ai/inference/openai/v1",
-                            "models": {
-                                "minimax-m3": { "name": "MiniMax-M3", "reasoning": true, "tool_call": true },
-                                "glm-5.3": { "name": "GLM-5.3", "reasoning": true, "tool_call": true },
-                                "claude-opus-5": {
-                                    "name": "Claude Opus 5",
-                                    "reasoning": true,
-                                    "tool_call": true,
-                                    "provider": {
-                                        "npm": "@ai-sdk/anthropic",
-                                        "api": "https://opencode.ai/inference/anthropic/v1"
-                                    }
-                                },
-                                "gemini-3.5-flash": {
-                                    "name": "Gemini 3.5 Flash",
-                                    "provider": {
-                                        "npm": "@ai-sdk/google",
-                                        "api": "https://opencode.ai/inference/google/v1beta"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }"#,
-        )
-        .create_async()
-        .await;
-
-    let provider_id = "test-mock-opencode-console";
-    register_mock_provider(
-        provider_id,
-        &server.url(),
-        WireProtocol::ChatCompletions,
-        &[],
-        nuo_provider::CatalogShape::OpencodeConsole,
-    );
-    Connections {
-        connections: vec![Connection {
-            name: "console".to_string(),
-            provider: provider_id.to_string(),
-            ..Default::default()
-        }],
-    }
-    .save()
-    .unwrap();
-
-    let outcome = sync_connection_catalog("console").await;
-    assert!(
-        outcome.changed && outcome.failures.is_empty(),
-        "console catalog sync must succeed: {outcome:?}"
-    );
-
-    let cache = RemoteCatalogCache::load();
-    let models = cache
-        .connection_models
-        .get("console")
-        .expect("catalog lands in the cache");
-    assert_eq!(
-        models,
-        &vec![
-            "claude-opus-5".to_string(),
-            "gemini-3.5-flash".to_string(),
-            "glm-5.3".to_string(),
-            "minimax-m3".to_string()
-        ],
-        "every advertised id is materialized, sorted by id"
-    );
-    let remote = cache.remote_metadata.get("console").unwrap();
-    // No per-model override → provider-default npm → chat, no root override.
-    assert_eq!(
-        remote["minimax-m3"].protocol,
-        Some(WireProtocol::ChatCompletions)
-    );
-    assert_eq!(remote["minimax-m3"].endpoint, None);
-    // npm → wire, api → advertised root, round-tripped through the cache.
-    assert_eq!(
-        remote["claude-opus-5"].protocol,
-        Some(WireProtocol::AnthropicMessages)
-    );
-    assert_eq!(
-        remote["claude-opus-5"].endpoint.as_deref(),
-        Some("https://opencode.ai/inference/anthropic/v1")
-    );
-    assert_eq!(
-        remote["gemini-3.5-flash"].protocol,
-        Some(WireProtocol::GoogleGemini)
-    );
-
-    // Derivation honors the advertised root: the Anthropic model builds its
-    // transport against the Console Anthropic surface, not the spec default.
-    let conn = instance("console", Some(provider_id));
-    let channel = derive_channel(
-        &conn,
-        "claude-opus-5",
-        &inputs_of(
-            &cache,
-            &RouteSettingsStore::default(),
-            &Credentials::default(),
-        ),
-    )
-    .unwrap();
-    assert!(
-        matches!(&channel.transport, Transport::Anthropic { base_url, .. }
-            if base_url == "https://opencode.ai/inference/anthropic/v1/messages"),
-        "advertised root must select the Anthropic surface, got {:?}",
-        channel.transport
     );
 }
 
@@ -2141,12 +1972,12 @@ fn provider_dialect_rejects_incompatible_remote_protocol_without_panicking() {
 fn provider_dialect_selects_endpoint_after_remote_protocol_override() {
     let _sandbox = sandboxed_paths();
     assert_eq!(
-        nuo_provider::model_provider_spec("opencode")
+        nuo_provider::model_provider_spec("opencode-zen")
             .unwrap()
             .model_protocol("glm-5.2"),
         WireProtocol::ChatCompletions
     );
-    let conn = instance("endpoint-order", Some("opencode"));
+    let conn = instance("endpoint-order", Some("opencode-zen"));
     let mut cache = RemoteCatalogCache::default();
     cache
         .remote_metadata
@@ -2177,10 +2008,10 @@ fn provider_dialect_selects_endpoint_after_remote_protocol_override() {
 
 #[test]
 fn catalog_advertised_root_replaces_the_compiled_spec_route() {
-    // ADR-0269: a per-model `endpoint` root from the account catalog overrides
+    // ADR-0079: a per-model `endpoint` root from the remote catalog overrides
     // the spec's route, with the suffix still appended by the ADR-0259 algebra.
     let _sandbox = sandboxed_paths();
-    let conn = instance("root-override", Some("opencode"));
+    let conn = instance("root-override", Some("opencode-zen"));
     let mut cache = RemoteCatalogCache::default();
     cache
         .remote_metadata

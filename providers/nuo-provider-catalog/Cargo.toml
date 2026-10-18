@@ -18,8 +18,6 @@ nuo-model-codec = { workspace = true }
 # list_models.rs:330 — `crate::protocol::anthropic::request::ANTHROPIC_VERSION`.
 # NOT optional: the Anthropic catalog parser stamps this version header.
 nuo-provider-anthropic = { workspace = true }
-# list_models.rs:370 — `crate::registry::opencode::parse_config_catalog`.
-nuo-provider-opencode = { workspace = true }
 # list_models.rs:387 — `crate::registry::qoder::parse_scene_catalog`.
 nuo-provider-qoder = { workspace = true }
 # ADR-0068: Google Antigravity catalog parsing owned by its provider crate

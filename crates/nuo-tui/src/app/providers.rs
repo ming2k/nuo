@@ -123,7 +123,6 @@ impl App {
                 "copilot" => "Copilot",
                 "google-antigravity" => "Google Antigravity",
                 "qoder" => "Qoder",
-                "opencode" | "opencode-go" => "OpenCode Go",
                 _ => "xAI",
             },
             nuo_wire::ConnectionAuth::ApiKey => "Custom",

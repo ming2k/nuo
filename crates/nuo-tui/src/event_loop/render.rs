@@ -1008,7 +1008,6 @@ fn compose_frame(
                                 "xai" => "xAI",
                                 "google-antigravity" => "Google Antigravity",
                                 "qoder" => "Qoder",
-                                "opencode" | "opencode-go" => "OpenCode Go",
                                 _ => "Subscription",
                             }
                         }
@@ -1229,7 +1228,7 @@ fn compose_frame(
     if app.esc_armed() {
         render::draw_armed_toast(f, "Esc again interrupts", &app.theme);
     } else if app.ctrl_c_armed() {
-        render::draw_armed_toast(f, "press Ctrl-c again to exit", &app.theme);
+        render::draw_armed_toast(f, "press Ctrl-c again to detach", &app.theme);
     } else if app.copy_toast_until.is_some() {
         render::draw_copy_toast(
             f,

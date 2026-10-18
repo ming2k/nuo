@@ -564,7 +564,7 @@ pub enum InputAction {
     /// Step back one level inside the active Scene — a dropdown, a drill-in
     /// pane, the dashboard's preview or inline prompt. Esc on a scene produces
     /// this (ADR-0298 §2). It never leaves the Scene: tab closure is
-    /// [`InputAction::CloseTab`] (`C-x w` / `C-x k`), never the universal
+    /// [`InputAction::CloseTab`] (`C-x w`, ADR-0077), never the universal
     /// dismiss chord (ADR-0205 `[INV-TUI-CLEAN-02]`).
     SceneBack,
     /// Navigate directly to the server session orchestrator dashboard scene (`C-x d`).

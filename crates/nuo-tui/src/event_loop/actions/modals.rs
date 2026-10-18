@@ -504,7 +504,7 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
 /// quits *from* an overlay. No branch leaves a Scene (ADR-0205
 /// `[INV-TUI-CLEAN-02]`): Esc over a Scene's own chrome produces
 /// [`InputAction::SceneBack`] instead, and tab closure is
-/// [`InputAction::CloseTab`] (`C-x w` / `C-x k`, ADR-0043).
+/// [`InputAction::CloseTab`] (`C-x w`, ADR-0043, ADR-0077).
 pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
     // Sub-page back-out is checked FIRST (deepest level wins),
     // so Esc from a drill-in always returns to its parent view
@@ -566,7 +566,7 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
 /// This is a **program exit**, not a scene transition: with no thread
 /// ever requested, "returning" to the carrier chat would trap the user in an
 /// empty session (the trap ADR-0205's startup carve-outs exist to prevent).
-/// Called from the scene-exit verbs (`C-x w`/`C-x k`, each scene's own `q`)
+/// Called from the scene-exit verbs (`C-x w`, each scene's own `q`)
 /// after the scene itself declined to navigate. Returns `true` when it handled
 /// the exit by quiting.
 pub(crate) fn quit_standalone_scene_at_startup(app: &mut App) -> bool {

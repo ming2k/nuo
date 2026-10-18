@@ -298,15 +298,15 @@ impl RawConnection {
     }
 }
 
-/// ADR-0268: OpenCode Go is an OpenCode Console account surface, authenticated
-/// OpenCode Go connects to the zen/go relay using an API key (`OPENCODE_API_KEY`).
-/// Connections mistakenly configured with OpenCode Console OAuth are restored
-/// to `ApiKey` on load so they authenticate properly.
+/// ADR-0268/ADR-0079: OpenCode Plan connects to the zen/go relay using an API
+/// key (`OPENCODE_API_KEY`). Connections still carrying the retired OpenCode
+/// Console OAuth subscription auth are restored to `ApiKey` on load so they
+/// authenticate properly.
 fn migrate_connection_auth(provider: &str, auth: ConnectionAuth) -> ConnectionAuth {
     if matches!(provider, "opencode-plan" | "opencode-go")
         && matches!(&auth, ConnectionAuth::Subscription { provider } if provider == "opencode")
     {
-        tracing::info!(provider, "restoring opencode-go connection to ApiKey");
+        tracing::info!(provider, "restoring opencode-plan connection to ApiKey");
         ConnectionAuth::ApiKey
     } else {
         auth

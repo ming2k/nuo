@@ -4,7 +4,7 @@ Standalone Rust Client SDK and wire communication protocols for the Nuo daemon.
 
 ## Overview
 
-`nuo-client` provides the programmatic client interface for interacting with a running `nuo` daemon. It serves as an architectural firewall preventing frontends (`nuox`, `web`) and automation tools from depending on internal daemon server or storage logic.
+`nuo-client` provides the programmatic client interface for interacting with a running `nuo` daemon. It serves as an architectural firewall preventing frontends (`nuo`, `web`) and automation tools from depending on internal daemon server or storage logic.
 
 ## Capabilities
 

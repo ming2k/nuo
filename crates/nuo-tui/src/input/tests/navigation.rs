@@ -671,7 +671,6 @@ fn scene_namespace_second_strokes_resolve_through_the_verb_table() {
             SceneVerb::Threads => InputAction::OpenSessions,
             SceneVerb::Dashboard => InputAction::NavigateDashboard,
             SceneVerb::Settings => InputAction::NavigateSettings,
-            SceneVerb::Quit => InputAction::CtrlC,
         };
         if let KeyCode::Char(c) = stroke.code {
             // Lowercase spelling.
@@ -695,11 +694,14 @@ fn scene_namespace_second_strokes_resolve_through_the_verb_table() {
         }
     }
 
-    // `Esc` and `C-g` cancel; so does any unclaimed stroke — a half-typed
-    // chord must never fall through and fire a global.
+    // `Esc` and `C-g` cancel; so does any unclaimed stroke (including `k`, `c`, `C-c`
+    // excised by ADR-0077) — a half-typed chord must never fall through and fire a global.
     for (code, mods) in [
         (KeyCode::Esc, KeyModifiers::NONE),
         (KeyCode::Char('g'), KeyModifiers::CONTROL),
+        (KeyCode::Char('k'), KeyModifiers::NONE),
+        (KeyCode::Char('c'), KeyModifiers::CONTROL),
+        (KeyCode::Char('c'), KeyModifiers::NONE),
         (KeyCode::Char('z'), KeyModifiers::NONE),
         (KeyCode::Enter, KeyModifiers::NONE),
     ] {
@@ -717,27 +719,33 @@ fn scene_namespace_second_strokes_resolve_through_the_verb_table() {
     );
 }
 
-/// A bare `c` carries no meaning inside the namespace: only `C-c` is the quit
-/// verdict, so a mistyped `c` cancels instead of quitting the app.
+/// ADR-0077 [INV-TUI-SURF-01]: Neither `c`, `C-c`, nor `k` carry any meaning inside the namespace;
+/// they all cancel safely instead of quitting or closing tabs.
 #[test]
-fn scene_namespace_bare_c_does_not_quit() {
-    let mut input = String::new();
-    let mut cursor = 0;
-    let mut drag = SelectionDrag::default();
-    let action = route_event(
-        Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE)),
-        &mut input,
-        &mut cursor,
-        Dispatch {
-            scene_namespace_armed: true,
-            ..Default::default()
-        },
-        &ModalKeys::default(),
-        &SheetKeys::default(),
-        &SceneKeys::default(),
-        &mut drag,
-    );
-    assert_eq!(action, InputAction::CancelSceneNamespace);
+fn scene_namespace_excised_strokes_cancel_safely() {
+    for (code, mods) in [
+        (KeyCode::Char('c'), KeyModifiers::NONE),
+        (KeyCode::Char('c'), KeyModifiers::CONTROL),
+        (KeyCode::Char('k'), KeyModifiers::NONE),
+    ] {
+        let mut input = String::new();
+        let mut cursor = 0;
+        let mut drag = SelectionDrag::default();
+        let action = route_event(
+            Event::Key(KeyEvent::new(code, mods)),
+            &mut input,
+            &mut cursor,
+            Dispatch {
+                scene_namespace_armed: true,
+                ..Default::default()
+            },
+            &ModalKeys::default(),
+            &SheetKeys::default(),
+            &SceneKeys::default(),
+            &mut drag,
+        );
+        assert_eq!(action, InputAction::CancelSceneNamespace);
+    }
 }
 
 #[test]
@@ -868,7 +876,7 @@ fn q_is_not_a_scene_exit_on_settings() {
 
 /// ADR-0298 §2: Esc on a scene never leaves it. On the Dashboard and Settings
 /// scenes it resolves to the scene-local step-back verb, whatever sub-layer is
-/// open — the scene's own exit is `C-x w`/`C-x k` (or `q`) only.
+/// open — the scene's own exit is `C-x w` (or `q`) only.
 #[test]
 fn esc_on_dashboard_and_settings_is_scene_local_back() {
     for scene in [

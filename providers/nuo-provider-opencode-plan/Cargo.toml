@@ -1,0 +1,18 @@
+[package]
+name = "nuo-provider-opencode-plan"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "OpenCode Plan subscription provider channel for Nuo (ADR-0015, ADR-0079)"
+
+[dependencies]
+nuo-provider = { workspace = true }
+nuo-model-codec = { workspace = true }
+inventory = { workspace = true }
+
+[dev-dependencies]
+nuo-provider-deepseek = { workspace = true }
+
+[lints]
+workspace = true

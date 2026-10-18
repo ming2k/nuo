@@ -175,7 +175,7 @@ fn escape_clears_focus() {
 
 /// ADR-0298 §2: Esc does not close a Scene. On the TaskInspection zoom it is
 /// inert once a completion and step/browse focus are clear — the scene's own
-/// exit is `q` (or `C-x w`/`C-x k`).
+/// exit is `q` (or `C-x w`).
 #[test]
 fn escape_never_exits_subagent_view() {
     let mut input = String::new();

@@ -24,7 +24,7 @@ use std::path::PathBuf;
 /// What the user asked the binary to do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
-    /// Interactive TUI session, thread picker, or headless run (`nuox` unified engine per ADR-0005, ADR-0048, ADR-0061).
+    /// Interactive TUI session, thread picker, or headless run (`nuo` unified engine per ADR-0005, ADR-0048, ADR-0061).
     Interactive(nuo_tui::cli::CliArgs),
     /// `nuo thread …` (ADR-0043, ADR-0048, ADR-0061).
     Thread(ThreadAction),
@@ -63,7 +63,7 @@ pub enum ThreadAction {
 pub enum ServerAction {
     /// `nuo server start` — start the session server.
     Start {
-        /// `--fg`: run in foreground (default: background detachment per ADR-0048).
+        /// `--fg`: run in foreground (default: background detachment; ADR-0048, ADR-0078).
         foreground: bool,
         port: Option<u16>,
         public: bool,
@@ -287,7 +287,9 @@ fn parse_u64(flag: &str, value: &str) -> Result<u64, FlagError> {
         .map_err(|_| FlagError::new(flag, format!("'{value}' is not a number")))
 }
 
-/// The `nuo server start` flags.
+/// The `nuo server start` flags. Detachment is the canonical posture
+/// (ADR-0078); `--fg` is the sole explicit foreground declaration.
+#[derive(Default)]
 struct ServerStartFlags {
     foreground: bool,
     port: Option<u16>,
@@ -298,35 +300,29 @@ struct ServerStartFlags {
     zero_tcp: bool,
 }
 
-impl Default for ServerStartFlags {
-    fn default() -> Self {
-        Self {
-            foreground: false,
-            port: None,
-            public: false,
-            no_local_auth: false,
-            idle_exit_minutes: None,
-            shutdown_grace_secs: None,
-            zero_tcp: false,
-        }
-    }
-}
-
-fn parse_server_start_flags(
-    args: &[String],
-    default_foreground: bool,
-) -> Result<ServerStartFlags, FlagError> {
-    let mut flags = ServerStartFlags {
-        foreground: default_foreground,
-        ..ServerStartFlags::default()
-    };
+fn parse_server_start_flags(args: &[String]) -> Result<ServerStartFlags, FlagError> {
+    let mut flags = ServerStartFlags::default();
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         let (name, inline) = split_flag(arg);
         match name {
             "--fg" | "--foreground" => flags.foreground = true,
-            "--detach" | "-d" | "--bg" => flags.foreground = false,
-            "--zero-tcp" | "--client-driven" => flags.zero_tcp = true,
+            // ADR-0078: legacy no-op / superseded spellings are refused with
+            // guidance — detachment IS the default posture, and `--zero-tcp`
+            // is the canonical spelling for client-driven mode (ADR-0045).
+            "--detach" | "--bg" | "-d" => {
+                return Err(FlagError::new(
+                    name,
+                    "was removed — `nuo server start` already runs detached; use `--fg` for foreground",
+                ));
+            }
+            "--client-driven" => {
+                return Err(FlagError::new(
+                    name,
+                    "was renamed — use `--zero-tcp` (canonical spelling per ADR-0045)",
+                ));
+            }
+            "--zero-tcp" => flags.zero_tcp = true,
             "--port" => {
                 flags.port = Some(parse_u16(
                     "--port",
@@ -555,7 +551,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             let sub_extra = &extra[1..];
             match sub.name {
                 "start" => {
-                    let flags = parse_server_start_flags(sub_extra, false).map_err(|e| e.0)?;
+                    let flags = parse_server_start_flags(sub_extra).map_err(|e| e.0)?;
                     Mode::Server(ServerAction::Start {
                         foreground: flags.foreground,
                         port: flags.port,
@@ -588,7 +584,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                             remaining.push(arg.clone());
                         }
                     }
-                    let flags = parse_server_start_flags(&remaining, false).map_err(|e| e.0)?;
+                    let flags = parse_server_start_flags(&remaining).map_err(|e| e.0)?;
                     Mode::Server(ServerAction::Restart {
                         force,
                         port: flags.port,
@@ -804,6 +800,8 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
             );
             out.push_str("      --no-confinement   disable workspace filesystem confinement\n");
             out.push_str("      --project <PATH>   operate on the project at <PATH>\n");
+            out.push_str("      --remote <ADDR>    connect to a remote server (e.g. wss://tunnel.domain.com, :9800)\n");
+            out.push_str("      --token <TOKEN>    authentication bearer token for remote server\n");
             out.push_str("  -h, --help             print help ('nuo help <command>' for more)\n");
             out.push_str("  -V, --version          print the version and exit\n");
             out.push_str("\nEnvironment:\n");
@@ -812,6 +810,9 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
             );
             out.push_str(
                 "  NUO_PORT              override default server TCP port (default: 9800)\n",
+            );
+            out.push_str(
+                "  NUO_TOKEN             fallback bearer token for remote server authentication\n",
             );
         }
         Some(topic) => {
@@ -1046,14 +1047,20 @@ mod surface_tests {
             })
         ));
 
-        let parsed_detach = parse(&["server", "start", "--detach"]).unwrap();
-        assert!(matches!(
-            parsed_detach.mode,
-            Mode::Server(ServerAction::Start {
-                foreground: false,
-                ..
-            })
-        ));
+        // ADR-0078: no-op legacy detachment and superseded spellings are
+        // removed with guidance.
+        for flag in ["--detach", "-d", "--bg"] {
+            let err = parse(&["server", "start", flag]).unwrap_err();
+            assert!(err.contains("already runs detached"), "{err}");
+            assert!(err.contains("--fg"), "{err}");
+        }
+        let err = parse(&["server", "start", "--client-driven"]).unwrap_err();
+        assert!(err.contains("--zero-tcp"), "{err}");
+        // restart shares the same flag space.
+        let err = parse(&["server", "restart", "--detach"]).unwrap_err();
+        assert!(err.contains("already runs detached"), "{err}");
+        let err = parse(&["server", "restart", "--client-driven"]).unwrap_err();
+        assert!(err.contains("--zero-tcp"), "{err}");
 
         let parsed_zero = parse(&["server", "start", "--zero-tcp"]).unwrap();
         assert!(matches!(

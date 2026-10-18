@@ -279,11 +279,8 @@ pub fn route_event(
                     Some(SceneVerb::Threads) => InputAction::OpenSessions,
                     Some(SceneVerb::Dashboard) => InputAction::NavigateDashboard,
                     Some(SceneVerb::Settings) => InputAction::NavigateSettings,
-                    // `C-x C-c` is the namespace's quit spelling; a bare `c`
-                    // carries no meaning here (it is not in the verb's strokes).
-                    Some(SceneVerb::Quit) => InputAction::CtrlC,
-                    // `Esc` / `C-g` / anything unrecognized cancels. A
-                    // half-typed chord must never fall through to a global.
+                    // ADR-0077: `Esc` / `C-g` / `k` / `c` / `C-c` / anything unrecognized cancels.
+                    // A half-typed chord must never fall through to a global.
                     None => InputAction::CancelSceneNamespace,
                 };
             }
@@ -480,7 +477,7 @@ pub fn route_event(
                         // dropdown, a drill-in pane, the dashboard's preview or
                         // inline prompt) and nothing else. It never leaves the
                         // scene (ADR-0205 `[INV-TUI-CLEAN-02]`): the scene's
-                        // own exit is `C-x w`/`C-x k` (ADR-0298 §1).
+                        // own exit is `C-x w` (ADR-0043, ADR-0077).
                         InputAction::SceneBack
                     } else {
                         InputAction::None

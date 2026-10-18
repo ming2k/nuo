@@ -282,32 +282,6 @@ pub async fn fetch_remote_catalog(
             }
             client.send(request).await.map_err(ModelListError::Http)?
         }
-        CatalogShape::OpencodeConsole => {
-            // The Console catalog is account-scoped: a bearer session token
-            // plus the `x-org-id` workspace header — the catalog's own spelling,
-            // distinct from the inference surface's `x-opencode-org-id`. The
-            // server answers 400 `OrgRequired` without an org selection.
-            let mut request =
-                nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
-                    .header("user-agent", user_agent)
-                    .header("accept", "application/json");
-            if !req.api_key.expose_secret().trim().is_empty() {
-                request = request.header(
-                    "authorization",
-                    format!("Bearer {}", req.api_key.expose_secret()),
-                );
-            }
-            if let Some(org_id) = req.org_id {
-                request = request.header("x-org-id", org_id);
-            }
-            if let Some(etag) = options.etag {
-                request = request.header("if-none-match", etag);
-            }
-            for (name, value) in req.extra_headers {
-                request = request.header(name, *value);
-            }
-            client.send(request).await.map_err(ModelListError::Http)?
-        }
     };
 
     let status = response.status;
@@ -403,13 +377,6 @@ impl CatalogParser for CodexCatalogParser {
     }
 }
 
-pub struct OpencodeConsoleCatalogParser;
-impl CatalogParser for OpencodeConsoleCatalogParser {
-    fn parse_json(&self, json: &Value) -> Vec<DiscoveredModel> {
-        nuo_provider_opencode::console::parse_config_catalog(json)
-    }
-}
-
 /// Parser for Qoder's scene-keyed catalog (`{"<scene>": [{"key": …}]}`).
 ///
 /// The response is a map from scene name to that scene's model entries. The
@@ -449,7 +416,6 @@ pub fn parser_for_with_dimensions(
         CatalogShape::Google => Box::new(GoogleCatalogParser),
         CatalogShape::GoogleCloudCode => Box::new(GoogleCloudCodeCatalogParser),
         CatalogShape::Codex => Box::new(CodexCatalogParser),
-        CatalogShape::OpencodeConsole => Box::new(OpencodeConsoleCatalogParser),
         CatalogShape::SceneMap => {
             let scene = dimensions
                 .iter()
@@ -494,12 +460,6 @@ fn validate_catalog_shape(protocol: CatalogShape, json: &Value) -> Result<(), Mo
             .get("models")
             .is_some_and(|models| models.is_array() || models.is_object()),
         CatalogShape::Codex => json.get("models").is_some_and(Value::is_array),
-        CatalogShape::OpencodeConsole => json
-            .get("config")
-            .and_then(|config| config.get("provider"))
-            .and_then(|providers| providers.get("opencode"))
-            .and_then(|provider| provider.get("models"))
-            .is_some_and(Value::is_object),
         // A scene map is an object whose values are arrays. An empty object is
         // structurally valid (an account may have no models in any scene).
         CatalogShape::SceneMap => json
@@ -516,9 +476,6 @@ fn validate_catalog_shape(protocol: CatalogShape, json: &Value) -> Result<(), Mo
                     "response is missing the required models collection"
                 }
                 CatalogShape::GoogleCloudCode => "response is missing the required models map",
-                CatalogShape::OpencodeConsole => {
-                    "response is missing the required config.provider.opencode models map"
-                }
                 CatalogShape::SceneMap => "response is not a scene-keyed map of model arrays",
             }
             .to_string(),
@@ -999,11 +956,6 @@ mod tests {
                 CatalogShape::GoogleCloudCode,
                 "https://relay.example/team",
                 "https://relay.example/team/v1internal:fetchAvailableModels",
-            ),
-            (
-                CatalogShape::OpencodeConsole,
-                "https://opencode.ai/console",
-                "https://opencode.ai/console/api/config",
             ),
             // A path that happens to resemble an inference endpoint is still a root.
             (

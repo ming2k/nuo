@@ -1,4 +1,4 @@
-//! The `opencode-go` provider preset: OpenCode Go subscription surface
+//! The `opencode-plan` provider channel: OpenCode Plan subscription surface
 //! (`opencode.ai/zen/go/v1`), authenticated via OpenCode Go API key
 //! (`OPENCODE_API_KEY`).
 
@@ -7,8 +7,8 @@ use nuo_model_codec::{Model, WireProtocol};
 
 use nuo_provider::*;
 
-/// Curated seed models offered by the OpenCode Go preset.
-pub use nuo_model_codec::model_providers::OPENCODE_GO_MODELS;
+/// Curated seed models offered by the OpenCode Plan channel.
+pub use nuo_model_codec::model_providers::OPENCODE_PLAN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves.
 ///
@@ -431,7 +431,7 @@ inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
 #[cfg(test)]
 mod tests {
-    use super::{MODELS, OPENCODE_GO_MODELS};
+    use super::{MODELS, OPENCODE_PLAN_MODELS};
     use nuo_model_codec::effort::Effort;
     use nuo_model_codec::model::{BaselineModels, resolve};
 
@@ -494,8 +494,8 @@ mod tests {
     /// `builtin_provider_models_resolve_with_expected_wire_formats` test
     /// enforces across all built-ins).
     #[test]
-    fn the_go_seed_stays_registered() {
-        for id in OPENCODE_GO_MODELS {
+    fn the_plan_seed_stays_registered() {
+        for id in OPENCODE_PLAN_MODELS {
             let model = resolve(id);
             assert_eq!(model.id, *id, "seeded id {id} must be registered");
         }
@@ -509,7 +509,7 @@ mod tests {
         let count = ids.len();
         ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), count, "duplicate baseline ids in opencode-go");
+        assert_eq!(ids.len(), count, "duplicate baseline ids in opencode-plan");
         let _ = BaselineModels(MODELS); // keep the import tied to the real type
     }
 }
@@ -542,5 +542,5 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,
-    models: OPENCODE_GO_MODELS,
+    models: OPENCODE_PLAN_MODELS,
 };

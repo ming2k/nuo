@@ -10,7 +10,7 @@ use super::*;
 /// slot) but **not** `nuo-providers` (which owns the baseline tables that fill
 /// it). So `resolve_model` returns an empty ladder in the real binary, and
 /// reading it here collapsed the effort control to its value-only fallback —
-/// no track, no nodes, no tier labels. `nuox` only sees a populated registry
+/// no track, no nodes, no tier labels. `nuo` only sees a populated registry
 /// under `cfg(test)` because `nuo-providers` is a dev-dependency, which is
 /// exactly why the bug survived the suite: every existing assertion rendered
 /// through the test harness and saw a ladder the shipped binary never has.
@@ -1448,7 +1448,7 @@ fn config_view_reopen_keeps_pane_and_category() {
     // positioning) runs on every enter; a reopen keeps the category/pane
     // the user left. Esc's step-backs unwind the pane/dropdown *inside* the
     // scene and stop there (ADR-0298 §2); leaving the scene is `close_scene`
-    // (`C-x w` / `C-x k`, or the scene's own `q`).
+    // (`C-x w`, or the scene's own `q`).
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.switch_scene(crate::surfaces::SceneKind::Settings);
     assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Settings);
@@ -1546,7 +1546,7 @@ fn close_scene_at_home_is_a_spent_gesture() {
     assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
 }
 
-/// `C-x w` / `C-x k` dismiss a foreground dialog before touching the scene —
+/// `C-x w` dismisses a foreground dialog before touching the scene —
 /// the overlay is the visual foreground, so one press spends itself on it and
 /// the scene survives (ADR-0298 §1). Regression: the chord used to treat any
 /// dialog as "the scene", so the second press could land on a demoted view.
@@ -2091,7 +2091,7 @@ async fn closing_dashboard_scene_closes_singleton_tab() {
     assert_eq!(app.surfaces.active_tab_index(), 1);
     assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Dashboard);
 
-    // 2. Dispatch CloseTab (C-x w / C-x k)
+    // 2. Dispatch CloseTab (C-x w)
     let flow = crate::event_loop::actions::dispatch_action_for_test(
         &mut app,
         &runtime,

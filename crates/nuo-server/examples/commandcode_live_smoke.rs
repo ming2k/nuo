@@ -27,7 +27,6 @@ async fn main() {
         base_url: "https://api.commandcode.ai/provider/v1",
         api_key: &secret,
         account_id: None,
-        org_id: None,
         user_agent: None,
         extra_headers: &[],
         catalog_signing: None,

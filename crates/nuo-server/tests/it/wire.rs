@@ -836,82 +836,6 @@ use nuo_provider_catalog::{
 };
 
 #[tokio::test]
-async fn opencode_console_list_models_sends_bearer_and_org_and_parses_config() {
-    let mut server = Server::new_async().await;
-    // The catalog root is `https://opencode.ai/console`-shaped; discovery
-    // appends the shape path `api/config` (ADR-0269).
-    let base_url = server.url();
-    let _mock = server
-        .mock("GET", "/api/config")
-        .match_header("authorization", "Bearer st-live")
-        .match_header("x-org-id", "wrk-org-1")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(
-            r#"{
-                "config": {
-                    "provider": {
-                        "opencode": {
-                            "npm": "@ai-sdk/openai-compatible",
-                            "api": "https://opencode.ai/inference/openai/v1",
-                            "models": {
-                                "glm-5.2": {
-                                    "name": "GLM-5.2",
-                                    "reasoning": true,
-                                    "tool_call": true
-                                },
-                                "claude-opus-5": {
-                                    "name": "Claude Opus 5",
-                                    "reasoning": true,
-                                    "tool_call": true,
-                                    "provider": {
-                                        "npm": "@ai-sdk/anthropic",
-                                        "api": "https://opencode.ai/inference/anthropic/v1"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }"#,
-        )
-        .create_async()
-        .await;
-
-    let key = SecretString::from("st-live");
-    let req = RemoteCatalogRequest {
-        protocol: CatalogShape::OpencodeConsole,
-        base_url: &base_url,
-        api_key: &key,
-        account_id: None,
-        org_id: Some("wrk-org-1"),
-        user_agent: None,
-        extra_headers: &[],
-        catalog_signing: None,
-        dimensions: &[],
-    };
-    let models = list_models(req).await.expect("discovery succeeds");
-    let ids: Vec<&str> = models.iter().map(|model| model.id.as_str()).collect();
-    assert_eq!(ids, vec!["claude-opus-5", "glm-5.2"]);
-    // Per-model routing rides the catalog: npm → wire, api → root override.
-    let glm = models.iter().find(|m| m.id == "glm-5.2").unwrap();
-    assert_eq!(
-        glm.protocol,
-        Some(nuo_model_codec::WireProtocol::ChatCompletions)
-    );
-    assert_eq!(glm.endpoint, None);
-    let claude = models.iter().find(|m| m.id == "claude-opus-5").unwrap();
-    assert_eq!(
-        claude.protocol,
-        Some(nuo_model_codec::WireProtocol::AnthropicMessages)
-    );
-    assert_eq!(
-        claude.endpoint.as_deref(),
-        Some("https://opencode.ai/inference/anthropic/v1")
-    );
-}
-
-#[tokio::test]
 async fn openai_list_models_sends_bearer_and_returns_sorted_unique_ids() {
     let mut server = Server::new_async().await;
     let root_url = format!("{}/v1", server.url());
@@ -939,7 +863,6 @@ async fn openai_list_models_sends_bearer_and_returns_sorted_unique_ids() {
         base_url: &root_url,
         api_key: &key,
         account_id: None,
-        org_id: None,
         user_agent: None,
         extra_headers: &[],
         catalog_signing: None,
@@ -971,7 +894,6 @@ async fn openai_list_models_keyless_relay_sends_no_bearer_header() {
         base_url: &format!("{}/v1", server.url()),
         api_key: &key,
         account_id: None,
-        org_id: None,
         user_agent: None,
         extra_headers: &[],
         catalog_signing: None,
@@ -1012,7 +934,6 @@ async fn codex_list_models_sends_subscription_headers_and_preserves_priority() {
         base_url: &format!("{}/backend-api/codex", server.url()),
         api_key: &key,
         account_id: Some("acct-test"),
-        org_id: None,
         user_agent: None,
         extra_headers: &[],
         catalog_signing: None,
@@ -1054,7 +975,6 @@ async fn codex_list_models_supports_etag_revalidation() {
         base_url: &format!("{}/backend-api/codex", server.url()),
         api_key: &key,
         account_id: None,
-        org_id: None,
         user_agent: None,
         extra_headers: &[],
         catalog_signing: None,
@@ -1104,7 +1024,6 @@ async fn anthropic_list_models_sends_api_key_and_version_headers() {
         base_url: &format!("{}/v1", server.url()),
         api_key: &key,
         account_id: None,
-        org_id: None,
         user_agent: None,
         extra_headers: &[],
         catalog_signing: None,
@@ -1146,7 +1065,6 @@ async fn google_list_models_sends_api_key_header_and_filters_non_text() {
         base_url: &format!("{}/v1beta", server.url()),
         api_key: &key,
         account_id: None,
-        org_id: None,
         user_agent: None,
         extra_headers: &[],
         catalog_signing: None,
@@ -1174,7 +1092,6 @@ async fn list_models_returns_status_error_on_non_2xx() {
         base_url: &format!("{}/v1", server.url()),
         api_key: &key,
         account_id: None,
-        org_id: None,
         user_agent: None,
         extra_headers: &[],
         catalog_signing: None,
@@ -1208,7 +1125,6 @@ async fn list_models_accepts_authoritative_empty_data_array() {
         base_url: &format!("{}/v1", server.url()),
         api_key: &key,
         account_id: None,
-        org_id: None,
         user_agent: None,
         extra_headers: &[],
         catalog_signing: None,
@@ -1337,7 +1253,7 @@ async fn oauth_browser_login_validates_oidc_nonce() {
 }
 
 #[tokio::test]
-async fn opencode_go_wire_request_carries_session_and_client_headers() {
+async fn opencode_plan_wire_request_carries_session_and_client_headers() {
     let mut server = Server::new_async().await;
     let url = format!("{}/inference/openai/v1/chat/completions", server.url());
 
@@ -1351,7 +1267,7 @@ async fn opencode_go_wire_request_carries_session_and_client_headers() {
         )
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"choices":[{"message":{"content":"response from opencode-go"}}]}"#)
+        .with_body(r#"{"choices":[{"message":{"content":"response from opencode-plan"}}]}"#)
         .create_async()
         .await;
 
@@ -1373,17 +1289,17 @@ async fn opencode_go_wire_request_carries_session_and_client_headers() {
     };
 
     let provider =
-        build_provider_for_channel(&channel, "opencode-go", Some("ses_wire_affinity_999"));
+        build_provider_for_channel(&channel, "opencode-plan", Some("ses_wire_affinity_999"));
     let msg = provider
         .chat(vec![Message::new(Role::User, "hello")].into())
         .await
-        .expect("opencode-go provider chat must succeed")
+        .expect("opencode-plan provider chat must succeed")
         .message;
-    assert_eq!(msg.content, "response from opencode-go");
+    assert_eq!(msg.content, "response from opencode-plan");
 }
 
 #[tokio::test]
-async fn opencode_go_anthropic_wire_request_carries_session_headers() {
+async fn opencode_plan_anthropic_wire_request_carries_session_headers() {
     let mut server = Server::new_async().await;
     let url = format!("{}/inference/anthropic/v1/messages", server.url());
 
@@ -1420,11 +1336,11 @@ async fn opencode_go_anthropic_wire_request_carries_session_headers() {
     };
 
     let provider =
-        build_provider_for_channel(&channel, "opencode-go", Some("ses_anthropic_wire_777"));
+        build_provider_for_channel(&channel, "opencode-plan", Some("ses_anthropic_wire_777"));
     let msg = provider
         .chat(vec![Message::new(Role::User, "hello")].into())
         .await
-        .expect("opencode-go anthropic-wire provider chat must succeed")
+        .expect("opencode-plan anthropic-wire provider chat must succeed")
         .message;
     assert_eq!(msg.content, "qwen3.6-plus response");
 }

@@ -6,7 +6,7 @@ The session daemon host and management CLI for the Nuo (傩) system.
 
 `nuo` provides both the command-line operator interface and the long-lived daemon runtime for Nuo. It hosts multi-client sessions across projects, manages background tasks and MCP integrations, multiplexes client requests, and serves dual control planes:
 
-- **Local IPC Control Plane**: Unix Domain Sockets (`$XDG_RUNTIME_DIR/nuo/daemon.sock`) on Unix or Named Pipes on Windows for local CLI tools and terminal clients (`nuox`).
+- **Local IPC Control Plane**: Unix Domain Sockets (`$XDG_RUNTIME_DIR/nuo/daemon.sock`) on Unix or Named Pipes on Windows for local CLI tools and terminal clients (`nuo`).
 - **WebSocket Control Plane**: Streaming JSON RPC endpoint (`ws://127.0.0.1:9800`) for remote frontends, browser panels (`web`), and monitoring agents.
 
 ## Architecture

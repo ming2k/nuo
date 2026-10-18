@@ -71,8 +71,6 @@ pub struct LifecycleOptions {
     /// Auto-exit after this much continuous zero-sessions-zero-clients time.
     /// `None` = never (always-on deployments).
     pub idle_exit: Option<Duration>,
-    /// Auto-exit when all interactive TUI clients close (ADR-0029).
-    pub client_driven: bool,
     /// Test seam (never set in production): park the drain after it is
     /// announced so a test can land an escalation at a deterministic point.
     #[doc(hidden)]
@@ -88,7 +86,6 @@ impl LifecycleOptions {
                 0 => None,
                 minutes => Some(Duration::from_secs(minutes * 60)),
             },
-            client_driven: false,
             drain_probe: None,
         }
     }
@@ -99,7 +96,6 @@ impl Default for LifecycleOptions {
         Self {
             shutdown_grace: Duration::from_secs(10),
             idle_exit: Some(Duration::from_secs(5 * 60)),
-            client_driven: false,
             drain_probe: None,
         }
     }

@@ -531,7 +531,7 @@ impl ProviderEntry {
     }
 
     /// The channel carrying `model_id`, if any. A multi-model provider (e.g.
-    /// `opencode-go`) exposes one channel per model — each with the transport
+    /// `opencode-plan`) exposes one channel per model — each with the transport
     /// matching that model's [`crate::model::WireProtocol`] — so selecting a
     /// model is selecting a channel. Returns `None` when the entry does not
     /// serve that model id.
@@ -646,12 +646,12 @@ mod tests {
 
     #[test]
     fn multi_model_entry_resolves_channel_by_model_id() {
-        // A provider like opencode-go hosts one channel per model, each with the
+        // A provider like opencode-plan hosts one channel per model, each with the
         // transport matching that model's wire format. Selecting a model is
         // selecting a channel.
         let entry = ProviderEntry {
-            id: "opencode-go".to_string(),
-            name: "OpenCode Go".to_string(),
+            id: "opencode-plan".to_string(),
+            name: "OpenCode Plan".to_string(),
             description: String::new(),
             channels: vec![
                 Channel {

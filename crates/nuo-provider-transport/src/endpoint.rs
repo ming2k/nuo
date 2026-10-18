@@ -260,13 +260,9 @@ impl Endpoint {
     ///
     /// Derived entirely from typed [`ResolvedAuth`] metadata, never from the
     /// connection or provider name, so a static API key yields no headers and
-    /// no wire branch here ever names a vendor (ADR-0267, ADR-0269). An
-    /// OpenCode Console credential is meaningless without its workspace, so the
-    /// org id rides on **every** protocol the surface exposes.
-    pub fn auth_scoped_headers(&self, auth: &ResolvedAuth) -> Vec<(&'static str, String)> {
-        auth.extension::<nuo_model_codec::OpencodeAuthMetadata>()
-            .map(|org| vec![("x-opencode-org-id", org.org_id.clone())])
-            .unwrap_or_default()
+    /// no wire branch here ever names a vendor (ADR-0267).
+    pub fn auth_scoped_headers(&self, _auth: &ResolvedAuth) -> Vec<(&'static str, String)> {
+        Vec::new()
     }
 
     /// Attach the credential-scoping headers to an outbound request builder.
@@ -417,7 +413,7 @@ mod tests {
             "test-key",
             "glm-5.2",
             "https://opencode.ai/inference/openai/v1/chat/completions",
-            "opencode-go",
+            "opencode-plan",
         )
         .with_client_profile(ClientProfile::OpenCode)
         .with_session_id("ses_wire_affinity_999");
@@ -444,7 +440,7 @@ mod tests {
             "test-key",
             "glm-5.2",
             "https://opencode.ai/inference/openai/v1/chat/completions",
-            "opencode-go",
+            "opencode-plan",
         );
 
         assert!(ep.session_id().is_none());
@@ -487,25 +483,6 @@ mod tests {
     }
 
     #[test]
-    fn org_scoped_credential_projects_workspace_header() {
-        let ep = Endpoint::from_static_key(
-            "st-token",
-            "glm-5.2",
-            "https://opencode.ai/inference/openai/v1/chat/completions",
-            "gomain",
-        );
-        let auth =
-            ResolvedAuth::new("st-token").with_extension(nuo_model_codec::OpencodeAuthMetadata {
-                org_id: "wrk_workspace_1".to_string(),
-            });
-
-        assert_eq!(
-            ep.auth_scoped_headers(&auth),
-            vec![("x-opencode-org-id", "wrk_workspace_1".to_string())]
-        );
-    }
-
-    #[test]
     fn static_credential_projects_no_workspace_header() {
         // Presence-gated on metadata: the connection id and the base URL are
         // deliberately OpenCode-shaped here, and still emit nothing.
@@ -513,7 +490,7 @@ mod tests {
             "sk-relay",
             "glm-5.2",
             "https://opencode.ai/inference/openai/v1/chat/completions",
-            "opencode-go",
+            "opencode-plan",
         );
         let auth = ResolvedAuth::new("sk-relay");
         assert!(ep.auth_scoped_headers(&auth).is_empty());

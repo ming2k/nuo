@@ -150,6 +150,10 @@ fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
     let mut contents: Vec<Value> = Vec::new();
     let mut call_names: HashMap<String, String> = HashMap::new();
     let mut signed_calls: HashSet<String> = HashSet::new();
+    // Identity of the immediately preceding assistant turn, so a tool result's
+    // signature match is scoped to the turn that produced its call — never to
+    // any earlier turn that happened to reuse a tool name.
+    let mut pending_turn: Option<TurnIdentity> = None;
     let messages = reconcile_tool_history(messages);
 
     for message in messages {
@@ -164,7 +168,7 @@ fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
         } else {
             "user"
         };
-        let new_parts = message_parts(message, &mut call_names, &mut signed_calls);
+        let new_parts = message_parts(message, &mut call_names, &mut signed_calls, &mut pending_turn);
 
         // Coalesce consecutive same-role turns into one `contents` entry:
         // Google rejects two adjacent `user` objects, so a tool-result-then-user
@@ -221,6 +225,15 @@ fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
 
 /// Keep only tool-call history Google can replay: tool results must reference
 /// a known previous assistant call, and assistant calls must have a result.
+///
+/// The pairing is **signature-aware**: an assistant turn whose thought
+/// signatures were lost (truncated stream, cross-provider resume) degrades its
+/// `functionCall` parts to plain text in [`assistant_parts`], so its tool
+/// results would arrive as `functionResponse` parts with no preceding
+/// `functionCall` — the exact shape Google's Anthropic bridge rejects with
+/// `unexpected tool_use_id found in tool_result blocks` (reproduced live
+/// against `v1internal:generateContent`). Orphaned results are degraded to
+/// text here so the wire never carries an unpaired id.
 fn reconcile_tool_history(messages: Vec<Message>) -> Vec<Message> {
     let mut known_ids = HashSet::new();
     let mut messages: Vec<Message> = messages
@@ -252,6 +265,24 @@ fn reconcile_tool_history(messages: Vec<Message>) -> Vec<Message> {
             }
         })
         .collect();
+    // Assistant turns that will degrade their calls to text (no thought
+    // signature replay material) must not leave answered ids behind: their
+    // tool results are stripped in the same pass and re-attached as degraded
+    // user-role text so the causal fact survives without an unpaired id.
+    let mut degraded_answered: HashSet<String> = HashSet::new();
+    for m in messages.iter() {
+        if m.role != Role::Assistant {
+            continue;
+        }
+        if let Some(calls) = m.tool_calls.as_ref() {
+            let has_signature_material = has_thought_signature_material(m);
+            if !has_signature_material {
+                for call in calls.iter().filter(|call| answered.contains(&call.id)) {
+                    degraded_answered.insert(call.id.clone());
+                }
+            }
+        }
+    }
     messages.retain_mut(|m| {
         if m.role != Role::Assistant {
             return true;
@@ -264,7 +295,43 @@ fn reconcile_tool_history(messages: Vec<Message>) -> Vec<Message> {
         }
         !assistant_is_empty(m)
     });
-    messages
+    // Strip tool results whose producing call degraded to text, then splice in
+    // a text-fact user message at the same position so the model still sees
+    // the outcome (mirroring [`tool_result_parts`]' degradation wording).
+    let mut reconciled: Vec<Message> = Vec::with_capacity(messages.len());
+    for m in messages.into_iter() {
+        if m.role == Role::Tool
+            && let Some(id) = m.tool_call_id.as_ref()
+            && degraded_answered.contains(id)
+        {
+            let content = m.content.clone();
+            reconciled.push(Message {
+                tool_call_id: None,
+                role: Role::User,
+                content: format!("[Tool result for call \"{id}\"]:\n{content}"),
+                ..m
+            });
+            continue;
+        }
+        reconciled.push(m);
+    }
+    reconciled
+}
+
+/// Whether the assistant turn carries Google thought-signature replay material
+/// for at least one of its tool calls (or a text-part signature, which
+/// [`assistant_parts`] uses as a fallback for every call on the turn).
+fn has_thought_signature_material(message: &Message) -> bool {
+    let Some(meta) = message.provider_meta.as_ref() else {
+        return false;
+    };
+    (meta.get(THOUGHT_SIGNATURES_META_KEY)
+        .and_then(Value::as_object)
+        .is_some_and(|signatures| !signatures.is_empty()))
+        || meta
+            .get(TEXT_THOUGHT_SIGNATURE_META_KEY)
+            .and_then(Value::as_str)
+            .is_some_and(|signature| !signature.is_empty())
 }
 
 fn assistant_is_empty(message: &Message) -> bool {
@@ -273,14 +340,33 @@ fn assistant_is_empty(message: &Message) -> bool {
         && message.tool_calls.as_ref().is_none_or(Vec::is_empty)
 }
 
+/// Signature identity of one assistant turn. A call is replayable natively
+/// only if *its own turn* carries signature material for it; matching by bare
+/// tool name across turns would wrongly resurrect a result whose producing
+/// call degraded to text whenever any earlier turn signed a call with the same
+/// name (`read_text`, `find_files`, …).
+///
+/// The snapshot is taken **after** the assistant turn processed: it holds
+/// exactly the ids/names this turn signed (plus the turn-fallback text
+/// signature), so sibling results of the same turn all match while later
+/// unsigned turns cannot borrow an earlier turn's name.
+struct TurnIdentity {
+    signed: HashSet<String>,
+}
+
 fn message_parts(
     message: Message,
     call_names: &mut HashMap<String, String>,
     signed_calls: &mut HashSet<String>,
+    pending_turn: &mut Option<TurnIdentity>,
 ) -> Vec<Value> {
     match message.role {
-        Role::Assistant => assistant_parts(message, call_names, signed_calls),
-        Role::Tool => tool_result_parts(message, call_names, signed_calls),
+        Role::Assistant => {
+            let parts = assistant_parts(message, call_names, signed_calls);
+            *pending_turn = Some(TurnIdentity { signed: signed_calls.clone() });
+            parts
+        }
+        Role::Tool => tool_result_parts(message, call_names, pending_turn),
         _ => user_parts(message),
     }
 }
@@ -335,7 +421,7 @@ fn assistant_parts(
                 part["thoughtSignature"] = json!(signature);
                 parts.push(part);
             } else {
-                // ADR-0297 / ADR-0046: Unsigned tool call lacking a valid Google thought signature
+                // ADR-0046: Unsigned tool call lacking a valid Google thought signature
                 // (e.g. from Claude/GPT or foreign completion format). Emitting an unsigned
                 // `functionCall` triggers Google HTTP 400 INVALID_ARGUMENT. Degrade to
                 // objective natural language dialogue fact to preserve causal truth
@@ -423,12 +509,19 @@ fn thought_signatures_by_call(message: &Message) -> HashMap<String, String> {
 fn tool_result_parts(
     message: Message,
     call_names: &HashMap<String, String>,
-    signed_calls: &HashSet<String>,
+    pending_turn: &Option<TurnIdentity>,
 ) -> Vec<Value> {
     let id = message.tool_call_id.unwrap_or_default();
     let name = call_names.get(&id).cloned().unwrap_or_default();
-    let is_signed = (!id.is_empty() && signed_calls.contains(&id))
-        || (!name.is_empty() && signed_calls.contains(&name));
+    // Signature match is scoped to the turn that produced this call: the turn
+    // snapshot (taken before the assistant turn merged its own signatures in)
+    // plus the per-call entries it just added.
+    let is_signed = pending_turn
+        .as_ref()
+        .is_some_and(|turn| {
+            (!id.is_empty() && turn.signed.contains(&id))
+                || (!name.is_empty() && turn.signed.contains(&name))
+        });
 
     if is_signed {
         let mut function_response = json!({
@@ -440,7 +533,7 @@ fn tool_result_parts(
         }
         vec![json!({ "functionResponse": function_response })]
     } else {
-        // ADR-0297: Degraded tool result for unsigned / cross-provider tool calls.
+        // Degraded tool result for unsigned / cross-provider tool calls.
         // Google's alternating role constraint expects text in the user role.
         let label = if !name.is_empty() {
             format!("[Tool result for \"{name}\"]:\n{}", message.content)
@@ -1089,6 +1182,162 @@ mod tests {
     }
 
     #[test]
+    fn degraded_unsigned_assistant_turn_strips_its_tool_results_to_text_facts() {
+        // Live-failure regression (2026-10-18, `claude-opus-5-5` subagent): an
+        // assistant turn whose thought signatures were lost (truncated stream /
+        // provider retry resume) degrades its functionCalls to text — but its
+        // tool results previously survived as native `functionResponse` parts,
+        // producing `unexpected tool_use_id found in tool_result blocks`
+        // HTTP 400 upstream. The results must degrade in lockstep.
+        let lost_call = nuo_model_codec::ToolCall {
+            id: "toolu_vrtx_01LostSignature".to_string(),
+            name: "find_files".to_string(),
+            arguments: r#"{"path":"docs"}"#.to_string(),
+        };
+        let kept_call = nuo_model_codec::ToolCall {
+            id: "toolu_vrtx_01KeptSignature".to_string(),
+            name: "code_query".to_string(),
+            arguments: "{}".to_string(),
+        };
+        // Turn 1 keeps its signature material; turn 2 lost provider_meta.
+        let mut signed_meta = serde_json::Map::new();
+        signed_meta.insert(
+            THOUGHT_SIGNATURES_META_KEY.to_string(),
+            json!({ "toolu_vrtx_01KeptSignature": "sig-kept" }),
+        );
+        let body = body(
+            vec![
+                Message::new(Role::User, "investigate"),
+                Message {
+                    tool_calls: Some(vec![kept_call.clone()]),
+                    provider_meta: Some(signed_meta),
+                    ..Message::new(Role::Assistant, "planning")
+                },
+                Message::tool_result(&kept_call, "outline text"),
+                Message {
+                    tool_calls: Some(vec![lost_call.clone()]),
+                    provider_meta: None,
+                    ..Message::new(Role::Assistant, "")
+                },
+                Message::tool_result(&lost_call, "file list"),
+                Message::new(Role::User, "continue"),
+            ],
+            test_body_input(None, false, None),
+        );
+
+        // Turn 1's signed pair replays natively; turn 2's call is degraded to a
+        // text fact…
+        let kept_parts = body["contents"][1]["parts"].as_array().unwrap();
+        assert_eq!(
+            kept_parts[1]["functionCall"]["id"],
+            "toolu_vrtx_01KeptSignature"
+        );
+        let lost_parts = body["contents"][3]["parts"].as_array().unwrap();
+        assert!(lost_parts[0].get("functionCall").is_none());
+        assert_eq!(
+            lost_parts[0]["text"],
+            r#"[Executed tool "find_files" with arguments: {"path":"docs"}]"#
+        );
+        // …and its result must NOT surface as a bare functionResponse. It
+        // degrades to a text fact coalesced into the following user turn.
+        let tail = body["contents"][4]["parts"].as_array().unwrap();
+        assert_eq!(tail.len(), 2, "degraded result text + follow-up user turn coalesce");
+        assert_eq!(
+            tail[0]["text"],
+            "[Tool result for call \"toolu_vrtx_01LostSignature\"]:\nfile list"
+        );
+        assert_eq!(tail[1]["text"], "continue");
+        assert!(tail[0].get("functionResponse").is_none());
+    }
+
+    #[test]
+    fn text_signature_alone_still_replays_calls_and_results() {
+        // A turn with only a text-part thought signature (no per-call map)
+        // falls back to signing every call on the turn, so its results stay
+        // native and must not be degraded.
+        let call = nuo_model_codec::ToolCall {
+            id: "toolu_vrtx_01TextSigOnly".to_string(),
+            name: "read_text".to_string(),
+            arguments: "{}".to_string(),
+        };
+        let mut text_sig_meta = serde_json::Map::new();
+        text_sig_meta.insert(
+            TEXT_THOUGHT_SIGNATURE_META_KEY.to_string(),
+            json!("sig-text-fallback"),
+        );
+        let body = body(
+            vec![
+                Message::new(Role::User, "read it"),
+                Message {
+                    tool_calls: Some(vec![call.clone()]),
+                    provider_meta: Some(text_sig_meta),
+                    ..Message::new(Role::Assistant, "")
+                },
+                Message::tool_result(&call, "bytes"),
+            ],
+            test_body_input(None, false, None),
+        );
+
+        let parts = body["contents"][1]["parts"].as_array().unwrap();
+        assert_eq!(parts[0]["functionCall"]["id"], "toolu_vrtx_01TextSigOnly");
+        let result = body["contents"][2]["parts"][0]["functionResponse"].clone();
+        assert_eq!(result["id"], "toolu_vrtx_01TextSigOnly");
+    }
+
+    #[test]
+    fn partial_signature_turn_does_not_resurrect_result_by_tool_name() {
+        // Live-residual regression: a partially signed turn degrades its
+        // unsigned call to text, but its result previously escaped as a native
+        // functionResponse whenever a *turn* was signed for the same tool
+        // name — the global name match resurrected it into an orphan.
+        // Signature matching must be scoped to the turn that made the call.
+        let unsigned_dup = nuo_model_codec::ToolCall {
+            id: "call_unsigned_dup".to_string(),
+            name: "read_text".to_string(), // same name as the signed earlier call
+            arguments: "{}".to_string(),
+        };
+        let signed_dup = nuo_model_codec::ToolCall {
+            id: "call_signed_dup".to_string(),
+            name: "read_text".to_string(),
+            arguments: "{}".to_string(),
+        };
+        let mut signed_meta = serde_json::Map::new();
+        signed_meta.insert(
+            THOUGHT_SIGNATURES_META_KEY.to_string(),
+            json!({ "call_signed_dup": "sig-earlier" }),
+        );
+        let body = body(
+            vec![
+                Message::new(Role::User, "go"),
+                Message {
+                    tool_calls: Some(vec![signed_dup.clone()]),
+                    provider_meta: Some(signed_meta),
+                    ..Message::new(Role::Assistant, "")
+                },
+                Message::tool_result(&signed_dup, "earlier"),
+                Message {
+                    tool_calls: Some(vec![unsigned_dup.clone()]),
+                    provider_meta: None, // this turn lost its signatures
+                    ..Message::new(Role::Assistant, "")
+                },
+                Message::tool_result(&unsigned_dup, "later output"),
+            ],
+            test_body_input(None, false, None),
+        );
+
+        // The unsigned later call degrades to text…
+        let lost_parts = body["contents"][2]["parts"].as_array().unwrap();
+        assert!(lost_parts[0].get("functionCall").is_none());
+        // …and its result must degrade too, despite `read_text` having been
+        // signed on an EARLIER turn. No bare functionResponse may appear.
+        let tail = body["contents"][3]["parts"].as_array().unwrap();
+        assert!(
+            tail[0].get("functionResponse").is_none(),
+            "result resurrected by cross-turn name match: {tail:?}"
+        );
+    }
+
+    #[test]
     fn degrades_unsigned_foreign_tool_calls_to_safe_dialogue_facts() {
         let call = nuo_model_codec::ToolCall {
             id: "call_foreign".to_string(),
@@ -1110,7 +1359,7 @@ mod tests {
             test_body_input(None, false, None),
         );
 
-        // ADR-0297: Assistant turn degrades unsigned tool calls to safe natural language text facts,
+        // Assistant turn degrades unsigned tool calls to safe natural language text facts,
         // preventing Google HTTP 400 INVALID_ARGUMENT ("Function call is missing a thought_signature").
         let model_parts = body["contents"][1]["parts"].as_array().unwrap();
         assert_eq!(model_parts.len(), 2);
@@ -1126,7 +1375,7 @@ mod tests {
         let user_parts = body["contents"][2]["parts"].as_array().unwrap();
         assert_eq!(
             user_parts[0]["text"],
-            "[Tool result for \"write_todos\"]:\nTodo list updated"
+            "[Tool result for call \"call_foreign\"]:\nTodo list updated"
         );
         assert!(user_parts[0].get("functionResponse").is_none());
         assert_eq!(user_parts[1]["text"], "proceed");

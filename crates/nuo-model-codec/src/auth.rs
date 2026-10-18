@@ -110,15 +110,6 @@ pub struct GoogleAuthMetadata {
     pub project_id: String,
 }
 
-/// OpenCode Console workspace scoping metadata (`x-opencode-org-id`).
-///
-/// The Console relay rejects inference without an org selection; presence of
-/// this extension is the imperative read site for the org header (ADR-0269).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpencodeAuthMetadata {
-    pub org_id: String,
-}
-
 /// GitHub Copilot session metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CopilotAuthMetadata {
@@ -276,22 +267,5 @@ mod tests {
             account_id: "acct-99".to_string(),
         });
         assert!(validator.validate_auth(&auth_with).is_ok());
-    }
-
-    #[test]
-    fn opencode_org_metadata_round_trips() {
-        let auth = ResolvedAuth::new("st_token").with_extension(OpencodeAuthMetadata {
-            org_id: "wrk_org_1".to_string(),
-        });
-        assert_eq!(
-            auth.extension::<OpencodeAuthMetadata>()
-                .map(|m| m.org_id.as_str()),
-            Some("wrk_org_1")
-        );
-        assert!(
-            ResolvedAuth::new("st_token")
-                .extension::<OpencodeAuthMetadata>()
-                .is_none()
-        );
     }
 }

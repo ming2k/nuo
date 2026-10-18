@@ -5,12 +5,11 @@
 //! the composition root registers.
 //!
 //! The `CatalogParser` family is shape-keyed, not provider-keyed: a provider
-//! that reuses a shape costs zero new code (`ADR-0260`). Three parsers delegate
+//! that reuses a shape costs zero new code (`ADR-0260`). Two parsers delegate
 //! to their owning provider crate, which is why this crate depends on them:
 //!
 //! - `OpenAiCatalogParser`/`AnthropicCatalogParser`/`GoogleCatalogParser`/`CodexCatalogParser`
 //!   are self-contained here.
-//! - `OpencodeConsoleCatalogParser` → `nuo_provider_opencode::parse_config_catalog`.
 //! - `SceneMapCatalogParser` → `nuo_provider_qoder::parse_scene_catalog`.
 //! - `GoogleCloudCodeCatalogParser` → `nuo_provider_google_antigravity::catalog::parse_antigravity_catalog`.
 //!

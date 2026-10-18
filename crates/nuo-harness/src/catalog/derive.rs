@@ -353,8 +353,8 @@ pub fn resolve_credential(connection: &Connection, creds: &Credentials) -> Secre
         return key.clone();
     }
     // The OpenCode relay surfaces share one key env var (`OPENCODE_API_KEY`):
-    // Zen (`/zen/v1`) and Go (`/zen/go/v1`) both authenticate with it.
-    if matches!(connection.provider.as_str(), "opencode-go" | "opencode-zen")
+    // Zen (`/zen/v1`) and Plan (`/zen/go/v1`) both authenticate with it.
+    if matches!(connection.provider.as_str(), "opencode-plan" | "opencode-zen" | "opencode-go")
         && let Ok(value) = std::env::var("OPENCODE_API_KEY")
         && !value.trim().is_empty()
     {

@@ -1,6 +1,6 @@
-//! Command-line contract for the `nuox` terminal application.
+//! Command-line contract for the `nuo` terminal application.
 //!
-//! `nuox` is a client of the Nuo server. It owns interactive and headless
+//! `nuo` is a client of the Nuo server. It owns interactive and headless
 //! terminal workflows; server lifecycle, configuration, credentials, MCP,
 //! skills, and server administration belong to the `nuo` core command.
 
@@ -10,17 +10,17 @@ use std::path::PathBuf;
 /// What the user asked the terminal application to do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
-    /// Bare `nuox` / `nuox "prompt"`: open an interactive session.
+    /// Bare `nuo` / `nuo "prompt"`: open an interactive session.
     Fresh,
-    /// `nuox run <prompt>`: execute a headless one-shot.
+    /// `nuo run <prompt>`: execute a headless one-shot.
     Run { prompt: String },
-    /// `nuox attach [id]`: join a hosted session, using the picker without id.
+    /// `nuo attach [id]`: join a hosted session, using the picker without id.
     Attach { id: Option<String> },
     /// Open the full-screen session dashboard.
     Dashboard,
     /// Open the full-screen settings view (optional category).
     Settings { category: Option<String> },
-    /// `nuox completions <shell>`.
+    /// `nuo completions <shell>`.
     Completions(Shell),
     /// `--version` / `-V`.
     Version,
@@ -28,7 +28,7 @@ pub enum Mode {
     Help(Option<String>),
 }
 
-/// A shell whose completion script `nuox completions` can print.
+/// A shell whose completion script `nuo completions` can print.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shell {
     Bash,
@@ -293,7 +293,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     let extra = &rest[1..];
     let unexpected = |arg: &str| {
         Err(format!(
-            "unexpected argument '{arg}' found for 'nuox {cmd}'"
+            "unexpected argument '{arg}' found for 'nuo {cmd}'"
         ))
     };
 
@@ -413,9 +413,9 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
     let mut out = String::new();
     match topic {
         None => {
-            out.push_str("nuox — Nuo terminal application\n\n");
-            out.push_str("Usage: nuox [OPTIONS] [PROMPT]\n");
-            out.push_str("       nuox [OPTIONS] <COMMAND>\n\nCommands:\n");
+            out.push_str("nuo — Nuo terminal application\n\n");
+            out.push_str("Usage: nuo [OPTIONS] [PROMPT]\n");
+            out.push_str("       nuo [OPTIONS] <COMMAND>\n\nCommands:\n");
             let width = COMMANDS
                 .iter()
                 .map(|spec| spec.name.len())
@@ -449,16 +449,16 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
             out.push_str("      --project <path>   operate on the project at <path>\n");
             out.push_str("      --remote <addr>    connect to a remote Nuo server\n");
             out.push_str("      --token <token>    bearer token for server connection\n");
-            out.push_str("  -h, --help             print help ('nuox help <command>' for more)\n");
+            out.push_str("  -h, --help             print help ('nuo help <command>' for more)\n");
             out.push_str("  -V, --version          print the version and exit\n");
-            out.push_str("\nWith no command, nuox opens a fresh interactive thread.\n");
+            out.push_str("\nWith no command, nuo opens a fresh interactive thread.\n");
             out.push_str("It checks the Nuo server first and starts `nuo` when needed.\n");
             out.push_str("Server and service administration remains under the `nuo` command.\n");
         }
         Some(topic) => {
             let spec = resolve(topic)?;
-            out.push_str(&format!("nuox {} — {}\n\n", spec.name, spec.about));
-            out.push_str(&format!("Usage: nuox {}\n", spec.name));
+            out.push_str(&format!("nuo {} — {}\n\n", spec.name, spec.about));
+            out.push_str(&format!("Usage: nuo {}\n", spec.name));
             match spec.name {
                 "attach" => {
                     out.push_str("\nWith no id the TUI thread picker opens. Supplying an id\n");
@@ -488,15 +488,15 @@ pub fn completion_script(shell: Shell) -> String {
         .join(" ");
     match shell {
         Shell::Bash => format!(
-            "# bash completion for nuox — eval \"$(nuox completions bash)\"\n\
-             _nuox() {{\n\
+            "# bash completion for nuo — eval \"$(nuo completions bash)\"\n\
+             _nuo() {{\n\
              \x20   local cur\n\
              \x20   cur=\"${{COMP_WORDS[COMP_CWORD]}}\"\n\
              \x20   if [[ $COMP_CWORD -eq 1 ]]; then\n\
              \x20       COMPREPLY=($(compgen -W \"{commands} --project --remote --token --prompt -p --interactive -i --json -j --role -r --resume --unattended --no-confinement --help --version\" -- \"$cur\"))\n\
              \x20   fi\n\
              }}\n\
-             complete -F _nuox nuox\n"
+             complete -F _nuo nuo\n"
         ),
         Shell::Zsh => {
             let entries = COMMANDS
@@ -505,14 +505,14 @@ pub fn completion_script(shell: Shell) -> String {
                 .collect::<Vec<_>>()
                 .join("\n");
             format!(
-                "#compdef nuox\n\
+                "#compdef nuo\n\
                  _arguments '1:command:(({entries}))' '*::argument:->args'\n"
             )
         }
         Shell::Fish => format!(
-            "# fish completion for nuox\n\
+            "# fish completion for nuo\n\
              set -l cmds {commands}\n\
-             complete -c nuox -n '__fish_use_subcommand' -f -a \"$cmds\"\n"
+             complete -c nuo -n '__fish_use_subcommand' -f -a \"$cmds\"\n"
         ),
     }
 }
@@ -536,7 +536,7 @@ mod tests {
     }
 
     #[test]
-    fn client_commands_remain_on_the_nuox_surface() {
+    fn client_commands_remain_on_the_nuo_surface() {
         assert!(matches!(
             parse(&["attach"]).unwrap().mode,
             Mode::Attach { id: None }

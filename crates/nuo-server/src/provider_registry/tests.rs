@@ -155,32 +155,24 @@ fn provider_dialect_protocol_baselines_are_service_scoped() {
 }
 
 #[test]
-fn opencode_baselines_route_by_console_surface() {
-    let (wire, endpoint, _) = route_for_model("opencode", "deepseek-v4-flash").unwrap();
-    assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
-    assert_eq!(
-        endpoint,
-        "https://opencode.ai/inference/openai/v1/chat/completions"
-    );
-}
-
-#[test]
 fn opencode_go_baselines_route_by_inference_go_surface() {
-    let (wire, endpoint, _) = route_for_model("opencode-go", "minimax-m3").unwrap();
-    assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
-    assert_eq!(
-        endpoint,
-        "https://opencode.ai/inference/go/anthropic/v1/messages"
-    );
-    let (wire, endpoint, _) = route_for_model("opencode-go", "qwen3.6-plus").unwrap();
-    assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
-    assert_eq!(
-        endpoint,
-        "https://opencode.ai/inference/go/anthropic/v1/messages"
-    );
-    let (wire, endpoint, _) = route_for_model("opencode-go", "glm-5.2").unwrap();
-    assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
-    assert_eq!(endpoint, "https://opencode.ai/zen/go/v1/chat/completions");
+    for provider_id in ["opencode-plan", "opencode-go"] {
+        let (wire, endpoint, _) = route_for_model(provider_id, "minimax-m3").unwrap();
+        assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
+        assert_eq!(
+            endpoint,
+            "https://opencode.ai/inference/go/anthropic/v1/messages"
+        );
+        let (wire, endpoint, _) = route_for_model(provider_id, "qwen3.6-plus").unwrap();
+        assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
+        assert_eq!(
+            endpoint,
+            "https://opencode.ai/inference/go/anthropic/v1/messages"
+        );
+        let (wire, endpoint, _) = route_for_model(provider_id, "glm-5.2").unwrap();
+        assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
+        assert_eq!(endpoint, "https://opencode.ai/zen/go/v1/chat/completions");
+    }
 }
 
 #[test]
@@ -447,8 +439,8 @@ fn builtin_provider_models_resolve_with_expected_wire_formats() {
             WireProtocol::ChatCompletions,
         ),
         (
-            "opencode-go",
-            nuo_model_codec::model_providers::OPENCODE_GO_MODELS,
+            "opencode-plan",
+            nuo_model_codec::model_providers::OPENCODE_PLAN_MODELS,
             WireProtocol::ChatCompletions,
         ),
         (
@@ -468,6 +460,23 @@ fn builtin_provider_models_resolve_with_expected_wire_formats() {
                 "{provider_id}/{id} wire format"
             );
         }
+    }
+
+    // OpenCode Zen is multi-protocol: Claude routes over Anthropic, others over ChatCompletions
+    let zen_spec = model_provider_spec("opencode-zen").expect("opencode-zen resolves");
+    for id in nuo_model_codec::model_providers::OPENCODE_ZEN_MODELS {
+        let model = nuo_model_codec::model::resolve(id);
+        assert_eq!(model.id, *id, "model {id} must be registered");
+        let expected = if *id == "claude-sonnet-4-6" {
+            WireProtocol::AnthropicMessages
+        } else {
+            WireProtocol::ChatCompletions
+        };
+        assert_eq!(
+            zen_spec.model_protocol(id),
+            expected,
+            "opencode-zen/{id} wire format"
+        );
     }
 }
 
@@ -491,7 +500,7 @@ fn init_registers_every_vendor_oauth_surface() {
         "qoder",
         "qoder-cn",
         // `opencode`/`opencode-go`/`opencode-plan` retired as OAuth surfaces
-        // (060956d removed `nuo-provider-opencode::oauth`): they key-auth via
+        // (060956d removed OpenCode OAuth): they key-auth via
         // the generic key lane, so the composition root no longer registers
         // them here.
     ] {

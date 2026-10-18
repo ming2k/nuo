@@ -39,12 +39,8 @@ pub async fn run_headless(
     // local discovery state (pid, /proc image), which does not exist for
     // a remote server; there, the handshake carries the version
     // negotiation.
-    enum Transport {
-        Remote(client::RemoteServer),
-        Local(client::ServerInfo),
-    }
-    let transport = match remote {
-        Some(addr) => Transport::Remote(client::RemoteServer::parse(&addr, token)?),
+    let target = match remote {
+        Some(addr) => client::ClientTarget::Remote(client::RemoteServer::parse(&addr, token)?),
         None => {
             let project_root = project_override
                 .clone()
@@ -53,7 +49,7 @@ pub async fn run_headless(
             if !client::versions_compatible(&info) {
                 return Err(client::incompatibility_error(&info).into());
             }
-            Transport::Local(info)
+            client::ClientTarget::Local(info)
         }
     };
 
@@ -79,10 +75,7 @@ pub async fn run_headless(
     } else {
         Some(init_options)
     });
-    let handshake = match &transport {
-        Transport::Remote(server) => server.connect(action.clone()).await?,
-        Transport::Local(info) => client::connect(info, action).await?,
-    };
+    let handshake = target.connect(action.clone()).await?;
     let (tx, mut rx, session_id, _round_counter, _history, provider, model) = match handshake {
         Handshake::Attached {
             req_tx,

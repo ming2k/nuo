@@ -750,8 +750,7 @@ mod tests {
             "cli"
         );
         assert!(
-            headers
-                .get("x-opencode-request")
+            headers.get("x-opencode-request")
                 .unwrap()
                 .to_str()
                 .unwrap()
@@ -760,35 +759,6 @@ mod tests {
         assert_eq!(
             headers.get("user-agent").unwrap().to_str().unwrap(),
             nuo_provider_transport::OPENCODE_USER_AGENT
-        );
-        assert!(
-            headers.get("x-opencode-org-id").is_none(),
-            "a keyless credential must not claim a workspace"
-        );
-    }
-
-    #[test]
-    fn workspace_scoped_credential_carries_the_org_header() {
-        let provider = OpenAiChatCompletionsProvider::with_base_url(
-            "st-token".to_string(),
-            "glm-5.2".to_string(),
-            "https://opencode.ai/inference/openai/v1/chat/completions",
-        );
-        let auth = nuo_model_codec::ResolvedAuth::new("st-token").with_extension(
-            nuo_model_codec::OpencodeAuthMetadata {
-                org_id: "wrk_workspace_1".to_string(),
-            },
-        );
-        let req = provider
-            .build_request_for_auth(&serde_json::json!({"model": "glm-5.2"}), &auth)
-            .build("Test")
-            .unwrap();
-        assert_eq!(
-            req.headers
-                .get("x-opencode-org-id")
-                .and_then(|v| v.to_str().ok())
-                .unwrap(),
-            "wrk_workspace_1"
         );
     }
 

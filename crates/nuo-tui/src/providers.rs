@@ -265,24 +265,11 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
-        id: "opencode",
-        label: "OpenCode",
-        description: "OpenCode account for coding and agent models; sign in with your OpenCode API key or use free models.",
-        protocol: WireProtocol::ChatCompletions,
-        models: nuo_wire::model_providers::OPENCODE_CONSOLE_MODELS,
-        needs_url: false,
-        url_hint: "https://opencode.ai/inference/openai/v1/chat/completions",
-        needs_model: false,
-        default_url: Some("https://opencode.ai/inference/openai/v1/chat/completions"),
-        user_agent: Some(nuo_wire::client_identity::OPENCODE_USER_AGENT),
-        auth: nuo_wire::ConnectionAuth::ApiKey,
-    },
-    ConnectionTemplate {
         id: "opencode-plan",
         label: "OpenCode Plan",
         description: "OpenCode Plan subscription for open coding models; sign in with your OpenCode Plan API key.",
         protocol: WireProtocol::ChatCompletions,
-        models: nuo_wire::model_providers::OPENCODE_GO_MODELS,
+        models: nuo_wire::model_providers::OPENCODE_PLAN_MODELS,
         needs_url: false,
         url_hint: "https://opencode.ai/zen/go/v1/chat/completions",
         needs_model: false,
@@ -1689,10 +1676,9 @@ mod tests {
                 "openai" => Some(nuo_wire::model_providers::OPENAI_BUILTIN_MODELS),
                 "openrouter" => Some(nuo_wire::model_providers::OPENROUTER_BUILTIN_MODELS),
                 "opencode-plan" | "opencode-go" => {
-                    Some(nuo_wire::model_providers::OPENCODE_GO_MODELS)
+                    Some(nuo_wire::model_providers::OPENCODE_PLAN_MODELS)
                 }
                 "opencode-zen" => Some(nuo_wire::model_providers::OPENCODE_ZEN_MODELS),
-                "opencode" => Some(nuo_wire::model_providers::OPENCODE_CONSOLE_MODELS),
                 "glm-cn" => Some(nuo_wire::model_providers::ZAI_CODE_MODELS),
                 "xai" => Some(nuo_wire::model_providers::XAI_BUILTIN_MODELS),
                 _ => None,

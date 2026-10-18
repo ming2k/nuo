@@ -2254,3 +2254,136 @@ async fn bounded_request_ingress_sheds_load_with_server_busy() {
         "server did not respond with server_busy error upon queue saturation"
     );
 }
+
+/// [INV-REMOTE-01] Universal Endpoint Resolution
+/// Verifies parsing of explicit secure URIs (wss/https defaulting to 443),
+/// cleartext URIs (ws/http defaulting to 80), socket addresses, bracketed IPv6,
+/// and rejection of bare un-schemed hostnames.
+#[test]
+fn test_inv_remote_01_endpoint_resolution() {
+    use nuo_client::RemoteServer;
+
+    let t = |addr| RemoteServer::parse(addr, Some("test-tok".into())).unwrap();
+
+    // 1. Explicit wss:// defaults to port 443 and sets secure=true
+    let s1 = t("wss://tunnel.nuo.example.com");
+    assert_eq!(s1.host, "tunnel.nuo.example.com");
+    assert_eq!(s1.port, 443);
+    assert!(s1.secure);
+    assert_eq!(s1.url(), "wss://tunnel.nuo.example.com:443/");
+    assert_eq!(s1.endpoint_display(), "wss://tunnel.nuo.example.com");
+
+    // 2. Explicit wss:// with custom port
+    let s2 = t("wss://tunnel.nuo.example.com:8443");
+    assert_eq!(s2.host, "tunnel.nuo.example.com");
+    assert_eq!(s2.port, 8443);
+    assert!(s2.secure);
+    assert_eq!(s2.url(), "wss://tunnel.nuo.example.com:8443/");
+    assert_eq!(s2.endpoint_display(), "wss://tunnel.nuo.example.com:8443");
+
+    // 3. https:// alias implies wss:// on 443
+    let s3 = t("https://cf-tunnel.domain.com/ws");
+    assert_eq!(s3.host, "cf-tunnel.domain.com");
+    assert_eq!(s3.port, 443);
+    assert!(s3.secure);
+
+    // 4. ws:// scheme defaults to port 80 and secure=false
+    let s4 = t("ws://lan-box.internal");
+    assert_eq!(s4.host, "lan-box.internal");
+    assert_eq!(s4.port, 80);
+    assert!(!s4.secure);
+    assert_eq!(s4.endpoint_display(), "ws://lan-box.internal");
+
+    // 5. Host and explicit port without scheme defaults to cleartext
+    let s5 = t("192.168.1.100:9800");
+    assert_eq!(s5.host, "192.168.1.100");
+    assert_eq!(s5.port, 9800);
+    assert!(!s5.secure);
+
+    // 6. Bare :port resolves loopback 127.0.0.1
+    let s6 = t(":9800");
+    assert_eq!(s6.host, "127.0.0.1");
+    assert_eq!(s6.port, 9800);
+    assert!(!s6.secure);
+
+    // 7. IPv6 bracketed addresses
+    let s7 = t("[2001:db8::1]:9800");
+    assert_eq!(s7.host, "[2001:db8::1]");
+    assert_eq!(s7.port, 9800);
+    assert!(!s7.secure);
+
+    // 8. Rejections
+    let err_no_port = RemoteServer::parse("tunnel.example.com", Some("tok".into())).unwrap_err();
+    assert!(err_no_port.contains("not host:port"));
+
+    let err_no_token = RemoteServer::parse("wss://tunnel.example.com", None).unwrap_err();
+    assert!(err_no_token.contains("--token"));
+}
+
+/// [INV-REMOTE-02] Interactive Remote Symmetry and [INV-REMOTE-03] Sovereign Remote Detach
+/// Verifies connecting to a hosted server via `ClientTarget::Remote`, performing a full
+/// WebSocket attach handshake with bearer token authentication, and detaching cleanly
+/// without destroying the remote server process.
+#[tokio::test]
+async fn test_inv_remote_02_remote_symmetry_and_detach() {
+    use nuo_client::{ClientTarget, Handshake, RemoteServer};
+
+    let registry = Arc::new(SessionRegistry::prehost_only());
+    let _session_id = host_with_project(&registry, std::env::temp_dir()).await;
+    let token = "test-remote-bearer-98765".to_string();
+
+    let mut handle = serve::start_server(
+        serve::ServeOptions {
+            port: 0,
+            expose: serve::ServeExpose::Public,
+            token: Some(token.clone()),
+            ..serve::ServeOptions::default()
+        },
+        registry.clone(),
+    );
+
+    let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
+    assert!(port > 0, "server must bind to an ephemeral port");
+
+    // 1. Wrong token must be rejected at the handshake boundary
+    let bad_remote = RemoteServer::parse(&format!("127.0.0.1:{port}"), Some("bad-token".into())).unwrap();
+    let bad_target = ClientTarget::Remote(bad_remote);
+    let bad_res = bad_target.connect(AttachAction::Attach(None)).await;
+    assert!(bad_res.is_err(), "connecting with invalid bearer token must fail");
+
+    // 2. Correct token connects successfully via ClientTarget::Remote
+    let valid_remote = RemoteServer::parse(&format!("127.0.0.1:{port}"), Some(token.clone())).unwrap();
+    let valid_target = ClientTarget::Remote(valid_remote.clone());
+
+    let handshake = valid_target
+        .connect(AttachAction::Attach(None))
+        .await
+        .expect("remote attach handshake must succeed");
+
+    let (req_tx, resp_rx) = match handshake {
+        Handshake::Attached { req_tx, resp_rx, .. } => (req_tx, resp_rx),
+        Handshake::Pick(_) => panic!("expected Handshake::Attached, got Pick"),
+    };
+
+    // 3. Bidirectional pipe works across the remote WebSocket connection
+    req_tx.send(AgentRequest::Interrupt).expect("send request over remote wire");
+
+    // 4. [INV-REMOTE-03] Sovereign Detach: drop client connection handles
+    drop(req_tx);
+    drop(resp_rx);
+
+    // Give server event loop a moment to register disconnect
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // 5. Remote server is still running and healthy; a subsequent client can attach
+    let re_target = ClientTarget::Remote(valid_remote);
+    let re_handshake = re_target
+        .connect(AttachAction::Attach(None))
+        .await
+        .expect("server must remain running and accept re-attachment after previous client detached");
+
+    assert!(matches!(re_handshake, Handshake::Attached { .. }));
+
+    // Clean shutdown of test server
+    handle.cancel.cancel();
+}

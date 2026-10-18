@@ -11,7 +11,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::components::list::row_style;
 use crate::components::selectable_body::{SelectableRow, render_selectable_body};
 use crate::fuzzy::fuzzy_match;
-use crate::keymap::{AppContext, Availability, CommandId, DangerLevel};
+use crate::keymap::{AppContext, Availability, CommandCategory, CommandId, DangerLevel};
 use crate::model::layout::LayoutMap;
 use crate::model::selection::SelectionState;
 use crate::primitives::{
@@ -24,6 +24,7 @@ use crate::render::Theme;
 pub(crate) struct PaletteEntry {
     pub id: CommandId,
     pub label: String,
+    pub category: CommandCategory,
     pub hint: String,
     pub slash: Option<String>,
     pub description: String,
@@ -53,6 +54,7 @@ pub(crate) fn filter_palette_commands(
         let entry = PaletteEntry {
             id: spec.id,
             label: spec.label.to_string(),
+            category: spec.category,
             hint: spec.hint.to_string(),
             slash: spec.slash.map(|s| s.to_string()),
             description: spec.description.to_string(),
@@ -64,6 +66,73 @@ pub(crate) fn filter_palette_commands(
 
         if clean_query.is_empty() {
             entries.push(entry);
+        } else if let Some(stripped) = clean_query.strip_prefix('@') {
+            // ADR-0077: @ prefix scopes to Navigation / Settings
+            if entry.category == CommandCategory::Navigate
+                || entry.category == CommandCategory::Settings
+            {
+                let filter_str = stripped.trim();
+                if filter_str.is_empty() {
+                    entries.push(entry);
+                } else {
+                    let match_target = format!(
+                        "{} {} {} {}",
+                        entry.label,
+                        entry.hint,
+                        entry.slash.as_deref().unwrap_or(""),
+                        entry.description
+                    );
+                    if let Some(m) = fuzzy_match(&match_target, filter_str) {
+                        let mut scored_entry = entry;
+                        scored_entry.score += m.score;
+                        entries.push(scored_entry);
+                    }
+                }
+            }
+        } else if let Some(stripped) = clean_query.strip_prefix('>') {
+            // ADR-0077: > prefix scopes to Actions / Commands
+            if entry.category != CommandCategory::Navigate
+                && entry.category != CommandCategory::Settings
+            {
+                let filter_str = stripped.trim();
+                if filter_str.is_empty() {
+                    entries.push(entry);
+                } else {
+                    let match_target = format!(
+                        "{} {} {} {}",
+                        entry.label,
+                        entry.hint,
+                        entry.slash.as_deref().unwrap_or(""),
+                        entry.description
+                    );
+                    if let Some(m) = fuzzy_match(&match_target, filter_str) {
+                        let mut scored_entry = entry;
+                        scored_entry.score += m.score;
+                        entries.push(scored_entry);
+                    }
+                }
+            }
+        } else if let Some(stripped) = clean_query.strip_prefix('/') {
+            // ADR-0077: / prefix scopes to slash commands
+            if entry.slash.is_some() {
+                let filter_str = stripped.trim();
+                if filter_str.is_empty() {
+                    entries.push(entry);
+                } else {
+                    let match_target = format!(
+                        "{} {} {} {}",
+                        entry.label,
+                        entry.hint,
+                        entry.slash.as_deref().unwrap_or(""),
+                        entry.description
+                    );
+                    if let Some(m) = fuzzy_match(&match_target, filter_str) {
+                        let mut scored_entry = entry;
+                        scored_entry.score += m.score;
+                        entries.push(scored_entry);
+                    }
+                }
+            }
         } else {
             let match_target = format!(
                 "{} {} {} {}",
@@ -86,7 +155,23 @@ pub(crate) fn filter_palette_commands(
         match (a_avail, b_avail) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
-            _ => b.score.cmp(&a.score).then_with(|| a.label.cmp(&b.label)),
+            _ => {
+                if clean_query.is_empty() {
+                    let cat_rank = |c: CommandCategory| match c {
+                        CommandCategory::Navigate => 0,
+                        CommandCategory::Settings => 1,
+                        CommandCategory::Session => 2,
+                        CommandCategory::Actions => 3,
+                        CommandCategory::Global => 4,
+                    };
+                    cat_rank(a.category)
+                        .cmp(&cat_rank(b.category))
+                        .then_with(|| b.score.cmp(&a.score))
+                        .then_with(|| a.label.cmp(&b.label))
+                } else {
+                    b.score.cmp(&a.score).then_with(|| a.label.cmp(&b.label))
+                }
+            }
         }
     });
 
@@ -144,7 +229,7 @@ pub(crate) fn draw_command_palette(
         ),
         if query.is_empty() {
             Span::styled(
-                "Type a command, slash trigger, or surface name...",
+                "Type a command, or @views, /slash, >actions...",
                 Style::default().fg(theme.muted()),
             )
         } else {
@@ -225,8 +310,22 @@ pub(crate) fn draw_command_palette(
                 Style::default().fg(theme.fg())
             };
 
+            let cat_tag = match entry.category {
+                CommandCategory::Navigate => "[nav] ",
+                CommandCategory::Settings => "[set] ",
+                CommandCategory::Session => "[ses] ",
+                CommandCategory::Actions | CommandCategory::Global => "[act] ",
+            };
+
+            let cat_style = if is_sel {
+                Style::default().bg(style.bg).fg(style.dim)
+            } else {
+                Style::default().fg(theme.dim())
+            };
+
             let mut left_spans = vec![
                 Span::styled(gutter, gutter_style),
+                Span::styled(cat_tag, cat_style),
                 Span::styled(entry.label.clone(), label_style),
             ];
 
@@ -448,5 +547,70 @@ mod tests {
             !content.contains('▶'),
             "palette rows must not contain '▶' pointer glyph: {content}"
         );
+        assert!(
+            content.contains("[nav]"),
+            "palette rows must render category badges: {content}"
+        );
+    }
+
+    #[test]
+    fn prefix_filtering_scopes_by_domain() {
+        let ctx = AppContext::default();
+
+        // @ prefix scopes strictly to Navigate / Settings
+        let nav_entries = filter_palette_commands("@", &[], &ctx);
+        assert!(!nav_entries.is_empty());
+        assert!(nav_entries.iter().all(|e| {
+            e.category == CommandCategory::Navigate || e.category == CommandCategory::Settings
+        }));
+        assert!(nav_entries.iter().any(|e| e.id == CommandId::NavigateDashboard));
+        assert!(nav_entries.iter().any(|e| e.id == CommandId::NavigateSettings));
+
+        let nav_filtered = filter_palette_commands("@dash", &[], &ctx);
+        assert!(!nav_filtered.is_empty());
+        assert_eq!(nav_filtered[0].id, CommandId::NavigateDashboard);
+        assert!(nav_filtered.iter().all(|e| {
+            e.category == CommandCategory::Navigate || e.category == CommandCategory::Settings
+        }));
+
+        // > prefix scopes strictly to Actions
+        let action_entries = filter_palette_commands(">", &[], &ctx);
+        assert!(!action_entries.is_empty());
+        assert!(action_entries.iter().all(|e| {
+            e.category != CommandCategory::Navigate && e.category != CommandCategory::Settings
+        }));
+        assert!(action_entries.iter().any(|e| e.id == CommandId::Quit));
+
+        // / prefix scopes strictly to slash triggers
+        let slash_entries = filter_palette_commands("/", &[], &ctx);
+        assert!(!slash_entries.is_empty());
+        assert!(slash_entries.iter().all(|e| e.slash.is_some()));
+    }
+
+    #[test]
+    fn command_palette_renders_safely_on_narrow_terminal() {
+        let ctx = AppContext::default();
+        let entries = filter_palette_commands("", &[], &ctx);
+        let theme = Theme::default();
+        let mut terminal = nuotc::TestTerminal::new(40, 15);
+        let mut scroll = 0;
+        let selection = SelectionState::default();
+        let mut layout_map = LayoutMap::default();
+
+        terminal.draw(|f| {
+            draw_command_palette(
+                f,
+                CommandPaletteProps {
+                    query: "@",
+                    entries: &entries,
+                    selected_index: 0,
+                    scroll: &mut scroll,
+                    show_caret: true,
+                },
+                &theme,
+                &selection,
+                &mut layout_map,
+            );
+        });
     }
 }

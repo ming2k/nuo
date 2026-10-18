@@ -25,7 +25,7 @@ async-trait = "0.1"
 tokio = { version = "1", default-features = false }
 tokio-util = { version = "0.7", features = ["codec"] }
 bytes = "1"
-tokio-tungstenite = "0.26"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
 libc = "0.2"
 glob = "0.3"
 ignore = "0.4"
@@ -97,7 +97,8 @@ nuo-provider-deepseek = { version = "0.0.38", path = "providers/nuo-provider-dee
 nuo-provider-kimi = { version = "0.0.38", path = "providers/nuo-provider-kimi" }
 nuo-provider-copilot = { version = "0.0.38", path = "providers/nuo-provider-copilot" }
 nuo-provider-commandcode-plan = { version = "0.0.38", path = "providers/nuo-provider-commandcode-plan" }
-nuo-provider-opencode = { version = "0.0.38", path = "providers/nuo-provider-opencode" }
+nuo-provider-opencode-plan = { version = "0.0.38", path = "providers/nuo-provider-opencode-plan" }
+nuo-provider-opencode-zen = { version = "0.0.38", path = "providers/nuo-provider-opencode-zen" }
 nuo-provider-openrouter = { version = "0.0.38", path = "providers/nuo-provider-openrouter" }
 nuo-provider-xai = { version = "0.0.38", path = "providers/nuo-provider-xai" }
 nuo-provider-qianwen = { version = "0.0.38", path = "providers/nuo-provider-qianwen" }

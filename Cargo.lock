@@ -2098,7 +2098,6 @@ dependencies = [
  "nuo-provider",
  "nuo-provider-anthropic",
  "nuo-provider-google-antigravity",
- "nuo-provider-opencode",
  "nuo-provider-qoder",
  "nuo-provider-transport",
  "serde",
@@ -2240,23 +2239,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "nuo-provider-opencode"
+name = "nuo-provider-opencode-plan"
 version = "0.0.38"
 dependencies = [
- "async-trait",
- "futures",
  "inventory",
- "nuo-host",
  "nuo-model-codec",
- "nuo-protocol",
  "nuo-provider",
  "nuo-provider-deepseek",
- "nuo-provider-openai",
- "nuo-provider-transport",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
+]
+
+[[package]]
+name = "nuo-provider-opencode-zen"
+version = "0.0.38"
+dependencies = [
+ "inventory",
+ "nuo-model-codec",
+ "nuo-provider",
 ]
 
 [[package]]
@@ -2435,7 +2433,8 @@ dependencies = [
  "nuo-provider-google-antigravity",
  "nuo-provider-kimi",
  "nuo-provider-openai",
- "nuo-provider-opencode",
+ "nuo-provider-opencode-plan",
+ "nuo-provider-opencode-zen",
  "nuo-provider-openrouter",
  "nuo-provider-qianwen",
  "nuo-provider-qoder",
@@ -3727,7 +3726,11 @@ checksum = "7a9daff607c6d2bf6c16fd681ccb7eecc83e4e2cdc1ca067ffaadfca5de7f084"
 dependencies = [
  "futures-util",
  "log",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
  "tokio",
+ "tokio-rustls",
  "tungstenite",
 ]
 
@@ -4001,6 +4004,8 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.9.5",
+ "rustls",
+ "rustls-pki-types",
  "sha1",
  "thiserror 2.0.21",
  "utf-8",

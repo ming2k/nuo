@@ -1,6 +1,6 @@
 //! Standalone Client SDK for the Nuo server.
 //!
-//! Frontends (nuox, web) and CLI tools interact with the running server
+//! Frontends (nuo, web) and CLI tools interact with the running server
 //! through this client library without depending on server internals.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
@@ -1136,40 +1136,152 @@ fn current_posture() -> nuo_wire::human_request::HumanChannelPosture {
 /// version record); a remote one is identified by nothing but the address,
 /// and pretending otherwise is how a remote run silently lands on the
 /// local instance.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteServer {
     /// Hostname or IP. Loopback only when the address was a bare `:port`.
     pub host: String,
     pub port: u16,
     pub token: String,
+    /// Whether the connection requires TLS (`wss://`).
+    pub secure: bool,
+}
+
+/// The connection target for an attach client: either a locally discovered/spawned server
+/// or an explicitly addressed remote server.
+#[derive(Debug, Clone)]
+pub enum ClientTarget {
+    Local(ServerInfo),
+    Remote(RemoteServer),
+}
+
+impl ClientTarget {
+    pub async fn connect(&self, action: AttachAction) -> Result<Handshake, String> {
+        match self {
+            Self::Local(info) => connect(info, action).await,
+            Self::Remote(remote) => remote.connect(action).await,
+        }
+    }
+
+    pub fn endpoint_display(&self) -> String {
+        match self {
+            Self::Local(info) => {
+                if info.port > 0 {
+                    format!("127.0.0.1:{}", info.port)
+                } else {
+                    "local UDS".to_string()
+                }
+            }
+            Self::Remote(remote) => remote.endpoint_display(),
+        }
+    }
 }
 
 impl RemoteServer {
-    /// Parse `--remote <addr>` (`host:port`, `ws://host:port`, or a bare
-    /// `:port` for loopback) together with the required `--token`. The
-    /// token is mandatory because every network-exposed listener demands
-    /// one (ADR-0105); a missing port is an error rather than a well-known
-    /// default — a default would silently target the local server when the
-    /// operator meant a remote one.
+    /// Canonical WebSocket URL for this remote server.
+    pub fn url(&self) -> String {
+        let scheme = if self.secure { "wss" } else { "ws" };
+        format!("{scheme}://{}:{}/", self.host, self.port)
+    }
+
+    /// User-facing display string for this remote endpoint.
+    pub fn endpoint_display(&self) -> String {
+        let scheme = if self.secure { "wss" } else { "ws" };
+        if (self.secure && self.port == 443) || (!self.secure && self.port == 80) {
+            format!("{scheme}://{}", self.host)
+        } else {
+            format!("{scheme}://{}:{}", self.host, self.port)
+        }
+    }
+
+    /// Parse `--remote <addr>` together with the required `--token` (or `NUO_TOKEN` env).
+    ///
+    /// Accepts:
+    /// - Explicit secure URIs: `wss://host`, `wss://host:port`, `https://host`, `https://host:port`
+    ///   (defaults to port 443 when omitted).
+    /// - Explicit cleartext URIs: `ws://host:port`, `ws://host`, `http://host:port`, `http://host`
+    ///   (defaults to port 80 when omitted, or explicit port).
+    /// - Socket addresses: `host:port`, `192.168.1.4:9800`, `[::1]:9800`.
+    /// - Loopback abbreviations: `:port` (defaults host to `127.0.0.1`).
+    ///
+    /// Refuses bare hostnames without a port or explicit scheme to prevent accidentally
+    /// routing to an ambiguous destination.
     pub fn parse(addr: &str, token: Option<String>) -> Result<Self, String> {
-        let bare = addr.trim().strip_prefix("ws://").unwrap_or(addr.trim());
-        let (host, port) = split_host_port(bare)?;
+        let trimmed = addr.trim();
+        if trimmed.is_empty() {
+            return Err("empty remote address".to_string());
+        }
+
+        let (without_scheme, secure, scheme_default_port) =
+            if let Some(rest) = trimmed.strip_prefix("wss://") {
+                (rest, true, Some(443))
+            } else if let Some(rest) = trimmed.strip_prefix("https://") {
+                (rest, true, Some(443))
+            } else if let Some(rest) = trimmed.strip_prefix("ws://") {
+                (rest, false, Some(80))
+            } else if let Some(rest) = trimmed.strip_prefix("http://") {
+                (rest, false, Some(80))
+            } else {
+                (trimmed, false, None)
+            };
+
+        // Strip trailing paths (e.g. /ws or /)
+        let authority = without_scheme.split('/').next().unwrap_or(without_scheme).trim();
+        if authority.is_empty() {
+            return Err(format!("invalid remote address '{addr}': missing host"));
+        }
+
+        let (host, port) = match split_authority(authority)? {
+            (host, Some(port)) => (host, port),
+            (Some(host), None) => {
+                if let Some(def_port) = scheme_default_port {
+                    (Some(host), def_port)
+                } else {
+                    return Err(format!(
+                        "'{addr}' is not host:port (must specify port or explicit scheme like wss://)"
+                    ));
+                }
+            }
+            (None, None) => {
+                return Err(format!("'{addr}' is missing host and port"));
+            }
+        };
+
         let host = host.unwrap_or_else(|| "127.0.0.1".to_string());
-        let Some(token) = token.filter(|t| !t.is_empty()) else {
+
+        let token = token
+            .filter(|t| !t.trim().is_empty())
+            .or_else(|| std::env::var("NUO_TOKEN").ok().filter(|t| !t.trim().is_empty()));
+
+        let Some(token) = token else {
             return Err(
-                "--remote needs --token <token>: every network-exposed server \
+                "--remote needs --token <token> (or NUO_TOKEN env var): every network-exposed server \
                  requires the bearer token from the host's server discovery record"
                     .to_string(),
             );
         };
-        Ok(Self { host, port, token })
+
+        Ok(Self {
+            host,
+            port,
+            token,
+            secure,
+        })
     }
 
     /// Connect and run the attach handshake over TCP+bearer. No UDS
     /// attempt (the socket belongs to the remote machine's filesystem),
     /// no version pre-check (the handshake carries the server's version).
     pub async fn connect(&self, action: AttachAction) -> Result<Handshake, String> {
-        let url = format!("ws://{}:{}/", self.host, self.port);
+        self.connect_with_project(action, None).await
+    }
+
+    /// Connect and run the attach handshake with an optional explicit project scoping.
+    pub async fn connect_with_project(
+        &self,
+        action: AttachAction,
+        project: Option<std::path::PathBuf>,
+    ) -> Result<Handshake, String> {
+        let url = self.url();
         let mut request = url
             .as_str()
             .into_client_request()
@@ -1181,20 +1293,44 @@ impl RemoteServer {
             .await
             .map_err(|e| format!("ws connect to {url}: {e}"))?;
         let (sink, source) = websocket_split(ws);
-        finish_handshake((sink, source), action).await
+        finish_handshake_with_project((sink, source), action, project).await
     }
 }
 
-/// Split `host:port` into its parts. A missing port is an error.
-fn split_host_port(s: &str) -> Result<(Option<String>, u16), String> {
-    let (host, port_str) = match s.rsplit_once(':') {
-        Some(parts) => parts,
-        None => return Err(format!("'{s}' is not host:port")),
-    };
-    let port: u16 = port_str
-        .parse()
-        .map_err(|_| format!("'{port_str}' is not a port number"))?;
-    Ok(((!host.is_empty()).then(|| host.to_string()), port))
+/// Split `host:port` into its parts.
+fn split_authority(s: &str) -> Result<(Option<String>, Option<u16>), String> {
+    if s.is_empty() {
+        return Ok((None, None));
+    }
+    if s.starts_with('[') {
+        if let Some(close_idx) = s.find(']') {
+            let host = &s[..=close_idx];
+            let rest = &s[close_idx + 1..];
+            if rest.is_empty() {
+                return Ok((Some(host.to_string()), None));
+            } else if let Some(p_str) = rest.strip_prefix(':') {
+                let port: u16 = p_str
+                    .parse()
+                    .map_err(|_| format!("'{p_str}' is not a port number"))?;
+                return Ok((Some(host.to_string()), Some(port)));
+            } else {
+                return Err(format!("invalid IPv6 authority '{s}'"));
+            }
+        } else {
+            return Err(format!("unclosed IPv6 bracket in '{s}'"));
+        }
+    }
+
+    match s.rsplit_once(':') {
+        Some((host, port_str)) => {
+            let port: u16 = port_str
+                .parse()
+                .map_err(|_| format!("'{port_str}' is not a port number"))?;
+            let host_opt = (!host.is_empty()).then(|| host.to_string());
+            Ok((host_opt, Some(port)))
+        }
+        None => Ok((Some(s.to_string()), None)),
+    }
 }
 
 const LIVENESS_TIMEOUT: Duration = Duration::from_millis(500);
@@ -1603,7 +1739,7 @@ fn local_pair_compatible(
 /// Returns `true` when no signal can be resolved (non-Linux with no record
 /// hash, unreadable `/proc`, or an unresolvable installed image): absence of
 /// evidence must not flag a healthy production server. A server spawned by
-/// an *installed* binary matches the sibling `nuo` resolved by `nuox`; the
+/// an *installed* binary matches the sibling `nuo` resolved by `nuo`; the
 /// TUI executable itself is deliberately not part of this comparison.
 pub fn server_image_is_current(info: &ServerInfo) -> bool {
     let expected = server_program();
@@ -2240,14 +2376,19 @@ async fn finish_handshake(
     parts: (BoxWireSink, BoxWireStream),
     action: AttachAction,
 ) -> Result<Handshake, String> {
+    finish_handshake_with_project(parts, action, std::env::current_dir().ok()).await
+}
+
+/// The stream-generic attach handshake with explicit project scoping.
+async fn finish_handshake_with_project(
+    parts: (BoxWireSink, BoxWireStream),
+    action: AttachAction,
+    project: Option<std::path::PathBuf>,
+) -> Result<Handshake, String> {
     let (mut wire_sink, mut wire_source) = parts;
 
-    // Declare this client's working directory so the server scopes a fresh or
-    // auto-attached session to the project the user actually invoked us in —
-    // the server's own cwd is whatever the first client that spawned it
-    // happened to use. A server predating the field ignores it; a failed cwd
-    // read degrades to the server's fallback.
-    let project = std::env::current_dir().ok();
+    // Scopes creation / auto-attach to the target project. Local callers send
+    // their cwd; remote callers send None or their explicit remote project.
     let select = Wire::Select {
         action,
         project,
@@ -2650,13 +2791,46 @@ mod tests {
             (t("192.168.1.4:9800").host, t("192.168.1.4:9800").port),
             ("192.168.1.4".to_string(), 9800)
         );
+        assert!(!t("192.168.1.4:9800").secure);
         // ws:// scheme is accepted and stripped
         assert_eq!(t("ws://box.lan:9800").host, "box.lan");
         assert_eq!(t("ws://box.lan:9800").port, 9800);
+        assert!(!t("ws://box.lan:9800").secure);
         // bare :port means loopback (the local server over TCP)
         assert_eq!(t(":9800").host, "127.0.0.1");
+        assert_eq!(t(":9800").port, 9800);
         // whitespace is tolerated
         assert_eq!(t("  box.lan:9800  ").host, "box.lan");
+
+        // [INV-REMOTE-01] secure schemes and default ports
+        let wss = t("wss://tunnel.example.com");
+        assert_eq!(wss.host, "tunnel.example.com");
+        assert_eq!(wss.port, 443);
+        assert!(wss.secure);
+        assert_eq!(wss.endpoint_display(), "wss://tunnel.example.com");
+
+        let wss_port = t("wss://tunnel.example.com:8443");
+        assert_eq!(wss_port.host, "tunnel.example.com");
+        assert_eq!(wss_port.port, 8443);
+        assert!(wss_port.secure);
+        assert_eq!(wss_port.endpoint_display(), "wss://tunnel.example.com:8443");
+
+        let https = t("https://tunnel.example.com/ws");
+        assert_eq!(https.host, "tunnel.example.com");
+        assert_eq!(https.port, 443);
+        assert!(https.secure);
+
+        let ws_def = t("ws://box.lan");
+        assert_eq!(ws_def.host, "box.lan");
+        assert_eq!(ws_def.port, 80);
+        assert!(!ws_def.secure);
+        assert_eq!(ws_def.endpoint_display(), "ws://box.lan");
+
+        // IPv6 bracketed
+        let ipv6 = t("[::1]:9800");
+        assert_eq!(ipv6.host, "[::1]");
+        assert_eq!(ipv6.port, 9800);
+        assert!(!ipv6.secure);
     }
 
     #[test]

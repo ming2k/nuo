@@ -1,0 +1,15 @@
+[package]
+name = "nuo-provider-opencode-zen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "OpenCode Zen relay provider channel for Nuo (ADR-0015, ADR-0079)"
+
+[dependencies]
+nuo-provider = { workspace = true }
+nuo-model-codec = { workspace = true }
+inventory = { workspace = true }
+
+[lints]
+workspace = true

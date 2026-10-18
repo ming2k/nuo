@@ -740,31 +740,3 @@ fn prompt_hints_emit_no_system_guidance() {
     // model can read, so there is nothing for a prompt note to guard.
     assert!(provider.prompt_hints().system_guidance.is_empty());
 }
-
-#[test]
-fn workspace_scoped_credential_carries_the_org_header() {
-    let provider = AnthropicMessagesProvider::new(
-        "st-token".to_string(),
-        "qwen3.6-plus".to_string(),
-        "https://opencode.ai/inference/anthropic/v1/messages",
-    );
-    let auth = nuo_model_codec::ResolvedAuth::new("st-token").with_extension(
-        nuo_model_codec::OpencodeAuthMetadata {
-            org_id: "wrk_workspace_1".to_string(),
-        },
-    );
-    let req = provider
-        .build_request_for_auth(&json!({"model": "qwen3.6-plus"}), &auth)
-        .build("Anthropic")
-        .expect("request builds");
-    assert_eq!(
-        req.headers
-            .get("x-opencode-org-id")
-            .and_then(|value| value.to_str().ok())
-            .expect("workspace header present"),
-        "wrk_workspace_1"
-    );
-    // The Console relay accepts the stock Anthropic credential header
-    // unchanged (ADR-0269 probe P1), so the wire keeps `x-api-key`.
-    assert!(req.headers.get("x-api-key").is_some());
-}

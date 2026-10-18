@@ -1850,16 +1850,14 @@ pub mod scene_namespace {
     pub enum SceneVerb {
         /// Open (or close) the Command Palette / surface switcher (`C-x p`).
         Switcher,
-        /// Navigate directly to the server session orchestrator dashboard (`/dashboard`).
+        /// Navigate directly to the server session orchestrator dashboard (`/dashboard`, `C-x d`).
         Dashboard,
         /// Open application and appearance settings (`/settings`, `C-x ,`, ADR-0043).
         Settings,
-        /// Open the saved threads overview picker dialog (`/threads`, ADR-0043).
+        /// Open the saved threads overview picker dialog (`/threads`, `C-x s`, ADR-0043).
         Threads,
-        /// Close active tab (or dismiss a foreground dialog first).
+        /// Close active tab (or dismiss a foreground dialog first, `C-x w`, ADR-0077).
         Leave,
-        /// Quit nuo — the same armed double-press as the global `Ctrl+C`.
-        Quit,
     }
 
     impl SceneVerb {
@@ -1871,13 +1869,10 @@ pub mod scene_namespace {
             SceneVerb::Settings,
             SceneVerb::Threads,
             SceneVerb::Leave,
-            SceneVerb::Quit,
         ];
 
-        /// The second-stroke chords that fire this verb. More than one spelling
-        /// is allowed when a convention is genuinely shared (Emacs' `C-x w`
-        /// close and vi's `q`-adjacent `k`); the first entry is the one the
-        /// card advertises.
+        /// The second-stroke chords that fire this verb.
+        /// Under ADR-0077, `Leave` binds exclusively to `w`, and `Quit` is excised.
         pub const fn strokes(self) -> &'static [Key] {
             match self {
                 // `p` (command palette canonical entry, ADR-0023).
@@ -1900,25 +1895,11 @@ pub mod scene_namespace {
                     modifiers: KeyModifiers::NONE,
                     code: KeyCode::Char('s'),
                 }],
-                // `w` (Emacs `C-x C-w`-family window/`C-x w` muscle memory) and
-                // `k` (the close-window convention). Case-insensitive: the
-                // router folds the second stroke, since a leader chord is
-                // typed blind.
-                SceneVerb::Leave => &[
-                    Key {
-                        modifiers: KeyModifiers::NONE,
-                        code: KeyCode::Char('w'),
-                    },
-                    Key {
-                        modifiers: KeyModifiers::NONE,
-                        code: KeyCode::Char('k'),
-                    },
-                ],
-                // `C-c` mirrors the global quit chord's spelling inside the
-                // namespace (Emacs' `C-x C-c`).
-                SceneVerb::Quit => &[Key {
-                    modifiers: KeyModifiers::CONTROL,
-                    code: KeyCode::Char('c'),
+                // `w` (the close-window / close-tab convention, ADR-0077). Case-insensitive:
+                // the router folds the second stroke, since a leader chord is typed blind.
+                SceneVerb::Leave => &[Key {
+                    modifiers: KeyModifiers::NONE,
+                    code: KeyCode::Char('w'),
                 }],
             }
         }
@@ -1938,19 +1919,15 @@ pub mod scene_namespace {
                 SceneVerb::Settings => "settings",
                 SceneVerb::Threads => "threads",
                 SceneVerb::Leave => "close tab",
-                SceneVerb::Quit => "quit nuo",
             }
         }
 
         /// The chord the which-key card prints for this verb, in the card's own
-        /// two-stroke notation: a plain letter prints bare (`w`), a modified
-        /// one prints its `C-` spelling (`C-c`), because the card is already
-        /// inside the `C-x …` prefix.
+        /// two-stroke notation: a plain letter prints bare (`w`).
         pub const fn advertised_stroke_display(self) -> &'static str {
             match self.advertised_stroke().modifiers {
                 KeyModifiers::NONE => match self.advertised_stroke().code {
                     KeyCode::Char('w') => "w",
-                    KeyCode::Char('k') => "k",
                     KeyCode::Char('p') => "p",
                     KeyCode::Char('b') => "b",
                     KeyCode::Char('s') => "s",
@@ -1958,10 +1935,7 @@ pub mod scene_namespace {
                     KeyCode::Char(',') => ",",
                     _ => "?",
                 },
-                _ => match self.advertised_stroke().code {
-                    KeyCode::Char('c') => "C-c",
-                    _ => "C-?",
-                },
+                _ => "?",
             }
         }
 
@@ -2784,17 +2758,10 @@ mod tests {
             );
         }
 
-        // No advertised stroke is a bare `c`: `C-x c` must stay inert so a
-        // mistyped `C-c` cannot quit the app through the namespace.
-        for verb in SceneVerb::ALL {
-            let stroke = verb.advertised_stroke();
-            if stroke.code == KeyCode::Char('c') {
-                assert!(
-                    stroke.modifiers.contains(KeyModifiers::CONTROL),
-                    "{verb:?} advertises a bare `c`, which would shadow the quit chord"
-                );
-            }
-        }
+        // ADR-0077 [INV-TUI-SURF-01]: Bare `c`, `C-c`, and `k` must never resolve as a scene verb.
+        assert_eq!(SceneVerb::from_second_stroke(Key::plain('k')), None);
+        assert_eq!(SceneVerb::from_second_stroke(Key::plain('c')), None);
+        assert_eq!(SceneVerb::from_second_stroke(Key::CTRL_C), None);
 
         // The opening stroke is not itself a verb stroke (it re-arms).
         assert!(

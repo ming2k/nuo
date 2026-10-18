@@ -117,7 +117,7 @@ fn redesigned_components_render_without_panicking() {
                     &theme,
                 );
                 draw_copy_toast(f, "copied to clipboard", false, &theme);
-                draw_armed_toast(f, "press Ctrl-c again to exit", &theme);
+                draw_armed_toast(f, "press Ctrl-c again to detach", &theme);
             });
 
     // Modals + permission sheet on a fresh frame.

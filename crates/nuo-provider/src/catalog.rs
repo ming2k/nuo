@@ -12,7 +12,6 @@ pub struct RemoteCatalogRequest<'a> {
     pub base_url: &'a str,
     pub api_key: &'a SecretString,
     pub account_id: Option<&'a str>,
-    pub org_id: Option<&'a str>,
     pub user_agent: Option<&'a str>,
     pub extra_headers: &'a [(&'a str, &'a str)],
     pub catalog_signing: Option<&'a dyn CatalogSigning>,

@@ -1,26 +1,25 @@
 # OpenCode Provider Integration
 
-This article explains how the three OpenCode service surfaces are modeled as distinct Nuo providers, and why the subscription relay's catalog requires a compiled capability baseline.
+This article explains how the two active OpenCode service surfaces (`opencode-plan` and `opencode-zen`) are modeled as distinct Nuo providers, and why the subscription relay's catalog requires a compiled capability baseline.
 
 ---
 
-## 1. Three Service Surfaces, One Crate
+## 1. Two Active Service Surfaces, Two Dedicated Crates
 
-`providers/nuo-provider-opencode/` hosts three **distinct** model providers, not one provider with modes:
+OpenCode integrations are partitioned into two dedicated channel crates per ADR-0015 and ADR-0079:
 
-| Provider id | Surface | Auth | Catalog shape |
-| :--- | :--- | :--- | :--- |
-| `opencode` | General inference relay (`opencode.ai/inference/…`) | API key / Public Keyless (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
-| `opencode-plan` | Zen Go relay (`opencode.ai/zen/go/v1`) | OpenCode Go API key (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
-| `opencode-zen` | Zen relay (`opencode.ai/zen/v1`) | OpenCode API key / Public Keyless (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
+| Provider id | Channel Crate | Surface | Auth | Catalog shape |
+| :--- | :--- | :--- | :--- | :--- |
+| `opencode-plan` | `providers/nuo-provider-opencode-plan/` | Zen Go relay (`opencode.ai/zen/go/v1`) | OpenCode Go API key (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
+| `opencode-zen` | `providers/nuo-provider-opencode-zen/` | Zen relay (`opencode.ai/zen/v1`) | OpenCode API key / Public Keyless (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
 
-They are separate providers because the endpoint family and model universe differ. Per [ADR-0015](../adr/0015-dependency-inversion-architecture-for-model-providers.md), the classification unit is the concrete access channel/plan, never the corporate brand; authentication mode never selects the route (`[INV-AUTH-04]`).
+The legacy `opencode` Console provider and its `CatalogShape::OpencodeConsole` parser were retired outright (ADR-0079) as part of tech debt elimination, and the umbrella `nuo-provider-opencode` crate was bifurcated into dedicated channel crates.
+
+They are separate crates and providers because the endpoint family and model universe differ. Per [ADR-0015](../adr/0015-dependency-inversion-architecture-for-model-providers.md), the classification unit is the concrete access channel/plan, never the corporate brand; authentication mode never selects the route (`[INV-AUTH-04]`).
 
 ---
 
-## 2. Route-From-Catalog, Not From Auth
-
-The **Console** surface routes itself from its catalog: the account-scoped `/console/api/config` catalog advertises both the served models *and* their routing — a per-model `provider.{npm,api}` override selects the wire protocol and inference root. The live catalog is therefore authoritative for both, and the compiled `MODELS` table is only a seed.
+## 2. Route Per Model by Wire Format
 
 The two **Zen** surfaces expose a public catalog (`/zen/go/v1/models` for the plan/Go relay, `/zen/v1/models` for the Zen relay) and route per model by wire format (`route_for_model`); the instance default is the OpenAI chat-completions surface.
 
@@ -38,15 +37,15 @@ Intrinsic capability metadata (context window, reasoning support, tool calling, 
 
 All OpenCode surfaces authenticate with a plain API key (or public keyless for free models) and serve a public `/models` catalog:
 - `opencode-plan` authenticates with an OpenCode Go subscription API key (`oc_sk_...`) and automatically injects the mandatory `x-opencode-session` header.
-- `opencode-zen` and `opencode` authenticate with `OPENCODE_API_KEY` (or `Authorization: Bearer public` for promotional free tier models).
+- `opencode-zen` authenticates with `OPENCODE_API_KEY` (or `Authorization: Bearer public` for promotional free tier models).
 
-OpenCode's legacy Console OAuth device grant (which targeted internal enterprise console SSO organizations rather than personal coding plans) was retired to eliminate broken device authentication flows and prevent `OpencodeConsole.SignedOut` token invalidation errors.
+OpenCode's legacy Console OAuth device grant (which targeted internal enterprise console SSO organizations rather than personal coding plans) was retired to eliminate broken device authentication flows.
 
 ### 4.2 Ids-Only Catalog and the Compiled Baseline
 
 The **Go relay's `/models` payload carries ids only** — no capability fields. This is the pivotal fact for the subscription surface:
 
-> Because the catalog publishes no capabilities, the **compiled baseline in this crate is the only capability source** for the models Nuo intends to present as first-class.
+> Because the catalog publishes no capabilities, the **compiled baseline in `nuo-provider-opencode-plan` is the only capability source** for the models Nuo intends to present as first-class.
 
 The consequences are precise:
 
@@ -61,4 +60,5 @@ For example, every DeepSeek id on the Go relay carries the `low`/`high`/`max` la
 ## 5. Related
 
 - [ADR-0015](../adr/0015-dependency-inversion-architecture-for-model-providers.md): the provider contract crate and channel namespace.
+- [ADR-0079](../adr/0079-opencode-provider-channel-bifurcation-and-legacy-container-retirement.md): provider channel bifurcation and legacy container retirement.
 - [Reasoning Effort Reference](../reference/effort.md): the effort ladder model that these baselines populate.

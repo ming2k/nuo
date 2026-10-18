@@ -15,7 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group
 - Consulted: Runtime, Capability, Interface Teams, and Model Infrastructure Engineers
 - Informed: System Architects
-- Amended by: [ADR-0027](0027-provider-definition-single-source-and-adapters-retirement.md) (accepted) — executes this ADR's unfinished `providers/` relocation and retires `nuo-provider-adapters`. Transport substrate `nuo-provider-transport` was subsequently relocated to the workspace root alongside `nuo-oauth` to preserve namespace purity (`providers/` housing exclusively concrete channel adapters) and prevent downward layer-inversion. This ADR's §1 topology and `[INV-PROV-01..05]` remain the binding direction; §2's renaming table and the §"Monolithic Provider Adapter" rejection are unchanged.
+- Amended by: [ADR-0027](0027-provider-definition-single-source-and-adapters-retirement.md) (accepted) — executes this ADR's unfinished `providers/` relocation and retires `nuo-provider-adapters`. Transport substrate `nuo-provider-transport` was subsequently relocated to the workspace root alongside `nuo-oauth` to preserve namespace purity (`providers/` housing exclusively concrete channel adapters) and prevent downward layer-inversion. [ADR-0079](0079-opencode-provider-channel-bifurcation-and-legacy-container-retirement.md) (accepted) bifurcates `nuo-provider-opencode` into dedicated `nuo-provider-opencode-plan` and `nuo-provider-opencode-zen` channel crates. This ADR's §1 topology and `[INV-PROV-01..05]` remain the binding direction; §2's renaming table and the §"Monolithic Provider Adapter" rejection are unchanged.
 - Complements: [ADR-0001](0001-flat-workspace-and-microkernel-capability-topology.md), [ADR-0008](0008-single-tool-contract.md), [ADR-0010](0010-harness-decomposition-and-agent-unification.md), [ADR-0013](0013-decoupled-tool-namespace-and-infrastructure-purity.md), [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md)
 
 ---
@@ -70,7 +70,8 @@ providers/ (Layer 2: Dedicated Channel & Adapter Namespace)
   ├── nuo-provider-google-antigravity  # Google AI Studio & Google Antigravity CloudCode
   ├── nuo-provider-copilot             # GitHub Copilot Device Code & session minting
   ├── nuo-provider-commandcode-plan    # CommandCode Plan (SSPL proxy & window credits)
-  ├── nuo-provider-opencode            # OpenCode Console, Plan, and Zen multi-protocol surfaces
+  ├── nuo-provider-opencode-plan       # OpenCode Plan subscription surface
+  ├── nuo-provider-opencode-zen        # OpenCode Zen public/keyless relay surface
   ├── nuo-provider-deepseek            # DeepSeek V4 (Responses & /user/balance)
   ├── nuo-provider-kimi                # Kimi Code (K3 always-on reasoning & /balance)
   ├── nuo-provider-openrouter          # OpenRouter gateway & /auth/key quota

@@ -397,7 +397,12 @@ pub(crate) fn handle_ctrl_c(
             app.input.clear();
             app.set_cursor(0);
             app.arm_ctrl_c(None);
-            app.copy_toast_message = "input cleared".to_string();
+            show_local_toast(
+                app,
+                "input cleared",
+                false,
+                std::time::Duration::from_millis(1800),
+            );
         } else if app.ctrl_c_armed() {
             tracing::info!(reason = "dashboard_ctrl_c_double_press", "app exiting");
             if app.startup_overlay == crate::StartupOverlay::Dashboard
@@ -431,7 +436,12 @@ pub(crate) fn handle_ctrl_c(
         // the quit window. If the user wants to exit, they must
         // press Ctrl+C twice with an empty input.
         app.clear_composer();
-        app.copy_toast_message = "input cleared".to_string();
+        show_local_toast(
+            app,
+            "input cleared",
+            false,
+            std::time::Duration::from_millis(1800),
+        );
     } else if app.ctrl_c_armed() {
         // Double Ctrl+C inside the thread is a client detach intent (ADR-0038 [INV-ACTION-02]).
         // Quits the TUI gracefully without sending EndSession, leaving the thread running.

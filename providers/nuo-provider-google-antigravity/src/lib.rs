@@ -1324,41 +1324,6 @@ mod tests {
         );
         assert!(!headers.contains_key("x-opencode-org-id"));
     }
-
-    #[test]
-    fn workspace_scoped_credential_switches_the_carrier_and_scopes_the_org() {
-        // ADR-0269 probe P2: the Console relay rejects `?key=` outright, so an
-        // org-scoped bearer must reach it as a header — and never in a URL that
-        // upstream access logs would capture.
-        let p = GoogleProvider::with_base_url(
-            "st-token".to_string(),
-            "gemini-3-flash".to_string(),
-            "https://opencode.ai/inference/google/v1beta",
-        );
-        let auth = nuo_model_codec::ResolvedAuth::new("st-token").with_extension(
-            nuo_model_codec::OpencodeAuthMetadata {
-                org_id: "wrk_workspace_1".to_string(),
-            },
-        );
-        let (url, headers, _) =
-            p.prepare_request_for_auth(ModelRequest::new(Vec::new()), true, true, &auth);
-        assert!(!url.contains("key="), "token leaked into the URL: {url}");
-        assert!(url.ends_with(":streamGenerateContent?alt=sse"), "{url}");
-        assert_eq!(
-            headers
-                .get("x-goog-api-key")
-                .and_then(|v| v.to_str().ok())
-                .expect("header-carried credential"),
-            "st-token"
-        );
-        assert_eq!(
-            headers
-                .get("x-opencode-org-id")
-                .and_then(|v| v.to_str().ok())
-                .expect("workspace header present"),
-            "wrk_workspace_1"
-        );
-    }
 }
 
 pub mod oauth;

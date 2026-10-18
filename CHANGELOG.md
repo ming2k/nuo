@@ -10,6 +10,11 @@ the project adheres to the federated SemVer model described in
 
 ### Added
 
+- **OpenCode Provider Channel Bifurcation & Legacy Container Crate Retirement (ADR-0079)**:
+  - Bifurcated `nuo-provider-opencode` into dedicated leaf provider channel crates: `nuo-provider-opencode-plan` (OpenCode Plan subscription surface) and `nuo-provider-opencode-zen` (OpenCode Zen relay surface).
+  - Enforced `[INV-PROV-06]` Canonical Provider Spec Export and `[INV-PROV-07]` Channel Boundary Segregation, restoring symmetrical `MODEL_PROVIDER_SPEC` registration at the composition root (`nuo-server`).
+  - Completely retired and removed the legacy `nuo-provider-opencode` container crate from the workspace.
+
 - **Dynamic Composer Height Scroll Reflow & Sticky Viewport Underflow Protection**:
   - Unified composer height calculation across the event loop and transcript renderer via `calculate_composer_height`, eliminating geometry drift during multiline editing.
   - Interactive transcript view now adjusts dynamically in real time when multiline input expands or shrinks the composer box, maintaining proper viewport scroll anchors and preventing content jumping.

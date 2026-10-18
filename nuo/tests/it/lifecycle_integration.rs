@@ -182,7 +182,6 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
         LifecycleOptions {
             shutdown_grace: Duration::from_secs(3),
             idle_exit: None,
-            client_driven: false,
             drain_probe: None,
         },
         registry,
@@ -235,7 +234,6 @@ async fn idle_exit_triggers_after_the_grace_period() {
         LifecycleOptions {
             shutdown_grace: Duration::from_secs(3),
             idle_exit: Some(Duration::from_millis(1)),
-            client_driven: false,
             drain_probe: None,
         },
     )
@@ -275,7 +273,6 @@ async fn escalation_skips_the_graceful_phases() {
             LifecycleOptions {
                 shutdown_grace: Duration::from_secs(5),
                 idle_exit: None,
-                client_driven: false,
                 drain_probe: Some(run_probe),
             },
             registry,
@@ -423,11 +420,11 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
 }
 
 #[tokio::test]
-async fn client_driven_lifecycle_stops_when_interactive_client_disconnects() {
+async fn server_persists_when_interactive_client_disconnects() {
     sandbox_once();
     let _lock = LIFECYCLE_TEST_LOCK.lock().await;
     let tmp = tempfile::tempdir().unwrap();
-    let sock = tmp.path().join("client_driven.sock");
+    let sock = tmp.path().join("server_persists.sock");
     let registry = Arc::new(SessionRegistry::prehost_only());
     let proj_dir = tmp.path().join("proj-cd");
     host_one(&registry, proj_dir.to_str().unwrap()).await;
@@ -443,7 +440,6 @@ async fn client_driven_lifecycle_stops_when_interactive_client_disconnects() {
             LifecycleOptions {
                 shutdown_grace: Duration::from_secs(3),
                 idle_exit: None,
-                client_driven: true,
                 drain_probe: None,
             },
             registry,
@@ -532,7 +528,6 @@ async fn client_detach_spares_active_autonomous_work() {
             LifecycleOptions {
                 shutdown_grace: Duration::from_secs(3),
                 idle_exit: None,
-                client_driven: true,
                 drain_probe: None,
             },
             registry,
@@ -607,7 +602,6 @@ async fn conflicting_stale_socket_is_directly_replaced() {
         LifecycleOptions {
             shutdown_grace: Duration::from_secs(3),
             idle_exit: None,
-            client_driven: false,
             drain_probe: None,
         },
         registry,

@@ -140,7 +140,6 @@ pub async fn restart_server(
 /// Run server in foreground (the supervisor shape).
 pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std::error::Error>> {
     let mut lifecycle = nuo::host::LifecycleOptions::from_config();
-    lifecycle.client_driven = flags.zero_tcp;
     if let Some(minutes) = flags.idle_exit_minutes {
         lifecycle.idle_exit = match minutes {
             0 => None,

@@ -1,13 +1,6 @@
-//! The `opencode-zen` provider preset: the OpenCode Zen relay surface
+//! The `opencode-zen` provider channel: the OpenCode Zen relay surface
 //! (`opencode.ai/zen/v1`), authenticated via an OpenCode API key
-//! (`OPENCODE_API_KEY`).
-//!
-//! This is a distinct service surface from the account-scoped Console provider
-//! (`opencode`, ADR-0269): the Zen relay authenticates with a plain key and
-//! serves a public `/zen/v1/models` catalog, whereas the Console surface is
-//! account-scoped and requires an OAuth credential plus a workspace header. The
-//! endpoint family and model universe differ, so they are separate model
-//! providers (ADR-0201 INV-1); authentication mode never selects the route.
+//! (`OPENCODE_API_KEY`) or public keyless bearer.
 
 use nuo_model_codec::reasoning::ReasoningSupport;
 use nuo_model_codec::{Model, WireProtocol};
@@ -143,3 +136,28 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     quota: None,
     models: OPENCODE_ZEN_MODELS,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nuo_model_codec::model::{BaselineModels, resolve};
+
+    #[test]
+    fn baseline_ids_are_unique() {
+        let mut ids: Vec<_> = MODELS.iter().map(|m| m.id).collect();
+        let count = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), count, "duplicate baseline ids in opencode-zen");
+        let _ = BaselineModels(MODELS);
+    }
+
+    #[test]
+    fn the_zen_seed_stays_registered() {
+        for id in OPENCODE_ZEN_MODELS {
+            let model = resolve(id);
+            assert_eq!(model.id, *id, "seeded id {id} must be registered");
+        }
+    }
+}
+
