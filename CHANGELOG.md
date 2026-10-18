@@ -6,7 +6,8 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
-## [Unreleased]
+## [0.0.33] - 2026-10-17
+
 ### Fixed
 
 - **Tab-Aware `/new` Workspace Projection (ADR-0039, ADR-0058)**: Aligned `/new`
@@ -28,7 +29,6 @@ the project adheres to the federated SemVer model described in
   `WireEntityResolution` mechanism ([ADR-0074](docs/adr/0074-observed-wire-entity-resolution-and-evidence-driven-per-level-model-routing.md)), with the
   parser→persistence→request-builder evidence belt; both 5-5 flagships were
   added to the provider's baseline surface and offline model seed.
-
 
 ## [0.0.32] - 2026-10-17
 
