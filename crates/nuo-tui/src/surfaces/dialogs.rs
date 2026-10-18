@@ -505,6 +505,17 @@ fn render_dialog(
                 .downcast_mut::<ModelsDialog>()
                 .expect("kind");
             let models = app.models_flat_filtered();
+            if !models.is_empty() {
+                if d.index >= models.len() {
+                    d.index = models.len().saturating_sub(1);
+                }
+                if let Some(m) = models.get(d.index)
+                    && !m.usable
+                    && let Some(usable_idx) = models.iter().position(|m| m.usable)
+                {
+                    d.index = usable_idx;
+                }
+            }
             Some(crate::overlays::draw_models_modal(
                 frame,
                 crate::overlays::provider::models::ModelsModalProps {
@@ -900,6 +911,11 @@ fn handle_dialog_click(
             let (geometry, _) = crate::providers::models_body_lines(&models);
             let target_line = e.scroll + visual_row;
             if let Some(crate::providers::ModelBodyLine::Row(row_idx)) = geometry.get(target_line) {
+                if let Some(rm) = models.get(*row_idx)
+                    && !rm.usable
+                {
+                    return DialogOutcome::Consumed;
+                }
                 let was_selected = e.index == *row_idx;
                 e.index = *row_idx;
                 e.follow = true;
@@ -1253,11 +1269,14 @@ fn input_dialog(
                 .as_any_mut()
                 .downcast_mut::<ModelsDialog>()
                 .expect("kind");
-            let count = app.picker_row_count();
+            let models = app.models_flat_filtered();
+            let count = models.len();
             if count == 0 {
                 return DialogOutcome::Unhandled;
             }
-            e.index = rotate(e.index, count, forward);
+            e.index = rotate_selectable(e.index, count, forward, |idx| {
+                models.get(idx).map_or(false, |m| m.usable)
+            });
             e.follow = true;
             DialogOutcome::Consumed
         }
@@ -1443,16 +1462,45 @@ fn input_dialog(
     }
 }
 
-fn rotate(cur: usize, count: usize, forward: bool) -> usize {
+pub(crate) fn rotate_selectable<F>(
+    cur: usize,
+    count: usize,
+    forward: bool,
+    mut is_selectable: F,
+) -> usize
+where
+    F: FnMut(usize) -> bool,
+{
     if count == 0 {
-        0
-    } else if forward {
+        return 0;
+    }
+    let cur = cur.min(count - 1);
+    let mut next = if forward {
         (cur + 1) % count
     } else if cur == 0 {
         count - 1
     } else {
         cur - 1
+    };
+
+    for _ in 0..count {
+        if is_selectable(next) {
+            return next;
+        }
+        next = if forward {
+            (next + 1) % count
+        } else if next == 0 {
+            count - 1
+        } else {
+            next - 1
+        };
     }
+
+    cur.min(count.saturating_sub(1))
+}
+
+fn rotate(cur: usize, count: usize, forward: bool) -> usize {
+    rotate_selectable(cur, count, forward, |_| true)
 }
 
 fn switcher_app_ctx(app: &crate::App) -> crate::keymap::AppContext {
@@ -2085,5 +2133,49 @@ impl Dialogs {
         if scope == DialogScope::Global {
             self.switcher.reset();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rotate_selectable_skips_unusable_items() {
+        // [0: true, 1: false, 2: true]
+        let is_selectable = |i: usize| i != 1;
+        // Forward from 0 -> skips 1, lands on 2
+        assert_eq!(rotate_selectable(0, 3, true, is_selectable), 2);
+        // Forward from 2 -> wraps, lands on 0
+        assert_eq!(rotate_selectable(2, 3, true, is_selectable), 0);
+        // Backward from 0 -> wraps, skips 1, lands on 2
+        assert_eq!(rotate_selectable(0, 3, false, is_selectable), 2);
+        // Backward from 2 -> skips 1, lands on 0
+        assert_eq!(rotate_selectable(2, 3, false, is_selectable), 0);
+    }
+
+    #[test]
+    fn rotate_selectable_handles_all_unusable_gracefully() {
+        assert_eq!(rotate_selectable(0, 3, true, |_| false), 0);
+        assert_eq!(rotate_selectable(1, 3, false, |_| false), 1);
+        assert_eq!(rotate_selectable(0, 0, true, |_| true), 0);
+    }
+
+    #[test]
+    fn rotate_selectable_skips_multiple_consecutive_unusable() {
+        // [0: false, 1: false, 2: true, 3: false]
+        let is_selectable = |i: usize| i == 2;
+        assert_eq!(rotate_selectable(2, 4, true, is_selectable), 2);
+        assert_eq!(rotate_selectable(2, 4, false, is_selectable), 2);
+        assert_eq!(rotate_selectable(0, 4, true, is_selectable), 2);
+        assert_eq!(rotate_selectable(0, 4, false, is_selectable), 2);
+    }
+
+    #[test]
+    fn rotate_selectable_clamps_out_of_bounds_cur() {
+        // count = 2, cur = 10 (e.g. after search filtering)
+        // [0: true, 1: true]
+        assert_eq!(rotate_selectable(10, 2, true, |_| true), 0);
+        assert_eq!(rotate_selectable(10, 2, false, |_| true), 0);
     }
 }

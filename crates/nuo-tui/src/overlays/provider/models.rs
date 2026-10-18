@@ -298,7 +298,7 @@ pub(crate) fn model_list_body(
                 let tag = if locked {
                     let verdict = rm.locked_reason.as_deref().map_or_else(
                         || "locked".to_string(),
-                        |reason| format!("locked: {reason}"),
+                        |reason| format!("locked — {reason}"),
                     );
                     if tag.is_empty() {
                         verdict
@@ -349,16 +349,29 @@ pub(crate) fn model_list_body(
                 } else {
                     rm.match_id.as_ref()
                 });
+                let label_fg = if locked { theme.dim() } else { style.fg };
+                let label_match_fg = if locked {
+                    theme.dim()
+                } else if is_selected {
+                    style.fg
+                } else {
+                    theme.brand()
+                };
+                let label_modifier = if locked {
+                    Modifier::empty()
+                } else {
+                    Modifier::BOLD
+                };
                 let label_group = RowGroup::fixed().matched_text(
                     &label_text,
                     Style::default()
                         .bg(style.bg)
-                        .fg(style.fg)
-                        .add_modifier(Modifier::BOLD),
+                        .fg(label_fg)
+                        .add_modifier(label_modifier),
                     Style::default()
                         .bg(style.bg)
-                        .fg(if is_selected { style.fg } else { theme.brand() })
-                        .add_modifier(Modifier::BOLD),
+                        .fg(label_match_fg)
+                        .add_modifier(label_modifier),
                     &label_matched,
                     0,
                 );
@@ -376,13 +389,26 @@ pub(crate) fn model_list_body(
                 if distinct_name.is_some() && show_id_column {
                     let id_text = truncate_ellipsis(&rm.model, id_budget);
                     let id_matched = match_set(rm.match_id.as_ref());
+                    let id_fg = if locked { theme.dim() } else { style.dim };
+                    let id_match_fg = if locked {
+                        theme.dim()
+                    } else if is_selected {
+                        style.fg
+                    } else {
+                        theme.brand()
+                    };
+                    let id_modifier = if locked {
+                        Modifier::empty()
+                    } else {
+                        Modifier::BOLD
+                    };
                     let id_group = RowGroup::column(id_col).matched_text(
                         &id_text,
-                        Style::default().bg(style.bg).fg(style.dim),
+                        Style::default().bg(style.bg).fg(id_fg),
                         Style::default()
                             .bg(style.bg)
-                            .fg(if is_selected { style.fg } else { theme.brand() })
-                            .add_modifier(Modifier::BOLD),
+                            .fg(id_match_fg)
+                            .add_modifier(id_modifier),
                         &id_matched,
                         0,
                     );
@@ -396,20 +422,35 @@ pub(crate) fn model_list_body(
                     .max(1);
                 let conn_text = truncate_ellipsis(&rm.provider_label, conn_budget);
                 let conn_matched = match_set(rm.match_connection.as_ref());
+                let conn_fg = if locked { theme.dim() } else { style.dim };
+                let conn_match_fg = if locked {
+                    theme.dim()
+                } else if is_selected {
+                    style.fg
+                } else {
+                    theme.brand()
+                };
+                let conn_modifier = if locked {
+                    Modifier::empty()
+                } else {
+                    Modifier::BOLD
+                };
                 let conn_group = RowGroup::ratio(3, 5).matched_text(
                     &conn_text,
-                    Style::default().bg(style.bg).fg(style.dim),
+                    Style::default().bg(style.bg).fg(conn_fg),
                     Style::default()
                         .bg(style.bg)
-                        .fg(if is_selected { style.fg } else { theme.brand() })
-                        .add_modifier(Modifier::BOLD),
+                        .fg(conn_match_fg)
+                        .add_modifier(conn_modifier),
                     &conn_matched,
                     0,
                 );
                 list_row = list_row.group(conn_group);
 
                 if !tag.is_empty() {
-                    let tag_fg = if is_selected {
+                    let tag_fg = if locked {
+                        theme.dim()
+                    } else if is_selected {
                         list_row.fill_fg()
                     } else {
                         theme.info()

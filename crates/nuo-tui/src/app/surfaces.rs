@@ -146,8 +146,13 @@ impl App {
     pub(crate) fn reset_picker_nav(&mut self) {
         match self.top_dialog() {
             Some(DialogKind::Models) => {
+                let first_usable = self
+                    .models_flat_filtered()
+                    .iter()
+                    .position(|r| r.usable)
+                    .unwrap_or(0);
                 let m = &mut self.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
-                m.index = 0;
+                m.index = first_usable;
                 m.scroll = 0;
                 m.follow = true;
             }

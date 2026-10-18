@@ -424,9 +424,15 @@ impl ListRow {
         }
 
         if trailing_count > 0 {
-            if col < trailing_start {
-                spans.push(pad(trailing_start - col, bg));
-                col = trailing_start;
+            let min_trailing_start = if col > self.gutter {
+                col + GROUP_GAP
+            } else {
+                col
+            };
+            let start = trailing_start.max(min_trailing_start);
+            if start > col {
+                spans.push(pad(start - col, bg));
+                col = start;
             }
             let mut emitted_trailing = 0usize;
             for g in &self.groups {
@@ -721,5 +727,25 @@ mod tests {
         assert_eq!(&text[1..7], "gpt-4o");
         assert_eq!(&text[20..26], "GPT 4o");
         assert_eq!(&text[48..54], "OpenAI");
+    }
+
+    #[test]
+    fn trailing_group_never_collides_with_preceding_content_even_on_overflow() {
+        let theme = Theme::default();
+        let style = choice_style(ChoiceTone::Filled, false, &theme);
+        // Available width is 18 cols.
+        // Gutter (1) + "Gemini 4 Argon" (14) = 15 cols.
+        // Trailing tag is "locked" (6).
+        // 15 + 6 = 21 > 18.
+        let line = ListRow::new(style, 18)
+            .group(RowGroup::fixed().text("Gemini 4 Argon", style.fg, 0))
+            .group(RowGroup::trailing().text("locked", style.dim, 0))
+            .finish();
+        let text = line_text(&line);
+        assert!(
+            text.contains("Gemini 4 Argon "),
+            "trailing group must never collide into label: {text:?}"
+        );
+        assert!(!text.contains("Argonlocked"), "no text collision");
     }
 }

@@ -391,24 +391,11 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             let key_ready = |app: &App, id: &str| app.key_status.get(id).copied().unwrap_or(true);
             let target = if app.active_dialog() == Some(DialogKind::Models) {
                 let rows = app.models_flat_filtered();
-                let picked = rows.get(app.active_index()).or_else(|| rows.first());
-                // A model the provider declared unavailable mirrors the official
-                // CLI's greyed-out menu row: refuse activation with a toast
-                // stating the provider's OWN reason when it gave one, instead of
-                // sending a request the server must refuse. When the provider
-                // declared no reason, say only that (ADR-0273) — never invent
-                // "your plan", which is a different, unstated diagnosis.
-                if let Some(row) = picked.filter(|row| !row.usable) {
-                    let message = row.locked_reason.as_deref().map_or_else(
-                        || "This model is unavailable on your account".to_string(),
-                        |reason| format!("This model is unavailable: {reason}"),
-                    );
-                    crate::event_loop::sync::show_local_toast(
-                        app,
-                        message,
-                        true,
-                        std::time::Duration::from_millis(2000),
-                    );
+                let picked = rows
+                    .get(app.active_index())
+                    .or_else(|| rows.iter().find(|r| r.usable));
+                // ADR-0076: An unusable model is strictly inert and can never be activated.
+                if picked.filter(|row| !row.usable).is_some() {
                     return ActionFlow::Handled;
                 }
                 picked.map(|row| (row.provider_id.clone(), row.model.clone()))
@@ -589,13 +576,17 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         }
         input::InputAction::ProviderPickerToggleFavorite => {
             // Models only (gated in input): toggle the favorite on the
-            // highlighted MODEL (falling back to the first visible row).
+            // highlighted MODEL (falling back to the first visible usable row).
             // Favorite is model-level (ADR-0046), so the id is the
             // model wire id. Sending the request is enough; the backend
             // pushes a fresh snapshot that flips the ★ next frame.
             if app.active_dialog() == Some(DialogKind::Models) {
                 let ranked = app.models_flat_filtered();
-                if let Some(row) = ranked.get(app.active_index()).or_else(|| ranked.first()) {
+                if let Some(row) = ranked
+                    .get(app.active_index())
+                    .or_else(|| ranked.iter().find(|r| r.usable))
+                    && row.usable
+                {
                     app.send_intent(AgentRequest::ToggleFavorite {
                         id: row.model.clone(),
                     });
@@ -2504,8 +2495,11 @@ pub(super) fn enter_panel(
                 let index = rows
                     .iter()
                     .position(|row| {
-                        row.provider_id == app.current_provider && row.model == app.current_model
+                        row.provider_id == app.current_provider
+                            && row.model == app.current_model
+                            && row.usable
                     })
+                    .or_else(|| rows.iter().position(|r| r.usable))
                     .unwrap_or(0);
                 let m = &mut app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
                 m.search = false;

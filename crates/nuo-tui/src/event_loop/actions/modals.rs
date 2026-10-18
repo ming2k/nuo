@@ -169,7 +169,10 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
         // opens for any model that exposes effort and/or a
         // separate thinking switch.
         let rows = app.models_flat_filtered();
-        if let Some(row) = rows.get(app.active_index()).or_else(|| rows.first())
+        if let Some(row) = rows
+            .get(app.active_index())
+            .or_else(|| rows.iter().find(|r| r.usable))
+            && row.usable
             && (row.effort.is_some() || row.thinking.is_some())
         {
             let is_builtin = !app.provider_is_custom(&row.provider_id);

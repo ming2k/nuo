@@ -59,6 +59,18 @@ The provider model modal (`draw_models_modal`, `crates/nuo-tui/src/overlays/prov
 
 ---
 
-## 4. Footer Hints
+## 4. Canonical Disabled / Inert Item Pattern
+
+Per **ADR-0076** (`[INV-TUI-INERT-01]`, `[INV-TUI-INERT-02]`), all selectable list dialogs and option pickers adhere to a strict, universal disabled item contract:
+
+- **Skip Navigation**: Arrow key navigation (<kbd>Up</kbd>, <kbd>Down</kbd>, wrap-around) routes through `rotate_selectable` and skips unusable/locked items automatically. Selection cursors never land on an unusable row.
+- **Strict Inertia**: Pointer clicks on disabled rows are consumed as no-ops (they do not focus or activate). Direct activation inputs on disabled rows are inert with zero side effects.
+- **Subdued Visual Presentation**: Unusable rows render entirely in `theme.dim()` or `theme.muted()`, with normal font weight (`Modifier::BOLD` is stripped), and on standard `theme.panel()` background (no brand selection band).
+- **Gestalt Spacing Firewall**: `ListRow` guarantees an unconditional minimum separation (`GROUP_GAP`) between label/column atoms and trailing badges, preventing text smashing on narrow viewports.
+- **Visual Language Grammar**: Lock and status reasons strictly follow the canonical em-dash grammar: `locked — {reason}`.
+
+---
+
+## 5. Footer Hints
 
 Modal footers render keycap hints through `render_modal_footer` (`crates/nuo-tui/src/components/footer.rs`). Each hint carries a priority; when the width cannot fit every hint, lower-priority hints drop before higher-priority ones, so the essential dismiss/confirm affordances always survive truncation.

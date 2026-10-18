@@ -2936,3 +2936,249 @@ async fn slash_new_with_round_count_greater_than_zero_opens_new_tab() {
     assert!(app.switch_to_new);
     assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
 }
+
+#[test]
+fn models_dialog_arrow_navigation_skips_unusable_models() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let info = |model: &str, usable: bool| nuo_wire::ProviderModelInfo {
+        model: model.to_string(),
+        name: None,
+        protocol: String::new(),
+        effort: None,
+        thinking: None,
+        effort_levels: Vec::new(),
+        favorite: false,
+        last_used_ms: None,
+        vision: Some(false),
+        context_window: 128_000,
+        max_output_tokens: None,
+        availability: if usable {
+            Some(nuo_wire::Availability::usable())
+        } else {
+            Some(nuo_wire::Availability::locked(Some(
+                "Requires subscription or account".to_string(),
+            )))
+        },
+        availability_overridden: false,
+        advertised: None,
+        availability_stale: false,
+    };
+    app.provider_picker = nuo_wire::ProviderPickerSnapshot {
+        default_id: "p1".into(),
+        rows: vec![nuo_wire::ProviderPickerRow {
+            id: "p1".into(),
+            name: "P1".into(),
+            model: "m1".into(),
+            models: vec!["m1".into(), "m2".into(), "m3".into()],
+            model_info: vec![
+                info("m1", true),
+                info("m2", false), // locked
+                info("m3", true),
+            ],
+            builtin: true,
+            protocol: String::new(),
+            base_url: String::new(),
+            key_ready: true,
+            provider: String::new(),
+            client_identity: Default::default(),
+            last_used_ms: None,
+            auth: Default::default(),
+        }],
+    };
+    app.current_provider = "p1".to_string();
+    app.current_model = "m1".to_string();
+
+    assert!(app.open_dialog(crate::surfaces::DialogKind::Models));
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::ModelsDialog>().index,
+        0,
+        "initially points at first usable model"
+    );
+
+    // ModalDown: should skip index 1 (locked) and jump directly to index 2
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let action = crate::input::InputAction::ModalDown;
+        let outcome = ent.handle_input(&action, &mut app, "");
+        assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::ModelsDialog>().index,
+        2,
+        "arrow down must skip locked model index 1 and land on index 2"
+    );
+
+    // ModalDown again: wraps around to index 0, skipping locked index 1
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let action = crate::input::InputAction::ModalDown;
+        let outcome = ent.handle_input(&action, &mut app, "");
+        assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::ModelsDialog>().index,
+        0,
+        "arrow down wrap must skip locked model and land on index 0"
+    );
+
+    // ModalUp: wraps backward to index 2, skipping locked index 1
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let action = crate::input::InputAction::ModalUp;
+        let outcome = ent.handle_input(&action, &mut app, "");
+        assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::ModelsDialog>().index,
+        2,
+        "arrow up wrap must skip locked model and land on index 2"
+    );
+
+    // ModalUp again: moves to index 0, skipping locked index 1
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let action = crate::input::InputAction::ModalUp;
+        let outcome = ent.handle_input(&action, &mut app, "");
+        assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::ModelsDialog>().index,
+        0,
+        "arrow up must skip locked model and land on index 0"
+    );
+}
+
+#[test]
+fn models_dialog_click_on_unusable_model_is_ignored() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let info = |model: &str, usable: bool| nuo_wire::ProviderModelInfo {
+        model: model.to_string(),
+        name: None,
+        protocol: String::new(),
+        effort: None,
+        thinking: None,
+        effort_levels: Vec::new(),
+        favorite: false,
+        last_used_ms: None,
+        vision: Some(false),
+        context_window: 128_000,
+        max_output_tokens: None,
+        availability: if usable {
+            Some(nuo_wire::Availability::usable())
+        } else {
+            Some(nuo_wire::Availability::locked(Some(
+                "Requires subscription".to_string(),
+            )))
+        },
+        availability_overridden: false,
+        advertised: None,
+        availability_stale: false,
+    };
+    app.provider_picker = nuo_wire::ProviderPickerSnapshot {
+        default_id: "p1".into(),
+        rows: vec![nuo_wire::ProviderPickerRow {
+            id: "p1".into(),
+            name: "P1".into(),
+            model: "m1".into(),
+            models: vec!["m1".into(), "m2".into()],
+            model_info: vec![
+                info("m1", true),
+                info("m2", false), // locked at index 1
+            ],
+            builtin: true,
+            protocol: String::new(),
+            base_url: String::new(),
+            key_ready: true,
+            provider: String::new(),
+            client_identity: Default::default(),
+            last_used_ms: None,
+            auth: Default::default(),
+        }],
+    };
+    app.current_provider = "p1".to_string();
+    app.current_model = "m1".to_string();
+
+    assert!(app.open_dialog(crate::surfaces::DialogKind::Models));
+    app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+    app.ui.mount(
+        crate::ui::UiKey::Overlay(crate::surfaces::OverlaySurface::Dialog(
+            crate::surfaces::DialogKind::Models,
+        )),
+        nuotc::Rect::new(10, 5, 60, 15),
+    );
+    app.ui.commit();
+
+    let models_dlg = app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
+    models_dlg.index = 0;
+    models_dlg.scroll = 0;
+
+    // Body starts at y = 5 + 3 = 8.
+    // Line 0 is section header "All models", Line 1 is model row 0 (usable), Line 2 is model row 1 (locked).
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        // Click on Line 2 (locked row m2) at y = 10
+        let action = crate::input::InputAction::SelectionStart { x: 20, y: 10 };
+        let outcome = ent.handle_input(&action, &mut app, "");
+        assert_eq!(outcome, crate::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    // Index must NOT have changed to 1
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::ModelsDialog>().index,
+        0,
+        "clicking on an unusable model must NOT change selection cursor"
+    );
+}
+
+#[test]
+fn models_dialog_reset_picker_nav_lands_on_first_usable_model() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let info = |model: &str, usable: bool| nuo_wire::ProviderModelInfo {
+        model: model.to_string(),
+        name: None,
+        protocol: String::new(),
+        effort: None,
+        thinking: None,
+        effort_levels: Vec::new(),
+        favorite: false,
+        last_used_ms: None,
+        vision: Some(false),
+        context_window: 128_000,
+        max_output_tokens: None,
+        availability: if usable {
+            Some(nuo_wire::Availability::usable())
+        } else {
+            Some(nuo_wire::Availability::locked(None))
+        },
+        availability_overridden: false,
+        advertised: None,
+        availability_stale: false,
+    };
+    app.provider_picker = nuo_wire::ProviderPickerSnapshot {
+        default_id: "p1".into(),
+        rows: vec![nuo_wire::ProviderPickerRow {
+            id: "p1".into(),
+            name: "P1".into(),
+            model: "m1".into(),
+            models: vec!["m0".into(), "m1".into()],
+            model_info: vec![
+                info("m0", false), // locked at index 0
+                info("m1", true),  // usable at index 1
+            ],
+            builtin: true,
+            protocol: String::new(),
+            base_url: String::new(),
+            key_ready: true,
+            provider: String::new(),
+            client_identity: Default::default(),
+            last_used_ms: None,
+            auth: Default::default(),
+        }],
+    };
+    assert!(app.open_dialog(crate::surfaces::DialogKind::Models));
+    app.reset_picker_nav();
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::ModelsDialog>().index,
+        1,
+        "reset_picker_nav must land on first usable model (index 1), not locked index 0"
+    );
+}

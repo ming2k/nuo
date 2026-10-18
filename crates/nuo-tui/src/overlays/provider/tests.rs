@@ -787,6 +787,39 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
     let text = buffer_text(&terminal);
     assert!(text.contains("gmodel"), "locked row is listed");
     assert!(text.contains("locked"), "lock tag renders");
+
+    // ADR-0076: verify that locked rows render completely dimmed without bold weight
+    let (lines, _) = crate::overlays::provider::models::model_list_body(
+        &ranked,
+        "openai",
+        "gpt-5.5",
+        0,
+        &theme,
+        72,
+    );
+    let locked_line = lines
+        .iter()
+        .find(|l| {
+            let text: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
+            text.contains("gmodel")
+        })
+        .expect("locked line present");
+    for span in &locked_line.spans {
+        if span.content.trim().is_empty() {
+            continue;
+        }
+        assert!(
+            !span.style.add.contains(nuotc::Modifier::BOLD),
+            "locked model text must not be bold: {:?}",
+            span.content
+        );
+        assert_eq!(
+            span.style.fg,
+            theme.dim(),
+            "locked model text must be styled dimmed: {:?}",
+            span.content
+        );
+    }
 }
 
 /// ADR-0273: when the provider states a reason, the row shows *that* — nuo
