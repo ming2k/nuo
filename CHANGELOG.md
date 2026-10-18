@@ -6,6 +6,16 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.36] - 2026-11-17
+
+### Added
+
+- **Canonical Unselectable List Item Topology, Inert Skip Navigation, and Gestalt Spacing Firewall (ADR-0076)**:
+  Unified disabled and locked list item interactions across dialog surfaces and option pickers.
+  - Ratified `[INV-TUI-INERT-01]` Inert Disabled Item Navigation: selection cursors automatically skip unusable items during arrow navigation and wrap-around, and unusable items are strictly inert to mouse clicks and activation inputs.
+  - Ratified `[INV-TUI-INERT-02]` Gestalt Spacing Firewall & Text-Join Hygiene: `ListRow::finish` enforces an unconditional minimum separation (`GROUP_GAP`) before trailing badges, eliminating string collisions on narrow viewports. Status reasons strictly follow canonical em-dash grammar (`locked — {reason}`).
+  - Subdued visual presentation: unusable rows render uniformly in `theme.dim()` without bold modifiers.
+
 ## [0.0.35] - 2026-10-18
 
 ### Added
