@@ -2077,6 +2077,7 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
 
     let scrolled_text = buffer_text(&terminal);
     assert!(scrolled_text.contains("Provider Usage & Quota"));
+    assert!(!scrolled_text.contains("[ Antigravity Quota ]"));
     assert!(scrolled_text.contains("▸ Claude Models"));
     assert!(scrolled_text.contains("Weekly Limit Remaining · Weekly"));
     assert!(scrolled_text.contains("99% used"));
@@ -2431,4 +2432,20 @@ fn connections_modal_quota_bucket_used_percentage_and_separate_reset_line() {
     assert!(!text.contains("remaining"));
     assert!(!text.contains(" ·  resets"));
     assert!(text.contains("resets: in 3h 25m"));
+}
+
+#[test]
+fn redundant_plan_labels_are_identified_and_suppressed_in_header() {
+    use crate::overlays::provider::connections::is_redundant_plan_label;
+
+    assert!(is_redundant_plan_label("Antigravity Quota", "google-antigravity", "Google Antigravity"));
+    assert!(is_redundant_plan_label("antigravity quota active", "google-antigravity", "Google Antigravity"));
+    assert!(is_redundant_plan_label("Google Antigravity", "google-antigravity", "Google Antigravity"));
+    assert!(is_redundant_plan_label("google-antigravity", "google-antigravity", "Google Antigravity"));
+    assert!(is_redundant_plan_label("Quota", "google-antigravity", "Google Antigravity"));
+    assert!(is_redundant_plan_label("  ", "google-antigravity", "Google Antigravity"));
+
+    assert!(!is_redundant_plan_label("Google One AI Premium", "google-antigravity", "Google Antigravity"));
+    assert!(!is_redundant_plan_label("Pay-as-you-go", "deepseek", "DeepSeek"));
+    assert!(!is_redundant_plan_label("Pro", "anthropic", "Anthropic"));
 }

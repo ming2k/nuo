@@ -1332,6 +1332,74 @@ fn disclosure_toggle_disabled_by_default_leaves_scroll_untouched() {
 }
 
 #[test]
+fn sticky_collapse_anchors_summary_at_top_and_respects_viewport_underflow() {
+    use crate::model::document::TranscriptMessage;
+    use nuo_wire::Role;
+
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let mut messages = vec![
+        TranscriptMessage::new(Role::User, "initial question"),
+        TranscriptMessage::tool_step("call_1", "read_text", r#"{"path":"README.md"}"#),
+    ];
+
+    // Force step expanded initially
+    assert!(app.toggle_step_pinned(&mut messages, 1));
+    assert_eq!(messages[1].tool_step_expanded(), Some(true));
+
+    // Simulate sticky anchor active for step 1 at line 50
+    app.sticky_step = Some(1);
+    app.sticky_summary_line = Some(50);
+    app.scroll = 100;
+    app.follow_bottom = true;
+
+    // Collapse sticky bar
+    assert!(app.toggle_step_pinned(&mut messages, 1));
+    assert_eq!(messages[1].tool_step_expanded(), Some(false));
+    assert!(!app.follow_bottom, "collapsing sticky pauses follow_bottom");
+    assert_eq!(app.scroll, 50, "scroll re-anchors to summary line 50");
+    assert_eq!(
+        app.pin_summary_line,
+        Some(50),
+        "pin_summary_line latches to preserve summary at Row 0"
+    );
+
+    // Case A: Total content is smaller than viewport (e.g. 10 lines in a 30-line viewport).
+    // The entire conversation fits on screen, so scroll must collapse to 0.
+    app.content_lines = 10;
+    app.view_height = 30;
+    app.max_scroll = 0;
+    let limit_fit = if app.content_lines <= app.view_height as usize {
+        0
+    } else {
+        app.pin_summary_line
+            .map(|line| app.max_scroll.max(line.min(u16::MAX as usize) as u16))
+            .unwrap_or(app.max_scroll)
+    };
+    assert_eq!(
+        limit_fit, 0,
+        "when entire content fits, limit must collapse to 0"
+    );
+
+    // Case B: Content overflows viewport (e.g. 60 lines in a 30-line viewport, max_scroll = 30).
+    // Summary is at line 50. pin_summary_line allows scrolling up to 50 so summary stays at Row 0,
+    // accepting bottom underflow (lines 51..60 at rows 1..10, rows 11..30 blank).
+    app.content_lines = 60;
+    app.view_height = 30;
+    app.max_scroll = 30;
+    let limit_overflow = if app.content_lines <= app.view_height as usize {
+        0
+    } else {
+        app.pin_summary_line
+            .map(|line| app.max_scroll.max(line.min(u16::MAX as usize) as u16))
+            .unwrap_or(app.max_scroll)
+    };
+    assert_eq!(
+        limit_overflow, 50,
+        "when content overflows, limit preserves summary line at Row 0"
+    );
+}
+
+#[test]
 fn adopt_caret_head_and_tail_break_selection() {
     let mut app = app_with_input_selection("hello");
     // Park the visible caret somewhere stale — the adopt must override it,

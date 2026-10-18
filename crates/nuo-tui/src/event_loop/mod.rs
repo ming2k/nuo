@@ -152,6 +152,7 @@ pub async fn run_app_loop(
     let mut last_carousel_index = 0usize;
     let mut mutation_rx = mutation_rx;
     let mut terminal_resized = false;
+    let mut last_composer_height: Option<u16> = None;
     // Tracks whether the frozen notice is currently on screen, so the freeze
     // branch repaints it exactly on entry and on each geometry change rather
     // than every tick.
@@ -307,6 +308,45 @@ pub async fn run_app_loop(
         let resized_this_frame = terminal_resized;
         terminal_resized = false;
 
+        let (term_w, term_h) = terminal.size();
+        let viewport_rect = nuotc::Rect::new(
+            0,
+            0,
+            term_w,
+            term_h.saturating_sub(crate::design::PAGE_HEADER_ROWS),
+        );
+        let in_subagent = !app.focus_stack.is_empty();
+        let is_fullscreen_scene = matches!(
+            app.current_scene(),
+            crate::surfaces::SceneKind::Dashboard | crate::surfaces::SceneKind::Settings
+        );
+        let composer_active = !is_fullscreen_scene && !in_subagent;
+        let current_composer_height = if composer_active {
+            crate::render::calculate_composer_height(viewport_rect, &app.input, app.byte_cursor())
+        } else {
+            0
+        };
+        let composer_resized =
+            last_composer_height.is_some_and(|prev| prev != current_composer_height);
+        if let Some(prev_h) = last_composer_height {
+            if prev_h != current_composer_height && app.view_height > 0 {
+                let delta = current_composer_height as i32 - prev_h as i32;
+                let estimated_view_height = (app.view_height as i32 - delta).max(1) as u16;
+                app.view_height = estimated_view_height;
+                app.max_scroll = app
+                    .content_lines
+                    .saturating_sub(estimated_view_height as usize)
+                    .min(u16::MAX as usize) as u16;
+                if !app.follow_bottom {
+                    app.scroll_settle_pending = true;
+                }
+                frame_dirty = true;
+            }
+        }
+        last_composer_height = Some(current_composer_height);
+
+        let viewport_geometry_changed = resized_this_frame || composer_resized;
+
         if app.follow_bottom && !resized_this_frame {
             app.scroll = app.max_scroll;
         }
@@ -352,7 +392,7 @@ pub async fn run_app_loop(
         was_animating = animation_draw;
 
         let stage_bottom_follow =
-            (displayed_transcript_changed || resized_this_frame) && app.follow_bottom;
+            (displayed_transcript_changed || viewport_geometry_changed) && app.follow_bottom;
         let stage_settle = app.scroll_settle_pending && !stage_bottom_follow;
 
         let painted_scroll = app.scroll;
@@ -392,11 +432,17 @@ pub async fn run_app_loop(
             // for `max_scroll` to reach the header line; while a pin is
             // active, allow scrolling up to that line so the header stays at
             // the top of the viewport instead of being dragged back down.
-            let limit = app
-                .pin_summary_line
-                .map(|line| app.max_scroll.max(line.min(u16::MAX as usize) as u16))
-                .unwrap_or(app.max_scroll);
+            // When total content fits within the viewport, scroll collapses to 0.
+            let limit = if app.content_lines <= app.view_height as usize {
+                0
+            } else {
+                app.pin_summary_line
+                    .map(|line| app.max_scroll.max(line.min(u16::MAX as usize) as u16))
+                    .unwrap_or(app.max_scroll)
+            };
             app.scroll = app.scroll.min(limit);
+        } else {
+            app.scroll = app.max_scroll;
         }
 
         // The staged pass above measured the new content but emitted no bytes.

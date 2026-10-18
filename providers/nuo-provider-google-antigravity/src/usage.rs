@@ -169,10 +169,10 @@ pub(crate) fn parse_antigravity_quota(
             {
                 (Some(trimmed), None)
             } else {
-                (Some("Antigravity Quota".to_string()), Some(trimmed))
+                (None, Some(trimmed))
             }
         }
-        None => (Some("Google Antigravity".to_string()), None),
+        None => (None, None),
     };
 
     let mut all_grouped_buckets = Vec::new();
@@ -191,7 +191,7 @@ pub(crate) fn parse_antigravity_quota(
 
     if all_grouped_buckets.is_empty() {
         return Ok(ProviderUsage {
-            plan: plan.or_else(|| Some("Antigravity Quota Active".to_string())),
+            plan,
             description,
             quota: Some(ProviderQuotaData::Periodic(PeriodicQuota::default())),
             primary_balance: Some("100%".to_string()),
@@ -420,7 +420,7 @@ mod tests {
         let parsed: AntigravityQuotaSummaryResponse = serde_json::from_str(json).unwrap();
         let usage = parse_antigravity_quota(parsed).unwrap();
 
-        assert_eq!(usage.plan.as_deref(), Some("Antigravity Quota"));
+        assert_eq!(usage.plan, None);
         assert!(
             usage
                 .description

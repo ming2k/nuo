@@ -633,6 +633,21 @@ pub(crate) fn composer_layout_text_width(frame_width: usize) -> usize {
         .max(1)
 }
 
+/// Single source of truth for the composer's variable height given the current
+/// viewport geometry, input text, and byte cursor.
+pub(crate) fn calculate_composer_height(
+    viewport_size: Rect,
+    input: &str,
+    byte_cursor: usize,
+) -> u16 {
+    let input_text_width = composer_layout_text_width(viewport_size.width as usize);
+    let input_wrapped_lines = composer::input_row_count(input, input_text_width, byte_cursor);
+    let desired_input_height = input_wrapped_lines as u16 + COMPOSER_VERTICAL_CHROME_ROWS;
+    let max_input_height =
+        (viewport_size.height / COMPOSER_MAX_HEIGHT_DIVISOR).max(COMPOSER_MIN_HEIGHT);
+    desired_input_height.min(max_input_height)
+}
+
 pub struct TranscriptRender {
     /// The input box area.
     pub input_rect: Rect,
@@ -835,14 +850,10 @@ pub fn draw_transcript(
     // transcript history always stays visible. The inner text width reserves the
     // footer insets, the `> ` prompt prefix, and the matching right pad so the
     // height calculation wraps at the same width the composer renders.
-    let input_text_width = composer_layout_text_width(size.width as usize);
-    let input_wrapped_lines = composer::input_row_count(input, input_text_width, byte_cursor);
-    let desired_input_height = input_wrapped_lines as u16 + COMPOSER_VERTICAL_CHROME_ROWS;
-    let max_input_height = (size.height / COMPOSER_MAX_HEIGHT_DIVISOR).max(COMPOSER_MIN_HEIGHT);
     let input_box_height = if in_subagent {
         0
     } else {
-        desired_input_height.min(max_input_height)
+        calculate_composer_height(size, input, byte_cursor)
     };
     // The hint bar is a single-line status strip pinned flush below the input
     // box — the composer's own bottom panel-bg padding row is all the

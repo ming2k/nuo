@@ -572,6 +572,7 @@ pub(crate) fn connection_detail_body(
         && let Some(plan) = &usage.plan
         && plan.len() <= 40
         && !plan.contains('\n')
+        && !is_redundant_plan_label(plan, &detail.provider, &detail.provider_label)
     {
         quota_header_segments.push(RowSegment::styled("  ", Style::default()));
         quota_header_segments.push(RowSegment::styled(
@@ -867,4 +868,22 @@ pub(crate) fn render_periodic_quota_buckets(
             ]));
         }
     }
+}
+
+pub(crate) fn is_redundant_plan_label(plan: &str, provider: &str, provider_label: &str) -> bool {
+    let p = plan.trim();
+    if p.is_empty() {
+        return true;
+    }
+    let lower = p.to_ascii_lowercase();
+    if lower == "antigravity quota"
+        || lower == "antigravity quota active"
+        || lower == "quota"
+        || lower == "provider quota"
+        || lower == "usage & quota"
+        || lower == "provider usage & quota"
+    {
+        return true;
+    }
+    p.eq_ignore_ascii_case(provider.trim()) || p.eq_ignore_ascii_case(provider_label.trim())
 }

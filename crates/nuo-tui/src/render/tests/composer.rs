@@ -2291,3 +2291,123 @@ fn draw_composer_records_composer_rect_enabling_whole_component_focus() {
         crate::interaction::ClickTarget::Dead
     );
 }
+
+#[test]
+fn calculate_composer_height_matches_draw_transcript_geometry() {
+    use crate::render::calculate_composer_height;
+    use nuotc::Rect;
+
+    let viewport = Rect::new(0, 0, 80, 24);
+
+    // 1. Single line: 1 wrapped line + 3 chrome rows = 4 rows
+    let h1 = calculate_composer_height(viewport, "single line prompt", 0);
+    assert_eq!(h1, 4);
+
+    // 2. Multiline prompt with newlines
+    let multiline = "line 1\nline 2\nline 3";
+    let h2 = calculate_composer_height(viewport, multiline, 0);
+    assert_eq!(h2, 6);
+
+    // 3. Overflowing prompt caps at viewport / 2 (24 / 2 = 12)
+    let overflow = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15";
+    let h3 = calculate_composer_height(viewport, overflow, 0);
+    assert_eq!(h3, 12);
+}
+
+#[test]
+fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
+    use crate::empty_state::EmptyStateGuidance;
+    use crate::model::layout::LayoutMap;
+    use crate::model::selection::SelectionState;
+    use crate::render::{
+        calculate_composer_height, draw_transcript, QueueBarProps, ThreadHead, TranscriptProps,
+        ViewHints, ViewKind,
+    };
+
+    let width = 80u16;
+    let height = 24u16;
+    let mut terminal = nuotc::TestTerminal::new(width, height);
+    let theme = Theme::default();
+
+    let test_inputs = [
+        "short",
+        "line 1\nline 2",
+        "line 1\nline 2\nline 3\nline 4",
+        "a very long overflowing prompt 1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16",
+    ];
+
+    for input in test_inputs {
+        let mut actual_h = 0;
+        terminal.draw(|f| {
+            let mut layout_map = LayoutMap::new();
+            let rendered = draw_transcript(
+                f,
+                &mut layout_map,
+                TranscriptProps {
+                    messages: &[],
+                    scroll: 0,
+                    selection: &SelectionState::None,
+                    cell_selection: None,
+                    backoff_clause: None,
+                    activity: "",
+                    awaiting_permission: false,
+                    spinner_phase: 0,
+                    input,
+                    byte_cursor: 0,
+                    chrome_hidden: false,
+                    queue_bar: QueueBarProps {
+                        items: &[],
+                        paused: false,
+                        blocked: false,
+                        expand_key: None,
+                    },
+                    tasks_bar: Default::default(),
+                    subagent_bar: None,
+                    page_hints: Some(ViewHints {
+                        kind: ViewKind::Thread,
+                        context: None,
+                        context_warn: false,
+                        breadcrumbs: None,
+                        can_back: false,
+                        can_forward: false,
+                    }),
+                    thread_head: Some(ThreadHead {
+                        thread_id: "test-id",
+                        workspace: "~/test",
+                        role: None,
+                        tabs: None,
+                        active_tab: 0,
+                        unattended: false,
+                        confined: true,
+                    }),
+                    round_started_at: None,
+                    hovered_step: None,
+                    focused_target: None,
+                    logo: None,
+                    guidance: EmptyStateGuidance::Tour,
+                    carousel_index: 0,
+                    theme: &theme,
+                    layout: crate::layout::Strategy::default(),
+                    height_cache: None,
+                },
+            );
+            actual_h = rendered.input_rect.height;
+        });
+
+        let expected_h = calculate_composer_height(
+            nuotc::Rect::new(
+                0,
+                0,
+                width,
+                height.saturating_sub(crate::design::PAGE_HEADER_ROWS),
+            ),
+            input,
+            0,
+        );
+        assert_eq!(
+            actual_h, expected_h,
+            "calculate_composer_height must exactly match rendered input_rect for input {:?}",
+            input
+        );
+    }
+}
