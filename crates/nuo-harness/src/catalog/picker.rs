@@ -276,7 +276,7 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
     let name = channel
         .remote
         .as_ref()
-        .and_then(|remote| remote.name.clone());
+        .and_then(|remote| remote.name.as_deref().map(nuo_model_codec::catalog::clean_model_display_name));
     let effort_levels: Vec<String> = caps
         .effort_levels
         .iter()

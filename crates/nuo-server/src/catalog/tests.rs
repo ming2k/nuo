@@ -1365,6 +1365,8 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
     assert!(!models.contains(&"gemini-3.8-flash-high".to_string()));
     assert!(models.contains(&"gemini-4-argon".to_string()));
     assert!(models.contains(&"gemini-pro-agent".to_string()));
+    assert!(models.contains(&"claude-opus-4-6".to_string()));
+    assert!(!models.contains(&"claude-opus-4-6-thinking".to_string()));
     // Internal helpers, pseudo-effort variants, the legacy 3.6 generation, and deprecated ids stay out.
     assert!(!models.iter().any(|m| m.starts_with("chat_")));
     assert!(

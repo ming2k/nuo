@@ -44,7 +44,7 @@ pub const GOOGLE_BUILTIN_MODELS: &[&str] = &[
 pub const ANTIGRAVITY_OAUTH_MODELS: &[&str] = &[
     "gemini-3.8-flash",
     "claude-sonnet-4-6",
-    "claude-opus-4-6-thinking",
+    "claude-opus-4-6",
     "claude-sonnet-5-5",
     "claude-opus-5-5",
     "gpt-oss-120b-medium",

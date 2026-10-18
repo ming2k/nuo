@@ -29,9 +29,10 @@ mod host;
 mod modals;
 mod mouse;
 
+#[allow(unused_imports)]
 pub(crate) use modals::{
-    activate_picked_model, effective_reasoning_effort, handle_permission_submit, modal_page_step,
-    question_effects,
+    activate_picked_model, effective_reasoning_effort, handle_open_model_detail,
+    handle_permission_submit, handle_submit_model_editor, modal_page_step, question_effects,
 };
 
 pub(super) use commands::split_command_word;
@@ -389,16 +390,39 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // and the key editor share one activation path (key-ready /
             // OAuth / key editor) via `activate_picked_model`.
             let key_ready = |app: &App, id: &str| app.key_status.get(id).copied().unwrap_or(true);
+            let in_detail = app
+                .surfaces
+                .dlg::<crate::surfaces::ModelsDialog>()
+                .info_detail;
             let target = if app.active_dialog() == Some(DialogKind::Models) {
                 let rows = app.models_flat_filtered();
                 let picked = rows
                     .get(app.active_index())
                     .or_else(|| rows.iter().find(|r| r.usable));
-                // ADR-0076: An unusable model is strictly inert and can never be activated.
-                if picked.filter(|row| !row.usable).is_some() {
-                    return ActionFlow::Handled;
+                if in_detail {
+                    if let Some(row) = picked {
+                        if !row.usable {
+                            return ActionFlow::Handled;
+                        }
+                        if app.editor_target.is_some() && app.editor_model_settings_only {
+                            modals::handle_submit_model_editor(app);
+                        }
+                        app.surfaces
+                            .dlg_mut::<crate::surfaces::ModelsDialog>()
+                            .info_detail = false;
+                        Some((row.provider_id.clone(), row.model.clone()))
+                    } else {
+                        None
+                    }
+                } else if let Some(row) = picked {
+                    if !row.usable {
+                        modals::handle_open_model_detail(app);
+                        return ActionFlow::Handled;
+                    }
+                    Some((row.provider_id.clone(), row.model.clone()))
+                } else {
+                    None
                 }
-                picked.map(|row| (row.provider_id.clone(), row.model.clone()))
             } else {
                 None
             };
@@ -1454,9 +1478,6 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.surfaces
                     .dlg_mut::<crate::surfaces::ConnectionsDialog>()
                     .info_scroll = 0;
-                app.surfaces
-                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
-                    .models_expanded = false;
                 app.send_intent(AgentRequest::QueryConnectionDetail {
                     id: ranked.id.clone(),
                     force_refresh: false,
@@ -1471,22 +1492,30 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 tools.info_scroll = 0;
             }
         }
+        input::InputAction::OpenModelDetail => {
+            modals::handle_open_model_detail(app);
+        }
         input::InputAction::OpenActiveConnectionDetail => {
             open_active_connection_detail(app, runtime, viewed_session_id);
         }
-        input::InputAction::ToggleConnectionModelsExpanded => {
-            if app.active_dialog() == Some(DialogKind::Connections)
-                && app
-                    .surfaces
-                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
-                    .info_detail
-            {
-                app.surfaces
-                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
-                    .models_expanded = !app
-                    .surfaces
-                    .dlg_mut::<crate::surfaces::ConnectionsDialog>()
-                    .models_expanded;
+        input::InputAction::BrowseConnectionModels => {
+            if let Some(detail) = &app.connection_detail {
+                let filter = if !detail.provider_label.is_empty() {
+                    detail.provider_label.clone()
+                } else if !detail.name.is_empty() {
+                    detail.name.clone()
+                } else {
+                    detail.provider.clone()
+                };
+                app.open_dialog(DialogKind::Models);
+                let models_dlg = app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
+                models_dlg.info_detail = false;
+                models_dlg.search = true;
+                models_dlg.query.text = filter;
+                models_dlg.query.cursor = models_dlg.query.text.len();
+                models_dlg.index = 0;
+                models_dlg.scroll = 0;
+                models_dlg.follow = true;
             }
         }
         input::InputAction::CloseModal => {
@@ -2460,9 +2489,6 @@ pub(crate) fn open_active_connection_detail(
     app.surfaces
         .dlg_mut::<crate::surfaces::ConnectionsDialog>()
         .info_scroll = 0;
-    app.surfaces
-        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
-        .models_expanded = false;
     if !target_id.is_empty() {
         app.send_intent(AgentRequest::QueryConnectionDetail {
             id: target_id,

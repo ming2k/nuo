@@ -50,10 +50,12 @@ pub enum InputAction {
     OpenConnectionDetail,
     /// Drill into the tool detail sub-view for the highlighted tool in Tools modal.
     OpenToolDetail,
+    /// Drill into the model detail sub-view for the highlighted model in Models modal.
+    OpenModelDetail,
     /// Open the connection detail modal directly for the active connection (via click or Ctrl+N).
     OpenActiveConnectionDetail,
-    /// Toggle expansion of the served models list in the connection detail modal.
-    ToggleConnectionModelsExpanded,
+    /// Jump from ConnectionDetail to Models modal filtered by the connection provider.
+    BrowseConnectionModels,
     /// Toggle the favorite flag on the highlighted Models row (model-level,
     /// ADR-0046). The Connections list has no favorite concept.
     ProviderPickerToggleFavorite,

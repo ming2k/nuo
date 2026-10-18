@@ -271,7 +271,8 @@ fn from_dev_model(
         protocol,
         endpoint: m.provider.as_ref().and_then(|p| p.api.clone()),
         family: m.family.clone(),
-        name: (!m.name.trim().is_empty()).then(|| m.name.clone()),
+        name: (!m.name.trim().is_empty())
+            .then(|| nuo_model_codec::catalog::clean_model_display_name(&m.name)),
         context_window: m.limit.context.map(|c| c as usize),
         max_output_tokens: m.limit.output.map(|o| o as u32),
         reasoning,

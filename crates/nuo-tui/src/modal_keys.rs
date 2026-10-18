@@ -59,6 +59,9 @@ pub struct ModalKeys {
     /// While the tools modal is drilled into its detail sub-view (Enter),
     /// list-only keys are inert.
     pub tools_info_detail: bool,
+    /// While the models modal is drilled into its detail sub-view (`i`),
+    /// the arrow keys scroll/adjust and Enter activates/saves.
+    pub model_info_detail: bool,
     /// Whether the `/host` dashboard's inline prompt is open (`p` prompt or
     /// `n` new session). While true, printable keys edit the prompt text and
     /// Enter submits it. Mirrors `App::host_prompting`.
@@ -166,7 +169,7 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Dialog(DialogKind::Connections)
                         if keys.connection_info_detail =>
                     {
-                        InputAction::ToggleConnectionModelsExpanded
+                        InputAction::BrowseConnectionModels
                     }
                     OverlaySurface::Dialog(DialogKind::Connections) => {
                         InputAction::OpenConnectionDetail
@@ -294,6 +297,11 @@ pub(crate) fn resolve_modal_key(
         KeyCode::Left => {
             if let Some(overlay) = overlay {
                 match overlay {
+                    OverlaySurface::Dialog(DialogKind::Models)
+                        if keys.model_info_detail =>
+                    {
+                        return Some(InputAction::ModelEditorEffortCycle { delta: -1 });
+                    }
                     OverlaySurface::Sheet(SheetKind::ModelEditor)
                         if keys.editor_field == Some(1) =>
                     {
@@ -315,6 +323,11 @@ pub(crate) fn resolve_modal_key(
         KeyCode::Right => {
             if let Some(overlay) = overlay {
                 match overlay {
+                    OverlaySurface::Dialog(DialogKind::Models)
+                        if keys.model_info_detail =>
+                    {
+                        return Some(InputAction::ModelEditorEffortCycle { delta: 1 });
+                    }
                     OverlaySurface::Sheet(SheetKind::ModelEditor)
                         if keys.editor_field == Some(1) =>
                     {
@@ -443,10 +456,20 @@ pub(crate) fn resolve_modal_key(
                 't' | 'T' => Some(InputAction::SessionStatsOpenTrace),
                 _ => None,
             },
+            OverlaySurface::Dialog(DialogKind::Models) if keys.model_info_detail => {
+                match c {
+                    ' ' => Some(InputAction::ModelEditorThinkingToggle),
+                    '1'..='7' => {
+                        let index = (c as u8 - b'1') as usize;
+                        Some(InputAction::ModelEditorEffortJump { index })
+                    }
+                    _ => None,
+                }
+            }
             OverlaySurface::Dialog(DialogKind::Models) => resolve_picker_key(c, true, keys),
             OverlaySurface::Dialog(DialogKind::Connections) if keys.connection_info_detail => {
                 match c {
-                    ' ' | 'm' | 'M' => Some(InputAction::ToggleConnectionModelsExpanded),
+                    'm' | 'M' => Some(InputAction::BrowseConnectionModels),
                     'r' | 'R' => Some(InputAction::RefreshProviderModels),
                     'e' => Some(InputAction::OpenModelEditor),
                     _ => None,
@@ -617,6 +640,10 @@ fn resolve_picker_key(c: char, is_models: bool, keys: &ModalKeys) -> Option<Inpu
     if is_models && c == '*' {
         // Models browse mode only: star the highlighted MODEL as a favorite.
         return Some(InputAction::ProviderPickerToggleFavorite);
+    }
+    if is_models && c == 'i' {
+        // Models browse mode: 'i' drills into model details & settings inspector.
+        return Some(InputAction::OpenModelDetail);
     }
     if is_models && c == 'x' {
         // Models browse mode: 'x' blocks/intercepts the highlighted model from the connection pipe (ADR-0203 §10).
@@ -843,18 +870,14 @@ mod tests {
     }
 
     #[test]
-    fn connections_detail_keys_toggle_expansion_and_refresh() {
+    fn connections_detail_keys_browse_models_and_refresh() {
         let c = keys(|k| k.connection_info_detail = true);
         assert_eq!(resolve_dialog(DialogKind::Connections, key('a'), &c), None);
         assert_eq!(resolve_dialog(DialogKind::Connections, key('c'), &c), None);
         assert_eq!(resolve_dialog(DialogKind::Connections, key('D'), &c), None);
         assert_eq!(
-            resolve_dialog(DialogKind::Connections, key(' '), &c),
-            Some(InputAction::ToggleConnectionModelsExpanded)
-        );
-        assert_eq!(
             resolve_dialog(DialogKind::Connections, key('m'), &c),
-            Some(InputAction::ToggleConnectionModelsExpanded)
+            Some(InputAction::BrowseConnectionModels)
         );
         assert_eq!(
             resolve_dialog(DialogKind::Connections, key('r'), &c),
@@ -866,7 +889,7 @@ mod tests {
         );
         assert_eq!(
             resolve_dialog(DialogKind::Connections, crate::keymap::Key::ENTER, &c),
-            Some(InputAction::ToggleConnectionModelsExpanded)
+            Some(InputAction::BrowseConnectionModels)
         );
     }
 

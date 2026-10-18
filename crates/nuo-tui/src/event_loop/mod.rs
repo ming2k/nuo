@@ -648,6 +648,10 @@ async fn process_one_event<W: io::Write>(
         .surfaces
         .dlg_mut::<crate::surfaces::ToolsDialog>()
         .info_detail;
+    let model_info_detail = app
+        .surfaces
+        .dlg_mut::<crate::surfaces::ModelsDialog>()
+        .info_detail;
 
     let modal_cmd_history: Option<String> = if matches!(event, Event::Key(k) if k.code == crossterm::event::KeyCode::Enter)
         && app.surfaces.active_overlay().is_none()
@@ -751,6 +755,7 @@ async fn process_one_event<W: io::Write>(
             session_info_detail,
             connection_info_detail,
             tools_info_detail,
+            model_info_detail,
             host_prompting,
             dialog_keys: app.dialog_keys(),
         };

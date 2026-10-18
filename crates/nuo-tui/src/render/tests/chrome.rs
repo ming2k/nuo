@@ -141,7 +141,6 @@ fn redesigned_components_render_without_panicking() {
                 spinner_phase: 0,
                 connection_info_standalone: false,
                 refreshing: false,
-                connection_models_expanded: false,
                 connection_usages: None,
             },
             &theme,
@@ -162,6 +161,10 @@ fn redesigned_components_render_without_panicking() {
                 show_caret: true,
                 refreshing: false,
                 spinner_phase: 0,
+                info_detail: false,
+                info_scroll: &mut 0,
+                live_effort: None,
+                live_thinking: None,
             },
             &theme,
         );

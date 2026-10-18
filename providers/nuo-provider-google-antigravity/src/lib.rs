@@ -904,6 +904,12 @@ static BASELINE_WIRE_FAMILIES: &[BaselineWireFamily] = &[
         ],
         broadcast: false,
     },
+    BaselineWireFamily {
+        base: "claude-opus-4-6",
+        default_entity: "claude-opus-4-6-thinking",
+        entities: &["claude-opus-4-6-thinking"],
+        broadcast: true,
+    },
 ];
 
 /// Resolve the wire model id for the Antigravity envelope.
@@ -1190,6 +1196,12 @@ mod tests {
             ),
             ("gemini-4-argon", None, "gemini-4-argon-medium"),
             ("gemini-3.8-flash", None, "gemini-3.8-flash-tiered"),
+            ("claude-opus-4-6", None, "claude-opus-4-6-thinking"),
+            (
+                "claude-opus-4-6",
+                Some(nuo_model_codec::Effort::High),
+                "claude-opus-4-6-thinking",
+            ),
         ] {
             let mut p = GoogleProvider::with_base_url_and_user_agent(
                 "k".to_string(),

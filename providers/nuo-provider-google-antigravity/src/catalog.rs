@@ -16,8 +16,15 @@ use std::collections::{HashMap, HashSet};
 /// catalog rows arrive in map order, which is unordered; the depth rank of
 /// each entity is a stable vocabulary fact (`-low < -medium < -high < -max`,
 /// and `-tiered`/`-minimal` are in-band-depth canonical rows that lead).
-const EFFORT_OR_TIER_SUFFIXES: &[&str] =
-    &["-high", "-medium", "-low", "-minimal", "-max", "-tiered"];
+const EFFORT_OR_TIER_SUFFIXES: &[&str] = &[
+    "-high",
+    "-medium",
+    "-low",
+    "-minimal",
+    "-max",
+    "-tiered",
+    "-thinking",
+];
 
 /// Rank position of an entity id on the shallow→deep wire order. The bare/tiered
 /// canonical rows carry in-band depth (`thinkingLevel`) and are depth-zero
@@ -29,6 +36,7 @@ fn entity_rank(id: &str) -> usize {
     for (suffix, rank) in [
         ("-tiered", 0usize),
         ("-minimal", 0),
+        ("-thinking", 0),
         ("-low", 1),
         ("-medium", 2),
         ("-high", 3),
@@ -57,6 +65,14 @@ const DISPLAY_NAME_PARAM_SUFFIXES: &[&str] = &[
     " (Max)",
     " (Tiered)",
     " (Disabled)",
+    " (Thinking)",
+    " (thinking)",
+    "(Thinking)",
+    "(thinking)",
+    " [Thinking]",
+    " [thinking]",
+    "[Thinking]",
+    "[thinking]",
     " - High",
     " - Medium",
     " - Low",
@@ -64,6 +80,8 @@ const DISPLAY_NAME_PARAM_SUFFIXES: &[&str] = &[
     " - Max",
     " - Tiered",
     " - Disabled",
+    " - Thinking",
+    " - thinking",
 ];
 
 struct CanonicalizedModelId<'a> {
@@ -100,13 +118,20 @@ fn canonicalize_model_id(raw_id: &str) -> CanonicalizedModelId<'_> {
 
 fn clean_display_name(raw_name: &str) -> String {
     let mut name = raw_name.trim();
-    for &suffix in DISPLAY_NAME_PARAM_SUFFIXES {
-        if let Some(stripped) = name.strip_suffix(suffix) {
-            name = stripped.trim();
+    loop {
+        let mut stripped_any = false;
+        for &suffix in DISPLAY_NAME_PARAM_SUFFIXES {
+            if let Some(stripped) = name.strip_suffix(suffix) {
+                name = stripped.trim();
+                stripped_any = true;
+                break;
+            }
+        }
+        if !stripped_any {
             break;
         }
     }
-    name.to_string()
+    nuo_model_codec::catalog::clean_model_display_name(name)
 }
 
 fn is_internal_helper(id: &str) -> bool {
@@ -504,6 +529,7 @@ mod tests {
         let ids: Vec<String> = discovered.iter().map(|m| m.id.clone()).collect();
 
         // Preserves curated ordering from agentModelSorts [INV-CATALOG-01]
+        // and folds parameter/thinking suffixes into canonical identities [INV-CATALOG-02]
         assert_eq!(
             ids,
             vec![
@@ -512,8 +538,17 @@ mod tests {
                 "claude-sonnet-5-5".to_string(),
                 "claude-opus-5-5".to_string(),
                 "claude-sonnet-4-6".to_string(),
-                "claude-opus-4-6-thinking".to_string(),
+                "claude-opus-4-6".to_string(),
             ]
+        );
+
+        let opus46 = discovered
+            .iter()
+            .find(|m| m.id == "claude-opus-4-6")
+            .unwrap();
+        assert_eq!(
+            opus46.wire_entities,
+            Some(vec!["claude-opus-4-6-thinking".to_string()])
         );
 
         // Verify Gemini effort ladder [INV-CATALOG-02]
@@ -775,5 +810,45 @@ mod tests {
             argon_caps.wire_entity_resolution("gemini-4-argon-high"),
             nuo_model_codec::WireEntityResolution::Verbatim
         ));
+    }
+
+    #[test]
+    fn clean_display_name_strips_thinking_and_tier_suffixes() {
+        assert_eq!(
+            clean_display_name("Claude Opus 4.6 (Thinking)"),
+            "Claude Opus 4.6"
+        );
+        assert_eq!(
+            clean_display_name("Claude Sonnet 4.6 (Thinking)"),
+            "Claude Sonnet 4.6"
+        );
+        assert_eq!(
+            clean_display_name("Claude Opus 4.6 (thinking)"),
+            "Claude Opus 4.6"
+        );
+        assert_eq!(
+            clean_display_name("Claude Opus 4.6(Thinking)"),
+            "Claude Opus 4.6"
+        );
+        assert_eq!(
+            clean_display_name("Claude Opus 4.6 [Thinking]"),
+            "Claude Opus 4.6"
+        );
+        assert_eq!(
+            clean_display_name("Claude Opus 4.6 - Thinking"),
+            "Claude Opus 4.6"
+        );
+        assert_eq!(
+            clean_display_name("Claude Opus 4.6 (Thinking) (High)"),
+            "Claude Opus 4.6"
+        );
+        assert_eq!(
+            clean_display_name("Gemini 4 Argon (Medium)"),
+            "Gemini 4 Argon"
+        );
+        assert_eq!(
+            clean_display_name("Gemini 4 Argon (Disabled)"),
+            "Gemini 4 Argon"
+        );
     }
 }

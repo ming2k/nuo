@@ -545,6 +545,12 @@ impl App {
         self.surfaces
             .dlg_mut::<crate::surfaces::ToolsDialog>()
             .info_scroll = 0;
+        self.surfaces
+            .dlg_mut::<crate::surfaces::ModelsDialog>()
+            .info_detail = false;
+        self.surfaces
+            .dlg_mut::<crate::surfaces::ModelsDialog>()
+            .info_scroll = 0;
         self.session_history_backfill_cursor = 0;
     }
 
@@ -632,6 +638,14 @@ impl App {
                 .dlg_mut::<crate::surfaces::ThreadsDialog>()
                 .info_scroll = 0;
         }
+        if id == DialogKind::Models {
+            self.surfaces
+                .dlg_mut::<crate::surfaces::ModelsDialog>()
+                .info_detail = false;
+            self.surfaces
+                .dlg_mut::<crate::surfaces::ModelsDialog>()
+                .info_scroll = 0;
+        }
         if id == DialogKind::Connections {
             self.surfaces
                 .dlg_mut::<crate::surfaces::ConnectionsDialog>()
@@ -643,9 +657,6 @@ impl App {
             self.surfaces
                 .dlg_mut::<crate::surfaces::ConnectionsDialog>()
                 .info_scroll = 0;
-            self.surfaces
-                .dlg_mut::<crate::surfaces::ConnectionsDialog>()
-                .models_expanded = false;
         }
         if id == DialogKind::SessionTrace {
             self.surfaces
@@ -876,6 +887,30 @@ impl App {
                         .info_scroll = 0;
                     return true;
                 }
+                DialogKind::Models
+                    if self
+                        .surfaces
+                        .dlg_mut::<crate::surfaces::ModelsDialog>()
+                        .info_detail =>
+                {
+                    self.surfaces
+                        .dlg_mut::<crate::surfaces::ModelsDialog>()
+                        .info_detail = false;
+                    self.surfaces
+                        .dlg_mut::<crate::surfaces::ModelsDialog>()
+                        .info_scroll = 0;
+                    let is_usable = self
+                        .models_flat_filtered()
+                        .get(self.active_index())
+                        .is_some_and(|r| r.usable);
+                    if is_usable && self.editor_target.is_some() && self.editor_model_settings_only {
+                        crate::event_loop::actions::handle_submit_model_editor(self);
+                    } else {
+                        self.editor_target = None;
+                        self.editor_model_settings_only = false;
+                    }
+                    return true;
+                }
                 DialogKind::Connections
                     if self
                         .surfaces
@@ -896,9 +931,6 @@ impl App {
                     self.surfaces
                         .dlg_mut::<crate::surfaces::ConnectionsDialog>()
                         .info_scroll = 0;
-                    self.surfaces
-                        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
-                        .models_expanded = false;
                     return !standalone;
                 }
                 _ => {}

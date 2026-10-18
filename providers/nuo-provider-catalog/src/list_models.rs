@@ -359,6 +359,15 @@ pub trait CatalogParser: Send + Sync {
     fn parse_json(&self, json: &Value) -> Vec<DiscoveredModel>;
 }
 
+/// Strip parameter/execution-mode suffixes like `(Thinking)` or `(thinking)` from human labels.
+///
+/// Model identity and execution parameters (such as reasoning effort / thinking mode)
+/// must remain strictly separated per ADR-0068 [INV-CATALOG-02]. Suffixes like
+/// `(Thinking)` inside model names are redundant with orthogonal reasoning capabilities.
+fn clean_display_label(raw: &str) -> String {
+    nuo_model_codec::catalog::clean_model_display_name(raw)
+}
+
 pub struct OpenAiCatalogParser;
 impl CatalogParser for OpenAiCatalogParser {
     fn parse_json(&self, json: &Value) -> Vec<DiscoveredModel> {
@@ -586,7 +595,7 @@ fn parse_codex_models(json: &Value) -> Vec<DiscoveredModel> {
                         .get("display_name")
                         .or_else(|| entry.get("name"))
                         .and_then(Value::as_str)
-                        .map(str::to_string),
+                        .map(clean_display_label),
                     context_window,
                     max_output_tokens: None,
                     reasoning: Some(reasoning),
@@ -698,7 +707,7 @@ fn discovered_model_from_entry(entry: &Value) -> Option<DiscoveredModel> {
             .get("display_name")
             .or_else(|| entry.get("name"))
             .and_then(Value::as_str)
-            .map(str::to_string),
+            .map(clean_display_label),
         context_window: entry
             .get("context_length")
             .and_then(Value::as_u64)
@@ -840,7 +849,7 @@ fn copilot_model_from_capabilities(
             .get("name")
             .or_else(|| entry.get("display_name"))
             .and_then(Value::as_str)
-            .map(str::to_string),
+            .map(clean_display_label),
         context_window: limits
             .and_then(|l| l.get("max_context_window_tokens"))
             .and_then(Value::as_u64)
@@ -928,7 +937,7 @@ fn parse_google_models(json: &Value) -> Vec<DiscoveredModel> {
                         name: entry
                             .get("displayName")
                             .and_then(Value::as_str)
-                            .map(str::to_string),
+                            .map(clean_display_label),
                         context_window,
                         max_output_tokens,
                         reasoning: reasoning.then_some(true),
@@ -1074,7 +1083,7 @@ mod tests {
                 "claude-sonnet-5-5".to_string(),
                 "claude-opus-5-5".to_string(),
                 "claude-sonnet-4-6".to_string(),
-                "claude-opus-4-6-thinking".to_string(),
+                "claude-opus-4-6".to_string(),
             ]
         );
 
@@ -1783,6 +1792,30 @@ mod tests {
         assert_eq!(
             CatalogShape::from_wire_protocol(WireProtocol::Responses),
             CatalogShape::OpenAi
+        );
+    }
+
+    #[test]
+    fn clean_display_label_strips_thinking_suffixes() {
+        assert_eq!(
+            clean_display_label("Claude Opus 4.6 (Thinking)"),
+            "Claude Opus 4.6"
+        );
+        assert_eq!(
+            clean_display_label("Claude Sonnet 4.6 (thinking)"),
+            "Claude Sonnet 4.6"
+        );
+        assert_eq!(
+            clean_display_label("Claude Opus 4.6(Thinking)"),
+            "Claude Opus 4.6"
+        );
+        assert_eq!(
+            clean_display_label("Claude Opus 4.6 - Thinking"),
+            "Claude Opus 4.6"
+        );
+        assert_eq!(
+            clean_display_label("Claude Opus 4.6 [Thinking]"),
+            "Claude Opus 4.6"
         );
     }
 }

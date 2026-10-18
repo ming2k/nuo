@@ -298,7 +298,7 @@ fn discovered_from_scene_entry(
         name: entry
             .get("display_name")
             .and_then(Value::as_str)
-            .map(str::to_string),
+            .map(nuo_model_codec::catalog::clean_model_display_name),
         context_window,
         max_output_tokens: None,
         reasoning: entry.get("is_reasoning").and_then(Value::as_bool),

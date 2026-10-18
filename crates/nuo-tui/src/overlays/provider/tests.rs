@@ -678,6 +678,10 @@ fn render_models_modal(modal_index: usize, query: &str, search: bool) -> String 
                 show_caret: true,
                 refreshing: false,
                 spinner_phase: 0,
+                info_detail: false,
+                info_scroll: &mut 0,
+                live_effort: None,
+                live_thinking: None,
             },
             &theme,
         );
@@ -780,6 +784,10 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
                 show_caret: true,
                 refreshing: false,
                 spinner_phase: 0,
+                info_detail: false,
+                info_scroll: &mut 0,
+                live_effort: None,
+                live_thinking: None,
             },
             &theme,
         );
@@ -894,21 +902,63 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
                 show_caret: true,
                 refreshing: false,
                 spinner_phase: 0,
+                info_detail: false,
+                info_scroll: &mut 0,
+                live_effort: None,
+                live_thinking: None,
             },
             &theme,
         );
     });
     let text = buffer_text(&terminal);
+    assert!(text.contains("locked"), "clean lock badge rendered: {text}");
     assert!(
-        text.contains("Billing daily count exceeded"),
-        "the provider's own reason is rendered verbatim: {text}"
+        text.contains("overridden"),
+        "an override of an upstream lock is disclosed, not silent: {text}"
+    );
+
+    // Verify the detail view renders the provider's reason verbatim
+    let degraded_idx = ranked
+        .iter()
+        .position(|r| r.model == "degraded")
+        .expect("degraded row present");
+    terminal.draw(|f| {
+        let mut scroll = 0;
+        let mut info_scroll = 0;
+        draw_models_modal(
+            f,
+            crate::overlays::provider::models::ModelsModalProps {
+                models: &ranked,
+                current_provider: "openai",
+                current_model: "gpt-5.5",
+                modal_index: degraded_idx,
+                query: "",
+                cursor_position: 0,
+                scroll: &mut scroll,
+                follow_selection: true,
+                search: false,
+                show_caret: true,
+                refreshing: false,
+                spinner_phase: 0,
+                info_detail: true,
+                info_scroll: &mut info_scroll,
+                live_effort: None,
+                live_thinking: None,
+            },
+            &theme,
+        );
+    });
+    let detail_text = buffer_text(&terminal);
+    assert!(
+        detail_text.contains("Billing daily count exceeded"),
+        "the provider's own reason is rendered verbatim in detail view: {detail_text}"
     );
     assert!(
         !text.contains("locked for the current plan"),
         "nuo must not invent a plan diagnosis the provider never stated"
     );
     assert!(
-        text.contains("overridden by you"),
+        text.contains("overridden"),
         "an override of an upstream lock is disclosed, not silent: {text}"
     );
 }
@@ -1011,6 +1061,10 @@ fn render_labelled_models_modal(width: u16) -> String {
                 refreshing: false,
                 show_caret: true,
                 spinner_phase: 0,
+                info_detail: false,
+                info_scroll: &mut 0,
+                live_effort: None,
+                live_thinking: None,
             },
             &theme,
         );
@@ -1097,6 +1151,10 @@ fn render_qoder_models_modal(width: u16, query: &str) -> String {
                 show_caret: true,
                 refreshing: false,
                 spinner_phase: 0,
+                info_detail: false,
+                info_scroll: &mut 0,
+                live_effort: None,
+                live_thinking: None,
             },
             &theme,
         );
@@ -1295,6 +1353,10 @@ fn models_modal_empty_state_centered_copy_and_footer() {
                 refreshing: false,
                 show_caret: true,
                 spinner_phase: 0,
+                info_detail: false,
+                info_scroll: &mut 0,
+                live_effort: None,
+                live_thinking: None,
             },
             &theme,
         );
@@ -1328,6 +1390,10 @@ fn models_modal_refreshing_state_renders_spinner_and_indicator() {
                 show_caret: true,
                 refreshing: true,
                 spinner_phase: 1,
+                info_detail: false,
+                info_scroll: &mut 0,
+                live_effort: None,
+                live_thinking: None,
             },
             &theme,
         );
@@ -1359,6 +1425,10 @@ fn models_modal_search_empty_state() {
                 refreshing: false,
                 show_caret: true,
                 spinner_phase: 0,
+                info_detail: false,
+                info_scroll: &mut 0,
+                live_effort: None,
+                live_thinking: None,
             },
             &theme,
         );
@@ -1423,7 +1493,6 @@ fn connections_modal_empty_state_centered_copy_and_footer() {
                 spinner_phase: 0,
                 connection_info_standalone: false,
                 refreshing: false,
-                connection_models_expanded: false,
                 connection_usages: None,
             },
             &theme,
@@ -1465,7 +1534,6 @@ fn connections_modal_search_empty_state() {
                 spinner_phase: 0,
                 connection_info_standalone: false,
                 refreshing: false,
-                connection_models_expanded: false,
                 connection_usages: None,
             },
             &theme,
@@ -1545,7 +1613,6 @@ fn connections_modal_detail_view_renders_info_and_usage() {
                 spinner_phase: 0,
                 connection_info_standalone: false,
                 refreshing: false,
-                connection_models_expanded: false,
                 connection_usages: None,
             },
             &theme,
@@ -1562,8 +1629,8 @@ fn connections_modal_detail_view_renders_info_and_usage() {
     assert!(text.contains("sk-12...abcd"));
     assert!(text.contains("Client Profile"));
     assert!(text.contains("Served Models (2)"));
-    assert!(text.contains("- deepseek-chat"));
-    assert!(text.contains("show all 2 models"));
+    assert!(text.contains("2 discovered"));
+    assert!(text.contains("Browse & filter in /models"));
 
     // Scroll to view usage section
     terminal.draw(|f| {
@@ -1589,7 +1656,6 @@ fn connections_modal_detail_view_renders_info_and_usage() {
                 spinner_phase: 0,
                 connection_info_standalone: false,
                 refreshing: false,
-                connection_models_expanded: false,
                 connection_usages: None,
             },
             &theme,
@@ -1685,7 +1751,6 @@ fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
                 spinner_phase: 0,
                 connection_info_standalone: false,
                 refreshing: false,
-                connection_models_expanded: false,
                 connection_usages: None,
             },
             &theme,
@@ -1749,7 +1814,6 @@ fn connections_modal_detail_view_renders_inline_fetching_spinner() {
                 spinner_phase: 2,
                 connection_info_standalone: false,
                 refreshing: false,
-                connection_models_expanded: false,
                 connection_usages: None,
             },
             &theme,
@@ -1785,7 +1849,6 @@ fn connections_modal_detail_view_renders_inline_fetching_spinner() {
                 spinner_phase: 2,
                 connection_info_standalone: false,
                 refreshing: false,
-                connection_models_expanded: false,
                 connection_usages: None,
             },
             &theme,
@@ -1965,7 +2028,6 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
                 spinner_phase: 0,
                 connection_info_standalone: false,
                 refreshing: false,
-                connection_models_expanded: true,
                 connection_usages: None,
             },
             &theme,
@@ -1978,11 +2040,8 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
     assert!(text.contains("Default Active"));
     assert!(text.contains("gemini-3.7-flash  ·  reasoning: high"));
     assert!(text.contains("Served Models (3)"));
-    assert!(text.contains("- gemini-3.7-flash"));
-    assert!(!text.contains("- gemini-3.7-flash  ·  reasoning:"));
-    assert!(text.contains("- gemini-3.1-pro"));
-    assert!(text.contains("- claude-3-7-sonnet"));
-    assert!(!text.contains("- claude-3-7-sonnet  ·  reasoning:"));
+    assert!(text.contains("3 discovered"));
+    assert!(text.contains("Browse & filter in /models"));
 
     // Scroll to view grouped quota
     terminal.draw(|f| {
@@ -2009,7 +2068,6 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
                 spinner_phase: 0,
                 connection_info_standalone: false,
                 refreshing: false,
-                connection_models_expanded: true,
                 connection_usages: None,
             },
             &theme,
@@ -2076,7 +2134,6 @@ fn connections_modal_standalone_detail_renders_single_level_header() {
                 spinner_phase: 0,
                 connection_info_standalone: true, // standalone = true
                 refreshing: false,
-                connection_models_expanded: false,
                 connection_usages: None,
             },
             &theme,
@@ -2109,11 +2166,11 @@ fn connections_modal_detail_wraps_second_column_with_indent() {
         client_identity: nuo_wire::ClientIdentity::Native,
         user_agent: "antigravity/1.23.2".to_string(),
         models: vec![
-            "claude-opus-4-6-thinking".to_string(),
+            "claude-opus-4-6".to_string(),
             "claude-sonnet-4-6".to_string(),
         ],
         model_info: Vec::new(),
-        active_model: Some("claude-opus-4-6-thinking".to_string()),
+        active_model: Some("claude-opus-4-6".to_string()),
         active_model_effort: None,
         active_model_thinking: None,
         usage: nuo_wire::ConnectionUsageState::Unsupported,
@@ -2143,7 +2200,6 @@ fn connections_modal_detail_wraps_second_column_with_indent() {
                 spinner_phase: 0,
                 connection_info_standalone: true,
                 refreshing: false,
-                connection_models_expanded: true,
                 connection_usages: None,
             },
             &theme,
@@ -2167,11 +2223,9 @@ fn connections_modal_detail_wraps_second_column_with_indent() {
         base_line.find("https://"),
         "base: {base_line}\nnext: {next_line}"
     );
-    // Served models uses plain '-' bullet
-    assert!(text.contains("- claude-opus-4-6-thinking"));
-    assert!(text.contains("- claude-sonnet-4-6"));
-    assert!(!text.contains('●'));
-    assert!(!text.contains('○'));
+    assert!(text.contains("Served Models (2)"));
+    assert!(text.contains("2 discovered"));
+    assert!(text.contains("m browse models"));
 }
 
 #[test]
@@ -2257,7 +2311,6 @@ fn connections_modal_detail_served_models_collapsed_by_default_and_expands() {
         budget: Default::default(),
     };
 
-    // 1. Collapsed mode (default)
     terminal.draw(|f| {
         let mut lm = crate::model::layout::LayoutMap::new();
         let mut scroll = 0;
@@ -2281,7 +2334,6 @@ fn connections_modal_detail_served_models_collapsed_by_default_and_expands() {
                 spinner_phase: 0,
                 connection_info_standalone: true,
                 refreshing: false,
-                connection_models_expanded: false,
                 connection_usages: None,
             },
             &theme,
@@ -2289,56 +2341,14 @@ fn connections_modal_detail_served_models_collapsed_by_default_and_expands() {
         );
     });
 
-    let collapsed_text = buffer_text(&terminal);
-    assert!(collapsed_text.contains("Served Models (17)"));
-    assert!(collapsed_text.contains("- model-05"));
-    assert!(collapsed_text.contains("show all 17 models (press Enter to expand)"));
-    assert!(!collapsed_text.contains("- model-01"));
-    assert!(!collapsed_text.contains("- model-17"));
-    assert!(collapsed_text.contains("expand models"));
+    let text = buffer_text(&terminal);
+    assert!(text.contains("Served Models (17)"));
+    assert!(text.contains("17 discovered  ·  default: model-05"));
+    assert!(text.contains("Browse & filter in /models"));
+    assert!(text.contains("browse models"));
     // Configuration has Provider and no redundant Provider ID
-    assert!(collapsed_text.contains("Provider        Google Antigravity"));
-    assert!(!collapsed_text.contains("Provider ID"));
-
-    // 2. Expanded mode
-    terminal.draw(|f| {
-        let mut lm = crate::model::layout::LayoutMap::new();
-        let mut scroll = 0;
-        let selection = crate::model::selection::SelectionState::None;
-        draw_connections_modal(
-            f,
-            &mut lm,
-            crate::overlays::provider::connections::ConnectionsModalProps {
-                providers: &[],
-                current_provider: "",
-                modal_index: 0,
-                query: "",
-                cursor_position: 0,
-                scroll: &mut scroll,
-                follow_selection: false,
-                search: false,
-                connection_info_detail: true,
-                show_caret: true,
-                connection_detail: Some(&detail),
-                connection_info_scroll: &mut 0,
-                spinner_phase: 0,
-                connection_info_standalone: true,
-                refreshing: false,
-                connection_models_expanded: true,
-                connection_usages: None,
-            },
-            &theme,
-            &selection,
-        );
-    });
-
-    let expanded_text = buffer_text(&terminal);
-    assert!(expanded_text.contains("Served Models (17)"));
-    assert!(expanded_text.contains("- model-01"));
-    assert!(expanded_text.contains("- model-05"));
-    assert!(expanded_text.contains("- model-17"));
-    assert!(expanded_text.contains("collapse models (press Enter)"));
-    assert!(expanded_text.contains("collapse models"));
+    assert!(text.contains("Provider        Google Antigravity"));
+    assert!(!text.contains("Provider ID"));
 }
 
 #[test]
@@ -2409,7 +2419,6 @@ fn connections_modal_quota_bucket_used_percentage_and_separate_reset_line() {
                 spinner_phase: 0,
                 connection_info_standalone: true,
                 refreshing: false,
-                connection_models_expanded: false,
                 connection_usages: None,
             },
             &theme,

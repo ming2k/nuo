@@ -51,13 +51,13 @@ This created conceptual collision: Nuo's user interface and request builders alr
 When an upstream catalog response provides explicit agent curation hierarchies (such as Google Antigravity's `agentModelSorts` and `defaultAgentModelId`), the catalog ingestion pipeline MUST prioritize and preserve this curated view. Dedicated lane models (`commandModelIds`, `commitMessageModelIds`, `imageGenerationModelIds`, `audioTranscriptionModelIds`) and internal helpers (`chat_*`, `tab_*`, `models/*`) MUST NOT be surfaced as standalone general agent models.
 
 ### 2. [INV-CATALOG-02] Orthogonal Capability Lifting & Parameter Suffix Folding
-Model identity and runtime execution parameters MUST NOT be conflated into model names. Parsers MUST fold parameterized wire ID variations (`-high`, `-medium`, `-low`, `-minimal`, `-tiered`) into canonical base model IDs. For models exhibiting reasoning support, the parser MUST lift parameter rungs into `DiscoveredModel::effort_levels` (e.g., `[minimal, low, medium, high]` for Gemini 3.x/4.x), allowing users to control reasoning depth orthogonally.
+Model identity and runtime execution parameters MUST NOT be conflated into model names. Parsers MUST fold parameterized wire ID variations (`-high`, `-medium`, `-low`, `-minimal`, `-tiered`, `-thinking`) into canonical base model IDs, and strip execution mode / thinking annotations (`(Thinking)`, `(thinking)`) from human display names. For models exhibiting reasoning support, the parser MUST lift parameter rungs into `DiscoveredModel::effort_levels` (e.g., `[minimal, low, medium, high]` for Gemini 3.x/4.x, `[low, medium, high, max]` for Claude), allowing users to control reasoning depth orthogonally.
 
 ### 3. [INV-CATALOG-03] Abolition of Legacy Version Blacklists
 Hardcoded generational blacklists (such as `starts_with("gemini-3.6-flash")`) are permanently abolished. Filtering and folding MUST operate structurally on:
 - Formal deprecation maps (`deprecatedModelIds`);
 - Upstream dedicated lane enumerations (`commandModelIds`, etc.);
-- Generic parameter suffix patterns (`-high`, `-medium`, `-low`, `-minimal`, `-max`, `-tiered`);
+- Generic parameter suffix patterns (`-high`, `-medium`, `-low`, `-minimal`, `-max`, `-tiered`, `-thinking`);
 - Disabled account entitlement flags (`-disabled`).
 
 ### 4. [INV-CATALOG-04] Provider-Owned Dialect Ingestion & Zero-Central-Leakage

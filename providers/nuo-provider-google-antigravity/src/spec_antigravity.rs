@@ -42,7 +42,7 @@ pub const MODELS: &[Model] = &[
         wire_entities: None,
     },
     Model {
-        id: "claude-opus-4-6-thinking",
+        id: "claude-opus-4-6",
         family: "claude",
         context_window: 1_000_000,
         thinking: ReasoningSupport::AnthropicAdaptive,

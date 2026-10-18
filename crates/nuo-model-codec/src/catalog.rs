@@ -134,6 +134,48 @@ pub struct DiscoveredModel {
     pub wire_entities: Option<Vec<String>>,
 }
 
+/// Strip parameter/execution-mode annotations like `(Thinking)` or `(thinking)` from model labels.
+///
+/// Per ADR-0068 [INV-CATALOG-02], model identity and runtime execution parameters (such as
+/// reasoning effort or thinking mode) must remain strictly decoupled. Suffixes like
+/// `(Thinking)` or `[Thinking]` inside model names are redundant and visually noisy because
+/// reasoning is modeled as an orthogonal capability with its own UI controls and tags.
+pub fn clean_model_display_name(raw: &str) -> String {
+    let mut s = raw.trim();
+    loop {
+        let mut stripped = false;
+        for suffix in &[
+            " (Thinking)",
+            " (thinking)",
+            " (THINKING)",
+            "(Thinking)",
+            "(thinking)",
+            "(THINKING)",
+            " [Thinking]",
+            " [thinking]",
+            " [THINKING]",
+            "[Thinking]",
+            "[thinking]",
+            "[THINKING]",
+            " - Thinking",
+            " - thinking",
+            " - THINKING",
+            " (Thinking Mode)",
+            " (thinking mode)",
+        ] {
+            if let Some(rest) = s.strip_suffix(suffix) {
+                s = rest.trim();
+                stripped = true;
+                break;
+            }
+        }
+        if !stripped {
+            break;
+        }
+    }
+    s.to_string()
+}
+
 impl DiscoveredModel {
     /// Convert live provider facts into the persisted channel-scoped snapshot.
     pub fn remote_metadata(&self) -> crate::model::RemoteModelMetadata {
@@ -144,9 +186,8 @@ impl DiscoveredModel {
             name: self
                 .name
                 .as_deref()
-                .map(str::trim)
-                .filter(|name| !name.is_empty() && *name != self.id.as_str())
-                .map(str::to_string),
+                .map(clean_model_display_name)
+                .filter(|name| !name.is_empty() && *name != self.id.as_str()),
             context_window: self.context_window,
             max_output_tokens: self.max_output_tokens,
             thinking: self.thinking.or_else(|| {
@@ -693,5 +734,41 @@ mod tests {
             builtin: true,
         };
         assert_eq!(entry.context_window(), 111_000);
+    }
+
+    #[test]
+    fn clean_model_display_name_strips_thinking_annotations() {
+        assert_eq!(
+            clean_model_display_name("Claude Opus 4.6 (Thinking)"),
+            "Claude Opus 4.6"
+        );
+        assert_eq!(
+            clean_model_display_name("Claude Sonnet 4.6 (thinking)"),
+            "Claude Sonnet 4.6"
+        );
+        assert_eq!(
+            clean_model_display_name("Claude Opus 4.6 [Thinking]"),
+            "Claude Opus 4.6"
+        );
+        assert_eq!(
+            clean_model_display_name("Claude Opus 4.6 - Thinking"),
+            "Claude Opus 4.6"
+        );
+        assert_eq!(
+            clean_model_display_name("Claude Opus 4.6 (Thinking Mode)"),
+            "Claude Opus 4.6"
+        );
+        assert_eq!(
+            clean_model_display_name("Claude Opus 4.6 (Thinking) (thinking)"),
+            "Claude Opus 4.6"
+        );
+
+        let discovered = DiscoveredModel {
+            id: "claude-opus-4-6".to_string(),
+            name: Some("Claude Opus 4.6 (Thinking)".to_string()),
+            ..DiscoveredModel::default()
+        };
+        let meta = discovered.remote_metadata();
+        assert_eq!(meta.name.as_deref(), Some("Claude Opus 4.6"));
     }
 }

@@ -492,7 +492,6 @@ fn render_dialog(
                     spinner_phase: ctx.spinner_phase,
                     connection_info_standalone: d.info_standalone,
                     refreshing: d.refreshing,
-                    connection_models_expanded: d.models_expanded,
                     connection_usages: Some(&app.connection_usages),
                 },
                 ctx.theme,
@@ -509,7 +508,8 @@ fn render_dialog(
                 if d.index >= models.len() {
                     d.index = models.len().saturating_sub(1);
                 }
-                if let Some(m) = models.get(d.index)
+                if !d.info_detail
+                    && let Some(m) = models.get(d.index)
                     && !m.usable
                     && let Some(usable_idx) = models.iter().position(|m| m.usable)
                 {
@@ -531,6 +531,17 @@ fn render_dialog(
                     show_caret: ctx.overlay_owns_caret,
                     refreshing: d.refreshing,
                     spinner_phase: ctx.spinner_phase,
+                    info_detail: d.info_detail,
+                    info_scroll: &mut d.info_scroll,
+                    live_effort: app
+                        .editor_target
+                        .as_ref()
+                        .map(|_| app.editor_effort.as_str()),
+                    live_thinking: app
+                        .editor_target
+                        .as_ref()
+                        .filter(|_| app.editor_thinking_available)
+                        .map(|_| app.editor_thinking),
                 },
                 ctx.theme,
             ))
@@ -723,8 +734,12 @@ fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> Dialog
                 .as_any_mut()
                 .downcast_mut::<ModelsDialog>()
                 .expect("kind");
-            apply_delta(&mut e.scroll, delta);
-            e.follow = false;
+            if e.info_detail {
+                apply_delta(&mut e.info_scroll, delta);
+            } else {
+                apply_delta(&mut e.scroll, delta);
+                e.follow = false;
+            }
             DialogOutcome::Consumed
         }
         DialogKind::HistorySearch => {
@@ -907,6 +922,9 @@ fn handle_dialog_click(
                 .as_any_mut()
                 .downcast_mut::<ModelsDialog>()
                 .expect("kind");
+            if e.info_detail {
+                return DialogOutcome::Consumed;
+            }
             let models = app.models_flat_filtered();
             let (geometry, _) = crate::providers::models_body_lines(&models);
             let target_line = e.scroll + visual_row;
@@ -945,12 +963,8 @@ fn handle_dialog_click(
             let providers = app.providers_filtered();
             let target_idx = e.scroll + visual_row;
             if target_idx < providers.len() {
-                let was_selected = e.index == target_idx;
                 e.index = target_idx;
                 e.follow = true;
-                if was_selected {
-                    e.models_expanded = !e.models_expanded;
-                }
             }
             DialogOutcome::Consumed
         }
@@ -1269,6 +1283,14 @@ fn input_dialog(
                 .as_any_mut()
                 .downcast_mut::<ModelsDialog>()
                 .expect("kind");
+            if arrow && e.info_detail {
+                if forward {
+                    e.info_scroll = e.info_scroll.saturating_add(1);
+                } else {
+                    e.info_scroll = e.info_scroll.saturating_sub(1);
+                }
+                return DialogOutcome::Consumed;
+            }
             let models = app.models_flat_filtered();
             let count = models.len();
             if count == 0 {
@@ -1654,6 +1676,10 @@ dialog_entity!(ModelsDialog, Models, {
     query: TextInput = TextInput::default(),
     /// Whether a catalog refresh is in flight.
     refreshing: bool = false,
+    /// `true` while the model-info sub-view is open.
+    info_detail: bool = false,
+    /// Body scroll offset of the model-info sub-view.
+    info_scroll: usize = 0,
 });
 
 dialog_entity!(ConnectionsDialog, Connections, {
@@ -1669,8 +1695,6 @@ dialog_entity!(ConnectionsDialog, Connections, {
     info_standalone: bool = false,
     /// Body scroll offset of the connection-info sub-view.
     info_scroll: usize = 0,
-    /// Whether the served-models list is expanded in the info sub-view.
-    models_expanded: bool = false,
 });
 
 dialog_entity!(HistorySearchDialog, HistorySearch, {});

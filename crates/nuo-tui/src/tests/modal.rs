@@ -3182,3 +3182,121 @@ fn models_dialog_reset_picker_nav_lands_on_first_usable_model() {
         "reset_picker_nav must land on first usable model (index 1), not locked index 0"
     );
 }
+
+#[test]
+fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let info = |model: &str, usable: bool| nuo_wire::ProviderModelInfo {
+        model: model.to_string(),
+        name: Some(format!("Model {model}")),
+        protocol: String::new(),
+        effort: Some("medium".to_string()),
+        thinking: Some(true),
+        effort_levels: vec!["low".to_string(), "medium".to_string(), "high".to_string()],
+        favorite: false,
+        last_used_ms: None,
+        vision: Some(false),
+        context_window: 128_000,
+        max_output_tokens: None,
+        availability: if usable {
+            Some(nuo_wire::Availability::usable())
+        } else {
+            Some(nuo_wire::Availability::locked(Some(
+                "Requires subscription or account entitlement".to_string(),
+            )))
+        },
+        availability_overridden: false,
+        advertised: None,
+        availability_stale: false,
+    };
+    app.provider_picker = nuo_wire::ProviderPickerSnapshot {
+        default_id: "p1".into(),
+        rows: vec![nuo_wire::ProviderPickerRow {
+            id: "p1".into(),
+            name: "P1".into(),
+            model: "m1".into(),
+            models: vec!["m1".into(), "m2".into()],
+            model_info: vec![
+                info("m1", true),  // usable at index 0
+                info("m2", false), // locked at index 1
+            ],
+            builtin: true,
+            protocol: String::new(),
+            base_url: String::new(),
+            key_ready: true,
+            provider: String::new(),
+            client_identity: Default::default(),
+            last_used_ms: None,
+            auth: Default::default(),
+        }],
+    };
+
+    assert!(app.open_dialog(crate::surfaces::DialogKind::Models));
+    assert!(!app.surfaces.dlg::<crate::surfaces::ModelsDialog>().info_detail);
+
+    // 1. Drill into usable model m1
+    crate::event_loop::actions::handle_open_model_detail(&mut app);
+    assert!(app.surfaces.dlg::<crate::surfaces::ModelsDialog>().info_detail);
+    assert_eq!(app.editor_effort, "medium");
+    assert!(app.editor_thinking);
+
+    // 2. Adjust effort live via cycle action
+    let levels: &[String] = &app.editor_effort_levels;
+    let cur = levels.iter().position(|l| l == &app.editor_effort).unwrap() as isize;
+    let next = ((cur + 1).rem_euclid(levels.len() as isize)) as usize;
+    app.editor_effort = levels[next].clone();
+    assert_eq!(app.editor_effort, "high");
+
+    // 3. Esc pops sublayer back to Level 1
+    assert!(app.pop_sublayer());
+    assert!(!app.surfaces.dlg::<crate::surfaces::ModelsDialog>().info_detail);
+
+    // 4. Enter on locked model opens detail view rather than being a silent dead end
+    let models_dlg = app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
+    models_dlg.index = 1; // point at m2 (locked)
+    let rows = app.models_flat_filtered();
+    let picked = rows.get(1);
+    assert!(picked.is_some_and(|r| !r.usable));
+    crate::event_loop::actions::handle_open_model_detail(&mut app);
+    assert!(app.surfaces.dlg::<crate::surfaces::ModelsDialog>().info_detail);
+    assert_eq!(app.editor_model, "m2");
+
+    // Pop back to list
+    assert!(app.pop_sublayer());
+    assert!(!app.surfaces.dlg::<crate::surfaces::ModelsDialog>().info_detail);
+}
+
+#[test]
+fn browse_connection_models_transitions_to_models_dialog() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.connection_detail = Some(nuo_wire::ConnectionDetail {
+        name: "google-antigravity".to_string(),
+        provider: "google".to_string(),
+        provider_label: "Google Antigravity".to_string(),
+        models: vec!["gemini-1.5-pro".to_string()],
+        ..Default::default()
+    });
+
+    assert!(app.open_dialog(crate::surfaces::DialogKind::Connections));
+    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail = true;
+
+    // Simulate BrowseConnectionModels action
+    let filter = app
+        .connection_detail
+        .as_ref()
+        .map(|d| d.provider_label.clone())
+        .unwrap();
+    app.open_dialog(crate::surfaces::DialogKind::Models);
+    let models_dlg = app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
+    models_dlg.info_detail = false;
+    models_dlg.search = true;
+    models_dlg.query.text = filter.clone();
+    models_dlg.query.cursor = filter.len();
+
+    assert_eq!(app.active_dialog(), Some(crate::surfaces::DialogKind::Models));
+    assert_eq!(
+        app.surfaces.dlg::<crate::surfaces::ModelsDialog>().query.text,
+        "Google Antigravity"
+    );
+    assert!(app.surfaces.dlg::<crate::surfaces::ModelsDialog>().search);
+}

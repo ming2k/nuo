@@ -49,6 +49,10 @@ pub struct ModelsModalProps<'a> {
     pub show_caret: bool,
     pub refreshing: bool,
     pub spinner_phase: usize,
+    pub info_detail: bool,
+    pub info_scroll: &'a mut usize,
+    pub live_effort: Option<&'a str>,
+    pub live_thinking: Option<bool>,
 }
 
 /// Draw the **Models** flat model picker modal (`/models`).
@@ -70,11 +74,59 @@ pub fn draw_models_modal(
         show_caret,
         refreshing,
         spinner_phase,
+        info_detail,
+        info_scroll,
+        live_effort,
+        live_thinking,
     } = props;
     let area = modal_area(frame, FixedModalSpec::PROVIDER);
     let f = modal_frame(frame, area, theme, true, true);
 
     let header_rect = f.header;
+
+    if info_detail && let Some(rm) = models.get(modal_index.min(models.len().saturating_sub(1))) {
+        let display = rm.name.as_deref().unwrap_or(rm.model.as_str());
+        let breadcrumbs = crate::primitives::breadcrumb_parts("Models", display);
+        crate::elevation::modal_header_parts(frame, header_rect, &breadcrumbs, theme);
+
+        let lines = model_detail_body(
+            rm,
+            live_effort,
+            live_thinking,
+            f.body.width as usize,
+            theme,
+        );
+
+        let mut detail_hints: Vec<FooterHint> = Vec::with_capacity(5);
+        if rm.usable {
+            detail_hints.push(FooterHint::key_primary(crate::keymap::Key::ENTER, "activate & save"));
+            if !rm.effort_levels.is_empty() {
+                detail_hints.push(FooterHint::secondary(keyvocab::ARROWS_LR, "effort"));
+            }
+            if live_thinking.is_some() || rm.thinking.is_some() {
+                detail_hints.push(FooterHint::secondary(keyvocab::SPACE, "thinking"));
+            }
+        }
+        detail_hints.push(FooterHint::key_always(crate::keymap::Key::ESC, "list"));
+
+        render_body(
+            frame,
+            f.body,
+            lines,
+            info_scroll,
+            BodyRenderOptions {
+                follow: None,
+                edge_margin: 0,
+                wrap: true,
+            },
+            theme,
+        );
+
+        if let Some(fo) = f.footer {
+            render_modal_footer_with_extra(frame, fo, &detail_hints, &[], theme);
+        }
+        return area;
+    }
 
     let refresh_label = if refreshing {
         "refreshing…"
@@ -85,9 +137,9 @@ pub fn draw_models_modal(
         FooterHint::navigation(keyvocab::ARROWS_UD, "navigate"),
         FooterHint::secondary("/", "search"),
         FooterHint::key_primary(crate::keymap::Key::ENTER, "activate"),
+        FooterHint::secondary("i", "details"),
         FooterHint::secondary("*", "favorite"),
         FooterHint::secondary("x", "block"),
-        FooterHint::secondary("e", "settings"),
         FooterHint::secondary("r", refresh_label),
         FooterHint::key_always(crate::keymap::Key::ESC, "close"),
     ];
@@ -289,17 +341,11 @@ pub(crate) fn model_list_body(
                     (None, Some(effort)) => effort.to_string(),
                     _ => String::new(),
                 };
-                // The provider's own declaration leads the tag row so why a row
-                // is inert reads first (official `/model` parity). When the
-                // provider stated a reason it is shown verbatim; when it stated
-                // none the tag stays the bare word, and the refusal toast says
-                // only that. A model the user overrode keeps its upstream
-                // verdict visible rather than looking natively runnable.
+                // Clean status token leads the tag row so the row stays readable
+                // and never overflows into the identity/connection columns.
+                // Full verbose reasons are inspected via `i` (model detail).
                 let tag = if locked {
-                    let verdict = rm.locked_reason.as_deref().map_or_else(
-                        || "locked".to_string(),
-                        |reason| format!("locked — {reason}"),
-                    );
+                    let verdict = "locked".to_string();
                     if tag.is_empty() {
                         verdict
                     } else {
@@ -307,9 +353,9 @@ pub(crate) fn model_list_body(
                     }
                 } else if rm.availability_overridden {
                     if tag.is_empty() {
-                        "locked upstream · overridden by you".to_string()
+                        "overridden".to_string()
                     } else {
-                        format!("locked upstream · overridden by you · {tag}")
+                        format!("overridden · {tag}")
                     }
                 } else {
                     tag
@@ -495,4 +541,119 @@ pub(crate) fn models_empty_body(theme: &Theme) -> Vec<Line<'static>> {
             Style::default().fg(theme.muted()),
         )),
     ]
+}
+
+/// The model detail sub-view body: renders identity, capabilities, and live configuration or availability reason.
+pub(crate) fn model_detail_body(
+    rm: &RankedModel,
+    live_effort: Option<&str>,
+    live_thinking: Option<bool>,
+    _body_width: usize,
+    theme: &Theme,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let label_style = Style::default().fg(theme.dim());
+    let value_style = Style::default()
+        .fg(theme.fg())
+        .add_modifier(Modifier::BOLD);
+    let section_style = Style::default()
+        .fg(theme.brand())
+        .add_modifier(Modifier::BOLD);
+
+    let kv = |label: &str, val: &str, val_style: Style| {
+        Line::from(vec![
+            Span::styled(format!("{:<16}", label), label_style),
+            Span::styled(val.to_string(), val_style),
+        ])
+    };
+
+    // 1. Identity section
+    lines.push(Line::from(Span::styled("Identity", section_style)));
+    if let Some(name) = &rm.name {
+        lines.push(kv("Display Name", name, value_style));
+    }
+    lines.push(kv("Wire ID", &rm.model, value_style));
+    lines.push(kv(
+        "Connection",
+        &format!("{} ({})", rm.provider_label, rm.provider_id),
+        Style::default().fg(theme.fg()),
+    ));
+
+    lines.push(Line::from(""));
+
+    // 2. Capabilities section
+    lines.push(Line::from(Span::styled("Capabilities", section_style)));
+    lines.push(kv(
+        "Context Window",
+        &format!("{} tokens", rm.context_window),
+        Style::default().fg(theme.fg()),
+    ));
+    if !rm.effort_levels.is_empty() {
+        lines.push(kv(
+            "Reasoning Tiers",
+            &rm.effort_levels.join(" · "),
+            Style::default().fg(theme.fg()),
+        ));
+    }
+
+    lines.push(Line::from(""));
+
+    // 3. Status or Configuration section
+    if rm.usable {
+        lines.push(Line::from(Span::styled("Configuration", section_style)));
+        if !rm.effort_levels.is_empty() {
+            let current_effort = live_effort.or(rm.effort.as_deref()).unwrap_or("medium");
+            let mut spans = vec![Span::styled(format!("{:<16}", "Reasoning"), label_style)];
+            for level in &rm.effort_levels {
+                let is_selected = level == current_effort;
+                if is_selected {
+                    spans.push(Span::styled(
+                        format!("▶[{level}]◀ "),
+                        Style::default()
+                            .fg(theme.brand())
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                } else {
+                    spans.push(Span::styled(
+                        format!(" [ {level} ] "),
+                        Style::default().fg(theme.dim()),
+                    ));
+                }
+            }
+            lines.push(Line::from(spans));
+        }
+        let current_thinking = live_thinking.or(rm.thinking);
+        if let Some(thinking) = current_thinking {
+            let check = if thinking { "[x] on" } else { "[ ] off" };
+            let style = if thinking {
+                Style::default().fg(theme.ok()).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.dim())
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!("{:<16}", "Thinking"), label_style),
+                Span::styled(check, style),
+            ]));
+        }
+    } else {
+        lines.push(Line::from(Span::styled("Availability", section_style)));
+        lines.push(kv(
+            "Status",
+            "Locked",
+            Style::default().fg(theme.warn()).add_modifier(Modifier::BOLD),
+        ));
+        let reason_text = rm
+            .locked_reason
+            .as_deref()
+            .unwrap_or("Model requires subscription or account entitlement.");
+        lines.push(Line::from(vec![
+            Span::styled(format!("{:<16}", "Reason"), label_style),
+            Span::styled(
+                reason_text.to_string(),
+                Style::default().fg(theme.muted()),
+            ),
+        ]));
+    }
+
+    lines
 }

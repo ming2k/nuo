@@ -43,7 +43,6 @@ pub struct ConnectionsModalProps<'a> {
     pub spinner_phase: usize,
     pub connection_info_standalone: bool,
     pub refreshing: bool,
-    pub connection_models_expanded: bool,
     /// Ambient quota balances keyed by connection id (ADR-0036).
     pub connection_usages:
         Option<&'a std::collections::HashMap<String, nuo_wire::ConnectionUsageState>>,
@@ -73,7 +72,6 @@ pub fn draw_connections_modal(
         spinner_phase,
         connection_info_standalone,
         refreshing,
-        connection_models_expanded,
         connection_usages,
     } = props;
     let area = modal_area(frame, FixedModalSpec::PROVIDER);
@@ -140,16 +138,9 @@ pub fn draw_connections_modal(
             ]
         };
         if let Some(detail) = connection_detail
-            && detail.models.len() > 1
+            && !detail.models.is_empty()
         {
-            detail_footer.push(FooterHint::secondary(
-                "Enter",
-                if connection_models_expanded {
-                    "collapse models"
-                } else {
-                    "expand models"
-                },
-            ));
+            detail_footer.push(FooterHint::primary("m", "browse models"));
         }
         let rows = match connection_detail {
             None => {
@@ -167,7 +158,7 @@ pub fn draw_connections_modal(
                 ]
             }
             Some(detail) => {
-                connection_detail_body(detail, connection_models_expanded, spinner_phase, theme)
+                connection_detail_body(detail, spinner_phase, theme)
             }
         };
         render_selectable_body(
@@ -439,7 +430,6 @@ pub(crate) fn render_progress_bar_spans(
 /// Render the detail body rows for one connection (configuration + caller identity + models + provider usage).
 pub(crate) fn connection_detail_body(
     detail: &nuo_wire::ConnectionDetail,
-    models_expanded: bool,
     spinner_phase: usize,
     theme: &Theme,
 ) -> Vec<SelectableRow> {
@@ -549,54 +539,29 @@ pub(crate) fn connection_detail_body(
             SelectableRow::styled("(no models configured)", muted)
                 .with_prefix(RowSegment::styled("  ", muted)),
         );
-    } else if !models_expanded {
-        let primary_model = detail
+    } else {
+        let active_desc = detail
             .active_model
             .as_deref()
-            .or_else(|| detail.models.first().map(|s| s.as_str()));
-        if let Some(model) = primary_model {
-            rows.push(
-                SelectableRow::styled(model.to_string(), value.add_modifier(Modifier::BOLD))
-                    .with_prefix(RowSegment::styled("  - ", label)),
-            );
-        }
-        if detail.models.len() > 1 {
-            rows.push(
-                SelectableRow::from_segments(vec![
-                    RowSegment::styled("▸ ", Style::default().fg(theme.primary)),
-                    RowSegment::styled(
-                        format!(
-                            "show all {} models (press Enter to expand)",
-                            detail.models.len()
-                        ),
-                        muted,
-                    ),
-                ])
-                .with_prefix(RowSegment::styled("  ", label)),
-            );
-        }
-    } else {
-        for model in &detail.models {
-            let is_active = detail.active_model.as_deref() == Some(model.as_str());
-            let model_style = if is_active {
-                value.add_modifier(Modifier::BOLD)
-            } else {
-                value
-            };
-            rows.push(
-                SelectableRow::styled(model.clone(), model_style)
-                    .with_prefix(RowSegment::styled("  - ", label)),
-            );
-        }
-        if detail.models.len() > 1 {
-            rows.push(
-                SelectableRow::from_segments(vec![
-                    RowSegment::styled("▾ ", Style::default().fg(theme.primary)),
-                    RowSegment::styled("collapse models (press Enter)", muted),
-                ])
-                .with_prefix(RowSegment::styled("  ", label)),
-            );
-        }
+            .unwrap_or("(none configured)");
+        rows.push(
+            SelectableRow::styled(
+                format!(
+                    "{} discovered  ·  default: {}",
+                    detail.models.len(),
+                    active_desc
+                ),
+                value,
+            )
+            .with_prefix(RowSegment::styled(format!("{:<16}", "Catalog"), label)),
+        );
+        rows.push(
+            SelectableRow::from_segments(vec![
+                RowSegment::styled("[ m ] ", highlight.add_modifier(Modifier::BOLD)),
+                RowSegment::styled("Browse & filter in /models", muted),
+            ])
+            .with_prefix(RowSegment::styled(format!("{:<16}", "Action"), label)),
+        );
     }
 
     // Provider Usage & Quota

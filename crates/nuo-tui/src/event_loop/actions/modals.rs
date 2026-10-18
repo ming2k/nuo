@@ -162,6 +162,43 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
     }
 }
 
+/// Loop stage (input dispatch): the `OpenModelDetail` arm.
+pub(crate) fn handle_open_model_detail(app: &mut App) {
+    if app.active_dialog() == Some(DialogKind::Models) {
+        let rows = app.models_flat_filtered();
+        let idx = app.active_index();
+        if let Some(row) = rows.get(idx).or_else(|| rows.first()) {
+            let is_builtin = !app.provider_is_custom(&row.provider_id);
+            app.editor_target = Some(row.provider_id.clone());
+            app.editor_model = row.model.clone();
+            app.editor_model_settings_only = true;
+            app.editor_target_is_builtin = is_builtin;
+            app.editor_key.clear();
+            app.editor_vision_override = None;
+            app.editor_tool_override = None;
+            app.editor_effort_levels = row.effort_levels.clone();
+            app.editor_effort = row.effort.clone().unwrap_or_else(|| {
+                let levels: Vec<nuo_wire::EffortLevel> = row
+                    .effort_levels
+                    .iter()
+                    .map(|l| nuo_wire::EffortLevel::parse(l))
+                    .collect();
+                nuo_wire::Effort::Medium
+                    .clamp_to_levels(&levels)
+                    .as_str()
+                    .to_string()
+            });
+            app.editor_thinking_available = row.thinking.is_some();
+            app.editor_thinking = row.thinking.unwrap_or(false);
+            app.editor_field = 1;
+
+            let dlg = app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
+            dlg.info_detail = true;
+            dlg.info_scroll = 0;
+        }
+    }
+}
+
 /// Loop stage (input dispatch): the `OpenModelEditor` arm.
 pub(crate) fn handle_open_model_editor(app: &mut App) {
     if app.active_dialog() == Some(DialogKind::Models) {
@@ -316,8 +353,8 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
 }
 
 /// Loop stage (input dispatch): the `SubmitModelEditor` arm.
-pub(super) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
-    if app.surfaces.contains_sheet(SheetKind::ModelEditor)
+pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
+    if (app.surfaces.contains_sheet(SheetKind::ModelEditor) || app.editor_model_settings_only)
         && let Some(target) = app.editor_target.clone()
     {
         if let Some(payload) = target.strip_prefix("web_credential:") {
@@ -429,7 +466,9 @@ pub(super) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
             app.editor_tool_override = None;
             app.set_picker_search(false);
             app.set_active_follow(true);
-            app.pop_transient_surface();
+            if app.surfaces.contains_sheet(SheetKind::ModelEditor) {
+                app.pop_transient_surface();
+            }
             return ActionFlow::NextEvent;
         }
         // Key editor (not model-settings-only): this is a
