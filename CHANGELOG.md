@@ -6,6 +6,17 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.37] - 2026-11-17
+
+### Added
+
+- **Two-Tier Model Detail Inspector and Actionable Tuning View**:
+  Integrated model capability inspection and live behavioral tuning directly into the `/models` dialog surface (`ModelsDialog.info_detail`).
+  - Added dedicated Model Detail sub-view accessed via <kbd>i</kbd> (and <kbd>Enter</kbd> on isolated unavailable search results), presenting full un-truncated provider refusal reasons, capabilities, context token limits, and multimodal support.
+  - Interactive live tuning knobs directly on the inspector card: <kbd>←</kbd> / <kbd>→</kbd> steps reasoning effort ladders, <kbd>Space</kbd> toggles extended thinking, <kbd>Enter</kbd> saves and activates immediately, and <kbd>Esc</kbd> saves and returns to list view.
+  - Sanitized `/models` list row status tokens: replaced verbose multi-clause upstream error prose with clean, compact status badges (`locked`), preventing column collisions and ugly ellipsis truncation.
+  - Retired the legacy 50-row plaintext models accordion in `/connections` (`ConnectionDetail`) in favor of a 2-line gateway summary and direct <kbd>m</kbd> shortcut to browse models in `/models` pre-filtered.
+
 ## [0.0.36] - 2026-11-17
 
 ### Added
