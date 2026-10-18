@@ -6,6 +6,16 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.34] - 2026-10-18
+
+### Fixed
+
+- **Release-build regression in `QuestionModel::update_mut`**: the in-place
+  update helper was gated behind `#[cfg(debug_assertions)]` while its sole
+  production caller (`declarative/ask_user.rs`) invokes it unconditionally —
+  release builds (e.g. `wright upgrade`) failed with E0599. The erroneous gate
+  is removed; the method is now unconditionally available.
+
 ## [0.0.33] - 2026-10-17
 
 ### Fixed

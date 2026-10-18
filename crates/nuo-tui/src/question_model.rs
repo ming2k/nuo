@@ -437,12 +437,10 @@ impl QuestionModel {
         }
     }
 
-    /// In-place variant of [`update`](Self::update) for callers that hold the
-    /// model behind a mutable reference (e.g. inside a borrow-constrained
-    /// showcase loop). Applies the transition in place and returns just the
-    /// effects. Equivalent to taking the value, calling `update`, and writing
-    /// it back.
-    #[cfg(debug_assertions)]
+    /// The in-place variant of [`update`](Self::update) for callers that hold
+    /// the model behind a mutable reference. Applies the transition in place
+    /// and returns just the effects. Equivalent to taking the value, calling
+    /// `update`, and writing it back.
     pub fn update_mut(&mut self, action: QuestionAction) -> Vec<QuestionEffect> {
         // We need to move `self` into `update`, so clone the request as a
         // stand-in, swap, then write the result back. This is cheap because the
