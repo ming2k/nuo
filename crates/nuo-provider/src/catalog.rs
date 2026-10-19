@@ -94,7 +94,9 @@ static CATALOG_SIGNER_BUILDER: std::sync::RwLock<Option<CatalogSignerBuilder>> =
     std::sync::RwLock::new(None);
 
 pub fn register_catalog_signer_builder(builder: CatalogSignerBuilder) {
-    *CATALOG_SIGNER_BUILDER.write().unwrap() = Some(builder);
+    *CATALOG_SIGNER_BUILDER
+        .write()
+        .unwrap_or_else(|error| error.into_inner()) = Some(builder);
 }
 
 pub fn build_catalog_signer(
@@ -102,7 +104,11 @@ pub fn build_catalog_signer(
     connection_id: &str,
     bearer: &str,
 ) -> Option<Box<dyn CatalogSigning>> {
-    if let Some(builder) = CATALOG_SIGNER_BUILDER.read().unwrap().as_ref() {
+    if let Some(builder) = CATALOG_SIGNER_BUILDER
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_ref()
+    {
         builder(store, connection_id, bearer)
     } else {
         None

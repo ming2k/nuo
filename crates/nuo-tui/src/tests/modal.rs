@@ -1649,9 +1649,6 @@ fn config_view_monochrome_profile_navigation_and_item_counts() {
 
 #[tokio::test]
 async fn config_view_components_toggle_and_persistence() {
-    let _guard = nuo_host::paths::TEST_OVERRIDE_GUARD
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
     let tmp = tempfile::tempdir().unwrap();
     let dirs = nuo_host::paths::Dirs {
         config_dir: tmp.path().join("config"),
@@ -1660,14 +1657,7 @@ async fn config_view_components_toggle_and_persistence() {
         cache_dir: tmp.path().join("cache"),
         runtime_dir: None,
     };
-    nuo_host::paths::set_test_default(Some(dirs));
-    struct ResetPaths;
-    impl Drop for ResetPaths {
-        fn drop(&mut self) {
-            nuo_host::paths::set_test_default(None);
-        }
-    }
-    let _reset = ResetPaths;
+    let _sandbox = nuo_host::paths::TestDirsGuard::install(dirs);
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::event_loop::UiRuntime::minimal_for_test();
@@ -3300,11 +3290,19 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
     };
 
     assert!(app.open_dialog(crate::surfaces::DialogKind::Models));
-    assert!(!app.surfaces.dlg::<crate::surfaces::ModelsDialog>().info_detail);
+    assert!(
+        !app.surfaces
+            .dlg::<crate::surfaces::ModelsDialog>()
+            .info_detail
+    );
 
     // 1. Drill into usable model m1
     crate::event_loop::actions::handle_open_model_detail(&mut app);
-    assert!(app.surfaces.dlg::<crate::surfaces::ModelsDialog>().info_detail);
+    assert!(
+        app.surfaces
+            .dlg::<crate::surfaces::ModelsDialog>()
+            .info_detail
+    );
     assert_eq!(app.editor_effort, "medium");
     assert!(app.editor_thinking);
 
@@ -3317,7 +3315,11 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
 
     // 3. Esc pops sublayer back to Level 1
     assert!(app.pop_sublayer());
-    assert!(!app.surfaces.dlg::<crate::surfaces::ModelsDialog>().info_detail);
+    assert!(
+        !app.surfaces
+            .dlg::<crate::surfaces::ModelsDialog>()
+            .info_detail
+    );
 
     // 4. Enter on locked model opens detail view rather than being a silent dead end
     let models_dlg = app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
@@ -3326,12 +3328,20 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
     let picked = rows.get(1);
     assert!(picked.is_some_and(|r| !r.usable));
     crate::event_loop::actions::handle_open_model_detail(&mut app);
-    assert!(app.surfaces.dlg::<crate::surfaces::ModelsDialog>().info_detail);
+    assert!(
+        app.surfaces
+            .dlg::<crate::surfaces::ModelsDialog>()
+            .info_detail
+    );
     assert_eq!(app.editor_model, "m2");
 
     // Pop back to list
     assert!(app.pop_sublayer());
-    assert!(!app.surfaces.dlg::<crate::surfaces::ModelsDialog>().info_detail);
+    assert!(
+        !app.surfaces
+            .dlg::<crate::surfaces::ModelsDialog>()
+            .info_detail
+    );
 }
 
 #[test]
@@ -3346,7 +3356,9 @@ fn browse_connection_models_transitions_to_models_dialog() {
     });
 
     assert!(app.open_dialog(crate::surfaces::DialogKind::Connections));
-    app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>().info_detail = true;
+    app.surfaces
+        .dlg_mut::<crate::surfaces::ConnectionsDialog>()
+        .info_detail = true;
 
     // Simulate BrowseConnectionModels action
     let filter = app
@@ -3361,9 +3373,15 @@ fn browse_connection_models_transitions_to_models_dialog() {
     models_dlg.query.text = filter.clone();
     models_dlg.query.cursor = filter.len();
 
-    assert_eq!(app.active_dialog(), Some(crate::surfaces::DialogKind::Models));
     assert_eq!(
-        app.surfaces.dlg::<crate::surfaces::ModelsDialog>().query.text,
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::Models)
+    );
+    assert_eq!(
+        app.surfaces
+            .dlg::<crate::surfaces::ModelsDialog>()
+            .query
+            .text,
         "Google Antigravity"
     );
     assert!(app.surfaces.dlg::<crate::surfaces::ModelsDialog>().search);

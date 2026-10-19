@@ -166,20 +166,18 @@ mod tests {
         WebSearchProvider,
     };
 
-    fn sandbox() -> (tempfile::TempDir, std::sync::MutexGuard<'static, ()>) {
-        let guard = nuo_persistence::paths::TEST_OVERRIDE_GUARD
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+    fn sandbox() -> (nuo_persistence::paths::TestDirsGuard, tempfile::TempDir) {
         let root = tempfile::tempdir().unwrap();
-        nuo_persistence::paths::set_test_default(Some(nuo_persistence::paths::Dirs {
+        let dirs = nuo_persistence::paths::Dirs {
             config_dir: root.path().join("config"),
             data_dir: root.path().join("data"),
             state_dir: root.path().join("state"),
             cache_dir: root.path().join("cache"),
             runtime_dir: None,
-        }));
+        };
+        let guard = nuo_persistence::paths::TestDirsGuard::install(dirs);
         std::fs::create_dir_all(&nuo_persistence::paths::get().config_dir).unwrap();
-        (root, guard)
+        (guard, root)
     }
 
     #[test]
@@ -195,7 +193,7 @@ mod tests {
 
     #[tokio::test]
     async fn selection_then_credential_hot_applies_one_revision_at_a_time() {
-        let (_root, _guard) = sandbox();
+        let (_sandbox, _root) = sandbox();
         let mut config = Config::default();
         let shared =
             SharedWebConfig::new(resolve_web_config(&config.web, &Credentials::default()).runtime);
@@ -256,12 +254,11 @@ mod tests {
                 .unwrap()
                 .contains("tvly-secret")
         );
-        nuo_persistence::paths::set_test_default(None);
     }
 
     #[tokio::test]
     async fn stale_revision_cannot_overwrite_authoritative_state() {
-        let (_root, _guard) = sandbox();
+        let (_sandbox, _root) = sandbox();
         let mut config = Config::default();
         let shared =
             SharedWebConfig::new(resolve_web_config(&config.web, &Credentials::default()).runtime);
@@ -280,12 +277,11 @@ mod tests {
         .await;
         assert!(matches!(rx.recv().await, Some(AgentResponse::Error(_))));
         assert_eq!(config.web.provider, WebSearchProvider::Exa);
-        nuo_persistence::paths::set_test_default(None);
     }
 
     #[tokio::test]
     async fn mixed_behavior_and_credential_patch_is_rejected_atomically() {
-        let (_root, _guard) = sandbox();
+        let (_sandbox, _root) = sandbox();
         let mut config = Config::default();
         let shared =
             SharedWebConfig::new(resolve_web_config(&config.web, &Credentials::default()).runtime);
@@ -316,6 +312,5 @@ mod tests {
                 .web_credential(WebProviderAxis::Search, "tavily")
                 .is_none()
         );
-        nuo_persistence::paths::set_test_default(None);
     }
 }

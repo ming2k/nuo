@@ -53,14 +53,14 @@ mod tests {
 
     #[test]
     fn clean_domain_files_produce_no_findings() {
-        let (_tmp, _guard, _override_guard) = crate::config::tests::sandbox_config_dir();
+        let _sandbox = crate::config::tests::sandbox_config_dir();
         // No domain files written yet: nothing to report.
         assert!(check_config_file(None).is_empty());
     }
 
     #[test]
     fn unknown_key_in_a_domain_file_is_a_finding() {
-        let (_tmp, _guard, _override_guard) = crate::config::tests::sandbox_config_dir();
+        let _sandbox = crate::config::tests::sandbox_config_dir();
         std::fs::write(
             Config::client_config_file_path(),
             "default_conection = \"typo\"\n",
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn type_error_in_a_domain_file_is_a_finding() {
-        let (_tmp, _guard, _override_guard) = crate::config::tests::sandbox_config_dir();
+        let _sandbox = crate::config::tests::sandbox_config_dir();
         std::fs::write(
             Config::server_config_file_path(),
             "[lifecycle]\nshutdown_grace_secs = \"soon\"\n",

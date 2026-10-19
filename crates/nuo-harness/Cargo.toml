@@ -28,7 +28,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
-netune = "0.1.0"
+netune = { workspace = true }
 bytes = { workspace = true }
 uuid = { workspace = true }
 regex = "1"
@@ -51,9 +51,9 @@ nuo-server = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 mockito = { workspace = true }
 tempfile = { workspace = true }
-# `test-path-override` exposes `paths::set_test_default` so catalog discovery
-# tests can sandbox the XDG roots; without it a `DiscoveryCache::save()` in a
-# test writes `test-instance` rows into the developer's real
+# `test-path-override` exposes `paths::TestDirsGuard` so catalog discovery tests
+# can sandbox the XDG roots; without it a `DiscoveryCache::save()` in a test
+# writes `test-instance` rows into the developer's real
 # `$XDG_STATE_HOME/nuo/models_discovery.json`.
 nuo-host = { workspace = true, features = ["test-path-override"] }
 

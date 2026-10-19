@@ -152,20 +152,18 @@ mod tests {
 
     /// Sandbox the process-wide XDG roots, so the store this test drives is a
     /// temporary one and the developer's real database is never touched.
-    fn sandbox() -> (tempfile::TempDir, std::sync::MutexGuard<'static, ()>) {
-        let guard = nuo_persistence::paths::TEST_OVERRIDE_GUARD
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+    fn sandbox() -> (nuo_persistence::paths::TestDirsGuard, tempfile::TempDir) {
         let root = tempfile::tempdir().unwrap();
-        nuo_persistence::paths::set_test_default(Some(nuo_persistence::paths::Dirs {
+        let dirs = nuo_persistence::paths::Dirs {
             config_dir: root.path().join("config"),
             data_dir: root.path().join("data"),
             state_dir: root.path().join("state"),
             cache_dir: root.path().join("cache"),
             runtime_dir: None,
-        }));
+        };
+        let guard = nuo_persistence::paths::TestDirsGuard::install(dirs);
         std::fs::create_dir_all(&nuo_persistence::paths::get().config_dir).unwrap();
-        (root, guard)
+        (guard, root)
     }
 
     /// The store is a conformant sink.
@@ -176,7 +174,7 @@ mod tests {
     /// claims are unsound and the failure names the fact.
     #[tokio::test]
     async fn the_store_is_a_conformant_sink() {
-        let (_root, _guard) = sandbox();
+        let (_sandbox, _root) = sandbox();
         let session_id = "conformance-store";
 
         let sink = StoreSink::new(session_id);
@@ -190,7 +188,6 @@ mod tests {
         // no seeding step is needed — which is itself worth knowing: a sink that
         // required pre-creation would not satisfy the port's append contract.
         let report = run_conformance(session_id, &sink, hydrate_fn).await;
-        nuo_persistence::paths::set_test_default(None);
         report.assert_all_passed();
     }
 

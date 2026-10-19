@@ -89,14 +89,14 @@ fn piece_tokens(category: CharCategory, slice: &str) -> usize {
                     spaces += 1;
                 }
             }
-            let nl_tokens = if newlines > 0 { (newlines + 1) / 2 } else { 0 };
-            let sp_tokens = if spaces > 0 { (spaces + 3) / 4 } else { 0 };
+            let nl_tokens = newlines.div_ceil(2);
+            let sp_tokens = spaces.div_ceil(4);
             (nl_tokens + sp_tokens).max(1)
         }
         CharCategory::AsciiWord => {
             // For words: short words (1..5 chars) are 1 token. Longer words break into subwords.
             let len = slice.len();
-            if len <= 5 { 1 } else { 1 + (len - 5 + 3) / 4 }
+            if len <= 5 { 1 } else { 1 + (len - 5).div_ceil(4) }
         }
         CharCategory::Cjk => {
             // Modern models (DeepSeek, Qwen, Claude, GPT-4o) encode CJK at ~1 token per character.
@@ -105,7 +105,7 @@ fn piece_tokens(category: CharCategory, slice: &str) -> usize {
         CharCategory::Punctuation => {
             // Runs of identical punctuation (e.g. `===`, `---`, `///`): (len + 2) / 3
             let len = slice.len();
-            if len <= 1 { 1 } else { (len + 2) / 3 }
+            if len <= 1 { 1 } else { len.div_ceil(3) }
         }
         CharCategory::Other => {
             // Other unicode graphemes / symbols: 1 token each
@@ -195,7 +195,7 @@ pub fn count_tokens(text: &str) -> usize {
                         break;
                     }
                 }
-                total += if run_len <= 1 { 1 } else { (run_len + 2) / 3 };
+                total += if run_len <= 1 { 1 } else { run_len.div_ceil(3) };
             }
             CharCategory::AsciiWord => {
                 while let Some(&next_ch) = chars.peek() {
@@ -209,12 +209,12 @@ pub fn count_tokens(text: &str) -> usize {
                 total += if run_bytes <= 5 {
                     1
                 } else {
-                    1 + (run_bytes - 5 + 3) / 4
+                    1 + (run_bytes - 5).div_ceil(4)
                 };
             }
             CharCategory::Whitespace => {
-                let mut newlines = if ch == '\n' { 1 } else { 0 };
-                let mut spaces = if ch != '\n' { 1 } else { 0 };
+                let mut newlines: usize = if ch == '\n' { 1 } else { 0 };
+                let mut spaces: usize = if ch != '\n' { 1 } else { 0 };
                 while let Some(&next_ch) = chars.peek() {
                     if classify(next_ch) == CharCategory::Whitespace {
                         chars.next();
@@ -227,8 +227,8 @@ pub fn count_tokens(text: &str) -> usize {
                         break;
                     }
                 }
-                let nl_tokens = if newlines > 0 { (newlines + 1) / 2 } else { 0 };
-                let sp_tokens = if spaces > 0 { (spaces + 3) / 4 } else { 0 };
+                let nl_tokens = newlines.div_ceil(2);
+                let sp_tokens = spaces.div_ceil(4);
                 total += (nl_tokens + sp_tokens).max(1);
             }
             CharCategory::Other => {

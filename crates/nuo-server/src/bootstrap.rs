@@ -973,7 +973,7 @@ fn spawn_mcp_config_watcher(
     };
 
     // 1. Watch user config directory
-    let user_config_file = nuo_host::paths::Dirs::system().config_file();
+    let user_config_file = nuo_host::paths::get().config_file();
     let canon_user_config = user_config_file.canonicalize().ok();
     if let Some(user_config_dir) = user_config_file.parent()
         && user_config_dir.exists()
@@ -1272,7 +1272,7 @@ mod tests {
             .path()
             .canonicalize()
             .unwrap_or_else(|_| tmp.path().to_path_buf());
-        let user_config_file = nuo_host::paths::Dirs::system().config_file();
+        let user_config_file = nuo_host::paths::get().config_file();
 
         let sec_file = tmp.path().join("workspace_security.json");
         let security = Arc::new(WorkspaceSecurityStore::load_from(sec_file));

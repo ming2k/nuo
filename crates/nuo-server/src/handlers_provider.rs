@@ -2315,9 +2315,6 @@ mod tests {
 
     #[tokio::test]
     async fn add_provider_oauth_auth_mismatch_never_writes_connection_or_token() {
-        let _guard = nuo_persistence::paths::TEST_OVERRIDE_GUARD
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let dirs = nuo_persistence::paths::Dirs {
             config_dir: dir.path().join("config"),
@@ -2326,7 +2323,7 @@ mod tests {
             cache_dir: dir.path().join("cache"),
             runtime_dir: None,
         };
-        nuo_persistence::paths::set_test_default(Some(dirs));
+        let _sandbox = nuo_persistence::paths::TestDirsGuard::install(dirs);
 
         let (resp_tx, mut resp_rx) = tokio::sync::mpsc::unbounded_channel();
         let session = SessionStore::for_path(dir.path().join("session.json"));
@@ -2394,15 +2391,10 @@ mod tests {
             store.read("probe").unwrap().is_none(),
             "no credential may be written for a rejected connection"
         );
-
-        nuo_persistence::paths::set_test_default(None);
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn query_connection_detail_sends_initial_and_background_detail() {
-        let _guard = nuo_persistence::paths::TEST_OVERRIDE_GUARD
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let dirs = nuo_persistence::paths::Dirs {
             config_dir: dir.path().join("config"),
@@ -2411,7 +2403,7 @@ mod tests {
             cache_dir: dir.path().join("cache"),
             runtime_dir: None,
         };
-        nuo_persistence::paths::set_test_default(Some(dirs));
+        let _sandbox = nuo_persistence::paths::TestDirsGuard::install(dirs);
 
         let mut store = nuo_persistence::model_providers::ModelProviders::default();
         store.set_provider(
@@ -2468,15 +2460,10 @@ mod tests {
             }
             other => panic!("expected final ConnectionDetail, got {other:?}"),
         }
-
-        nuo_persistence::paths::set_test_default(None);
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn connection_update_surfaces_warning_and_picker_then_final_keys() {
-        let _guard = nuo_persistence::paths::TEST_OVERRIDE_GUARD
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let dirs = nuo_persistence::paths::Dirs {
             config_dir: dir.path().join("config"),
@@ -2485,7 +2472,7 @@ mod tests {
             cache_dir: dir.path().join("cache"),
             runtime_dir: None,
         };
-        nuo_persistence::paths::set_test_default(Some(dirs));
+        let _sandbox = nuo_persistence::paths::TestDirsGuard::install(dirs);
 
         let mut config = Config::default();
         let mut usage = ConnectionUsage::default();
@@ -2531,15 +2518,10 @@ mod tests {
         assert!(matches!(keys, AgentResponse::ProviderKeys(_)));
         let picker = resp_rx.recv().await.expect("picker expected");
         assert!(matches!(picker, AgentResponse::ProviderPicker(_)));
-
-        nuo_persistence::paths::set_test_default(None);
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn adr0199_handlers_mutate_preset_and_connection_scopes() {
-        let _guard = nuo_persistence::paths::TEST_OVERRIDE_GUARD
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let dirs = nuo_persistence::paths::Dirs {
             config_dir: dir.path().join("config"),
@@ -2548,7 +2530,7 @@ mod tests {
             cache_dir: dir.path().join("cache"),
             runtime_dir: None,
         };
-        nuo_persistence::paths::set_test_default(Some(dirs));
+        let _sandbox = nuo_persistence::paths::TestDirsGuard::install(dirs);
 
         let mut config = Config::default();
         let mut usage = ConnectionUsage::default();
@@ -2605,15 +2587,10 @@ mod tests {
         let providers = ModelProviders::load();
         let ds = providers.get("deepseek").unwrap();
         assert!(!ds.exclude.contains(&"deepseek-chat".to_string()));
-
-        nuo_persistence::paths::set_test_default(None);
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn add_provider_snapshots_rules_without_materializing_model_ids() {
-        let _guard = nuo_persistence::paths::TEST_OVERRIDE_GUARD
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let dirs = nuo_persistence::paths::Dirs {
             config_dir: dir.path().join("config"),
@@ -2622,7 +2599,7 @@ mod tests {
             cache_dir: dir.path().join("cache"),
             runtime_dir: None,
         };
-        nuo_persistence::paths::set_test_default(Some(dirs));
+        let _sandbox = nuo_persistence::paths::TestDirsGuard::install(dirs);
 
         let mut config = Config::default();
         let session = SessionStore::for_path(dir.path().join("session.json"));
@@ -2670,8 +2647,6 @@ mod tests {
                 nuo_wire::NamedFilterPolicy::All
             ))
         );
-
-        nuo_persistence::paths::set_test_default(None);
     }
 
     /// A session that already runs a model keeps it when a new connection is
@@ -2708,9 +2683,6 @@ mod tests {
             }
         }
 
-        let _guard = nuo_persistence::paths::TEST_OVERRIDE_GUARD
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let dirs = nuo_persistence::paths::Dirs {
             config_dir: dir.path().join("config"),
@@ -2719,7 +2691,7 @@ mod tests {
             cache_dir: dir.path().join("cache"),
             runtime_dir: None,
         };
-        nuo_persistence::paths::set_test_default(Some(dirs));
+        let _sandbox = nuo_persistence::paths::TestDirsGuard::install(dirs);
 
         // A session pinned to an existing connection/model (as after /models).
         let mut config = Config {
@@ -2810,8 +2782,6 @@ mod tests {
                 "add must never broadcast ProviderSwitched"
             );
         }
-
-        nuo_persistence::paths::set_test_default(None);
     }
 
     #[tokio::test]
@@ -2844,7 +2814,7 @@ mod tests {
             cache_dir: tmp.path().join("cache"),
             runtime_dir: None,
         };
-        nuo_persistence::paths::set_test_default(Some(dirs));
+        let _sandbox = nuo_persistence::paths::TestDirsGuard::install(dirs);
 
         // Add a dummy quota-capable connection
         let mut conns = Connections::default();
@@ -2892,7 +2862,5 @@ mod tests {
         } else {
             panic!("expected ProviderQuotas, got {second:?}");
         }
-
-        nuo_persistence::paths::set_test_default(None);
     }
 }

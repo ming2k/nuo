@@ -24,6 +24,7 @@
 //!   the server answers with zero reasoning content), while GLM-5.3 accepts
 //!   only `low`/`high`/`max`.
 //! - DeepSeek V4 (Pro/Pro-0813) rejects `none`/`minimal` — its floor is `low`.
+//!
 //! Those tier sets are per-model ladders below; the shared clamp machinery
 //! never emits a rung a model rejected. Thinking on/off rides the same knob:
 //! `enable_thinking` is restricted to `true` on the always-thinking GLM-5.3

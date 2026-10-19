@@ -189,7 +189,7 @@ pub fn sync_user_declared_providers(
             .default_protocol
             .unwrap_or(nuo_model_codec::WireProtocol::ChatCompletions);
         let dialect = provider.dialect.unwrap_or_default();
-        let catalog_source = provider.catalog.clone().unwrap_or_else(|| {
+        let catalog_source = provider.catalog.unwrap_or_else(|| {
             RemoteCatalogSource::Endpoint(match dialect {
                 nuo_model_codec::ProviderDialect::Antigravity => {
                     nuo_model_codec::CatalogShape::GoogleCloudCode

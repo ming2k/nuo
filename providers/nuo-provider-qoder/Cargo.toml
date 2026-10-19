@@ -13,7 +13,7 @@ nuo-provider-transport = { workspace = true }
 nuo-wire = { workspace = true }
 nuo-model-codec = { workspace = true }
 nuo-host = { workspace = true }
-netune = "0.1.0"
+netune = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
 futures = { workspace = true }

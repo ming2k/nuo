@@ -511,33 +511,16 @@ mod tests {
     use super::*;
     use nuo_wire::reasoning::ReasoningSupport;
 
-    struct PathsSandbox {
-        _guard: std::sync::MutexGuard<'static, ()>,
-        _tmp: tempfile::TempDir,
-    }
-
-    impl Drop for PathsSandbox {
-        fn drop(&mut self) {
-            paths::set_test_default(None);
-        }
-    }
-
-    fn sandboxed_paths() -> PathsSandbox {
-        let guard = paths::TEST_OVERRIDE_GUARD
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+    fn sandboxed_paths() -> (paths::TestDirsGuard, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
-        paths::set_test_default(Some(paths::Dirs {
+        let dirs = paths::Dirs {
             config_dir: tmp.path().join("config"),
             data_dir: tmp.path().join("data"),
             state_dir: tmp.path().join("state"),
             cache_dir: tmp.path().join("cache"),
             runtime_dir: None,
-        }));
-        PathsSandbox {
-            _guard: guard,
-            _tmp: tmp,
-        }
+        };
+        (paths::TestDirsGuard::install(dirs), tmp)
     }
 
     fn deepseek_with_extras() -> Connection {

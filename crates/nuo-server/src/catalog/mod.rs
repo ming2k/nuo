@@ -175,7 +175,7 @@ pub fn build_provider_for_model(
             .find(usable)
             .or_else(|| entry.default_channel()),
     };
-    channel.map(|channel| nuo_provider::build_provider_for_channel(channel, &entry.id, session_id))
+    channel.and_then(|channel| nuo_provider::build_provider_for_channel(channel, &entry.id, session_id))
 }
 
 pub fn resolved_model_name(config: &Config, id: &str) -> Option<String> {

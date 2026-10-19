@@ -41,7 +41,7 @@ nuo-tool-fs = { workspace = true }
 nuo-tool-exec = { workspace = true }
 nuo-tool-web = { workspace = true }
 nuo-tool-ast = { workspace = true }
-netune = "0.1.0"
+netune = { workspace = true }
 ignore = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }

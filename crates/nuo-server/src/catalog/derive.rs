@@ -223,7 +223,13 @@ pub fn derive_channel(
         &connection.auth,
         api_key,
         dialect,
-    );
+    )
+    .ok_or_else(|| {
+        nuo_wire::ProviderError::invalid_request(
+            &connection.provider,
+            "no credential source builder registered (composition root not initialized)",
+        )
+    })?;
 
     let transport = match protocol {
         WireProtocol::GoogleGemini => Transport::Google {

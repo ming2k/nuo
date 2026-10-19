@@ -6,19 +6,16 @@ use nuo_wire::{
     SecretString, WebCredentialStatus, WebProviderAxis, WebReaderProvider, WebSearchProvider,
 };
 
-fn sandbox() -> (tempfile::TempDir, std::sync::MutexGuard<'static, ()>) {
-    let guard = nuo_persistence::paths::TEST_OVERRIDE_GUARD
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+fn sandbox() -> (nuo_persistence::paths::TestDirsGuard, tempfile::TempDir) {
     let root = tempfile::tempdir().unwrap();
-    nuo_persistence::paths::set_test_default(Some(nuo_persistence::paths::Dirs {
+    let dirs = nuo_persistence::paths::Dirs {
         config_dir: root.path().join("config"),
         data_dir: root.path().join("data"),
         state_dir: root.path().join("state"),
         cache_dir: root.path().join("cache"),
         runtime_dir: None,
-    }));
-    (root, guard)
+    };
+    (nuo_persistence::paths::TestDirsGuard::install(dirs), root)
 }
 
 #[test]
@@ -62,7 +59,7 @@ fn provider_credentials_round_trip_by_axis_and_id() {
 
 #[test]
 fn legacy_builtin_reader_canonicalizes_to_disabled() {
-    let (_root, _guard) = sandbox();
+    let (_sandbox, _root) = sandbox();
     std::fs::create_dir_all(&nuo_persistence::paths::get().config_dir).unwrap();
     std::fs::write(
         Config::config_file_path(),
@@ -71,7 +68,6 @@ fn legacy_builtin_reader_canonicalizes_to_disabled() {
     .unwrap();
     let config = Config::load();
     assert_eq!(config.web.reader, WebReaderProvider::Disabled);
-    nuo_persistence::paths::set_test_default(None);
 }
 
 #[test]
@@ -88,7 +84,7 @@ fn required_credential_readiness_is_explicit() {
 
 #[test]
 fn legacy_connection_selection_and_token_migrate_without_deleting_source() {
-    let (_root, _guard) = sandbox();
+    let (_sandbox, _root) = sandbox();
     let dirs = nuo_persistence::paths::get();
     std::fs::create_dir_all(&dirs.config_dir).unwrap();
     std::fs::create_dir_all(&dirs.state_dir).unwrap();
@@ -137,6 +133,4 @@ fn legacy_connection_selection_and_token_migrate_without_deleting_source() {
         reloaded.connections.contains_key("team-search"),
         "the preserved source credential remains available for manual recovery"
     );
-
-    nuo_persistence::paths::set_test_default(None);
 }

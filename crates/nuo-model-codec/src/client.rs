@@ -90,37 +90,42 @@ impl Default for WireClient {
 impl WireClient {
     #[cfg(feature = "netune")]
     pub fn new() -> Self {
-        #[cfg(feature = "netune")]
-        {
-            // One netune client per process, not per `WireClient`: every
-            // clone of this type converges on a single connection pool. A
-            // per-instance pool fragments the cache — the same authority
-            // dialled through two adapters pays two TLS handshakes, and one
-            // pool's warm socket is useless to the other. (The egress
-            // adapter in `nuo-provider-transport` shares the same instance
-            // via its own singleton; see `network::shared_client` there.
-            // The two singletons resolve to the same platform-TLS,
-            // 10 s-connect-timeout configuration, and process lifetime makes
-            // them identical in effect.)
-            static SHARED: std::sync::OnceLock<
-                std::sync::Arc<Client<TlsConnector<TcpConnector>>>,
-            > = std::sync::OnceLock::new();
-            let netune_client = SHARED.get_or_init(|| {
-                std::sync::Arc::new(Self::build_direct_netune_client())
-            });
-            Self {
-                netune_client: std::sync::Arc::clone(netune_client),
-            }
+        // One netune client per process, not per `WireClient`: every
+        // clone of this type converges on a single connection pool. A
+        // per-instance pool fragments the cache — the same authority
+        // dialled through two adapters pays two TLS handshakes, and one
+        // pool's warm socket is useless to the other. (The egress
+        // adapter in `nuo-provider-transport` shares the same instance
+        // via its own singleton; see `network::shared_client` there.
+        // The two singletons resolve to the same platform-TLS,
+        // 10 s-connect-timeout configuration, and process lifetime makes
+        // them identical in effect.)
+        static SHARED: std::sync::OnceLock<std::sync::Arc<Client<TlsConnector<TcpConnector>>>> =
+            std::sync::OnceLock::new();
+        let netune_client =
+            SHARED.get_or_init(|| std::sync::Arc::new(Self::build_direct_netune_client()));
+        Self {
+            netune_client: std::sync::Arc::clone(netune_client),
         }
+    }
 
-        #[cfg(all(feature = "reqwest-oracle", not(feature = "netune")))]
+    /// Constructor for the feature combinations that compile `netune` out:
+    /// `reqwest` when `reqwest-oracle` is on, else a transport-less client.
+    ///
+    /// `Default` funnels through `new`, so a constructor must exist for every
+    /// feature set — a per-crate build (e.g. `cargo test -p nuo-persistence`,
+    /// whose dependency graph enables neither transport feature) must not fail
+    /// to compile.
+    #[cfg(not(feature = "netune"))]
+    pub fn new() -> Self {
+        #[cfg(feature = "reqwest-oracle")]
         {
             Self {
                 reqwest_client: reqwest::Client::builder().build().unwrap_or_default(),
             }
         }
 
-        #[cfg(not(any(feature = "netune", feature = "reqwest-oracle")))]
+        #[cfg(not(feature = "reqwest-oracle"))]
         {
             Self {}
         }
@@ -136,9 +141,10 @@ impl WireClient {
     #[cfg(feature = "netune")]
     #[allow(clippy::expect_used)]
     fn build_direct_netune_client() -> Client<TlsConnector<TcpConnector>> {
-        let connector = TlsConnector::platform(TcpConnector::new())
-            .expect("shared netune client: platform TLS must initialize; \
-                     a broken system CA store means every request would fail anyway");
+        let connector = TlsConnector::platform(TcpConnector::new()).expect(
+            "shared netune client: platform TLS must initialize; \
+                     a broken system CA store means every request would fail anyway",
+        );
         Client::new(connector, Pool::default(), ClientConfig::default())
     }
 
@@ -193,9 +199,7 @@ impl WireClient {
     /// The shared netune client, for callers that need to drive the same
     /// pool directly (prewarm, telemetry plumbing).
     #[cfg(feature = "netune")]
-    pub fn netune_client(
-        &self,
-    ) -> &std::sync::Arc<Client<TlsConnector<TcpConnector>>> {
+    pub fn netune_client(&self) -> &std::sync::Arc<Client<TlsConnector<TcpConnector>>> {
         &self.netune_client
     }
 

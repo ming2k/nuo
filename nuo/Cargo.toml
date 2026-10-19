@@ -23,7 +23,7 @@ nuo-provider = { workspace = true }
 nuo-harness = { workspace = true }
 nuo-server = { workspace = true }
 nuo-tui = { workspace = true }
-netune = "0.1.0"
+netune = { workspace = true }
 ignore = { workspace = true }
 nuo-mcp = { workspace = true }
 nuo-tool = { workspace = true }

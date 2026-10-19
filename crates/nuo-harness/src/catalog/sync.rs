@@ -138,13 +138,22 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
             dimensions,
         } => {
             let auth = if job.connection.auth.is_oauth() {
-                let source = nuo_provider::build_credential_source(
+                let Some(source) = nuo_provider::build_credential_source(
                     &job.credentials,
                     &job.connection.name,
                     &job.connection.auth,
                     nuo_wire::SecretString::from(""),
                     nuo_wire::ProviderDialect::Standard,
-                );
+                ) else {
+                    return CatalogFetchResult {
+                        connection: job.connection,
+                        source_identity,
+                        update: Err(nuo_provider::ModelListError::BadEndpoint(
+                            "no credential source builder registered (composition root not initialized)"
+                                .to_string(),
+                        )),
+                    };
+                };
                 match source.resolve_auth().await {
                     Ok(auth) => auth,
                     Err(error) => {

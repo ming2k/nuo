@@ -130,13 +130,13 @@ impl PartialEq<BuiltinTool> for str {
 
 impl PartialEq<&str> for BuiltinTool {
     fn eq(&self, other: &&str) -> bool {
-        self.matches(*other)
+        self.matches(other)
     }
 }
 
 impl PartialEq<BuiltinTool> for &str {
     fn eq(&self, other: &BuiltinTool) -> bool {
-        other.matches(*self)
+        other.matches(self)
     }
 }
 

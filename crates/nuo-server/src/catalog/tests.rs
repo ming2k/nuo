@@ -126,27 +126,12 @@ fn inputs_with_cache(cache: &RemoteCatalogCache) -> DerivationInputs<'static> {
     owned.inputs()
 }
 
-/// RAII sandbox: holds the `TEST_OVERRIDE_GUARD` and an isolated `Dirs`
-/// install for the duration of a test; `Drop` clears the override so later
-/// tests see the real roots again.
-struct PathsSandbox {
-    _guard: std::sync::MutexGuard<'static, ()>,
-    _tmp: tempfile::TempDir,
-}
-
-impl Drop for PathsSandbox {
-    fn drop(&mut self) {
-        nuo_persistence::paths::set_test_default(None);
-    }
-}
-
 /// Sandbox the process-wide XDG roots for the duration of a test. Tests that
 /// write the instance store / credentials / catalog cache must bind the
-/// result to `_sandbox` for the whole body.
-fn sandboxed_paths() -> PathsSandbox {
-    let guard = nuo_persistence::paths::TEST_OVERRIDE_GUARD
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+/// returned guard (and its `TempDir`) to `_sandbox` for the whole body;
+/// [`nuo_persistence::paths::TestDirsGuard`] holds the shared override lock and
+/// clears the roots on drop.
+fn sandboxed_paths() -> (nuo_persistence::paths::TestDirsGuard, tempfile::TempDir) {
     let tmp = tempfile::tempdir().expect("tempdir");
     let dirs = nuo_persistence::paths::Dirs {
         config_dir: tmp.path().join("config"),
@@ -155,15 +140,7 @@ fn sandboxed_paths() -> PathsSandbox {
         cache_dir: tmp.path().join("cache"),
         runtime_dir: None,
     };
-    nuo_persistence::paths::set_test_default(Some(dirs));
-    PathsSandbox {
-        _guard: unsafe {
-            std::mem::transmute::<std::sync::MutexGuard<'_, ()>, std::sync::MutexGuard<'static, ()>>(
-                guard,
-            )
-        },
-        _tmp: tmp,
-    }
+    (nuo_persistence::paths::TestDirsGuard::install(dirs), tmp)
 }
 
 fn instance(name: &str, provider: Option<&str>) -> Connection {
@@ -408,7 +385,8 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
         ),
     )
     .unwrap();
-    let provider = nuo_provider::build_provider_for_channel(&channel, &conn.name, None);
+    let provider = nuo_provider::build_provider_for_channel(&channel, &conn.name, None)
+        .expect("provider factory registered by the composition root");
     for streaming in [false, true] {
         let action = if streaming {
             "streamGenerateContent"

@@ -10,8 +10,8 @@ description = "Shared HTTP egress, SSE streaming demuxing, request pipeline, and
 nuo-host = { workspace = true }
 nuo-provider = { workspace = true }
 nuo-model-codec = { workspace = true, features = ["netune"] }
-netune = "0.1.0"
-netune-trace = "0.1.0"
+netune = { workspace = true }
+netune-trace = { workspace = true }
 http = "1.4"
 httpdate = { workspace = true }
 serde = { workspace = true }

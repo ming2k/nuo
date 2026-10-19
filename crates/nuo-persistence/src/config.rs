@@ -2074,29 +2074,31 @@ pub(crate) mod tests {
         assert_eq!(resolved.get("bash").map(String::as_str), Some("strict"));
     }
 
-    /// Tests that mutate the process-wide paths override (`set_test_default`)
-    /// and read/write the throwaway config/credentials/cache files must
-    /// serialise against each other so the parallel subagent never observes
-    /// another test's Dirs. Mirrors the `ENV_GUARD` pattern in `paths.rs`.
-    static PATHS_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    /// A fresh throwaway directory + the test paths override installed against
-    /// it. Drop the returned guards (both the module lock and the crate-wide
-    /// override lock) to restore the default paths so the next test starts
-    /// clean.
+    /// A sandboxed config root: a fresh throwaway directory with the
+    /// process-wide paths override installed against it.
     ///
-    /// The crate-wide `paths::TEST_OVERRIDE_GUARD` is what actually serialises
-    /// against `session`'s override-touching tests; the per-module `PATHS_GUARD`
-    /// is kept for any intra-module shared state.
-    pub(crate) fn sandbox_config_dir() -> (
-        std::path::PathBuf,
-        std::sync::MutexGuard<'static, ()>,
-        std::sync::MutexGuard<'static, ()>,
-    ) {
-        let override_guard = paths::TEST_OVERRIDE_GUARD
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let guard = PATHS_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    /// Dropping it clears the override and removes the directory.
+    /// [`paths::TestDirsGuard`] also serialises against every other
+    /// override-touching test through the crate-wide lock, so no per-module
+    /// lock is needed. Access the directory through [`Self::path`].
+    pub(crate) struct ConfigSandbox {
+        path: std::path::PathBuf,
+        _paths: paths::TestDirsGuard,
+    }
+
+    impl ConfigSandbox {
+        pub(crate) fn path(&self) -> &std::path::Path {
+            &self.path
+        }
+    }
+
+    impl Drop for ConfigSandbox {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    pub(crate) fn sandbox_config_dir() -> ConfigSandbox {
         let tmp = std::env::temp_dir().join(format!("nuo-creds-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&tmp).unwrap();
         let dirs = paths::Dirs {
@@ -2106,13 +2108,15 @@ pub(crate) mod tests {
             cache_dir: tmp.join("cache"),
             runtime_dir: None,
         };
-        paths::set_test_default(Some(dirs));
-        (tmp, guard, override_guard)
+        ConfigSandbox {
+            path: tmp,
+            _paths: paths::TestDirsGuard::install(dirs),
+        }
     }
 
     #[test]
     fn credentials_round_trip_through_toml() {
-        let (tmp, _guard, _override_guard) = sandbox_config_dir();
+        let _sandbox = sandbox_config_dir();
         let mut creds = Credentials::default();
         creds.set_api_key("deepseek", Some("sk-ds".into()));
         creds.set_api_key("relay", Some("relay-secret".into()));
@@ -2142,9 +2146,6 @@ pub(crate) mod tests {
         reloaded.remove_api_key("deepseek");
         reloaded.save().unwrap();
         assert!(Credentials::load().api_key("deepseek").is_none());
-
-        paths::set_test_default(None);
-        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
@@ -2153,9 +2154,9 @@ pub(crate) mod tests {
         // `[user.<id>]`) is superseded by the canonical `[connections.<id>]`.
         // The retired `[providers]` spelling is no longer an alias
         // (ADR-0031 `[INV-CONF-01]`).
-        let (tmp, _guard, _override_guard) = sandbox_config_dir();
+        let sandbox = sandbox_config_dir();
         std::fs::write(
-            tmp.join("credentials.toml"),
+            sandbox.path().join("credentials.toml"),
             r#"[builtins]
 openai = "old-builtin"
 [user.my-relay]
@@ -2175,14 +2176,11 @@ deepseek = "new-key"
             creds.api_key("deepseek").map(SecretString::expose_secret),
             Some("new-key")
         );
-
-        paths::set_test_default(None);
-        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
     fn catalog_cache_and_remote_round_trip() {
-        let (tmp, _guard, _override_guard) = sandbox_config_dir();
+        let _sandbox = sandbox_config_dir();
         let mut cache = RemoteCatalogCache::default();
         cache.connection_models.insert(
             "deepseek".to_string(),
@@ -2229,23 +2227,20 @@ deepseek = "new-key"
         assert!(reloaded.model_lists.is_empty());
         reloaded.save().unwrap();
         assert!(RemoteCatalogCache::load().connection_models.is_empty());
-
-        paths::set_test_default(None);
-        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
     fn config_save_writes_domain_files_only() {
-        let (tmp, _guard, _override_guard) = sandbox_config_dir();
+        let sandbox = sandbox_config_dir();
         std::fs::write(
-            tmp.join("config.toml"),
+            sandbox.path().join("config.toml"),
             "default_connection = \"deepseek\"\n[[providers]]\nid = \"deepseek\"\n",
         )
         .unwrap();
         let loaded = Config::load();
         assert_eq!(loaded.default_connection, "deepseek");
         assert!(
-            !tmp.join("config.toml").exists(),
+            !sandbox.path().join("config.toml").exists(),
             "the legacy monolith is retired on promotion"
         );
         let mut cfg = loaded;
@@ -2254,16 +2249,14 @@ deepseek = "new-key"
         let client = std::fs::read_to_string(Config::client_config_file_path()).unwrap();
         assert!(client.contains("default_connection = \"zai\""));
         assert!(!client.contains("providers"));
-        assert!(!tmp.join("config.toml").exists());
-        paths::set_test_default(None);
-        std::fs::remove_dir_all(&tmp).ok();
+        assert!(!sandbox.path().join("config.toml").exists());
     }
 
     #[test]
     fn save_does_not_resurrect_user_deleted_workspace_roots() {
         // Disk is the newer truth for user-owned tables: a long-lived snapshot
         // must never write a hand-deleted workspace root back.
-        let (tmp, _guard, _override_guard) = sandbox_config_dir();
+        let _sandbox = sandbox_config_dir();
         std::fs::write(
             Config::agent_config_file_path(),
             "[workspace]\nadditional_roots = [\"../x\", \"../y\"]\n",
@@ -2284,13 +2277,11 @@ deepseek = "new-key"
             "user-deleted additional_roots must stay deleted, got {:?}",
             after.workspace.additional_roots
         );
-        paths::set_test_default(None);
-        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
     fn save_preserves_user_edited_unrelated_tables() {
-        let (tmp, _guard, _override_guard) = sandbox_config_dir();
+        let _sandbox = sandbox_config_dir();
         std::fs::write(
             Config::client_config_file_path(),
             "[connection]\ndefault_model = \"m1\"\n",
@@ -2306,13 +2297,11 @@ deepseek = "new-key"
         let after = Config::load();
         assert_eq!(after.agent.hard_stop_turns, 42, "user edit must survive");
         assert_eq!(after.default_model.as_deref(), Some("m1"));
-        paths::set_test_default(None);
-        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
     fn save_still_flushes_runtime_changed_selection_and_leaves_roots_to_disk() {
-        let (tmp, _guard, _override_guard) = sandbox_config_dir();
+        let _sandbox = sandbox_config_dir();
         std::fs::write(
             Config::client_config_file_path(),
             "[connection]\ndefault_connection = \"old\"\n",
@@ -2340,13 +2329,11 @@ deepseek = "new-key"
             vec!["../user-root"],
             "project-merged roots are runtime view state, never persisted"
         );
-        paths::set_test_default(None);
-        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
     fn save_preserving_connection_selection_keeps_disk_default() {
-        let (tmp, _guard, _override_guard) = sandbox_config_dir();
+        let _sandbox = sandbox_config_dir();
         std::fs::write(
             Config::client_config_file_path(),
             "[connection]\ndefault_connection = \"disk-default\"\ndefault_model = \"disk-model\"\n",
@@ -2359,8 +2346,6 @@ deepseek = "new-key"
         let after = Config::load();
         assert_eq!(after.default_connection, "disk-default");
         assert_eq!(after.default_model.as_deref(), Some("disk-model"));
-        paths::set_test_default(None);
-        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]

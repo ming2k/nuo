@@ -16,7 +16,7 @@ nuo-model-codec = { workspace = true }
 nuo-host = { workspace = true }
 
 async-trait = { workspace = true }
-netune = "0.1.0"
+netune = { workspace = true }
 base64 = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }

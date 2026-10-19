@@ -184,17 +184,14 @@ mod tests {
 
     #[test]
     fn selected_connection_maps_to_its_preset() {
-        let guard = crate::paths::TEST_OVERRIDE_GUARD
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
         let root = tempfile::tempdir().unwrap();
-        crate::paths::set_test_default(Some(crate::paths::Dirs {
+        let _sandbox = crate::paths::TestDirsGuard::install(crate::paths::Dirs {
             config_dir: root.path().join("config"),
             data_dir: root.path().join("data"),
             state_dir: root.path().join("state"),
             cache_dir: root.path().join("cache"),
             runtime_dir: None,
-        }));
+        });
         std::fs::create_dir_all(&crate::paths::get().state_dir).unwrap();
         std::fs::write(
             crate::paths::get().web_connections_file(),
@@ -215,7 +212,5 @@ mod tests {
             nuo_wire::WebSearchProvider::Tavily,
             "{migrated}"
         );
-        crate::paths::set_test_default(None);
-        drop(guard);
     }
 }

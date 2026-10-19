@@ -3965,8 +3965,30 @@ impl Provider for DummyCustomProvider {
     }
 }
 
+/// RAII sandbox for the process-wide XDG roots.
+///
+/// This test persists a throwaway connection through the real
+/// [`nuo_persistence::connections::Connections`] store. Without an isolated
+/// `Dirs`, `save()` rewrites the developer's real
+/// `$XDG_STATE_HOME/nuo/connections.toml` and erases every connection they own.
+/// [`nuo_persistence::paths::TestDirsGuard`] holds the shared override lock and
+/// clears the roots on drop. The `TempDir` is returned so the roots outlive the
+/// guard's body.
+fn sandboxed_paths() -> (nuo_persistence::paths::TestDirsGuard, tempfile::TempDir) {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let dirs = nuo_persistence::paths::Dirs {
+        config_dir: tmp.path().join("config"),
+        data_dir: tmp.path().join("data"),
+        state_dir: tmp.path().join("state"),
+        cache_dir: tmp.path().join("cache"),
+        runtime_dir: None,
+    };
+    (nuo_persistence::paths::TestDirsGuard::install(dirs), tmp)
+}
+
 #[tokio::test]
 async fn test_runtime_spend_circuit_breaker_intercepts_over_budget_connection() {
+    let _sandbox = sandboxed_paths();
     let conn_name = "guarded-test-conn";
     let mut conns = nuo_persistence::connections::Connections::default();
     conns

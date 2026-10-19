@@ -260,17 +260,14 @@ mod tests {
 
     #[test]
     fn round_trips_through_disk() {
-        let _guard = crate::paths::TEST_OVERRIDE_GUARD
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let root = tempfile::tempdir().unwrap();
-        crate::paths::set_test_default(Some(crate::paths::Dirs {
+        let _sandbox = crate::paths::TestDirsGuard::install(crate::paths::Dirs {
             config_dir: root.path().join("config"),
             data_dir: root.path().join("data"),
             state_dir: root.path().join("state"),
             cache_dir: root.path().join("cache"),
             runtime_dir: None,
-        }));
+        });
 
         let store = store_with("anthropic", "claude-x", "high");
         store.save().unwrap();
@@ -286,23 +283,18 @@ mod tests {
                 .as_deref(),
             Some("high")
         );
-
-        crate::paths::set_test_default(None);
     }
 
     #[test]
     fn migration_rescues_user_route_settings_and_leaves_derivable_state_alone() {
-        let _guard = crate::paths::TEST_OVERRIDE_GUARD
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let root = tempfile::tempdir().unwrap();
-        crate::paths::set_test_default(Some(crate::paths::Dirs {
+        let _sandbox = crate::paths::TestDirsGuard::install(crate::paths::Dirs {
             config_dir: root.path().join("config"),
             data_dir: root.path().join("data"),
             state_dir: root.path().join("state"),
             cache_dir: root.path().join("cache"),
             runtime_dir: None,
-        }));
+        });
 
         // Seed the retired pre-rename state file the way an older release wrote
         // it: a catalog payload plus a `route_settings` key (the typed struct
@@ -354,7 +346,5 @@ mod tests {
                 .as_deref(),
             Some("medium")
         );
-
-        crate::paths::set_test_default(None);
     }
 }

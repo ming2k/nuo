@@ -709,15 +709,82 @@ static DEFAULT: OnceLock<Dirs> = OnceLock::new();
 #[cfg(any(test, feature = "test-path-override"))]
 static TEST_OVERRIDE: RwLock<Option<Dirs>> = RwLock::new(None);
 
-/// Single process-wide lock that **every** test touching [`set_test_default`]
-/// must hold for the duration of its override. Without this, tests in
-/// different modules each used their own per-module lock (`config`'s
-/// `PATHS_GUARD`, `session`'s `GLOBAL_GUARD`), so two such tests ran
+/// Single process-wide lock that every test override must hold for the
+/// duration of its install.
+///
+/// [`TestDirsGuard`] acquires it automatically, which is why tests go through
+/// that type rather than hand-rolling [`set_test_default`]: without one shared
+/// lock, tests in different modules each used their own per-module lock
+/// (`config`'s `PATHS_GUARD`, `session`'s `GLOBAL_GUARD`), so two such tests ran
 /// concurrently and stomped the shared `TEST_OVERRIDE` — a flaky cross-test
 /// race. Routing all of them through one lock serialises the critical section
 /// regardless of which module the test lives in.
 #[cfg(any(test, feature = "test-path-override"))]
-pub static TEST_OVERRIDE_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static TEST_OVERRIDE_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Isolated fallback root for test builds that never installed an explicit
+/// override.
+///
+/// Test binaries compile with `test-path-override` (through dev-dependencies)
+/// yet an individual test may forget to call [`set_test_default`]. If [`get`]
+/// then fell through to [`Dirs::system`] it would resolve the developer's real
+/// XDG roots, so a stray `save()` — such as the spend-circuit-breaker fixture
+/// writing `connections.toml` — would erase real user state. Resolving a
+/// per-process temp root makes that whole class of mistake inert.
+///
+/// Precedence stays: explicit [`set_test_default`] first, then a
+/// production-installed [`set_default`], then an explicit `NUO_HOME` instance
+/// root (ADR-0121 — a spawned CLI or an end-to-end harness must keep observing
+/// its sandbox), and only then this fallback. The fallback therefore only
+/// catches tests that configured *nothing*.
+#[cfg(any(test, feature = "test-path-override"))]
+static ISOLATED_TEST_ROOT: OnceLock<Dirs> = OnceLock::new();
+
+#[cfg(any(test, feature = "test-path-override"))]
+fn isolated_test_root() -> Dirs {
+    ISOLATED_TEST_ROOT
+        .get_or_init(|| {
+            // PID + wall clock keeps parallel test binaries and repeated runs
+            // from reusing a stale directory left by an earlier process.
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_nanos())
+                .unwrap_or(0);
+            let base =
+                std::env::temp_dir().join(format!("nuo-test-root-{}-{stamp}", std::process::id()));
+            register_isolated_root_cleanup(base.clone());
+            Dirs {
+                config_dir: base.join("config"),
+                data_dir: base.join("data"),
+                state_dir: base.join("state"),
+                cache_dir: base.join("cache"),
+                runtime_dir: None,
+            }
+        })
+        .clone()
+}
+
+/// Best-effort removal of the isolated root when the test process exits, so a
+/// long-lived checkout does not accumulate one temp tree per test-binary run.
+/// The OS temp cleaner is the backstop for abnormal exits.
+#[cfg(all(unix, any(test, feature = "test-path-override")))]
+fn register_isolated_root_cleanup(root: PathBuf) {
+    static CLEANUP_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    let _ = CLEANUP_ROOT.set(root);
+    extern "C" fn cleanup() {
+        if let Some(root) = CLEANUP_ROOT.get() {
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+    // SAFETY: `cleanup` matches C's `void(void)` signature and only reads a
+    // static that is populated before registration.
+    unsafe {
+        libc::atexit(cleanup);
+    }
+}
+
+#[cfg(all(not(unix), any(test, feature = "test-path-override")))]
+fn register_isolated_root_cleanup(_root: PathBuf) {}
 
 /// Install the process-wide [`Dirs`]. Idempotent: subsequent calls in the same
 /// process are no-ops (the first value wins), matching production semantics.
@@ -735,25 +802,72 @@ pub fn set_default(dirs: Dirs) -> Result<Option<Dirs>, Dirs> {
     }
 }
 
-/// Test-only override of the process-wide [`Dirs`]. Pass `None` to clear.
-/// Production code MUST NOT call this — it exists purely so unit tests can run
-/// with isolated `data_dir`/`state_dir` roots without polluting the real
-/// filesystem or racing the `OnceLock`.
+/// Install the test-only process-wide override. Pass `None` to clear.
+///
+/// Prefer [`TestDirsGuard`]: it pairs the install with the shared override lock
+/// and clears the override on drop, so a forgotten clear cannot leak a deleted
+/// temp root into later tests. Production code MUST NOT call this — it exists
+/// purely so tests can run against isolated `data_dir`/`state_dir` roots without
+/// polluting the real filesystem or racing the `OnceLock`.
 ///
 /// Compiled under `#[cfg(any(test, feature = "test-path-override"))]`: the
-/// `test-path-override` feature exists so *other crates'* test suites (which
-/// cannot see this crate's `cfg(test)`) can install the same sandbox. A
-/// dev-dependency with `features = ["test-path-override"]` opts a crate into
-/// it without leaking the hook into production builds.
+/// `test-path-override` feature exposes this sandbox to *other crates'* test
+/// suites (which cannot see this crate's `cfg(test)`) through
+/// [`TestDirsGuard`]. A dev-dependency with `features = ["test-path-override"]`
+/// opts a crate in without leaking the hook into production builds.
 #[cfg(any(test, feature = "test-path-override"))]
-pub fn set_test_default(dirs: Option<Dirs>) {
+pub(crate) fn set_test_default(dirs: Option<Dirs>) {
     *TEST_OVERRIDE.write().unwrap_or_else(|e| e.into_inner()) = dirs;
 }
 
-/// Access the process-wide [`Dirs`]. Falls back to [`Dirs::system`] when
-/// [`set_default`] has not been called yet (e.g. in tests, or in library code
-/// invoked outside of `main`). When a test override is installed (via the
-/// test-only `set_test_default`), that value wins over the production install.
+/// RAII sandbox for test builds.
+///
+/// Holds the process-wide [`TEST_OVERRIDE_GUARD`] for its whole lifetime and
+/// installs the supplied roots, clearing the override on drop — including
+/// while unwinding. Tests that persist through the real stores must bind this
+/// for the duration of their body. Prefer it over hand-rolled
+/// `set_test_default(Some(..))` / `set_test_default(None)` pairs: a forgotten
+/// clear leaks a (now deleted) temp root into every later test in the process.
+#[cfg(any(test, feature = "test-path-override"))]
+pub struct TestDirsGuard {
+    _guard: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(any(test, feature = "test-path-override"))]
+impl TestDirsGuard {
+    /// Acquire the shared test lock and install `dirs` as the process-wide
+    /// override until the returned guard is dropped.
+    pub fn install(dirs: Dirs) -> Self {
+        let guard = TEST_OVERRIDE_GUARD
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        set_test_default(Some(dirs));
+        Self { _guard: guard }
+    }
+}
+
+#[cfg(any(test, feature = "test-path-override"))]
+impl Drop for TestDirsGuard {
+    fn drop(&mut self) {
+        set_test_default(None);
+    }
+}
+
+/// Access the process-wide [`Dirs`].
+///
+/// Resolution order:
+/// 1. an explicit test override ([`set_test_default`]), then
+/// 2. the production install ([`set_default`]), then
+/// 3. an explicit instance root: with `NUO_HOME` set (ADR-0121) the platform
+///    resolution is honoured, because that root *is* a deliberate sandbox — a
+///    spawned CLI or an end-to-end harness must keep observing it, then
+/// 4. in test builds, an isolated per-process temp root (see
+///    [`isolated_test_root`]); otherwise [`Dirs::system`].
+///
+/// Step 4 is the safety net that stops a test which forgot to sandbox from
+/// resolving the developer's real XDG roots and rewriting their state. It only
+/// applies when no root was configured at all; an explicit `NUO_HOME` is
+/// always respected.
 pub fn get() -> Dirs {
     #[cfg(any(test, feature = "test-path-override"))]
     if let Some(d) = TEST_OVERRIDE
@@ -763,10 +877,14 @@ pub fn get() -> Dirs {
     {
         return d;
     }
-    match DEFAULT.get() {
-        Some(d) => d.clone(),
-        None => Dirs::system(),
+    if let Some(d) = DEFAULT.get() {
+        return d.clone();
     }
+    #[cfg(any(test, feature = "test-path-override"))]
+    if nuo_home().is_none() {
+        return isolated_test_root();
+    }
+    Dirs::system()
 }
 
 // Internals
@@ -1044,6 +1162,49 @@ mod dir_tests {
             let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
             $body
         }};
+    }
+
+    /// The safety net: with no explicit override, no production install, and
+    /// no `NUO_HOME`, a test build must resolve an isolated temp root, never
+    /// the developer's real XDG state. Regression guard for connection-store
+    /// clobbering.
+    #[test]
+    fn get_falls_back_to_an_isolated_temp_root() {
+        env_locked!({
+            unsafe {
+                std::env::remove_var("NUO_HOME");
+            }
+            let dirs = get();
+            assert!(
+                dirs.state_dir.starts_with(std::env::temp_dir()),
+                "test-build state root {} must live under {}",
+                dirs.state_dir.display(),
+                std::env::temp_dir().display(),
+            );
+            assert_ne!(
+                dirs.state_dir,
+                Dirs::system().state_dir,
+                "test-build default must never be the real state root",
+            );
+        });
+    }
+
+    /// An explicit `NUO_HOME` is a deliberate sandbox and must survive the
+    /// test-build fallback; spawned CLIs and end-to-end harnesses depend on it.
+    #[test]
+    fn get_honours_an_explicit_nuo_home_over_the_isolated_fallback() {
+        env_locked!({
+            let home = absolute_test_root("explicit-home");
+            unsafe {
+                std::env::set_var("NUO_HOME", &home);
+            }
+            let dirs = get();
+            assert!(dirs.state_dir.starts_with(&home));
+            assert_eq!(dirs.instance_dir(), home.join("nuo").join("instance"));
+            unsafe {
+                std::env::remove_var("NUO_HOME");
+            }
+        });
     }
 
     #[test]

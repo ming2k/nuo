@@ -35,7 +35,7 @@ impl ToolScope {
 /// with no dependency on any higher layer.
 ///
 /// [`ToolDescriptor`]: crate::descriptor::ToolDescriptor
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ScopeTarget {
     /// A filesystem path the tool writes or reads (e.g. `write_file`, `edit_text`).
     /// Checked against the scope's granted directory prefixes.
@@ -45,11 +45,6 @@ pub enum ScopeTarget {
     Command(String),
     /// The tool declares no locatable target (e.g. `search_text`, `list_dir`).
     /// Admitted by the scope gate without a dimension check.
+    #[default]
     Unspecified,
-}
-
-impl Default for ScopeTarget {
-    fn default() -> Self {
-        Self::Unspecified
-    }
 }

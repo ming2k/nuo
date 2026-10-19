@@ -8,7 +8,7 @@ description = "Multi-vendor wire protocol, client identity spoofing, SSE stream 
 
 [dependencies]
 netune = { workspace = true, optional = true }
-netune-trace = { version = "0.1.1", optional = true }
+netune-trace = { workspace = true, optional = true }
 bytes = { workspace = true }
 http = { workspace = true }
 serde = { workspace = true }

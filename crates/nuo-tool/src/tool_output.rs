@@ -235,6 +235,7 @@ pub enum PatchOp {
 ///   operator's answer, then writes it to the channel the child is actually
 ///   reading. Output stays on clean pipes, so no terminal control sequences
 ///   ever reach the transcript.
+///
 /// How a child process's input channels are provisioned. Relocated to the tool
 /// leaf (`crate::stream`) per ADR-0008; re-exported here for call sites.
 pub use crate::stream::{
