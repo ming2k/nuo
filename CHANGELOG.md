@@ -6,6 +6,38 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.41] - 2026-10-19
+
+### Added
+
+- **RAII Test Path Sandbox (`paths::TestDirsGuard`)**: a single guard that holds
+  the process-wide override lock and restores the default roots on drop,
+  including while unwinding. Every test sandbox now uses it.
+
+### Changed
+
+- **Netune Sourced by Git Tag**: `netune` / `netune-trace` now resolve from
+  `https://github.com/ming2k/netune.git` tag `v0.0.1` instead of crates.io, whose
+  `0.1.x` line is yanked and unmaintained. All crates declare them once through
+  `[workspace.dependencies]`. No API change.
+- **Fallible Provider Construction**: `build_provider_for_channel` and
+  `build_credential_source` return `Option` instead of panicking when the
+  composition root has not registered a factory; callers surface the error at
+  their own boundary instead of aborting the task.
+- **Isolated Test Roots**: test builds resolve an isolated per-process temporary
+  root instead of the developer's real XDG directories. An explicit `NUO_HOME`
+  (and a production `set_default`) still wins, so spawned servers and end-to-end
+  harnesses keep observing their sandbox.
+
+### Fixed
+
+- **Connection Store No Longer Clobbered by Tests**: the spend-circuit-breaker
+  fixture rewrote the developer's real `$XDG_STATE_HOME/nuo/connections.toml`;
+  the isolated test root makes that whole class of mistake inert.
+- **Per-Crate Builds Without Netune**: `WireClient::new` now exists for every
+  feature combination, so `cargo test -p nuo-persistence` and similar builds no
+  longer fail to compile.
+
 ## [0.0.40] - 2026-10-19
 
 ### Changed
