@@ -404,14 +404,13 @@ impl OAuthTokenEnricher for AntigravityOAuthEnricher {
             project_id = account_id.clone();
         }
 
-        if project_id.is_none() {
-            if let Ok(project) =
+        if project_id.is_none()
+            && let Ok(project) =
                 resolve_antigravity_project(client, refreshed.access_token.expose_secret()).await
-                && !project.is_empty()
-            {
-                project_id = Some(project.clone());
-                account_id = Some(project);
-            }
+            && !project.is_empty()
+        {
+            project_id = Some(project.clone());
+            account_id = Some(project);
         }
         if user_email.is_none()
             && let Ok(info) =

@@ -10,55 +10,39 @@ use crate::types::{WireChunk, WireToolCallChunk, WireUsage};
 /// - Strips comment lines starting with `:` (heartbeats/ping).
 /// - Concatentates multi-line `data:` entries with `\n` until dispatch on empty line boundary.
 /// - Handles `[DONE]` stream termination flags.
+///
+/// **Byte-level reassembly discipline** (the same rule
+/// `nuo-provider-transport::sse` enforces): network chunks arrive with TLS/TCP
+/// boundaries, not UTF-8 or SSE frame boundaries. A CJK character (3 bytes) or
+/// an emoji (4 bytes) whose bytes straddle a chunk boundary would be
+/// permanently corrupted by a per-chunk lossy decode (`U+FFFD` artefacts in
+/// every streamed CJK delta). This decoder therefore buffers *raw bytes* and
+/// only decodes at `\n` line boundaries — a multi-byte sequence split across
+/// chunks is reassembled before any decode.
 #[derive(Default)]
 pub struct SseDecoder {
-    buffer: String,
+    /// Raw bytes not yet spanning a `\n` boundary.
+    buffer: Vec<u8>,
     current_data_lines: Vec<String>,
 }
 
 impl SseDecoder {
     pub fn new() -> Self {
         Self {
-            buffer: String::new(),
+            buffer: Vec::new(),
             current_data_lines: Vec::new(),
         }
     }
 
-    /// Feeds incoming binary/text bytes, returning parsed chunks as events are dispatched.
+    /// Feeds incoming binary bytes, returning parsed chunks as events are dispatched.
     pub fn feed(&mut self, endpoint: &Endpoint, data: &[u8]) -> Result<Vec<WireChunk>> {
-        let text = String::from_utf8_lossy(data);
-        self.buffer.push_str(&text);
+        self.buffer.extend_from_slice(data);
 
         let mut chunks = Vec::new();
 
-        while let Some(pos) = self.buffer.find('\n') {
-            let line = self.buffer[..pos].trim_end_matches('\r').to_string();
-            self.buffer.drain(..=pos);
-
-            let trimmed = line.trim();
-
-            // Comment line (heartbeat/keepalive), ignore
-            if trimmed.starts_with(':') {
-                continue;
-            }
-
-            // Empty line marks event dispatch boundary
-            if trimmed.is_empty() {
-                if !self.current_data_lines.is_empty() {
-                    let payload = self.current_data_lines.join("\n");
-                    self.current_data_lines.clear();
-
-                    if let Some(chunk) = Self::dispatch_payload(endpoint, payload.trim())? {
-                        chunks.push(chunk);
-                    }
-                }
-                continue;
-            }
-
-            // Extract data field
-            if let Some(rest) = line.strip_prefix("data:") {
-                let value = rest.strip_prefix(' ').unwrap_or(rest);
-                self.current_data_lines.push(value.to_string());
+        for line in drain_complete_lines(&mut self.buffer) {
+            if let Some(chunk) = self.handle_line(endpoint, &line)? {
+                chunks.push(chunk);
             }
         }
 
@@ -68,16 +52,17 @@ impl SseDecoder {
     /// Flushes any pending trailing content if the stream terminates without trailing empty line.
     pub fn finish(&mut self, endpoint: &Endpoint) -> Result<Vec<WireChunk>> {
         let remaining = std::mem::take(&mut self.buffer);
-        let trimmed = remaining.trim_end_matches('\r').trim();
-
-        if !trimmed.is_empty()
-            && !trimmed.starts_with(':')
-            && let Some(rest) = trimmed.strip_prefix("data:")
-        {
-            let value = rest.strip_prefix(' ').unwrap_or(rest);
-            self.current_data_lines.push(value.to_string());
+        // A stream that ends with bytes still buffered was cut mid-frame by
+        // the transport; the residue cannot be a complete event. Decode it
+        // lossily purely for the best-effort tail extraction — at this point
+        // correctness has already been lost, and the tail is almost always
+        // empty for a well-formed stream.
+        let remaining = String::from_utf8_lossy(&remaining).to_string();
+        if let Some(line) = remaining.lines().next_back().filter(|l| !l.is_empty()) {
+            if let Some(chunk) = self.handle_line(endpoint, line.trim())? {
+                return Ok(vec![chunk]);
+            }
         }
-
         let mut chunks = Vec::new();
         if !self.current_data_lines.is_empty() {
             let payload = self.current_data_lines.join("\n");
@@ -91,6 +76,35 @@ impl SseDecoder {
         Ok(chunks)
     }
 
+    /// Route one complete (already UTF-8) SSE line.
+    fn handle_line(&mut self, endpoint: &Endpoint, line: &str) -> Result<Option<WireChunk>> {
+        let trimmed = line.trim();
+
+        // Comment line (heartbeat/keepalive), ignore
+        if trimmed.starts_with(':') {
+            return Ok(None);
+        }
+
+        // Empty line marks event dispatch boundary
+        if trimmed.is_empty() {
+            if !self.current_data_lines.is_empty() {
+                let payload = self.current_data_lines.join("\n");
+                self.current_data_lines.clear();
+
+                return Self::dispatch_payload(endpoint, payload.trim());
+            }
+            return Ok(None);
+        }
+
+        // Extract data field
+        if let Some(rest) = line.strip_prefix("data:") {
+            let value = rest.strip_prefix(' ').unwrap_or(rest);
+            self.current_data_lines.push(value.to_string());
+        }
+
+        Ok(None)
+    }
+
     fn dispatch_payload(endpoint: &Endpoint, payload: &str) -> Result<Option<WireChunk>> {
         if payload == "[DONE]" {
             return Ok(Some(WireChunk::done()));
@@ -102,6 +116,27 @@ impl SseDecoder {
             Ok(None)
         }
     }
+}
+
+/// Drain complete (`\n`-terminated) lines from a raw byte buffer, decoding
+/// each as UTF-8. Trailing bytes after the final newline are retained so a
+/// partial multi-byte sequence or SSE frame is completed on the next read.
+///
+/// Decoding here is *strict* (same discipline as
+/// `nuo-provider-transport::sse::drain_complete_lines`): a complete line that
+/// is not valid UTF-8 cannot be a chunk-boundary artefact (reassembly covers
+/// those), so it is genuine corruption. On the model stream such a line is
+/// skipped (the SSE grammar treats the payload as opaque data the parser
+/// below rejects), matching the transport decoder's "drain, don't wedge"
+/// behaviour.
+fn drain_complete_lines(buffer: &mut Vec<u8>) -> Vec<String> {
+    let mut lines = Vec::new();
+    while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
+        let line = String::from_utf8_lossy(&buffer[..pos]).to_string();
+        buffer.drain(..pos + 1);
+        lines.push(line);
+    }
+    lines
 }
 
 /// Parses vendor-specific JSON payload from a single SSE event.

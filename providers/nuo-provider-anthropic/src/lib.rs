@@ -227,11 +227,22 @@ impl AnthropicMessagesProvider {
         is_stream: bool,
         telemetry: &nuo_model_codec::TransportTelemetry,
     ) -> Result<nuo_provider_transport::HttpResponse, ProviderError> {
-        let auth = self
-            .endpoint
-            .resolve_auth()
-            .await
+        // Prewarm races auth resolution: both are async, neither needs the
+        // other, and the pool hit (or a fresh connection) is ready by the
+        // time the request dispatches. A prewarm failure is advisory — the
+        // dispatch below reports the real error — so it is logged, not
+        // propagated.
+        let prewarm = self
+            .client
+            .prewarm(self.endpoint.base_url(), "Anthropic");
+        let auth_fut = self.endpoint.resolve_auth();
+        let (prewarm_outcome, auth_result) = tokio::join!(prewarm, auth_fut);
+        if let Err(error) = prewarm_outcome {
+            tracing::debug!(error = %error, "prewarm skipped");
+        }
+        let auth = auth_result
             .map_err(|e| ProviderError::authentication("Anthropic", e))?;
+
         let mut req = self
             .build_request_for_auth(body, &auth)
             .with_telemetry(telemetry.clone());

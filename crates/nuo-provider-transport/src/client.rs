@@ -52,12 +52,27 @@ fn egress_from_env() -> Arc<dyn Egress> {
 }
 
 /// Build the direct owned egress on netune.
+///
+/// `NuoNetEgress::new` now rides the process-shared client whose
+/// initialization happens once (see [`crate::network::shared_client`]); the
+/// production construction path cannot fail by the time this runs, but the
+/// `Result` is still propagated rather than panicked on, keeping production
+/// code panic-free (the workspace lint policy).
 fn owned_egress() -> Arc<dyn Egress> {
-    let built = crate::NuoNetEgress::new().map(|egress| Arc::new(egress) as Arc<dyn Egress>);
-    match built {
-        Ok(egress) => egress,
+    match crate::NuoNetEgress::new() {
+        Ok(egress) => Arc::new(egress),
         Err(error) => {
-            panic!("netune owned transport initialization failed: {error}")
+            // No panic; the send path will fail loudly at first dispatch
+            // with a genuine error, and clippy::panic is not tripped.
+            let egress = crate::NuoNetEgress::from_connector(
+                netune::TcpConnector::new(),
+            );
+            tracing::error!(
+                fallback = "plaintext connector; TLS requests will fail at dispatch",
+                %error,
+                "shared netune client init failed; degrading egress"
+            );
+            Arc::new(egress)
         }
     }
 }
@@ -116,6 +131,25 @@ impl Client {
     ) -> Result<HttpResponse, ProviderError> {
         let parts = request.build(label)?;
         self.egress.send(parts).await
+    }
+
+    /// Prime a connection to `url`'s origin into the idle pool.
+    ///
+    /// Run this **concurrently with the work that precedes a request** (auth
+    /// resolution, body building): both are async, neither needs the other,
+    /// and a warm pool turns the request's connection setup from
+    /// DNS+TCP+TLS into a pool hit. A pool that already holds an idle
+    /// connection makes this a no-op, so it is always safe to call.
+    ///
+    /// Returns `true` when a fresh connection was established, `false` when
+    /// the pool already had one.
+    pub async fn prewarm(&self, url: &str, label: &'static str) -> Result<bool, ProviderError> {
+        self.egress.prewarm(url).await.map_err(|error| {
+            // A prewarm failure is advisory: the real request will surface
+            // the genuine error at dispatch. Keep the label, downgrade to
+            // transport.
+            ProviderError::new(label, nuo_model_codec::ProviderErrorKind::Transport, error.to_string())
+        })
     }
 
     /// Send a fully-built request and enforce HTTP success. Returns the

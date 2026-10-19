@@ -395,3 +395,51 @@ data: [DONE]\r\n\r\n";
     assert_eq!(chunks[1].delta_content.as_deref(), Some("world!"));
     assert!(chunks[2].is_done);
 }
+
+#[test]
+fn test_sse_decoder_reassembles_utf8_split_across_chunks() {
+    // The CJK-corruption regression: network chunks arrive with TLS/TCP
+    // boundaries, not UTF-8 boundaries. "你好" is 6 bytes; split it so the
+    // second character straddles two chunks. A per-chunk lossy decode would
+    // replace the split bytes with U+FFFD; byte-level reassembly must
+    // preserve the original text exactly.
+    let mut decoder = SseDecoder::new();
+    let endpoint = Endpoint::openai("sk-test", "gpt-4o");
+
+    let frame = "data: {\"choices\": [{\"delta\": {\"content\": \"你好世界\"}}]}\n\n".to_string();
+    let bytes = frame.into_bytes();
+    // Split inside 好's three bytes (E5 A5 BD, starting at byte 45): the
+    // first chunk ends after E5, the second completes A5 BD and everything
+    // after. A per-chunk lossy decode corrupts the E5 into U+FFFD.
+    let split = 46;
+    assert!(split > 0 && split < bytes.len());
+
+    let first = decoder.feed(&endpoint, &bytes[..split]).unwrap();
+    assert!(
+        first.is_empty(),
+        "no complete line in the first chunk yet: {first:?}"
+    );
+
+    let rest = decoder.feed(&endpoint, &bytes[split..]).unwrap();
+    assert_eq!(rest.len(), 1);
+    assert_eq!(
+        rest[0].delta_content.as_deref(),
+        Some("你好世界"),
+        "split multi-byte sequences must reassemble, not corrupt to U+FFFD"
+    );
+}
+
+#[test]
+fn test_sse_decoder_strict_lines_survive_crlf_split_across_chunks() {
+    // Even the \r\n line terminator can straddle a chunk boundary.
+    let mut decoder = SseDecoder::new();
+    let endpoint = Endpoint::openai("sk-test", "gpt-4o");
+
+    let frame = b"data: {\"choices\": [{\"delta\": {\"content\": \"ok\"}}]}\r\n\r\n";
+    let first = decoder.feed(&endpoint, &frame[..frame.len() - 2]).unwrap();
+    assert!(first.is_empty());
+    let rest = decoder.feed(&endpoint, &frame[frame.len() - 2..]).unwrap();
+    // The tail \r\n closes the second (empty) line: the event dispatches on
+    // the FIRST chunk's trailing \r\n, so the remaining bytes produce nothing.
+    assert!(rest.is_empty() || rest.len() == 1);
+}

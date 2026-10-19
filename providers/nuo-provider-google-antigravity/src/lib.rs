@@ -253,10 +253,20 @@ impl GoogleProvider {
             .prompt_cache
             .resolve(request)
             .map_err(|e| ProviderError::invalid_request("Google", e))?;
-        let auth = self
-            .endpoint
-            .resolve_auth()
-            .await
+        // Prewarm races auth resolution: both are async, neither needs the
+        // other, and the pool hit (or a fresh connection) is ready by the
+        // time the request dispatches. A prewarm failure is advisory — the
+        // dispatch below reports the real error — so it is logged, not
+        // propagated.
+        let prewarm = self
+            .client
+            .prewarm(self.endpoint.base_url(), "Google");
+        let auth_fut = self.endpoint.resolve_auth();
+        let (prewarm_outcome, auth_result) = tokio::join!(prewarm, auth_fut);
+        if let Err(error) = prewarm_outcome {
+            tracing::debug!(error = %error, "prewarm skipped");
+        }
+        let auth = auth_result
             .map_err(|e| ProviderError::authentication("Google", e))?;
         let (url, headers, body) =
             self.prepare_request_for_auth(request.clone(), is_stream, omit_thinking, &auth);
@@ -846,6 +856,7 @@ impl Provider for GoogleProvider {
 /// - `claude-opus-4-6` (`-thinking` remap), `gpt-oss-120b` (`-medium` remap),
 ///   `claude-sonnet-4-6`, `gemini-3.5-flash-lite`: verbatim ids / single
 ///   named entities, handled structurally in the fn body below.
+///
 /// One family row of the offline floor.
 ///
 /// `broadcast = true` marks an **in-band-depth** family: the first entity IS

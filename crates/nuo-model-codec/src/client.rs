@@ -88,18 +88,29 @@ impl Default for WireClient {
 }
 
 impl WireClient {
-    #[allow(clippy::expect_used)]
+    #[cfg(feature = "netune")]
     pub fn new() -> Self {
         #[cfg(feature = "netune")]
         {
-            let connector = TlsConnector::platform(TcpConnector::new())
-                .expect("Failed to initialize Netune platform TLS connector");
-            let netune_client = std::sync::Arc::new(Client::new(
-                connector,
-                Pool::default(),
-                ClientConfig::default(),
-            ));
-            Self { netune_client }
+            // One netune client per process, not per `WireClient`: every
+            // clone of this type converges on a single connection pool. A
+            // per-instance pool fragments the cache — the same authority
+            // dialled through two adapters pays two TLS handshakes, and one
+            // pool's warm socket is useless to the other. (The egress
+            // adapter in `nuo-provider-transport` shares the same instance
+            // via its own singleton; see `network::shared_client` there.
+            // The two singletons resolve to the same platform-TLS,
+            // 10 s-connect-timeout configuration, and process lifetime makes
+            // them identical in effect.)
+            static SHARED: std::sync::OnceLock<
+                std::sync::Arc<Client<TlsConnector<TcpConnector>>>,
+            > = std::sync::OnceLock::new();
+            let netune_client = SHARED.get_or_init(|| {
+                std::sync::Arc::new(Self::build_direct_netune_client())
+            });
+            Self {
+                netune_client: std::sync::Arc::clone(netune_client),
+            }
         }
 
         #[cfg(all(feature = "reqwest-oracle", not(feature = "netune")))]
@@ -113,6 +124,22 @@ impl WireClient {
         {
             Self {}
         }
+    }
+
+    /// The process's shared netune client: platform TLS, direct egress, the
+    /// connector's default 10 s connect timeout.
+    ///
+    /// Initialization happens once; if the platform trust store cannot be
+    /// read (a broken system CA configuration), the process has no working
+    /// TLS story at all, so failing loudly beats fabricating a silently
+    /// degraded client that would surface per-request later.
+    #[cfg(feature = "netune")]
+    #[allow(clippy::expect_used)]
+    fn build_direct_netune_client() -> Client<TlsConnector<TcpConnector>> {
+        let connector = TlsConnector::platform(TcpConnector::new())
+            .expect("shared netune client: platform TLS must initialize; \
+                     a broken system CA store means every request would fail anyway");
+        Client::new(connector, Pool::default(), ClientConfig::default())
     }
 
     /// Fallible constructor returning [`WireError`] if platform TLS fails to initialize.
@@ -143,6 +170,33 @@ impl WireClient {
         {
             Ok(Self {})
         }
+    }
+
+    /// Share a caller-built netune client.
+    ///
+    /// nuo runs two adapters onto netune (the `providers/*` egress and this
+    /// wire client). Each constructing its own [`Pool::default`] fragments
+    /// the connection cache: the same authority dialled twice, two TLS
+    /// handshakes paid twice, one pool's warm socket useless to the other.
+    /// Passing one shared [`Client`] here makes every adapter converge on a
+    /// single pool — a warm socket is warm for the whole process.
+    ///
+    /// The caller owns the client's configuration (confinement, resolver,
+    /// TLS identity); this type only drives requests through it.
+    #[cfg(feature = "netune")]
+    pub fn from_shared_client(
+        netune_client: std::sync::Arc<Client<TlsConnector<TcpConnector>>>,
+    ) -> Self {
+        Self { netune_client }
+    }
+
+    /// The shared netune client, for callers that need to drive the same
+    /// pool directly (prewarm, telemetry plumbing).
+    #[cfg(feature = "netune")]
+    pub fn netune_client(
+        &self,
+    ) -> &std::sync::Arc<Client<TlsConnector<TcpConnector>>> {
+        &self.netune_client
     }
 
     /// Executes a [`WireRequest`] against `endpoint`, collecting stream into unified [`WireResponse`].

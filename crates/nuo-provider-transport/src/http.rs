@@ -12,7 +12,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use http::{HeaderMap, Method, StatusCode};
-use netune::{Client, ClientConfig, Target, TcpConnector, TlsConnector};
+use netune::{Client, Target};
+use netune::{TcpConnector, TlsConnector};
 
 /// Request body shapes these call sites use.
 #[derive(Debug, Clone)]
@@ -91,31 +92,34 @@ pub struct Http {
     timeout: Duration,
 }
 
-static SHARED_CONTROL_PLANE: std::sync::OnceLock<Http> = std::sync::OnceLock::new();
-
 impl Http {
     /// Build a handle with an overall per-request deadline.
+    ///
+    /// The underlying netune client is the process's shared one: every
+    /// handle converges on one connection pool, so a control-plane call
+    /// that follows an inference turn (or another catalog fetch) reuses the
+    /// warm socket instead of paying a second DNS+TCP+TLS to the same
+    /// authority. The deadline is per handle, not per pool.
     pub fn new(timeout: Duration) -> Result<Self, String> {
         Ok(Self {
-            client: Arc::new(crate::network::direct_client(ClientConfig::default())?),
+            client: Arc::clone(crate::network::shared_client()),
             timeout,
         })
     }
 
     /// Build a handle with this crate's control-plane deadline (10 s).
+    ///
+    /// Handles are cheap clones over the one shared pool; there is no longer
+    /// a separate "shared control-plane" handle — every handle is shared.
     pub fn control_plane() -> Result<Self, String> {
         Self::new(Duration::from_secs(10))
     }
 
-    /// Return a shared control-plane client instance (10 s deadline) reusing
-    /// connection pools and TLS sessions across control-plane calls.
+    /// Deprecated alias for [`Self::control_plane`]: since every handle now
+    /// rides the process-shared pool, the "shared" qualifier distinguishes
+    /// nothing.
     pub fn shared_control_plane() -> Result<Self, String> {
-        if let Some(client) = SHARED_CONTROL_PLANE.get() {
-            return Ok(client.clone());
-        }
-        let client = Self::control_plane()?;
-        let _ = SHARED_CONTROL_PLANE.set(client.clone());
-        Ok(client)
+        Self::control_plane()
     }
 
     pub async fn send(&self, request: Request) -> Result<Reply, String> {

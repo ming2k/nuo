@@ -231,6 +231,12 @@ impl StreamTransformer for PassThroughStreamTransformer {
     }
 }
 
+/// Headers the pass-through wire stamps, resolved per-request from the
+/// bearer token (dialect-attributed headers; the token itself is stamped by
+/// the plan). A shaped pipeline ignores it.
+pub type PassThroughHeaders =
+    Option<Box<dyn Fn(&str) -> Vec<(String, String)> + Send + Sync>>;
+
 /// Composable transport pipeline for request and stream transformations.
 pub struct TransportPipeline {
     envelope_phase: Option<Box<dyn EnvelopePhase>>,
@@ -241,7 +247,7 @@ pub struct TransportPipeline {
     /// Extra headers the pass-through wire stamps (dialect-attributed headers
     /// such as OpenRouter app attribution), supplied by the executor at
     /// construction; a shaped pipeline ignores it.
-    pass_through_headers: Option<Box<dyn Fn(&str) -> Vec<(String, String)> + Send + Sync>>,
+    pass_through_headers: PassThroughHeaders,
 }
 
 impl Default for TransportPipeline {
@@ -335,7 +341,7 @@ pub struct TransportPipelineBuilder {
     signer_phase: Option<Box<dyn RequestSignerPhase>>,
     stream_transformer: Option<Box<dyn StreamTransformer>>,
     validators: Vec<Box<dyn PreflightValidator>>,
-    pass_through_headers: Option<Box<dyn Fn(&str) -> Vec<(String, String)> + Send + Sync>>,
+    pass_through_headers: PassThroughHeaders,
 }
 
 impl TransportPipelineBuilder {

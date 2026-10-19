@@ -265,15 +265,34 @@ mod owned {
     /// Every request produces a [`RequestTrace`]; when a [`TraceSink`] is
     /// installed it receives it as soon as the body ends.
     pub struct NuoNetEgress<C: Connector = TlsConnector<TcpConnector>> {
-        client: netune::Client<C>,
+        client: std::sync::Arc<netune::Client<C>>,
         sink: Option<TraceSink>,
     }
 
     impl NuoNetEgress<TlsConnector<TcpConnector>> {
-        /// The production configuration: platform trust store, direct.
+        /// The production configuration: platform trust store, direct,
+        /// riding the process's shared netune client (one pool, shared
+        /// across every adapter — see [`crate::network::shared_client`]).
         pub fn new() -> Result<Self, String> {
-            crate::network::direct_client(netune::ClientConfig::default())
-                .map(|client| Self { client, sink: None })
+            Ok(Self {
+                client: std::sync::Arc::clone(crate::network::shared_client()),
+                sink: None,
+            })
+        }
+
+        /// Wrap a caller-built netune client.
+        ///
+        /// nuo runs two adapters onto netune (this egress and the wire
+        /// client in `nuo-model-codec`). Each constructing its own
+        /// [`netune::Pool::default`] fragments the connection cache: the
+        /// same authority dialled twice, two TLS handshakes paid twice, one
+        /// pool's warm socket useless to the other. Passing one shared
+        /// client here makes every adapter converge on a single pool — a
+        /// warm socket is warm for the whole process.
+        pub fn from_shared_client(
+            client: std::sync::Arc<netune::Client<TlsConnector<TcpConnector>>>,
+        ) -> Self {
+            Self { client, sink: None }
         }
     }
 
@@ -287,11 +306,11 @@ mod owned {
     impl<C: Connector> NuoNetEgress<C> {
         pub fn from_connector(connector: C) -> Self {
             Self {
-                client: netune::Client::new(
+                client: std::sync::Arc::new(netune::Client::new(
                     connector,
                     netune::Pool::default(),
                     netune::ClientConfig::default(),
-                ),
+                )),
                 sink: None,
             }
         }
