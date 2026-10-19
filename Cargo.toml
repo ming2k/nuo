@@ -51,7 +51,11 @@ base64 = "0.22"
 hex = "0.4"
 hmac = "0.12"
 thiserror = "2.0"
-netune = "0.1.1"
+# netune is distributed by git tag only: the crates.io `0.1.x` line is yanked
+# and unmaintained, and the registry `0.0.1` is a stale stub. Pin the release
+# tag here; `Cargo.lock` records the exact commit for reproducible builds.
+netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.1" }
+netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.1" }
 http = "1.2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 windows-sys = "0.61"

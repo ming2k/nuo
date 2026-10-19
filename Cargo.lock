@@ -1605,9 +1605,8 @@ dependencies = [
 
 [[package]]
 name = "netune"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70bebeaac1a8274e6b2e8dd1e37195755d700f431fbcfcff3acc8a2ba63b78ad"
+version = "0.0.1"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.1#18185d1ff0055df6deece4d390843720410729e5"
 dependencies = [
  "base64 0.22.1",
  "brotli",
@@ -1616,7 +1615,9 @@ dependencies = [
  "http",
  "libc",
  "netune-http1",
+ "netune-http2",
  "netune-trace",
+ "netune-ws",
  "rustls",
  "rustls-platform-verifier",
  "tokio",
@@ -1625,9 +1626,18 @@ dependencies = [
 
 [[package]]
 name = "netune-http1"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5a755ac397f185776a8afcb5d421dd87a7fe154f02b0bfb7f4c991566fb0627"
+version = "0.0.1"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.1#18185d1ff0055df6deece4d390843720410729e5"
+dependencies = [
+ "bytes",
+ "http",
+ "tokio",
+]
+
+[[package]]
+name = "netune-http2"
+version = "0.0.1"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.1#18185d1ff0055df6deece4d390843720410729e5"
 dependencies = [
  "bytes",
  "http",
@@ -1636,11 +1646,20 @@ dependencies = [
 
 [[package]]
 name = "netune-trace"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcc8337136bfb8981a9157d7414586034759957559450af98ec2281119615ca7"
+version = "0.0.1"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.1#18185d1ff0055df6deece4d390843720410729e5"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "netune-ws"
+version = "0.0.1"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.1#18185d1ff0055df6deece4d390843720410729e5"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "http",
 ]
 
 [[package]]
