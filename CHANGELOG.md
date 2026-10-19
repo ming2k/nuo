@@ -6,14 +6,30 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
-## [0.0.38] - 2026-10-18
+## [0.0.39] - 2026-10-18
 
 ### Added
+
+- **Unified Remote Transport Topology, Secure Endpoint Resolution & Interactive Remote Attach (ADR-0078)**:
+  - Introduced the explicit `ClientTarget` abstraction in `nuo-client`, routing every attach flow through one stream-generic handshake with explicit project scoping — whether the target is a locally discovered/spawned server or an explicitly addressed remote server.
+  - Hardened remote endpoint resolution in `nuo-provider-transport` and enabled `rustls-tls-native-roots` certificate verification for websocket transport.
+  - `nuo server start` is now detached by default, with `--fg` as the sole explicit foreground declaration.
 
 - **OpenCode Provider Channel Bifurcation & Legacy Container Crate Retirement (ADR-0079)**:
   - Bifurcated `nuo-provider-opencode` into dedicated leaf provider channel crates: `nuo-provider-opencode-plan` (OpenCode Plan subscription surface) and `nuo-provider-opencode-zen` (OpenCode Zen relay surface).
   - Enforced `[INV-PROV-06]` Canonical Provider Spec Export and `[INV-PROV-07]` Channel Boundary Segregation, restoring symmetrical `MODEL_PROVIDER_SPEC` registration at the composition root (`nuo-server`).
   - Completely retired and removed the legacy `nuo-provider-opencode` container crate from the workspace.
+
+### Changed
+
+- **Workspace Namespace Pure Surface Topology & Categorized Palette (ADR-0077)**:
+  - Pruned legacy strokes from the `C-x …` workspace namespace: the `Quit` scene verb and its `C-x C-c` / `C-x k` spellings are excised, leaving `Leave` bound exclusively to `C-x w`.
+  - Categorized command palette entries (`CommandCategory`) with `@` scoping to Navigation / Settings and `>` scoping to Actions / Commands.
+- **`nuox` → `nuo` Surface Consolidation**: renamed the terminal application surface to `nuo` across CLI help, shell completions, and client documentation.
+
+## [0.0.38] - 2026-10-18
+
+### Added
 
 - **Dynamic Composer Height Scroll Reflow & Sticky Viewport Underflow Protection**:
   - Unified composer height calculation across the event loop and transcript renderer via `calculate_composer_height`, eliminating geometry drift during multiline editing.

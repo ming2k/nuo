@@ -1732,7 +1732,7 @@ dependencies = [
 
 [[package]]
 name = "nuo"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1774,7 +1774,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-acp"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1793,7 +1793,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-agent"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1815,7 +1815,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-client"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1838,7 +1838,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-code"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "fastrand",
@@ -1865,7 +1865,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-harness"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1909,7 +1909,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-host"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "arboard",
  "async-trait",
@@ -1936,7 +1936,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-mcp"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "futures",
@@ -1953,7 +1953,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-model-codec"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1978,7 +1978,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-oauth"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1999,7 +1999,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-persistence"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2027,7 +2027,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-protocol"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2053,7 +2053,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "futures",
@@ -2070,7 +2070,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-anthropic"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2090,7 +2090,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-catalog"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "netune",
@@ -2108,7 +2108,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-chatgpt-plan"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2129,7 +2129,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-commandcode-plan"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "inventory",
@@ -2147,7 +2147,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-copilot"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "inventory",
@@ -2166,7 +2166,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-deepseek"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "inventory",
@@ -2181,7 +2181,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-google-antigravity"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2204,7 +2204,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-kimi"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "inventory",
@@ -2219,7 +2219,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-openai"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2240,7 +2240,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-opencode-plan"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "inventory",
  "nuo-model-codec",
@@ -2250,7 +2250,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-opencode-zen"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "inventory",
  "nuo-model-codec",
@@ -2259,7 +2259,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-openrouter"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "inventory",
@@ -2277,7 +2277,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-qianwen"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "inventory",
@@ -2297,7 +2297,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-qoder"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "aes",
  "async-trait",
@@ -2329,7 +2329,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-siliconflow"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "nuo-protocol",
  "nuo-provider-transport",
@@ -2339,7 +2339,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-transport"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2362,7 +2362,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-xai"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "inventory",
@@ -2381,7 +2381,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-provider-zai"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "inventory",
@@ -2399,7 +2399,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-server"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2465,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-tool"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "hex",
@@ -2483,7 +2483,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-tool-ast"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "fastrand",
@@ -2505,7 +2505,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-tool-derive"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2515,7 +2515,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-tool-exec"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "nuo-host",
@@ -2529,7 +2529,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-tool-fs"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "glob",
@@ -2547,7 +2547,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-tool-web"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2569,7 +2569,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-tui"
-version = "0.0.38"
+version = "0.0.39"
 dependencies = [
  "arboard",
  "async-trait",
