@@ -6,6 +6,20 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.40] - 2026-10-19
+
+### Changed
+
+- **Process-Shared Netune Connection Pool & Request Prewarm (ADR-0005)**:
+  - Converged every netune adapter — the provider egress, the `nuo-model-codec` wire client, and the control-plane `Http` handle — onto one process-wide connection pool via `nuo-provider-transport::network::shared_client`. A warm socket is now warm for the whole process instead of being fragmented across per-instance `Pool::default()` caches.
+  - Added `TransportClient::prewarm` and raced it against auth resolution in the Anthropic, Google Antigravity, and OpenAI providers, collapsing DNS/TCP/TLS setup into a pool hit by dispatch time; prewarm failures are advisory and logged, never propagated.
+  - `NuoNetEgress` and `WireClient` expose `from_shared_client` for callers that own the client configuration; `Http` handles are now cheap clones over the single pool.
+
+### Fixed
+
+- **Byte-Exact SSE Reassembly Across Chunk Boundaries**: `SseDecoder` now buffers raw bytes and decodes only at `\n` line boundaries, reassembling multi-byte UTF-8 sequences (CJK, emoji) split across network chunks. Eliminates the per-chunk lossy-decode `U+FFFD` corruption in streamed non-ASCII deltas, with regression coverage for split UTF-8 and split CRLF frames.
+- **Panic-Free Egress Degradation**: `owned_egress` now degrades a failed shared-client initialization to a logged plaintext connector instead of panicking, so the send path reports the genuine error at dispatch.
+
 ## [0.0.39] - 2026-10-18
 
 ### Added
