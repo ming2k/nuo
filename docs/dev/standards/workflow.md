@@ -47,3 +47,11 @@ Prior to creating a release tag:
 2. **Full Test Suite**: Run `cargo test --workspace` across all default members.
 3. **Changelog Integrity**: Ensure user-facing features, breaking changes, and migrations are documented in `CHANGELOG.md`.
 4. **Clean Git State**: Verify no untracked experimental files or temporary debug assets remain in the tree.
+5. **Formatting & Lints**: `cargo fmt --all --check` and
+   `cargo clippy --workspace --all-targets -- -D warnings` both silent. The
+   workspace denies `unwrap_used`/`expect_used`/`panic`/`todo`/`dbg_macro` for
+   shipped code; test targets exempt themselves at the test boundary.
+6. **ADR Lineage**: `python3 scripts/check_adr_lineage.py` clean — every
+   `ADR-NNNN` citation resolves inside `docs/adr/` (`docs/dev/standards/adr.md` §4).
+
+All six run in CI (`.github/workflows/ci.yml`) on every push and pull request.
