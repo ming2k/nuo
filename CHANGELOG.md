@@ -6,6 +6,63 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.43] - 2026-10-20
+
+### Changed
+
+- **Panic Policy Is Enforced, Not Requested**: `[workspace.lints.clippy]` now
+  *denies* `unwrap_used`, `expect_used`, `panic`, `todo` and `dbg_macro`. Test
+  code opts out only at the test boundary — every crate root carries
+  `#![cfg_attr(test, allow(..))]` and every integration-test crate root a plain
+  `#![allow(..)]` — so the shipped graph can never inherit an exemption. This
+  generalises the pattern thirteen crate roots already used for
+  `unwrap_used`/`expect_used`.
+- **Qoder COSY Signing Is Fallible**: `encrypt_info`, the pinned-key RSA wrap and
+  `prepare_request{,_for_path}` return `Option`, and both signing call sites
+  surface `ProviderErrorKind::Authentication` instead of aborting the transport
+  task. The base64↔Qoder substitution is a total `const` table rather than a
+  search that "must" find a match, and the outer-thirds swap permutes characters
+  so it can no longer split a UTF-8 sequence.
+- **Broken Built-In Bash Policy Rule Is Inert**: an unparsable compiled-in regex
+  is logged and its rule becomes `CompiledMatcher::Inert` instead of taking the
+  session down; a unit test still compiles every built-in pattern.
+- **TUI Render Degradation**: a rejected component tree (`commit`) or a rejected
+  component (`mount`) is logged and skipped, keeping the previous frame, rather
+  than aborting the process and destroying the session state on screen.
+- **Session Mesh Registration Is Fail-Open**: an unaddressable session id now
+  skips ACP mailbox registration and simply wires no collaboration tools, as the
+  surrounding fail-open policy already documented; previously it aborted the
+  task. `register_session_mailbox` returns `Option<MailboxHandle>` to make that
+  visible in the type.
+- **Config Fail-Fast Consolidated**: the three fail-fast paths in `Config` route
+  through one documented `fatal_config` choke point (`[INV-CONF-04]`, ADR-0031)
+  instead of scattered `panic!`s. Behaviour is unchanged; the abort is now a
+  single auditable site.
+- **Parameter Structs Over Arity**: `register_provider` and `handle_connection`
+  take `RegisterProviderParams` / `ConnectionParams`, and `compacted_card_data`
+  returns a named `CompactedCardData` instead of a six-tuple.
+
+### Fixed
+
+- **Checkpoint Integrity Manifest Can No Longer Hash Nothing**:
+  `source_manifest` is fallible (`CheckpointError::UnserializableFact`); a fact
+  that failed to serialize contributed an empty byte string and silently
+  misreported which interval the checkpoint covered.
+- **Conformance Report Is an Assertion**: `assert_all_passed` formats its report
+  only when the sink is non-conformant, keeping the same message without a
+  panicking code path.
+- **System Prompt Duplicate Id Names the Id**: registration still fails loudly on
+  a duplicate, and the assertion now reports the offending section id.
+- **`cargo fmt` and `cargo clippy` Are Green Repo-Wide**: `cargo fmt --all
+  --check` passes (ten files had never been formatted since the 2024 style
+  edition, and the repo has no `rustfmt.toml`, so the default `max_width` /
+  `chain_width` / `single_line_if_else_max_width` thresholds and
+  `reorder_imports` applied), and `cargo clippy --workspace --all-targets` went
+  from 1011 diagnostics to zero — 954 of which were test-target noise that had
+  been hiding the twenty real production sites above.
+- **Slash-Command Catalog Type Alias**: the completion spec row uses a named
+  `RawCommandSpec` alias.
+
 ## [0.0.42] - 2026-10-20
 
 ### Added
