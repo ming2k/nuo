@@ -6,7 +6,7 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
-## [0.0.41] - 2026-10-19
+## [0.0.42] - 2026-10-20
 
 ### Added
 
@@ -38,9 +38,26 @@ the project adheres to the federated SemVer model described in
   `response.failed` are handled as terminal events (truncated turns keep their
   output, replay artifact and usage); Chat Completions replays an assistant
   turn's `reasoning_content` on the DeepSeek dialect, where the vendor requires it.
-- **RAII Test Path Sandbox (`paths::TestDirsGuard`)**: a single guard that holds
-  the process-wide override lock and restores the default roots on drop,
-  including while unwinding. Every test sandbox now uses it.
+- **Single Layer-2 Catalog Crate (`nuo-catalog`) ([ADR-0082](docs/adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md))**:
+  the catalog pipeline (`derive` / `picker` / `sync` plus its test suite) left the
+  duplicated `nuo-harness` and `nuo-server` module trees and now lives in exactly
+  one Layer-2 crate that both consumers import directly — no re-export shim and no
+  local `catalog` module (`[INV-CATALOG-07]`). The composition-root edge
+  (`nuo-catalog` -> `nuo-server`) is a declared test-only dev-dependency, so the
+  shipped build graph stays acyclic and `nuo-catalog` links no `providers/*` crate
+  and no presentation crate.
+- **Unidirectional Catalog Pipeline ([ADR-0081](docs/adr/0081-unidirectional-catalog-pipeline-structural-normalization-and-relay-noise-hygiene.md))**:
+  ingestion is now three strictly decoupled stages — Source -> Normalization ->
+  Overwrite (`[INV-CATALOG-04..06]`). Display names are lifted structurally
+  (`deepseek-v4.1-flash` -> `DeepSeek V4.1 Flash`) by tokenization, hyphen-to-space
+  folding and a brand lexicon instead of a per-model dictionary, and relay
+  ephemera (`*-free`, `*-contributor`, `*-preview`) is filtered from primary
+  selection surfaces while explicit user overrides still win.
+- **Ignore-Aware Workspace Walker (`nuo-tool-fs`)**: `search` now builds a
+  ripgrep-style walker that honors `.gitignore` / `.ignore` / global gitignore and
+  prunes VCS metadata, dependency trees and build output (`.git`, `node_modules`,
+  `target`, caches), so a workspace sweep no longer wades through vendored and
+  generated trees.
 
 ### Changed
 
@@ -58,6 +75,20 @@ the project adheres to the federated SemVer model described in
 - **Session Pre-flight Spend Accumulation**: The local spend circuit breaker reads
   monotonically accumulated turn spend rather than re-evaluating historical tokens
   against current time-varying rates.
+- **Reference OpenAPI Fixtures Relocated**: the antigravity and commandcode wire
+  captures moved under `docs/reference/openapi/`
+  (`commandcode-api.yml` -> `commandcode-plan.yml`), the DeepSeek transcript was
+  added as `openapi/deepseek.yml`, and every in-tree reference was retargeted.
+
+## [0.0.41] - 2026-10-19
+
+### Added
+
+- **RAII Test Path Sandbox (`paths::TestDirsGuard`)**: a single guard that holds
+  the process-wide override lock and restores the default roots on drop,
+  including while unwinding. Every test sandbox now uses it.
+
+### Changed
 
 - **Netune Sourced by Git Tag**: `netune` / `netune-trace` now resolve from
   `https://github.com/ming2k/netune.git` tag `v0.0.1` instead of crates.io, whose
