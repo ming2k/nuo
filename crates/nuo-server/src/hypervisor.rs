@@ -9,6 +9,11 @@ use nuo_wire::{MonitorAction, Tool};
 
 use crate::registry::SessionRegistry;
 
+/// The hypervisor station's canonical ACP address. A literal constant, so the
+/// parse in [`Hypervisor::new`] is only ever handed a form the
+/// `hypervisor_address_constant_is_canonical` test pins.
+const HYPERVISOR_ADDRESS: &str = "agent://local/hypervisor";
+
 /// The single Hypervisor station per server (staffed by an agent in Root posture).
 ///
 /// Responsible for orchestrating sessions, tracking progress across projects,
@@ -31,11 +36,12 @@ impl Hypervisor {
         registry: SessionRegistry,
         fabric: Fabric,
     ) -> Self {
-        // The literal address is a compile-time constant, covered by the
-        // `hypervisor_station_is_addressable` test below.
+        // `HYPERVISOR_ADDRESS` is a literal pinned by
+        // `hypervisor_address_constant_is_canonical`, so this cast cannot be
+        // reached with an unparsable address.
         #[allow(clippy::expect_used)]
         let address =
-            AgentAddress::parse("agent://local/hypervisor").expect("valid hypervisor address");
+            AgentAddress::parse(HYPERVISOR_ADDRESS).expect("canonical hypervisor address");
 
         let manifest = AgentManifest::new(
             address.clone(),
@@ -390,6 +396,12 @@ impl Tool for HypervisorCoordinateDebugTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hypervisor_address_constant_is_canonical() {
+        let parsed = AgentAddress::parse(HYPERVISOR_ADDRESS).expect("canonical station address");
+        assert_eq!(parsed.as_str(), HYPERVISOR_ADDRESS);
+    }
 
     #[tokio::test]
     async fn hypervisor_creation_and_tools() {

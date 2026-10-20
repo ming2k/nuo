@@ -408,9 +408,9 @@ impl SessionRegistry {
     /// Returns the session's [`acp::MailboxHandle`] so the caller can wire ACP
     /// collaboration tools into the live agent (ADR-0008 step 8 / ADR-0009 §3).
     async fn register_session_mailbox(&self, session_id: &str) -> Option<acp::MailboxHandle> {
-        // Mesh registration is fail-open observability (ADR-0167): an
-        // unaddressable session id skips the mailbox instead of aborting the
-        // session, and the caller simply wires no collaboration tools.
+        // Mesh registration is fail-open observability: an unaddressable session
+        // id skips the mailbox instead of aborting the session, and the caller
+        // simply wires no collaboration tools.
         let addr = acp::AgentAddress::parse(&format!("agent://local/session/{session_id}")).ok()?;
         let manifest = acp::AgentManifest::new(
             addr.clone(),

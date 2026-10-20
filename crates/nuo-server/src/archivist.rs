@@ -70,7 +70,7 @@ pub fn build_archivist(
 }
 
 /// The Archivist's ACP address (`agent://local/hypervisor/archivist`).
-#[allow(clippy::expect_used)] // The literal address is a compile-time constant, covered by `archivist_address_is_canonical` below.
+#[allow(clippy::expect_used)] // Literal constant, pinned by `archivist_address_is_hypervisor_station` below.
 pub fn archivist_address() -> AgentAddress {
     AgentAddress::parse("agent://local/hypervisor/archivist").expect("valid archivist address")
 }
