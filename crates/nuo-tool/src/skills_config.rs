@@ -4,7 +4,6 @@
 //! [`crate::McpServerConfig`] do: the app-layer `Config` owns the `[skills]`
 //! table and the loader in `nuo-skills` needs to read it, while the store
 //! does not depend on that implementation crate.
-
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -24,13 +23,13 @@ pub struct SkillsConfig {
     /// (a config file must not name a workspace) — and `None` in contexts
     /// without a designated project (tests, `nuo config`), where
     /// discovery falls back to the process cwd. Under the unified server
-    /// (ADR-0096) one process hosts sessions for many projects, so this
+    /// one process hosts sessions for many projects, so this
     /// field is what keeps each session's skill catalog scoped to its own
     /// project instead of whichever directory first spawned the server.
     #[serde(skip)]
     pub project_root: Option<PathBuf>,
     /// Active agent role name (e.g. "philosophist", "developer").
-    /// Runtime-populated by the session bootstrap (ADR-0253).
+    /// Runtime-populated by the session bootstrap.
     #[serde(skip)]
     pub role: Option<String>,
 }

@@ -2,7 +2,6 @@
 //!
 //! Pure static data shared by the server (catalog reconciliation) and the
 //! frontend (add-connection chooser). Single source of truth.
-
 pub const ANTHROPIC_BUILTIN_MODELS: &[&str] = &[
     "claude-fable-5",
     "claude-sonnet-5",
@@ -123,7 +122,7 @@ pub const XAI_BUILTIN_MODELS: &[&str] = &["grok-4.5", "grok-4.20", "grok-4.3", "
 
 use serde::{Deserialize, Serialize};
 
-/// A first-class user-declared model provider surface (ADR-0258).
+/// A first-class user-declared model provider surface.
 ///
 /// Declares the physical transport endpoint, default protocol, catalog discovery,
 /// dialect, and client identity preset for a custom LLM service surface (e.g.
@@ -139,7 +138,7 @@ pub struct UserDeclaredProvider {
     /// Default wire transport protocol (e.g. `chat-completions`, `responses`, `anthropic-messages`, `google-gemini`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_protocol: Option<crate::WireProtocol>,
-    /// Default client profile preset for User-Agent / client headers emulation (ADR-0164, ADR-0258).
+    /// Default client profile preset for User-Agent / client headers emulation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_profile: Option<crate::ClientPreset>,
     /// Optional User-Agent override.

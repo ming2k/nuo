@@ -5,7 +5,6 @@
 //! is available for a restored assistant turn.
 //!
 //! [`Message`]: nuo_wire::Message
-
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
@@ -147,7 +146,7 @@ pub(super) fn transcript_interrupts_from_records(
 pub(super) fn transcript_retry_resolutions_from_records(
     _records: Vec<nuo_wire::RetryResolution>,
 ) -> Vec<TranscriptMessage> {
-    // ADR-0194: Retired. Transient transport retries that recovered successfully
+    // Retired. Transient transport retries that recovered successfully
     // are implementation details; they never project onto the transcript history.
     Vec::new()
 }
@@ -191,7 +190,7 @@ pub(super) fn merge_round_interrupt_rows(
     out
 }
 
-/// Rebuild the command rows of the ADR-0091 durable command ledger into the
+/// Rebuild the command rows of the durable command ledger into the
 /// TUI document model: one compact, dimmed, non-conversational row per
 /// invocation, with the typed result as its expandable body. The ledger is the
 /// source of truth for commands on resume — the message stream is pure
@@ -213,7 +212,7 @@ pub(super) fn transcript_commands_from_ledger(
         .collect()
 }
 
-/// Merge rebuilt command rows into a restored dialogue transcript (ADR-0106
+/// Merge rebuilt command rows into a restored dialogue transcript (
 /// §2: the transcript is a projection — command rows render *at the moment
 /// they happened*, not appended to the tail).
 ///
@@ -465,7 +464,7 @@ fn transcript_from_core_inner(
             }
         }
         // Fold a restored slash/shell echo into the command ledger
-        // projection (ADR-0108): the invocation belongs to the command
+        // projection: the invocation belongs to the command
         // component (`⌘ /cmd`), never to a second user bubble — the ledger
         // row for the same invocation is merged in later by
         // `merge_command_rows`, so dropping the echo keeps exactly one row

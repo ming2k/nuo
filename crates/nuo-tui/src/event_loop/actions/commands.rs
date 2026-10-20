@@ -3,7 +3,6 @@
 //! Extracted verbatim from the corresponding arms of `dispatch_action`'s
 //! match; only the arm-level `continue` / `return Ok(())` control flow became
 //! [`ActionFlow`] values (it already was, inside `dispatch_action`).
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -100,7 +99,7 @@ pub(super) async fn handle_send_chat(
                     });
                 }
                 crate::app::ComposerSendMode::FollowUp => {
-                    // ADR-0197 M4: one verb, server decides. The frontend
+                    // M4: one verb, server decides. The frontend
                     // sends `FollowUp` unconditionally — an idle target
                     // starts immediately, a running one enqueues in the
                     // driver's queue. The optimistic queue-bar entry rides
@@ -152,7 +151,7 @@ pub(super) async fn handle_send_chat(
             runtime.is_responding.store(true, Ordering::SeqCst);
             // A new dispatch opens a new attempt window: `Queued` is not
             // the transport-wait phase, so this also retires any setback
-            // clause left over from an earlier round (ADR-0235).
+            // clause left over from an earlier round.
             app.set_phase(Some(crate::phase::Phase::Queued));
             app.running_sessions.insert(viewed_session_id.to_string());
             let sent_at_ms = now_epoch_ms();
@@ -210,7 +209,6 @@ pub(super) async fn handle_send_chat(
 
 /// Loop stage (input dispatch): the `SendSlash` arm of the action match.
 /// `pub(crate)` so behavior-lock tests in `crate::tests` can drive it directly
-/// (ADR-0110).
 pub(crate) async fn handle_send_slash(
     app: &mut App,
     runtime: &UiRuntime,
@@ -220,16 +218,16 @@ pub(crate) async fn handle_send_slash(
     app.suggestion_index = None;
     app.input_scroll = 0;
     // A command is a synchronous control-plane operation, not a round
-    // (ADR-0110): it never enters the round state machine, so it must not
+    // it never enters the round state machine, so it must not
     // arm the activity bar's liveness surface — no `is_responding`, no
     // optimistic "queued", no fabricated `Esc Esc interrupt` affordance over
     // a dispatch that cannot be interrupted. The pending command row pushed
-    // below (ADR-0108) is the in-flight feedback for a command; a running
+    // below is the in-flight feedback for a command; a running
     // round keeps owning the bar through its own events.
     app.follow_bottom = true;
     app.pin_summary_line = None;
     let sent_at_ms = now_epoch_ms();
-    // The command component owns its input AND its output (ADR-0108): the
+    // The command component owns its input AND its output: the
     // optimistic row pushed here is the input half — `⌘ /cmd` in the muted
     // running tone — and the `RoundEvent::CommandResult` handler settles the
     // same row in place when the typed reply arrives. A command is therefore
@@ -423,7 +421,7 @@ pub(crate) fn handle_ctrl_c(
             app.arm_ctrl_c(Some(std::time::Instant::now() + App::CTRL_C_ARM_WINDOW));
         }
     } else if app.surfaces.active_overlay().is_some() {
-        // Ctrl+C over a surface is the same dismiss as Esc (ADR-0139):
+        // Ctrl+C over a surface is the same dismiss as Esc:
         // retained browse views hide with state saved, the quick switcher
         // cancels to its origin, everything else falls to plain close.
         // A coexisting sheet does not downgrade this: the modal is the
@@ -458,7 +456,7 @@ pub(crate) fn handle_ctrl_c(
 }
 
 /// Who a double-Esc (`Esc Esc`) interrupt targets. The chord is **scene-scoped**
-/// (ADR-0205): the scene the user stands in decides which round the confirmation
+/// the scene the user stands in decides which round the confirmation
 /// window stops, so an interrupt fired inside a nested view can never penetrate
 /// its scene boundary and stop an outer one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -466,7 +464,7 @@ pub(crate) enum InterruptTarget {
     /// The primary session's running round. The Conversation scene's Esc.
     Primary,
     /// One subagent spawned by the session, addressed by its parent tool-call
-    /// id (ADR-0205). The Subagent scene's Esc: it stops only the viewed child
+    /// id. The Subagent scene's Esc: it stops only the viewed child
     /// and leaves the enclosing primary round and every sibling running.
     Subagent,
 }
@@ -528,7 +526,7 @@ pub(crate) async fn handle_esc_interrupt_with_runtime(
     }
     runtime.is_responding.store(false, Ordering::SeqCst);
     // The round is being stopped: no request is in flight any more, so the
-    // transport-setback clause goes with the phase (ADR-0235).
+    // transport-setback clause goes with the phase.
     app.set_phase(None);
     let msgs = &mut app.messages;
     if let Some(m) = msgs.iter_mut().rev().find(|m| {

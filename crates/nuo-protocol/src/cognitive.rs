@@ -1,4 +1,4 @@
-//! Harness task pipeline contracts: typed out-of-band tasks for the Agent Harness (ADR-0167 / ADR-0211).
+//! Harness task pipeline contracts: typed out-of-band tasks for the Agent Harness.
 //!
 //! # Why Harness Tasks exist
 //!
@@ -13,11 +13,10 @@
 //!
 //! All tasks implement [`HarnessTask`], ensuring strong typing, parsing guarantees,
 //! and fail-open resilience.
-
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-/// Supported model preferences for internal Harness tasks (ADR-0211).
+/// Supported model preferences for internal Harness tasks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum HarnessTaskModelPreference {
@@ -30,10 +29,10 @@ pub enum HarnessTaskModelPreference {
     InheritPrimary,
 }
 
-/// Legacy alias for [`HarnessTaskModelPreference`] (ADR-0211).
+/// Legacy alias for [`HarnessTaskModelPreference`].
 pub type CognitiveModelPreference = HarnessTaskModelPreference;
 
-/// Core trait for typed internal infrastructure tasks executed by the Harness (ADR-0211).
+/// Core trait for typed internal infrastructure tasks executed by the Harness.
 #[async_trait]
 pub trait HarnessTask: Send + Sync {
     /// Task input payload.
@@ -70,7 +69,7 @@ pub trait HarnessTask: Send + Sync {
     }
 }
 
-/// Legacy alias for [`HarnessTask`] (ADR-0211).
+/// Legacy alias for [`HarnessTask`].
 pub use HarnessTask as CognitiveTask;
 
 /// Strip wrapping JSON/markdown fences for the default structured-output decoder.
@@ -174,7 +173,7 @@ impl HarnessTask for StreamLoopReviewerTask {
     }
 }
 
-// 0b. Trajectory Loop Review (ADR-0247)
+// 0b. Trajectory Loop Review
 
 /// Evidence supplied when L1 trajectory detector identifies a repeating tool signature.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -203,7 +202,7 @@ impl TrajectoryLoopVerdict {
     }
 }
 
-/// Cognitive task that confirms or clears an L1 trajectory loop candidate (ADR-0247).
+/// Cognitive task that confirms or clears an L1 trajectory loop candidate.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TrajectoryLoopReviewerTask;
 
@@ -300,7 +299,7 @@ impl HarnessTask for SessionTitleTask {
     /// Hard timeout limit in milliseconds.
     ///
     /// Cognitive consults route to the session's primary model (the model
-    /// preference is declarative until model routing lands, ADR-0204), so the
+    /// preference is declarative until model routing lands), so the
     /// bound must accommodate a full non-streaming chat round-trip of a
     /// heavyweight model — 2s reliably deadlocked every titling attempt in
     /// production. The titler runs detached and never blocks a round, so a

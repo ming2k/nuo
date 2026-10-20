@@ -1,8 +1,7 @@
-//! Non-blocking syntax diagnostics for committed file modifications (ADR-0233).
+//! Non-blocking syntax diagnostics for committed file modifications.
 //!
 //! JSON and TOML use format parsers; supported source languages use Tree-sitter.
 //! Diagnostics are not type checking and must never authorize or reject a write.
-
 use std::path::Path;
 
 /// Result of a pre/post-edit syntax check.

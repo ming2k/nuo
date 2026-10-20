@@ -1,5 +1,4 @@
 //! Model settings editor (effort + thinking toggles), connection-template chooser, and custom provider editor.
-
 use nuotc::{
     Alignment, Frame, {Line, Span}, {Modifier, Style},
 };
@@ -243,7 +242,7 @@ pub fn draw_model_editor(
     cursor_position: usize,
     show_key: bool,
     focused_field: u8,
-    // The frame-level caret verdict (ADR-0205): `true` only while this sheet is
+    // The frame-level caret verdict: `true` only while this sheet is
     // the layer that owns the physical cursor.
     show_caret: bool,
     effort: Option<&str>,
@@ -418,7 +417,7 @@ pub fn draw_web_value_editor(
     input: &str,
     cursor_position: usize,
     secret: bool,
-    // The frame-level caret verdict (ADR-0205).
+    // The frame-level caret verdict.
     show_caret: bool,
     theme: &Theme,
 ) -> nuotc::Rect {
@@ -624,7 +623,7 @@ pub fn draw_custom_provider_editor(
     frame: &mut Frame,
     theme: &Theme,
     scroll: &mut usize,
-    // The frame-level caret verdict (ADR-0205).
+    // The frame-level caret verdict.
     show_caret: bool,
 ) -> nuotc::Rect {
     let CustomEditorProps {

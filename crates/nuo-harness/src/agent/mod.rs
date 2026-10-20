@@ -6,7 +6,6 @@
 //! `state` (configuration/identity), `steering` (rounds/queues/interrupts),
 //! `tools_admin` (permissions/catalog), `rounds` (streaming loop), and
 //! `execution` (tool tail + hooks).
-
 use super::*;
 use nuo_wire::human_request::{
     AutonomousFallbackPolicy, HumanChannelPosture, HumanReply, HumanRequestKind,
@@ -136,7 +135,7 @@ impl ScopedToolDisable {
 pub(crate) type TurnPersistFn =
     Arc<dyn Fn(&[Message]) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
 
-/// Invoked once per freshly assembled model request (ADR-0218) with its
+/// Invoked once per freshly assembled model request with its
 /// request-projection record. The runtime installs a closure that enqueues the
 /// record to the session's forensic archive. It is synchronous and infallible
 /// by design: forensic persistence must never block or fail request dispatch.
@@ -150,7 +149,7 @@ pub(crate) type RequestProjectionFn = Arc<dyn Fn(nuo_wire::RequestProjection) + 
 /// channel, so the driver installs a closure that pushes a fresh
 /// `SessionsOverview` snapshot (and thereby republishes the monitor row, so
 /// every attached client's picker title updates live). Fired at most once per
-/// session — a non-`NULL` title is terminal (ADR-0186). Errors and absent
+/// session — a non-`NULL` title is terminal. Errors and absent
 /// observers are non-fatal: the title is already durably persisted when this
 /// fires, so the notification is pure presentation.
 pub type TitleEstablishedFn = Arc<dyn Fn(&str) -> BoxFuture<'static, ()> + Send + Sync>;
@@ -169,7 +168,7 @@ pub use nuo_wire::RequestTokenEstimate;
 pub struct Agent {
     pub host: crate::host::KernelHost,
     pub provider: Arc<dyn Provider>,
-    /// Execution policy governing this agent's runtime posture, delegation limits, and depth (ADR-0183).
+    /// Execution policy governing this agent's runtime posture, delegation limits, and depth.
     execution_policy: std::sync::RwLock<nuo_wire::ExecutionPolicy>,
     /// Global/Session tool pool for declarative tool resolution.
     pool: Arc<std::sync::RwLock<nuo_wire::ToolPool>>,
@@ -217,7 +216,7 @@ pub struct Agent {
     /// `updated_at_round` for the TUI stale detector.
     round_counter: Arc<std::sync::Mutex<u64>>,
     permissions: Arc<crate::permission_store::PermissionStore>,
-    /// Canonicalized additional workspace roots (ADR-0142), set once by the
+    /// Canonicalized additional workspace roots, set once by the
     /// assembling bootstrap. Kept as an owned copy so system-prompt assembly
     /// never re-reads the project config mid-session.
     additional_workspace_roots: Vec<std::path::PathBuf>,
@@ -240,12 +239,12 @@ pub struct Agent {
     context_prune_threshold_tokens: Arc<std::sync::Mutex<usize>>,
     /// Optional mid-turn model-context projection gate.
     context_projection_gate: Arc<std::sync::Mutex<Option<Arc<dyn ContextProjectionGate>>>>,
-    /// Learned per-route image-input suppression (ADR-0230): the
+    /// Learned per-route image-input suppression: the
     /// [`RouteFingerprint`] of the route on
     /// which a provider rejected image input, once the harness has seen that
     /// rejection.
     ///
-    /// History keeps its images forever (ADR-0186 — the transcript is
+    /// History keeps its images forever (the transcript is
     /// append-only), so a session that pasted an image while a multimodal model
     /// was active would otherwise fail *every* subsequent request on a
     /// text-only route, with `/retry` re-sending the identical doomed request.
@@ -259,13 +258,13 @@ pub struct Agent {
     /// `set_hard_stop_turns`. This is the sole execution cap; session review
     /// is on-demand (`/review`) and never aborts a round.
     hard_stop_turns: Arc<std::sync::Mutex<usize>>,
-    /// Advanced pre-dispatch trajectory loop guard configuration (ADR-0247).
+    /// Advanced pre-dispatch trajectory loop guard configuration.
     /// Seeded from `[agent.trajectory_guard]` in `config.toml`.
     trajectory_guard_config: Arc<std::sync::RwLock<nuo_wire::TrajectoryGuardConfig>>,
     /// Unified interaction controller governing human posture, stdin policy,
     /// and autonomous fallback behaviors.
     pub(crate) interaction: Arc<crate::interaction::InteractionController>,
-    /// ADR-0141: the single owner of parked human-decision oneshots
+    /// The single owner of parked human-decision oneshots
     /// (permission / ask_user / interactive input).
     human_broker: crate::human_broker::HumanRequestBroker,
 
@@ -331,7 +330,7 @@ pub struct Agent {
     /// their own to persist, so the turn boundary is a plain no-op there.
     turn_persist: std::sync::Mutex<Option<TurnPersistFn>>,
     /// Request-projection archive sink installed by the session driver
-    /// (ADR-0218): fired once per freshly assembled request with its forensic
+    /// fired once per freshly assembled request with its forensic
     /// record. `None` for subagents, the review diagnostic, and tests.
     request_projection_persist: std::sync::Mutex<Option<RequestProjectionFn>>,
     /// Title-established observer installed by the session driver: fired
@@ -381,9 +380,9 @@ pub struct Agent {
     /// Content-addressed per-tool-spec BPE weights: a toolset is stable across
     /// turns, so its schema cost is tokenized once, not per estimate pass.
     tool_schema_weights: std::sync::Arc<nuo_wire::ToolSchemaWeights>,
-    /// Atomic extensions bound to this agent instance (ADR-0224).
+    /// Atomic extensions bound to this agent instance.
     pub(crate) extensions: Arc<std::sync::RwLock<Vec<Arc<dyn nuo_wire::Extension>>>>,
-    /// Active staffing role for this agent (e.g. "developer", "philosophist") (ADR-0244).
+    /// Active staffing role for this agent (e.g. "developer", "philosophist").
     pub(crate) active_role: std::sync::RwLock<Option<String>>,
 }
 
@@ -462,7 +461,7 @@ impl SubagentHandle {
     /// Abort this child's in-flight round at its next safe boundary
     /// ([`AgentOp::Interrupt`]). Returns `false` if the agent has been dropped
     /// or no inbox was ever installed. This is the **scene-scoped** interrupt
-    /// verb (ADR-0205): it stops this child only, leaving the parent round and
+    /// verb: it stops this child only, leaving the parent round and
     /// every sibling subagent untouched — the handle counterpart to the
     /// [`AgentRequest::InterruptSubagent`] wire request, whose round loop then
     /// returns its partial transcript so the parent records it as an
@@ -601,11 +600,11 @@ impl StreamingRoundState {
     /// invalidating the checkpoint: the request stays the same turn's
     /// projection — same history, same tool schemas, same accounting — and only
     /// the projected field changes. It exists for the image-input recovery
-    /// (ADR-0230): a provider that rejects an attachment must be retried without
+    /// a provider that rejects an attachment must be retried without
     /// it, and clearing `pending_request` instead would re-run the turn's
     /// preparation and TurnStart hooks, which the checkpoint exists to prevent.
     ///
-    /// The durable request-projection archive (ADR-0218) is written once per
+    /// The durable request-projection archive is written once per
     /// logical invocation from the freshly assembled request, so a projection
     /// applied here intentionally post-dates — and therefore differs from — that
     /// record; the withholding is reported to the user and the log instead.
@@ -762,7 +761,7 @@ struct RequestAccountingGuard {
     /// First provider stream event of *any* kind (including preamble frames).
     /// Distinct from `first_output_at`, which waits for content.
     first_frame_at: Option<std::time::Instant>,
-    /// This attempt's telemetry handle (ADR-0232). Created here, stamped onto
+    /// This attempt's telemetry handle. Created here, stamped onto
     /// the request this attempt dispatches, and read back when it settles — so
     /// the transport's timings reach the attempt that caused them, including
     /// when a shared provider is running several attempts at once.
@@ -1127,8 +1126,8 @@ impl AgentBuilder {
         }
     }
 
-    /// Add an ambient harness facet to this agent (ADR-0211).
-    /// Supply the host's ports: declared roles and per-project path policy (ADR-0300 §1).
+    /// Add an ambient harness facet to this agent.
+    /// Supply the host's ports: declared roles and per-project path policy.
     pub fn with_host(mut self, host: crate::host::KernelHost) -> Self {
         self.host = host;
         self
@@ -1139,7 +1138,7 @@ impl AgentBuilder {
         self
     }
 
-    /// Add atomic extensions to this agent (ADR-0224).
+    /// Add atomic extensions to this agent.
     pub fn with_extensions(
         mut self,
         extensions: impl IntoIterator<Item = Arc<dyn nuo_wire::Extension>>,
@@ -1759,7 +1758,7 @@ mod tests {
         );
     }
 
-    /// The capability gate is atomic and structural (ADR-0293): on a platform
+    /// The capability gate is atomic and structural: on a platform
     /// that is not fully `Supervised`, an interactive command can NEVER be
     /// dispatched as `Supervised` — it must fall back to `Sealed`. This is the
     /// invariant that prevents "arm a terminal without detection" (the macOS

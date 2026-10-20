@@ -1,4 +1,4 @@
-//! Agent-owned declarative instruction composition and registry (ADR-0056 / ADR-0160).
+//! Agent-owned declarative instruction composition and registry (ADR-0056).
 //!
 //! A system prompt has a lifecycle unlike conversational turn messages:
 //! multiple declarative policy sections compose into a structured, cache-tiered
@@ -12,7 +12,6 @@
 //!
 //! Ordering within each tier is governed by semantic [`InstructionOrder`] relations
 //! (Head, After, Before, Tail) eliminating fragile magic rank numbers.
-
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 

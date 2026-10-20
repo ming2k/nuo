@@ -3,7 +3,6 @@
 //! Unlike storing raw strings, this model preserves the structure of messages
 //! so that selection and copy operate on semantic units (blocks) rather than
 //! terminal grid characters.
-
 use nuo_wire::{Role, SubagentEvent};
 
 use crate::design::{COMMAND_CARD_LEAD_COLS, JOIN_ENUMERATE_COLS};
@@ -160,7 +159,7 @@ pub enum SystemNoticeTopic {
     TurnGuard,
     CommandAck,
     /// Image attachments were withheld from a request because the route cannot
-    /// take them (ADR-0230).
+    /// take them.
     Images,
     Custom(String),
 }
@@ -298,21 +297,20 @@ pub enum MessageKind {
         user_pinned: bool,
     },
     /// A command invocation as **one component that owns both its input and its output**
-    /// (ADR-0108, ADR-0111).
     CommandResult {
         invocation: CommandInvocation,
-        /// The typed result (ADR-0091). `None` while the command is still
+        /// The typed result. `None` while the command is still
         /// running, and when the invocation was recorded but the reply was
         /// never persisted (legacy echo folds). Boxed to keep this enum
         /// variant small (`CommandResult` carries `Vec<SearchHit>` / `Vec<ReviewVerdict>`).
         result: Option<Box<nuo_wire::CommandResult>>,
-        /// Lifecycle of the invocation (ADR-0108) — see [`CommandPhase`].
+        /// Lifecycle of the invocation — see [`CommandPhase`].
         phase: CommandPhase,
         expanded: bool,
         /// User-pinned flag — see [`MessageKind::ToolStep::user_pinned`].
         user_pinned: bool,
     },
-    /// A structured, inspectable compaction checkpoint card (ADR-0296).
+    /// A structured, inspectable compaction checkpoint card.
     CompactedCard {
         archived_messages: usize,
         window_tokens_before: usize,
@@ -324,7 +322,7 @@ pub enum MessageKind {
     },
 }
 
-/// Lifecycle of a command component (ADR-0108). Commands are synchronous
+/// Lifecycle of a command component. Commands are synchronous
 /// control-plane operations, so the lifecycle has exactly two live states plus
 /// the cancel mark — unlike a tool step there is no permission-denied or
 /// interrupted state to represent.
@@ -349,7 +347,7 @@ pub enum CommandPhase {
 /// result's shape, not stored. Commands are operations, not thread dialogue:
 /// most replies are one short line that should simply *be* the row, with no
 /// disclosure marker at all. Only a genuinely long reply earns the `+`/`-`
-/// affordance. See ADR-0106.
+/// affordance..
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandRowLayout {
     /// No result at all (shell passthroughs, legacy folds) — the row is just
@@ -378,7 +376,7 @@ pub const SENT_TIME_LABEL_COLS: usize = 8;
 /// band minus gutters), not the full terminal width.
 ///
 /// The classifier subtracts the fixed command-card chrome (identity bar +
-/// marker slot + family glyph, ADR-0109) from the budget: the inline join
+/// marker slot + family glyph) from the budget: the inline join
 /// has to fit *inside the card*, not merely inside the terminal.
 pub const COMMAND_ROW_CHROME_COLS: usize = COMMAND_CARD_LEAD_COLS + 2 /* marker slot */ + 2 /* glyph */;
 pub fn command_row_layout(
@@ -396,7 +394,7 @@ pub fn command_row_layout(
     // The inline join is `invocation` + a two-column peer gap + reply; the row
     // must hold both without truncation for the reply to read as an
     // attribute, not a fragment. The card chrome (identity bar + marker slot
-    // + glyph, ADR-0109) and the trailing timestamp eat into the same row, so
+    // + glyph) and the trailing timestamp eat into the same row, so
     // the budget subtracts them — but the time label is render-time state the
     // classifier cannot see, so the classifier subtracts only the fixed
     // chrome and the renderer's clamp guards the timestamp.
@@ -410,7 +408,7 @@ pub fn command_row_layout(
 
 /// The headline/detail split of an ack reply, when the record carries detail
 /// lines. The title is the part worth the reader's first glance; the detail
-/// is the muted explanation beneath it (ADR-0106's two-tone ack scheme).
+/// is the muted explanation beneath it (two-tone ack scheme).
 pub fn command_ack_split(result: Option<&nuo_wire::CommandResult>) -> Option<(&str, &[String])> {
     let nuo_wire::CommandResult::Ack { title, detail } = result? else {
         return None;
@@ -763,7 +761,7 @@ pub struct TranscriptMessage {
     /// Component state revision. Incremented on mutations so the cascade
     /// layout cache instantly detects if remeasurement is required.
     pub rev: u64,
-    /// Incremental parse state (ADR-0184): byte offset in `raw` where the
+    /// Incremental parse state: byte offset in `raw` where the
     /// still-open final construct begins. Everything before it is a frozen
     /// prefix whose blocks can never change; `push_stream` re-parses only
     /// from here, making streaming parse cost O(delta) amortized.
@@ -1183,7 +1181,7 @@ impl TranscriptMessage {
         message
     }
 
-    /// A slash-command invocation with its typed result (ADR-0091). `name` is
+    /// A slash-command invocation with its typed result. `name` is
     /// the command word without the leading slash (`"search"`), `"shell"` for
     /// a `!command` passthrough. The collapsed row shows the invocation; the
     /// expandable body shows `result.to_text()`. The row starts `Completed`.
@@ -1195,7 +1193,7 @@ impl TranscriptMessage {
         Self::command_result_in_phase(name, args, result, CommandPhase::Completed)
     }
 
-    /// The optimistic dispatch row (ADR-0108): the user just sent the command
+    /// The optimistic dispatch row: the user just sent the command
     /// and no result exists yet. Renders as the pending input half of the
     /// command component; the `RoundEvent::CommandResult` handler settles it
     /// in place via [`Self::settle_command_result`].
@@ -1221,7 +1219,7 @@ impl TranscriptMessage {
             .map(|result| result.to_text())
             .unwrap_or_default();
         // An ack's newlines are its chosen structure (headline + muted detail
-        // lines, ADR-0106), so it parses plain — the markdown parser's
+        // lines), so it parses plain — the markdown parser's
         // soft-break rule would squeeze those lines onto one row. Every other
         // result keeps the markdown block renderer (lists, tables, code).
         let is_ack = matches!(result, Some(nuo_wire::CommandResult::Ack { .. }));
@@ -1259,7 +1257,7 @@ impl TranscriptMessage {
         }
     }
 
-    /// Construct a structured, inspectable compaction checkpoint card (ADR-0296).
+    /// Construct a structured, inspectable compaction checkpoint card.
     pub fn compacted_card(
         archived_messages: usize,
         window_tokens_before: usize,
@@ -1324,7 +1322,7 @@ impl TranscriptMessage {
         }
     }
 
-    /// Settle a pending command component with its typed result (ADR-0108):
+    /// Settle a pending command component with its typed result:
     /// this is the *only* live path that turns [`CommandPhase::Pending`] into
     /// [`CommandPhase::Completed`], and it reuses the existing message id so
     /// the row is updated in place — one component, input and output, no
@@ -1364,7 +1362,7 @@ impl TranscriptMessage {
     }
 
     /// Mark a pending command component as never receiving a reply
-    /// (ADR-0108) — the input half stays readable but stops promising an
+    /// the input half stays readable but stops promising an
     /// output. Returns whether the transition applied.
     pub fn cancel_pending_command(&mut self) -> bool {
         if let MessageKind::CommandResult { phase, .. } = &mut self.kind
@@ -1637,7 +1635,7 @@ impl TranscriptMessage {
                 );
             }
             SubagentEvent::StreamDelta(delta) => {
-                // Identity-addressed (ADR-0114): fold the delta into the
+                // Identity-addressed: fold the delta into the
                 // latest assistant-text child of the *same* stream turn, not
                 // merely the last child — a tool-call/result child can be
                 // appended between two deltas and would otherwise fork the
@@ -1680,7 +1678,7 @@ impl TranscriptMessage {
                 );
             }
             SubagentEvent::StreamReasoningDelta(delta) => {
-                // Identity-addressed (ADR-0114): fold into the latest still-
+                // Identity-addressed: fold into the latest still-
                 // streaming thinking child. `StreamReasoningStart` pushes a
                 // stamped Thinking child; a tool-call child landing between
                 // two deltas must not fork the trace into a second entry.
@@ -1824,7 +1822,7 @@ impl TranscriptMessage {
         }
     }
 
-    /// The lifecycle phase of a command component (ADR-0108).
+    /// The lifecycle phase of a command component.
     pub fn command_result_phase(&self) -> Option<CommandPhase> {
         match &self.kind {
             MessageKind::CommandResult { phase, .. } => Some(*phase),
@@ -1832,7 +1830,7 @@ impl TranscriptMessage {
         }
     }
 
-    /// The render layout for this command row (ADR-0106): `Plain` when there
+    /// The render layout for this command row: `Plain` when there
     /// is no result, `Inline` when a single-line reply fits beside the
     /// invocation, `Disclose` otherwise. A `Pending` row has no result yet and
     /// always classifies `Plain` — the phase owns its presentation until the
@@ -1875,7 +1873,7 @@ impl TranscriptMessage {
         }
     }
 
-    /// The typed result body text (ADR-0091 `to_text`), when the record
+    /// The typed result body text (`to_text`), when the record
     /// carries a result.
     pub fn command_result_text(&self) -> Option<String> {
         match &self.kind {
@@ -1895,7 +1893,7 @@ impl TranscriptMessage {
         }
     }
 
-    /// The headline/detail split for an ack reply (ADR-0106 two-tone ack):
+    /// The headline/detail split for an ack reply (two-tone ack):
     /// the title alone when there is no detail, `None` for non-acks.
     pub fn command_ack_split(&self) -> Option<(&str, &[String])> {
         command_ack_split(self.command_result_payload())
@@ -2597,7 +2595,7 @@ impl TranscriptMessage {
     /// completed milestone state once finished (`Thought through security
     /// architecture components (1.2s)`).
     ///
-    /// Deliberately **no token count** (ADR-0191): a local cl100k count of the
+    /// Deliberately **no token count**: a local cl100k count of the
     /// visible chain is not the billed reasoning volume — hidden-CoT models
     /// bill far more than they show, and a number that ranges from exact to
     /// 10× off is noise. The authoritative reasoning-token figure lives in the
@@ -2709,7 +2707,7 @@ impl TranscriptMessage {
         })
     }
 
-    /// Structured semantic header for the tool step and optional trailing status badge (ADR-0206).
+    /// Structured semantic header for the tool step and optional trailing status badge.
     pub fn tool_step_semantic_summary(
         &self,
         workspace_root: Option<&std::path::Path>,
@@ -2998,7 +2996,7 @@ impl TranscriptMessage {
         self.live_blocks = resume.live_len;
     }
 
-    /// Append streaming text and re-parse **incrementally** (ADR-0184).
+    /// Append streaming text and re-parse **incrementally**.
     ///
     /// Only the still-open tail construct is re-parsed: everything before
     /// `resume_byte` is a frozen prefix whose blocks can never be modified by

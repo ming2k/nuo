@@ -1,5 +1,4 @@
 //! Input history: record/clear, attachment pruning, session backfill, prev/next recall, draft restore.
-
 use super::*;
 
 impl App {
@@ -9,7 +8,7 @@ impl App {
     /// composer's top chrome row (`[history 3/17 · draft saved]`).
     ///
     /// `None` while [`Self::history_index`] is `None` — the badge must not
-    /// exist in draft mode: ADR-0173/0174's zero-mode-indication-tax stance
+    /// exist in draft mode: /0174's zero-mode-indication-tax stance
     /// means the only state worth announcing is the one the user can enter
     /// silently and lose work from, and the ↑/↓ recall pointer is exactly
     /// that state (the composer swaps its content under the user's feet).
@@ -395,7 +394,7 @@ impl App {
                 // never shows the same prompt twice.
                 self.prune_backfill_after_record(&refreshed.text);
                 if self.input_history_persist {
-                    // Server-side SSOT merge (ADR-0197): the TUI never opens
+                    // Server-side SSOT merge: the TUI never opens
                     // the shared SQLite store itself.
                     self.send_intent(nuo_wire::AgentRequest::RecordInputHistory {
                         entries: vec![refreshed],

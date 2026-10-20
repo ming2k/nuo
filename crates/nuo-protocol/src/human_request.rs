@@ -1,4 +1,4 @@
-//! The human-request control protocol (ADR-0141).
+//! The human-request control protocol.
 //!
 //! Three protocols used to park an agent mid-round on a human decision —
 //! permission approval, `ask_user` questions, and interactive stdin — each
@@ -13,7 +13,6 @@
 //! fabricated human decision. Under this protocol a request only resolves
 //! as [`ReplyProvenance::User`] when a human saw it; everything else is
 //! labeled policy.
-
 use serde::{Deserialize, Serialize};
 
 /// Which of the three parked protocols a request belongs to. Carried on
@@ -110,7 +109,7 @@ impl HumanReply {
 }
 
 /// Session-level OR-accounting of attached clients' postures
-/// (ADR-0141). One [`HumanChannelPosture::Interactive`] client keeps the
+/// One [`HumanChannelPosture::Interactive`] client keeps the
 /// session interactive; the session is autonomous only while zero
 /// interactive clients are attached. Shared by the WS attach layer (attach
 /// / detach) and the harness (posture gate) — the harness reads, the WS

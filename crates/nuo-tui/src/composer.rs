@@ -5,7 +5,6 @@
 //! 12 chars`). Inside the panel, in-box text wrapping with vertical scroll
 //! keeps the caret visible, and per-row layout-map recording drives semantic
 //! selection / copy.
-
 use nuotc::text::{cursor_column, str_len};
 use nuotc::{
     Color, Frame, Modifier, Paragraph, Rect, Style, {Line, Span},
@@ -86,7 +85,7 @@ fn top_chrome_row(
         // degrade-then-simplify discipline: the full clause set on
         // comfortable widths, the bare pointer once space runs out. The
         // pointer itself (`3/17`) is the last element to go — it is the
-        // badge's entire point (ADR-0192).
+        // badge's entire point.
         let label = if full_w >= 44 {
             let mut label = format!("[history {position}/{total}");
             if edited {

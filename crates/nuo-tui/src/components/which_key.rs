@@ -4,7 +4,7 @@
 //! is **generated from the namespace's own verb table**
 //! ([`crate::keymap::scene_namespace`]) — the same table the router resolves
 //! against — so a verb can never be dispatchable without being advertised, nor
-//! advertised without being dispatchable (ADR-0238). Completely decoupled from
+//! advertised without being dispatchable. Completely decoupled from
 //! View layouts, with zero layout shift.
 //!
 //! On **modern terminals** (`Chromatic`: TrueColor / 256-color, which can
@@ -14,7 +14,6 @@
 //! `Structured` (monochrome / Linux VT) terminals, where a background delta is
 //! indistinguishable or unavailable, it keeps an explicit frame via
 //! [`Theme::elevation`], mirroring `elevation::modal_frame`.
-
 use nuotc::{
     Block as RtBlock, BorderType, Borders, Clear, Frame, Line, Paragraph, Rect, Span, Style,
 };
@@ -274,7 +273,7 @@ mod tests {
         assert!(!content.contains("C-x"));
     }
 
-    /// ADR-0298 §1 / ADR-0238: the card is *generated* from the namespace's verb
+    /// The card is *generated* from the namespace's verb
     /// table — every verb the table declares appears on the card, keyed by the
     /// stroke that verb advertises. A verb cannot be added to the dispatcher
     /// without appearing here, and the card cannot print a stroke no verb

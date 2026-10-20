@@ -1,4 +1,4 @@
-//! Architectural guard for the one-door rule (ADR-0231).
+//! Architectural guard for the one-door rule.
 //!
 //! The compile-time half of the rule is the engine's privacy: `DatabaseEngine`
 //! is `pub(crate)`, so no other crate can name a connection. That covers the
@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 const THE_DOOR: &str = "nuo-persistence/src/db.rs";
 
 /// Child modules of the door (`src/db/*.rs`): still inside `nuo-persistence::db`,
-/// so the ADR-0231 boundary is unchanged when `db.rs` is split into a directory.
+/// so the boundary is unchanged when `db.rs` is split into a directory.
 const THE_DOOR_DIR: &str = "nuo-persistence/src/db/";
 
 /// This guard names the forbidden patterns, so it exempts itself.
@@ -75,7 +75,7 @@ fn is_exempt(path: &Path, root: &Path) -> bool {
     rel == THE_DOOR
         || rel.starts_with(THE_DOOR_DIR)
         || rel == THE_GUARD
-        || rel == "nuo-persistence/src/role_memory.rs" // ADR-0248: isolated role-scoped SQLite store
+        || rel == "nuo-persistence/src/role_memory.rs" // Isolated role-scoped SQLite store
 }
 
 /// Concatenated source of the door module: `db.rs` plus every `src/db/*.rs`
@@ -151,7 +151,7 @@ fn only_the_persistence_door_names_a_connection() {
 
     assert!(
         violations.is_empty(),
-        "ADR-0231: a SQLite connection may only be created in {THE_DOOR}.\n\
+        "A SQLite connection may only be created in {THE_DOOR}.\n\
          Every mutation goes through the single-writer actor (`PersistenceHandle`);\n\
          every read through the reader it hands out (`handle.reader()`).\n\
          Offending lines:\n{}",
@@ -175,7 +175,7 @@ fn the_door_exposes_exactly_two_ways_in() {
     ] {
         assert!(
             text.contains(needle),
-            "ADR-0231 invariant missing from {THE_DOOR}: {needle}"
+            "one-door invariant missing from {THE_DOOR}: {needle}"
         );
     }
 
@@ -183,7 +183,7 @@ fn the_door_exposes_exactly_two_ways_in() {
     // whole rule undone in one word.
     assert!(
         !text.contains("\npub struct DatabaseEngine"),
-        "DatabaseEngine must stay crate-private (ADR-0231)"
+        "DatabaseEngine must stay crate-private"
     );
 }
 

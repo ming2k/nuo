@@ -1,5 +1,4 @@
 //! The main TUI event/render loop and its modular subsystems.
-
 pub(crate) mod actions;
 pub(crate) mod apply;
 pub(crate) mod component_input;
@@ -260,7 +259,7 @@ pub async fn run_app_loop(
             frame_dirty = true;
         }
 
-        // ADR-0197 M1: drain every pending translator mutation into `App`.
+        // M1: drain every pending translator mutation into `App`.
         // The applier is the sole `App` writer for server-originated state;
         // this pass runs before any reconciliation or render.
         while let Ok(mutation) = mutation_rx.try_recv() {
@@ -630,7 +629,7 @@ async fn process_one_event<W: io::Write>(
         _ => app.surfaces.active_overlay(),
     };
     let is_responding = app.viewed_chrome().responding;
-    // Scene-local liveness for the Subagent scene's Esc interrupt (ADR-0205):
+    // Scene-local liveness for the Subagent scene's Esc interrupt:
     // the viewed child's own round state, precomputed here so it does not fight
     // the `&mut app.input` borrow in the dispatch call below.
     let focused_subagent_running = app.focused_subagent_running();

@@ -25,7 +25,7 @@ pub use nuo_client::wire::{AttachAction, ControlRequest, Wire};
 
 /// How long a draining server waits, per connection, for the client to
 /// complete the closing handshake after it is sent `Close(1001 GoingAway)`
-/// (ADR-0101). Clients see a clean disconnect instead of a TCP reset when
+/// Clients see a clean disconnect instead of a TCP reset when
 /// the process exits.
 const DRAIN_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
@@ -267,7 +267,7 @@ pub(crate) fn is_attach_sync_event(response: &AgentResponse) -> bool {
     }
 }
 
-/// Refuse a wire-protocol-skewed attach (ADR-0134) with an actionable
+/// Refuse a wire-protocol-skewed attach with an actionable
 /// message naming both the protocol window and the product builds. Sent
 /// before any session work. Directional: a too-old client hears "update",
 /// a too-new client hears "restart the server".
@@ -296,9 +296,9 @@ fn protocol_mismatch_error(client: u32, client_version: Option<&str>) -> String 
 }
 
 /// Refuse a version-skewed attach with an actionable both-versions message
-/// (ADR-0100 rule 4), with directional recommendations. Returned before any
+/// (rule 4), with directional recommendations. Returned before any
 /// session work happens. Applies only to clients that predate the protocol
-/// field (ADR-0134) — a client that declares a protocol number is judged on
+/// field — a client that declares a protocol number is judged on
 /// the window alone, its product version never enters the decision.
 fn version_mismatch_error(client: &str, server: &str) -> String {
     use nuo_client::{VersionRelation, compare_versions};
@@ -320,7 +320,7 @@ fn version_mismatch_error(client: &str, server: &str) -> String {
     }
 }
 
-/// Per-connection registry (ADR-0101): every accepted socket's task is
+/// Per-connection registry: every accepted socket's task is
 /// tracked here with its own cancel token, so a draining server can close
 /// each live connection with a proper WebSocket `Close(1001 GoingAway)`
 /// instead of vanishing under it. Connections remove themselves on exit.
@@ -478,7 +478,7 @@ pub struct ServeOptions {
     pub port: u16,
     pub expose: ServeExpose,
     pub token: Option<String>,
-    /// Require a bearer token even on loopback (ADR-0105): when `true` and no
+    /// Require a bearer token even on loopback: when `true` and no
     /// explicit `token` is set, the listener generates one and publishes it
     /// via the discovery record (owner-only, 0600). Defends the control plane
     /// against drive-by connections from other local processes and other
@@ -559,7 +559,7 @@ pub struct ServeHandle {
     /// (the loops then exit and are joined through `tasks`).
     pub cancel: CancellationToken,
     /// The connection table: every live connection's cancel token, for the
-    /// drain phase (ADR-0101).
+    /// drain phase.
     pub conns: Arc<ConnTable>,
     /// Supervised accept tasks; `host::run` joins them during shutdown to
     /// *confirm* the loops exited (and to clean up native local-listener state
@@ -570,7 +570,7 @@ pub struct ServeHandle {
     /// `nuo stop` verb) funnels into it like any other trigger.
     pub gate: Arc<ShutdownGate>,
     /// This server build's version, echoed to clients during handshake
-    /// version negotiation (ADR-0100 rule 4).
+    /// version negotiation (rule 4).
     pub version: &'static str,
 }
 
@@ -791,7 +791,7 @@ pub fn start_server(
     let gate = Arc::new(ShutdownGate::new().with_version(server_version()));
     let token = opts.token.clone().or_else(|| match opts.expose {
         ServeExpose::Public => Some(generate_token()),
-        // Loopback auth (ADR-0105): generated per start, published owner-only
+        // Loopback auth: generated per start, published owner-only
         // in the discovery record; Rust clients read and present it, browser
         // clients use the `bearer.` subprotocol.
         ServeExpose::Local if opts.local_auth => Some(generate_token()),
@@ -1116,7 +1116,7 @@ fn spawn_connection<S>(
                 conns: conns_for_guard,
                 tcp_manager,
             }) => r,
-            // Draining server (ADR-0101): cancel the connection's future.
+            // Draining server: cancel the connection's future.
             // The socket drops with it, closing the TCP stream; clients
             // treat the disconnect exactly like a Close frame — reconnect
             // with backoff. (Sending a graceful Close frame from *here* is
@@ -1144,7 +1144,7 @@ impl Drop for ConnGuard {
     }
 }
 
-/// Execute a session-management verb (ADR-0096) and reply once. The control
+/// Execute a session-management verb and reply once. The control
 /// channel is request/response (unlike the streaming monitor/attach roles):
 /// one `ControlRequest` in, one `ControlReply` out, then the connection may
 /// close or issue another verb.
@@ -1180,7 +1180,7 @@ async fn run_control(
             return Ok(());
         }
         ControlRequest::Shutdown => {
-            // The remote stop verb (ADR-0100): acknowledge on the wire first
+            // The remote stop verb: acknowledge on the wire first
             // — the gate fires the same drain as any signal, which would
             // otherwise cancel this very connection before the reply lands.
             let reply = Wire::ControlReply {
@@ -1258,7 +1258,7 @@ async fn run_control(
             }
         }
         ControlRequest::AskArchivist { text } => {
-            // ADR-0208: the Archivist's answer is a *successful* query
+            // The Archivist's answer is a *successful* query
             // result, so it travels in the reply's free-string channel with
             // ok=true (the field is historically named `error`; the control
             // grammar has no dedicated result slot). A failed round keeps
@@ -1359,12 +1359,12 @@ async fn handle_wire_stream(
             }
             None => return Ok(()),
         };
-    // Protocol negotiation (ADR-0134), enforced before any session work.
+    // Protocol negotiation, enforced before any session work.
     // The protocol number is the authority when present: the server serves
     // any number in [MIN_PROTOCOL_VERSION, PROTOCOL_VERSION] regardless of
     // the product build — this is what lets a pinned client keep talking to
     // a newer server across additive wire changes. A client that sends no
-    // protocol number predates the field, so it is judged by ADR-0100
+    // protocol number predates the field, so it is judged
     // rule 4's exact product-version equality instead (unknown fields are
     // ignored by serde, so this server's newer frames never break it).
     if let Some(client) = client_protocol
@@ -1378,7 +1378,7 @@ async fn handle_wire_stream(
         .await?;
         return Ok(());
     }
-    // Legacy product-version gate (ADR-0100 rule 4) for pre-protocol
+    // Legacy product-version gate (rule 4) for pre-protocol
     // clients only. A protocol-declaring client has already been judged on
     // the window; its product version is advisory identity, not a gate.
     if client_protocol.is_none()
@@ -1403,7 +1403,7 @@ async fn handle_wire_stream(
         AttachAction::New(_) | AttachAction::Attach(_) | AttachAction::Picker(_) => {}
     }
     let _interactive_guard = conns.register_interactive();
-    // The caller's project scopes creation / lazy resume (ADR-0096). Attach
+    // The caller's project scopes creation / lazy resume. Attach
     // clients declare their working directory in the Select frame's optional
     // `project`; a client predating that field sends none and the server
     // falls back to its own process cwd — which is whatever the first client
@@ -1490,7 +1490,7 @@ async fn handle_wire_stream(
         .send(todos_frame)
         .await
         .map_err(|e| format!("send todos restore: {e}"))?;
-    // Attach-time `/retry` affordance (ADR-0128): a session re-hosted after
+    // Attach-time `/retry` affordance: a session re-hosted after
     // its round stopped (server restart, lazy resume) carries the durable
     // resume point in its store, but the attaching client never saw the
     // idle `HarnessState` that would have published it. Push one now so the
@@ -1498,7 +1498,7 @@ async fn handle_wire_stream(
     // client had been attached when the round stopped.
     {
         // The agent handle does not ride on `BoundSession`, so read the
-        // posture straight from the session store (ADR-0132: the store is
+        // posture straight from the session store (the store is
         // the source of truth for the persisted posture). A session that
         // died delegated re-attaches with `delegated: true` in this very
         // first snapshot — the badge paints immediately instead of waiting
@@ -1548,7 +1548,7 @@ async fn handle_wire_stream(
                 .map_err(|e| format!("send performance restore: {e}"))?;
         }
     }
-    // ADR-0141: fold this client's declared posture into the session's
+    // Fold this client's declared posture into the session's
     // human channel. First interactive attach flips the session interactive;
     // this never *removes* interactivity (only a detach can). The trust
     // prompt below is additionally gated on the client itself being
@@ -1572,7 +1572,7 @@ async fn handle_wire_stream(
             .await;
     }
 
-    // Replay the buffered attach-sync events (ADR-0096) so a client that
+    // Replay the buffered attach-sync events so a client that
     // attached after the session began hydrates its picker/key/context
     // state immediately, before joining the live broadcast.
     // Non-destructive snapshot ensures subsequent attachers or resyncs
@@ -1746,7 +1746,7 @@ where
         conns,
         tcp_manager,
     } = params;
-    // One handshake path for every TCP connection (ADR-0105), token or not:
+    // One handshake path for every TCP connection, token or not:
     // the callback is where browser-origin and Host validation live, and
     // those checks apply to unauthenticated loopback listeners too.
     let ws_stream = tokio_tungstenite::accept_hdr_async(
@@ -1756,7 +1756,7 @@ where
             if let Some(expected) = token.as_deref() {
                 match check_credentials(req, expected) {
                     Ok(Some(protocol)) => {
-                        // The browser channel (ADR-0105): the token arrives as
+                        // The browser channel: the token arrives as
                         // a `bearer.<token>` subprotocol offer; the handshake
                         // must echo it or the browser aborts the connection.
                         if let Ok(value) = tungstenite::http::HeaderValue::from_str(&protocol) {
@@ -1787,7 +1787,7 @@ where
     .await
 }
 
-/// Serve a host-observability client (ADR-0093): send one snapshot, then —
+/// Serve a host-observability client: send one snapshot, then —
 /// while `watch` holds — stream diffs until the client hangs up. The channel
 /// is strictly server → client; monitor clients never steer sessions, so any
 /// inbound frame other than a close is ignored. The subscription is taken
@@ -1811,7 +1811,7 @@ async fn run_monitor(
     tokio::pin!(drain);
     loop {
         tokio::select! {
-            // Server draining (ADR-0101): say so on the stream, then close.
+            // Server draining: say so on the stream, then close.
             // Watch clients get an explicit terminal signal instead of an
             // abrupt disconnect they might misread as a network fault.
             _ = &mut drain => {
@@ -1859,7 +1859,7 @@ async fn run_monitor(
 }
 
 /// Send one monitor stream frame. Frames ride the `Wire::Monitor` envelope
-/// (ADR-0093 §4), so the client sees the same wire shape for the initial
+/// so the client sees the same wire shape for the initial
 /// snapshot and every diff.
 async fn send_monitor(wire_sink: &mut BoxWireSink, event: MonitorEvent) -> Result<(), String> {
     wire_sink
@@ -1872,7 +1872,7 @@ async fn send_error(wire_sink: &mut BoxWireSink, message: &str) -> Result<(), St
     send_error_with_code(wire_sink, message, None).await
 }
 
-/// `send_error` with a stable machine-readable `code` (ADR-0105) so clients
+/// `send_error` with a stable machine-readable `code` so clients
 /// can branch on the reason instead of string-sniffing the message.
 async fn send_error_with_code(
     wire_sink: &mut BoxWireSink,
@@ -1949,7 +1949,7 @@ fn is_loopback_host(host: &str) -> bool {
     matches!(host, "127.0.0.1" | "localhost" | "::1") || host.strip_suffix(".localhost").is_some()
 }
 
-/// Browser drive-by defense (ADR-0105). WebSocket handshakes are not subject
+/// Browser drive-by defense. WebSocket handshakes are not subject
 /// to the same-origin policy: any page the user visits can open
 /// `ws://127.0.0.1:<port>` and drive the server — *unless* the server checks.
 /// Browsers always send `Origin` on a WebSocket upgrade, so on a loopback
@@ -1984,7 +1984,7 @@ fn validate_origin(req: &Request, expose: ServeExpose) -> Result<(), ErrorRespon
 }
 
 /// Subprotocol carrying a bearer token from clients that cannot set headers
-/// (browsers): `Sec-WebSocket-Protocol: bearer.<token>` (ADR-0105).
+/// (browsers): `Sec-WebSocket-Protocol: bearer.<token>`.
 const BEARER_SUBPROTOCOL_PREFIX: &str = "bearer.";
 
 /// Credential check for the handshake: `Authorization: Bearer` first, then
@@ -2130,7 +2130,7 @@ mod tests {
     }
     #[test]
     fn end_session_serializes_as_flattened_null_unit_variant() {
-        // ADR-0112: `EndSession` is a unit variant flattened into the
+        // `EndSession` is a unit variant flattened into the
         // `Wire::Request` envelope, so it must appear as a key with a `null`
         // value next to `"type"` — the same shape `Interrupt` uses, and what
         // the Web app's `requestFrame({ EndSession: null })` sends.
@@ -2213,7 +2213,7 @@ mod tests {
         );
         let back: AttachAction = serde_json::from_str(r#"{"attach":"abc"}"#).unwrap();
         assert_eq!(back, AttachAction::Attach(Some("abc".into())));
-        // The picker action (ADR-0116) serializes as a bare unit variant;
+        // The picker action serializes as a bare unit variant;
         // an older server that does not know it fails the Select frame with
         // a clear deserialize error instead of a mid-handshake protocol
         // fault.

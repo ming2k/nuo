@@ -26,7 +26,6 @@
 //!
 //! New strategies are added by implementing the trait and wiring a match arm
 //! in [`Strategy::build`].
-
 pub mod turn_band;
 
 use nuotc::flex::{Flex, FlexItem};
@@ -178,7 +177,7 @@ impl VirtualLayoutIndex {
 /// index so the renderer can still skip all preceding off-screen history
 /// in O(1) binary search time rather than scanning every settled message.
 ///
-/// Geometry comes from the engine's flex solver (ADR-0114): the chunks are
+/// Geometry comes from the engine's flex solver: the chunks are
 /// declared as a single vertical flex pass — `FlexItem::fixed(chunk_height)`
 /// per chunk, `Flex::column()` with no gap (inter-chunk spacing is already
 /// part of each chunk's height via `default_gap_before`) — and the solver
@@ -442,7 +441,7 @@ pub struct Stream<'a, 'f> {
     pub cell_selection: Option<&'a CellDragInfo>,
     pub hovered_step: Option<usize>,
     pub focused_target: Option<InteractiveTarget>,
-    /// Ambient session workspace root (ADR-0206).
+    /// Ambient session workspace root.
     pub workspace_root: Option<&'a std::path::Path>,
     /// First / exclusive-last message selected by a [`VirtualLayoutIndex`].
     /// The normal path covers the full slice.
@@ -508,7 +507,7 @@ impl<'a, 'f> Stream<'a, 'f> {
 
         let body_before = self.content_lines;
         // Streaming Thinking messages participate in the height cache like
-        // every other live message (ADR-0184): their rev advances per delta,
+        // every other live message: their rev advances per delta,
         // so a cached height is only ever read while the trace is unchanged —
         // the old hard `skippable == false` rule existed only because the
         // rev was never bumped on reasoning deltas.

@@ -1,5 +1,4 @@
 //! Tools for interacting with the skill registry.
-
 use super::{SkillRegistry, SkillScope};
 use async_trait::async_trait;
 use nuo_wire::{BuiltinTool, Tool};
@@ -126,7 +125,7 @@ impl Tool for ListSkillsTool {
 // design is progressive disclosure — skill metadata in the request with bodies
 // loaded on demand — and that is not yet implemented either, so today the model
 // reaches skills through mention injection and the `skill` subagent role, and
-// reaches skill files with the ordinary file tools. See ADR-0237.
+// reaches skill files with the ordinary file tools..
 //
 // Do not describe these tools as available to the model until a call site
 // installs them.

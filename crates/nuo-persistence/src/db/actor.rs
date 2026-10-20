@@ -1,10 +1,10 @@
 //! The supervised single-writer actor: command execution, respawn/backoff,
-//! and writer-thread storage metrics (ADR-0196, ADR-0236 D7).
+//! and writer-thread storage metrics (D7).
 use super::*;
 
 impl PersistenceCommand {
     /// Execute against the writer's engine. Every engine call is panic-
-    /// guarded (ADR-0196 D1): a poisoned command settles its own ack as
+    /// guarded (D1): a poisoned command settles its own ack as
     /// [`PersistenceError::Poisoned`] and the actor survives. Returns
     /// `false` only for the test-only death command.
     fn execute(self, engine: &DatabaseEngine) -> bool {
@@ -230,7 +230,7 @@ impl PersistenceCommand {
 
     /// Resolve every ack with `Err(error)` without executing. Used by the
     /// supervisor to drain commands honestly while the writer is down
-    /// (ADR-0196 D5): the command was never durable, and pretending
+    /// (D5): the command was never durable, and pretending
     /// otherwise would convert a visible failure into silent data loss.
     pub(super) fn fail(self, error: PersistenceError) {
         match self {
@@ -310,7 +310,7 @@ impl PersistenceCommand {
     }
 }
 
-/// The supervised single writer (ADR-0196 D1).
+/// The supervised single writer (D1).
 ///
 /// Front-door commands land here; the supervisor forwards them to the
 /// *current* writer generation's channel. On writer death (send failure —
@@ -345,7 +345,7 @@ pub(super) async fn run_supervisor(
         // Dropping the current sender lets the writer thread finish; its
         // engine close checkpoints any live WAL back into the main database,
         // and the fresh generation recreates the on-disk `-wal`/`-shm` pair
-        // that heals subsequent read-only reader opens (ADR-0231).
+        // that heals subsequent read-only reader opens.
         if let PersistenceCommand::RebuildEngine { ack } = command {
             attempt = 1;
             since_ms = unix_ms();
@@ -496,7 +496,7 @@ pub(super) async fn run_supervisor(
     });
 }
 
-/// Record the ADR-0236 D7 storage-pressure signals on the writer thread: WAL
+/// Record the D7 storage-pressure signals on the writer thread: WAL
 /// size, usage-projection backlog and lag, and reader age. A large WAL or an
 /// old reader is what prevents checkpoint reclamation. Never logs prompt
 /// contents or credentials.
@@ -533,14 +533,14 @@ fn log_storage_metrics(db_path: &Path, engine: &DatabaseEngine, reader_ages: &Re
     );
 }
 
-/// WAL size beyond which the writer attempts a bounded checkpoint (ADR-0236
+/// WAL size beyond which the writer attempts a bounded checkpoint (
 /// D7: "checkpoint or reader pressure must not grow without limit").
 const WAL_CHECKPOINT_THRESHOLD_BYTES: u64 = 32 * 1024 * 1024;
 /// Age beyond which an active reader snapshot is reported as the pressure
 /// that keeps the WAL from being reclaimed.
 const READER_AGE_WARN_MS: u64 = 30_000;
 
-/// ADR-0236 D7: bound WAL growth and surface reader pressure. Runs on the
+/// D7: bound WAL growth and surface reader pressure. Runs on the
 /// writer thread between transactions.
 ///
 /// Graduated policy:
@@ -641,10 +641,10 @@ async fn spawn_writer(
             // The engine is owned as an `Option` so the `RetireEngine`
             // handshake can close it deterministically *before* the ack —
             // a fresh generation must never open while a wedged engine is
-            // still live (ADR-0231).
+            // still live.
             let mut engine = Some(engine);
             let mut foreground = 0u32;
-            // ADR-0236 D7 measurement contract: sample storage pressure on the
+            // D7 measurement contract: sample storage pressure on the
             // writer thread (the only place with the engine) and never log
             // prompt contents or credentials.
             const METRICS_INTERVAL: Duration = Duration::from_secs(5);
@@ -681,7 +681,7 @@ async fn spawn_writer(
                 };
                 if let PersistenceCommand::RetireEngine { ack } = command {
                     // Copy every WAL frame into the main database while the
-                    // engine is still fully functional (ADR-0231): the
+                    // engine is still fully functional: the
                     // close-time checkpoint is a heuristic — it can be
                     // skipped, or deferred by close-v2 teardown — and the
                     // fresh generation must never depend on it. A live
@@ -746,7 +746,7 @@ async fn spawn_writer(
 mod tests {
     use super::*;
 
-    /// ADR-0236 D7: the maintenance pass checkpoints a pressured WAL and
+    /// D7: the maintenance pass checkpoints a pressured WAL and
     /// reports an over-age reader without wedging the engine.
     #[test]
     fn maintain_storage_pressure_bounds_the_wal_and_reports_old_readers() {

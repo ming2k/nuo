@@ -1,4 +1,4 @@
-//! Per-modal keybinding schemes (ADR-0172).
+//! Per-modal keybinding schemes.
 //!
 //! Each modal owns the single-letter *verb* keys that act on its rows and
 //! sub-layers — `space`/`r` in the MCP manager, `d`/`n`/`i` in the sessions
@@ -12,7 +12,6 @@
 //! and `None` to fall through to the shared affordance library / text
 //! insertion. It is consulted by `crate::input::route_event` whenever a
 //! modal is active, before the shared arms.
-
 use crossterm::event::{KeyCode, KeyModifiers};
 
 use crate::input::readline::{
@@ -22,7 +21,7 @@ use crate::input::readline::{
 use crate::input::{InputAction, OauthCopyTarget};
 use crate::keymap::LiveHint;
 
-/// The modal handlers' own sub-state (ADR-0197 M2): which modal sub-layer is
+/// The modal handlers' own sub-state (M2): which modal sub-layer is
 /// live, which field is focused, which pane owns focus. Built once per event
 /// by the caller; every read below is modal-local, so nothing else leaks in.
 #[derive(Debug, Default, Clone)]
@@ -572,7 +571,7 @@ pub(crate) fn live_history_hints() -> &'static [LiveHint] {
 /// into the focused field.
 /// Settings scene: `space` activates the row; in the Detail pane `1`/`h` and
 /// `2`/`l` step segments. The scene has **no exit verb of its own**: leaving is
-/// the `Ctrl+X` namespace alone (ADR-0298), so no printable letter is
+/// the `Ctrl+X` namespace alone, so no printable letter is
 /// overloaded here.
 fn resolve_config_key(c: char, keys: &ModalKeys) -> Option<InputAction> {
     if c == ' ' {
@@ -632,7 +631,7 @@ fn resolve_picker_key(c: char, is_models: bool, keys: &ModalKeys) -> Option<Inpu
         return Some(InputAction::OpenModelDetail);
     }
     if is_models && c == 'x' {
-        // Models browse mode: 'x' blocks/intercepts the highlighted model from the connection pipe (ADR-0203 §10).
+        // Models browse mode: 'x' blocks/intercepts the highlighted model from the connection pipe.
         return Some(InputAction::ProviderPickerBlockModel);
     }
     if !is_models && c == 'a' {
@@ -664,7 +663,7 @@ fn resolve_picker_key(c: char, is_models: bool, keys: &ModalKeys) -> Option<Inpu
 /// suspend, `p`/`n` opening the inline prompt / new-session field, and any
 /// other char seeding the console composer ("typing is opening"). The scene has
 /// **no exit verb of its own**: leaving is the `Ctrl+X` namespace alone
-/// (ADR-0298), so `q` types like every other unclaimed letter.
+/// so `q` types like every other unclaimed letter.
 fn resolve_host_key(c: char) -> Option<InputAction> {
     match c {
         'a' => Some(InputAction::HostSwitchSelected),
@@ -714,7 +713,6 @@ fn resolve_host_prompt_key(
         }
         KeyCode::Enter => InputAction::HostPromptSubmit,
         // Esc cancels the prompt — a scene-local step back, never a scene exit
-        // (ADR-0298 §2).
         KeyCode::Esc => InputAction::SceneBack,
         _ => InputAction::None,
     }

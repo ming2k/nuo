@@ -1,4 +1,4 @@
-//! Spatiotemporal Aspect Engine contracts (ADR-0183).
+//! Spatiotemporal Aspect Engine contracts.
 //!
 //! Governs the five deterministic lifecycle phases of the Agent Harness:
 //! 1. Pre-flight (intent evaluation & model tier selection)
@@ -6,7 +6,6 @@
 //! 3. In-flight Stream (token-stream monitoring & semantic loop interception)
 //! 4. Tool-Gating (anti-derailment: repeated calls, doom mutation, token budgets)
 //! 5. Round-EOL (memory digest accumulation, title generation, compaction)
-
 use serde::{Deserialize, Serialize};
 
 /// The five canonical lifecycle phases of the Spatiotemporal Aspect Engine.

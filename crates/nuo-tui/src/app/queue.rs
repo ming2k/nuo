@@ -1,5 +1,4 @@
 //! The dispatch queue: block/resume, reorder, recall/restore, and the queue-pointer stash/commit cycle.
-
 use super::*;
 
 impl App {
@@ -70,7 +69,7 @@ impl App {
     /// Remove the viewed session's outbox item at display index `idx`. Used by
     /// the queue modal's `D` delete. Returns the removed dispatch (mostly for
     /// tests).
-    /// The id of the queue-modal-highlighted item (ADR-0197 M4: queue verbs
+    /// The id of the queue-modal-highlighted item (M4: queue verbs
     /// address the server queue by id).
     pub fn queued_at(&self, session_id: &str, idx: usize) -> Option<&QueuedDispatch> {
         self.pending_dispatch
@@ -80,7 +79,7 @@ impl App {
     }
 
     /// Set (not toggle) the local pause projection; the server verb is
-    /// authoritative (ADR-0197 M4).
+    /// authoritative (M4).
     pub fn set_queue_blocked(&mut self, session_id: &str, blocked: bool) {
         if blocked {
             self.queue_blocked_sessions.insert(session_id.to_string());

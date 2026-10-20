@@ -4,7 +4,6 @@
 //! See [`super`] for the full architectural overview; this module owns the
 //! state types and the accent/weight/affordance resolution so they can be
 //! unit-tested in isolation from rendering.
-
 use nuotc::Color;
 
 use super::Theme;
@@ -33,7 +32,7 @@ impl Disclosure {
 
 /// Transient interaction with a step summary, recomputed every frame from
 /// pointer / keyboard state. Never persisted. Resolves to the affordance
-/// **hue** channel (ADR-0174), not a luminance rung.
+/// **hue** channel, not a luminance rung.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Interaction {
     /// Not under the pointer and not keyboard-focused.
@@ -69,7 +68,7 @@ impl Interaction {
 /// is the "is it open?" channel only; it never depends on lifecycle or
 /// interaction, so it cannot leak run-state into the brightness.
 ///
-/// **Disclosure-first luminance, hue-separated interaction (ADR-0174).**
+/// **Disclosure-first luminance, hue-separated interaction.**
 /// Disclosure picks the base tone; interaction no longer competes on
 /// brightness. The old `muted < hover < fg` ladder made "hover" and "open"
 /// two rungs of the *same* channel — the active (expanded) state was
@@ -89,7 +88,7 @@ pub fn summary_weight(disclosure: Disclosure, theme: &Theme) -> Color {
 }
 
 impl Interaction {
-    /// The transient affordance **hue** (ADR-0174): the second presentation
+    /// The transient affordance **hue**: the second presentation
     /// channel. Hover/focus resolve to the theme's affordance token — a
     /// *tint*, not a luminance step — so "this is interactive" is visually
     /// orthogonal to "this is open" and can never be out-shone by it. Idle
@@ -111,7 +110,7 @@ impl Interaction {
 ///   collapsed and idle (per ADR 0008, a steady hue — never a breathing
 ///   sweep). It leans toward the disclosure luminance when the body is open
 ///   (`ACCENT_EXPANDED_BLEND`) and stays intact while collapsed.
-/// - **Interaction affordance hue** (ADR-0174): hover/focus tint the result
+/// - **Interaction affordance hue**: hover/focus tint the result
 ///   toward the theme's affordance token (`INTERACTION_HOVER_BLEND`) — a hue
 ///   shift on top of whatever luminance/hue the summary already has, so the
 ///   cue reads identically on plain, accented, and open summaries without
@@ -175,7 +174,7 @@ mod tests {
     /// The disclosure luminance rungs stay distinct, and the affordance hue
     /// is distinct from both of them — so "interactive" (hue) can never be
     /// confused with "open" or "idle" (luminance). This is the core invariant
-    /// of the ADR-0174 channel separation.
+    /// of the channel separation.
     #[test]
     fn three_tones_are_distinct() {
         let theme = Theme::default();

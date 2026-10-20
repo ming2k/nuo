@@ -10,7 +10,6 @@
 //! The implementation still destructures the driver into the local names used
 //! by the original inline task. This keeps the dispatch body unchanged while
 //! making its ownership boundary explicit.
-
 use crate::handlers_chat::ChatEnv;
 use crate::handlers_slash::SlashEnv;
 use crate::mcp::McpRuntime;
@@ -106,7 +105,7 @@ use crate::startup::SessionStart;
 /// as dormant; if the server move resumes, the fields can become private
 /// without changing the driver model.)
 #[allow(clippy::type_complexity)]
-/// The driver-owned follow-up queue authority (ADR-0197 M4).
+/// The driver-owned follow-up queue authority (M4).
 ///
 /// One queue per hosted session driver, keyed by target session (the
 /// primary *and* live asides — each item carries its target's id, and the
@@ -225,9 +224,9 @@ pub struct SessionDriver {
     pub agent: Arc<Agent>,
     /// The primary session store.
     pub session: Arc<SessionStore>,
-    /// Authoritative runtime configuration shared across all hosted sessions (ADR-0209).
+    /// Authoritative runtime configuration shared across all hosted sessions.
     pub config: crate::SharedConfig,
-    /// Authoritative connection usage shared across all hosted sessions (ADR-0209).
+    /// Authoritative connection usage shared across all hosted sessions.
     pub provider_usage: crate::SharedConnectionUsage,
     /// The shared provider holder backing the `ProxyProvider`
     /// (`provider_for_task` in the old code).
@@ -333,7 +332,7 @@ impl SessionDriver {
         let initial_session_id = session.id().await;
         token_ledger.restore_session(&initial_session_id, session.request_usage_records().await);
         token_ledger.set_active_session(initial_session_id.clone());
-        // Crash-residue recovery (ADR-0128). The round path arms the durable
+        // Crash-residue recovery. The round path arms the durable
         // `/retry` resume point only on stops it can observe — a terminal
         // error after the provider retry budget, an interrupt past the
         // phase-1 unsend window. A process that dies with a round on the
@@ -378,7 +377,7 @@ impl SessionDriver {
                     tracing::warn!(%error, "could not arm crash-resume retry point");
                 }
             }
-            // ADR-0236 D4: the residue read above is the store's last word on
+            // D4: the residue read above is the store's last word on
             // the crash. Commit the reclassification so every reader — not just
             // this process's ledger — sees the abandoned attempt resolved,
             // rather than having it filtered out as an unresolved in-flight.
@@ -404,7 +403,7 @@ impl SessionDriver {
                 nuo_wire::ContextTokenSource::Projection,
             )),
         ));
-        // Session-scoped idle snapshot (ADR-0128): publishes the `/retry`
+        // Session-scoped idle snapshot: publishes the `/retry`
         // affordance from the durable resume point so a session whose round
         // stopped before a detach/reattach offers `/retry` from frame one.
         send_harness_state_for_session(
@@ -522,7 +521,7 @@ impl SessionDriver {
         let mut active_oauth_task: Option<tokio::task::JoinHandle<OAuthResult>> = None;
         let mut active_catalog_sync_task: Option<tokio::task::JoinHandle<CatalogSyncTaskResult>> =
             None;
-        // ADR-0227: the sync streams one update per connection as it completes.
+        // The sync streams one update per connection as it completes.
         // This sender stays alive for the driver's lifetime, so `recv()` yields
         // updates without ever observing a closed channel.
         let (catalog_sync_tx, mut catalog_sync_rx) =
@@ -530,7 +529,7 @@ impl SessionDriver {
         let mut pending_oauth_authorization: Option<
             crate::handlers_provider::PendingOAuthAuthorization,
         > = None;
-        // ADR-0197 M4: the driver owns the follow-up queue authority. The
+        // M4: the driver owns the follow-up queue authority. The
         // boundary watchers wake this loop when a target round ends; the
         // ship pass dequeues the next shippable item.
         let (followup_wake_tx, mut followup_wake_rx) = mpsc::channel::<String>(16);
@@ -631,7 +630,7 @@ impl SessionDriver {
             let req = match incoming {
                 Incoming::Request(req) => req,
                 Incoming::Wake(wake_target) => {
-                    // Round-boundary wake (ADR-0197 M4): a target round ended.
+                    // Round-boundary wake (M4): a target round ended.
                     // A round the operator interrupted parks its queue — the
                     // user said stop; auto-firing more prompts after an Esc is
                     // never the intent. Ctrl+P / a fresh send re-arms it.
@@ -706,11 +705,11 @@ impl SessionDriver {
             // emits a terminal `HarnessState(Idle)` on exit. Every other
             // request is a control-plane op that does not. The TUI no longer
             // arms optimistic activity state for control-plane dispatches at
-            // all (ADR-0110: a command is outside the round state machine),
+            // all (a command is outside the round state machine),
             // but other frontends may still paint their own optimistic
             // state, so the driver keeps reconciling every non-round request
             // back to the authoritative harness state — see the reconcile
-            // below the match and ADR-0091/0110.
+            // below the match and /0110.
             let reconcile_activity = needs_activity_reconcile(&req, &lifecycle).await;
             let may_mutate_context = request_may_mutate_context(&req);
             let mut config = shared_config.write().await;
@@ -721,7 +720,7 @@ impl SessionDriver {
                         .await;
                 }
                 AgentRequest::InterruptSubagent { call_id } => {
-                    // Scene-scoped interrupt (ADR-0205): stop only the viewed
+                    // Scene-scoped interrupt: stop only the viewed
                     // subagent — its token races its in-flight request, the
                     // parent round and every sibling keep running. A no-op for
                     // a finished or unknown call.
@@ -1287,7 +1286,7 @@ impl SessionDriver {
                             .filter(|d| *d != nuo_wire::TrustDomain::UserAssets)
                             .collect();
 
-                        // Candidate workspace domains D: domains requiring human review (ADR-0253)
+                        // Candidate workspace domains D: domains requiring human review
                         let pre_snap = workspace_security.snapshot(root);
                         let candidate_ws: Vec<nuo_wire::TrustDomain> = [
                             nuo_wire::TrustDomain::Mcp,
@@ -1319,7 +1318,7 @@ impl SessionDriver {
                             ));
                         }
 
-                        // Explicit negative attestation on unselected candidate domains: D \ S (ADR-0253)
+                        // Explicit negative attestation on unselected candidate domains: D \ S
                         let unselected_ws: Vec<nuo_wire::TrustDomain> = candidate_ws
                             .into_iter()
                             .filter(|d| !ws_domains.contains(d))
@@ -1572,7 +1571,7 @@ impl SessionDriver {
                 }
             }
 
-            // Activity-state reconcile (ADR-0091)
+            // Activity-state reconcile
             // Round-owned requests resolve themselves via the round task's
             // terminal `HarnessState(Idle)`. Control-plane requests must be
             // resolved here instead: re-publish the authoritative harness
@@ -1584,7 +1583,7 @@ impl SessionDriver {
             // "every dispatched request lands the harness back in its
             // authoritative state" a structural invariant regardless of what
             // a frontend optimistically painted (the TUI itself no longer
-            // arms anything for control-plane dispatches — ADR-0110 — so for
+            // arms anything for control-plane dispatches — — so for
             // it this reconcile is a no-op safety net).
             if reconcile_activity {
                 send_harness_state_for_session(
@@ -1613,7 +1612,7 @@ impl SessionDriver {
                 token_ledger.set_active_session(post_session_id.clone());
                 agent.set_thread_id(post_session_id.clone());
                 agent.restore_round_count(session.round_counter().await);
-                // ADR-0236 D4: a switched-to session may itself carry crash
+                // D4: a switched-to session may itself carry crash
                 // residue; classify it durably now that its store is live.
                 if let Err(error) = session.settle_abandoned_attempts().await {
                     tracing::warn!(%error, "could not settle abandoned request attempts");
@@ -1693,7 +1692,7 @@ fn round_owned_request(req: &AgentRequest) -> bool {
 /// dispatching `req`: true for every control-plane (non-round) request when no
 /// round is live. When a round is running the reconcile is deliberately a
 /// no-op — the round's own events own the display, and re-emitting a running
-/// snapshot would reset the TUI's round timer/turn counters (ADR-0091).
+/// snapshot would reset the TUI's round timer/turn counters.
 async fn needs_activity_reconcile(req: &AgentRequest, lifecycle: &RoundLifecycle) -> bool {
     !matches!(req, AgentRequest::CompleteComposer { .. })
         && !round_owned_request(req)
@@ -1709,12 +1708,12 @@ struct CrashResidue {
     interrupts: Vec<nuo_wire::RoundInterrupt>,
     /// A `/retry` resume point for the highest in-flight round, so a session
     /// re-hosted after a crash offers `/retry` instead of answering
-    /// "Nothing to retry" (ADR-0128).
+    /// "Nothing to retry".
     retry_point: Option<nuo_wire::RetryPoint>,
 }
 
 /// Decide, from durable state alone, what a hard process death left dangling
-/// (ADR-0128 + C11).
+/// (+ C11).
 ///
 /// The crash signal is a request-usage record still `InFlight` **in the
 /// session store**: every live settlement path (`RequestAccountingGuard`'s
@@ -2175,8 +2174,7 @@ mod tests {
 
 #[cfg(test)]
 mod followup_queue_tests {
-    //! The driver-owned follow-up queue authority (ADR-0197 M4).
-
+    //! The driver-owned follow-up queue authority (M4).
     use super::*;
 
     fn message(id: &str, text: &str) -> nuo_wire::QueuedMessage {
@@ -2287,7 +2285,7 @@ mod followup_queue_tests {
         assert!(!queue.is_paused("primary"));
     }
 
-    /// The boundary contract (ADR-0197 M4): the round lifecycle's interrupt
+    /// The boundary contract (M4): the round lifecycle's interrupt
     /// parking must be observable at the round boundary, so the queue parks
     /// after an interrupted round instead of auto-firing more prompts.
     #[tokio::test]

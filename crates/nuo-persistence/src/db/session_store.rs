@@ -1,8 +1,7 @@
-//! Session persistence, DAG tree tracking, and transcript views (ADR-0186, ADR-0187, ADR-0236).
+//! Session persistence, DAG tree tracking, and transcript views.
 //!
 //! Handles authoritative session state storage, incremental/full transcript commits,
 //! CAS blob offloading, and retrieval projection views.
-
 use std::path::PathBuf;
 
 use rusqlite::{Connection, OptionalExtension, Result, Row, params};
@@ -68,7 +67,7 @@ pub(crate) fn get_session(conn: &Connection, session_id: &str) -> Result<Option<
     .optional()
 }
 
-/// List sessions, optionally filtered by a derived grouping (ADR-0226),
+/// List sessions, optionally filtered by a derived grouping,
 /// sorted by `updated_at_s` descending.
 pub(crate) fn list_sessions(
     conn: &Connection,
@@ -110,7 +109,7 @@ pub(crate) fn list_sessions(
     Ok(sessions)
 }
 
-/// List subagent sessions spawned by a given parent session (ADR-0262).
+/// List subagent sessions spawned by a given parent session.
 pub(crate) fn list_subagent_sessions(
     conn: &Connection,
     parent_id: &str,
@@ -136,7 +135,7 @@ pub(crate) fn delete_session(conn: &Connection, session_id: &str) -> Result<bool
 }
 
 /// Persist a complete [`crate::session::SessionData`] into SQLite in one
-/// transaction (ADR-0186): the session row (identity + working state),
+/// transaction: the session row (identity + working state),
 /// the session's memberships and directives, and the entries themselves
 /// (upsert — facts are shared by identity across forks).
 #[cfg(test)]
@@ -171,7 +170,7 @@ pub(crate) fn save_session_inner(
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
 
     // Expensive, pure payload preparation runs before the transaction
-    // (ADR-0236 D3); only the receipt comparison runs inside it.
+    // (D3); only the receipt comparison runs inside it.
     let payload_hash = if guard.operation_id.is_some() {
         Some(commit_payload_digest(data, usage_upserts)?)
     } else {
@@ -180,7 +179,7 @@ pub(crate) fn save_session_inner(
 
     conn.execute("BEGIN IMMEDIATE", [])?;
     let res: std::result::Result<u64, SaveError> = (|| {
-        // ADR-0236 D3: resolve an idempotent replay before any write, then
+        // D3: resolve an idempotent replay before any write, then
         // enforce the revision precondition. A replay whose payload matches
         // returns the original receipt; reusing an identity for different
         // content is refused instead of silently applied or dropped.
@@ -372,7 +371,7 @@ pub(crate) fn save_session_inner(
             }
             // A delta commit escalated to a full rewrite (generation
             // mismatch) carries no usage mirror; apply its changed upserts
-            // here so the escalation cannot drop them (ADR-0236 invariant #3).
+            // here so the escalation cannot drop them (invariant #3).
             for record in usage_upserts {
                 insert_usage_record_tx(conn, data.id.as_str(), record)?;
             }
@@ -412,7 +411,7 @@ pub(crate) fn save_session_inner(
             }
         }
 
-        // ADR-0236 D3: the revision advance and the receipt land in the
+        // D3: the revision advance and the receipt land in the
         // same transaction as the facts they describe, so recovery can
         // always resolve an unknown outcome by operation identity.
         let committed_revision = current_revision + 1;
@@ -494,7 +493,7 @@ fn insert_unknown_directive(
 }
 
 /// Write one entry row, offloading an oversized body to the CAS when this
-/// engine has a blob store (ADR-0187). The offload applies only to the
+/// engine has a blob store. The offload applies only to the
 /// row about to be inserted: already-durable rows keep their stored shape.
 fn upsert_entry(
     conn: &Connection,
@@ -518,7 +517,7 @@ fn upsert_entry(
             c.clear();
         }
     }
-    // ADR-0285: Durable CAS publication for multimodal images
+    // Durable CAS publication for multimodal images
     if let Some(blob_store) = blob_store
         && let nuo_wire::EntryPayload::Message(message_payload) = &payload
         && let Some(images) = &message_payload.images
@@ -628,7 +627,7 @@ fn record_blob_refs(
 }
 
 /// Read the durable usage ledger for one session, in deterministic key
-/// order (ADR-0187): rows live in their own table, not on the session row.
+/// order: rows live in their own table, not on the session row.
 fn load_usage_records(
     conn: &Connection,
     session_id: &str,
@@ -655,7 +654,7 @@ fn load_usage_records(
 
 /// Load a full [`crate::session::SessionData`] by session ID from SQLite.
 /// Entries and directives whose payloads the current binary cannot decode
-/// are preserved verbatim (ADR-0187): they ride in memory as raw rows and
+/// are preserved verbatim: they ride in memory as raw rows and
 /// round-trip through every save untouched, so a database written by a
 /// newer binary survives an older binary without loss or orphaning.
 pub(crate) fn load_session_full(
@@ -892,7 +891,7 @@ pub(crate) fn load_session_full(
         },
         last_projection: None,
         digest,
-        // The anchor is a transcript char count (ADR-0187): persisted for
+        // The anchor is a transcript char count: persisted for
         // real; legacy rows without one refresh their digest once.
         digest_anchor: digest_anchor.map(|a| a.max(0) as u64),
         id,
@@ -953,7 +952,7 @@ pub(crate) fn load_session_full(
 }
 
 /// Public read-only transcript accessor for out-of-crate readers (the
-/// runtime's Archivist tools, ADR-0208): the full persisted
+/// runtime's Archivist tools): the full persisted
 /// [`crate::session::SessionData`] for one session, checksum-verified,
 /// or `None` when the id is unknown.
 pub(crate) fn read_session_transcript(
@@ -1028,7 +1027,7 @@ pub(crate) fn resolve_session_prefix(
 }
 
 /// Resolve a session's durable workspace binding and staffing persona by
-/// exact id, regardless of the caller (ADR-0226). Used to lazily resume a
+/// exact id, regardless of the caller. Used to lazily resume a
 /// session from any client and re-apply its persona.
 #[allow(clippy::type_complexity)]
 pub(crate) fn lookup_session_workspace(
@@ -1058,7 +1057,7 @@ pub(crate) fn lookup_session_workspace(
     Ok(Some((workspace, persona)))
 }
 
-/// Look up a session's immutable role manifest snapshot (ADR-0245).
+/// Look up a session's immutable role manifest snapshot.
 pub(crate) fn lookup_session_manifest(
     conn: &Connection,
     session_id: &str,
@@ -1077,7 +1076,7 @@ pub(crate) fn lookup_session_manifest(
 }
 
 /// Retrieve switch candidate sessions for a given domain partition, strictly
-/// excluding the active session (ADR-0250).
+/// excluding the active session.
 pub(crate) fn list_switch_candidates(
     conn: &Connection,
     partition: &nuo_wire::SessionPartition,
@@ -1117,7 +1116,7 @@ pub(crate) fn list_switch_candidates(
     Ok(summaries)
 }
 
-/// List session summaries for a domain partition, with active session tagged (ADR-0250).
+/// List session summaries for a domain partition, with active session tagged.
 pub(crate) fn list_session_summaries_in_partition(
     conn: &Connection,
     partition: &nuo_wire::SessionPartition,
@@ -1201,7 +1200,7 @@ pub(crate) fn list_session_summaries(
 }
 
 /// The most recent non-subagent session matching `filter`, optionally
-/// restricted to a staffing persona (ADR-0226). Backs `--resume`.
+/// restricted to a staffing persona. Backs `--resume`.
 pub(crate) fn latest_session(
     conn: &Connection,
     filter: &nuo_wire::WorkspaceFilter,
@@ -1262,7 +1261,7 @@ pub(crate) fn latest_session(
     Ok(found)
 }
 
-/// The most recent non-subagent session in a partition (ADR-0250). Backs `--resume`.
+/// The most recent non-subagent session in a partition. Backs `--resume`.
 pub(crate) fn latest_session_in_partition(
     conn: &Connection,
     partition: &nuo_wire::SessionPartition,
@@ -1310,7 +1309,7 @@ pub(crate) fn get_session_detail(
     }
 }
 
-/// Rename a session in the database. ADR-0186: a non-`NULL` title is
+/// Rename a session in the database.: a non-`NULL` title is
 /// terminal; the manual flag is retained in the signature for the command
 /// surface but no longer stored. A single-row UPDATE: the transcript and
 /// working state are untouched, so no load/save round trip is needed.

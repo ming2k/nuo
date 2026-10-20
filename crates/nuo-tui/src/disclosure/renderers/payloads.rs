@@ -1,5 +1,4 @@
 //! Per-tool body content renderers (bash output, grep, find, diff, file write, code blocks).
-
 use nuotc::{
     Color, Modifier, Rect, Style, {Line, Span},
 };
@@ -97,7 +96,7 @@ pub(crate) fn draw_step_summary(
     summary_line_idx
 }
 
-/// Build the summary line for a tool/subagent step using semantic inline flex layout (ADR-0206).
+/// Build the summary line for a tool/subagent step using semantic inline flex layout.
 pub(crate) fn semantic_tool_summary_line(
     expand: &str,
     semantic_line: &SemanticLine<'_>,
@@ -128,7 +127,7 @@ pub(crate) fn semantic_tool_summary_line(
     Line::from(spans)
 }
 
-/// Render the shared summary of an expandable step with semantic inline flex layout (ADR-0206).
+/// Render the shared summary of an expandable step with semantic inline flex layout.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_semantic_step_summary(
     ctx: &mut RenderCtx<'_, '_>,

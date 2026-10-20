@@ -28,7 +28,7 @@ impl RolesConfig {
         }
     }
 
-    /// Load with optional workspace override (ADR-0243).
+    /// Load with optional workspace override.
     /// If `workspace_root` contains `.nuo/roles.toml` or `.nuo/config.toml` with `[roles.<name>]`,
     /// those definitions override or extend the global roles.
     pub fn load_for_workspace(workspace_root: Option<&std::path::Path>) -> Self {
@@ -85,7 +85,7 @@ impl RolesConfig {
     }
 }
 
-/// Validate whether an identifier strictly conforms to kebab-case (ADR-0246).
+/// Validate whether an identifier strictly conforms to kebab-case.
 /// Must consist of lowercase ASCII alphanumeric segments separated by single hyphens.
 pub fn is_valid_id(id: &str) -> bool {
     !id.is_empty()
@@ -97,7 +97,7 @@ pub fn is_valid_id(id: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-/// Resolve an immutable SessionRoleManifest for a role ID within a workspace context (ADR-0245, ADR-0246).
+/// Resolve an immutable SessionRoleManifest for a role ID within a workspace context.
 pub fn resolve_role_manifest(
     workspace_root: Option<&std::path::Path>,
     role_id: Option<&str>,

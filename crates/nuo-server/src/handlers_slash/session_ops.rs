@@ -1,5 +1,4 @@
 //! Session lifecycle, creation, resumption, branching, and runtime teardown operations.
-
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -384,7 +383,7 @@ pub(crate) async fn restore_session_runtime(
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     source: nuo_wire::SessionSource,
 ) {
-    // Restore role and identity from the session's manifest (ADR-0245, ADR-0246) or role metadata
+    // Restore role and identity from the session's manifest or role metadata
     if let Some(manifest) = session.role_manifest().await {
         let role_identity = manifest.identity.clone();
         let mut role = nuo_wire::AgentRoleProfile::with_identity(

@@ -23,7 +23,6 @@
 //! 3. Reasoning replay is projected per dialect: an assistant turn's CoT
 //!    reaches the wire only where that surface defines a replayable field
 //!    (ADR-0083).
-
 use nuo_model_codec::{Effort, Message, OpenAiChatDialect, Role};
 use serde_json::{Value, json};
 
@@ -58,7 +57,7 @@ pub fn headers(api_key: &str, dialect: OpenAiChatDialect) -> Vec<(&'static str, 
     // Qoder has no branch here on purpose. Its wire is built entirely by
     // `build_qoder_request` (the executor routes the Qoder dialect there and
     // never through this builder), so declaring its identity headers here
-    // would be a second declaration site — the drift ADR-0265 forbids. The
+    // would be a second declaration site — the drift forbids. The
     // surface (`OpenAiChatDialect::surface()`) is the one source.
     h
 }
@@ -138,7 +137,7 @@ pub fn body_with_capabilities(
     // survives; the model simply does not see the pixels, and OpenAI rejects
     // `image_url` outright). The policy lives in `crate::vision` so all four
     // transports project identically, and an *undeclared* route keeps its
-    // images instead of losing them silently (ADR-0230).
+    // images instead of losing them silently.
     let (messages, _dropped_images) =
         nuo_provider_transport::vision::project_images_for_route(model_id, messages, capabilities);
 
@@ -421,7 +420,7 @@ mod tests {
 
     #[test]
     fn undeclared_route_keeps_image_parts() {
-        // ADR-0230: an endpoint that advertises no vision field must not have
+        // An endpoint that advertises no vision field must not have
         // its images silently stripped — the request goes out as-is and a
         // provider that cannot take it says so.
         let body = body_with_capabilities(

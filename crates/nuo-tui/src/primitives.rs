@@ -1,7 +1,6 @@
 //! Tiny shared render helpers: viewport math, modal centering/recess, panel
 //! chrome, and color arithmetic. Kept in one place so the per-component
 //! modules do not need to depend on each other for these primitives.
-
 /// Background recess policy when rendering an overlay.
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, Default)]
 pub enum Recess {
@@ -34,7 +33,7 @@ use super::design::{MODAL_INNER_V_PADDING, SCROLLBAR_GAP};
 pub(crate) use super::keymap::keyvocab;
 pub(crate) use crate::elevation::*;
 
-/// 2-tier responsive layout breakpoint for TUI views (ADR-0097 evolution, ADR-0053 capability pipeline).
+/// 2-tier responsive layout breakpoint for TUI views (evolution, ADR-0053 capability pipeline).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutTier {
     /// Wide display (>= 90 columns): dual-pane side-by-side (Master-Detail).

@@ -2,7 +2,6 @@
 //!
 //! Moved to the tool leaf so the single tool contract's event-streaming
 //! method can live here without the leaf depending on the harness.
-
 use serde::{Deserialize, Serialize};
 
 /// A user-visible notice emitted by the agent or harness.
@@ -31,13 +30,13 @@ pub enum NoticeKind {
     ProviderRetry,
     NudgeInjected,
     /// Generic "needs human attention" alert. Historically also carried
-    /// workspace-trust notices (ADR-0107); those moved to the first-class
-    /// [`NoticeKind::TrustChanged`] in ADR-0155, leaving this value free for
+    /// workspace-trust notices; those moved to the first-class
+    /// [`NoticeKind::TrustChanged`] in, leaving this value free for
     /// review-subsystem alerts.
     ReviewAlert,
     /// Workspace trust state changed or needs a decision: project-authored
     /// content changed on disk after being trusted (quarantined pending
-    /// review), or a project entry shadows a user-scope entry. ADR-0155.
+    /// review), or a project entry shadows a user-scope entry..
     TrustChanged,
     /// A harness-level acknowledgment of a slash command / configuration change
     /// (e.g. `/delegate on`, `--delegate`, `/permissions clear`). These are
@@ -48,7 +47,7 @@ pub enum NoticeKind {
     /// command *invocation* stays durable; this *reply* is ephemeral.
     CommandAck,
     /// Image attachments were withheld from a request because the route cannot
-    /// take them (ADR-0230): either a layer declared no image input, or the
+    /// take them: either a layer declared no image input, or the
     /// provider rejected an image-bearing request and the harness learned the
     /// route's limit.
     ///
@@ -210,7 +209,7 @@ pub struct PermissionRequest {
     /// "Always" is honoured) for ordinary broker prompts.
     #[serde(default)]
     pub one_off: bool,
-    /// Origin label identifying which subagent produced this request (ADR-0138).
+    /// Origin label identifying which subagent produced this request.
     /// `None` for top-level principal calls; e.g. `Some("subagent #a1b2 · explore")`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
@@ -250,7 +249,7 @@ pub struct UserQuestion {
 pub struct UserQuestionRequest {
     pub id: String,
     pub questions: Vec<UserQuestion>,
-    /// Origin label identifying which subagent produced this request (ADR-0138).
+    /// Origin label identifying which subagent produced this request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
 }
@@ -338,7 +337,7 @@ impl AgentNotice {
     /// string-matching titles. Callers add the surface (the attach-time
     /// quarantine banner vs. inline shadow warnings) and the detail body.
     ///
-    /// ADR-0155 makes this a first-class kind, revising ADR-0107's stance that
+    /// Makes this a first-class kind, revising stance that
     /// `ReviewAlert` (the closed enum's generic "needs attention" value) was
     /// good enough for trust notices.
     pub fn trust_changed(title: impl Into<String>) -> Self {

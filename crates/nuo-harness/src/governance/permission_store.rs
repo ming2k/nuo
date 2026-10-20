@@ -6,7 +6,6 @@
 //! and the project root used for persistence. The [`crate::Agent`] owns a
 //! single `PermissionStore` and delegates its permission-related public
 //! methods here.
-
 use std::collections::HashSet;
 use std::sync::Mutex;
 
@@ -96,7 +95,7 @@ impl PermissionStore {
     }
 
     // Pending-request parking moved to the human-request broker
-    // (ADR-0141, `nuo_harness::human_broker`): one owner for permission /
+    // (`nuo_harness::human_broker`): one owner for permission /
     // ask_user / interactive-input oneshots, uniform exactly-once
     // settlement, per-kind metrics. The store keeps only rules + the delegated flag.
 
@@ -469,7 +468,7 @@ mod tests {
         assert_eq!(store.allowed_tools().len(), 1);
     }
 
-    // Parking moved to the human-request broker (ADR-0141); the
+    // Parking moved to the human-request broker; the
     // receiver-and-timestamp behavior now lives there — see
     // `human_broker::tests::park_reply_settles_exactly_once` and
     // `human_broker::tests::cancel_all_settles_every_kind_with_none_or_reject`.

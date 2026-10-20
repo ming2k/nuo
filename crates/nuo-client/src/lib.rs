@@ -1115,14 +1115,14 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 
-/// ADR-0141: the human-channel posture this process declares when attaching.
+/// The human-channel posture this process declares when attaching.
 /// Defaults to `Interactive` (a TUI is a human by construction). Headless
 /// entrypoints (`nuo -p`, remote automation) call [`set_posture`] with
 /// `Autonomous` before connecting so the session knows no human can answer
 /// parked requests. Process-wide because one process plays one role.
 static POSTURE_OVERRIDE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
-/// Declare this client's human-channel posture (ADR-0141). Must be called
+/// Declare this client's human-channel posture. Must be called
 /// before the first attach; later attaches of the same process inherit it.
 pub fn set_posture(posture: nuo_wire::human_request::HumanChannelPosture) {
     let code = match posture {
@@ -1365,7 +1365,7 @@ pub fn env_default_port() -> u16 {
         .unwrap_or(DEFAULT_SERVER_PORT)
 }
 
-/// Find the unified server (ADR-0096): one global record. The project
+/// Find the unified server: one global record. The project
 /// argument is accepted for source compatibility but no longer scopes the
 /// lookup — the server serves every project.
 pub fn discover(_project_root: &Path) -> Option<ServerInfo> {
@@ -1485,7 +1485,7 @@ pub fn compare_versions(client: &str, server: &str) -> VersionRelation {
 
 /// The actionable error for a discovered-but-incompatible server,
 /// preferring the wire-protocol explanation when the record declares a
-/// protocol number outside this client's window (ADR-0134), then the
+/// protocol number outside this client's window, then the
 /// dev-drift explanation (same version, replaced binary), and falling
 /// back to the product-version message for legacy records. This is the
 /// entry point callers should use after `versions_compatible` reports
@@ -1612,7 +1612,7 @@ fn drift_refusal_error(info: &ServerInfo, activity: &ServerActivity) -> String {
     }
 }
 
-/// The actionable version-skew error (ADR-0100 rule 4), naming both builds
+/// The actionable version-skew error (rule 4), naming both builds
 /// and the directional fix (server behind -> stop/restart server; client behind -> update client).
 /// Public so `nuo`-level commands can surface it uniformly
 /// wherever a discovered server is about to be spoken to.
@@ -1658,7 +1658,7 @@ pub fn version_mismatch(info: &ServerInfo) -> String {
     }
 }
 
-/// The actionable wire-protocol-skew error (ADR-0134), naming both protocol
+/// The actionable wire-protocol-skew error, naming both protocol
 /// numbers and the directional fix. Public for the same reason as
 /// [`version_mismatch`]: uniform surfacing wherever a discovered server is
 /// about to be spoken to. Only reached when the record carries a protocol
@@ -1683,8 +1683,8 @@ pub fn protocol_mismatch(info: &ServerInfo) -> String {
     }
 }
 
-/// Whether a discovered server can serve this client (ADR-0100 rule 4,
-/// revised by ADR-0134 for protocol-declaring records).
+/// Whether a discovered server can serve this client (rule 4,
+/// revised for protocol-declaring records).
 ///
 /// The decision has two regimes:
 ///
@@ -1703,7 +1703,7 @@ pub fn protocol_mismatch(info: &ServerInfo) -> String {
 ///   and refusing would make every patch release interrupt live sessions
 ///   for no wire-level reason.
 /// - **Legacy record** (`protocol: None`, pre-0.31 server): the record
-///   predates negotiation, so ADR-0100 rule 4's exact product-version
+///   predates negotiation, so rule 4's exact product-version
 ///   equality (plus the image check) remains its gate unchanged.
 pub fn versions_compatible(info: &ServerInfo) -> bool {
     local_pair_compatible(
@@ -1734,7 +1734,7 @@ fn local_pair_compatible(
         let same_version = version == Some(env!("CARGO_PKG_VERSION"));
         return !same_version || server_image_is_current;
     }
-    // Legacy record: exact product-version equality (ADR-0100 rule 4),
+    // Legacy record: exact product-version equality (rule 4),
     // `None` counting as a mismatch, plus the image check.
     version.is_some_and(|v| v == env!("CARGO_PKG_VERSION")) && server_image_is_current
 }
@@ -1859,13 +1859,13 @@ async fn wait_for_process_exit(
 }
 
 /// The drain budget a stopper should allow when the discovery record
-/// predates `grace_secs` (ADR-0116): generous enough not to interrupt a
+/// predates `grace_secs`: generous enough not to interrupt a
 /// default-configured server (10s) mid-drain, short enough that a wedged
 /// process still escalates.
 const FALLBACK_GRACE: Duration = Duration::from_secs(15);
 
 /// Stop the server through a tiered, **budget-coordinated** shutdown
-/// pipeline (ADR-0116):
+/// pipeline:
 ///
 /// 1. Tier 1 (Protocol): if the server speaks this client's version, send
 ///    the `Shutdown` control verb, then wait the server's *own* drain
@@ -2157,7 +2157,7 @@ fn spawn_server(explicit_port: Option<u16>) -> Result<std::process::Child, Strin
     }
 
     // Pin the server's cwd to a stable, always-existing directory instead of
-    // inheriting this client's project. ADR-0096 made the server the host for
+    // inheriting this client's project. The server is the host for
     // *every* project's sessions, so a project directory inherited from the
     // first lucky client is exactly the wrong default — any code path that
     // still consults the server's cwd (rather than a session-scoped root)
@@ -2212,7 +2212,7 @@ pub fn configure_server_detachment(command: &mut std::process::Command) {
 /// Comprehensive diagnostics for the server control plane and system status.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ServerDiagnostics {
-    /// The resolved server instance directory (ADR-0121): the root of every
+    /// The resolved server instance directory: the root of every
     /// server runtime file this report probes. Surfaced so an operator can
     /// see which instance — host or `NUO_HOME` sandbox — a client is
     /// talking about before reading anything else below.
@@ -2409,15 +2409,15 @@ async fn finish_handshake_with_project(
     let select = Wire::Select {
         action,
         project,
-        // ADR-0141: the client's interactivity posture. The TUI is a human
+        // The client's interactivity posture. The TUI is a human
         // by construction; headless callers override this via
         // [`crate::client::set_posture`] before connecting.
         posture: current_posture(),
-        // Product build: advisory identity on the wire since ADR-0134 (the
+        // Product build: advisory identity on the wire (the
         // protocol number below is the gate), but still enforced against
         // pre-protocol servers, which judge it by exact equality.
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
-        // Wire protocol number (ADR-0134): the authority for whether this
+        // Wire protocol number: the authority for whether this
         // server can serve us. A pre-protocol server ignores the field
         // (unknown fields are dropped by serde) and falls back to judging
         // the product version above.
@@ -2482,7 +2482,7 @@ async fn finish_handshake_with_project(
         let mut end_pending = false;
         while let Some(request) = req_out_rx.recv().await {
             if matches!(request, AgentRequest::EndSession) {
-                // Client-declared session end (ADR-0112): mark it so the
+                // Client-declared session end: mark it so the
                 // pump, after flushing this frame, gives the server a brief
                 // window to tear the session down before the socket closes.
                 // Without this, a client that sends EndSession and drops
@@ -2540,7 +2540,7 @@ async fn finish_handshake_with_project(
     })
 }
 
-/// Issue one control-plane verb (ADR-0096) to the server and await its reply:
+/// Issue one control-plane verb to the server and await its reply:
 /// create, prompt, interrupt, answer a permission, or kill — without attaching
 /// as a session client. The dashboard's session-management keys (`i` interrupt,
 /// `p` prompt, `n` new session) go through here. Prefers native local IPC and
@@ -2549,7 +2549,7 @@ pub async fn control(info: &ServerInfo, request: ControlRequest) -> Result<(), S
     control_with_reply(info, request).await.map(|_| ())
 }
 
-/// [`control`] for reply-bearing verbs (ADR-0208 `AskArchivist`): the
+/// [`control`] for reply-bearing verbs (`AskArchivist`): the
 /// server's `ControlReply` free-string travels back on success instead of
 /// being dropped. Verbs without a payload reply with an empty string, so
 /// every existing caller can migrate to this shape without behavior change.
@@ -2595,7 +2595,7 @@ async fn finish_control(
         action,
         project: None,
         posture: current_posture(),
-        // Same handshake contract as the attach path (ADR-0134): the
+        // Same handshake contract as the attach path: the
         // protocol number is the gate, the product version the advisory
         // identity still enforced by pre-protocol servers.
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -2612,7 +2612,7 @@ async fn finish_control(
                 Some(Ok(wire)) => match wire {
                     Wire::ControlReply { ok, error, .. } => {
                         return if ok {
-                            // ADR-0208: reply-bearing verbs (AskArchivist)
+                            // Reply-bearing verbs (AskArchivist)
                             // travel in the free-string channel; verbs
                             // without a payload leave it `None` → empty.
                             Ok(error.unwrap_or_default())
@@ -2652,7 +2652,7 @@ enum Reply {
     Pick(Vec<SessionOverview>),
 }
 
-// Monitor-protocol client (ADR-0093)
+// Monitor-protocol client
 /// Open the WebSocket, perform the monitor handshake, and return a channel of
 /// stream frames. The WS pump runs on a background task; the channel closes
 /// when the server hangs up.
@@ -2896,7 +2896,7 @@ mod tests {
         ));
     }
 
-    /// The local compatibility policy (ADR-0134 revision), in pure form.
+    /// The local compatibility policy (revision), in pure form.
     /// The image result is injected as a boolean so protocol/version policy
     /// stays deterministic and independent of the process running the test.
     #[test]
@@ -2936,7 +2936,6 @@ mod tests {
 
     /// The dev-drift lie (same version, different image) is refused even
     /// with a matching protocol — the one freshness gate that survives
-    /// ADR-0134 locally.
     #[test]
     fn dev_drift_same_version_is_refused() {
         assert!(!local_pair_compatible(
@@ -3308,7 +3307,7 @@ mod tests {
 
 #[test]
 fn stop_budget_follows_the_advertised_grace() {
-    // The tier budget must come from the record (ADR-0116); the test
+    // The tier budget must come from the record; the test
     // pins the plumbing by asserting the fallback constant is generous
     // enough to cover a default-configured server's 10s drain, so a
     // legacy record cannot cause an early SIGTERM escalation either.

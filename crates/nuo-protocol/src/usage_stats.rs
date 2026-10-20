@@ -1,5 +1,5 @@
 //! Cross-session usage statistics: the durable, day-partitioned mirror of the
-//! per-session token ledger (ADR-0122).
+//! per-session token ledger.
 //!
 //! The [`crate::TokenSourceLedger`] answers "what did *this* session use?" and
 //! its records live inside the session file — deleted with the session. This
@@ -14,7 +14,6 @@
 //! key is a no-op (crash-safe retries never double count), and a later replay
 //! with a *stronger* source (reported usage arriving after an estimate was
 //! already persisted) upgrades the existing row in place.
-
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

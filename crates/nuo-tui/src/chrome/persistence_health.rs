@@ -1,8 +1,7 @@
-//! The durability-health banner (ADR-0196 D4): a retained one-row alert the
+//! The durability-health banner (D4): a retained one-row alert the
 //! TUI shows while the server's persistence writer is degraded, cleared by
 //! the next `Healthy` transition. This is a *banner*, not a transcript
 //! notice — the condition outlives any message and must not scroll away.
-
 use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 
 use crate::render::Theme;

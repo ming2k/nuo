@@ -1,5 +1,4 @@
 //! Permission sheet (inline) and question modal.
-
 use nuotc::{
     Frame, Rect, {Block as RtBlock, Clear, Paragraph}, {Line, Span}, {Modifier, Style},
 };
@@ -62,7 +61,7 @@ pub fn draw_question_modal(
     follow_highlight: bool,
     queue_depth: usize,
     slot: Rect,
-    // The frame-level caret verdict (ADR-0205): `true` only while this sheet is
+    // The frame-level caret verdict: `true` only while this sheet is
     // the layer that owns the physical cursor. The sheet never places the
     // cursor on its own authority.
     show_caret: bool,
@@ -73,7 +72,7 @@ pub fn draw_question_modal(
     // eats every keypress" failure — so the frame falls back to a
     // centered panel sized for the content instead.
     const MIN_BODY_ROWS: u16 = 2;
-    // ADR-0173 §3: the question sheet is anchored to the composer slot —
+    // The question sheet is anchored to the composer slot —
     // the same bottom edge, extended over the hint bar — not centered over
     // the surface. The body scrolls within whatever height the slot leaves.
     //
@@ -1181,7 +1180,7 @@ mod tests {
 
     #[test]
     fn permission_sheet_shows_queue_depth_badge() {
-        // ADR-0173 §3: concurrent AI interactions queue FIFO behind the front
+        // Concurrent AI interactions queue FIFO behind the front
         // sheet; the badge tells the user more decisions are pending.
         let request = PermissionRequest {
             id: "p".into(),

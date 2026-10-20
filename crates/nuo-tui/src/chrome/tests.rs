@@ -406,7 +406,7 @@ fn model_bar_orders_context_then_model() {
     );
     let inst_pos = wide.find("@kimi-code").expect("instance suffix shown");
     assert!(model_pos < inst_pos, "instance follows the model: {wide:?}");
-    // Unbound telemetry command renders no keycap hint (ADR-0238).
+    // Unbound telemetry command renders no keycap hint.
     assert!(
         !wide.contains("Ctrl-o"),
         "unbound telemetry renders no keycap: {wide:?}"
@@ -468,7 +468,7 @@ fn model_bar_renders_model_and_context() {
 
 #[test]
 fn model_bar_renders_context_gauge_for_projected_route_context_window() {
-    // ADR-0182: A dynamically discovered relay model (e.g. glm-5.3 via opencode-go)
+    // A dynamically discovered relay model (e.g. glm-5.3 via opencode-go)
     // passes its projected route context_window. Even though the model is unknown
     // to the static baseline registry, the context gauge renders correctly.
     let theme = Theme::default();
@@ -1137,7 +1137,7 @@ fn queue_bar_leads_with_brand_tag_on_a_plain_surface() {
 #[test]
 fn queue_bar_legend_renders_the_resolved_chord_and_nothing_when_unbound() {
     // The legend is a promise: it renders the chord the registry resolves for
-    // the expand command (ADR-0238), so a remap shows through…
+    // the expand command, so a remap shows through…
     let item = QueueItemProps {
         queued_at_ms: 1_700_000_000_000,
         text: "fix the flaky test".to_string(),
@@ -1247,7 +1247,7 @@ fn queue_bar_previews_next_item_with_count_and_text() {
         "top-level block toggle moved into the queue panel: {text:?}"
     );
     assert!(!text.contains('·'), "no R1 dot between peers: {text:?}");
-    // A live insert is transcript-owned (ADR-0126) and never rides the
+    // A live insert is transcript-owned and never rides the
     // bar, so every bar item previews plainly — no `steer›` badge.
     assert!(!text.contains("steer›"), "steer badge leaked: {text:?}");
     // The preview rides inline on the same row.

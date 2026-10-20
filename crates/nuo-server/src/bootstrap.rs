@@ -17,7 +17,6 @@
 //! `SessionStart::Showcase` are **not** handled here: they are purely local
 //! (or client-side) short-circuits and must be dispatched by the caller
 //! before invoking [`assemble`].
-
 use nuo_harness::orchestration::{ProxyProvider, round_response};
 use nuo_harness::{Agent, AgentIdentity, AgentRoleProfile, RoundLifecycle, SubagentTool};
 use nuo_wire::{
@@ -53,31 +52,31 @@ pub struct BootstrapParams {
     pub preset: AgentRoleProfile,
     /// The frontend's clipboard/UI bridge (used by `/export`).
     pub ui: Arc<dyn UiBridge>,
-    /// How the session begins (ADR-0116: only the assembly-relevant
+    /// How the session begins (only the assembly-relevant
     /// shapes exist here; one-shot CLI modes never reach the harness).
     pub startup: SessionStart,
     /// `--project` override: the workspace partition. `None` = workspace-free.
     pub project_root: Option<PathBuf>,
-    /// The role staffing this session, if any (ADR-0225). Recorded on
+    /// The role staffing this session, if any. Recorded on
     /// the session as metadata; `None` for the default coding principal.
     pub role: Option<String>,
     /// `--unattended` at start (unattended execution): auto-approve tool permissions.
     pub unattended: bool,
     /// Workspace filesystem confinement (default true). False (`--no-confinement`) bypasses confinement.
     pub confined: bool,
-    /// ADR-0141: the human-channel accountant this session reports into.
+    /// The human-channel accountant this session reports into.
     /// Attach/detach on the WS layer ORs client postures into it; the
     /// harness's posture gate reads it before parking a human request.
     /// `None` on one-shot CLI paths that never attach.
     pub human_channel: Option<Arc<nuo_wire::human_request::HumanChannelAccountant>>,
-    /// Session-lifetime cancellation token (ADR-0125): passed through to the
+    /// Session-lifetime cancellation token: passed through to the
     /// background `/schedule` scheduler so it stops when the harness is torn
     /// down (suspension, kill, server drain) instead of ticking forever.
     /// `None` = process-lifetime scheduling (single-session frontends).
     pub teardown_token: Option<tokio_util::sync::CancellationToken>,
-    /// ADR-0209: Server-wide authoritative configuration shared across all hosted sessions.
+    /// Server-wide authoritative configuration shared across all hosted sessions.
     pub shared_config: Option<crate::SharedConfig>,
-    /// ADR-0209: Server-wide authoritative connection usage shared across all hosted sessions.
+    /// Server-wide authoritative connection usage shared across all hosted sessions.
     pub shared_provider_usage: Option<crate::SharedConnectionUsage>,
 }
 
@@ -220,14 +219,14 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // resolve with their real capabilities from the very first request.
     nuo_catalog::sync_fitted_model_registry();
 
-    // Startup is read-only for the remote catalog (ADR-0227). The persisted
+    // Startup is read-only for the remote catalog. The persisted
     // per-connection `RemoteCatalogCache` plus the compiled baseline/seed are the
     // source of truth for the first frame; no network sync or scheduled
     // refresh runs here. A refresh happens only on explicit user action
     // (`AgentRequest::RefreshProviderModels`) or a connection lifecycle event.
 
     // A session's partition is its workspace: `--project`/cwd when present, or
-    // `None` for a workspace-free persona (ADR-0226). `persona` is recorded on
+    // `None` for a workspace-free persona. `persona` is recorded on
     // the session as metadata (which principal staffed it), used for `--resume`.
     let workspace_root: Option<PathBuf> = project_override;
     let workspace = workspace_root.as_ref().map(nuo_wire::WorkspaceBinding::new);
@@ -237,7 +236,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // env-var-then-config resolution rules shared with runtime switching. See
     // `docs/adr/0015-dependency-inversion-architecture-for-model-providers.md`.
 
-    // ADR-0116: the pre-0018 per-project exclusive lock is gone — the
+    // The pre-0018 per-project exclusive lock is gone — the
     // unified server owns every session and the CLI flag was dead (parsed,
     // discarded). Sessions still pin their own `sessions/<id>.{json,jsonl}`
     // (ADR-0018), so concurrency is safe without a project-wide lock.
@@ -269,7 +268,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // the tick loop restarts with backoff instead of silently killing every
     // scheduled job in the session.
     //
-    // Teardown token (ADR-0125): the registry passes the hosted session's
+    // Teardown token: the registry passes the hosted session's
     // cancellation token, so suspension/kill stops the tick with the harness.
     // Before this the task leaked past teardown and ticked against a dead
     // channel forever. `None` (a plain process-lifetime scheduler) remains
@@ -309,14 +308,14 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     let agent_provider = Arc::new(ProxyProvider::new(provider_holder));
 
     // Shared skills registry for the skill tools and session context. Discover
-    // and load all available skills immediately on session assembly (ADR-0165),
+    // and load all available skills immediately on session assembly,
     // then spawn a reactive filesystem watcher so subsequent disk mutations
     // automatically hot-reload in place without requiring manual `/trust`.
     //
     // Pin the session's project root into the skills config so the
     // project-local sources (`.nuo/skills`, `skills`) resolve from this
     // session's project — not the server process's cwd, which under the
-    // unified server (ADR-0096) belongs to whichever client first spawned it.
+    // unified server belongs to whichever client first spawned it.
     let mut skills_config = config.skills.clone();
     skills_config.project_root = workspace_root.clone();
     let skills_registry = Arc::new(SkillRegistry::load(&skills_config).await);
@@ -449,7 +448,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         builder.provide(websearch_shared.get());
         builder.provide(skills_registry.clone());
         // The host's dialogue memory reaches the recall tool as a service
-        // (ADR-0300 §1): the tool holds the port, the product decides where the
+        // the tool holds the port, the product decides where the
         // memory lives. The same host the agent is built with, so there is one
         // memory per process rather than one per construction site.
         builder.provide(nuo_harness::tools::RecallMemoryService::new(
@@ -460,11 +459,11 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         // The session's workspace root: every workspace-relative tool
         // operation (bash cwd, relative path resolution, search bases)
         // anchors here instead of the server process's cwd. Under the
-        // unified server (ADR-0096) one process hosts sessions for many
+        // unified server one process hosts sessions for many
         // projects, so the process cwd is whichever directory the first
         // client spawned it from — correct only by coincidence. This is the
         // fix for "launched in project A, session edits project B".
-        // A workspace-free session (ADR-0220) provides no root, so
+        // A workspace-free session provides no root, so
         // workspace-relative tools are not admitted against a directory.
         if let Some(root) = &workspace_root {
             builder.provide(nuo_wire::WorkspaceRoot(root.clone()));
@@ -521,7 +520,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         &SubAgentProfile::EXPLORE,
     ));
     // Subagents resolve relative write-grants against the session's project
-    // root, not the server process's cwd (ADR-0096).
+    // root, not the server process's cwd.
     subagent_tool.set_workspace_root(workspace_root.clone());
     // Subagents inherit the session's connection retry configuration.
     subagent_tool.bind_retry_policy(
@@ -548,7 +547,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         .with_host(agent_kernel_host.clone())
         .with_skills((*skills_registry).clone())
         .build();
-    // Surface the admitted additional roots to the model (ADR-0142): the
+    // Surface the admitted additional roots to the model: the
     // system prompt tells it cross-project paths are legal instead of letting
     // it discover the widened boundary through trial and error.
     agent.set_additional_workspace_roots(additional_roots.clone());
@@ -560,7 +559,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     subagent_tool_handle.bind_variant_selection(agent.variant_selection_handle());
     subagent_tool_handle.bind_workspace_security(agent.workspace_security_handle());
     subagent_tool_handle.bind_execution_policy(agent.execution_policy());
-    // ADR-0141: subagents inherit the session's live human channel.
+    // Subagents inherit the session's live human channel.
     if let Some(accountant) = human_channel.as_ref() {
         subagent_tool_handle.bind_human_channel(Arc::clone(accountant));
     }
@@ -654,7 +653,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         ));
     }
     let command_catalog = crate::startup::command_catalog(&[]);
-    // Wire universal asset attestation verifier into nuo-mcp (ADR-0243, ADR-0252).
+    // Wire universal asset attestation verifier into nuo-mcp.
     let attestation_ledger = nuo_persistence::AssetAttestationLedger::load();
     let ledger_for_mcp = attestation_ledger.clone();
     crate::mcp::set_attestation_verifier(Arc::new(move |locator, spec| {
@@ -686,7 +685,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     });
     nuo_harness::dynamic::spawn_refresh(McpCatalog::new(mcp_runtime.clone()));
 
-    // ADR-0240: Kernel-driven reactive configuration watcher for MCP hot-updates.
+    // Kernel-driven reactive configuration watcher for MCP hot-updates.
     spawn_mcp_config_watcher(
         Arc::clone(&mcp_runtime),
         workspace_root.clone(),
@@ -747,7 +746,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         ));
     }
 
-    // ADR-0209: The authoritative usage telemetry lives in shared_provider_usage.
+    // The authoritative usage telemetry lives in shared_provider_usage.
     // Read the current state for startup model resolution without redundant disk I/O.
 
     // `nuo attach` (no id) opens the sessions picker at startup instead of
@@ -784,7 +783,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // and the anti-anchoring nudge config. All default to sensible values
     // when the table is absent, so this is a no-op for the common case.
     // These run *after* the profile binding so per-installation config wins.
-    // ADR-0141: bind the human-channel posture source. With an accountant
+    // Bind the human-channel posture source. With an accountant
     // the agent reads the OR of attached clients (live). Without one
     // (one-shot CLI paths that never attach) the static posture from the
     // startup flags applies — headless no-TTY bootstraps Autonomous.
@@ -833,7 +832,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         agent.restore_disabled_tools(session.disabled_tools().await);
         agent.restore_round_count(session.round_counter().await);
 
-        // Restore the session-scoped unattended posture (ADR-0132). This is
+        // Restore the session-scoped unattended posture. This is
         // the server-restart recovery path: a session that died unattended
         // reopens unattended — attach, lazy-resume, and boot rehost all flow
         // through here. `--unattended` ran earlier and may already have set
@@ -896,7 +895,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // (reported vs. estimated) into it, and the frontend reads it for the
     // token-source report.
     let token_ledger = nuo_wire::TokenSourceLedger::shared();
-    // Durable cross-session usage mirror (ADR-0122): every terminal settle is
+    // Durable cross-session usage mirror: every terminal settle is
     // forwarded into the day-partitioned store under `data/usage/` — a
     // sibling of `projects/`, so session cleanup can never touch it.
     token_ledger.install_usage_sink(Arc::new(
@@ -956,7 +955,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     })
 }
 
-/// ADR-0240: Asynchronous inotify-backed filesystem watcher for automatic MCP hot-updates.
+/// Asynchronous inotify-backed filesystem watcher for automatic MCP hot-updates.
 fn spawn_mcp_config_watcher(
     mcp_runtime: Arc<McpRuntime>,
     workspace_root: Option<PathBuf>,

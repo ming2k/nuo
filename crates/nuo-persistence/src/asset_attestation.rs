@@ -1,12 +1,11 @@
-//! Universal Asset Attestation Ledger (ADR-0243, ADR-0252): Cryptographic
+//! Universal Asset Attestation Ledger: Cryptographic
 //! fingerprinting, composite identity, replacement semantics, and bounded 30-day leases.
-
 use crate::db::PersistenceHandle;
 use nuo_wire::security::{AssetLocator, AssetSpec, AttestationStatus};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Default lease duration: 30 calendar days in seconds (ADR-0252).
+/// Default lease duration: 30 calendar days in seconds.
 pub const ATTESTATION_LEASE_TTL_SECS: u64 = 30 * 86_400;
 
 /// Persisted record of an asset attestation grant.
@@ -20,7 +19,7 @@ pub struct AssetAttestationRecord {
     pub expires_at_s: u64,
 }
 
-/// Durable store for universal asset attestation decisions (ADR-0243, ADR-0252).
+/// Durable store for universal asset attestation decisions.
 #[derive(Debug, Clone)]
 pub struct AssetAttestationLedger {
     handle: PersistenceHandle,
@@ -142,7 +141,7 @@ impl AssetAttestationLedger {
             .map_err(|e| format!("cannot quarantine asset: {e}"))
     }
 
-    /// Explicitly deny and record the human rejection for an asset (ADR-0253).
+    /// Explicitly deny and record the human rejection for an asset.
     /// Prevents repeated trust gate nagging unless the content changes on disk.
     pub fn deny_asset(&self, locator: &AssetLocator, spec: &AssetSpec) -> Result<(), String> {
         let fingerprint = spec.fingerprint();
@@ -241,7 +240,7 @@ mod tests {
         );
         assert!(!ledger.is_trusted(&locator, &spec_v2));
 
-        // 7. Explicit denial (ADR-0253)
+        // 7. Explicit denial
         ledger.deny_asset(&locator, &spec_v2).unwrap();
         assert_eq!(ledger.status(&locator, &spec_v2), AttestationStatus::Denied);
         assert!(!ledger.is_trusted(&locator, &spec_v2));

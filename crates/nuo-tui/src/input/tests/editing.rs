@@ -381,7 +381,7 @@ fn ctrl_arrows_page_scroll_modal_body() {
 }
 
 /// On the no-modal baseline, Alt+↑ / Alt+↓ drive transcript step selection
-/// (ADR-0173: the step walk is verb-owned; PgUp/PgDn page the transcript).
+/// (the step walk is verb-owned; PgUp/PgDn page the transcript).
 #[test]
 fn ctrl_p_and_ctrl_n_drive_transcript_focus_on_no_modal() {
     let mut input = String::new();
@@ -1563,7 +1563,7 @@ fn host_prompt_delete_key_removes_forward_char() {
 
 #[test]
 fn tab_is_inert_without_a_completion() {
-    // ADR-0173: Tab belongs to completion only — no plane switching. With no
+    // Tab belongs to completion only — no plane switching. With no
     // completion up it is inert in both compose and "browse" (the focused
     // step is a transient selection, not a mode).
     for focused in [false, true] {

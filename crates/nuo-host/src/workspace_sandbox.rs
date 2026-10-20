@@ -4,7 +4,6 @@
 //! runtime, public DNS/TLS configuration, the exact workspace, and ephemeral
 //! process state. Callers explicitly choose whether the workspace is writable
 //! and whether the process receives a network namespace connected to the host.
-
 use std::collections::HashMap;
 #[cfg(target_os = "linux")]
 use std::collections::{BTreeMap, BTreeSet};
@@ -109,7 +108,7 @@ pub fn shell(
 }
 
 /// Build a sandboxed non-interactive shell command over a multi-root
-/// workspace (ADR-0142): `workspace_root` stays the cwd, and every entry of
+/// workspace: `workspace_root` stays the cwd, and every entry of
 /// `additional_roots` is admitted read-write alongside it.
 pub fn shell_with_roots(
     command: &str,
@@ -152,7 +151,7 @@ pub fn command_with_environment(
 }
 
 /// Build a sandboxed direct-program command over a multi-root workspace
-/// (ADR-0142). Identical containment to
+/// Identical containment to
 /// [`command_with_environment`], plus one read-write bind per additional
 /// root. A root that is redundant with the primary (or a duplicate of an
 /// earlier entry) is skipped rather than rejected, so a stale
@@ -220,7 +219,7 @@ pub fn command_with_roots(
             invocation.arg("--unshare-net");
         }
 
-        // ADR-0287: Pure immutable read-only host root overlay.
+        // Pure immutable read-only host root overlay.
         // Mounts the entire host filesystem as strictly read-only, eliminating
         // fragile distro-specific path lists while preserving developer toolchains,
         // glibc NSS databases, and SSL certificates across all Linux distributions.
@@ -244,7 +243,7 @@ pub fn command_with_roots(
             .arg(&root)
             .arg(&root);
 
-        // Additional roots (ADR-0142): widened admission, same containment.
+        // Additional roots: widened admission, same containment.
         let mut bound_roots: BTreeSet<PathBuf> = BTreeSet::new();
         bound_roots.insert(root.clone());
         for extra in additional_roots {

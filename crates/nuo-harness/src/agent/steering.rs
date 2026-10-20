@@ -1,6 +1,5 @@
 //! Steering surface of [`Agent`]: round counters, pause accounting,
 //! interrupts, turn/interaction gates, and the pending-message queue.
-
 use super::*;
 
 /// The outcome of switching a live agent's role.
@@ -67,7 +66,7 @@ impl Agent {
         self.confinement = confinement;
     }
 
-    /// ADR-0141: whether a human can currently answer this agent's parked
+    /// Whether a human can currently answer this agent's parked
     /// requests. Interactive posture means yes; autonomous means no human
     /// is reachable and parked requests settle by labeled policy. With a
     /// channel accountant bound (hosted sessions), this is the live OR over
@@ -76,7 +75,7 @@ impl Agent {
         self.interaction.human_posture()
     }
 
-    /// ADR-0141: bind a live channel source (hosted sessions). The agent's
+    /// Bind a live channel source (hosted sessions). The agent's
     /// posture then tracks attached clients instead of a static flag.
     pub fn set_human_channel_accountant(
         &self,
@@ -85,20 +84,20 @@ impl Agent {
         self.interaction.set_human_channel(Some(accountant));
     }
 
-    /// ADR-0141: how an autonomous session settles a parked question.
+    /// How an autonomous session settles a parked question.
     /// Sourced from `[agent] ask_user_fallback` config; defaults to
     /// fail-closed (a missing human is an error, not an opinion).
     pub fn autonomous_fallback_policy(&self) -> AutonomousFallbackPolicy {
         self.interaction.autonomous_fallback_policy()
     }
 
-    /// ADR-0141: configure the autonomous fallback policy (see
+    /// Configure the autonomous fallback policy (see
     /// [`Self::autonomous_fallback_policy`]).
     pub fn set_autonomous_fallback_policy(&self, policy: AutonomousFallbackPolicy) {
         self.interaction.set_autonomous_fallback_policy(policy);
     }
 
-    /// ADR-0141: declare this agent's human-channel posture. Attaching
+    /// Declare this agent's human-channel posture. Attaching
     /// clients' declarations are OR-ed at the session level; subagents inherit
     /// their parent's posture at spawn.
     pub fn set_human_posture(&self, posture: nuo_wire::human_request::HumanChannelPosture) {
@@ -157,7 +156,7 @@ impl Agent {
     /// `from_toolset`. A role whose identity should differ per instance composes
     /// [`nuo_wire::AgentRoleProfile::with_identity`] before construction.
     ///
-    /// The archetype / kind of this agent, derived purely from its [`ExecutionPolicy`] (ADR-0183).
+    /// The archetype / kind of this agent, derived purely from its [`ExecutionPolicy`].
     pub fn kind(&self) -> nuo_wire::AgentKind {
         if self.is_root() {
             nuo_wire::AgentKind::Root
@@ -186,7 +185,7 @@ impl Agent {
         self.set_execution_policy(policy);
     }
 
-    /// Execution policy governing this agent's runtime posture, delegation limits, and depth (ADR-0183).
+    /// Execution policy governing this agent's runtime posture, delegation limits, and depth.
     pub fn execution_policy(&self) -> nuo_wire::ExecutionPolicy {
         self.execution_policy
             .read()
@@ -223,12 +222,12 @@ impl Agent {
         }
     }
 
-    /// Apply an agent delegation policy (ADR-0183) to adjust declared tool availability.
+    /// Apply an agent delegation policy to adjust declared tool availability.
     pub fn apply_delegation(&self, delegation: &nuo_wire::DelegationPolicy) {
         self.set_tools(delegation.selection());
     }
 
-    /// Apply a declarative agent preset (ADR-0183).
+    /// Apply a declarative agent preset.
     pub fn apply_preset(&self, preset: &nuo_wire::AgentRoleProfile) {
         self.apply_profile(preset);
     }
@@ -258,7 +257,7 @@ impl Agent {
         }
     }
 
-    /// Equip a role profile with its preset extensions (ADR-0224).
+    /// Equip a role profile with its preset extensions.
     fn equip_preset_extensions(
         &self,
         profile: &mut nuo_wire::AgentRoleProfile,
@@ -320,7 +319,7 @@ impl Agent {
         })
     }
 
-    /// Active staffing role for this agent (e.g. "developer", "philosophist") (ADR-0244).
+    /// Active staffing role for this agent (e.g. "developer", "philosophist").
     pub fn active_role(&self) -> Option<String> {
         self.active_role
             .read()
@@ -328,7 +327,7 @@ impl Agent {
             .clone()
     }
 
-    /// Set the active staffing role for this agent (ADR-0244).
+    /// Set the active staffing role for this agent.
     pub fn set_active_role(&self, role: Option<String>) {
         *self.active_role.write().unwrap_or_else(|e| e.into_inner()) = role;
     }
@@ -382,14 +381,14 @@ impl Agent {
     }
 
     pub fn reply_permission(&self, request_id: &str, decision: PermissionDecision) -> bool {
-        // ADR-0141: settles through the broker — wire replies carry
+        // Settles through the broker — wire replies carry
         // provenance-User by construction.
         self.human_broker
             .reply_user(request_id, HumanReply::Permission(decision))
     }
 
     pub fn reject_pending_permissions(&self) {
-        // ADR-0141: teardown cancels route through the broker for uniform
+        // Teardown cancels route through the broker for uniform
         // metrics and exactly-once settlement.
         self.human_broker.cancel_kind(HumanRequestKind::Permission);
     }
@@ -397,7 +396,7 @@ impl Agent {
     /// Resolve a parked `ask_user` request. An empty outer vector means the
     /// operator cancelled; answered questions remain distinguishable because
     /// they carry one inner vector per question (which may itself be empty).
-    /// ADR-0141: settles through the human-request broker — wire replies are
+    /// Settles through the human-request broker — wire replies are
     /// `ReplyProvenance::User` by construction.
     pub fn reply_user_question(&self, request_id: &str, answers: Vec<Vec<String>>) -> bool {
         let reply = if answers.is_empty() {
@@ -413,7 +412,7 @@ impl Agent {
     }
 
     pub fn reject_pending_user_questions(&self) {
-        // ADR-0141: question cancels route through the broker so metrics and
+        // Question cancels route through the broker so metrics and
         // exactly-once settlement stay uniform across the three protocols.
         // Only questions are drained here; permission/input teardowns have
         // their own callers. `false` means nothing was parked.
@@ -426,7 +425,7 @@ impl Agent {
     /// An empty `text` is a valid "cancel" — the command then runs with
     /// closed stdin and fails fast.
     pub fn reply_input(&self, request_id: &str, text: String) -> bool {
-        // ADR-0141: settles via the broker; wire replies are provenance-User.
+        // Settles via the broker; wire replies are provenance-User.
         self.human_broker.reply_user(
             request_id,
             HumanReply::Stdin(Some(StdinReply {
@@ -440,7 +439,7 @@ impl Agent {
     /// resolving each with `None` so the awaiting dispatch returns a
     /// cancelled result.
     pub fn reject_pending_inputs(&self) {
-        // ADR-0141: routed through the broker for uniform metrics and
+        // Routed through the broker for uniform metrics and
         // exactly-once settlement.
         self.human_broker.cancel_kind(HumanRequestKind::Stdin);
     }

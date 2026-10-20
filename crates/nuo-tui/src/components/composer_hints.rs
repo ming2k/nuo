@@ -1,11 +1,10 @@
 //! Composer-native meta row: the single hint line painted inside the composer panel.
 //!
-//! Under the plane-less chat surface (ADR-0173):
+//! Under the plane-less chat surface:
 //! - Idle: `Enter send` (right)
 //! - Running: `Alt+S steer now` (left) / `Enter queue follow-up` (right)
 //! - Completion: `Esc dismiss` (left) / `Tab / Enter select` (right)
 //! - History: `Esc close` (left) / `Tab / Enter insert` (right)
-
 use nuotc::{Color, Modifier, Span, Style};
 
 use super::super::Theme;
@@ -56,7 +55,7 @@ pub(crate) enum ComposeTarget {
     Completion {
         kind: crate::completion::CompletionKind,
     },
-    /// Inline ↑/↓ recall pointer on a history row (ADR-0192). Distinct from
+    /// Inline ↑/↓ recall pointer on a history row. Distinct from
     /// `HistorySearch` (the Ctrl+R modal): this is the chat-surface pointer
     /// state, not a modal, and its hint set (`Esc draft / Enter send`) rides
     /// the ordinary hint row.
@@ -117,7 +116,7 @@ pub(crate) struct ComposerHints {
     /// from `history_recall` so a future badge variant can consume either
     /// fact independently.
     pub recall_draft_saved: bool,
-    /// The effective chord for toggling send mode while running (ADR-0172):
+    /// The effective chord for toggling send mode while running:
     /// the hint row advertises exactly the binding that fires. Defaults to the
     /// canonical `Tab` when unremapped.
     pub toggle_mode_key: crate::keymap::Key,
@@ -138,7 +137,7 @@ impl Default for ComposerHints {
 /// Build the composer's hint row separated into left and right spans.
 ///
 /// The chord set (and its labels) come from the Conversation scene's own scheme
-/// (`session::live_chat_hints`, ADR-0172): what the row advertises is exactly
+/// (`session::live_chat_hints`): what the row advertises is exactly
 /// what `resolve_chat_surface_key` handles, so a hint can never drift from a
 /// dead shortcut. Only the *presentation* — which side a chord lands on, the
 /// 3-col gap between nav chords, the `Tab / Enter` action pairing, per-state
@@ -157,7 +156,7 @@ pub(crate) fn hint_row_parts(
     let tiny = matches!(density, ActionDensity::Tiny);
 
     // HistorySearch is a modal whose keys are owned by its own scheme
-    // (`modal_keys::live_history_hints`, ADR-0172); this row renders exactly
+    // (`modal_keys::live_history_hints`); this row renders exactly
     // those chords with adaptive density and ADR-0054 visual grammar.
     if target == ComposeTarget::HistorySearch {
         let hints = live_history_hints();
@@ -233,7 +232,7 @@ pub(crate) fn hint_row_parts(
 
     // Left: navigation affordances, joined by a 3-col gap. Hidden on Tiny
     // terminals for the plain prompt / command rows; the toggle verb's hint
-    // (canonical Tab, remapped per ADR-0172) drops when compact so a running
+    // (canonical Tab, remapped per) drops when compact so a running
     // row stays tight.
     let mut left: Vec<Span<'static>> = Vec::new();
     let hide_nav = tiny && matches!(state, HintState::Idle | HintState::Command);
@@ -303,7 +302,7 @@ mod tests {
             Color::Reset,
             crate::keymap::Key::TAB,
         );
-        assert_eq!(text(&left), "", "idle row carries no nav chords (ADR-0173)");
+        assert_eq!(text(&left), "", "idle row carries no nav chords");
         assert_eq!(text(&right), "Enter send");
         // ADR-0054: "Enter" span must use theme.keycap_accent() and BOLD
         assert_eq!(right[0].content, "Enter");

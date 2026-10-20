@@ -1,7 +1,6 @@
-//! Prompt input history storage implementation (ADR-0168).
+//! Prompt input history storage implementation.
 //!
 //! Tracks terminal prompt interactions with deduplication, bounding against `HISTORY_CAP`.
-
 use rusqlite::{Connection, Result, params};
 
 /// Record a prompt into `input_history`, respecting `dedup` and the global `HISTORY_CAP`.

@@ -1,4 +1,4 @@
-//! Durable request-projection archive (ADR-0218).
+//! Durable request-projection archive.
 //!
 //! A [`RequestProjection`] is a forensic snapshot of one assembled model
 //! request: the cacheable-prefix identity and the request-local temporary
@@ -7,8 +7,7 @@
 //! It is **projection state, not transcript**: it lives in its own key-addressed
 //! table, never enters the model history view, and is never read back into a
 //! later request. Persisting it serves reconstruction and audit only
-//! (ADR-0213's three data surfaces, ADR-0218's boundary).
-
+//! (three data surfaces, boundary).
 use serde::{Deserialize, Serialize};
 
 /// One durable request-projection record, keyed by `(session, round, turn)`.
@@ -19,7 +18,7 @@ pub struct RequestProjection {
     /// ReAct turn within the round.
     pub turn: u64,
     pub created_at_ms: u64,
-    /// Deterministic identity of the cacheable prefix `S | H | I` (ADR-0217).
+    /// Deterministic identity of the cacheable prefix `S | H | I`.
     pub prefix_fingerprint: String,
     /// Number of `S | H | I` messages carried by the request.
     pub conversation_messages: usize,

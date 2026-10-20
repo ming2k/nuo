@@ -20,7 +20,6 @@
 //! with a partial frame still buffered was cut off by the transport, so the
 //! stream ends with an explicit (retryable) error instead of dropping the
 //! incomplete tail.
-
 use futures::StreamExt;
 use futures::stream::BoxStream;
 
@@ -52,7 +51,7 @@ pub fn data_payloads(
 /// The transport is a parameter, not an assumption: this is the seam that lets
 /// any byte source — `reqwest` today, the owned `nuo-net` transport tomorrow —
 /// feed the *same* SSE reassembly, so the two can be compared byte for byte
-/// (ADR-0200's shadow criterion). `map_error` turns the source's error type into
+/// (shadow criterion). `map_error` turns the source's error type into
 /// the provider error the retry classifier understands.
 pub fn payloads_from_chunks<C, S, E, F>(
     chunks: S,

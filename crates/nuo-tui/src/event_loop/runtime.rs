@@ -1,4 +1,4 @@
-//! Loop ↔ translator coordination facts (ADR-0197 M1).
+//! Loop ↔ translator coordination facts (M1).
 //!
 //! After the translator seam, the response listener and the monitor client
 //! own **no** application state: they send
@@ -21,7 +21,7 @@
 //!   so the translator can tell the OAuth add-flow (URL shown in the modal)
 //!   from a reconnect (URL shown in the transcript) and avoid duplicating
 //!   the URL into the transcript.
-//! - [`UiRuntime::trust_gate_dismissed`] — per-run latch (ADR-0175): the
+//! - [`UiRuntime::trust_gate_dismissed`] — per-run latch: the
 //!   server republishes `HarnessState` periodically; without the latch a
 //!   dismissed trust gate would re-open on the next snapshot. The applier
 //!   sets it when the gate is answered; the translator reads it to decide
@@ -30,7 +30,6 @@
 //!   signal/wakeup pair: translators flip the flag and notify so the loop's
 //!   `select!` wakes immediately; high-frequency stream updates rely on the
 //!   loop's heartbeat instead.
-
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -51,7 +50,7 @@ pub struct UiRuntime {
     pub is_responding: Arc<AtomicBool>,
     /// Mirror of `App::awaiting_oauth_add` (loop → translator; see module docs).
     pub awaiting_oauth_add: Arc<AtomicBool>,
-    /// Per-run trust-gate latch (ADR-0175; see module docs).
+    /// Per-run trust-gate latch (see module docs).
     pub trust_gate_dismissed: Arc<AtomicBool>,
     /// The session the user is currently viewing (loop → translator;
     /// see module docs).

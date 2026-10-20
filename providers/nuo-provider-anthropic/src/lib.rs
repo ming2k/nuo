@@ -458,7 +458,7 @@ impl Provider for AnthropicMessagesProvider {
                 let events: Vec<Result<ProviderStreamEvent, nuo_model_codec::ProviderError>> =
                     match item {
                         Ok(payload) => {
-                            // Parse-once discipline (ADR-0184): each payload is
+                            // Parse-once discipline: each payload is
                             // deserialized here and the resulting `Value` is handed
                             // to every consumer — the signature stash and the stream
                             // parser alike. Non-JSON payloads (relay keep-alives,

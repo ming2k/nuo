@@ -1,11 +1,10 @@
-//! Single-transcript persistence model (ADR-0186).
+//! Single-transcript persistence model.
 //!
 //! The durable session stores **facts** (`TranscriptEntry`) and **decisions**
 //! (`ProjectionDirective`); every consumer-facing window is a pure `derive`
 //! over the two. Entries are immutable and position-free facts; position lives
 //! in the per-session membership (seq). Projections never rewrite entries —
 //! they append a directive and, for compaction, one checkpoint entry.
-
 use crate::message::{ImagePart, InjectionOrigin, Message, Role, ToolCall};
 use crate::todos::unix_now;
 use serde::{Deserialize, Serialize};
@@ -42,7 +41,7 @@ pub enum EntryOrigin {
 }
 
 /// Reference to the dedicated session that durably records a subagent run
-/// (ADR-0186 §6). Replaces inline nested transcripts.
+/// Replaces inline nested transcripts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubagentRef {
     /// The subagent session's id (its own `sessions` row).
@@ -59,7 +58,7 @@ pub struct SubagentRef {
 }
 
 /// Kind-specific payload of a message entry. Everything that is not an
-/// envelope column (see ADR-0186 §3).
+/// envelope column (see).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MessagePayload {
     /// Tool calls declared by an assistant message. `call.id` pairs with the
@@ -113,7 +112,7 @@ pub struct MessagePayload {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EntryPayload {
     /// A transcript message. Boxed: the payload dominates the entry size and
-    /// entries are cloned wholesale on every turn commit (ADR-0187).
+    /// entries are cloned wholesale on every turn commit.
     #[serde(rename = "message")]
     Message(Box<MessagePayload>),
     /// A working-state snapshot (e.g. the TodoList mirror).
@@ -130,7 +129,7 @@ pub struct StatePayload {
     pub todos: Option<crate::todos::TodoList>,
 }
 
-/// An immutable transcript fact (ADR-0186 §2). `seq` is the entry's position
+/// An immutable transcript fact. `seq` is the entry's position
 /// **in one session** (materialized from `entry_memberships`); the same entry
 /// shared across a fork carries the same id with per-session seq values.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -286,7 +285,7 @@ pub enum DirectivePayload {
         /// One record per elided tool result, keyed by the tool call it
         /// answers.
         elided: Vec<PrunedToolOutput>,
-        /// One record per pruned visual media artifact, keyed by entry seq (ADR-0285).
+        /// One record per pruned visual media artifact, keyed by entry seq.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pruned_media: Vec<PrunedMediaOutput>,
     },
@@ -316,7 +315,7 @@ pub struct PrunedToolOutput {
 }
 
 /// One pruned visual media artifact (e.g. user-uploaded image): the entry membership seq
-/// and the informative placeholder invoice that replaces its body in views (ADR-0285).
+/// and the informative placeholder invoice that replaces its body in views.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrunedMediaOutput {
     pub seq: u64,
@@ -324,7 +323,7 @@ pub struct PrunedMediaOutput {
     pub placeholder: String,
 }
 
-/// A durable projection decision (ADR-0186 §2). Appending a directive is the
+/// A durable projection decision. Appending a directive is the
 /// only effect a projection has on storage.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectionDirective {
@@ -407,7 +406,7 @@ impl Transcript {
             })
     }
 
-    /// The projected view (ADR-0186 §4): the message sequence the next
+    /// The projected view: the message sequence the next
     /// provider request starts from, after applying every directive in order.
     ///
     /// Semantics:
@@ -499,7 +498,7 @@ impl Transcript {
             } else {
                 last_pruned_tool = None;
             }
-            // ADR-0285: Entry-level media pruning (e.g. user-uploaded images)
+            // Entry-level media pruning (e.g. user-uploaded images)
             if let Some(placeholder) = pruned_media.get(&entry.seq) {
                 message.content = placeholder.clone();
                 message.images = None;

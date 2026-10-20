@@ -1,11 +1,10 @@
-//! Typed read/write accessors over session fields (ADR-0186): the model
+//! Typed read/write accessors over session fields: the model
 //! window derives from the transcript, the todo list derives from `state`
 //! entries, and the remaining working state lives on the session row.
-
 use super::*;
 
 impl SessionStore {
-    /// The projected view (ADR-0186): what the next provider request starts
+    /// The projected view: what the next provider request starts
     /// from. The single source of truth for message truth is the transcript;
     /// this is its pure derivation.
     pub async fn model_window(&self) -> Vec<Message> {
@@ -96,7 +95,7 @@ impl SessionStore {
     }
 
     /// The session title. The second element reports whether a title exists
-    /// (ADR-0186: a non-`NULL` title is terminal — AI generation only fills
+    /// (a non-`NULL` title is terminal — AI generation only fills
     /// `None`, so "has title" doubles as the former manual-lock signal).
     pub async fn title(&self) -> (Option<String>, bool) {
         let state = self.state.lock().await;
@@ -137,7 +136,7 @@ impl SessionStore {
             .len()
     }
 
-    /// The current digest and its transcript watermark (ADR-0187
+    /// The current digest and its transcript watermark (
     /// `digest_anchor`).
     pub async fn digest(&self) -> (Option<nuo_wire::SessionDigest>, Option<u64>) {
         let state = self.state.lock().await;
@@ -153,7 +152,7 @@ impl SessionStore {
         self.store_digest(digest, anchor, None).await.map(|_| ())
     }
 
-    /// Compare-and-set digest persist (ADR-0193): the write lands only while
+    /// Compare-and-set digest persist: the write lands only while
     /// the durable anchor still equals `expected_anchor` — the concurrent
     /// digest probe discipline. A losing writer (its `transcript_chars`
     /// snapshot already covered by a concurrent refresh's anchor) reports
@@ -312,7 +311,7 @@ impl SessionStore {
 
     /// Wholesale usage-record replacement. Rare (crash repair / ledger
     /// reseed); persists as a full rewrite so records removed from the list
-    /// are removed from the durable ledger too (ADR-0187).
+    /// are removed from the durable ledger too.
     pub async fn set_request_usage_records(
         &self,
         records: Vec<nuo_wire::RequestUsageRecord>,
@@ -335,7 +334,7 @@ impl SessionStore {
 
     /// The session-scoped provider + model pin (C6). `None` means "follow the
     /// global default". Connection-level pinning (provider+account+endpoint)
-    /// is the ADR-0186 target shape; the pin upgrades when the selection
+    /// is the target shape; the pin upgrades when the selection
     /// machinery migrates.
     pub async fn provider_selection(&self) -> Option<ProviderSelection> {
         self.state.lock().await.data.provider_selection.clone()
@@ -374,7 +373,7 @@ mod tests {
         let store = SessionStore::for_path(dir.path().join("session.json"));
         assert_eq!(store.active_role().await, None);
 
-        // Under ADR-0244, role is immutable per session; role switching spawns a new session via reset_with
+        // role is immutable per session; role switching spawns a new session via reset_with
         let new_id = store
             .reset_with(None, Some("philosophist".to_string()))
             .await
@@ -392,7 +391,7 @@ mod tests {
         assert!(store.workspace().is_none());
         assert!(store.workspace_root().is_none());
 
-        // Test role_manifest snapshot is hermetic and persists (ADR-0245)
+        // Test role_manifest snapshot is hermetic and persists
         let manifest = store.role_manifest().await;
         assert!(manifest.is_some());
         let m = manifest.unwrap();

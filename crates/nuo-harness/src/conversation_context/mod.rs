@@ -3,11 +3,10 @@
 //! These messages are distinct from request projection: lifecycle owners decide
 //! when to append them, and the resulting provenance survives persistence.
 //!
-//! `@`-references are *asset references* (ADR-0288): they are resolved here, on
+//! `@`-references are *asset references*: they are resolved here, on
 //! the durable side, into canonical envelopes; `mentions` owns the shared
 //! lexical helpers (code-span masking, boundary guards, address
 //! canonicalization) used by the resolvers and by the request projection.
-
 mod files;
 mod mentions;
 mod messages;

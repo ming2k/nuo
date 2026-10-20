@@ -31,7 +31,6 @@
 //! unconditionally (even with no round live), but [`RoundLifecycle::begin`]
 //! clears the slot, so a reason parked while idle can never leak into the
 //! next round and mislabel a successful round as interrupted.
-
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio_util::sync::CancellationToken;
@@ -49,14 +48,14 @@ pub struct RoundLifecycle {
     /// round task ([`Self::take_interrupt`]). `Mutex` (not `RwLock`) because
     /// [`Self::take_interrupt`] mutates.
     interrupt_reason: std::sync::Mutex<Option<ParkedInterrupt>>,
-    /// Round-boundary wake (ADR-0197 M4): notified whenever the session
+    /// Round-boundary wake (M4): notified whenever the session
     /// transitions out of "a round is live" — a current round's `finish`, or
     /// a supersede that ends the live round. Session drivers `select!` on
     /// this to ship queued follow-ups at the round boundary; a watcher that
     /// observes `is_running() == false` after the wake may rely on it.
     finished: tokio::sync::Notify,
     /// Whether an interrupt was requested during the current/most-recent
-    /// round (ADR-0197 M4): set by the stop sites, cleared by `begin`. The
+    /// round (M4): set by the stop sites, cleared by `begin`. The
     /// follow-up queue authority reads it at the round boundary — a round
     /// the user interrupted must not auto-fire more prompts; the queue
     /// parks (paused) until the user re-arms it.
@@ -77,7 +76,7 @@ pub struct RoundBegin {
 }
 
 /// A stop reason parked at the moment the cancellation was **requested**, with
-/// the clock reading of that same moment (ADR-0127). Parking the timestamp
+/// the clock reading of that same moment. Parking the timestamp
 /// here — not stamping it later in the unwinding round's tail — is what keeps
 /// the durable record honest: by the time a superseded round's tail runs, the
 /// superseding message has already been sent, so a tail-time clock read lands
@@ -142,7 +141,7 @@ impl RoundLifecycle {
         true
     }
 
-    /// The round-boundary wake signal (ADR-0197 M4). Fires whenever the
+    /// The round-boundary wake signal (M4). Fires whenever the
     /// live round ends; a waiter re-checks [`Self::is_running`] to confirm
     /// the idle transition (spurious wakes are possible and harmless).
     pub fn finished(&self) -> &tokio::sync::Notify {
@@ -150,7 +149,7 @@ impl RoundLifecycle {
     }
 
     /// Whether an interrupt was requested during the current/most-recent
-    /// round (ADR-0197 M4). See the field docs.
+    /// round (M4). See the field docs.
     pub fn was_interrupted(&self) -> bool {
         self.interrupted.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -179,7 +178,7 @@ impl RoundLifecycle {
     }
 
     /// Park the reason an in-flight round is being stopped (C11), stamped
-    /// with the stop-request moment (ADR-0127). Called by the stop site at
+    /// with the stop-request moment. Called by the stop site at
     /// the same instant it requests the cancellation, so the unwinding round
     /// task can label its own terminal event without a reason ever being
     /// threaded through the error type — and without the record's timestamp

@@ -6,8 +6,7 @@
 //! whether the child is blocked reading that terminal, and writing an answer
 //! back. Callers see one capability value ([`input_supervision`]) and one opaque
 //! handle ([`SupervisedChild`]); they never see a pty, a `pre_exec` hook, or
-//! `/proc`. See ADR-0293, ADR-0294, ADR-0295.
-
+//! `/proc`..
 pub mod job;
 pub use job::*;
 

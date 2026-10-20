@@ -1,7 +1,7 @@
-//! Typed slash-command records and results (ADR-0091).
+//! Typed slash-command records and results.
 //!
 //! A `/` command is an *operation on the session*, not a conversation turn.
-//! ADR-0091 therefore records each invocation in a durable **command ledger**
+//! Therefore records each invocation in a durable **command ledger**
 //! ([`CommandRecord`]) on the session instead of in the message stream, and
 //! gives every command a typed [`CommandResult`] — the schema for its reply,
 //! its text rendering ([`CommandResult::to_text`]), and its persisted form —
@@ -11,7 +11,6 @@
 //! Legacy sessions that still carry `Message::command_echo` rows fold into
 //! this ledger at schema migration time with `result: None` (the invocation is
 //! recorded, the reply was never persisted).
-
 use serde::{Deserialize, Serialize};
 
 /// Terminal status of a slash-command invocation.
@@ -60,10 +59,10 @@ pub enum CommandResult {
         message: String,
         detail: Option<String>,
     },
-    /// A confirmation of a state change (the durable twin of the ADR-0088
+    /// A confirmation of a state change (the durable twin of the
     /// `CommandAck` toast). `title` is the one-line headline — the only part
     /// that renders in the prominent tone; `detail` carries zero or more
-    /// explanation lines that render dimmed below it (ADR-0106's "headline
+    /// explanation lines that render dimmed below it ("headline
     /// first, detail muted" scheme). Absent on legacy records: `None` folds
     /// to the title-only rendering.
     Ack {
@@ -115,7 +114,7 @@ impl CommandResult {
             CommandResult::Ack { title, detail } => {
                 // Headline first, detail lines below — never joined into one
                 // row. Consumers must not reflow these with soft-break
-                // collapsing (the bug ADR-0106's plain-block rendering fixed).
+                // collapsing (the bug plain-block rendering fixed).
                 match detail.as_deref().filter(|d| !d.is_empty()) {
                     Some(detail) => {
                         let mut out = title.clone();
@@ -183,7 +182,7 @@ impl CommandResult {
 
 /// One durable slash-command invocation with its structured result.
 ///
-/// Persisted on the session as the `commands` ledger (ADR-0091). The message
+/// Persisted on the session as the `commands` ledger. The message
 /// stream is pure dialogue; these records are the operations that happened.
 /// `result: None` means the invocation is recorded but the reply was never
 /// persisted (the legacy-echo fold and the shell-passthrough case).

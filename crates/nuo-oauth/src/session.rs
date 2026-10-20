@@ -3,7 +3,6 @@
 //! Stateful workflow over the RFC primitives in
 //! [`crate::oauth`]. Vendors contribute their behaviour
 //! through [`crate::provider::OAuthProvider`]; this module names no vendor.
-
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub use crate::oauth::browser::{CallbackOutcome, CallbackServer};
@@ -130,7 +129,7 @@ pub struct OAuth {
     /// `config.provider_id`. `None` means a plain RFC provider.
     provider: Option<Arc<dyn OAuthProvider>>,
     client: Http,
-    /// Where the durable material this flow touches lives (ADR-0300 §1): the
+    /// Where the durable material this flow touches lives: the
     /// token store every refresh rotates, and the device identity a
     /// device-pinned flow presents.
     host: CredentialHost,

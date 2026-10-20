@@ -112,7 +112,7 @@ selector. Absent one, this stays unbuilt.
 
 **Discipline:** every new field is added to `RemoteModelMetadata` as an **`Option`** in the same
 change, so a trusted provider can advertise it and the three-layer resolution (user > remote >
-baseline, `ADR-0149`) applies uniformly. A static-only field would be unreachable by any provider
+baseline, ``) applies uniformly. A static-only field would be unreachable by any provider
 that learns the fact later.
 
 ---

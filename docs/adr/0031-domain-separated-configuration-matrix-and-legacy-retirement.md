@@ -32,7 +32,7 @@ Nuo evolved from an all-in-one prototype into a modular microkernel workspace (A
 
 2. **Persistent Legacy Shims**:
    - Runtime aliases (`default_provider`, `provider_retry_*`, `master.*`, `[websearch]`) blurred the canonical schema.
-   - Retired context compaction structures (`CompactionPolicy`) remained hanging as dead fields (`#[serde(skip)]`) while active runtime subsystems had not cleanly consolidated onto the versioned `context.*` policy (ADR-0280).
+- Retired context compaction structures (`CompactionPolicy`) remained hanging as dead fields (`#[serde(skip)]`) while active runtime subsystems had not cleanly consolidated onto the versioned `context.*` policy.
    - Ephemeral migration adapters (`web_migration.rs`) were executed on every configuration load.
    - Diagnostic tools (`nuo config check`) carried 24 historical tombstone keys rather than providing strict, schema-driven contracts.
 

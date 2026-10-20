@@ -30,7 +30,7 @@ ADR-0069 established *Execution Log Spilling* and the `recall_context` meta-tool
    `recall_context` imposed a rigid line-budgeted window (`offset_lines`, `limit_lines`). To find a single failure or panic in a 10,000-line subagent execution log, an autonomous model was forced to execute dozens of sequential ReAct paging turns (`offset=0`, `offset=80`, `offset=160`), burning massive token budgets, wall-clock time, and cost without native filtering.
 
 3. **Workspace-Free Role Incompatibility**:
-   In Nuo, roles such as `ops` and `philosophist` are strictly workspace-free (`workspace_root: None`, ADR-0220). Relative virtual paths like `.nuo/virtual/...` presuppose an active project directory and fail or trigger path guessings in workspace-free sessions. Conversely, pseudo-absolute roots like `/virtual/...` suggest elevated system root permissions (`/`), creating permission confusion for non-root users.
+In Nuo, roles such as `ops` and `philosophist` are strictly workspace-free (`workspace_root: None`). Relative virtual paths like `.nuo/virtual/...` presuppose an active project directory and fail or trigger path guessings in workspace-free sessions. Conversely, pseudo-absolute roots like `/virtual/...` suggest elevated system root permissions (`/`), creating permission confusion for non-root users.
 
 4. **Token Estimation Drift vs. Deterministic Physical Metrics**:
    Local token estimation (e.g., character heuristics or mismatched BPE tokenizers) is inherently non-deterministic and drifts by up to 200% across provider model families (Claude, GPT-4o, DeepSeek). Crucially, tools like `read_text` accept line numbers (`offset`, `limit`), not tokens. Reporting token approximations forces the model into inaccurate mental arithmetic.

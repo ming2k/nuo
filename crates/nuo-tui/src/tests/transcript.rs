@@ -97,7 +97,7 @@ fn hidden_reasoning_needs_no_assistant_placeholder() {
 
 #[test]
 fn command_ledger_restores_as_non_conversational_command_rows() {
-    // ADR-0091: the command ledger is the durable source of truth for
+    // The command ledger is the durable source of truth for
     // commands on resume — the message stream is pure dialogue. Each record
     // restores as a distinct, non-conversational command row carrying the
     // typed result as its expandable body.
@@ -166,7 +166,7 @@ fn command_error_settles_pending_command_in_place() {
     );
 }
 
-/// ADR-0106 §2: on resume, command rows merge at their turn seams — a
+/// On resume, command rows merge at their turn seams — a
 /// command issued between two prompts renders between those rounds, exactly
 /// where it appeared live — instead of all appending to the dialogue's tail.
 #[test]
@@ -218,7 +218,7 @@ fn command_rows_merge_at_their_turn_seams_on_restore() {
     );
 }
 
-/// ADR-0106 §2: dialogue with no user timestamps is never reordered — the
+/// Dialogue with no user timestamps is never reordered — the
 /// command rows keep ledger order at the tail rather than guessing.
 #[test]
 fn command_rows_tail_when_dialogue_has_no_timestamps() {
@@ -267,7 +267,7 @@ fn command_result_message_expands_and_round_trips_display() {
     assert_eq!(message.command_result_expanded(), Some(true));
 }
 
-/// ADR-0106: the command row's layout follows the shape of the reply — a
+/// The command row's layout follows the shape of the reply — a
 /// a short single line joins inline with whitespace, anything longer discloses, and a
 /// missing result renders plain. The classifier is width-aware so an inline
 /// reply is never a truncated fragment.

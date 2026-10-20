@@ -1,6 +1,5 @@
 //! Tool administration on [`Agent`]: cached permission rules,
 //! enable/disable, declared tool snapshots, and the skills catalog view.
-
 use super::*;
 
 impl Agent {
@@ -71,7 +70,7 @@ impl Agent {
         self.dynamic_tools.clone()
     }
 
-    /// Update the admitted MCP server patterns for the active role (ADR-0242).
+    /// Update the admitted MCP server patterns for the active role.
     pub fn set_admit_mcp(&self, patterns: Vec<String>) {
         self.tool_manager.set_admit_mcp(patterns);
     }
@@ -183,7 +182,7 @@ impl Agent {
     /// disabled tool's definition never reaches the provider.
     pub(crate) fn visible_tools(&self) -> Vec<Arc<dyn Tool>> {
         // Delegate to the ToolManager's schema authority.
-        // Under ADR-0137, tool schemas remain deterministic and invariant to maximize
+        // tool schemas remain deterministic and invariant to maximize
         // KV-cache reuse. Unattended-mode restrictions are enforced at runtime via PermissionPolicy.
         self.tool_manager.loop_tools(self.unattended())
     }

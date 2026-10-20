@@ -13,7 +13,6 @@
 //!    - **Layer 1 (Global Lifecycle)**: Modal dismissal, double Ctrl+C exits.
 //!    - **Layer 2 (Active Extension Interceptor)**: Candidate navigation (↑/↓), item pruning (Shift+Delete), selection acceptance (Enter/Tab).
 //!    - **Layer 3 (Composer Text Engine)**: Unbounded text editing (Backspace, DeleteForward, typing printable characters, Ctrl+C buffer clear).
-
 use crate::input::InputAction;
 use crate::keymap::{Key, LiveHint};
 
@@ -258,7 +257,7 @@ mod tests {
         let prompt_target = compose_target_for_extension(false, None, false, None, false);
         assert_eq!(prompt_target, ComposeTarget::Prompt);
 
-        // ADR-0192: the inline recall pointer outranks busy/slash derivation —
+        // The inline recall pointer outranks busy/slash derivation —
         // the buffer holds a history row, and that content fact wins.
         let recall_target = compose_target_for_extension(true, None, false, None, true);
         assert_eq!(recall_target, ComposeTarget::HistoryRecall);

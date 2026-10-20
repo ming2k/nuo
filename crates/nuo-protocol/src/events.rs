@@ -1,7 +1,6 @@
 //! Wire types for the harness ↔ driver protocol: requests ([`AgentRequest`]),
 //! responses ([`AgentResponse`]), live agent events ([`AgentEvent`]), and the
 //! small data records they carry.
-
 use crate::{Availability, ImagePart, Message, ToolOutput, ToolStream, TrustDomain};
 use serde::{Deserialize, Serialize};
 
@@ -38,7 +37,7 @@ pub enum AgentRequest {
         input_id: String,
     },
     /// Queue a follow-up message into an explicit live session. The
-    /// **driver owns the queue** (ADR-0197 M4): when the target round is
+    /// **driver owns the queue** (M4): when the target round is
     /// idle the message starts immediately ([`RoundEvent::FollowUpStarted`]);
     /// when it is running the driver enqueues it
     /// ([`RoundEvent::FollowUpQueued`]) and ships it automatically at the
@@ -103,7 +102,7 @@ pub enum AgentRequest {
     /// `SubagentRegistry`/`SubagentHandle` duplex path uses, ADR-0029). Esc Esc
     /// inside the Subagent scene resolves to this so the chord is *scene-scoped*:
     /// it stops only the viewed child and leaves the enclosing primary round and
-    /// every sibling subagent untouched (ADR-0205 scene scope). The child's round
+    /// every sibling subagent untouched (scene scope). The child's round
     /// loop observes the cancellation at its next safe boundary, returns its
     /// partial transcript, and the parent records it as an interrupted (not
     /// failed) result — identical to the drain the primary interrupt triggers when
@@ -112,7 +111,7 @@ pub enum AgentRequest {
     InterruptSubagent {
         call_id: String,
     },
-    /// The client declares this session over (ADR-0112). Sent on the paths
+    /// The client declares this session over. Sent on the paths
     /// where the operator's intent is "I am done with this session", not
     /// "I am detaching": the TUI's `/exit` and double-Ctrl+C quit, a
     /// headless run's terminal round, and the Web app's end-session
@@ -163,12 +162,12 @@ pub enum AgentRequest {
     },
     /// Create a connection: bind a model provider to a credential and a client
     /// identity, persist it, then activate it. `name` is the connection's
-    /// identity (ADR-0201) and must be unique; the server rejects a duplicate
+    /// identity and must be unique; the server rejects a duplicate
     /// with a suggested alternative instead of silently disambiguating.
     /// `provider` must name a registered model provider. `protocol`, `base_url`,
     /// and `user_agent` are optional overrides of the provider's defaults;
     /// `models` is an optional initial inclusion set, honored only for models
-    /// Register or update a declarative model provider surface in `model_providers.toml` (ADR-0258).
+    /// Register or update a declarative model provider surface in `model_providers.toml`.
     RegisterProvider {
         id: String,
         #[serde(default)]
@@ -185,7 +184,7 @@ pub enum AgentRequest {
         #[serde(default)]
         dialect: Option<String>,
     },
-    /// Add a new connection instance to `connections.toml` (ADR-0201, ADR-0258).
+    /// Add a new connection instance to `connections.toml`.
     /// A connection is a credentialed pipe to a model provider.
     ///
     /// Per ADR-0046, reasoning (effort/thinking) is not set at connection
@@ -223,7 +222,7 @@ pub enum AgentRequest {
     /// Cancel any in-flight OAuth authorization.
     CancelAuthorizeOAuth,
     /// Edit a connection's metadata in place (provider, API
-    /// key, client identity) without touching its model scope (ADR-0258). Keyed by `name`;
+    /// key, client identity) without touching its model scope. Keyed by `name`;
     /// renaming is the separate atomic request [`Self::RenameConnection`].
     EditConnection {
         name: String,
@@ -237,7 +236,7 @@ pub enum AgentRequest {
     },
     /// Rename a connection. The server rewrites every hard join key
     /// (`credentials.toml`, `auth.toml`, `default_connection`) in one
-    /// transaction; historical records keep the old name (ADR-0201).
+    /// transaction; historical records keep the old name.
     RenameConnection {
         from: String,
         to: String,
@@ -245,22 +244,22 @@ pub enum AgentRequest {
     /// Remove a model (channel) from a user-defined provider, persist, and push a
     /// fresh picker snapshot. The last remaining model is kept (a provider must
     /// serve at least one model).
-    /// Include or declare a model within a scope (preset or connection) with optional capability facts (ADR-0199).
+    /// Include or declare a model within a scope (preset or connection) with optional capability facts.
     IncludeModel {
         scope: crate::model::ModelTargetScope,
         model: crate::model::DeclaredModel,
     },
-    /// Exclude/hide a model from the resolved set within a scope (ADR-0199).
+    /// Exclude/hide a model from the resolved set within a scope.
     ExcludeModel {
         scope: crate::model::ModelTargetScope,
         model_id: String,
     },
-    /// Clear explicit inclusion or exclusion rules for a model within a scope (ADR-0199).
+    /// Clear explicit inclusion or exclusion rules for a model within a scope.
     ClearModelRule {
         scope: crate::model::ModelTargetScope,
         model_id: String,
     },
-    /// Set capability overrides for a specific model within a scope (ADR-0199).
+    /// Set capability overrides for a specific model within a scope.
     SetModelCapabilities {
         scope: crate::model::ModelTargetScope,
         model_id: String,
@@ -275,7 +274,7 @@ pub enum AgentRequest {
         model: String,
         effort: Option<String>,
         thinking: Option<bool>,
-        /// Capability overrides (ADR-0149 layer 1): `None` keeps the stored
+        /// Capability overrides (layer 1): `None` keeps the stored
         /// overrides untouched; `Some(record)` replaces them wholesale (an
         /// empty record clears them). Persisted per (instance, model) in the
         /// route-settings **state** store, never in config.
@@ -291,7 +290,7 @@ pub enum AgentRequest {
         model: String,
         effort: Option<String>,
         thinking: Option<bool>,
-        /// Capability overrides (ADR-0149 layer 1) — same semantics as
+        /// Capability overrides (layer 1) — same semantics as
         /// [`AgentRequest::EditConnectionModel::overrides`].
         overrides: Option<crate::model::CapabilityOverrides>,
     },
@@ -373,7 +372,7 @@ pub enum AgentRequest {
     QueryTokenUsage {
         session_id: String,
     },
-    /// Request the cross-session usage-statistics report (ADR-0122): daily
+    /// Request the cross-session usage-statistics report: daily
     /// token totals, per-model breakdown, and the recent terminal-request
     /// event log, aggregated over the durable day-partitioned store that
     /// survives session cleanup. The harness replies with
@@ -444,7 +443,7 @@ pub enum AgentRequest {
     UpdateTuiLayout(String),
     /// Request the persisted prompt input history. The server is the source
     /// of truth for the shared SQLite store; the frontend never opens the
-    /// database directly (ADR-0197). Replies with
+    /// database directly. Replies with
     /// [`AgentResponse::InputHistory`].
     QueryInputHistory,
     /// Record (lock + merge) prompt input history entries on the server —
@@ -479,10 +478,10 @@ pub enum AgentRequest {
     /// provider capability catalog. Secrets never cross the wire. Replied with
     /// [`AgentResponse::WebSearchConfigSnapshot`].
     QueryWebSearchConfig,
-    /// Cross-project session history search (ADR-0208): BM25 FTS over all
+    /// Cross-project session history search: BM25 FTS over all
     /// persisted transcript entries in the shared `nuo.db`, optionally
     /// narrowed to one workspace root. The server is the source of truth; the
-    /// frontend never opens the database directly (ADR-0197). Replies with
+    /// frontend never opens the database directly. Replies with
     /// [`AgentResponse::HistorySearch`].
     SearchHistory {
         query: String,
@@ -635,7 +634,7 @@ pub enum AgentResponse {
         session_id: String,
     },
     /// Replace the visible transcript (dialogue messages) AND the command
-    /// ledger (ADR-0091) with another session's state, after `/session open`,
+    /// ledger with another session's state, after `/session open`,
     /// `/resume`, `/session resume`. The frontend rebuilds the whole document
     /// from these two sources: pure dialogue from `messages`, command rows
     /// from `commands`. `session_id` identifies the session that produced the
@@ -703,7 +702,7 @@ pub enum AgentResponse {
     /// report (per-day / per-model totals + recent event log) aggregated from
     /// the durable usage store. Unlike [`Self::TokenUsageReport`] this data is
     /// session-independent — it outlives session deletion by design
-    /// (ADR-0122) — so no session id accompanies it.
+    /// so no session id accompanies it.
     UsageStatsReport {
         report: crate::usage_stats::UsageStatsReport,
     },
@@ -768,7 +767,7 @@ pub struct ContextTokenSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history_tokens: Option<usize>,
     /// Request-local temporary-context tokens (`E_n`), reported separately from
-    /// durable input so diagnostics do not conflate the two (ADR-0213 §8).
+    /// durable input so diagnostics do not conflate the two.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temporary_context_tokens: Option<usize>,
 }
@@ -990,7 +989,7 @@ pub struct RoundSummary {
     /// tokens/sec: `tps = output_tokens / generation_ms`. Falls back to the
     /// round `active_ms()` only when no request completed measurably.
     pub generation_ms: u64,
-    /// The durable session revision this completion follows (ADR-0236 D5): the
+    /// The durable session revision this completion follows (D5): the
     /// authoritative commit was acknowledged at this revision before the
     /// completion was published. A client can order the completion against
     /// later session state and discard a stale replay instead of regressing a
@@ -1052,7 +1051,7 @@ pub enum RoundEvent {
         input_id: String,
     },
     /// The driver accepted a follow-up into its queue while the target round
-    /// was running (ADR-0197 M4). The item will ship automatically at the
+    /// was running (M4). The item will ship automatically at the
     /// round boundary, unless the queue is paused; the authoritative queue
     /// snapshot rides [`RoundEvent::QueueUpdated`].
     FollowUpQueued {
@@ -1101,12 +1100,12 @@ pub enum RoundEvent {
     /// event covers the round as a whole on every interrupt phase.
     RoundInterrupted(RoundInterrupt),
     Text(String),
-    /// A typed slash-command result (ADR-0091). Replaces the `Text` replies
+    /// A typed slash-command result. Replaces the `Text` replies
     /// commands used to emit: the TUI renders it as a distinct command block
     /// (dimmed header + expandable result), never as assistant prose, and the
     /// same value is recorded in the session's command ledger for resume/
     /// export/audit.
-    /// A typed slash-command result (ADR-0091). Replaces the `Text` replies
+    /// A typed slash-command result. Replaces the `Text` replies
     /// commands used to emit: the TUI renders it as a distinct command block
     /// (dimmed invocation header + expandable result), never as assistant
     /// prose, and the same value is recorded in the session's command ledger
@@ -1171,7 +1170,7 @@ pub enum RoundEvent {
     #[serde(alias = "InputRequest")]
     StdinRequest(StdinRequest),
     /// A context projection (compaction or prune) was committed. Token
-    /// samples of the active window around the projection (ADR-0120, ADR-0296).
+    /// samples of the active window around the projection.
     Compacted {
         archived_messages: usize,
         window_tokens_before: usize,
@@ -1248,7 +1247,7 @@ pub enum RoundEvent {
     },
     /// A subagent event to render nested inside the parent tool step. The
     /// variant carries the child's own [`SubagentEvent`] plus the parent
-    /// tool-call id it was nested under (ADR-0183).
+    /// tool-call id it was nested under.
     SubagentStep {
         parent_call_id: String,
         event: SubagentEvent,
@@ -1260,7 +1259,7 @@ pub enum RoundEvent {
         job_id: crate::job::JobId,
         line: String,
     },
-    /// A service task reported readiness (ADR-0190): the process is alive and
+    /// A service task reported readiness: the process is alive and
     /// its readiness condition (first output, grace, or port probe) is met.
     /// Wake-eligible.
     BackgroundJobReady {
@@ -1387,7 +1386,7 @@ pub enum SessionForkKind {
     Trunk,
     /// An explicit `/fork` branch (the active pointer moved here).
     Fork,
-    /// A subagent run's own durable session (ADR-0186 §6): spawned by a
+    /// A subagent run's own durable session: spawned by a
     /// subagent tool call in a parent session, never surfaced in the picker.
     Subagent,
 }
@@ -1460,7 +1459,7 @@ pub struct ProviderPickerRow {
 
 pub type ConnectionPickerRow = ProviderPickerRow;
 
-/// Why a live catalog refresh did not deliver a fresh model list (ADR-0273).
+/// Why a live catalog refresh did not deliver a fresh model list.
 ///
 /// The distinction is what the user can *do*: a refusal means the account was
 /// told it may not use the provider, so retrying is pointless and the remedy is
@@ -1497,7 +1496,7 @@ pub enum ConnectStatus {
     /// so the provider keeps its previous (often seed-only) model list. The
     /// UI surfaces this as a warning so the user does not mistake a stale list
     /// for the account's real entitlements. `kind` says whether the upstream
-    /// refused the account or merely failed to answer (ADR-0273).
+    /// refused the account or merely failed to answer.
     CatalogSyncWarning {
         provider: String,
         message: String,
@@ -1545,7 +1544,7 @@ pub struct ProviderModelInfo {
     /// snapshots deserialize as "never used".
     #[serde(default)]
     pub last_used_ms: Option<u64>,
-    /// Effective image-input support for this route — the **full** ADR-0149
+    /// Effective image-input support for this route — the **full**
     /// capability resolution (user overrides over the remote advertisement
     /// over the static baseline), resolved server-side in
     /// `Channel::capabilities()`. Frontends gate image affordances (composer
@@ -1555,7 +1554,7 @@ pub struct ProviderModelInfo {
     /// client-side resolution would disagree with what the server actually
     /// routes.
     ///
-    /// **Three-valued** (ADR-0230): `Some(false)` means a layer declared that
+    /// **Three-valued**: `Some(false)` means a layer declared that
     /// this route rejects images — the only value a frontend may gate on;
     /// `None` means *undeclared*, which older snapshots (and every route whose
     /// vendor advertises no vision field) deserialize to, so a frontend must
@@ -1563,14 +1562,14 @@ pub struct ProviderModelInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vision: Option<bool>,
     /// Effective context window in tokens for this route — the **full**
-    /// ADR-0149 capability resolution (ADR-0182). Guaranteed > 0 for valid
+    /// Capability resolution. Guaranteed > 0 for valid
     /// channels; 0 indicates an unresolved fallback.
     #[serde(default)]
     pub context_window: usize,
     /// Maximum output generation tokens for this route when declared or overridden.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
-    /// The **effective** availability verdict for this route (ADR-0273):
+    /// The **effective** availability verdict for this route:
     /// the provider's declaration, after any sovereign user override has been
     /// applied server-side. `None` means undeclared — a frontend must treat it
     /// as usable, never as disabled. `Some(usable:false)` is the one value a
@@ -1582,7 +1581,7 @@ pub struct ProviderModelInfo {
     /// upstream verdict it contradicts (`[INV-AVAIL-05]`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub availability_overridden: bool,
-    /// The provider's listing intent (ADR-0273). `Some(false)` means the
+    /// The provider's listing intent. `Some(false)` means the
     /// provider does not want this model offered in a listing; `None` means
     /// undeclared and therefore listed. Independent of `availability`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1591,13 +1590,13 @@ pub struct ProviderModelInfo {
     /// has since failed**, so the verdict may already have been reversed
     /// upstream. The declaration is still enforced (a failed refresh never
     /// widens access), but the surface must not present it as freshly
-    /// confirmed (ADR-0273).
+    /// confirmed.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub availability_stale: bool,
 }
 
 impl ProviderModelInfo {
-    /// Extract the materialized route capabilities from this model info row (ADR-0182).
+    /// Extract the materialized route capabilities from this model info row.
     pub fn route_capabilities(&self) -> crate::RouteCapabilities {
         crate::RouteCapabilities {
             context_window: self.context_window,
@@ -1805,7 +1804,7 @@ pub enum AgentEvent {
         job_id: crate::job::JobId,
         line: String,
     },
-    /// A service task reported readiness (ADR-0190). Wake-eligible.
+    /// A service task reported readiness. Wake-eligible.
     BackgroundJobReady {
         job_id: crate::job::JobId,
     },
@@ -2041,7 +2040,7 @@ mod tests {
 
     #[test]
     fn trust_changed_kind_serialises_as_snake_case_and_round_trips() {
-        // ADR-0155: TrustChanged is first-class, stamped uniformly by
+        // TrustChanged is first-class, stamped uniformly by
         // `trust_changed()` — Warning severity, Harness source — and must stay
         // distinct from the generic ReviewAlert on the wire so frontends can
         // branch on it exactly.

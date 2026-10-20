@@ -79,7 +79,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-/// server verb dispatch (ADR-0116: the server verbs own start/stop/restart/status/token).
+/// server verb dispatch (the server verbs own start/stop/restart/status/token).
 async fn run_server_action(
     action: ServerAction,
     project_override: Option<PathBuf>,

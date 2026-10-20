@@ -13,7 +13,6 @@
 //! (`Text`, `Error`). Richer variants (`Shell`, `Patch`, `Listing`, `Matches`,
 //! …) are added in the step that first migrates a tool to use them, so the
 //! type grows with real callers rather than speculatively.
-
 use serde::{Deserialize, Serialize};
 
 /// Typed result of a tool invocation.
@@ -76,7 +75,7 @@ pub enum ToolOutput {
         /// reads as a normal exit rather than failing to load.
         #[serde(default)]
         termination: ShellTermination,
-        /// Set only with [`ShellTermination::Detached`] (ADR-0190): the
+        /// Set only with [`ShellTermination::Detached`]: the
         /// background-job id the child was adopted under, so the UI can point
         /// at the notification target.
         #[serde(default, skip_serializing_if = "Option::is_none")]

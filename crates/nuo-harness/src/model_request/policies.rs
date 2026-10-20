@@ -1,17 +1,17 @@
-//! System-prompt sections and policy registries (ADR-0056 / ADR-0160 / ADR-0261).
+//! System-prompt sections and policy registries (ADR-0056).
 //!
 //! The system prompt is a [`SystemPromptRegistry`] of declarative
 //! [`SystemPromptSection`]s registered on the [`Agent`](crate::Agent) at
 //! construction. The `model_request` assembler rebuilds a structured,
 //! cache-tiered `InstructionBundle` from live agent state before every provider request.
 //!
-//! # Architecture & Design Principles (ADR-0261)
+//! # Architecture & Design Principles
 //!
 //! 1. **Attention Frugality & Signal Maximization**: Every token in the system
 //!    prompt must justify its presence as an indispensable structural identity or
 //!    security boundary. We reject "nanny prompting" — verbose lectures instructing
 //!    the model how to behave, what tools to prefer, or to persist through tasks.
-//! 2. **Mechanisms over Exhortation**: Execution bounds (such as ADR-0257 StreamGuard,
+//! 2. **Mechanisms over Exhortation**: Execution bounds (such as StreamGuard,
 //!    idle watchdogs, and sandbox confinements) are physically enforced by runtime
 //!    mechanisms, not by upfront prompt preaching. Failures emit targeted self-healing
 //!    advisories directly in tool output.
@@ -22,7 +22,6 @@
 //!    role identities, user project rules, admitted multi-workspace roots, and
 //!    untrusted web boundaries. In the default configuration with no identity or
 //!    rules, zero system prompt tokens are emitted.
-
 use nuo_wire::InstructionTier;
 
 use super::system_prompt::InstructionOrder;
@@ -156,7 +155,7 @@ impl SystemPromptSection for ProjectRulesGuidance {
     }
 }
 
-/// Cross-project admission notice (ADR-0142). Active only when the session
+/// Cross-project admission notice. Active only when the session
 /// admitted additional workspace roots, so the default single-root prompt is
 /// byte-for-byte unchanged.
 struct WorkspaceRootsGuidance;

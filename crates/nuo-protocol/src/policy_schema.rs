@@ -16,7 +16,6 @@
 //! spelling is a contract with every existing user file. The `match` field's
 //! rename and alias, the `snake_case` matcher/action enums, and the `*` default
 //! scope are all load-bearing and must not be "tidied".
-
 use serde::{Deserialize, Serialize};
 
 /// Safety policy for model-issued `bash` commands.
@@ -122,7 +121,7 @@ fn default_scope() -> String {
     "*".to_string()
 }
 
-/// Where a declared role expects to run (ADR-0253).
+/// Where a declared role expects to run.
 ///
 /// A role declaration's workspace policy: run anywhere, inherit the caller's
 /// workspace, or require exactly one. Deserialized from a plain string
@@ -173,7 +172,7 @@ impl Serialize for RoleWorkspace {
     }
 }
 
-/// A user-declared role from `roles.toml` (ADR-0246).
+/// A user-declared role from `roles.toml`.
 ///
 /// The declaration only: name, identity material, capability lists, and the
 /// workspace policy. Discovery, file loading, and the built-in fallbacks are the
@@ -247,7 +246,7 @@ impl CustomRole {
         Ok(())
     }
 
-    /// Whether this role admits tools from the given MCP server name (ADR-0242, ADR-0246).
+    /// Whether this role admits tools from the given MCP server name.
     pub fn admits_mcp_server(&self, server: &str) -> bool {
         if self.admit_mcp.is_empty() {
             return false;
@@ -263,7 +262,7 @@ impl CustomRole {
         })
     }
 
-    /// Whether this role admits the tool by name (ADR-0242, ADR-0246).
+    /// Whether this role admits the tool by name.
     pub fn admits_tool(&self, tool: &str) -> bool {
         if self.tools.is_empty() {
             return false;

@@ -1,4 +1,4 @@
-//! Dashboard console dispatch (ADR-0097 §2–§3): turning the console's
+//! Dashboard console dispatch: turning the console's
 //! command grammar into control-plane verbs and receipts. Extracted from
 //! the event-loop action arms so the grammar, the verb mapping, and the
 //! receipt plumbing read as one unit.
@@ -7,7 +7,6 @@
 //! on a spawned one-shot control connection and its outcome lands in the
 //! console transcript (via `AppMutation::HostConsole`) rather than
 //! a toast — the cockpit log is the feedback surface.
-
 use std::sync::Arc;
 
 use crate::App;
@@ -162,7 +161,7 @@ pub(super) fn suspend_selected(app: &mut App, runtime: &UiRuntime) {
     spawn_control_verb(runtime, ConsoleVerb::Suspend, Some(seq), id);
 }
 
-/// Ask the Archivist (ADR-0208) one question: a synchronous control round
+/// Ask the Archivist one question: a synchronous control round
 /// whose answer lands as a console receipt. The Archivist is the nuo-level
 /// retrieval agent — it searches every project's sessions, so no `@N` target
 /// and no dock selection are involved.
@@ -262,7 +261,7 @@ fn help_block(app: &mut App) {
     notice(app, "  bare text     prompt the selected session");
     notice(
         app,
-        "  ? text        ask the Archivist to find sessions across all projects (ADR-0208)",
+        "  ? text        ask the Archivist to find sessions across all projects",
     );
 }
 

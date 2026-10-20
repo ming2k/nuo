@@ -1,5 +1,4 @@
 //! Transcript notice component (System / Infrastructure notices as top-level transcript entries).
-
 use nuotc::{
     Color, Frame, Modifier, Paragraph, Rect, Style, {Line, Span},
 };
@@ -167,7 +166,7 @@ fn notice_content<'v>(
 ///
 /// A notice is an **always-open** entry (see [`draw_notice_view`]), so it
 /// carries no disclosure marker: the severity glyph is the whole marker
-/// vocabulary, exactly as ADR-0111 keeps command entries marker-free.
+/// vocabulary, exactly as keeps command entries marker-free.
 fn notice_header_line(
     lead_symbol: &str,
     topic: &str,
@@ -232,7 +231,7 @@ pub(crate) fn draw_notice_view(
     // A notice is an **always-open** entry (ADR-0020 "fully disclosed
     // entries"): its severity, title, and detail *are* the message, so nothing
     // gates them and it carries no disclosure marker — the severity glyph is
-    // its whole marker vocabulary, matching ADR-0111's marker-free rule for
+    // its whole marker vocabulary, matching marker-free rule for
     // command entries.
     //
     // The `expanded` field remains part of the record contract (`y`-copy,
@@ -246,7 +245,7 @@ pub(crate) fn draw_notice_view(
     };
     // The interaction channel still tints the topic label, so a hovered or
     // keyboard-focused notice is visibly the component attention is on
-    // (ADR-0174's affordance hue) even though its body never folds.
+    // (affordance hue) even though its body never folds.
     let topic_color = summary_text_color(
         Some(tag_color),
         Disclosure::Expanded,
@@ -558,7 +557,7 @@ Gave up after 6 attempt(s); the upstream service appears overloaded. Resend the 
         // and the muted detail is the structured body — none of it recovered
         // by the heuristic text parse. Mirrors the runtime's
         // `workspace_trust_notice`, which emits a first-class `TrustChanged`
-        // kind (ADR-0155).
+        // kind.
         let core = nuo_wire::AgentNotice::trust_changed("Workspace configurations changed")
             .with_body("Changed on disk: rules (AGENTS.md / rules) — quarantined pending review.");
         let msg = TranscriptMessage::notice_from_core(&core);

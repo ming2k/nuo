@@ -1,10 +1,9 @@
-//! Offstream epistemic memory contracts and registry (ADR-0262).
+//! Offstream epistemic memory contracts and registry.
 //!
 //! Defines the pluggable [`OffstreamSource`] trait, entry/pagination DTOs,
 //! and [`OffstreamRegistry`] for retrieving historical context (subagent
 //! trajectories, pruned tool outputs, and folded causal subgraphs) that has
 //! exited the active model window.
-
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -62,7 +61,7 @@ pub struct PagedOffstreamContent {
     pub next_cursor: Option<String>,
     /// Total lines in the retrieved segment.
     pub total_lines: usize,
-    /// Optional rehydrated media payload (e.g. visual image) for multimodal artifacts (ADR-0285).
+    /// Optional rehydrated media payload (e.g. visual image) for multimodal artifacts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media: Option<crate::ImagePart>,
 }
@@ -83,7 +82,7 @@ impl PagedOffstreamContent {
     }
 }
 
-/// Pluggable offstream data source provider (ADR-0262).
+/// Pluggable offstream data source provider.
 #[async_trait]
 pub trait OffstreamSource: Send + Sync {
     /// The canonical scheme prefix handled by this source (e.g. "sub", "call", "fold").

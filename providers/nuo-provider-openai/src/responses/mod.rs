@@ -8,7 +8,6 @@
 //! - builds a Responses request (`instructions` + `input` items) and parses
 //!   `response.*` streaming events,
 //! - supports self-healing reactive force-refresh on HTTP 401 Unauthorized for OAuth channels.
-
 pub mod request;
 pub mod response;
 mod tool_trace;
@@ -564,7 +563,7 @@ impl Provider for OpenAiResponsesProvider {
         }
         let label = self.label();
         // `build_body` consumes the request, so the attempt's telemetry handle
-        // is lifted out first (ADR-0232).
+        // is lifted out first.
         let transport_telemetry = request.transport_telemetry.clone();
         let turn_context = Arc::clone(&request.turn_context);
         let body = self.build_body(request, false)?;
@@ -619,7 +618,7 @@ impl Provider for OpenAiResponsesProvider {
     > {
         let label = self.label();
         // `build_body` consumes the request, so the attempt's telemetry handle
-        // is lifted out first (ADR-0232).
+        // is lifted out first.
         let transport_telemetry = request.transport_telemetry.clone();
         let turn_context = Arc::clone(&request.turn_context);
         let body = self.build_body(request, true)?;
@@ -648,7 +647,7 @@ impl Provider for OpenAiResponsesProvider {
     > {
         let label = self.label();
         // `build_body` consumes the request, so the attempt's telemetry handle
-        // is lifted out first (ADR-0232).
+        // is lifted out first.
         let transport_telemetry = request.transport_telemetry.clone();
         let turn_context = Arc::clone(&request.turn_context);
         let body = self.build_body(request, true)?;

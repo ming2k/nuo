@@ -1,4 +1,4 @@
-//! Authoritative request-attempt accounting and recoverable usage projections (ADR-0236).
+//! Authoritative request-attempt accounting and recoverable usage projections.
 //! No production read imports legacy files, and no settlement rewrites a day bucket.
 use nuo_wire::usage_stats::{UsageStatRecord, UsageStatsReport, day_key_from_epoch_ms};
 use nuo_wire::{RequestUsageKey, RequestUsageRecord};
@@ -238,7 +238,7 @@ mod tests {
         let t1 = t0 + 48 * 3600 * 1_000;
         // Distinct attempts: the same `(session, actor, round, turn, attempt)`
         // identity may not be re-reported with conflicting authoritative
-        // counts (ADR-0236; `upsert_attempt` refuses it), so two days means two
+        // counts (`upsert_attempt` refuses it), so two days means two
         // attempts, not one attempt recorded twice.
         store
             .record(t0, "p", &sample_record("s1", 1, 1_000))

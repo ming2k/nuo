@@ -13,7 +13,6 @@
 //!
 //! All items are `pub` because they are assembled by the binary, which knows
 //! the concrete provider/tool instances and the frontend's request channel.
-
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{
@@ -63,7 +62,7 @@ pub(crate) fn unix_epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// The user-facing explanation for withholding image attachments (ADR-0230).
+/// The user-facing explanation for withholding image attachments.
 ///
 /// One wording, because there is one kind of evidence: the probe's outcome. The
 /// harness deliberately does **not** read the vendor's error text to decide
@@ -464,7 +463,7 @@ pub struct ContextProjectionSettings {
     /// Enable cheap tool-result pruning (pre-turn and mid-turn).
     pub prune: bool,
     /// Token budget of the most recent tool results protected from pruning
-    /// (ADR-0120: token-native; the config key was already tokens, the old
+    /// (token-native; the config key was already tokens, the old
     /// `× CHARS_PER_TOKEN` conversion existed only to feed a char-space
     /// pruner).
     pub prune_protect_tokens: usize,
@@ -472,13 +471,13 @@ pub struct ContextProjectionSettings {
 
 impl ContextProjectionSettings {
     /// Mid-turn pruning only fires when it can reclaim at least this many
-    /// tokens, to avoid pruning churn for negligible gains (ADR-0283 Quantum Floor).
+    /// tokens, to avoid pruning churn for negligible gains (Quantum Floor).
     pub const PRUNE_MIN_RECLAIM_TOKENS: usize = nuo_wire::PRUNE_QUANTUM_FLOOR_TOKENS;
 
     /// Resolve settings for the active model's context window. `window_tokens`
     /// is the live model's context window (tokens); `0` means unknown and the
     /// policy's fallback window is substituted.
-    /// Resolve settings from a modern versioned context policy (ADR-0280 / ADR-0031).
+    /// Resolve settings from a modern versioned context policy.
     pub fn from_context_policy(
         policy: &nuo_wire::context_lifecycle::ContextPolicy,
         window_tokens: usize,
@@ -651,7 +650,7 @@ pub struct RoundContext {
 }
 
 /// Which kind of round `execute_round` is about to run — a fresh round, or
-/// the `/retry` resume of a stopped one. See ADR-0128.
+/// the `/retry` resume of a stopped one..
 #[derive(Clone, Debug)]
 pub enum RoundDriver {
     /// A normal round: a new prompt is admitted, the round counter bumps, and
@@ -943,7 +942,7 @@ pub async fn start_interactive_round(context: InteractiveRoundContext, input: Ro
                 LoopStatus::Idle,
             )
             .await;
-            // ADR-0209: Proactive session ledger snapshot upon round finish/interruption.
+            // Proactive session ledger snapshot upon round finish/interruption.
             if let Some(ledger) = context.agent.token_ledger() {
                 let report = ledger.snapshot_for_session(&context.session_id);
                 let _ = context.tx.send(AgentResponse::TokenUsageReport {
@@ -1017,7 +1016,7 @@ pub async fn execute_round(
         }
     }
 
-    // Phase 1: Pre-flight Aspect Evaluation (ADR-0183)
+    // Phase 1: Pre-flight Aspect Evaluation
     if !input.hidden && !input.is_retry() {
         if token.is_cancelled() {
             return Err(HarnessError::Interrupted);
@@ -1050,7 +1049,7 @@ pub async fn execute_round(
         // A freshly admitted round supersedes whatever was parked: the user
         // moved on (new prompt, `/compact` follow-up, scheduled job), so any
         // older `/retry` point is stale by construction and must stop being
-        // offered (ADR-0128).
+        // offered.
         if let Err(error) = session.clear_retry_pending().await {
             tracing::warn!(%error, "could not clear stale retry point on fresh round");
         }
@@ -1076,7 +1075,7 @@ pub async fn execute_round(
     // `/retry` resume instead re-seeds from the stopped round's checkpoint
     // watermark (see the branch below) and never pushes a user message.
     let mut round_history = if let Some(point) = resumed_point.as_ref() {
-        // `/retry` (ADR-0128): re-seed the round's history from the durable
+        // `/retry`: re-seed the round's history from the durable
         // checkpoint the stopped round left behind. The window may have moved
         // since (a compaction sharing the store), so
         // the watermark is a *cap*: never re-send content the stopped round
@@ -1087,7 +1086,7 @@ pub async fn execute_round(
         window[..watermark].to_vec()
     } else {
         let mut th = session.model_window().await;
-        // ADR-0214: no automatic turn-intake environment scan. Code structure
+        // No automatic turn-intake environment scan. Code structure
         // and workspace change information enter through scoped, on-demand tool
         // retrieval (`code_query`) and optional request-local reminders, never
         // as a silently-committed history injection.
@@ -1182,7 +1181,7 @@ pub async fn execute_round(
                 {
                     ledger.acknowledge_records(usage_slice);
                 }
-                // ADR-0209: Proactive push of token ledger updates on mid-round turn boundary.
+                // Proactive push of token ledger updates on mid-round turn boundary.
                 // When an LLM turn produces tool calls or outputs and commits, stream the live
                 // report immediately so open telemetry dialogs update turn-by-turn without polling.
                 if let Some(ref ledger) = ledger {
@@ -1196,7 +1195,7 @@ pub async fn execute_round(
             })
         }));
     }
-    // Install the request-projection archive sink (ADR-0218): each freshly
+    // Install the request-projection archive sink: each freshly
     // assembled request is enqueued to the session's forensic archive, stored
     // outside the transcript and never replayed into a later request. The sink
     // is fire-and-forget so it never blocks request dispatch.
@@ -1227,7 +1226,7 @@ pub async fn execute_round(
         return Err(HarnessError::Interrupted);
     }
     let mut request_estimate = estimate_off_executor(&agent, &round_history).await;
-    // ADR-0283, ADR-0284: Budget-driven pruning engages strictly when window pressure
+    // Budget-driven pruning engages strictly when window pressure
     // breaches the model-relative prune threshold watermark. In the healthy cruise zone,
     // history mutation is completely deactivated to preserve 100% KV-cache prefix stability
     // and eliminate artificial context size drops across round boundaries.
@@ -1272,7 +1271,7 @@ pub async fn execute_round(
     let mut attempt: usize = 0;
     let retry_limit = retry_max_attempts.clamp(1, 60);
     let mut compacted_after_overflow = false;
-    // An in-flight **image-cause probe** (ADR-0230): `true` means the attempt now
+    // An in-flight **image-cause probe**: `true` means the attempt now
     // running had its attachments withheld speculatively, because a request
     // refusal occurred while they were attached. If that attempt succeeds, images
     // were the cause and the route is latched; if it fails, the hypothesis is
@@ -1289,7 +1288,7 @@ pub async fn execute_round(
     // retry resumes the pending provider request with the same history, guard
     // registry, hooks, and accounting instead of replaying side effects.
     //
-    // A `/retry` resume (ADR-0128) re-seeds the state from the durable point
+    // A `/retry` resume re-seeds the state from the durable point
     // instead of starting at turn 0: the stopped round's committed turns stay
     // committed, so the resumed execution numbers its next turn M+1 and the
     // transcript's `round N · turn M` sequence is never broken. `attempt`
@@ -1341,7 +1340,7 @@ pub async fn execute_round(
             .await;
 
         let Err(mut error) = result else {
-            // The probe is confirmed by its *outcome* (ADR-0230): the identical
+            // The probe is confirmed by its *outcome*: the identical
             // turn succeeded once the attachments were withheld, which is
             // evidence enough to latch the route — the vendor never had to
             // explain itself in a format we can parse.
@@ -1391,12 +1390,12 @@ pub async fn execute_round(
             }
         }
 
-        // An image refusal is *information*, not a wall (ADR-0230).
+        // An image refusal is *information*, not a wall.
         //
         // Vision is the capability vendors do not reliably publish, so an
         // undeclared route is attempted with images. When the provider refuses
         // for that reason, the failure must not end the round: the durable
-        // transcript keeps its images (ADR-0186 forbids rewriting history), so
+        // transcript keeps its images (forbids rewriting history), so
         // the identical request would fail forever — and `/retry` would re-send
         // it unchanged. So the route learns, the *same* turn is re-projected
         // without attachments, and the conversation continues.
@@ -1553,7 +1552,7 @@ pub async fn execute_round(
         Ok(outcome) => (Some(None), Ok(outcome)),
         Err(error) => {
             // The round failed terminally with committed history — this is
-            // exactly the "/retry me" state (ADR-0128). Park the resume point
+            // exactly the "/retry me" state. Park the resume point
             // so the user's `/retry` continues *this* round: same number,
             // turns onward from what was committed, history at the watermark
             // the failed round durably left behind.
@@ -1577,7 +1576,7 @@ pub async fn execute_round(
     // Commit all terminal round state (messages, usage records, retry point)
     // in a single atomic persistence transaction instead of multiple full-snapshot writes.
     // The committed revision is the durable boundary this completion follows
-    // (ADR-0236 D5); it travels on the completion notification so a client can
+    // (D5); it travels on the completion notification so a client can
     // order the completion against later state.
     let committed_revision = session
         .commit_turn(CommitTurn {
@@ -1633,7 +1632,7 @@ pub async fn execute_round(
         let _ = store.record_dialogue(&role, Some(&session_id), &prompt, &visible);
     }
 
-    // ADR-0236 D5 / invariant #5: publish the authoritative completion as soon
+    // D5 / invariant #5: publish the authoritative completion as soon
     // as the commit is acknowledged, *before* any optional projection (the
     // context estimate below, the state mirrors further down). None of those
     // may gate a completed round.
@@ -1649,7 +1648,7 @@ pub async fn execute_round(
                 session_revision: committed_revision,
             }),
         ));
-        // ADR-0209 Tenet II: Proactive push of token ledger updates on turn
+        // Tenet II: Proactive push of token ledger updates on turn
         // boundary. The token source report is an authoritative in-memory
         // projection from the ledger, streamed immediately so open telemetry
         // dialogs update live without polling.
@@ -1714,7 +1713,7 @@ pub async fn execute_round(
         tracing::warn!(error = %err, "could not persist round counter");
     }
 
-    // ADR-0194: The round recovered from transient provider faults.
+    // The round recovered from transient provider faults.
     // Retired: emitting `RetryResolved` and writing to `session.record_retry_resolution`.
     // Transient transport retries are purely in-flight execution details, not post-round
     // dialogue notices. The settled tail was already committed cleanly above.
@@ -1727,7 +1726,7 @@ pub async fn execute_round(
         );
     }
 
-    // Phase 5: Round EOL Aspect Hook (ADR-0183)
+    // Phase 5: Round EOL Aspect Hook
     agent.aspects().fire_round_eol(&agent, Arc::clone(&session));
 
     // The cross-session usage aggregate is deliberately NOT computed here. It
@@ -2041,7 +2040,7 @@ pub async fn compact_round_history(
     provider: Option<Arc<dyn Provider>>,
     extra_context: Vec<String>,
 ) -> Result<Option<ContextProjectionCheckpoint>, String> {
-    // ADR-0296 Universal Causal Compaction:
+    // Universal Causal Compaction:
     // Preserves the latest complete user round (Round N) as volatile tail,
     // and folds all completed prior rounds [0..N-1].
     let preserve_rounds = settings.preserve_rounds.max(1);
@@ -2066,7 +2065,7 @@ pub async fn compact_round_history_with_mode(
 ) -> Result<Option<ContextProjectionCheckpoint>, String> {
     let provider = if settings.summarize { provider } else { None };
 
-    // Canonical path: Session IR Native Causal Compaction (ADR-0255 / ADR-0296)
+    // Canonical path: Session IR Native Causal Compaction
     let mut ir = session.session_ir().await;
     if let Some(outcome) = crate::compaction::CausalCompactor::compact_session_ir(
         &mut ir,
@@ -2112,7 +2111,7 @@ pub async fn prune_and_commit(
 ) -> Result<(), String> {
     let window_tokens_before =
         estimate_session_weight_off_executor(Arc::clone(&weights), history).await;
-    // ADR-0283 Damper 1: Quantum Reclaim Gate ($Q_{min} >= 4,000 tokens)
+    // Damper 1: Quantum Reclaim Gate ($Q_{min} >= 4,000 tokens)
     // Strictly forbids micro-pruning for negligible gains.
     let min_reclaim = settings.budget.quantum_floor_tokens;
     let Some(outcome) =

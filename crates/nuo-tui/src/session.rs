@@ -1,9 +1,9 @@
 //! The Conversation scene's self-owned keyboard scheme and resolver
-//! (ADR-0172, plane-less per ADR-0173, Stage-Scene-Overlay per ADR-0205).
+//! (plane-less per, Stage-Scene-Overlay per).
 //!
 //! The Conversation scene — and its chat siblings, the zoomed TaskInspection and the `/btw`
 //! Aside — owns the keys that act on its surface across its run states.
-//! The keyboard is **plane-less** (ADR-0173): there is no composer/transcript
+//! The keyboard is **plane-less**: there is no composer/transcript
 //! mode to enter or leave. Every chord has one meaning; the focused step is a
 //! transient selection driven by the `FocusPrevTarget`/`ClearFocusedTarget`
 //! verbs (canonical `Alt+↑`/`Alt+↓`), typing always bounces to the draft, and
@@ -11,7 +11,7 @@
 //! router. Before this module those keys were
 //! scattered through the central `input` match as bare `active_modal == None`
 //! branches that silently applied to every scene (that mirror is gone with
-//! ADR-0205; the router's overlay stack is the only foreground authority). They now live here as the
+//! the router's overlay stack is the only foreground authority). They now live here as the
 //! surface's own keybinding scheme: an executable resolver,
 //! [`resolve_chat_surface_key`], whose advertised hints
 //! ([`live_chat_hints`]) share its single semantic origin.
@@ -24,13 +24,12 @@
 //! consumed the key. A `None` falls through to the shared affordance library
 //! (readline editing, caret motion, paste, scrolling) and the modal arms,
 //! which stay central until each modal owns its own scheme.
-
 use crossterm::event::{KeyCode, KeyModifiers};
 
 use crate::input::InputAction;
 use crate::keymap::LiveHint;
 
-/// The scene schemes' own sub-state (ADR-0205): the completion/selection
+/// The scene schemes' own sub-state: the completion/selection
 /// family plus the run-state and navigation facts the Session/Subagent/Side
 /// resolvers arbitrate against. Built once per event by the caller; every
 /// read below is scene-local, so nothing else leaks in.
@@ -61,10 +60,10 @@ pub struct SceneKeys {
     /// (`App::history_index.is_some()`). While true, Esc first cancels the
     /// recall (restoring the stashed draft) before any other Esc arm fires —
     /// the pointer is a transient navigation state and the universal
-    /// "get me back" chord must be able to exit it (ADR-0192).
+    /// "get me back" chord must be able to exit it.
     pub in_history_recall: bool,
     /// User remaps of the full-screen scene surface verbs (`session.*` dotted
-    /// keys, ADR-0172/ADR-0205). The scene resolvers consult it; the composer hint row
+    /// keys). The scene resolvers consult it; the composer hint row
     /// renders its effective bindings.
     pub surface_overrides: crate::keymap::SurfaceOverrides,
     /// Whether a transcript step/action target holds keyboard focus behind
@@ -75,7 +74,7 @@ pub struct SceneKeys {
     /// Whether the subagent the Subagent scene is focused on (the top of the
     /// focus stack) currently has a live round. Scene-local, exactly like the
     /// side view's [`Self::is_responding`]: the Subagent scene owns its own
-    /// `Esc` interrupt (ADR-0205), and it must NOT read the primary's
+    /// `Esc` interrupt, and it must NOT read the primary's
     /// `is_responding` (which would advertise an interrupt for an
     /// already-finished child whenever the parent round still runs).
     pub focused_subagent_running: bool,
@@ -89,7 +88,7 @@ pub(crate) enum HintState {
     Command,
     Running(crate::app::ComposerSendMode),
     Completion,
-    /// The inline ↑/↓ recall pointer sits on a history row (ADR-0192). The
+    /// The inline ↑/↓ recall pointer sits on a history row. The
     /// draft is stashed; the advertised chord set names the escape hatch
     /// (`Esc draft`) so the state is never a dead end.
     Recall,
@@ -110,7 +109,7 @@ pub fn short_session_id(id: &str) -> String {
 /// [`resolve_chat_surface_key`] in that state (asserted by tests).
 ///
 /// `toggle_mode_key` is the *effective* chord of the `toggle_send_mode` verb
-/// (ADR-0172): the hint advertises exactly the binding that fires, so a user
+/// the hint advertises exactly the binding that fires, so a user
 /// remap is shown (canonical `Tab` when unremapped).
 pub(crate) fn live_chat_hints(
     state: HintState,
@@ -144,7 +143,7 @@ pub(crate) fn live_chat_hints(
 ///
 /// The surface *verb* chords (history recall, history walk, steer, step-focus
 /// enter/clear, focused-step scroll, subagent siblings) resolve override-first
-/// (ADR-0172 step 9): each verb's canonical chord is replaced by the user's
+/// (step 9): each verb's canonical chord is replaced by the user's
 /// `session.*` binding when one is configured, and the canonical chord goes
 /// inactive. The interaction grammar (Enter/Tab/BackTab/Esc/↑/↓/text) is not
 /// remappable.
@@ -236,7 +235,7 @@ pub(crate) fn resolve_chat_surface_key(
     }
 }
 
-/// The Subagent scene's own scheme (ADR-0205): the zoom owns its exit (`q`)
+/// The Subagent scene's own scheme: the zoom owns its exit (`q`)
 /// and scene history navigation (`[`/`]`, a remappable `session.scene_back` /
 /// `session.scene_forward` verb, or `q` when idle), its **scene-scoped** `Esc` interrupt, and
 /// delegates every other key to the shared chat core for step-focus walking.
@@ -261,14 +260,14 @@ pub(crate) fn resolve_subagent_key(
     {
         return Some(InputAction::TabHistoryForward);
     }
-    // Esc in the Subagent scene interrupts the *viewed child* (ADR-0205 scene
+    // Esc in the Subagent scene interrupts the *viewed child* (scene
     // scope) once a completion and step/browse focus are clear — never the
     // enclosing primary round. It keys off [`SceneKeys::focused_subagent_running`]
     // (this child's own liveness), not the primary `is_responding`, so a
     // finished child under a still-running parent advertises no interrupt and
     // falls through to the shared chat core (which clears step focus and is
     // idle-inert otherwise): `Esc` still never leaves the Scene
-    // (ADR-0205 `[INV-TUI-CLEAN-02]`). Every other key is the shared chat core —
+    // (`[INV-TUI-CLEAN-02]`). Every other key is the shared chat core —
     // `↑`/`↓` and `Alt+↑`/`Alt+↓` walk steps, `Enter` activates the focused
     // one, `Esc` clears focus, and printables reach the shared editing layer
     // exactly as they always have.
@@ -282,7 +281,7 @@ pub(crate) fn resolve_subagent_key(
     resolve_chat_surface_key(key, keys, input, cursor_position)
 }
 
-/// Route a key to the full-screen scene's own scheme (ADR-0205). Dashboard and
+/// Route a key to the full-screen scene's own scheme. Dashboard and
 /// Settings do not own keyboard state yet and return `None`, so the router
 /// falls through to the shared affordance library.
 pub(crate) fn resolve_scene_key(
@@ -417,7 +416,7 @@ fn resolve_tab(keys: &SceneKeys) -> Option<InputAction> {
     }
 }
 
-/// Esc on the Conversation scene. Priority order mirrors the pre-ADR-0172 central
+/// Esc on the Conversation scene. Priority order mirrors the pre- central
 /// arm: dismiss an open completion first, then clear step focus, then interrupt
 /// a running round. Inline history recall is preserved across Esc (so edits
 /// are not lost and interrupt is not intercepted; Ctrl-c clears the input).
@@ -426,7 +425,7 @@ fn resolve_tab(keys: &SceneKeys) -> Option<InputAction> {
 /// interrupt target: the Conversation scene passes its own `is_responding` and
 /// [`InputAction::Interrupt`]; the Subagent scene passes the *viewed child's*
 /// liveness and [`InputAction::InterruptSubagent`], so a finished child never
-/// emits the primary interrupt (ADR-0205 scene scope). The earlier priority
+/// emits the primary interrupt (scene scope). The earlier priority
 /// arms (dismiss completion, clear focus) are identical in both cases. (The
 /// aside scene owns its own Esc arm in [`resolve_side_key`].)
 fn resolve_esc(keys: &SceneKeys, responding: bool, interrupt: InputAction) -> Option<InputAction> {
@@ -519,7 +518,7 @@ mod tests {
     use crossterm::event::{Event, KeyEvent, KeyEventKind, KeyEventState};
 
     /// Run states used to build a context for resolver tests. Test-local so
-    /// the shipped module carries no dead types (ADR-0172: the resolver is
+    /// the shipped module carries no dead types (the resolver is
     /// the scheme; the mode table is a test concern).
     #[derive(Clone, Copy, Debug)]
     enum Mode {
@@ -550,7 +549,7 @@ mod tests {
     }
 
     /// The scene a Mode stands in (surface dispatch keys off the explicit
-    /// scene, ADR-0205).
+    /// scene).
     fn scene_of(mode: Mode) -> SceneKind {
         match mode {
             Mode::Subagent => SceneKind::Subagent,
@@ -559,7 +558,7 @@ mod tests {
     }
 
     /// Route a chord through the real `route_event` pipeline to confirm the
-    /// resolver is reached for the chat surface (ADR-0172 layer wiring).
+    /// resolver is reached for the chat surface (layer wiring).
     fn process(
         scene: SceneKind,
         code: KeyCode,
@@ -594,9 +593,9 @@ mod tests {
     #[test]
     fn every_owned_chord_resolves_in_its_mode() {
         // The chat surface's owned chords, paired with the run state they act
-        // in. Each must resolve (ADR-0172: an owned chord is never dead).
+        // in. Each must resolve (an owned chord is never dead).
         // Esc is an *interrupt* on every scene, so its owned entries are the
-        // running states — a scene exit is not an Esc arm (ADR-0298 §2).
+        // running states — a scene exit is not an Esc arm.
         let owned: &[(crate::keymap::Key, Mode)] = &[
             (crate::keymap::Key::ENTER, Mode::Idle),
             (crate::keymap::Key::ENTER, Mode::Running),
@@ -785,7 +784,7 @@ mod tests {
             ),
             Some(InputAction::ClearFocusedTarget)
         );
-        // Tab without completion is inert (ADR-0173: completion-only).
+        // Tab without completion is inert (completion-only).
         assert_eq!(
             resolve_chat_surface_key(
                 crate::keymap::Key::TAB,
@@ -916,7 +915,7 @@ mod tests {
     #[test]
     fn router_offers_chat_keys_only_on_chat_surfaces() {
         use crate::input::InputAction;
-        // Tab on the Thread scene without a completion is inert (ADR-0173:
+        // Tab on the Thread scene without a completion is inert (
         // the chord belongs to completion, not to plane switching).
         assert_eq!(
             process(
@@ -954,7 +953,7 @@ mod tests {
     #[test]
     fn advertised_hints_are_resolvable_in_their_state() {
         // Every chord `live_chat_hints` advertises for a run state must be
-        // consumable by the resolver in that state (ADR-0172: hints and
+        // consumable by the resolver in that state (hints and
         // dispatch share a semantic origin).
         use crate::keymap::Key;
 
@@ -1056,7 +1055,7 @@ mod tests {
         use crate::keymap::Key;
 
         // Subagent: Esc clears step focus, and otherwise resolves to nothing —
-        // it never exits the scene (ADR-0298 §2). `q` is the scene's own exit.
+        // it never exits the scene. `q` is the scene's own exit.
         assert_eq!(
             resolve_scene_key(
                 SceneKind::Subagent,
@@ -1175,7 +1174,7 @@ mod tests {
         assert_ne!(action, Some(InputAction::CloseTab));
     }
 
-    /// ADR-0192: Esc while the inline ↑/↓ pointer sits on a history row
+    /// Esc while the inline ↑/↓ pointer sits on a history row
     /// cancels the recall (restoring the stashed draft) — the recall state
     /// must be escapable by the universal "get me back" chord, and the
     /// Esc does not cancel inline history recall (Ctrl-C clears instead).
@@ -1199,8 +1198,8 @@ mod tests {
         );
     }
 
-    /// ADR-0192: every chord the recall hint set advertises resolves in the
-    /// recall state (ADR-0172: hints and dispatch share one semantic origin).
+    /// Every chord the recall hint set advertises resolves in the
+    /// recall state (hints and dispatch share one semantic origin).
     #[test]
     fn recall_hints_are_resolvable_in_the_recall_state() {
         for hint in live_chat_hints(HintState::Recall, crate::keymap::Key::TAB) {
@@ -1217,7 +1216,7 @@ mod tests {
         }
     }
 
-    /// ADR-0174: the readline-style edge hand-off. On a single-line draft ↑
+    /// The readline-style edge hand-off. On a single-line draft ↑
     /// resolves to `HistoryPrev` and ↓ to `HistoryNext` once completion and
     /// caret motion have had their chance; a multi-line draft only hands off
     /// from its true first/last line.
@@ -1299,7 +1298,7 @@ mod tests {
 
     #[test]
     fn central_match_no_longer_owns_chat_enter_on_settings() {
-        // Enter on the Settings scene (a full-screen destination, ADR-0205)
+        // Enter on the Settings scene (a full-screen destination)
         // is owned by that scene's own scheme (ConfigActivate), NOT the chat
         // surface's send path — the draft must never be shipped from Settings.
         let mut input = String::from("draft");

@@ -4,7 +4,6 @@
 //! app-layer `Config` (which owns the `[mcp]` table), `nuo-agent` (which owns the MCP connector), and the
 //! session/frontend layers exchange these values without depending on one
 //! another's implementation details.
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -29,8 +28,8 @@ pub struct McpServerConfig {
     /// Optional server-side tool allow-list. When non-empty, only tools whose
     /// *original* (server-declared) name appears here are published; combined
     /// with `deny_tools` below (deny wins on conflict). Empty admits every
-    /// advertised tool. This is the `future allow` follow-up ADR-0085 §"Config
-    /// sources" reserved for `McpServerConfig`.
+    /// advertised tool. This is the `future allow` follow-up reserved
+    /// for `McpServerConfig`.
     pub allow_tools: Vec<String>,
     /// Optional server-side tool deny-list, matched against the original
     /// (server-declared) name — the same axis `allow_tools` uses, so the two

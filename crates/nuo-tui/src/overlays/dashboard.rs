@@ -1,12 +1,12 @@
-//! Session dashboard (`/dashboard`, formerly `/host`; ADR-0096, layout per
-//! ADR-0097 §3): a first-class, full-screen orchestration console over every
+//! Session dashboard (`/dashboard`, formerly `/host`): a first-class, full-screen
+//! orchestration console over every
 //! session the unified server hosts. The surface is split into two zones:
 //!
 //! - **Console** (upper, flexible): the command surface. Its transcript
 //!   keeps a receipt of every dispatched directive (what was sent, to which
 //!   `#N`, and how the server answered), so the cockpit log answers "what
 //!   did I ask the fleet to do" at a glance. The composer accepts the
-//!   ADR-0097 address grammar — `@3 refactor the retry loop` dispatches to
+//!   Address grammar — `@3 refactor the retry loop` dispatches to
 //!   session `#3`, `@2 @3 …` fans out to several — plus slash verbs
 //!   (`/kill`, `/interrupt`, `/suspend`, `/new`, …) that target the
 //!   selected session or an explicit `@N`. Bare text prompts the selected
@@ -27,7 +27,6 @@
 //! running); `i` / `p` / `n` issue control-plane verbs (interrupt / prompt
 //! / new session); `k` kills the selection (confirm step); `s` suspends
 //! it; `Esc` backs out of the preview, then the dashboard.
-
 use nuo_wire::{MonitoredSession, SessionHosting, SessionStatus};
 use nuotc::{
     Constraint, Direction, Frame, Layout, Line, Modifier, Rect, Span, Style,
@@ -48,7 +47,7 @@ pub enum DashboardFocus {
     /// opens its preview modal, `a` attaches.
     List,
     /// The console / input region (upper, the default): ↑/↓ scrolls the
-    /// interaction surface. The dashboard opens here (ADR-0097 §3) so the
+    /// interaction surface. The dashboard opens here so the
     /// orchestrator composer owns typing without a Tab first.
     Detail,
 }
@@ -94,7 +93,7 @@ pub fn creation_order(rows: &[MonitoredSession]) -> Vec<usize> {
 /// Order the snapshot by creation (the sequence axis) and precompute each
 /// session's display fields: `#seq` numbers and workspace names that are
 /// unique-by-basename when possible, full-path-disambiguated when two
-/// sessions share a directory name (ADR-0097 §3).
+/// sessions share a directory name.
 fn dock_entries(rows: &[MonitoredSession]) -> Vec<DockEntry<'_>> {
     let order = creation_order(rows);
 
@@ -171,7 +170,7 @@ pub struct DashboardProps<'a> {
     pub prompt_create_new: bool,
     pub prompt_text: &'a str,
     pub current_session_id: &'a str,
-    // The frame-level caret verdict (ADR-0205): the inline prompt borrows the
+    // The frame-level caret verdict: the inline prompt borrows the
     // composer buffer but owns the cursor through this scene's own footer band.
     pub show_caret: bool,
     /// The thread identity for the head band's top row (ADR-0060): carries
@@ -225,7 +224,7 @@ pub fn draw_dashboard(
     let entries = dock_entries(rows);
     let selected = selected.min(entries.len().saturating_sub(1));
 
-    // Two-tier responsive layout (ADR-0097 §3 evolution):
+    // Two-tier responsive layout (evolution):
     // - Wide (width >= 90): Dual-pane side-by-side (Sessions list left, Cognitive Dossier + Console right).
     // - Compact (width < 90): Vertical stack (head band, Sessions dock top, Cognitive Dossier + Console bottom, footer).
     let (header_rect, scene_rect, dock_rect, console_rect, footer_rect, card_columns) =
@@ -734,7 +733,7 @@ fn render_footer(
     prompt_create_new: bool,
     prompt_text: &str,
     theme: &Theme,
-    // The frame-level caret verdict (ADR-0205): the Dashboard's inline prompt
+    // The frame-level caret verdict: the Dashboard's inline prompt
     // borrows the composer buffer but owns the cursor through its own footer
     // band, so this flag comes from `App::caret_owner() == CaretOwner::Scene`
     // rather than from `prompting` alone.
@@ -804,7 +803,7 @@ fn render_footer(
     // One verb list, no branches: the console's footer advertises the scene's
     // own verbs plus the namespace's leave entry. (`keymap_page` used to switch
     // this to a dead `Esc close / ? close` pair — a leftover from the retired
-    // in-dialog keymap sub-page, ADR-0172 — whose only caller passed `false`.)
+    // in-dialog keymap sub-page, — whose only caller passed `false`)
     let pairs: Vec<(&'static str, &'static str)> = match focus {
         DashboardFocus::List => vec![
             ("↑/↓", "navigate"),
@@ -1017,7 +1016,7 @@ fn session_detail_lines(row: &MonitoredSession, width: usize, theme: &Theme) -> 
     lines
 }
 
-/// The session preview modal (ADR-0097 §3): a centered, read-only drill-in
+/// The session preview modal: a centered, read-only drill-in
 /// on one session, opened by Enter on a dock selection. Selection alone
 /// never opens it; Esc closes. Read-only — attaching is `a` on the dock.
 pub fn draw_session_preview(
@@ -1184,7 +1183,7 @@ impl ConsoleLine {
     }
 }
 
-/// A parsed console directive (ADR-0097 §2's grammar plus slash verbs).
+/// A parsed console directive (grammar plus slash verbs).
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConsoleCommand {
     /// `@3 text` / `@2 @3 text` — send `text` as a new round to each `#N`.
@@ -1198,7 +1197,7 @@ pub enum ConsoleCommand {
     /// `/new text` — create a session for the dashboard's project with
     /// `text` as the opening prompt.
     New { text: Option<String> },
-    /// `? text` / `/ask text` — ask the Archivist (ADR-0208), the
+    /// `? text` / `/ask text` — ask the Archivist, the
     /// nuo-level retrieval agent, one question. The answer arrives as a
     /// console receipt (synchronous control round).
     Archivist { text: String },
@@ -1235,7 +1234,7 @@ impl ConsoleVerb {
     }
 }
 
-/// Parse one console line. The grammar (ADR-0097 §2, plus verbs):
+/// Parse one console line. The grammar (plus verbs):
 ///
 /// - `@3 refactor the retry loop` → [`ConsoleCommand::Prompt`] targeting `#3`
 /// - `@2 @3 summarize` → fan-out to `#2` and `#3`
@@ -1742,7 +1741,7 @@ mod tests {
 
     #[test]
     fn archivist_address_parses_question_mark_and_ask_verb() {
-        // ADR-0208: `? text` asks the nuo-level retrieval agent.
+        // `? text` asks the nuo-level retrieval agent.
         match parse_console_command("? where did we debug the retry loop") {
             ConsoleCommand::Archivist { text } => {
                 assert_eq!(text, "where did we debug the retry loop");
@@ -1775,7 +1774,7 @@ mod tests {
     #[test]
     fn mid_line_at_is_prose_not_an_address() {
         // The address applies to the whole line: an @ that is not the first
-        // token stays in the payload (ADR-0097 §2 keeps the grammar
+        // token stays in the payload (keeps the grammar
         // regular — no per-sentence retargeting).
         match parse_console_command("ping @alice about the review") {
             ConsoleCommand::Prompt { targets, text } => {

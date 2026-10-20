@@ -1,11 +1,10 @@
-//! One versioned runtime context policy (ADR-0280). Legacy conversion belongs
+//! One versioned runtime context policy. Legacy conversion belongs
 //! exclusively to the offline migration tool.
 //!
 //! The legacy ratios are fractions of the model window `W`; the new watermarks
 //! are fractions of the input ceiling `I = W - O - F`. A rename therefore
 //! changes behavior unless the number is remapped, so the offline migrator —
 //! not the runtime — converts values, and the runtime rejects legacy keys.
-
 use crate::context_lifecycle::budget::{AdmissionError, WatermarkPolicy};
 
 /// Schema version stamped onto every persisted `context` policy.
@@ -37,7 +36,7 @@ pub const DEFAULT_GC_BATCH_OBJECTS: u32 = 1000;
 /// Default GC batch time ceiling, in milliseconds.
 pub const DEFAULT_GC_BATCH_MS: u64 = 100;
 
-/// The single versioned context policy (ADR-0280 §1–§2).
+/// The single versioned context policy.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContextPolicy {
@@ -171,7 +170,7 @@ impl std::fmt::Display for PolicyError {
 impl std::error::Error for PolicyError {}
 
 impl ContextPolicy {
-    /// Validate every size setting and its relations (ADR-0280 §2).
+    /// Validate every size setting and its relations.
     pub fn validate(&self) -> Result<(), PolicyError> {
         if self.schema_version != CONTEXT_POLICY_SCHEMA_VERSION {
             return Err(PolicyError::UnknownSchemaVersion {
@@ -271,7 +270,7 @@ impl ContextPolicy {
     }
 }
 
-/// A legacy key the runtime refuses (ADR-0280 §1, `INV-POLICY-01`).
+/// A legacy key the runtime refuses (`INV-POLICY-01`).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LegacyKeyRejected {
     /// The offending key.

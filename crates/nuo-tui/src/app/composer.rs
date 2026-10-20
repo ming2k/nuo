@@ -1,5 +1,4 @@
 //! Composer input state: caret ownership, selection adoption/deletion, draft parking/restoring, Esc and Ctrl-C arming, token reporting.
-
 use super::*;
 
 impl App {
@@ -88,7 +87,7 @@ impl App {
     /// the wall-clock deadline passes, or immediately when the *scene-scoped*
     /// interrupt target no longer has a running round — there is nothing left
     /// to interrupt, so keeping the toast up would mislead. The target is the
-    /// one the scene's Esc resolves to (ADR-0205 scene scope): the viewed
+    /// one the scene's Esc resolves to (scene scope): the viewed
     /// session on the Conversation/Aside scenes (`running_sessions`), or the
     /// focused child's own liveness on the Subagent scene. Never the runtime's
     /// global primary-only `is_responding` flag: an aside view armed from its
@@ -437,7 +436,7 @@ impl App {
     ///
     /// This is a pure function of active surface and edit mode — never of the
     /// selection, which is folded in separately by [`Self::caret_visible`].
-    /// Authoritative Stage-Scene-Overlay caret ownership (ADR-0205).
+    /// Authoritative Stage-Scene-Overlay caret ownership.
     ///
     /// The input hierarchy strictly dictates which surface owns the physical cursor:
     /// 1. If an Overlay (Dialog/Sheet) is mounted in the overlay stack:
@@ -569,7 +568,7 @@ impl App {
 
     /// Mint the correlation id for an in-flight busy-Enter steer.
     ///
-    /// The insert is **transcript-owned** (ADR-0126): it becomes a
+    /// The insert is **transcript-owned**: it becomes a
     /// `DeliveryStatus::Queued` entry the moment it is sent and never enters
     /// the outbox — so this helper only mints the correlation id the loop
     /// uses to settle that entry when the harness admits it
@@ -754,7 +753,7 @@ impl App {
         ComposerMode::Edit
     }
 
-    /// The editor chain's "end at chat" teardown (ADR-0139):
+    /// The editor chain's "end at chat" teardown:
     /// whatever picker the chain started from (the nav frame the opener
     /// just popped) hides with its parked composer draft handed back — the
     /// user resumes typing what they were typing before Ctrl+M. The stack
@@ -767,7 +766,7 @@ impl App {
             self.deactivate_dialog(id);
         }
         // The editor chain ends at the dialog it started from; if even that
-        // is gone, reveal the full-screen scene beneath (ADR-0205).
+        // is gone, reveal the full-screen scene beneath.
         if self.active_dialog().is_none() && self.surfaces.active_dialog().is_none() {
             self.surfaces.dismiss_all_overlays();
         }

@@ -94,7 +94,7 @@ fn caret_owner_none_in_subagent_view() {
 
 #[test]
 fn caret_owner_scene_for_the_dashboard_inline_prompt() {
-    // ADR-0205 layering: a scene's own inline prompt is scene chrome, not the
+    // Layering: a scene's own inline prompt is scene chrome, not the
     // chat composer and not an overlay. The `/dashboard` task line borrows the
     // composer *buffer* but renders in the scene's footer band, so it must
     // report `Scene` — otherwise the arbiter hides the cursor and the user
@@ -141,7 +141,7 @@ fn caret_owner_modal_for_caret_modals() {
         "the provider editor must keep the cursor visible so the IME anchors to its field",
     );
     // The input-injection sheet borrows the composer line the same way
-    // (ADR-0173 §3) — but it is a sheet, not a modal.
+    // but it is a sheet, not a modal.
     app.set_active_sheet_for_test(crate::sheet::SheetKind::InputInjection);
     assert_eq!(
         app.caret_owner(),

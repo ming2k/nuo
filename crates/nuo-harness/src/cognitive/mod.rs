@@ -1,4 +1,4 @@
-//! Cognitive execution engine: typed, resilient out-of-band subagent for Agent Harness (ADR-0167).
+//! Cognitive execution engine: typed, resilient out-of-band subagent for Agent Harness.
 //!
 //! # Architecture
 //!
@@ -9,7 +9,6 @@
 //! - **Timeout Bounds**: Strict timeouts on every consult call, preventing background task leaks.
 //! - **Fail-Open Resilience**: Helper methods guarantee graceful fallback if model calls fail or timeout.
 //! - **JSON Normalization**: Extracts structured JSON payloads even if the model wraps them in markdown.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,7 +20,7 @@ use nuo_wire::{
     TrajectoryLoopReviewerTask, TrajectoryLoopVerdict,
 };
 
-/// Errors that can occur during a harness task consultation (ADR-0211).
+/// Errors that can occur during a harness task consultation.
 #[derive(Debug)]
 pub enum HarnessTaskError {
     Timeout(Duration),
@@ -48,16 +47,16 @@ impl std::fmt::Display for HarnessTaskError {
 
 impl std::error::Error for HarnessTaskError {}
 
-/// Legacy alias for [`HarnessTaskError`] (ADR-0211).
+/// Legacy alias for [`HarnessTaskError`].
 pub type CognitiveError = HarnessTaskError;
 
-/// The Harness internal task execution pipeline (ADR-0211).
+/// The Harness internal task execution pipeline.
 #[derive(Clone)]
 pub struct HarnessTaskPipeline {
     provider: Arc<dyn Provider>,
 }
 
-/// Legacy alias for [`HarnessTaskPipeline`] (ADR-0211).
+/// Legacy alias for [`HarnessTaskPipeline`].
 pub type CognitivePipeline = HarnessTaskPipeline;
 
 impl HarnessTaskPipeline {
@@ -138,7 +137,7 @@ impl HarnessTaskPipeline {
             .await
     }
 
-    /// Confirm or clear an L1 trajectory loop candidate (ADR-0247).
+    /// Confirm or clear an L1 trajectory loop candidate.
     ///
     /// Any timeout, provider failure, or malformed answer is fail-open `No`:
     /// an infrastructure judgment authorizes a block only with an explicit valid `Yes`.

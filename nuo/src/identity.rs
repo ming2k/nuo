@@ -23,10 +23,9 @@
 //! A `/role` switch is the one place a framing line earns its
 //! tokens: the focused roles install an imperative role directive
 //! (see [`AgentRoleProfile::from_role`]).
-
 use nuo_wire::AgentRoleProfile;
 
-/// The built-in **coding agent** profile (ADR-0183, ADR-0244): the declarative
+/// The built-in **coding agent** profile: the declarative
 /// form of the standard developer role with canonical Base-Tier identity directive.
 pub fn agent_code() -> AgentRoleProfile {
     AgentRoleProfile::developer()

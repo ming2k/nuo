@@ -1,5 +1,4 @@
 //! Connection detail and provider usage / quota models.
-
 use serde::{Deserialize, Serialize};
 
 /// Time window categorization for periodic rate limits / quotas.
@@ -170,7 +169,7 @@ pub enum ConnectionUsageState {
 /// Full inspection detail for one connection in the `/connections` modal.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConnectionDetail {
-    /// Connection name — the connection's identity (ADR-0201).
+    /// Connection name — the connection's identity.
     pub name: String,
     /// The model provider this connection points at (e.g. "deepseek", "anthropic").
     pub provider: String,

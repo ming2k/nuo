@@ -1,5 +1,4 @@
 //! Base cursor and rendering primitives for disclosure step renderers.
-
 use nuotc::{Frame, Line, Paragraph, Rect};
 
 use crate::model::layout::{BlockRegion, LayoutMap};
@@ -19,9 +18,9 @@ pub struct RenderCtx<'a, 'f: 'a> {
     pub skip_rows: &'a mut usize,
     pub y: &'a mut u16,
     pub content_lines: &'a mut usize,
-    /// Content-addressed wrap cache (ADR-0184) — see `crate::render::BlockWrapCache`.
+    /// Content-addressed wrap cache — see `crate::render::BlockWrapCache`.
     pub wrap: &'a mut crate::render::BlockWrapCache,
-    /// The ambient session workspace root (ADR-0206).
+    /// The ambient session workspace root.
     pub workspace_root: Option<&'a std::path::Path>,
 }
 

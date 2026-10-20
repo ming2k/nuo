@@ -1,21 +1,20 @@
-//! Atomic harness extensions (ADR-0224): one primitive unifying tools and
+//! Atomic harness extensions: one primitive unifying tools and
 //! ambient harness facets. A **tool** is an extension with a model-callable
 //! surface; a **facet** is an extension with declared hook phases. Extensions
 //! are instantiated per session and are the sole capability unit.
-
 use crate::Tool;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 
-/// The fixed harness hook phases an extension may declare (ADR-0224). A closed
+/// The fixed harness hook phases an extension may declare. A closed
 /// vocabulary owned by the harness: extensions declare participation, they do
 /// not define phases, and the harness owns ordering and lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HookPhase {
     /// Contribute requested request-local temporary context (`E_n`,
-    /// ADR-0213/ADR-0217). The result travels in `temporary_context`, never in
+    /// ). The result travels in `temporary_context`, never in
     /// durable history.
     ProjectTemporaryContext,
     /// Validate a pending file mutation before it reaches disk.
@@ -67,7 +66,7 @@ pub enum HookOutcome {
     Block(String),
 }
 
-/// One atomic harness extension (ADR-0224).
+/// One atomic harness extension.
 ///
 /// Tools and facets are projections of this single primitive: a tool returns
 /// `Some` from [`Self::tool`]; a facet declares non-empty [`Self::hooks`]. An

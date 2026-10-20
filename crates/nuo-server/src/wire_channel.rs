@@ -1,9 +1,8 @@
-//! Transport-agnostic wire codec and stream abstractions (ADR-0158).
+//! Transport-agnostic wire codec and stream abstractions.
 //!
 //! Provides length-prefixed framing over native asynchronous byte streams
 //! (Unix Domain Sockets, Named Pipes) as well as conversion helpers to adapt
 //! WebSocket streams into the same [`BoxWireStream`] and [`BoxWireSink`] interfaces.
-
 use bytes::{Buf, BufMut, BytesMut};
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use nuo_client::wire::Wire;

@@ -1,4 +1,4 @@
-//! Multi-pass request compilation pipeline for Session IR (ADR-0241).
+//! Multi-pass request compilation pipeline for Session IR.
 //!
 //! Compiles an in-memory [`SessionIR`] into a canonical [`ModelRequest`]
 //! through four optimizing passes:
@@ -6,7 +6,6 @@
 //! - **Pass 2: Context Projection & Budgeting** (token budgeting & tool output folding)
 //! - **Pass 3: Cache Boundary Analysis** (KV-cache prefix stabilization & SHA256 fingerprinting)
 //! - **Pass 4: Target Lowering** (emitting a canonical [`ModelRequest`])
-
 use super::types::{CausalNode, NodePayload, SessionIR};
 use crate::capability::{ModelRequest, ToolSpec};
 use crate::instructions::{InstructionBundle, InstructionSlice, InstructionTier};
@@ -19,7 +18,7 @@ use std::sync::Arc;
 pub struct CompilerOptions {
     /// Declarations of tools available for this generation attempt.
     pub tool_specs: Vec<ToolSpec>,
-    /// Ephemeral request-local temporary context (`E_n`, ADR-0213/0217).
+    /// Ephemeral request-local temporary context (`E_n`, /0217).
     pub temporary_context: Vec<Message>,
     /// Additional ephemeral instruction slice (e.g. dynamic scratchpad or task hint).
     pub ephemeral_instruction: Option<String>,
@@ -40,7 +39,7 @@ pub struct CompilationArtifact {
     pub stats: CompilationStats,
 }
 
-/// Identification of the cacheable static prefix vs. volatile suffix (ADR-0217).
+/// Identification of the cacheable static prefix vs. volatile suffix.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheBoundary {
     /// Deterministic SHA256 hexadecimal hash of the static instruction & historical prefix.
@@ -176,7 +175,7 @@ fn pass2_context_budgeting(
         match &node.payload {
             NodePayload::Message { message } => {
                 let mut msg = message.clone();
-                // Apply tool result budget folding if output exceeds threshold (ADR-0262, ADR-0264)
+                // Apply tool result budget folding if output exceeds threshold
                 if msg.role == Role::Tool && msg.content.len() > max_tool_chars {
                     let truncated_text = format!(
                         "{}...\n[Tool output truncated by Session IR compiler: {} bytes omitted]",
@@ -203,7 +202,7 @@ fn pass2_context_budgeting(
                 modified_files,
                 ..
             } => {
-                // Compaction nodes inject a system-role compaction summary into dialogue view (ADR-0262)
+                // Compaction nodes inject a system-role compaction summary into dialogue view
                 let mut content = format!(
                     "[Conversation Summary Checkpoint — inspect with handle \"fold:{}\"]:\n{summary}",
                     node.id
@@ -254,7 +253,7 @@ fn pass2_context_budgeting(
         }
     }
 
-    // ADR-0254: Prune superseded build/test results and evict stale companion image payloads
+    // Prune superseded build/test results and evict stale companion image payloads
     if let Some(outcome) = crate::pressure::prune_tool_results(&mut messages, 4_000, 100) {
         truncated_count += outcome.cleared_count;
     }
@@ -515,7 +514,7 @@ mod tests {
         assert_eq!(artifact.stats.tool_results_truncated, 1);
         assert_eq!(artifact.request.messages.len(), 4);
 
-        // Tool output must be truncated and contain canonical inspect handle (ADR-0264)
+        // Tool output must be truncated and contain canonical inspect handle
         let tool_msg = &artifact.request.messages[2];
         assert!(
             tool_msg

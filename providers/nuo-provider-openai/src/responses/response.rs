@@ -17,7 +17,6 @@
 //! - `response.completed` / `response.incomplete` → terminal usage and exact
 //!   replay artifacts (a truncated turn still carries its output and its bill)
 //! - `response.failed` → terminal in-band upstream failure
-
 use nuo_model_codec::{Message, ProviderStreamEvent, Role, TokenUsage, ToolCall};
 use serde_json::Value;
 
@@ -37,7 +36,7 @@ pub fn usage(usage: &Value) -> Option<TokenUsage> {
     let prompt = input;
     let completion = output.or_else(|| total.zip(prompt).map(|(t, p)| (t - p).max(0)));
     // Route cache-read accounting through the shared helper so the cache
-    // policy is enforced in one place (ADR-0161). The Responses API hides the
+    // policy is enforced in one place. The Responses API hides the
     // discount in `input_tokens_details.cached_tokens`, which the helper reads.
     let cache = nuo_model_codec::read_prompt_cache_usage(usage);
     match (prompt, completion, total) {

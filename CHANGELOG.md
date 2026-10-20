@@ -259,7 +259,7 @@ the project adheres to the federated SemVer model described in
   fail with `disk I/O error`, so workspace-security reads failed closed and
   the `[file asset trust]` pre-attach gate re-presented itself on every
   Enter with no visible cause. Two-sided hardening:
-  - *Persistence (ADR-0231 reader-wedge self-heal)*: the supervisor gained a
+- *Persistence (reader-wedge self-heal)*: the supervisor gained a
     typed `RebuildEngine` verb with a `RetireEngine` handshake — the live
     engine is drained with an explicit `wal_checkpoint(FULL)` *while still
     fully functional* (an unlinked WAL's frames are recovered
@@ -270,7 +270,7 @@ the project adheres to the federated SemVer model described in
     failures and requests exactly one rebuild per wedge episode at the
     3-failure threshold (CAS latch, cleared by the next successful open);
     non-owner handles never request a rebuild.
-  - *TUI (ADR-0175 attestation outcome)*: a failed trust-grant round-trip is
+- *TUI (attestation outcome)*: a failed trust-grant round-trip is
     now rendered on the gate itself (the server's `trust_changed` notice
     text), clearing the submitting spinner so the user can retry with full
     knowledge of the cause instead of looping a silent dialog; trust
@@ -384,7 +384,7 @@ the project adheres to the federated SemVer model described in
   - Dynamically mapped canonical `gemini-3.8-flash` with orthogonal reasoning effort depth to concrete wire variants (`gemini-3.8-flash-minimal/low/medium/high`) preventing upstream 404/400 errors.
   - Standardized companion project fallback to `aicode-consumers` across inference execution (`prepare_request_for_auth`) and quota queries (`fetch_usage_with_project`, `retrieve_antigravity_quota_summary`), preventing HTTP 429 `RESOURCE_EXHAUSTED` faults.
   - Preserved curated priority ordering (`[INV-CATALOG-01]`) for `CatalogShape::GoogleCloudCode` in `fetch_remote_catalog` to guarantee top-tier frontier models (`gemini-4-argon`, `gemini-3.8-flash`) lead model selection.
-  - Lifted subscription-disabled variants (e.g. `gemini-4-argon-disabled`) into canonical representations with `Availability::locked` per ADR-0273.
+- Lifted subscription-disabled variants (e.g. `gemini-4-argon-disabled`) into canonical representations with `Availability::locked`.
 
 ## [0.0.27] - 2026-11-06
 

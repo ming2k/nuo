@@ -18,7 +18,6 @@
 //!   stamped across `tools → system → messages` (last tool, last system block,
 //!   and the two newest messages) so the stable prefix is cached at 0.1× input
 //!   cost. See `stamp_cache_control` and friends.
-
 use nuo_model_codec::{Message, ReasoningSupport, Role};
 use serde_json::{Value, json};
 
@@ -69,7 +68,7 @@ pub fn body_with_capabilities(
         cache_plan,
     } = input;
 
-    // Image projection is shared across transports (ADR-0230): Anthropic used
+    // Image projection is shared across transports: Anthropic used
     // to emit `image` blocks unconditionally, so a route that declares no image
     // input failed the whole turn on a request the client could have projected
     // correctly. The prose always survives; only the pixels are dropped.

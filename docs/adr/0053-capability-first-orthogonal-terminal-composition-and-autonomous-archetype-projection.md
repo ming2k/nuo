@@ -15,7 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group
 - Consulted: Terminal Substrate (`nuotc`), Presentation (`nuo-tui`), Runtime Architecture, Documentation Governance
 - Informed: System Architects, Platform Engineering
-- Ratifies and replaces provisional: `ADR-0180` (Terminal Capability Profiling and Standards-Based Drivers), `ADR-0181` (Capability-First Visual Archetypes and Responsive Layout Pipeline)
+- Ratifies and replaces provisional: `` (Terminal Capability Profiling and Standards-Based Drivers), `` (Capability-First Visual Archetypes and Responsive Layout Pipeline)
 - Complements: [ADR-0003](0003-autonomous-terminal-canvas-substrate-nuotc.md), [ADR-0011](0011-nuo-tui-presentation-and-nuo-server-container.md), [ADR-0022](0022-minimum-terminal-geometry-and-frozen-input-contract.md), [ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md), [ADR-0028](0028-scroll-anchoring-across-terminal-reflow.md), [ADR-0047](0047-autonomous-surface-interaction-architecture-and-spatial-event-delegation.md)
 
 ---
@@ -36,7 +36,7 @@ Conventional terminal interface engines exhibit three fatal architectural defect
    Capabilities such as 24-bit background color luminance steps, atomic frame synchronization (DEC Mode 2026), and modifier-bearing keyboard protocol negotiation are not universally supported. Projecting subtle dark-mode luminance elevation onto monochrome or 16-color consoles produces unreadable low-contrast slop; conversely, forcing heavy ASCII frames onto modern terminals creates unnecessary visual noise that squanders limited horizontal columns.
 
 4. **Provisional Specification Drift**:
-   Early prototype implementations relied on out-of-sequence provisional references (`ADR-0180` and `ADR-0181`), leaving the capability modeling and visual elevation pipeline without a formally ratified, canonical record in the repository's architectural ledger.
+Early prototype implementations relied on out-of-sequence provisional references (`` and ``), leaving the capability modeling and visual elevation pipeline without a formally ratified, canonical record in the repository's architectural ledger.
 
 We require a rigorous, forward-looking architecture that eliminates terminal brand heuristics, establishes orthogonal capability composition at the driver layer, provides autonomous two-phase projection into semantic visual archetypes, and guarantees 100% automated, zero-configuration adaptation across all environments.
 
@@ -171,7 +171,7 @@ Any visual archetype requiring structural framing (`Structured`) must project no
 - **Guaranteed Zero-Flicker Streaming**: High-frequency LLM token generation (60+ Hz) renders seamlessly via double-buffered diffing and DEC Mode 2026.
 - **Robust Cross-Platform Portability**: Seamless degradation from 24-bit TrueColor down to physical serial VT100 consoles without code changes in UI components.
 - **Headless Server Purity**: `nuo-server` has zero dependencies on `nuotc` or `crossterm`, maintaining clean containerization and headless scriptability.
-- **Canonical Architecture Record**: Ratifies and replaces provisional `ADR-0180` and `ADR-0181` references with a single authoritative standard.
+- **Canonical Architecture Record**: Ratifies and replaces provisional `` and `` references with a single authoritative standard.
 
 ### Negative
 - Custom theme authors must design palettes using semantic tokens (`app_bg`, `surface`, `panel`) rather than hardcoding raw RGB values for borders or backgrounds.

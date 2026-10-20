@@ -3,7 +3,6 @@
 //! information. This is the entry point the app drives each frame
 //! ([`draw_transcript`] / [`TranscriptProps`]); it also re-exports the drawing
 //! surface (chrome, composer, overlays, theme, …) the shell consumes.
-
 pub use crate::chrome::{ActivityStripProps, draw_activity_strip};
 pub use crate::chrome::{
     ModelBarProps, QueueBarProps, QueueItemProps, TasksBarProps, draw_completion_menu,
@@ -178,7 +177,7 @@ pub struct TranscriptProps<'a> {
     /// and its label reads as a permission state so the live status surface
     /// above the input signals the pending decision (the permission sheet
     /// replaces the input + bars below it; this bar stays on as the one piece
-    /// of live status that survives). See ADR-0089 footer chrome.
+    /// of live status that survives). footer chrome.
     pub awaiting_permission: bool,
     /// Animation phase for the breathing dot and status-text shimmer.
     pub spinner_phase: usize,
@@ -197,7 +196,7 @@ pub struct TranscriptProps<'a> {
     /// slice renders a muted empty state so the bar is always present (the
     /// permanent home for queue affordances).
     pub queue_bar: QueueBarProps<'a>,
-    /// The background tasks status bar (ADR-0212).
+    /// The background tasks status bar.
     pub tasks_bar: TasksBarProps<'a>,
     /// When set, the view is zoomed into a subagent task: `messages` is the
     /// focused task's child stream. The head band's scene row names the scene
@@ -237,7 +236,7 @@ pub struct TranscriptProps<'a> {
     /// state; the view layer only paints what it is handed. Ignored entirely
     /// when the transcript is non-empty.
     pub guidance: EmptyStateGuidance,
-    /// Carousel page index for the empty-state tour (ADR-0104). The caller
+    /// Carousel page index for the empty-state tour. The caller
     /// derives it from wall-clock elapsed time (`carousel_page_for`), the
     /// same pattern the breathing indicator uses, so the slide cadence is
     /// independent of draw frequency. Ignored when the transcript is
@@ -280,7 +279,7 @@ pub struct HeightCache {
     /// patches. Unlike height entries, these survive structural transcript
     /// invalidation and resize; their own source identity controls reuse.
     pub(crate) diff_cache: tools::DiffCache,
-    /// Content-addressed wrapped-line cache (ADR-0184). Keyed by (content,
+    /// Content-addressed wrapped-line cache. Keyed by (content,
     /// width), so it survives transcript invalidation and resizes without an
     /// invalidation pass; only capacity eviction retires entries.
     pub wrap: BlockWrapCache,
@@ -414,7 +413,7 @@ impl HeightCache {
     }
 }
 
-/// Content-addressed cache of wrapped lines (ADR-0184).
+/// Content-addressed cache of wrapped lines.
 ///
 /// Streaming re-draws the live message every frame; without this cache every
 /// frame re-wrapped *all* of the message's blocks, making per-frame cost
@@ -1053,7 +1052,7 @@ pub fn draw_transcript(
     // Record the interactive transcript rect so clicks on any blank
     // transcript space — gap rows between messages, the empty region below
     // the last message, and the outer gutters — park keyboard attention on
-    // the transcript (ADR-0174 browse focus). The rect spans the full
+    // the transcript (browse focus). The rect spans the full
     // transcript viewport: the user's mental model is "the whole transcript
     // area is the browse surface", so no part of it is a dead click.
     // Skipped for the empty-state hero, which owns its own rect and is not

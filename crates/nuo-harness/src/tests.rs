@@ -2248,7 +2248,7 @@ async fn trajectory_guard_blocks_repeating_command_before_execution() {
     let agent = Arc::new(Agent::new(
         Arc::new(ScriptedProvider::new(vec![
             cmd(), // 1st: allowed, executes
-            cmd(), // 2nd: same-signature re-run tolerated (ADR-0148), executes
+            cmd(), // 2nd: same-signature re-run tolerated, executes
             cmd(), // 3rd: threshold reached → blocked before execution
             text_turn("done"),
         ])),
@@ -2407,7 +2407,7 @@ async fn trajectory_guard_suppressed_when_disabled() {
     );
 }
 
-/// ADR-0247: Trajectory Loop Guard with Cognitive Arbitration confirms loop and blocks surgically.
+/// Trajectory Loop Guard with Cognitive Arbitration confirms loop and blocks surgically.
 #[tokio::test]
 async fn trajectory_guard_cognitive_arbitration_confirms_loop_and_blocks_surgically() {
     let command = RecordingTool::read("execute_command", "COMMAND-OUT");
@@ -2456,7 +2456,7 @@ async fn trajectory_guard_cognitive_arbitration_confirms_loop_and_blocks_surgica
     );
 }
 
-/// ADR-0247: Trajectory Loop Guard with Cognitive Arbitration acquits and escalates ladder.
+/// Trajectory Loop Guard with Cognitive Arbitration acquits and escalates ladder.
 #[tokio::test]
 async fn trajectory_guard_cognitive_arbitration_acquits_and_escalates_ladder() {
     let command = RecordingTool::read("execute_command", "COMMAND-OUT");
@@ -2505,7 +2505,7 @@ async fn trajectory_guard_cognitive_arbitration_acquits_and_escalates_ladder() {
     );
 }
 
-/// ADR-0247: Trajectory Loop Guard fails open on provider error [INV-LOOP-02] and escalates ladder.
+/// Trajectory Loop Guard fails open on provider error [INV-LOOP-02] and escalates ladder.
 #[tokio::test]
 async fn trajectory_guard_fail_open_on_provider_error_and_escalates() {
     let command = RecordingTool::read("execute_command", "COMMAND-OUT");

@@ -1,10 +1,9 @@
 //! Scene-directed terminal input.
 //!
 //! `router` normalizes terminal events and owns the two cross-layer chains
-//! from ADR-0197: global chords and Esc precedence. Surface verbs live with
+//! global chords and Esc precedence. Surface verbs live with
 //! their modal, sheet, or view handlers; `readline` owns shared text edits,
 //! and `sgr` guards terminal mouse-sequence leakage.
-
 mod action;
 pub(crate) mod readline;
 mod router;

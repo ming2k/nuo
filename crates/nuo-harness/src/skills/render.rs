@@ -1,5 +1,4 @@
 //! Formatting skills for resolving user mentions.
-
 use super::metadata::Skill;
 
 /// Build a verbose listing similar to what list_skills returns.
@@ -60,7 +59,7 @@ pub fn list_skill_files(root: &std::path::Path) -> Vec<String> {
 /// procedures (SOP).
 ///
 /// The `ref` attribute carries the **canonical address** of the skill
-/// (`@skill:{name}`, ADR-0288), mirroring `<file ref="…">`: the provider reads
+/// (`@skill:{name}`), mirroring `<file ref="…">`: the provider reads
 /// an asset reference, never a bare `@`-token whose spelling depends on how the
 /// user happened to write it.
 pub fn format_skill_injection(skill: &Skill, content: &str) -> String {
@@ -267,7 +266,7 @@ mod tests {
         assert!(formatted.ends_with("</skill>"));
     }
 
-    /// ADR-0288: the envelope carries the canonical `@skill:` address so the
+    /// The envelope carries the canonical `@skill:` address so the
     /// provider reads an asset reference, not the surface spelling the user
     /// happened to type (`@name` / `@skills:` / `skill://`).
     #[test]

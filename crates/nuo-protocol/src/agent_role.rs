@@ -3,7 +3,6 @@
 //! Every agent is an instance of [`Agent<R: AgentRole>`]:
 //! - [`MainAgent`]: interactive top-level agent staffed with a [`MainAgentRole`].
 //! - [`SubAgent`]: autonomous delegated agent staffed with a [`SubAgentRole`].
-
 use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
@@ -212,7 +211,7 @@ pub type MainAgent = Agent<MainAgentRole>;
 /// An autonomous delegated subagent staffed with a [`SubAgentRole`].
 pub type SubAgent = Agent<SubAgentRole>;
 
-/// An immutable, self-contained snapshot of a session's governing role manifest (ADR-0245, ADR-0246).
+/// An immutable, self-contained snapshot of a session's governing role manifest.
 /// Captured at session birth to guarantee hermetic restoration and deterministic prompt caching,
 /// completely decoupled from external mutable `roles.toml` files.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

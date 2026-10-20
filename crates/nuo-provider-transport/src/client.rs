@@ -12,7 +12,7 @@
 //! (streaming) or [`Client::send_json`] (non-streaming). The builder is only a
 //! convenient way to *describe* a request: execution goes through the
 //! [`Egress`] seam, so the same adapter code runs on `reqwest` today and on the
-//! owned transport (ADR-0200) by configuration.
+//! owned transport by configuration.
 //!
 //! ## Timeouts
 //!
@@ -34,7 +34,6 @@
 //! Both bounds surface as `reqwest` timeout errors, which
 //! `transport_error` classifies as retryable, so a stall feeds the retry
 //! loop instead of hanging the turn forever.
-
 use std::sync::Arc;
 use std::time::Duration;
 

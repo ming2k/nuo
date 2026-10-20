@@ -1,6 +1,5 @@
 //! Process-lifecycle primitives. A server and an owned subprocess tree have
 //! intentionally different lifetime policies.
-
 use std::io;
 use tokio::process::{Child, Command};
 
@@ -32,7 +31,7 @@ pub fn spawn_owned(command: &mut Command) -> io::Result<(Child, OwnedProcessTree
 }
 
 /// The result of spawning a supervised child: the owned child, its process-tree
-/// guard, and its terminal master. Internal to the `supervised` seam (ADR-0293);
+/// guard, and its terminal master. Internal to the `supervised` seam;
 /// callers use [`crate::supervised::SupervisedChild`], never these raw parts.
 pub(crate) struct SupervisedSpawn {
     pub(crate) child: Child,
@@ -481,7 +480,7 @@ mod native {
         // SAFETY: `setsid` is async-signal-safe, creates a new session, establishes
         // the child as the session and process-group leader (PGID == PID), and
         // completely detaches it from the host controlling terminal (/dev/tty)
-        // per ADR-0286.
+
         unsafe {
             command.pre_exec(|| {
                 if libc::setsid() == -1 {

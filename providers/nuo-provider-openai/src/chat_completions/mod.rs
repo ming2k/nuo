@@ -11,7 +11,6 @@
 //!   - [`response`] — usage, message, and stream-payload parsing (pure)
 //!   - [`echo`] — the tool-call "echo" suppression filter (stateful, no I/O)
 //!   - this file — the [`OpenAiChatCompletionsProvider`] executor + `Provider` impl
-
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::BoxStream;
@@ -152,7 +151,7 @@ impl OpenAiChatCompletionsProvider {
         // attributed headers (Copilot client headers, OpenRouter attribution);
         // `request::headers` remains the single declaration site and is
         // consulted per-request with the resolved bearer. A pipeline attached
-        // later via `with_pipeline` replaces this one wholesale (ADR-0271).
+        // later via `with_pipeline` replaces this one wholesale.
         self.pipeline = Arc::new(
             nuo_provider_transport::TransportPipeline::default().with_pass_through_headers(
                 move |token| {
@@ -171,7 +170,7 @@ impl OpenAiChatCompletionsProvider {
     /// (`system` / `custom`) and the presentation label. Both are wire-optional
     /// — only a dialect whose surface declares a matching
     /// [`ModelCarrier`](nuo_model_codec::wire_surface::ModelCarrier) binding
-    /// stamps them. The wire id remains the identity (ADR-0131).
+    /// stamps them. The wire id remains the identity.
     pub fn with_catalog_provenance(
         mut self,
         catalog_source: impl Into<String>,
@@ -202,7 +201,7 @@ impl OpenAiChatCompletionsProvider {
     ///
     /// Wire headers (bearer, dialect signatures) come from the pipeline's
     /// [`OutboundPlan`](crate::pipeline::OutboundPlan) — the executor never
-    /// decides the wire shape (ADR-0271). Kept `pub(crate)` for wire tests.
+    /// decides the wire shape. Kept `pub(crate)` for wire tests.
     #[allow(dead_code)]
     fn build_request_for_auth(
         &self,
@@ -238,7 +237,7 @@ impl OpenAiChatCompletionsProvider {
     ///
     /// The pipeline plans the complete outbound request (URL, body bytes,
     /// header set) via [`TransportPipeline::plan_request`]; this provider only
-    /// executes plans (ADR-0271). Attaching a shaped pipeline is what turns a
+    /// executes plans. Attaching a shaped pipeline is what turns a
     /// plain chat-completions provider into a signed-surface one.
     pub fn with_pipeline(mut self, pipeline: nuo_provider_transport::TransportPipeline) -> Self {
         self.pipeline = std::sync::Arc::new(pipeline);
@@ -250,7 +249,7 @@ impl OpenAiChatCompletionsProvider {
     ///
     /// The wire is never built here: the attached pipeline plans the complete
     /// outbound request ([`OutboundPlan`](crate::pipeline::OutboundPlan)) and
-    /// the executor only executes it (ADR-0271 §1). There is no branch on
+    /// the executor only executes it. There is no branch on
     /// wire shape — a pass-through pipeline plans the plain chat-completions
     /// wire, a shaped pipeline plans its dialect's wire.
     async fn send_request(
@@ -306,13 +305,13 @@ impl OpenAiChatCompletionsProvider {
     /// envelope (method, user agent, client-profile headers, auth-scoped
     /// headers, session affinity, body, telemetry).
     ///
-    /// Header ownership split (ADR-0271 §1): the plan stamps dialect wire
+    /// Header ownership split: the plan stamps dialect wire
     /// headers (bearer, COSY signature set); the executor stamps endpoint
     /// profile headers and auth-derived scoping headers — the latter are
     /// typed-`ResolvedAuth` projections shared by every protocol, not dialect
     /// wire.
     ///
-    /// Public so golden-wire integration tests ([INV-WIRE-01], ADR-0271) in
+    /// Public so golden-wire integration tests ([INV-WIRE-01]) in
     /// downstream crates can observe the exact outbound request.
     pub fn execute_plan(
         &self,
@@ -557,7 +556,7 @@ impl Provider for OpenAiChatCompletionsProvider {
                     Vec::new(),
                 );
             }
-            // Parse-once discipline (ADR-0184): the single deserialization
+            // Parse-once discipline: the single deserialization
             // here doubles as the validity check — a non-JSON payload is a
             // decode error, and the parsed `Value` feeds the stream parser
             // (which then fans events out through the echo filter).
@@ -773,5 +772,5 @@ mod tests {
 
     // Golden-wire tests live in nuo-providers (`registry::qoder::wire_golden`)
     // — the only crate that can reference both the executor and the Qoder wire
-    // implementation without inverting the dependency graph (ADR-0271).
+    // implementation without inverting the dependency graph.
 }

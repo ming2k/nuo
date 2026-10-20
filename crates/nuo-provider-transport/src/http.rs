@@ -1,4 +1,4 @@
-//! The provider-side HTTP client, on the owned transport (ADR-0200).
+//! The provider-side HTTP client, on the owned transport.
 //!
 //! OAuth, usage, and endpoint catalog use this bounded client.
 //! Inference and provider services share direct transport construction and
@@ -7,7 +7,6 @@
 //! The surface is deliberately small and *bounded*: a request has an overall
 //! deadline (these are all short control-plane calls), the body is returned as
 //! text, and content-encoding is already decoded by the transport.
-
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

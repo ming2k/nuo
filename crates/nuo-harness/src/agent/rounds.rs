@@ -227,7 +227,7 @@ impl Agent {
     }
 
     /// Resume a previously stopped round as *the same round* — the `/retry`
-    /// path (ADR-0128). Unlike [`Self::begin_streaming_round`] this does not
+    /// path. Unlike [`Self::begin_streaming_round`] this does not
     /// restart the round from scratch: it re-seeds the ReAct state from the
     /// durable [`RetryPoint`] captured when the round stopped, so the resumed
     /// execution
@@ -352,7 +352,7 @@ impl Agent {
                 self.run_turn_start_hooks(messages, &round.state, round.turn_index)
                     .await;
                 // Assemble once per turn, then gate on context pressure with
-                // the assembled request (ADR-0187 hot path): the estimate and
+                // the assembled request (hot path): the estimate and
                 // the provider call share one assembly. A projection that
                 // replaces the window re-assembles exactly once.
                 let mut request = self.model_request(messages);
@@ -380,7 +380,7 @@ impl Agent {
             // fingerprint walk (hash-rate, not BPE-rate) over unchanged bytes
             // — cheap enough to stay inline on the attempt path.
             let request_estimate = self.estimate_model_request(request);
-            // ADR-0218: archive the freshly assembled request's projection once
+            // Archive the freshly assembled request's projection once
             // per logical invocation. A transport retry reuses `pending_request`
             // (so `resuming_provider_request` is true) and must not re-record.
             if !resuming_provider_request {
@@ -426,7 +426,7 @@ impl Agent {
             }
             request_accounting.start_request();
             // Stamp this attempt's own telemetry handle onto the request it
-            // dispatches (ADR-0232). The turn's assembled request is reused by
+            // dispatches. The turn's assembled request is reused by
             // retries, so the handle is assigned per attempt rather than
             // inherited: the transport fills the handle it is handed, and the
             // attempt that handed it over is the only reader.
@@ -1236,7 +1236,7 @@ impl Agent {
 
             // User-round end: clear every scoped disable so the toolset is
             // fresh for the next user request. No persist here: the terminal
-            // round commit is the authority for the final answer (ADR-0236 D5),
+            // round commit is the authority for the final answer (D5),
             // and the mid-round save points have already persisted every
             // continuing turn.
             self.restore_scoped_round_end();

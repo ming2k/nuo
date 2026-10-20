@@ -15,7 +15,6 @@
 //! Every mutation publishes a complete snapshot for each server and updates a
 //! synchronously-readable status table, so the session-context snapshot can
 //! always reflect the current state.
-
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -244,7 +243,7 @@ impl McpRuntime {
     }
 
     /// Apply a new set of `[mcp.*]` configs to a live runtime — the
-    /// config-time hot-reload primitive (ADR-0085 §6). Diffs `new_configs`
+    /// config-time hot-reload primitive. Diffs `new_configs`
     /// against the currently-configured set and applies the smallest change:
     ///
     /// - **Removed** (in current, not in new): disconnect + drop the entry +
@@ -577,7 +576,7 @@ mod tests {
         );
     }
 
-    // reconfigure (ADR-0085 §6)
+    // reconfigure
     //
     // These tests use `enabled: false` servers so no real subprocess is
     // spawned: a disabled server resolves to a `Disabled` entry with no live

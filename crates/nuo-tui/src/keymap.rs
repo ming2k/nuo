@@ -15,7 +15,6 @@
 //! 8. **Zero loss of printable characters**: typing in transcript bounces back to composer.
 //! 9. **Terminal independence**: core workflows work without Kitty enhanced keyboard protocol.
 //! 10. **Zero legacy baggage**: breaking clean from leader chords and modal keymaps.
-
 use std::collections::{HashMap, HashSet};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -1778,7 +1777,7 @@ pub enum HintSide {
 }
 
 /// A chord a surface advertises in a run state, with the label a hint row
-/// shows. The discovery side of a keybinding scheme (ADR-0172): a hint renders
+/// shows. The discovery side of a keybinding scheme: a hint renders
 /// exactly the chords a scheme's `live_*_hints` returns, and the tests pin
 /// them to the resolver so a hint can never advertise a dead shortcut.
 #[derive(Debug, Clone, Copy)]
@@ -1837,13 +1836,13 @@ impl LiveHint {
 }
 
 /// The `Ctrl+X` **scene namespace**: a two-stroke chord whose second stroke is
-/// a scene-lifecycle verb (ADR-0298).
+/// a scene-lifecycle verb.
 ///
 /// This table is the single owner of the namespace. The router resolves the
 /// second stroke through [`SceneVerb::from_key`] and the which-key card renders
 /// rows straight from [`SceneVerb::ALL`] — so a verb cannot be dispatchable
 /// without being advertised, nor advertised without being dispatchable (the
-/// defect class ADR-0238 exists to prevent: the queue bar once rendered a
+/// defect class exists to prevent: the queue bar once rendered a
 /// `Ctrl-q` that resolved to nothing).
 pub mod scene_namespace {
     use crossterm::event::{KeyCode, KeyModifiers};
@@ -1989,7 +1988,7 @@ pub mod scene_namespace {
 }
 
 /// The canonical global chords a user may remap via the `[keybindings]`
-/// config (ADR-0172 §"user-overridable schemes"). `Ctrl+X` is deliberately
+/// config. `Ctrl+X` is deliberately
 /// absent: it is the two-stroke *scene namespace*'s opening stroke
 /// ([`scene_namespace`]), resolved in the router before this table, so it has
 /// no single-stroke `CommandId` to name. The Command Palette has
@@ -2015,9 +2014,9 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
         // the value the display path used to fall back to for *every* chordless
         // command, which is what made an unbound command look bound.)
         CommandId::CancelOrBack => Some(Key::ESC),
-        // The queue bar's expand affordance (ADR-0126's Ctrl row). Raw mode
+        // The queue bar's expand affordance (Ctrl row). Raw mode
         // clears `IXON` on both the direct and the multiplexer path, so the
-        // chord reaches the app (ADR-0156 scopes the same reasoning).
+        // chord reaches the app (scopes the same reasoning).
         CommandId::OpenQueue => Some(Key::CTRL_Q),
         _ => None,
     }
@@ -2148,7 +2147,7 @@ pub fn parse_key(spec: &str) -> Option<Key> {
     Some(Key::from_event(KeyEvent::new(code?, modifiers)))
 }
 
-/// User remaps of the global chords (ADR-0172, `[keybindings]` config).
+/// User remaps of the global chords (`[keybindings]` config).
 ///
 /// A remapped command's canonical chord becomes inactive; the assigned chord
 /// triggers the command. Resolution is override-first, then canonical
@@ -2186,7 +2185,7 @@ impl GlobalOverrides {
     /// command has no chord at all.
     ///
     /// Chrome must render the binding that actually fires, and nothing when
-    /// none does (ADR-0238): a keycap is a promise, so there is no fallback
+    /// none does: a keycap is a promise, so there is no fallback
     /// value here. Returning a placeholder chord for an unbound command is
     /// exactly how the queue bar came to advertise a `Ctrl-q` that resolved to
     /// nothing.
@@ -2207,7 +2206,7 @@ pub fn resolve_global_key_with(key: Key, overrides: &GlobalOverrides) -> Option<
 }
 
 /// A user-remappable **surface verb** — a single-purpose chord the full-screen
-/// views own (ADR-0172 step 9). Verbs are the *shortcut* layer of a surface's
+/// views own (step 9). Verbs are the *shortcut* layer of a surface's
 /// scheme: each maps one chord to one semantic action, possibly gated by the
 /// surface's run state. The multi-mode interaction grammar (Enter send/queue/
 /// activate/commit, Tab commit/focus, Esc dismiss/focus/interrupt, ↑/↓ walk,
@@ -2305,7 +2304,7 @@ impl SurfaceVerb {
 }
 
 /// User remaps of the surface verbs (`[keybindings.session]` config table —
-/// ADR-0172 step 9).
+/// Step 9).
 ///
 /// Mirrors [`GlobalOverrides`]: a remapped verb's canonical chord goes inactive
 /// and the assigned chord triggers the verb. Resolution is override-first.
@@ -2566,7 +2565,7 @@ mod tests {
         // Effective binding follows the override for remapped commands.
         assert_eq!(o.effective_binding(CommandId::Quit), Some(ctrl_shift_q));
         // A command with no canonical chord reports none — chrome renders no
-        // keycap for it rather than a placeholder (ADR-0238).
+        // keycap for it rather than a placeholder.
         assert_eq!(o.effective_binding(CommandId::InterruptTask), None);
         // Esc / Back is never remappable.
         let mut esc_map = std::collections::HashMap::new();
@@ -2582,7 +2581,7 @@ mod tests {
     /// Chrome's keycaps and the dispatcher read one table: every chord a
     /// `Global` command advertises in the registry resolves back to that exact
     /// command. This is the guard that would have caught the queue bar's
-    /// hardcoded `Ctrl-q` (ADR-0238).
+    /// hardcoded `Ctrl-q`.
     #[test]
     fn every_advertised_global_binding_resolves_to_its_command() {
         for cmd in COMMAND_REGISTRY {
@@ -2709,9 +2708,9 @@ mod tests {
         );
     }
 
-    /// ADR-0298 §1: the `Ctrl+X` namespace's verb table is the single owner of
+    /// The `Ctrl+X` namespace's verb table is the single owner of
     /// both dispatch and advertisement. This is the guard that would have caught
-    /// the queue bar's hardcoded `Ctrl-q` (ADR-0238) had the namespace been
+    /// the queue bar's hardcoded `Ctrl-q` had the namespace been
     /// written the same way — a stroke that renders but resolves to nothing, or
     /// resolves but is never advertised.
     #[test]

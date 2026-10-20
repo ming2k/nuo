@@ -1,6 +1,6 @@
 //! Context-projection vocabulary: what a prune or a compaction reports.
 //!
-//! Shared vocabulary rather than store state (ADR-0300 §1). The *kernel*
+//! Shared vocabulary rather than store state. The *kernel*
 //! produces a projection — it decides what to prune, what to compact, and what
 //! the checkpoint says about it — and the *host* persists the checkpoint beside
 //! the conversation. Both sides therefore name these types, so they live in the
@@ -10,7 +10,6 @@
 //! observations, never recomputed: a checkpoint states what the window measured
 //! *before* and *after* the projection, and the difference is what the
 //! projection reclaimed.
-
 use serde::{Deserialize, Serialize};
 
 /// Which projection ran.
@@ -20,7 +19,7 @@ pub enum ContextProjectionKind {
     /// Cheap tool-result pruning: drop reclaimable payloads, keep the shape.
     Prune,
     /// Summarizing compaction: replace a prefix of the window with a generative
-    /// summary (ADR-0296).
+    /// summary.
     Compact,
 }
 
@@ -38,10 +37,10 @@ pub struct ContextProjectionCheckpoint {
     /// projection. Same point-in-time caveat; the difference to
     /// [`Self::window_tokens_before`] is what the projection reclaimed.
     pub window_tokens_after: usize,
-    /// Generative summary produced during compaction (ADR-0296).
+    /// Generative summary produced during compaction.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
-    /// Artifact file paths touched across the compacted lineage (ADR-0296).
+    /// Artifact file paths touched across the compacted lineage.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tracked_files: Vec<String>,
 }

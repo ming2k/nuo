@@ -24,7 +24,6 @@
 //!   [INV-HEAD-05]. Displays thread execution boundaries on the left:
 //!   `[ROLE]` badge and tilde-shortened workspace path; persistent safety posture
 //!   flags (`UNATTENDED`, `UNCONFINED`) on the right edge.
-
 use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -81,7 +80,7 @@ pub(crate) struct ThreadHead<'a> {
     pub thread_id: &'a str,
     /// Tilde-shortened workspace path (e.g. `~/projects/xx`), or empty when unbound.
     pub workspace: &'a str,
-    /// Active staffing role for this thread (ADR-0244).
+    /// Active staffing role for this thread.
     pub role: Option<&'a str>,
     /// Client-owned tabs mounted in this viewport (ADR-0039, ADR-0060).
     pub tabs: Option<&'a [crate::surfaces::ClientTab]>,

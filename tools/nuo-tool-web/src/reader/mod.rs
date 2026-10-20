@@ -1,6 +1,6 @@
 //! Pluggable page-content backends ("readers") for `read_url` — the depth
 //! half of the two-stage research pipeline (websearch = breadth, read_url =
-//! depth; ADR-0117).
+//! depth).
 //!
 //! A reader turns one URL into clean page text. The Jina reader delegates to
 //! `r.jina.ai`, which renders JavaScript and extracts the main content
@@ -10,7 +10,6 @@
 //! [`crate::ssrf::assert_public_url`]. The Jina reader sends the URL to
 //! a third party, so it must never be pointed at private addresses — the
 //! pre-check in `read_url` enforces this before any reader runs.
-
 use crate::reader::jina::ReadPage;
 
 pub mod jina;

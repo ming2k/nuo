@@ -1,4 +1,4 @@
-//! The orthogonal lifecycle axes (ADR-0275 §3, `INV-FACT-04`).
+//! The orthogonal lifecycle axes (`INV-FACT-04`).
 //!
 //! Context state is not one enum. Three axes are primary and independent
 //! (validity, representation, retention); deletion and capture are two further
@@ -9,9 +9,7 @@
 //! Representation is *not* modeled here as a fact attribute, because it belongs
 //! to a [`crate::context_lifecycle::ContextView`]; this module models the
 //! per-representation entry type that a view carries.
-
 /// Whether a fact still proves the behavior of the current resource version
-/// (ADR-0275 §6).
 ///
 /// Validity is evaluated relative to a branch, resource versions, and the
 /// purpose of the query. An older fact remains true; it simply stops proving
@@ -38,7 +36,7 @@ impl Validity {
     }
 }
 
-/// How much of a fact a view exposes to the model (ADR-0275 §3).
+/// How much of a fact a view exposes to the model.
 ///
 /// A representation lives on a [`crate::context_lifecycle::ContextView`], not
 /// on the fact. Lowering fidelity changes neither the raw material nor its
@@ -58,7 +56,7 @@ pub enum Representation {
     Omitted,
 }
 
-/// How long a fact or artifact is retained (ADR-0275 §3, ADR-0279 §4).
+/// How long a fact or artifact is retained.
 ///
 /// Retention is orthogonal to validity and representation; an expired
 /// authorization attestation is not the same as expired content.
@@ -92,7 +90,7 @@ impl Retention {
     }
 }
 
-/// Deletion state, independent of window presence (ADR-0275 §3, ADR-0279 §6).
+/// Deletion state, independent of window presence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Deletion {
@@ -113,7 +111,7 @@ impl Deletion {
     }
 }
 
-/// Completeness of a captured raw stream (ADR-0276 §1–§2).
+/// Completeness of a captured raw stream.
 ///
 /// Separate from execution and availability status; a handle existing does not
 /// imply a complete capture.
@@ -148,7 +146,7 @@ impl Capture {
     }
 }
 
-/// Provenance authority attached to a fact payload (ADR-0275 §2).
+/// Provenance authority attached to a fact payload.
 ///
 /// A derived summary never gains higher authority than its sources; provider
 /// lowering preserves these boundaries so an untrusted tool observation cannot
@@ -172,7 +170,7 @@ pub enum SourceAuthority {
 
 impl SourceAuthority {
     /// The trust rank used to reject authority escalation. A derived record may
-    /// never outrank its strongest source (ADR-0275 `INV-FACT-05`).
+    /// never outrank its strongest source (`INV-FACT-05`).
     pub const fn rank(self) -> u8 {
         match self {
             SourceAuthority::User => 4,
@@ -184,7 +182,7 @@ impl SourceAuthority {
     }
 }
 
-/// Sensitivity class of a fact payload or derived record (ADR-0275 §8).
+/// Sensitivity class of a fact payload or derived record.
 ///
 /// Drives scrubbing and authorization: a raw artifact always carries at least
 /// the sensitivity of any preview derived from it, and a purge must reach every

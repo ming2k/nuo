@@ -11,7 +11,6 @@
 //! shared transport concerns (where to send, how to authenticate, how to label
 //! attribution) live in one place, while each API's request *shape* lives in
 //! its own module.
-
 use std::sync::Arc;
 
 use nuo_model_codec::{CredentialSource, ResolvedAuth, SecretString, static_credential};
@@ -48,7 +47,7 @@ pub struct Endpoint {
     /// catalog advertises no provenance.
     pub catalog_source: String,
     /// The model's display label from the catalog, when it publishes one.
-    /// Presentation only — it never becomes the wire identity (ADR-0131), but
+    /// Presentation only — it never becomes the wire identity, but
     /// a dialect whose surface declares a `DisplayName` carrier stamps it into
     /// the request envelope's `model_config.display_name`.
     pub display_name: String,
@@ -260,7 +259,7 @@ impl Endpoint {
     ///
     /// Derived entirely from typed [`ResolvedAuth`] metadata, never from the
     /// connection or provider name, so a static API key yields no headers and
-    /// no wire branch here ever names a vendor (ADR-0267).
+    /// no wire branch here ever names a vendor.
     pub fn auth_scoped_headers(&self, _auth: &ResolvedAuth) -> Vec<(&'static str, String)> {
         Vec::new()
     }

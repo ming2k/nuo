@@ -1,4 +1,4 @@
-//! `DbReader` implementation: the read-only allow-list surface (ADR-0231).
+//! `DbReader` implementation: the read-only allow-list surface.
 //! The type itself lives in `db.rs`.
 use super::*;
 
@@ -8,7 +8,7 @@ impl DbReader {
         &self.db_path
     }
 
-    /// The durable commit revision for a session (ADR-0236 D3); `0` when the
+    /// The durable commit revision for a session (D3); `0` when the
     /// session has never committed. A caller passes this as
     /// [`crate::session::CommitTurn::expected_revision`] to make its next write
     /// conditional on the revision it actually read.
@@ -16,7 +16,7 @@ impl DbReader {
         session_revision(&self.engine.conn, session_id)
     }
 
-    /// The latest durable commit receipt for a session (ADR-0236 D3):
+    /// The latest durable commit receipt for a session (D3):
     /// `(operation_id, revision)` of its most recent commit. A caller that
     /// lost an acknowledgement resolves its outcome here by operation
     /// identity before replaying dependent work.
@@ -25,7 +25,7 @@ impl DbReader {
             .map(|receipt| receipt.map(|(operation_id, _hash, revision)| (operation_id, revision)))
     }
 
-    /// Load the canonical [`nuo_wire::SessionIR`] for a session if it exists (ADR-0241/ADR-0249).
+    /// Load the canonical [`nuo_wire::SessionIR`] for a session if it exists.
     pub fn load_session_ir(&self, session_id: &str) -> Result<Option<nuo_wire::SessionIR>> {
         crate::db::session_ir::load_session_ir(&self.engine.conn, session_id)
     }
@@ -168,12 +168,12 @@ impl DbReader {
         crate::db::session_store::list_sessions(&self.engine.conn, filter)
     }
 
-    /// Subagent sessions spawned by `parent_id` (ADR-0262).
+    /// Subagent sessions spawned by `parent_id`.
     pub fn list_subagent_sessions(&self, parent_id: &str) -> Result<Vec<SessionRecord>> {
         crate::db::session_store::list_subagent_sessions(&self.engine.conn, parent_id)
     }
 
-    /// Candidate sessions for switching, strictly excluding the active session (ADR-0250).
+    /// Candidate sessions for switching, strictly excluding the active session.
     pub fn list_switch_candidates(
         &self,
         partition: &nuo_wire::SessionPartition,
@@ -182,7 +182,7 @@ impl DbReader {
         crate::db::session_store::list_switch_candidates(&self.engine.conn, partition, active_id)
     }
 
-    /// List session summaries for a domain partition, with active session tagged (ADR-0250).
+    /// List session summaries for a domain partition, with active session tagged.
     pub fn list_session_summaries_in_partition(
         &self,
         partition: &nuo_wire::SessionPartition,
@@ -195,7 +195,7 @@ impl DbReader {
         )
     }
 
-    /// The most recently updated session id in `partition` (ADR-0250 `--resume`).
+    /// The most recently updated session id in `partition` (`--resume`).
     pub fn latest_session_in_partition(
         &self,
         partition: &nuo_wire::SessionPartition,
@@ -230,7 +230,7 @@ impl DbReader {
         crate::db::session_store::lookup_session_workspace(&self.engine.conn, session_id)
     }
 
-    /// A session's immutable role manifest snapshot (ADR-0245).
+    /// A session's immutable role manifest snapshot.
     pub fn lookup_session_manifest(
         &self,
         session_id: &str,
@@ -334,7 +334,7 @@ impl DbReader {
         crate::db::kv_store::list_kv_keys_with_prefix(&self.engine.conn, prefix)
     }
 
-    // -- context lifecycle (ADR-0275 / ADR-0279) ---------------------------
+    // -- context lifecycle ---------------------------
 
     /// Query the current revision of a context branch.
     pub fn context_branch_revision(
@@ -364,7 +364,7 @@ impl DbReader {
         crate::db::context_store::facts_digest(&self.engine.conn, session_id)
     }
 
-    /// Obtain an inspect retrieval service bound to this reader connection (ADR-0279).
+    /// Obtain an inspect retrieval service bound to this reader connection.
     pub fn inspect_service(&self) -> crate::db::inspect_service::InspectService<'_> {
         crate::db::inspect_service::InspectService::new(&self.engine.conn)
     }

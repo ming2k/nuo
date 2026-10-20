@@ -6,7 +6,6 @@
 //! Trust is strictly content-bound via per-domain SHA-256 digests.
 //! If project assets change (e.g. via git pull/checkout), trust drops back to
 //! Quarantined until explicitly reviewed again.
-
 use crate::paths;
 use nuo_wire::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
 use serde::{Deserialize, Serialize};
@@ -93,7 +92,7 @@ impl Default for PersistedWorkspaceSecurity {
 #[derive(Debug)]
 pub struct WorkspaceSecurityStore {
     db_path: PathBuf,
-    /// The single-writer actor bound to [`Self::db_path`] (ADR-0231): the
+    /// The single-writer actor bound to [`Self::db_path`]: the
     /// process-wide handle for the unified `nuo.db`, or a store-private one
     /// for a path-pinned (test / tooling) instance. Either way mutations are
     /// serialized and a caller never opens its own connection.
@@ -214,7 +213,7 @@ impl WorkspaceSecurityStore {
         Ok(digests.into_iter().map(|(domain, _)| domain).collect())
     }
 
-    /// Explicitly deny and record the human rejection for project asset domains (ADR-0253).
+    /// Explicitly deny and record the human rejection for project asset domains.
     /// Prevents repeated trust gate nagging unless the content changes on disk.
     pub fn deny_domains(
         &self,
@@ -719,7 +718,7 @@ mod tests {
             WorkspaceTrustState::Quarantined
         );
 
-        // 2. Deny domain -> becomes Denied (ADR-0253)
+        // 2. Deny domain -> becomes Denied
         store.deny_domains(root, &[TrustDomain::Skills]).unwrap();
         let snap = store.snapshot(root);
         assert_eq!(snap.skills, WorkspaceTrustState::Denied);

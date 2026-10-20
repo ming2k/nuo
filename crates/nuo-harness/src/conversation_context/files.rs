@@ -6,7 +6,7 @@
 //! size cap) and appends its contents as a hidden user message, so the model
 //! sees the referenced source without an explicit `read_text` call.
 //!
-//! ## Reference semantics (ADR-0288)
+//! ## Reference semantics
 //!
 //! `@file:` is an *address*, not content. This module resolves the address and
 //! emits exactly one canonical envelope per mention (`[INV-REF-02]`):
@@ -34,7 +34,6 @@
 //! Rejections are surfaced as a single hidden envelope (one per file) so the
 //! model learns *why* the file was not loaded and can recover (switch to
 //! `find_files`, ask the user, etc.) instead of looping on the same path.
-
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -459,7 +458,7 @@ mod tests {
         std::fs::write(tmp.path().join("big.txt"), &big).unwrap();
         let loaded = load_sandboxed(tmp.path(), "big.txt").unwrap();
         // The injected bytes are capped; the pre-truncation length is disclosed
-        // separately so the envelope can carry it as an attribute (ADR-0288),
+        // separately so the envelope can carry it as an attribute,
         // not as prose baked into the body.
         assert_eq!(loaded.bytes.len(), MAX_FILE_BYTES);
         assert_eq!(loaded.total, MAX_FILE_BYTES * 2);
@@ -473,7 +472,7 @@ mod tests {
         inject_mentioned_files(Some(tmp.path()), &mut messages).await;
         assert_eq!(messages.len(), 2);
         assert!(messages[1].hidden);
-        // Canonical envelope with the address in `ref=` (ADR-0288).
+        // Canonical envelope with the address in `ref=`.
         assert_eq!(
             messages[1].content,
             "<file path=\"lib.rs\" ref=\"@file:lib.rs\" bytes=\"13\">\npub fn x() {}\n</file>"

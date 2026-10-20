@@ -25,7 +25,7 @@ async fn main() {
 
 async fn run(project_root: &std::path::Path) -> Result<(), String> {
     let _ = project_root;
-    // ADR-0096: discovery is global (`server.json` under the instance dir),
+    // Discovery is global (`server.json` under the instance dir),
     // not per-project — the pre-0096 `serve/<bucket>.json` layout is dead.
     let path = serve_discovery::global_discovery_path();
     let bytes = std::fs::read(&path)

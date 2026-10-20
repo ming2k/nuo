@@ -1,10 +1,9 @@
-//! Unified context planner and request compiler (ADR-0277).
+//! Unified context planner and request compiler.
 //!
 //! Planning owns representation selection. The immutable plan contains the
 //! actual selected bytes; compilation cannot substitute the original input or
 //! perform a second pruning pass. Production cutover is tracked separately
 //! from the correctness of these domain operations.
-
 pub mod checkpoint;
 
 use nuo_wire::context_lifecycle::{
@@ -14,7 +13,7 @@ use nuo_wire::context_lifecycle::{
 use nuo_wire::{Message, tokenizer};
 use sha2::{Digest, Sha256};
 
-/// The fixed block order of a compiled request (ADR-0277 §2 protection order).
+/// The fixed block order of a compiled request (protection order).
 ///
 /// The order is part of the contract: a stable order keeps provider prefixes
 /// stable and makes the request reproducible (`INV-ADMIT-03`).
@@ -37,7 +36,7 @@ pub const BLOCK_ORDER: &[&str] = &[
 pub enum RequestScope {
     /// An ordinary conversational request.
     Conversational,
-    /// A checkpoint-summarization call (ADR-0278).
+    /// A checkpoint-summarization call.
     Summary,
     /// A test/title/other ephemeral call whose usage is not conversational.
     Ephemeral,
@@ -59,7 +58,7 @@ impl RequestScope {
     }
 }
 
-/// A planned representation of one fact in the request (ADR-0275 §3).
+/// A planned representation of one fact in the request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlannedItem {
     /// The fact this item represents.
@@ -74,7 +73,7 @@ pub struct PlannedItem {
     pub tokens: u64,
 }
 
-/// A component budget allocation within the input ceiling (ADR-0277 §2).
+/// A component budget allocation within the input ceiling.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComponentAllocation {
     /// Stable block role.
@@ -85,7 +84,7 @@ pub struct ComponentAllocation {
     pub mandatory: bool,
 }
 
-/// The typed, deterministic result of planning one request (ADR-0277 §5).
+/// The typed, deterministic result of planning one request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextPlan {
     /// The resolved budget (`W`, `O`, `F`, `I`).
@@ -145,7 +144,7 @@ pub struct AssembledContext {
     pub current_user_input: String,
 }
 
-/// A tool observation reduced to a preview for the request (ADR-0276 §1).
+/// A tool observation reduced to a preview for the request.
 #[derive(Debug, Clone)]
 pub struct ObservationPreview {
     /// The fact the observation belongs to.
@@ -156,7 +155,7 @@ pub struct ObservationPreview {
     pub validity: Validity,
 }
 
-/// Why planning failed (ADR-0277 §2, `INV-ADMIT-04`).
+/// Why planning failed (`INV-ADMIT-04`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlanError {
     /// A structured protocol payload could not be encoded.
@@ -187,7 +186,7 @@ impl std::fmt::Display for PlanError {
 
 impl std::error::Error for PlanError {}
 
-/// The unified planner (ADR-0277). Pure: it reads no storage and calls no
+/// The unified planner. Pure: it reads no storage and calls no
 /// provider.
 #[derive(Debug, Clone)]
 pub struct ContextPlanner {
@@ -318,7 +317,7 @@ fn tokens_of(text: &str) -> u64 {
     tokenizer::count_tokens(text) as u64
 }
 
-/// An immutable compiled request (ADR-0277 §5). The provider port accepts only
+/// An immutable compiled request. The provider port accepts only
 /// this, never a caller-constructed history array.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestSnapshot {
@@ -341,7 +340,7 @@ pub struct CompiledBlock {
     pub tokens: u64,
 }
 
-/// The pure request compiler (ADR-0277). No I/O, no history mutation, no second
+/// The pure request compiler. No I/O, no history mutation, no second
 /// trimming pass.
 #[derive(Debug, Clone, Default)]
 pub struct RequestCompiler;

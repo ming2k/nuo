@@ -1,4 +1,4 @@
-//! `PersistenceHandle`: the public front door and every typed verb (ADR-0196/0231).
+//! `PersistenceHandle`: the public front door and every typed verb (0231).
 //! The struct and its observability types live in `db.rs`.
 use super::actor::run_supervisor;
 use super::*;
@@ -155,12 +155,12 @@ impl PersistenceHandle {
         }
     }
 
-    /// The current writer health snapshot (ADR-0196 D4).
+    /// The current writer health snapshot (D4).
     pub fn health(&self) -> WriterHealth {
         self.health.borrow().clone()
     }
 
-    /// Subscribe to writer health transitions (ADR-0196 D4): the server
+    /// Subscribe to writer health transitions (D4): the server
     /// folds these into the monitor stream; frontends render degradation.
     pub fn subscribe_health(&self) -> watch::Receiver<WriterHealth> {
         self.health.clone()
@@ -172,7 +172,7 @@ impl PersistenceHandle {
     }
 
     /// Asynchronously save a session in SQLite, returning the committed
-    /// session revision (ADR-0236 D3). The `guard` carries an optional
+    /// session revision (D3). The `guard` carries an optional
     /// idempotency identity and revision precondition; a replay returns the
     /// original revision without re-applying.
     pub(crate) async fn save_session(
@@ -286,7 +286,7 @@ impl PersistenceHandle {
         ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
     }
 
-    /// Asynchronously insert a request-projection record (ADR-0218). Awaits the
+    /// Asynchronously insert a request-projection record. Awaits the
     /// writer ack for callers that need the durable write confirmed (tests,
     /// tooling); the request hot path uses
     /// [`Self::try_record_request_projection`] instead.
@@ -307,7 +307,7 @@ impl PersistenceHandle {
         ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
     }
 
-    /// Non-blocking fire-and-forget request-projection insert (ADR-0218). Used
+    /// Non-blocking fire-and-forget request-projection insert. Used
     /// on the model-request hot path: forensic persistence must never block
     /// dispatch. A dropped archive write is logged, not surfaced as a round
     /// failure.
@@ -510,7 +510,7 @@ impl PersistenceHandle {
         )
     }
 
-    /// Open a reader against this handle's database (ADR-0231).
+    /// Open a reader against this handle's database.
     ///
     /// This is the **only** way to obtain a connection snapshot: the engine
     /// type is crate-private, so a caller cannot open one on a path of its own
@@ -597,7 +597,7 @@ impl PersistenceHandle {
     }
 
     /// Count one failed fresh-reader open and, past the bounded threshold,
-    /// ask the supervisor to rebuild the engine (ADR-0231).
+    /// ask the supervisor to rebuild the engine.
     ///
     /// The wedge this heals: the on-disk `-wal`/`-shm` pair removed under a
     /// live writer. The writer keeps serving into the unlinked inode, but
@@ -697,7 +697,7 @@ impl PersistenceHandle {
         )
     }
 
-    /// A storage-observability snapshot (ADR-0236 D7): WAL size, active reader
+    /// A storage-observability snapshot (D7): WAL size, active reader
     /// count, and the oldest reader snapshot's age. A large WAL or an old
     /// reader is the pressure that blocks checkpoint reclamation.
     pub fn storage_metrics(&self) -> StorageMetrics {
@@ -721,7 +721,7 @@ impl PersistenceHandle {
         self.run_blocking(PersistenceCommand::DeleteKV { key, ack: ack_tx }, ack_rx)
     }
 
-    /// Reclaim transcript entries no session references (ADR-0187): the
+    /// Reclaim transcript entries no session references: the
     /// periodic storage-maintenance sweep. Routed through the actor so the
     /// DELETE serializes with every other write.
     pub async fn collect_entry_garbage(&self) -> Result<usize, PersistenceError> {
@@ -743,7 +743,7 @@ impl PersistenceHandle {
         )
     }
 
-    /// Save an incremental [`nuo_wire::SessionDelta`] asynchronously (ADR-0241/ADR-0249, INV-SESSION-05).
+    /// Save an incremental [`nuo_wire::SessionDelta`] asynchronously (INV-SESSION-05).
     pub async fn save_session_delta(
         &self,
         delta: nuo_wire::SessionDelta,
@@ -774,7 +774,7 @@ impl PersistenceHandle {
         )
     }
 
-    /// Commit immutable execution facts asynchronously through the single writer (ADR-0275 §7).
+    /// Commit immutable execution facts asynchronously through the single writer.
     pub async fn commit_context_facts(
         &self,
         commit: crate::db::context_store::OwnedFactCommit,
@@ -799,7 +799,7 @@ impl PersistenceHandle {
         })?
     }
 
-    /// Commit a branch context view asynchronously through the single writer (ADR-0275 §7, ADR-0278).
+    /// Commit a branch context view asynchronously through the single writer.
     pub async fn commit_context_view(
         &self,
         commit: crate::db::context_store::OwnedViewCommit,
@@ -824,7 +824,7 @@ impl PersistenceHandle {
         })?
     }
 
-    /// Execute an inspect deletion job asynchronously through the single writer (ADR-0279 §6).
+    /// Execute an inspect deletion job asynchronously through the single writer.
     pub async fn execute_inspect_deletion(
         &self,
         session_id: impl Into<String>,
@@ -847,7 +847,7 @@ impl PersistenceHandle {
             .map_err(|_| nuo_wire::context_lifecycle::InspectError::Corrupt)?
     }
 
-    /// Collect a bounded garbage collection batch asynchronously through the single writer (ADR-0279 §5).
+    /// Collect a bounded garbage collection batch asynchronously through the single writer.
     pub async fn collect_inspect_garbage(
         &self,
         session_id: impl Into<String>,
@@ -874,7 +874,7 @@ impl PersistenceHandle {
             .map_err(|_| nuo_wire::context_lifecycle::InspectError::Corrupt)?
     }
 
-    /// The one blocking bridge for every synchronous verb (ADR-0196).
+    /// The one blocking bridge for every synchronous verb.
     ///
     /// On a **multi-thread runtime** `block_in_place` is preferred: it parks
     /// this worker and hands its core back, so the runtime keeps making

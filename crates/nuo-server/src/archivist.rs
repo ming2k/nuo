@@ -1,7 +1,7 @@
-//! The Archivist (ADR-0208): a conversational nuo-level agent co-stationed
+//! The Archivist: a conversational nuo-level agent co-stationed
 //! on the Hypervisor.
 //!
-//! The Hypervisor station (ADR-0167) is the server's single workspace-free
+//! The Hypervisor station is the server's single workspace-free
 //! slot. The operator-facing `Hypervisor` coordinates the fleet; the
 //! **Archivist** is a second conversational identity on the same station — a
 //! Root-posture agent whose job is *institutional memory*: it knows every
@@ -10,12 +10,11 @@
 //! read, all read-only, inherently cross-project because they read the one
 //! shared `nuo.db`); anything that must act on files is delegated to a
 //! workspace master over the mesh, keeping the workspace-security posture
-//! (ADR-0146/0147) intact.
+//! (0147) intact.
 //!
 //! Tool results return raw JSON strings — the same shape the Hypervisor
 //! tools use — because the agent kernel renders tool results verbatim into
 //! the model window; structured wire types are a frontend concern.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -27,7 +26,7 @@ use serde_json::json;
 use acp::{AgentAddress, AgentEnvelope, Fabric, MessageIntent, SteerAction};
 
 /// A read snapshot of the unified store, obtained from the single-writer
-/// handle (ADR-0231): the lookup and recall tools never open a connection of
+/// handle: the lookup and recall tools never open a connection of
 /// their own.
 fn read_store() -> Result<DbReader, String> {
     get_persistence_handle()
@@ -169,7 +168,7 @@ impl Tool for ArchivistInstructSessionTool {
     }
 }
 
-/// Cross-project BM25 search over every persisted transcript (ADR-0208 §4).
+/// Cross-project BM25 search over every persisted transcript.
 /// `workspace: None` is the default and the point: the Archivist's retrieval
 /// plane is inherently instance-wide.
 pub struct ArchivistSearchHistoryTool;
@@ -217,7 +216,7 @@ impl Tool for ArchivistSearchHistoryTool {
         let filter = workspace.map(|w| nuo_wire::WorkspaceFilter::Path(w.into()));
 
         let reader = read_store()?;
-        // Two-stage recall (ADR-0208 Layer 3, deterministic leg): strict
+        // Two-stage recall (Layer 3, deterministic leg): strict
         // AND first; an empty strict result widens to OR so a gist whose
         // words never co-occur still recalls candidates.
         let mut relaxed = false;
@@ -255,7 +254,7 @@ impl Tool for ArchivistSearchHistoryTool {
     }
 }
 
-/// Metadata-level session listing across every project bucket (ADR-0208 §4
+/// Metadata-level session listing across every project bucket (
 /// layer 2): titles, digests, times, message counts — no transcript bodies.
 pub struct ArchivistListSessionsTool;
 

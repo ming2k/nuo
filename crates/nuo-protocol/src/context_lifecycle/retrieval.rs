@@ -1,4 +1,4 @@
-//! Scoped retrieval handles and the inspect error taxonomy (ADR-0279 §1,
+//! Scoped retrieval handles and the inspect error taxonomy (
 //! `INV-RET-01/02`).
 //!
 //! A handle is an **address, not a credential**. It names a resource category
@@ -6,12 +6,11 @@
 //! session/branch scope, never by possession of the handle. Handles carry
 //! internal execution/checkpoint IDs, not provider call IDs, so a duplicate
 //! provider call ID in another turn cannot cross-read.
-
 use crate::context_lifecycle::axes::{Capture, Deletion, Representation, Validity};
 use crate::context_lifecycle::ids::{ArtifactId, BranchId, CheckpointId, ExecutionId};
 use std::fmt;
 
-/// The resource category a handle addresses (ADR-0279 §1).
+/// The resource category a handle addresses.
 ///
 /// Categories are not authorization scopes: `call:` and `fold:` describe *what*
 /// is addressed, not *who* may read it.
@@ -111,7 +110,7 @@ impl fmt::Display for InspectHandle {
 }
 
 /// A pagination cursor, bound to the content and query that produced it
-/// (ADR-0279 §1, `INV-RET-02`).
+/// (`INV-RET-02`).
 ///
 /// Changing the query must not reuse an old cursor, so the cursor carries the
 /// query and the content hash it was issued against. The `offset` advances as
@@ -144,7 +143,7 @@ impl CursorBinding {
     }
 }
 
-/// Per-read resource ceilings (ADR-0279 §1, `INV-RET-02`).
+/// Per-read resource ceilings (`INV-RET-02`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PageLimits {
     /// Token ceiling for one page.
@@ -155,7 +154,7 @@ pub struct PageLimits {
     pub compute_ms: u64,
 }
 
-/// The separated status fields a retrieval returns (ADR-0279 §1).
+/// The separated status fields a retrieval returns.
 ///
 /// These are never collapsed: `Purged` is not `Omitted`, an incomplete capture
 /// is not an empty result.
@@ -171,7 +170,7 @@ pub struct InspectStatus {
     pub representation: Representation,
 }
 
-/// The typed inspect failure taxonomy (ADR-0279 §1).
+/// The typed inspect failure taxonomy.
 ///
 /// Every variant is distinct; none degrades into an empty success.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

@@ -13,3 +13,7 @@
 *.db-wal
 *.owner.lock
 **/sessions/
+
+# Python bytecode from scripts/
+__pycache__/
+*.pyc

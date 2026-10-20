@@ -8,7 +8,6 @@
 //! `impl App` block).
 //!
 //! [`crate::completion`]: crate::completion
-
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -237,7 +236,7 @@ pub struct SessionChrome {
     /// When this session's current round started (elapsed-timer segment).
     pub round_started_at: Option<std::time::Instant>,
     /// Whether this session has a stopped round parked for `/retry`
-    /// (ADR-0128). Mirrored from the session-scoped harness snapshot — the
+    /// Mirrored from the session-scoped harness snapshot — the
     /// authoritative durable resume point, not a transcript scan — so the
     /// hint bar only offers `/retry` for a round that actually stopped
     /// before completing.
@@ -259,13 +258,12 @@ pub struct SessionChrome {
     /// with the phase it annotates — by the first phase write that is not
     /// [`crate::phase::Phase::AwaitingModel`], which
     /// [`SessionChrome::set_phase`] enforces as the single writer of both
-    /// (ADR-0235).
     pub transport_setback: Option<ProviderRetryState>,
 }
 
 impl SessionChrome {
     /// Write this session's activity phase, retiring its transport-setback
-    /// clause under [`crate::phase::ends_transport_setback`] (ADR-0235).
+    /// clause under [`crate::phase::ends_transport_setback`].
     ///
     /// This is the **only** way anything in the process ends a setback clause,
     /// and the rule it applies is derived from the phase rather than from the
@@ -296,7 +294,7 @@ pub enum DraftAdoption {
     OnlyIfIdle,
 }
 
-/// The OAuth add-flow handoff payload (ADR-0197 M1): a mutation from the
+/// The OAuth add-flow handoff payload (M1): a mutation from the
 /// translator, applied by the loop against the add-flow state above.
 pub enum OauthAddSignal {
     Pending {
@@ -318,10 +316,8 @@ pub struct App {
     /// from. The loop re-clones the buffer only when the runtime version moves
     /// past this, so an unchanged transcript costs no per-frame deep clone.
     /// Starts at 0 (the `Versioned` sentinel) so the first frame always syncs.
-
     /// O(1) streaming-delta target for `messages` (id, index); reset on
-    /// wholesale replacement (ADR-0187).
-
+    /// wholesale replacement.
     /// Per-message laid-out height cache (Stage 2). Lets the transcript renderer
     /// skip re-wrapping off-screen messages, making per-frame layout O(visible)
     /// instead of O(transcript). Cleared whenever the transcript changes
@@ -357,16 +353,16 @@ pub struct App {
     /// Latest session-scoped AI context snapshot from the harness. This is a
     /// provider usage/projection value, never a persisted transcript estimate.
     pub context_tokens: Option<nuo_wire::ContextTokenSnapshot>,
-    /// Per-session context snapshots (ADR-0197 M1): the applier keys them by
+    /// Per-session context snapshots (M1): the applier keys them by
     /// session; the render loop projects the *viewed* session's value into
     /// `context_tokens` each frame.
     pub context_tokens_by_session: HashMap<String, nuo_wire::ContextTokenSnapshot>,
-    /// The **live primary session id** (ADR-0197 M1): the harness repoints
+    /// The **live primary session id** (M1): the harness repoints
     /// its shared store on `/new`, `/session open`, `/resume`, and `/fork`;
     /// the translator reports each repoint here and session-scoped client
     /// state (the ↑/↓ prompt history's origin above all) follows.
     pub live_session_id: String,
-    /// Human-in-the-loop request queues (ADR-0197 M1): the applier owns the
+    /// Human-in-the-loop request queues (M1): the applier owns the
     /// queues; `pending_permission` / `pending_question` / `pending_input`
     /// remain the *mounted front* projections the sheets render.
     pub pending_permissions: std::collections::VecDeque<PermissionRequest>,
@@ -379,7 +375,7 @@ pub struct App {
     pub subagent_question_parent: HashMap<String, String>,
     /// The latest harness workspace-security snapshot (trust-gate state).
     pub workspace_security: nuo_wire::WorkspaceSecuritySnapshot,
-    /// One-shot backend navigation signals (ADR-0197 M1): the applier latches
+    /// One-shot backend navigation signals (M1): the applier latches
     /// them; the loop consumes and clears when it mounts the surface.
     pub open_sessions_signal: bool,
     pub open_tree_signal: bool,
@@ -391,7 +387,7 @@ pub struct App {
     pub transcript_changed_pending: bool,
     pub side_transcript_changed_pending: bool,
     /// Effective default-expand state for a reasoning trace
-    /// (`[tui.default_expanded] thinking`, ADR-0197 M1: applier-owned).
+    /// (`[tui.default_expanded] thinking`, M1: applier-owned).
     pub reasoning_default_expanded: bool,
     /// Backend completion round-trip awaiting consumption by the loop.
     pub(crate) backend_completion_signal: Option<crate::event_loop::CompletionSignal>,
@@ -399,7 +395,7 @@ pub struct App {
     /// the translator no longer carries config clones).
     pub tui_config: crate::config::TuiConfig,
     /// Cross-session usage-statistics report fetched on demand from the
-    /// harness (`QueryUsageStats`, ADR-0122). Session-independent: it
+    /// harness (`QueryUsageStats`). Session-independent: it
     /// aggregates the durable store under `data/usage/`, which survives
     /// session cleanup. `None` while the round-trip is in flight (the
     /// overlay renders a loading placeholder).
@@ -479,7 +475,7 @@ pub struct App {
     /// scrolling, and cleared when the pointer re-enters or the drag ends.
     pub input_drag_scroll: Option<bool>,
     /// Authoritative foreground surface: the root Scene plus the LIFO overlay
-    /// stack floating over it (ADR-0205). The router is the single navigation
+    /// stack floating over it. The router is the single navigation
     /// truth — there is no parallel `active_modal` / `active_panel` /
     /// `current_view` mirror to read instead.
     pub(crate) surfaces: crate::surfaces::SurfaceRouter,
@@ -496,7 +492,7 @@ pub struct App {
     /// Recently executed commands for MRU display in Command Palette.
     pub(crate) recent_commands: Vec<String>,
     /// The session whose outbox the Queue view auto-blocked on entry
-    /// (ADR-0139). `dismiss_active_dialog` is an `&mut App` method that
+    /// `dismiss_active_dialog` is an `&mut App` method that
     /// cannot see the loop's `viewed_session_id`, so the block site records
     /// the target here and the exit hook consumes it.
     pub(crate) queue_exit_session: Option<String>,
@@ -557,7 +553,7 @@ pub struct App {
     /// The workspace label for the current session — the project root's
     /// display path (already tilde-shortened), or empty when no workspace is bound.
     pub current_workspace: String,
-    /// The active staffing role for the current session (e.g. "developer", "philosophist") (ADR-0244).
+    /// The active staffing role for the current session (e.g. "developer", "philosophist").
     pub current_role: Option<String>,
     /// Latest session-context snapshot for the Tools / Mcp / Skills /
     /// Permissions managers, or `None` before the first `QuerySessionContext`
@@ -565,7 +561,7 @@ pub struct App {
     pub session_context: Option<nuo_wire::SessionContextSnapshot>,
     pub loop_status: LoopStatus,
     /// Whether the primary session has a stopped round parked for `/retry`
-    /// (ADR-0128). Mirrored from the session-scoped harness snapshot — the
+    /// Mirrored from the session-scoped harness snapshot — the
     /// durable resume point — and consumed by [`Self::viewed_chrome`] to
     /// build the primary's retry affordance. Asides read their own
     /// `SessionChrome::can_retry`.
@@ -578,9 +574,9 @@ pub struct App {
     /// [`SessionChrome::transport_setback`] for the primary view exactly as
     /// `phase` mirrors [`SessionChrome::phase`]; asides keep theirs in their
     /// own chrome entry. Write it only through [`App::set_phase`], which owns
-    /// the clause's lifetime (ADR-0235).
+    /// the clause's lifetime.
     pub provider_retry: Option<ProviderRetryState>,
-    /// Durability-health banner state (ADR-0196 D4): the server's
+    /// Durability-health banner state (D4): the server's
     /// persistence-writer degradation, folded from the monitor stream.
     /// `None` / `Healthy` renders no banner.
     pub persistence_health: Option<nuo_wire::monitor::PersistenceHealth>,
@@ -601,14 +597,14 @@ pub struct App {
     pub round_started_at: Option<std::time::Instant>,
     pub pending_permission: Option<PermissionRequest>,
     /// The interaction sheet currently mounted in the composer slot, if any
-    /// (ADR-0173 §3). The slot's two sibling components — the draft editor
+    /// The slot's two sibling components — the draft editor
     /// and an AI-initiated sheet — are mutually exclusive: `Some(kind)` means
     /// the sheet has replaced the composer. App-level slot state, *not*
     /// router foreground identity.
     pub active_sheet: Option<crate::sheet::SheetKind>,
     /// How many permission requests are queued in the runtime (front
     /// mirrored into `pending_permission`). `> 1` renders the `N queued`
-    /// sheet badge (ADR-0173 §3).
+    /// sheet badge.
     pub pending_permission_depth: usize,
     /// How many user questions are queued in the runtime behind the one
     /// mirrored into `App::question`. `> 0` renders the `+N` sheet badge.
@@ -638,7 +634,7 @@ pub struct App {
     /// When switching sessions, holds the short id of the target session being loaded.
     pub switching_session: Option<String>,
     /// Live monitor snapshot for the `/host` server control panel
-    /// (ADR-0096), mirrored from `UiRuntime::host_sessions` each frame.
+    /// mirrored from `UiRuntime::host_sessions` each frame.
     pub host_sessions: Vec<nuo_wire::MonitoredSession>,
     /// Scroll slot + selection-follow for the `/host` panel body.
     pub host_scroll: usize,
@@ -648,7 +644,7 @@ pub struct App {
     pub host_focus: crate::overlays::DashboardFocus,
     /// Scroll offset for the dashboard's console pane.
     pub host_detail_scroll: usize,
-    /// The dashboard's session preview modal (ADR-0097 §3): the session id
+    /// The dashboard's session preview modal: the session id
     /// opened by Enter on a dock selection. Selection alone never opens it;
     /// Esc closes. Read-only.
     pub host_preview: Option<String>,
@@ -661,7 +657,7 @@ pub struct App {
     /// What the open dashboard prompt does on submit: `true` = create a new
     /// session (from `n`), `false` = prompt the selected session (from `p`).
     pub host_prompt_new: bool,
-    /// The dashboard console's receipt transcript (ADR-0097 §3): one entry
+    /// The dashboard console's receipt transcript: one entry
     /// per dispatched directive plus the server's answer. Lives for the
     /// dashboard's open lifetime (cleared on open) — it is a cockpit log,
     /// not history.
@@ -675,7 +671,7 @@ pub struct App {
     /// selection move between presses can be compared against it).
     pub host_kill_confirm_id: Option<String>,
     /// `/host` Enter on a hosted session: the id to switch to, read by the
-    /// caller after the TUI exits to re-attach (ADR-0096).
+    /// caller after the TUI exits to re-attach.
     pub switch_to_target: Option<String>,
     /// Request the runner to create and attach to a brand-new thread.
     pub switch_to_new: bool,
@@ -691,7 +687,7 @@ pub struct App {
     pub startup_overlay: crate::StartupOverlay,
     /// The PreAttach interstitial state, mounted when the attaching
     /// workspace's first-contact trust snapshot is `Quarantined`
-    /// (ADR-0175). `Some` means the chat surface is gated and the
+    /// `Some` means the chat surface is gated and the
     /// per-frame render paints a full-screen black interstitial
     /// instead of chat; the per-frame sync clears it once a
     /// subsequent `HarnessState` reports `aggregate() == Trusted`.
@@ -784,7 +780,7 @@ pub struct App {
     /// Target queue mode for the live composer while a round is running.
     pub composer_send_mode: ComposerSendMode,
     /// Whether the `Ctrl+X` scene namespace is armed, awaiting its second
-    /// stroke (ADR-0298). A plain flag: the namespace has exactly one opening
+    /// stroke. A plain flag: the namespace has exactly one opening
     /// stroke, so an enum with a single non-`None` variant was a two-state
     /// type wearing three.
     pub scene_namespace_armed: bool,
@@ -804,7 +800,7 @@ pub struct App {
     pub selection: SelectionState,
     /// Drag gesture state.
     pub drag: SelectionDrag,
-    /// Mounted UI instances and committed semantic geometry (ADR-0195).
+    /// Mounted UI instances and committed semantic geometry.
     pub ui: crate::ui::ComponentTree,
     /// Message index of the step (tool step or reasoning trace) whose header
     /// currently rests under the mouse pointer (inline or sticky pinned), so
@@ -812,7 +808,7 @@ pub struct App {
     /// affordance. `None` whenever the pointer is elsewhere or an overlay
     /// modal is open.
     pub hovered_step: Option<usize>,
-    /// Whether the pointer last acted on the transcript area (ADR-0174): a
+    /// Whether the pointer last acted on the transcript area: a
     /// click anywhere in the transcript content — a step summary, message
     /// text, or the blank space between and around messages — parks the
     /// keyboard's attention on the transcript ("browse focus") and dims the
@@ -853,12 +849,12 @@ pub struct App {
     /// through the staged measure-then-paint path (`scroll_settle_pending`),
     /// so the auto-scroll itself never flickers.
     pub expand_auto_scroll: bool,
-    /// User remaps of the global chords (`[keybindings]` config, ADR-0172).
+    /// User remaps of the global chords (`[keybindings]` config).
     /// Resolution and the visible keycaps both consult it, so a remapped
     /// binding fires and advertises consistently.
     pub key_overrides: crate::keymap::GlobalOverrides,
     /// User remaps of the full-screen-view surface verbs (`session.*` dotted
-    /// keys, ADR-0172). The Session/Subagent/Side resolvers and the composer
+    /// keys). The Session/Subagent/Side resolvers and the composer
     /// hint row consult it.
     pub surface_overrides: crate::keymap::SurfaceOverrides,
     /// Keyboard-focused activatable target in the current frame, and the TUI's
@@ -904,7 +900,7 @@ pub struct App {
     /// how often the loop redraws (mouse movement, streaming, paste, etc. all
     /// wake the loop at irregular intervals and would otherwise jitter it).
     pub spinner_epoch: std::time::Instant,
-    /// Epoch the empty-state help carousel is timed against (ADR-0104). The
+    /// Epoch the empty-state help carousel is timed against. The
     /// slide index is derived from wall-clock elapsed time since this instant
     /// (same pattern as [`Self::spinner_epoch`]) so the rotation cadence stays
     /// constant regardless of draw frequency.
@@ -914,7 +910,7 @@ pub struct App {
     /// show what happened *before* dispatch (queue, context projection, hooks).
     pub last_submit_ms: Option<u64>,
     /// The composer draft parked while the input-injection sheet
-    /// (L3.5 β) borrows the input line. Under ADR-0139 the
+    /// (L3.5 β) borrows the input line. The
     /// picker flows (Models / Connections / History) park their drafts in
     /// per-view slots on the `PanelRegistry`; this remaining global slot
     /// serves the one request-driven borrowed-line surface, whose
@@ -951,7 +947,7 @@ pub struct App {
     pub editor_effort: String,
     /// The effort ladder the edited route actually supports, as wire strings in
     /// ascending depth. Captured from the picker snapshot when the editor opens
-    /// (the server's ADR-0149 resolution), **not** re-derived client-side: this
+    /// (the server's resolution), **not** re-derived client-side: this
     /// binary does not link `nuo-providers`, so `resolve_model` sees no
     /// baseline table and would render an empty ladder (the node slider would
     /// collapse to a bare value row). Empty means the route exposes no effort
@@ -966,7 +962,7 @@ pub struct App {
     /// Toggled with Space when [`Self::editor_thinking_available`] is true;
     /// orthogonal to effort.
     pub editor_thinking: bool,
-    /// Capability-override tri-state for **vision** (ADR-0149 layer 1), shown
+    /// Capability-override tri-state for **vision** (layer 1), shown
     /// in the per-model settings editor. Cycled with Space: `None` = inherit
     /// (no override) → `Some(true)` force on → `Some(false)` force off.
     pub editor_vision_override: Option<bool>,
@@ -1003,7 +999,7 @@ pub struct App {
     pub custom_auth: nuo_wire::ConnectionAuth,
     /// The **model provider id** the active create flow was seeded from, or
     /// `None` in edit mode / when no template is active. Sent as
-    /// `AddConnection::provider` (the wire field, ADR-0201): it is the
+    /// `AddConnection::provider` (the wire field): it is the
     /// connection's durable provider binding, and the catalog resolves the
     /// connection's models from it on later startups.
     pub custom_provider_id: Option<String>,
@@ -1063,13 +1059,13 @@ pub struct App {
     /// box). `None` when no user logo is present → built-in wordmark is used.
     /// Passed into the empty-state hero via `TranscriptProps::logo`.
     pub logo: Option<Vec<String>>,
-    /// Dead-link latch (ADR-0197 D6): set the first time an outbox send
+    /// Dead-link latch (D6): set the first time an outbox send
     /// fails (the session driver's receiver is gone). A dead link is a
     /// visible chrome state — the activity bar reports it — never a
     /// swallowed send. It does not clear: with the driver gone nothing can
     /// acknowledge recovery, and pretending otherwise would be a lie.
     pub link_down: bool,
-    /// Background tasks tracking for the TasksBar (ADR-0212).
+    /// Background tasks tracking for the TasksBar.
     pub background_tasks: Vec<BackgroundTaskItem>,
 }
 

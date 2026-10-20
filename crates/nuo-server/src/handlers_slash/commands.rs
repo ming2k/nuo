@@ -4,7 +4,6 @@
 //! router. One giant async fn accumulated a ~1.6 MiB debug-build stack frame
 //! (rustc does not reuse stack slots across a 1700-line state machine), which
 //! overflowed the server's 2 MiB Tokio worker stack on every slash command.
-
 use super::SlashEnv;
 use super::record::{
     record_ack, record_command, record_command_with_duration, record_error, record_invocation,
@@ -757,7 +756,7 @@ pub(crate) async fn compact(env: SlashEnv<'_>, name: &str, args: &str, _parts: &
         ));
     }
 
-    // ADR-0296: Universal Causal Compaction folds [0..N-1] and preserves round N
+    // Universal Causal Compaction folds [0..N-1] and preserves round N
     match compact_round_history(
         &mut current,
         session,
@@ -1295,7 +1294,7 @@ pub(crate) async fn skills(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&
                 name,
                 args,
                 CommandResult::Text(
-                    "Manual `/skills reload` has been retired (ADR-0165).\n\
+                    "Manual `/skills reload` has been retired.\n\
                      Skills update automatically via reactive file watching.\n\
                      To authorize project skills in a new workspace, run `/trust skills`."
                         .to_string(),
@@ -1422,7 +1421,7 @@ pub(crate) async fn retry(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&
         return;
     }
     // `/retry` exists to let a stopped round finish itself
-    // (ADR-0128): it resumes the parked round with the same number
+    // it resumes the parked round with the same number
     // and an unbroken turn sequence. It is deliberately a no-op for
     // a round that completed naturally — re-sending a finished
     // round's history would mint a new round and duplicate the

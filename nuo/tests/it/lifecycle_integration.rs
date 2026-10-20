@@ -1,4 +1,4 @@
-//! End-to-end lifecycle tests for the server run loop (ADR-0101): the
+//! End-to-end lifecycle tests for the server run loop: the
 //! shutdown trigger is injected (no signals needed — that is the point of
 //! the gate abstraction), and the assertions check the *phases*: discovery
 //! advertisement pulled, sessions torn down, tasks joined within the
@@ -8,7 +8,7 @@
 //!
 //! - The loop's filesystem footprint (discovery record, instance lock) is
 //!   sandboxed by pointing `NUO_HOME` at a temp root **before the first
-//!   `paths::get()` resolution in this process** (ADR-0121). One variable
+//!   `paths::get` resolution in this process**. One variable
 //!   redirects every category and the server's runtime files; the env is
 //!   set once in a `static` initializer, and every test gets its own
 //!   subdirectories via a per-test UDS path — the shared record paths live
@@ -17,7 +17,6 @@
 //! - `host::run_with_gate` is driven against a prehost-only registry (no
 //!   session assembly); hosted sessions are inserted by hand, the same
 //!   fixture style as `serve_integration`.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::Arc;
@@ -34,13 +33,13 @@ use tokio::sync::{Mutex, broadcast, mpsc};
 /// Sandbox the process-wide dirs once, before any `paths::get()` call can
 /// cache a real-user resolution (see module docs).
 ///
-/// ADR-0121: `NUO_HOME` alone redirects every category *and* the server
+/// `NUO_HOME` alone redirects every category *and* the server
 /// instance dir, so the five hand-assembled env vars this used to set
 /// collapse to one. The root is a dedicated tempdir (not the shared
 /// `sandbox` subdirs) kept alive for the process.
 use super::sandbox_once;
 
-/// The ADR-0121 isolation contract, pinned at the level users experience
+/// The isolation contract, pinned at the level users experience
 /// it: with `NUO_HOME` set, every category and the server's runtime
 /// files resolve under the sandbox root, and the host's XDG runtime dir
 /// (which the test env deliberately does not clear) cannot leak any
@@ -188,7 +187,7 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
     )
     .await;
 
-    // Exit contract (ADR-0101): a completed graceful stop is 0.
+    // Exit contract: a completed graceful stop is 0.
     assert_eq!(outcome.exit_code(), 0);
     match &outcome {
         RunOutcome::Stopped { reason } => assert_eq!(*reason, ShutdownReason::ControlVerb),
@@ -333,7 +332,7 @@ async fn port_bind_failure_is_a_readable_startup_failure() {
 
     match &outcome {
         RunOutcome::StartupFailed(what) => {
-            // The real io::Error text, not a bare RecvError (ADR-0101).
+            // The real io::Error text, not a bare RecvError.
             assert!(
                 what.contains("could not bind"),
                 "readable bind error: {what}"
@@ -344,10 +343,10 @@ async fn port_bind_failure_is_a_readable_startup_failure() {
     assert_eq!(outcome.exit_code(), 1);
 }
 
-/// ADR-0125: a hosted session with armed `/schedule` jobs is exempt from
+/// A hosted session with armed `/schedule` jobs is exempt from
 /// idle suspension — suspending it would park its tick loop and silently
 /// stop the schedule from firing. A schedule-free session under the same
-/// conditions still suspends (the memory-bounding behavior ADR-0113 added).
+/// conditions still suspends (the memory-bounding behavior added).
 #[tokio::test]
 async fn idle_suspension_spares_sessions_with_armed_schedules() {
     sandbox_once();

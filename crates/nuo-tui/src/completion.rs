@@ -3,7 +3,6 @@
 //! Matching, intent steering, project scanning, and path resolution happen in
 //! Nuo. The TUI only requests results, translates wire offsets into Rust byte
 //! offsets, and renders/applies the returned edits.
-
 use crate::App;
 use crate::composer::{composer_text_width, composer_wrapped_pos};
 use crate::design::COMPOSER_PROMPT_PREFIX_COLS;
@@ -231,13 +230,13 @@ impl App {
 
     /// Current completions translated into renderer-native byte edits.
     ///
-    /// Implements Two-Tier Completion (ADR-0162):
+    /// Implements Two-Tier Completion:
     /// - Tier 1: Zero-latency synchronous execution for slash and harness commands.
     /// - Tier 2: Path mentions and dynamic queries with SWR (Stale-While-Revalidate) cache retention.
     pub fn completions(&self) -> Vec<Completion> {
         let cursor = self.cursor_position;
 
-        // Tier 1: Synchronous zero-latency matching for slash and harness commands (ADR-0162)
+        // Tier 1: Synchronous zero-latency matching for slash and harness commands
         if self.input.starts_with('/') {
             let cursor_byte = char_to_byte(&self.input, cursor).unwrap_or(self.input.len());
             let items =
@@ -288,7 +287,7 @@ impl App {
         self.completion_requested = Some(state.clone());
 
         // When not inside an active mention, clean up stale backend completions.
-        // Slash commands are handled synchronously by Tier 1 with zero latency (ADR-0162).
+        // Slash commands are handled synchronously by Tier 1 with zero latency.
         if !self.input.starts_with('/') && self.active_mention_range().is_none() {
             self.backend_completions.clear();
             self.completion_response_input = None;
@@ -296,7 +295,7 @@ impl App {
             return;
         }
 
-        // Retain `backend_completions` during typing (ADR-0162 SWR).
+        // Retain `backend_completions` during typing (SWR).
         // Only bump generation request ID and send request if dynamic path completion is needed.
         if self.active_mention_range().is_some() {
             self.completion_request_id = self.completion_request_id.wrapping_add(1);

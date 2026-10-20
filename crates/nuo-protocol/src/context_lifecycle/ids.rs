@@ -1,11 +1,10 @@
-//! Typed identifiers for the context-lifecycle domain (ADR-0275 §1).
+//! Typed identifiers for the context-lifecycle domain.
 //!
 //! Every fact, view, checkpoint, artifact, and retrieval handle carries a
 //! scope-qualified identity. These IDs exist so that a provider tool-call ID
 //! can never stand in for an internal identity: two turns may hand the wire the
 //! same provider call ID, but no two facts share a [`FactId`], and a handle
-//! addresses exactly one record (ADR-0279 `INV-RET-01`).
-
+//! addresses exactly one record (`INV-RET-01`).
 macro_rules! string_newtype_id {
     ($(#[$doc:meta])* $name:ident) => {
         $(#[$doc])*
@@ -67,7 +66,7 @@ string_newtype_id! {
 }
 
 string_newtype_id! {
-    /// Identity of a branch within a session (ADR-0275 §1).
+    /// Identity of a branch within a session.
     ///
     /// A branch isolates an execution path and its context view. A fork shares
     /// facts but not views, pins, or task state.
@@ -93,7 +92,7 @@ string_newtype_id! {
     /// Identity of one provider attempt within a turn.
     ///
     /// A retry produces a new attempt that reuses the same request snapshot;
-    /// an uncommitted attempt never enters fact history (ADR-0275 §1).
+    /// an uncommitted attempt never enters fact history.
     AttemptId
 }
 
@@ -101,7 +100,6 @@ string_newtype_id! {
     /// Identity of one committed [`crate::context_lifecycle::ContextView`].
     ///
     /// Only a confirmed projection transaction mints a `CommittedView`
-    /// (ADR-0275 §7).
     ViewId
 }
 
@@ -111,7 +109,7 @@ string_newtype_id! {
 }
 
 string_newtype_id! {
-    /// Scoped identity of a published raw artifact (ADR-0276).
+    /// Scoped identity of a published raw artifact.
     ArtifactId
 }
 
@@ -121,7 +119,7 @@ string_newtype_id! {
 }
 
 string_newtype_id! {
-    /// Identity of one compiled request snapshot (ADR-0277).
+    /// Identity of one compiled request snapshot.
     RequestId
 }
 

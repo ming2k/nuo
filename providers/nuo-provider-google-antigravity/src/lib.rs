@@ -329,7 +329,7 @@ impl GoogleProvider {
             move |item| {
                 let events: Vec<Result<ProviderStreamEvent, ProviderError>> = match item {
                     Ok(payload) => {
-                        // Single parse (ADR-0184): parse once, hand the value
+                        // Single parse: parse once, hand the value
                         // to the payload assembler. Non-JSON data payloads
                         // (heartbeats aside — those are filtered upstream)
                         // surface the same decode error as before.
@@ -566,7 +566,7 @@ impl GoogleProvider {
             ..
         } = request;
         messages.extend(temporary_context);
-        // Shared route-scoped image projection (ADR-0230): Google's
+        // Shared route-scoped image projection: Google's
         // `inline_data` parts were previously emitted unconditionally, so a
         // route that declares no image input failed the turn instead of having
         // the pixels projected away.

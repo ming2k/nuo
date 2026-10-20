@@ -2,14 +2,13 @@
 //!
 //! During rendering we record where each block lands on the terminal grid.
 //! This allows mouse events to be resolved back to semantic positions.
-
 use nuotc::Rect;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 pub const TOOL_STEP_BLOCK_IDX: usize = usize::MAX;
 pub const REASONING_BLOCK_IDX: usize = usize::MAX - 1;
-/// ADR-0091 command-result header rows: same disclosure interaction as tool
+/// Command-result header rows: same disclosure interaction as tool
 /// steps, own block index so focus/click resolution routes to the command.
 pub const COMMAND_RESULT_BLOCK_IDX: usize = usize::MAX - 3;
 /// Expandable notice header rows (e.g. provider error with formatted JSON).
@@ -18,7 +17,7 @@ pub const COMMAND_RESULT_BLOCK_IDX: usize = usize::MAX - 3;
 /// so it shares the notice's target rather than carrying a dead sentinel of
 /// its own.
 pub const NOTICE_BLOCK_IDX: usize = usize::MAX - 4;
-/// Expandable compaction checkpoint card header rows (ADR-0296).
+/// Expandable compaction checkpoint card header rows.
 pub const COMPACTED_CARD_BLOCK_IDX: usize = usize::MAX - 6;
 /// Sentinel message index for live composer input regions.
 ///

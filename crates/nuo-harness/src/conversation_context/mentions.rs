@@ -1,4 +1,4 @@
-//! Canonical address rewriting for the **request projection** (ADR-0288).
+//! Canonical address rewriting for the **request projection**.
 //!
 //! The extractors under this module resolve `@`-references on the durable side
 //! and emit canonical envelopes carrying each address verbatim. This file owns
@@ -14,9 +14,8 @@
 //! Scope discipline: only **qualified** namespaces are rewritten. A bare
 //! `@name` (kernel [`Form::Bare`]) is deliberately left untouched — without a
 //! registry lookup it is indistinguishable from a username or an email
-//! fragment, and rewriting it would corrupt ordinary prose (ADR-0288 rejected
+//! fragment, and rewriting it would corrupt ordinary prose (rejected
 //! alternatives).
-
 use nuo_wire::mention::{Form, Namespace, scan_references};
 
 /// Whether a message's content is a place where `@`-references are written by
@@ -175,7 +174,7 @@ mod tests {
         );
     }
 
-    /// ADR-0288 `[INV-REF-03]` — the bug this guards: canonicalization must run
+    /// `[INV-REF-03]` — the bug this guards: canonicalization must run
     /// only on genuine user input, never on harness-injected messages. A
     /// referenced file whose body legitimately contains `@files:` / `\@file:`
     /// (e.g. a doc about this feature) must reach the model verbatim; rewriting

@@ -1,11 +1,10 @@
 //! How a user-defined connection authenticates — the discriminating field that
 //! lets a connection declare it resolves its bearer from OAuth (ChatGPT, Copilot,
 //! Google Antigravity, xAI) rather than from an API key.
-
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
-/// How a user-defined connection authenticates (ADR-0267).
+/// How a user-defined connection authenticates.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ConnectionAuth {
     /// Bearer from `api_key_env` (env first) or inline `api_key`.

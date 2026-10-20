@@ -1,16 +1,15 @@
-//! ADR-0190 D4: durable task ledger and boot rehost.
+//! D4: durable task ledger and boot rehost.
 //!
 //! Every settled task writes one `task:<job_id>` row into the unified KV
-//! store (ADR-0168 typed JSON KV): spec, terminal state, summary, log path.
+//! store (typed JSON KV): spec, terminal state, summary, log path.
 //! The row is the fabric's durable record — restart-inspectable, and the
 //! input to the boot rehost: services whose spec carries a `restart` policy
-//! are re-spawned by the server at boot (the successor of ADR-0125's
+//! are re-spawned by the server at boot (the successor of
 //! bespoke armed-schedule rehost machinery), while one-shot tasks merely
 //! keep their last outcome inspectable.
 //!
-//! Every access goes through the single-writer actor (ADR-0231): the ledger
+//! Every access goes through the single-writer actor: the ledger
 //! never opens a connection of its own.
-
 use nuo_persistence::db::PersistenceHandle;
 use nuo_wire::{BackgroundJobInfo, BackgroundJobOutcome, JobSpec, JobState};
 

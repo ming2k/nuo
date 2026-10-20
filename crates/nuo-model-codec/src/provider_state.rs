@@ -3,7 +3,6 @@
 //! These values make remote response chains explicit session data. Provider
 //! instances remain stateless transports and can therefore be shared safely by
 //! forks, subagents, retries, and concurrently active sessions.
-
 use crate::message::{Message, Role};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -159,7 +158,7 @@ fn update_semantic_message(digest: &mut Sha256, message: &Message) {
     digest.update([0xff]);
 }
 
-/// Stable identity of the cacheable request prefix `S | H | I` (ADR-0217): the
+/// Stable identity of the cacheable request prefix `S | H | I`: the
 /// instruction slices, the deterministically ordered tool declarations, and the
 /// semantic conversation messages. Request-local temporary context (`E`) is
 /// deliberately absent because callers pass only `messages`, never

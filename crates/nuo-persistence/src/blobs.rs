@@ -4,8 +4,7 @@
 //! stored once under a SHA-256 hash and referenced by that hash. This reduces
 //! duplication across sessions/forks and gives future features (semantic
 //! search, sync) a stable content key. Liveness is decided by the durable
-//! `blob_refs` ledger in SQLite (ADR-0187), not by scanning this directory.
-
+//! `blob_refs` ledger in SQLite, not by scanning this directory.
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -104,7 +103,7 @@ impl BlobStore {
         let _ = fs::remove_file(self.path(hash));
     }
 
-    /// Delete every stored blob not in `live` (ADR-0187). The caller derives
+    /// Delete every stored blob not in `live`. The caller derives
     /// the live set from the durable `blob_refs` ledger — a blob absent from
     /// it cannot be reached by any load path. Returns
     /// `(reclaimed_count, reclaimed_bytes)`.

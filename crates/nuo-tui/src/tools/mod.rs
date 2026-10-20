@@ -16,7 +16,6 @@
 //!
 //! [`TOOL_COMPONENTS`] is also the single source of truth for the Settings →
 //! Components pane (ADR-0020).
-
 mod ask_user;
 pub(crate) mod diff;
 mod edit_text;
@@ -194,7 +193,7 @@ pub trait ToolPresenter: Sync {
     fn summary(&self, view: &ToolView) -> String;
 
     /// Structured, layout-aware semantic summary line evaluated at render time against
-    /// the physical terminal viewport width (ADR-0206).
+    /// the physical terminal viewport width.
     fn render_summary<'a>(&self, view: &'a ToolView) -> SemanticLine<'a> {
         SemanticLine::plain(self.summary(view))
     }
@@ -491,7 +490,7 @@ pub fn summary_for(name: &str, arguments: &str, profile: Option<&str>) -> String
     }
 }
 
-/// Build the structured semantic summary for a tool step from its raw JSON arguments (ADR-0206, ADR-0046).
+/// Build the structured semantic summary for a tool step from its raw JSON arguments (ADR-0046).
 pub fn semantic_summary_for(
     name: &str,
     arguments: &str,

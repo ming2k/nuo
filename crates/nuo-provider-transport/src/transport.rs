@@ -3,7 +3,6 @@
 //! credential masking in error messages. The pooled HTTP client itself lives
 //! in [`crate::client`]; endpoint configuration in [`crate::endpoint`]; SSE
 //! byte reassembly in [`crate::sse`].
-
 use nuo_model_codec::{ProviderError, ProviderErrorKind};
 use std::time::SystemTime;
 
@@ -195,7 +194,7 @@ pub async fn decode_response_json(
 
 fn body_preview(text: &str) -> String {
     // Diagnostic text inside a decode-error message: report the omitted tail
-    // in tokens (ADR-0120) — how much context the body would have cost.
+    // in tokens — how much context the body would have cost.
     let total_tokens = nuo_model_codec::tokenizer::count_tokens(text);
     let mut preview: String = text.chars().take(DECODE_ERROR_BODY_PREVIEW).collect();
     let truncated_tokens =
@@ -233,7 +232,7 @@ mod tests {
     fn body_preview_truncates_long_body_and_reports_remaining_tokens() {
         let long = "a".repeat(DECODE_ERROR_BODY_PREVIEW * 2 + 50);
         let preview = body_preview(&long);
-        // The omitted tail is reported in tokens (ADR-0120): the whole body
+        // The omitted tail is reported in tokens: the whole body
         // tokenizes to N, the kept preview to fewer, the difference is the
         // count in the suffix.
         let total = nuo_model_codec::tokenizer::count_tokens(&long);

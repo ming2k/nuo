@@ -1,10 +1,9 @@
 //! Shared helpers for built-in tools.
-
 use std::path::{Path, PathBuf};
 
 /// The directory workspace-relative tool operations resolve against.
 ///
-/// Tools are session-scoped under the unified server (ADR-0096): one process
+/// Tools are session-scoped under the unified server: one process
 /// hosts sessions for many projects, so the server's process cwd is whatever
 /// directory the first client spawned it from. The assembling bootstrap
 /// therefore registers the session's project root as a
@@ -207,7 +206,7 @@ pub(crate) const IGNORED_DIRS: &[&str] = &[
 ///
 /// Deterministic over the bytes actually read, so the same content always
 /// yields the same short digest, and a same-size replacement still changes it.
-/// This is provenance for the freshness contract (ADR-0214 §4, ADR-0237): the
+/// This is provenance for the freshness contract: the
 /// version a structural query reports is what a later mutation's
 /// `expected_version` is checked against.
 ///
@@ -230,7 +229,7 @@ pub(crate) fn content_version(bytes: &[u8]) -> String {
 
 /// Enforce a caller-supplied content-version precondition before a mutation.
 ///
-/// The optimistic-concurrency arm of the freshness contract (ADR-0237): a
+/// The optimistic-concurrency arm of the freshness contract: a
 /// caller that read a snapshot may hand its version back and refuse to write
 /// over drift it never saw. Fails **closed** in every direction:
 ///

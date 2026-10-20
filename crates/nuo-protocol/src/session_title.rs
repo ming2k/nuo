@@ -13,10 +13,9 @@
 //! Generation is *generate-once-then-stable*: the subagent fires automatically on
 //! the first turn (when the transcript holds exactly one real user message)
 //! and on demand via `/title`. Whether a stored title may be overwritten by AI
-//! generation is a persistence concern, not a domain one — since ADR-0186 a
+//! generation is a persistence concern, not a domain one — a
 //! non-`NULL` stored title is terminal (the manual-title flag was retired), so
 //! generation only fills `None`; the caller decides whether to keep it.
-
 /// Maximum character length of a generated title. Matches the constraint
 /// encoded in the `TITLE` profile's system prompt. Titles
 /// longer than this are hard-truncated with an ellipsis so the session picker

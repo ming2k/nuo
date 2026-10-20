@@ -43,7 +43,7 @@ Nuo supports both native direct providers (OpenAI, Anthropic, DeepSeek) and mult
 2. **Rule-Based Structural Normalization (`[INV-CATALOG-05]`)**: Replace brittle per-model dictionaries with structural tokenization and lexicon normalization. The normalization pipeline must deterministically lift raw IDs (`deepseek-v4.1-flash`) into polished names (`DeepSeek V4.1 Flash`) with zero per-model code additions.
 3. **Relay Noise Hygiene (`[INV-CATALOG-06]`)**: Ephemeral promotional models and contributor variants must be structurally filtered from primary selection surfaces by default, preserving a clean professional catalog.
 4. **Sovereign User Overrides Primacy**: The user's explicit configuration (`connection.models.overrides`, `connection.models.include`) must remain the supreme, uncompromised authority across all stages.
-5. **Clean Epistemic Lineage**: Purge legacy external ADR references (`ADR-0199`) from code comments and documentation.
+5. **Clean Epistemic Lineage**: Purge legacy external ADR references (``) from code comments and documentation.
 
 ---
 
@@ -118,4 +118,4 @@ model the day the relay ships one.
 ### Negative Knowledge & Prohibitions
 - **Prohibition on Speculative Capability Synthesis**: Request builders and normalizers MUST NOT guess execution parameters (such as `reasoning_effort` or vision support) based purely on model name substrings when unverified.
 - **Prohibition on Hardcoded Model Dictionaries**: New models MUST NOT be integrated by hardcoding ad-hoc display-name lookup tables.
-- **Legacy Comment Clean Break**: References to legacy `ADR-0199` are eradicated from the codebase.
+- **Legacy Comment Clean Break**: References to legacy `` are eradicated from the codebase.

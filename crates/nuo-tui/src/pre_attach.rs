@@ -1,4 +1,4 @@
-//! Pre-attach workspace trust interstitial surface. See ADR-0175.
+//! Pre-attach workspace trust interstitial surface..
 //!
 //! When the TUI attaches to a session whose project root carries
 //! never-trusted project-authored contributions (skills, MCP, hooks,
@@ -14,7 +14,7 @@
 //! trust decision. There is no parent surface to drop back to and no
 //! composer to fall through to: dismissing the surface quits the TUI,
 //! because an untrusted workspace has no useful work to do per
-//! ADR-0140 §3 (every model round and direct-shell command fails
+//! (every model round and direct-shell command fails
 //! preflight).
 //!
 //! The trust question wording, domain listing, and answer-to-command
@@ -23,7 +23,6 @@
 //! is reused as the navigation/selection state machine, exactly as
 //! the Question sheet does for AI-initiated `ask_user` — its MVU
 //! purity keeps the input path testable without a terminal.
-
 use nuo_wire::{WorkspaceSecuritySnapshot, WorkspaceTrustState};
 use nuotc::{Alignment, Block, Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 
@@ -41,7 +40,7 @@ const PANEL_MIN_WIDTH: u16 = 48;
 const PANEL_MAX_WIDTH: u16 = 96;
 
 /// Visual marker prefix on the highlighted option row. The user
-/// requested "background highlight" only (ADR-0175 §1), so the marker
+/// requested "background highlight" only, so the marker
 /// is intentionally absent — the inverted background alone carries
 /// the selection affordance.
 const INDENT: &str = "  ";
@@ -70,7 +69,7 @@ pub struct PreAttachState {
     /// trusted snapshot round-trips.
     submitting: bool,
     /// The server's attestation outcome for the last submitted decision
-    /// (ADR-0175): `Some(message)` when the grant could not be persisted
+    /// `Some(message)` when the grant could not be persisted
     /// (e.g. the durable trust store is unavailable). Rendered on the
     /// surface so a failed confirmation is an actionable message instead of
     /// a silent loop of the same dialog, and reset with `submitting` so the
@@ -105,7 +104,7 @@ pub enum PreAttachDecision {
     Trust { domains: Vec<nuo_wire::TrustDomain> },
     /// User chose to keep the workspace untrusted (`Keep quarantined`
     /// option or `Esc`). The TUI should quit — there is no chat
-    /// surface to fall through to under ADR-0175 §4.
+    /// surface to fall through to.
     Quit,
 }
 
@@ -172,14 +171,14 @@ impl PreAttachState {
     }
 
     /// The server's attestation outcome for the last submitted decision, if
-    /// it failed (ADR-0175). `Some` also implies `!submitting`: the
+    /// it failed. `Some` also implies `!submitting`: the
     /// round-trip resolved with a failure, so the surface is interactive
     /// again and renders the failure where the submitting spinner was.
     pub fn attestation_error(&self) -> Option<&str> {
         self.attestation_error.as_deref()
     }
 
-    /// Record a failed trust-grant round-trip (ADR-0175). Resets
+    /// Record a failed trust-grant round-trip. Resets
     /// `submitting` so the surface resumes the decision instead of spinning,
     /// and keeps the question mounted — the user retries or quits with full
     /// knowledge of why the last confirmation did not take effect.
@@ -242,7 +241,7 @@ impl PreAttachState {
 /// Render the PreAttach interstitial: full-screen black background
 /// with a centered trust prompt and option list. The highlighted
 /// option uses a background-highlight affordance only — no cursor
-/// marker — matching ADR-0175 §1.
+/// marker — matching.
 pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
     let area = f.area();
 
@@ -321,7 +320,7 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
         return;
     }
 
-    // Failed attestation of the last decision (ADR-0175): render the
+    // Failed attestation of the last decision: render the
     // server's outcome instead of looping the dialog silently.
     if let Some(error) = state.attestation_error() {
         push_wrapped_styled(
@@ -601,7 +600,7 @@ mod tests {
         assert_eq!(decision, Some(PreAttachDecision::Quit));
     }
 
-    /// A failed attestation round-trip (ADR-0175): the failure message is
+    /// A failed attestation round-trip: the failure message is
     /// carried on the surface, `submitting` clears so the decision resumes,
     /// and the next submit re-dispatches the complete selection.
     #[test]

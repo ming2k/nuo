@@ -4,7 +4,6 @@
 //! - Linux / BSD: XDG Base Directory Specification
 //! - macOS: Standard Apple user library directories
 //! - Windows: Known Folders (`%APPDATA%`, `%LOCALAPPDATA%`)
-
 use std::path::{Path, PathBuf};
 
 /// Base platform directory layout contract.
@@ -327,7 +326,7 @@ impl Dirs {
         // `%APPDATA%\nuo\nuo` on Windows and an equally duplicated
         // macOS bundle path. Linux ignores those fields, which hid the bug.
         let project = ProjectDirs::from("", "", "nuo");
-        // The instance root (ADR-0121): `NUO_HOME` is normalised to the `nuo`-suffixed
+        // The instance root: `NUO_HOME` is normalised to the `nuo`-suffixed
         // base once, so every category and the instance dir hang off one
         // location: `<home>/nuo/{config,data,state,cache,instance}`.
         // `app_dir_from_root` also tolerates a root that already ends in `nuo`.
@@ -408,28 +407,28 @@ impl Dirs {
         self.config_dir.join("roles.toml")
     }
 
-    /// Role-scoped config directory (`$XDG_CONFIG_HOME/nuo/roles/<name>/`, ADR-0253).
+    /// Role-scoped config directory (`$XDG_CONFIG_HOME/nuo/roles/<name>/`).
     pub fn role_config_dir(&self, role: &str) -> PathBuf {
         self.config_dir.join("roles").join(role)
     }
 
-    /// Role-scoped MCP file (`$XDG_CONFIG_HOME/nuo/roles/<name>/mcp.json`, ADR-0253).
+    /// Role-scoped MCP file (`$XDG_CONFIG_HOME/nuo/roles/<name>/mcp.json`).
     pub fn role_mcp_file(&self, role: &str) -> PathBuf {
         self.role_config_dir(role).join("mcp.json")
     }
 
-    /// Role-scoped data directory (`$XDG_DATA_HOME/nuo/roles/<name>/`, ADR-0253).
+    /// Role-scoped data directory (`$XDG_DATA_HOME/nuo/roles/<name>/`).
     pub fn role_data_dir(&self, role: &str) -> PathBuf {
         self.data_dir.join("roles").join(role)
     }
 
-    /// Role-scoped skills directory (`$XDG_DATA_HOME/nuo/roles/<name>/skills/`, ADR-0253).
+    /// Role-scoped skills directory (`$XDG_DATA_HOME/nuo/roles/<name>/skills/`).
     pub fn role_skills_dir(&self, role: &str) -> PathBuf {
         self.role_data_dir(role).join("skills")
     }
 
     /// User-declared model provider customizations
-    /// (`$XDG_CONFIG_HOME/nuo/model_providers.toml`, ADR-0199, ADR-0201).
+    /// (`$XDG_CONFIG_HOME/nuo/model_providers.toml`).
     pub fn model_providers_file(&self) -> PathBuf {
         self.config_dir.join("model_providers.toml")
     }
@@ -490,7 +489,7 @@ impl Dirs {
     /// Lives under state (not cache) because the contents — discovered model
     /// ids, ETag revalidation state, advertised capability metadata — are
     /// program-generated state the user expects to persist across sessions,
-    /// not regenerable-from-scratch cache data. See ADR-0123 §"Derived state".
+    /// not regenerable-from-scratch cache data..
     pub fn remote_catalog_cache_file(&self) -> PathBuf {
         self.state_dir.join("remote_catalog.json")
     }
@@ -500,7 +499,7 @@ impl Dirs {
     /// Read **only** as an input to the one-shot `route_settings` fold, which
     /// rescues user reasoning overrides (non-derivable user input) from a
     /// pre-rename file. The catalog payload in the same file is derivable and
-    /// is deliberately *not* migrated (ADR-0203 §29: no shims for regenerable
+    /// is deliberately *not* migrated (no shims for regenerable
     /// state). Nothing writes here.
     pub fn retired_remote_catalog_state_file(&self) -> PathBuf {
         self.state_dir.join("models_discovery.json")
@@ -511,13 +510,13 @@ impl Dirs {
     /// **user reasoning overrides** (non-derivable user data) from the pre-split
     /// file. The on-disk name `models_discovery.json` is a frozen historical
     /// fact, not vocabulary: renaming it would orphan the very data this read
-    /// exists to recover. Nothing writes here (ADR-0203 §29: no legacy writes,
+    /// exists to recover. Nothing writes here (no legacy writes,
     /// no vocabulary aliases).
     pub fn legacy_remote_catalog_cache_file(&self) -> PathBuf {
         self.cache_dir.join("models_discovery.json")
     }
 
-    /// Authoritative unified SQLite database file (ADR-0163 / ADR-0168).
+    /// Authoritative unified SQLite database file.
     pub fn db_file(&self) -> PathBuf {
         self.data_dir.join("nuo.db")
     }
@@ -577,7 +576,7 @@ impl Dirs {
 
     /// Directory bucket for a workspace-free (unbound) session set:
     /// `projects/<hash(key)>`. Unbound sessions have no workspace path, so
-    /// their stable bucket derives from a fixed key (ADR-0226).
+    /// their stable bucket derives from a fixed key.
     pub fn bucket_dir(&self, bucket_key: &str) -> PathBuf {
         self.projects_dir().join(bucket_name(bucket_key))
     }
@@ -639,7 +638,7 @@ impl Dirs {
     /// The **server instance directory**: the one directory holding the
     /// per-server runtime files — `server.json` (discovery), `server.sock`
     /// (control plane), `server.lock` (single-instance flock), `serve/`
-    /// (legacy records) — and nothing else (ADR-0121).
+    /// (legacy records) — and nothing else.
     ///
     /// It is exactly [`Self::runtime_dir`] when a runtime location resolves
     /// (`NUO_HOME` → `<home>/nuo/instance`, else
@@ -692,7 +691,7 @@ impl Dirs {
 }
 
 /// Global process-wide [`Dirs`] instance. `main` installs it once via
-/// [`set_default`] (the `NUO_HOME` override, ADR-0121); every other
+/// [`set_default`] (the `NUO_HOME` override); every other
 /// module reads via [`get`].
 ///
 /// Implementation: a `std::sync::OnceLock` holds the production value (set
@@ -734,7 +733,7 @@ pub(crate) static TEST_OVERRIDE_GUARD: std::sync::Mutex<()> = std::sync::Mutex::
 ///
 /// Precedence stays: explicit [`set_test_default`] first, then a
 /// production-installed [`set_default`], then an explicit `NUO_HOME` instance
-/// root (ADR-0121 — a spawned CLI or an end-to-end harness must keep observing
+/// root (a spawned CLI or an end-to-end harness must keep observing
 /// its sandbox), and only then this fallback. The fallback therefore only
 /// catches tests that configured *nothing*.
 #[cfg(any(test, feature = "test-path-override"))]
@@ -792,7 +791,7 @@ fn register_isolated_root_cleanup(_root: PathBuf) {}
 /// already set (the new value is NOT stored in that case).
 ///
 /// `nuo`'s `main` calls this once at startup to install the
-/// `NUO_HOME` override (ADR-0121) before any path is resolved; library
+/// `NUO_HOME` override before any path is resolved; library
 /// code that runs outside `main` (tests, examples) falls back to
 /// [`Dirs::system`] via [`get`].
 pub fn set_default(dirs: Dirs) -> Result<Option<Dirs>, Dirs> {
@@ -858,7 +857,7 @@ impl Drop for TestDirsGuard {
 /// Resolution order:
 /// 1. an explicit test override ([`set_test_default`]), then
 /// 2. the production install ([`set_default`]), then
-/// 3. an explicit instance root: with `NUO_HOME` set (ADR-0121) the platform
+/// 3. an explicit instance root: with `NUO_HOME` set the platform
 ///    resolution is honoured, because that root *is* a deliberate sandbox — a
 ///    spawned CLI or an end-to-end harness must keep observing it, then
 /// 4. in test builds, an isolated per-process temp root (see
@@ -925,7 +924,7 @@ impl Kind {
         }
     }
 
-    /// The subdirectory under an instance root (ADR-0121). Plain names,
+    /// The subdirectory under an instance root. Plain names,
     /// not XDG segments: the instance root is not an XDG hierarchy and
     /// `app_dir_from_root` appends the `nuo` segment once.
     fn home_segment(self) -> &'static str {
@@ -966,7 +965,7 @@ impl Kind {
     }
 }
 
-/// The `NUO_HOME` env layer of the instance-root selector (ADR-0121).
+/// The `NUO_HOME` env layer of the instance-root selector.
 /// Returns the raw value; the caller normalises it to the `nuo`-suffixed
 /// base exactly once. The value must be absolute and non-empty; a relative
 /// value is ignored (with a warning) because an instance root only isolates
@@ -987,7 +986,7 @@ fn nuo_home() -> Option<PathBuf> {
     Some(path)
 }
 
-/// Resolve the server's runtime location (ADR-0121): the instance root's
+/// Resolve the server's runtime location: the instance root's
 /// `instance/` subdirectory when one is active, else `$XDG_RUNTIME_DIR/
 /// nuo` (pre-0121 behaviour, unchanged). A relative or empty env value
 /// is ignored with a warning: an instance root only isolates when both
@@ -1023,7 +1022,7 @@ fn resolve_kind(
     if let Some(p) = std::env::var_os(kind.app_env_var()).filter(|v| !v.is_empty()) {
         return app_dir_from_root(PathBuf::from(p));
     }
-    // 3. Instance root (ADR-0121): `NUO_HOME` env.
+    // 3. Instance root: `NUO_HOME` env.
     //    `home` is already the `nuo`-suffixed base, so only the category
     //    segment appends.
     if let Some(base) = home {
@@ -1335,7 +1334,7 @@ mod dir_tests {
         });
     }
 
-    // NUO_HOME instance root (ADR-0121)
+    // NUO_HOME instance root
 
     #[test]
     fn nuo_home_redirects_every_category_and_the_instance_dir() {

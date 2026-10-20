@@ -1,4 +1,4 @@
-//! Server-observability wire contracts (ADR-0093): the [`MonitorAction`]
+//! Server-observability wire contracts: the [`MonitorAction`]
 //! handshake selector and the [`MonitorEvent`] stream a server
 //! publishes about every session it hosts.
 //!
@@ -12,13 +12,12 @@
 //! The types are pure contracts (ADR-0057): no I/O, no derivations. The
 //! session status machine that produces [`SessionStatus`] values from the
 //! `AgentResponse` stream lives in `nuo_runtime::monitor`.
-
 use serde::{Deserialize, Serialize};
 
 use crate::events::SessionForkKind;
 
 /// Handshake action selecting a server-observability stream instead of a
-/// session attach (ADR-0093 §2). Sent as the first frame:
+/// session attach. Sent as the first frame:
 /// `{"type":"Select","action":{"monitor":{"watch":…,"include_idle":…}}}`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorAction {
@@ -35,7 +34,7 @@ pub struct MonitorAction {
 }
 
 /// How the session behind a [`MonitoredSession`] row is hosted. Under
-/// ADR-0096's unified ownership every session is server-held, so this is
+/// Unified ownership every session is server-held, so this is
 /// always [`Hosted`](Self::Hosted); the field is kept on the wire (with its
 /// serde default) so rows produced before the distinction was removed still
 /// deserialize.
@@ -80,7 +79,7 @@ pub enum MonitorEvent {
     /// lifetime — but the variant is part of the contract so panels written
     /// against it handle teardown when it lands.)
     SessionRemoved { session_id: String },
-    /// The server as a whole began its graceful shutdown (ADR-0101): no new
+    /// The server as a whole began its graceful shutdown: no new
     /// attaches will be served, live connections are being closed with a
     /// WebSocket `GoingAway`, and every hosted session's teardown (including
     /// `SessionEnd` hooks) is in flight. Watch clients should treat the
@@ -89,20 +88,20 @@ pub enum MonitorEvent {
     /// reconnects against it. Emitted exactly once, before the individual
     /// `SessionRemoved` diffs of the same shutdown.
     ServerDraining,
-    /// A server-level task (ADR-0190) changed in place — spawned, progressed
+    /// A server-level task changed in place — spawned, progressed
     /// to `Ready`, or settled. Carries the complete row; consumers upsert
     /// by id. Session-scoped tasks do not stream here.
     TaskUpdated(MonitoredTask),
     /// A server-level task left the snapshot entirely (pruned / aborted).
     TaskRemoved { task_id: String },
-    /// The server's durable-storage writer changed state (ADR-0196): healthy
+    /// The server's durable-storage writer changed state: healthy
     /// again after a degradation, degraded further, or recovering. A
     /// `Healthy` transition clears any retained degradation banner.
     PersistenceHealth(PersistenceHealth),
 }
 
 /// User-visible durability health of the server's single-writer persistence
-/// actor (ADR-0196 D4). While not `Healthy`, durability is degraded: every
+/// actor (D4). While not `Healthy`, durability is degraded: every
 /// frontend should retain a visible banner until the next `Healthy` event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -151,21 +150,21 @@ pub struct MonitorSnapshot {
     /// in-TUI `/serve` prehost).
     pub server_started_at: u64,
     pub sessions: Vec<MonitoredSession>,
-    /// Server-level task fabric rows (ADR-0190): rehosted services and any
+    /// Server-level task fabric rows: rehosted services and any
     /// other task with no owning session. Session-scoped tasks stay in
     /// their session's own fabric; this is the human-side view of what the
     /// server itself is running on the operator's behalf. Empty for
     /// producers that predate the field.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tasks: Vec<MonitoredTask>,
-    /// Latest durability-health state (ADR-0196 D4), folded from the
+    /// Latest durability-health state (D4), folded from the
     /// supervisor's transitions. `None` for producers that predate the
     /// field or when the writer has never degraded (healthy by omission).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persistence_health: Option<PersistenceHealth>,
 }
 
-/// One row of the server-level task tree (ADR-0190 D6): identity, spec
+/// One row of the server-level task tree (D6): identity, spec
 /// label, lifecycle state, and ownership. Content-free — the transcript
 /// stays in the session, the full log stays on disk (path included).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -207,10 +206,10 @@ pub struct MonitoredSession {
     pub updated_at: u64,
     pub message_count: usize,
     /// Who owns the session's driver. Defaults to `Hosted` — the only value
-    /// since ADR-0096 — so producers written against ADR-0093 stay valid.
+    /// so producers written against stay valid.
     #[serde(default)]
     pub hosting: SessionHosting,
-    /// Derived lifecycle status (ADR-0093 §3): the panel's primary sort key.
+    /// Derived lifecycle status: the panel's primary sort key.
     pub status: SessionStatus,
     /// 1-based index of the current (or most recently completed) user round.
     pub round: u64,
@@ -230,14 +229,14 @@ pub struct MonitoredSession {
     pub context_tokens: Option<usize>,
     /// One-line error/notice text for `Failed` / `NeedsApproval` / `NeedsInput`.
     pub note: Option<String>,
-    /// Absolute project workspace path this session belongs to (ADR-0096's
+    /// Absolute project workspace path this session belongs to (
     /// two-level indexing projected down to the row). Empty for producers
     /// that predate the field (e.g. `/serve` prehosts) — display code must
     /// tolerate it. Content-free in the monitor sense: it is addressing
     /// metadata, not conversation.
     #[serde(default)]
     pub project_root: String,
-    /// Lineage (ADR-0103 fork surfacing): the parent session this one was
+    /// Lineage (fork surfacing): the parent session this one was
     /// forked from, when it is a branch. `None` on a trunk. The dashboard
     /// groups by trunk: one main card per conversation, its branches
     /// badged beneath — the main line is always exactly one.

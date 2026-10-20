@@ -1,7 +1,6 @@
 //! Usage projection batching, request projection archiving, and command ledger auditing.
 //!
 //! Handles token usage materialization into `usage_contributions` and `request_projections` retention.
-
 use rusqlite::{Connection, Result, TransactionBehavior, params};
 
 use super::{MAX_RETAINED_REQUEST_PROJECTIONS, decode_json};
@@ -91,7 +90,7 @@ pub(crate) fn record_command(conn: &Connection, cmd: &nuo_wire::CommandRecord) -
     Ok(())
 }
 
-/// Insert or replace one request-projection record (ADR-0218). Keyed by
+/// Insert or replace one request-projection record. Keyed by
 /// `(session, round, turn)`, so a re-recorded logical invocation replaces
 /// its row. After the insert, the per-session archive is trimmed to the
 /// newest [`MAX_RETAINED_REQUEST_PROJECTIONS`] rows.

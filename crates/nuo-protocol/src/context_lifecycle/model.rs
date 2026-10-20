@@ -1,11 +1,10 @@
-//! Canonical domain shapes for the context lifecycle (ADR-0275 §1–§2).
+//! Canonical domain shapes for the context lifecycle.
 //!
 //! These are the *target* shapes, introduced in Phase A. They are pure values
 //! (no I/O); the persistence schema, the planner, and the compiler that consume
-//! them arrive in later phases (ADR-0280 §6). `SessionIR` remains the aggregate
+//! them arrive in later phases. `SessionIR` remains the aggregate
 //! view over these objects; the fact, task, and artifact records are not
 //! competing sources of truth.
-
 use crate::context_lifecycle::axes::{
     Capture, Deletion, Representation, Retention, Sensitivity, SourceAuthority, Validity,
 };
@@ -14,7 +13,7 @@ use crate::context_lifecycle::ids::{
     ViewId,
 };
 
-/// An immutable execution fact (ADR-0275 §2).
+/// An immutable execution fact.
 ///
 /// Facts never change after commit; projection and compaction never modify a
 /// payload or an edge (`INV-FACT-02`). `parent_ids` records the immutable
@@ -68,7 +67,7 @@ pub enum FactPayload {
     },
 }
 
-/// The mutable, revisioned cursor and view pointer of a branch (ADR-0275 §2).
+/// The mutable, revisioned cursor and view pointer of a branch.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BranchState {
     /// Branch identity.
@@ -85,7 +84,7 @@ pub struct BranchState {
     pub execution_cursor: Option<ExecutionId>,
 }
 
-/// A user requirement revision (ADR-0275 §1).
+/// A user requirement revision.
 ///
 /// A correction appends a revision; the original is never overwritten, and an
 /// inferred "intent" is never promoted to authority automatically.
@@ -99,7 +98,7 @@ pub struct RequirementRevision {
     pub text: String,
 }
 
-/// A cross-round objective with its unresolved work (ADR-0275 §1–§2).
+/// A cross-round objective with its unresolved work.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TaskState {
     /// Task identity.
@@ -114,7 +113,7 @@ pub struct TaskState {
     pub open: bool,
 }
 
-/// A tool observation (ADR-0275 §2, ADR-0276).
+/// A tool observation.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Observation {
     /// The execution that produced it.
@@ -133,7 +132,7 @@ pub struct Observation {
     pub preview: String,
 }
 
-/// The execution state of a tool call (ADR-0275 §7).
+/// The execution state of a tool call.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionOutcome {
@@ -180,7 +179,7 @@ pub struct RepresentationEntry {
     pub validity: Validity,
 }
 
-/// A committed branch-local context view (ADR-0275 §2, ADR-0278 §1).
+/// A committed branch-local context view.
 ///
 /// A view is derived; committing one never writes facts. `tail_after_fact_id`
 /// points at a real ancestry boundary, so reading the tail needs no scan.
@@ -202,7 +201,7 @@ pub struct ContextView {
     pub policy_revision: u32,
 }
 
-/// One hash-verified source interval of a checkpoint (ADR-0278 §1).
+/// One hash-verified source interval of a checkpoint.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SourceInterval {
     /// Inclusive start sequence.
@@ -220,7 +219,7 @@ pub struct SourceManifest {
     pub intervals: Vec<SourceInterval>,
 }
 
-/// A derived checkpoint (ADR-0275 §2, ADR-0278).
+/// A derived checkpoint.
 ///
 /// A checkpoint *references* a fact interval and the prior checkpoint; it is
 /// never inserted as a new execution parent and no edge is reparented.
@@ -240,7 +239,7 @@ pub struct Checkpoint {
     pub source_authority: SourceAuthority,
 }
 
-/// The durable manifest of a published raw artifact (ADR-0276).
+/// The durable manifest of a published raw artifact.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ArtifactManifest {
     /// Scoped artifact identity.
@@ -263,7 +262,7 @@ pub struct ArtifactManifest {
     pub deletion: Deletion,
 }
 
-/// One ordered block of a compiled request (ADR-0277).
+/// One ordered block of a compiled request.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RequestBlock {
     /// Stable block role (for deterministic ordering and cache fingerprinting).
@@ -274,7 +273,7 @@ pub struct RequestBlock {
     pub tokens: u64,
 }
 
-/// The immutable manifest of a compiled request (ADR-0275 §7, ADR-0277).
+/// The immutable manifest of a compiled request.
 ///
 /// The manifest contains no authentication headers; once a raw artifact is
 /// purged it supports structural audit only, never a full replay claim.
@@ -294,7 +293,7 @@ pub struct RequestManifest {
     pub input_ceiling: u64,
 }
 
-/// A minimal deletion tombstone (ADR-0279 §6).
+/// A minimal deletion tombstone.
 ///
 /// Retains structure without the original content; the payload and every
 /// derived copy are reclaimed.

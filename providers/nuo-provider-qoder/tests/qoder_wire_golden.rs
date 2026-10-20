@@ -1,5 +1,4 @@
 //! Golden-wire integration tests for Qoder's shaped pipeline ([INV-WIRE-01],
-//! ADR-0271).
 //!
 //! These observe the *planned* outbound request exactly as the executor would
 //! send it — URL, header set, and body bytes. They exist because the

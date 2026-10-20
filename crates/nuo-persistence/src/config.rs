@@ -5,7 +5,6 @@
 //! atomic-write helpers, and loads/saves the input history. Config is state
 //! (recency-merged under a companion file lock, ADR-0018); the live
 //! provider/model selection telemetry lives in [`crate::provider_usage`].
-
 use crate::fsutil;
 use crate::paths;
 use nuo_wire::{
@@ -42,7 +41,7 @@ pub const THINKING_KEY: &str = "thinking";
 /// # skip_interactive_input = false
 ///
 /// # Doom-loop guard (variant-loop defense). On by default; one
-/// same-signature re-run is tolerated before a block (ADR-0148). Opt out
+/// same-signature re-run is tolerated before a block. Opt out
 /// here, or restore the strict first-repeat block with `threshold = 2`.
 /// See [`DoomGuardConfig`]. The historical `nudge` key spelling still
 /// # [agent.trajectory_guard]
@@ -84,7 +83,7 @@ pub struct AgentConfig {
     /// Note: this only governs the *input-supervision* path; it does not turn
     /// the agent unattended, so ordinary tool confirmations still apply.
     pub skip_interactive_input: bool,
-    /// ADR-0141: how an autonomous session (no human channel attached —
+    /// How an autonomous session (no human channel attached —
     /// piped headless, CI, cron) settles an `ask_user` question. Wire
     /// format: `"fail_closed"` (default) or `"recommended_labeled"`.
     /// Fail-closed refuses the question and tells the model to resolve the
@@ -94,7 +93,7 @@ pub struct AgentConfig {
     /// mistake the recommendation for a human decision.
     #[serde(default)]
     pub ask_user_fallback: nuo_wire::human_request::AutonomousFallbackPolicy,
-    /// Trajectory-guard configuration (`nuo_harness::trajectory_guard`, ADR-0247).
+    /// Trajectory-guard configuration (`nuo_harness::trajectory_guard`).
     /// Default **enabled** (`window: 16`, `threshold: 4`, `cognitive_review: true`).
     #[serde(default)]
     pub trajectory_guard: TrajectoryGuardConfig,
@@ -270,7 +269,7 @@ pub struct FittedModelInfo {
     /// The endpoint advertises image inputs. `None` (also what an older cache
     /// entry without the field deserializes to) means *undeclared*: the
     /// endpoint said nothing, and the route must not be treated as
-    /// text-only (ADR-0230).
+    /// text-only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vision: Option<bool>,
     /// Advertised reasoning-effort tiers, as named by the provider.
@@ -298,7 +297,7 @@ pub struct RouteSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking: Option<bool>,
     /// Explicit capability overrides -- the **top layer** of the capability
-    /// resolution order (ADR-0149). `None`/empty means "no opinion": the
+    /// resolution order. `None`/empty means "no opinion": the
     /// effective capabilities fall through to remote metadata, then the
     /// static baseline. Unlike the derived `FittedModelInfo`, these are the
     /// user's own per-route choices and are never rebuilt from an endpoint.
@@ -313,7 +312,7 @@ pub struct RouteSettings {
 impl RouteSettings {
     /// Whether the entry carries any explicit knob. An entry with neither
     /// field set still opts the model in to thinking on Anthropic routes.
-    /// Capability overrides (ADR-0149 layer 1) count as a knob: a record that
+    /// Capability overrides (layer 1) count as a knob: a record that
     /// only carries them must not be pruned as empty.
     pub fn is_empty(&self) -> bool {
         self.effort.is_none()
@@ -677,7 +676,7 @@ pub struct ModelListCacheState {
     /// A failed refresh deliberately keeps the previous payload
     /// (`[INV-CATALOG-03]`), so this is the only record that the retained
     /// availability verdicts were observed before a failure and may already be
-    /// out of date (ADR-0273). Cleared by any successful refresh.
+    /// out of date. Cleared by any successful refresh.
     #[serde(default)]
     pub refresh_failed: bool,
 }
@@ -689,7 +688,7 @@ impl RemoteCatalogCache {
 
     /// Read `remote_catalog.json`, returning an empty value if missing or unparseable.
     ///
-    /// Clean break (ADR-0203 §29): no cache-dir migration shim. A file left at
+    /// Clean break: no cache-dir migration shim. A file left at
     /// the retired `$XDG_CACHE_HOME/nuo/remote_catalog.json` location is
     /// ignored and re-derived — the catalog is program-generated state, so a
     /// missing read costs one refresh, not correctness.
@@ -815,7 +814,7 @@ impl LockedRemoteCatalogCache {
 pub struct Config {
     pub default_connection: String,
     pub mcp: HashMap<String, McpServerConfig>,
-    /// Versioned context lifecycle and admission policy (ADR-0280).
+    /// Versioned context lifecycle and admission policy.
     pub context: nuo_wire::context_lifecycle::ContextPolicy,
     /// Maximum number of attempts for a single model request when the connection returns a
     /// transient error (HTTP 408/429/5xx, connection, timeout). The initial try
@@ -898,7 +897,7 @@ pub struct Config {
 /// idle_exit_minutes = 5         # auto-exit after N minutes of zero sessions
 ///                                # and zero attached clients; 0 = never
 /// local_auth = true             # bearer-token the loopback listener too
-///                                # (ADR-0105); false = trust local processes
+///                                #; false = trust local processes
 /// ```
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 #[serde(default)]
@@ -911,11 +910,11 @@ pub struct ServerConfig {
     /// above the supervisor's stop timeout (e.g. systemd's `TimeoutStopSec`).
     pub shutdown_grace_secs: u64,
     /// Auto-exit after this many continuous minutes hosting **zero sessions
-    /// with zero attached clients** (ADR-0100 rule 3): the server becomes
+    /// with zero attached clients** (rule 3): the server becomes
     /// born-on-demand, gone-when-useless. `0` disables idle exit for
     /// always-on deployments.
     pub idle_exit_minutes: u64,
-    /// Require a bearer token even on the loopback TCP listener (ADR-0105).
+    /// Require a bearer token even on the loopback TCP listener.
     /// The token is generated per server start and published in the
     /// owner-only (0600) discovery record, so co-located CLI/TUI clients
     /// authenticate transparently while other local processes, other users
@@ -1073,7 +1072,7 @@ impl<'de> Deserialize<'de> for Config {
             || raw.compaction_prune_protect_tokens.is_some()
         {
             return Err(serde::de::Error::custom(
-                "legacy 'compaction.*' configuration is retired under ADR-0280 [INV-POLICY-01]; run `nuo context migrate` to convert to versioned `context.*` policy",
+                "legacy 'compaction.*' configuration is retired [INV-POLICY-01]; run `nuo context migrate` to convert to versioned `context.*` policy",
             ));
         }
         if let Some(ctx) = raw.context {
@@ -1495,7 +1494,7 @@ impl Config {
     }
 
     /// Load only the `[mcp.*]` table from a project-local `.nuo/config.toml`
-    /// (ADR-0085 §2/§3). Returns an empty map when the file or table is absent.
+    /// Returns an empty map when the file or table is absent.
     ///
     /// This reads a *narrow* projection — just the mcp table — so unrelated
     /// well-formed keys do not affect the result. Project-scope MCP stays
@@ -1545,7 +1544,7 @@ impl Config {
             enabled: bool,
             #[serde(default)]
             read_only: bool,
-            /// Config-time tool scoping (ADR-0085 follow-up): original-name
+            /// Config-time tool scoping (follow-up): original-name
             /// allow/deny lists, same semantics as `[mcp.<name>]` TOML.
             #[serde(default)]
             allow_tools: Vec<String>,
@@ -1597,7 +1596,7 @@ impl Config {
         servers
     }
 
-    /// Load role-scoped MCP servers from `$XDG_CONFIG_HOME/nuo/roles/<role>/mcp.json` (ADR-0253).
+    /// Load role-scoped MCP servers from `$XDG_CONFIG_HOME/nuo/roles/<role>/mcp.json`.
     pub fn load_role_mcp(role: &str) -> HashMap<String, McpServerConfig> {
         let json_path = paths::get().role_mcp_file(role);
         let mut servers = HashMap::new();
@@ -1650,7 +1649,7 @@ impl Config {
         servers
     }
 
-    /// Merge a role-scoped MCP server set into this config (ADR-0253).
+    /// Merge a role-scoped MCP server set into this config.
     pub fn merge_role_mcp(&mut self, role_mcp: HashMap<String, McpServerConfig>) {
         for (name, server) in role_mcp {
             self.mcp.insert(name, server);
@@ -1659,7 +1658,7 @@ impl Config {
 
     /// Merge a project-local MCP server set into this (global-origin) config.
     /// A project entry with the same name as a global entry **replaces** it
-    /// wholesale (ADR-0085 §4); project entries with new names are added. The
+    /// wholesale; project entries with new names are added. The
     /// result is the effective `[mcp.*]` set the runtime connects to.
     pub fn merge_project_mcp(&mut self, project_mcp: HashMap<String, McpServerConfig>) {
         for (name, cfg) in project_mcp {
@@ -1870,7 +1869,7 @@ impl Config {
     /// Merge-save: flush this snapshot to `config.toml` without clobbering a
     /// concurrent user hand-edit.
     ///
-    /// The in-memory `Config` is loaded once at process start (ADR-0209) and
+    /// The in-memory `Config` is loaded once at process start and
     /// lives on for the server's whole lifetime, while the file can change
     /// under it at any moment. A naive whole-file rewrite therefore resurrects
     /// anything the user deleted — the reported bug: removing
@@ -1993,7 +1992,7 @@ pub(crate) mod tests {
 
     #[test]
     fn compaction_round_count_writes_canonical_key_and_drops_legacy_key() {
-        // ADR-0120 / ADR-0280: the pre-ADR-0047 key is not aliased. It parses as
+        // The pre-ADR-0047 key is not aliased. It parses as
         // an unknown key (warned and ignored) and the field stays at its
         // default — the stale value must not carry through.
         let legacy: Config = toml::from_str("compaction_preserve_turns = 9").unwrap();
@@ -2011,16 +2010,10 @@ pub(crate) mod tests {
     #[test]
     fn legacy_compaction_keys_are_refused_under_inv_policy_01() {
         let err = toml::from_str::<Config>("[compaction]\nutilization = 0.85\n").unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("retired under ADR-0280 [INV-POLICY-01]")
-        );
+        assert!(err.to_string().contains("retired [INV-POLICY-01]"));
 
         let err2 = toml::from_str::<Config>("compaction_preserve_rounds = 6\n").unwrap_err();
-        assert!(
-            err2.to_string()
-                .contains("retired under ADR-0280 [INV-POLICY-01]")
-        );
+        assert!(err2.to_string().contains("retired [INV-POLICY-01]"));
     }
 
     #[test]
@@ -2395,7 +2388,7 @@ deepseek = "new-key"
         assert!(!with_thinking.is_empty());
     }
 
-    // project-scope MCP merge (ADR-0085 §2/§3)
+    // project-scope MCP merge
 
     struct ScratchProject(tempfile::TempDir);
 
@@ -2818,7 +2811,7 @@ deepseek = "new-key"
     }
 
     /// A case-only rename is the same connection and must not move anything:
-    /// the key is case-insensitive for identity (ADR-0201) but the stored key
+    /// the key is case-insensitive for identity but the stored key
     /// is exact, so a case flip that re-keyed would drop the entry.
     #[test]
     fn case_only_rename_leaves_the_entry_in_place() {

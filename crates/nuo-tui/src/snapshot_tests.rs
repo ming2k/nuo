@@ -10,7 +10,6 @@
 //! ```sh
 //! INSTA_UPDATE=always cargo test -p nuo-tui snapshot_tests
 //! ```
-
 #![cfg(test)]
 
 use nuotc::Rect;
@@ -1297,7 +1296,7 @@ fn sent_user_header_has_clean_metadata_separator() {
     );
 }
 
-/// ADR-0111: command entries render a generic header with a right-aligned time
+/// Command entries render a generic header with a right-aligned time
 /// followed directly by their invocation and unfolded result body.
 #[test]
 fn command_entries_render_header_and_direct_body_without_folding() {
@@ -1345,7 +1344,7 @@ fn command_entries_render_header_and_direct_body_without_folding() {
     assert!(
         !rows[permissions_idx].trim_start().starts_with('+')
             && !rows[permissions_idx].trim_start().starts_with('-'),
-        "command entries never show collapsible folding markers (ADR-0111):\n{grid}"
+        "command entries never show collapsible folding markers:\n{grid}"
     );
 
     // Verify 1-line gap between header and body
@@ -1421,7 +1420,7 @@ fn command_ack_height_is_viewport_independent_and_last_row_is_reachable() {
     );
 }
 
-/// ADR-0111 alignment: the invocation shares the body's leading indent, so a
+/// Alignment: the invocation shares the body's leading indent, so a
 /// completed entry reads as one aligned block — the invocation never hangs to
 /// the left of the result body it introduces.
 #[test]
@@ -1460,7 +1459,7 @@ fn command_entry_invocation_aligns_with_result_body() {
     );
 }
 
-/// ADR-0111: concurrent rendering across different entry types.
+/// Concurrent rendering across different entry types.
 /// An in-progress / streaming turn entry and a command entry render together.
 /// As the turn entry expands in vertical height (more streaming lines), the
 /// command entry below it naturally shifts down by the turn's actual height.
@@ -1508,7 +1507,7 @@ fn concurrent_turn_and_command_entries_render_and_expand_dynamically() {
     );
 }
 
-/// ADR-0108 / ADR-0111: the command component exists in two states. A pending entry shows
+/// The command component exists in two states. A pending entry shows
 /// the header and invocation with no reply; settling it in place with the typed result
 /// reveals the completed result body.
 #[test]
@@ -1530,7 +1529,7 @@ fn command_component_pending_then_completed() {
     );
 
     // The reply settles the same component in place. The ack carries the
-    // headline + dimmed detail split (ADR-0106 two-tone ack).
+    // headline + dimmed detail split (two-tone ack).
     assert!(
         message.settle_command_result(nuo_wire::CommandResult::Ack {
             title: "Delegated mode ON".to_string(),
@@ -1577,7 +1576,7 @@ fn command_component_pending_then_completed() {
     );
 }
 
-/// ADR-0108: two identical commands dispatched in quick succession settle
+/// Two identical commands dispatched in quick succession settle
 /// their own rows (the settle finder targets *pending* rows only, FIFO from
 /// the tail) — the second reply must not bounce off the first's completed
 /// row.
@@ -1613,7 +1612,7 @@ fn identical_commands_each_settle_their_own_row() {
     );
 }
 
-/// ADR-0108: a pending command that will never receive a reply is cancelled —
+/// A pending command that will never receive a reply is cancelled —
 /// the row stops promising an output but keeps the invocation readable, and
 /// the cancel transition is idempotent (a completed row is never cancelled).
 #[test]
@@ -1646,7 +1645,7 @@ fn command_component_cancel_marks_pending_row_settled() {
     );
 }
 
-/// ADR-0108: a pending row classifies `Plain` regardless of the reply it will
+/// A pending row classifies `Plain` regardless of the reply it will
 /// eventually hold — the phase owns presentation until the reply settles, so
 /// the layout never re-flows on settle without the reply being present.
 #[test]

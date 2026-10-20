@@ -14,7 +14,6 @@
 //! a deterministic, server-side result that re-sending the same call would
 //! reproduce identically — and for a *non-idempotent* MCP tool re-sending it
 //! would repeat a side effect.
-
 use async_trait::async_trait;
 use nuo_wire::Tool;
 use nuo_wire::mcp::{McpConnectionStatus, McpServerConfig};
@@ -41,14 +40,14 @@ pub fn is_sandbox_trusted(root: &Path) -> bool {
     TRUST_VERIFIER.get().map(|v| v(root)).unwrap_or(true)
 }
 
-/// Pluggable universal asset attestation verifier (ADR-0243, ADR-0252).
+/// Pluggable universal asset attestation verifier.
 pub type McpAttestationVerifier = Arc<
     dyn Fn(&nuo_wire::security::AssetLocator, &nuo_wire::security::AssetSpec) -> bool + Send + Sync,
 >;
 
 static ATTESTATION_VERIFIER: OnceLock<McpAttestationVerifier> = OnceLock::new();
 
-/// Configure the universal attestation verifier used across all MCP scopes (ADR-0243, ADR-0252).
+/// Configure the universal attestation verifier used across all MCP scopes.
 pub fn set_attestation_verifier(verifier: McpAttestationVerifier) {
     let _ = ATTESTATION_VERIFIER.set(verifier);
 }
@@ -162,7 +161,7 @@ enum McpConnection {
     Http {
         /// Absolute URL of the Streamable-HTTP endpoint.
         url: String,
-        /// The owned transport (ADR-0200).
+        /// The owned transport.
         client: netune::Client<netune::TlsConnector<netune::TcpConnector>>,
         /// Session id issued by the server (`Mcp-Session-Id` on initialize),
         /// echoed on every subsequent request. `None` until (and unless) the
@@ -910,7 +909,7 @@ async fn build_tools_from_server(server: &Arc<McpServer>) -> Result<Vec<Arc<dyn 
     let mut taken = HashSet::new();
     definitions
         .iter()
-        // Config-time scoping (ADR-0085 follow-up): `allow_tools`/`deny_tools`
+        // Config-time scoping (follow-up): `allow_tools`/`deny_tools`
         // filter on the *original* server-declared name, before sanitization
         // can collapse distinct names. Denied tools are never adapted, so the
         // model never sees them and cannot call them.
@@ -1058,7 +1057,7 @@ pub(crate) fn compact_mcp_output(raw: &str) -> String {
         .saturating_sub(MCP_PREVIEW_HEAD_LINES + MCP_PREVIEW_TAIL_LINES);
 
     format!(
-        "[MCP Output truncated: {line_count} lines, {} bytes. Exceeded 16KB/200-line safety boundary (ADR-0240 [INV-MCP-05])]\n\
+        "[MCP Output truncated: {line_count} lines, {} bytes. Exceeded 16KB/200-line safety boundary [INV-MCP-05]]\n\
          [Full output saved to: {}]\n\n\
          --- Output preview (head) ---\n\
          {head}\n\

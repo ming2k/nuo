@@ -1,5 +1,5 @@
 //! The kernel's execution record: the facts a round produces and the registers
-//! it works with (ADR-0304 §1).
+//! it works with.
 //!
 //! # Why this exists
 //!
@@ -7,7 +7,7 @@
 //! the round counter, the retry point, the task list, the disabled-tool mask,
 //! token accounting, the last projection. Until now all of those lived in the
 //! product's session store, which meant the kernel's own state machine was
-//! hosted by an application crate — the coupling ADR-0300 names and ADR-0304
+//! hosted by an application crate — the coupling names and
 //! removes.
 //!
 //! This type is the kernel's own answer. It holds:
@@ -21,7 +21,7 @@
 //!
 //! It is not a session. It has no lineage, no title, no digest, no partition, no
 //! workspace binding, and no product policy — those are the application plane's
-//! (ADR-0304 §2), and the ports of [`crate::host`] are how a host supplies the
+//! and the ports of [`crate::host`] are how a host supplies the
 //! two the round genuinely needs (a title sink and declared roles).
 //!
 //! # Durability
@@ -30,7 +30,6 @@
 //! advances the watermark when the sink *acknowledges* it. A sink failure leaves
 //! the watermark where it was, so the next commit re-sends — which is what makes
 //! a retry safe and a "durable" claim true.
-
 use std::sync::Arc;
 
 use nuo_wire::{
@@ -44,7 +43,7 @@ use crate::durability::{Ack, FactSink, SinkError, SinkHealth};
 ///
 /// Everything here is *execution* state: it changes how a request is compiled or
 /// what a guard does, and it has no meaning outside a running agent
-/// (ADR-0304 §1). Product state — what the session is called, who forked it, what
+/// Product state — what the session is called, who forked it, what
 /// workspace it belongs to — is deliberately absent.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GraphState {
@@ -54,7 +53,7 @@ pub struct GraphState {
     pub status: ExecutionStatus,
     /// Notices queued while the instance was suspended or parked.
     pub pending_notices: Vec<SystemNoticePayload>,
-    /// Executions completed. The one authoritative count (ADR-0304 §5): a
+    /// Executions completed. The one authoritative count: a
     /// product displays this value and keeps no counter of its own.
     pub steps: u64,
     /// The compaction horizon, when one exists.
@@ -292,7 +291,7 @@ impl ExecutionRecord {
                     Some(Message::new(nuo_wire::Role::System, summary.clone()))
                 }
                 // Observations and notices are not dialogue; a request that
-                // needs them reads them by claim-check (ADR-0282).
+                // needs them reads them by claim-check.
                 _ => None,
             })
             .collect()
@@ -347,12 +346,12 @@ impl ExecutionRecord {
     // The round path's register accessors.
     //
     // These are what `RoundContext` used to reach through `SessionStore` for.
-    // Each is the kernel's own state (ADR-0304 §1), which is why it lives here
+    // Each is the kernel's own state, which is why it lives here
     // rather than behind a host port: a round changes how it compiles a request,
     // not what the product calls the session.
     // ---------------------------------------------------------------------
 
-    /// The instance's step count. The one authoritative count (ADR-0304 §5).
+    /// The instance's step count. The one authoritative count.
     pub fn steps(&self) -> u64 {
         self.state.steps
     }
@@ -416,7 +415,7 @@ impl ExecutionRecord {
     ///
     /// The window is facts, so this appends: the replacement is recorded as a
     /// compaction-shaped fact rather than a rewrite of history, which is what
-    /// keeps the record append-only (ADR-0275 `[INV-STATE-03]`).
+    /// keeps the record append-only (`[INV-STATE-03]`).
     pub fn reseed_window(&mut self, messages: &[Message], timestamp_ms: u64) {
         if messages.is_empty() {
             return;
@@ -473,7 +472,7 @@ impl ExecutionRecord {
     /// The compaction added facts (the summary node, the new horizon) rather than
     /// rewriting any, so this is an append of what is new plus a register update —
     /// which is exactly what keeps the record's history immutable while its view
-    /// moves (ADR-0275).
+    /// moves.
     pub fn apply_compacted_ir(&mut self, ir: &nuo_wire::SessionIR) {
         for node in ir.history.nodes.values() {
             if self.history.get_node(&node.id).is_none() {

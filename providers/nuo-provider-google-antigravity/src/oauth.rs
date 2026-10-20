@@ -3,7 +3,6 @@
 //! Owns the Antigravity and Antigravity-CLI `OAuthConfig` presets and the
 //! Cloud-Code project/user enrichment; the generic engine in `nuo-oauth` never
 //! names Google.
-
 use std::borrow::Cow;
 use std::sync::Arc;
 
@@ -494,7 +493,7 @@ mod tests {
     use super::*;
 
     /// The bundled Antigravity presets must ship *matched* client-id/secret
-    /// pairs (verified live against `oauth2.googleapis.com/token`, ADR-0289).
+    /// pairs (verified live against `oauth2.googleapis.com/token`).
     #[test]
     fn antigravity_presets_ship_matched_credential_pairs() {
         let main = antigravity_preset();

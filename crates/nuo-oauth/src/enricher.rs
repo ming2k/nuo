@@ -1,9 +1,8 @@
-//! Post-login and post-refresh credential enrichment port (ADR-0267).
+//! Post-login and post-refresh credential enrichment port.
 //!
 //! The engine defines only the port and the RFC-standard no-op. Each vendor's
 //! enricher lives in its owning provider crate and is returned by
 //! [`crate::provider::OAuthProvider::enricher`].
-
 use crate::oauth::AuthError;
 use crate::oauth::token::{TokenResponse, access_token_expiry_ms};
 use async_trait::async_trait;

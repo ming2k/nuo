@@ -1,10 +1,9 @@
-//! Scene-resolved component input handlers (ADR-0197 M2).
+//! Scene-resolved component input handlers (M2).
 //!
 //! The event loop asks the committed scene for a keyboard path, then offers
 //! the event to the components on that path. These handlers contain the few
 //! component-local mutations that cannot be represented by the shared input
 //! action vocabulary.
-
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 
 use crate::components::dropdown::DropdownEventOutcome;

@@ -1,6 +1,6 @@
 //! The egress seam: one request, one transport, one trace.
 //!
-//! ADR-0200 replaces `reqwest` with an owned transport, and the switch must not
+//! Replaces `reqwest` with an owned transport, and the switch must not
 //! reach the protocol adapters. The seam is drawn at "given a fully formed
 //! request, give me a response": [`Egress`] is implemented by [`NuoNetEgress`]
 //! (production) and, behind the `reqwest-oracle` feature, by `ReqwestEgress`
@@ -13,7 +13,6 @@
 //! (retry classification, JSON diagnostics) is layered on top in
 //! [`crate::transport`], so every transport gets identical behaviour by
 //! construction rather than by duplicated effort.
-
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -35,7 +34,7 @@ pub struct RequestParts {
     /// Whole-request timeout, applied only to non-streaming requests by the
     /// caller (a streaming request must never carry one).
     pub timeout: Option<Duration>,
-    /// Where this attempt's transport telemetry goes (ADR-0232).
+    /// Where this attempt's transport telemetry goes.
     ///
     /// The handle belongs to the attempt that issued the request: the transport
     /// publishes into it and never needs to know which attempt it was serving.
@@ -158,7 +157,7 @@ mod owned {
         /// The handle belonging to the attempt this request represents. The
         /// writer never consults which attempt that was: it publishes into the
         /// handle it was handed, which is what keeps concurrent attempts on one
-        /// shared transport from aliasing (ADR-0232).
+        /// shared transport from aliasing.
         telemetry: nuo_model_codec::TransportTelemetry,
         recorder: Arc<Mutex<Recorder>>,
         dispatch_at: std::time::Instant,
@@ -260,7 +259,7 @@ mod owned {
     /// Called once per completed request with its trace.
     pub type TraceSink = Arc<dyn Fn(RequestTrace) + Send + Sync>;
 
-    /// The owned transport (ADR-0200).
+    /// The owned transport.
     ///
     /// Every request produces a [`RequestTrace`]; when a [`TraceSink`] is
     /// installed it receives it as soon as the body ends.

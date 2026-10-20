@@ -1,5 +1,4 @@
 //! Explicit native shell selection, quoting, and sentinel protocol shims.
-
 use tokio::process::Command;
 
 /// Dialects of shell execution supported across platforms.
@@ -151,7 +150,7 @@ impl ShellDialect {
 
 /// Configure standard hermetic headless environment invariants for non-interactive execution.
 ///
-/// Implements ADR-0286:
+/// Implements:
 /// - Rejects interactive editor prompts fail-fast (`EDITOR=false`, `VISUAL=false`).
 /// - Suppresses credential and pager blocking (`GIT_TERMINAL_PROMPT=0`, `PAGER=cat`).
 /// - Sets ecosystem non-interactive consensus (`CI=1`, `DEBIAN_FRONTEND=noninteractive`, `TERM=dumb`).

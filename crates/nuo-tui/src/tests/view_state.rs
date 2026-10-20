@@ -1,4 +1,4 @@
-//! ADR-0133 retained-view-state tests: browse views, surface router, per-view drafts, sub-layer pop, switcher filter.
+//! Retained-view-state tests: browse views, surface router, per-view drafts, sub-layer pop, switcher filter.
 
 // Integration test target: assertions fail by panicking, so the production
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
@@ -88,7 +88,7 @@ fn composer_image_paste_rejected_when_model_lacks_vision() {
     );
     assert!(
         app.copy_toast_message.contains("model editor"),
-        "the rejection must name the escape hatch (ADR-0149 layer-1 override), got: {}",
+        "the rejection must name the escape hatch (layer-1 override), got: {}",
         app.copy_toast_message,
     );
     assert!(app.copy_toast_until.is_some());
@@ -96,7 +96,7 @@ fn composer_image_paste_rejected_when_model_lacks_vision() {
 
 #[test]
 fn composer_image_paste_accepted_when_model_vision_is_undeclared() {
-    // ADR-0230: an id no layer knows (no baseline entry, no picker row) is
+    // An id no layer knows (no baseline entry, no picker row) is
     // *undeclared*, not text-only. The paste must go through — the client has
     // no grounds to refuse it, and the provider answers if it cannot take it.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
@@ -175,7 +175,7 @@ fn composer_image_paste_accepted_when_model_has_vision() {
 #[test]
 fn composer_image_paste_follows_picker_snapshot_vision() {
     // The snapshot's per-route `vision` flag is the authority: it is the
-    // server-side ADR-0149 resolution the TUI's own process cannot reproduce
+    // server-side resolution the TUI's own process cannot reproduce
     // (a fitted relay model like `omen-alpha` exists only in the server's
     // overlay — the client's static registry would say `vision: false` and
     // wrongly reject the paste).
@@ -238,7 +238,7 @@ fn composer_image_paste_follows_picker_snapshot_vision() {
 
 #[test]
 fn active_model_context_window_follows_picker_snapshot_for_relay_models() {
-    // ADR-0182: The snapshot's per-route `context_window` is the authority.
+    // The snapshot's per-route `context_window` is the authority.
     // A relay model like `glm-5.3` discovered on `opencode-go` has no static
     // baseline in the TUI client process. The client must not fall back to 0.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
@@ -436,7 +436,7 @@ fn view_reset_clears_pending_scroll_settle() {
     );
 }
 
-// ADR-0133: retained, buffer-like view state.
+// Retained, buffer-like view state.
 
 #[test]
 fn browse_view_reopen_restores_scroll_and_selection() {

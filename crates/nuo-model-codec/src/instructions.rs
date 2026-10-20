@@ -1,4 +1,4 @@
-//! Tiered instruction model for system-level agent directives (ADR-0160).
+//! Tiered instruction model for system-level agent directives.
 //!
 //! Replaces legacy flat system-prompt strings with a structured, cache-tiered
 //! instruction manifest. Slices are classified by lifetime volatility, enabling
@@ -6,7 +6,6 @@
 //! map static tiers to top-level `instructions` and dynamic tiers to developer
 //! items (OpenAI Responses), or format leading `Role::System` messages (Chat
 //! Completions).
-
 use serde::{Deserialize, Serialize};
 
 /// Cache tier and lifetime volatility of an instruction slice.

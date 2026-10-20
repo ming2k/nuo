@@ -364,7 +364,7 @@ fn websearch_reader_dropdown_builds_and_selects() {
     assert_eq!(empty_dropdown.items.len(), 1);
 }
 
-/// Sheet-mount focus consistency (ADR-0173 §3 × ADR-0174): an agent-driven
+/// Sheet-mount focus consistency (×): an agent-driven
 /// sheet is a context switch — the transcript-focus states (`focused_target`
 /// and `transcript_focused`) parked at every mount site must include browse
 /// focus, not just the step target. Without the browse-focus half, this
@@ -427,7 +427,7 @@ async fn sheet_mount_parks_browse_focus_not_just_step_target() {
     );
 }
 
-/// The permission sheet's pass-through (ADR-0173 §2) stays intact: browse
+/// The permission sheet's pass-through stays intact: browse
 /// focus legitimately re-armed *behind* the sheet while it is up (a click
 /// into the transcript during the decision) is not stolen back by the
 /// per-frame sync — the park happens at mount only.

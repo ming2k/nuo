@@ -1,4 +1,4 @@
-//! Spatiotemporal Aspect Engine implementation (ADR-0183).
+//! Spatiotemporal Aspect Engine implementation.
 //!
 //! Orchestrates the deterministic lifecycle phases of the Agent Harness:
 //! 1. `PreFlight`: Fast intent classification and execution tier selection.
@@ -7,10 +7,9 @@
 //! 4. `RoundEol`: Post-round convergence and title synthesis.
 //!
 //! The former `TurnIntake` phase (an automatic git/AST/compiler scan committed
-//! into history) is removed by ADR-0214: code structure and workspace change
+//! into history) is removed: code structure and workspace change
 //! information enter through scoped, on-demand tool retrieval, never as a
 //! silently-committed request-time scan.
-
 pub mod phase;
 pub use phase::{AspectHook, AspectPhase, AspectVerdict};
 
@@ -23,7 +22,7 @@ use nuo_wire::{
 
 use crate::cognitive::{CognitivePipeline, HarnessTaskPipeline};
 
-/// Runtime engine managing the five spatiotemporal aspect phases (ADR-0183 / ADR-0211).
+/// Runtime engine managing the five spatiotemporal aspect phases.
 #[derive(Clone)]
 pub struct AspectEngine {
     harness_tasks: HarnessTaskPipeline,
@@ -77,7 +76,7 @@ impl AspectEngine {
         self.harness_tasks.review_stream_loop(input).await
     }
 
-    /// Confirm or clear an L1 trajectory loop candidate (ADR-0247).
+    /// Confirm or clear an L1 trajectory loop candidate.
     pub async fn review_trajectory_loop(
         &self,
         input: TrajectoryLoopReviewInput,
@@ -119,7 +118,7 @@ impl AspectEngine {
 
     // Phase 5: Round EOL
 
-    /// Round-EOL hook (ADR-0183 phase 5): fires at round convergence.
+    /// Round-EOL hook (phase 5): fires at round convergence.
     pub fn fire_round_eol(
         &self,
         _agent: &Arc<crate::Agent>,

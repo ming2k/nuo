@@ -23,7 +23,6 @@
 //!       value: context7
 //!   ---
 //!   ```
-
 pub mod host;
 pub use host::{SkillHost, SkillRoots, SkillTrust};
 
@@ -172,7 +171,7 @@ impl SkillRegistry {
 
         Some(tokio::spawn(async move {
             let _watcher = watcher;
-            // Immediate initial discovery on startup: populates the empty registry (ADR-0165)
+            // Immediate initial discovery on startup: populates the empty registry
             registry.reload().await;
 
             while let Ok(event) = events_rx.recv().await {

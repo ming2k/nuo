@@ -14,9 +14,8 @@
 //! nuo adopts `inferNodes[0].url` — and only after it passes the strict
 //! allowlist below; a hostile or malformed region map must never redirect
 //! nuo's traffic. Anything that fails syncs degrades to the pinned
-//! `MODEL_PROVIDER_SPEC.root_url` (ADR-0227: failure never diminishes a
+//! `MODEL_PROVIDER_SPEC.root_url` (failure never diminishes a
 //! connection).
-
 use nuo_provider_transport::http::{Http, Request};
 use serde::Deserialize;
 

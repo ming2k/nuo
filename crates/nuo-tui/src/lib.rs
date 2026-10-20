@@ -60,9 +60,9 @@ pub mod trust_gate;
 // Semantic data model.
 pub(crate) mod model;
 
-// The Conversation scene's self-owned keyboard scheme (ADR-0172/ADR-0205).
+// The Conversation scene's self-owned keyboard scheme.
 pub(crate) mod session;
-// Per-modal keybinding schemes (ADR-0172).
+// Per-modal keybinding schemes.
 pub(crate) mod modal_keys;
 pub(crate) mod sheet;
 
@@ -233,7 +233,6 @@ impl StartupOverlay {
 /// `pre_attach_signal` cell.
 ///
 /// Documented alongside the other `NUO_*` acceptance toggles per
-/// ADR-0175 §6.
 fn pre_attach_initial() -> Option<PreAttachState> {
     let raw = std::env::var("NUO_FORCE_PRE_ATTACH")
         .ok()
@@ -355,7 +354,7 @@ pub async fn run_tui_with_terminal(
         transcript_retry_resolutions_from_records(initial_retry_resolutions),
     );
     rebase_transcript_rounds(&mut restored, initial_round_count);
-    // ADR-0197 M1: the response translator and the monitor client own **no**
+    // M1: the response translator and the monitor client own **no**
     // application state. They consume wire frames and produce typed
     // `AppMutation`s onto a bounded channel; the event loop — the sole
     // `App` writer — drains and applies them each iteration (see
@@ -395,7 +394,7 @@ pub async fn run_tui_with_terminal(
     let initial_provider_for_translator = initial_provider.clone();
     let initial_model_for_translator = initial_model.clone();
 
-    // Spawn the server monitor client (ADR-0096): a *translator* over the
+    // Spawn the server monitor client: a *translator* over the
     // monitor stream. It owns the session-row snapshot (its own domain) and
     // publishes whole snapshots to `App` via mutations — no cells, no
     // rev counters.
@@ -434,11 +433,11 @@ pub async fn run_tui_with_terminal(
                     nuo_wire::MonitorEvent::SessionRemoved { session_id } => {
                         rows.retain(|r| r.id != session_id);
                     }
-                    // Server-level task diffs (ADR-0190): the dashboard's
+                    // Server-level task diffs: the dashboard's
                     // task section is folded in a later phase.
                     nuo_wire::MonitorEvent::TaskUpdated(_) => {}
                     nuo_wire::MonitorEvent::TaskRemoved { .. } => {}
-                    // Durability-health transitions (ADR-0196 D4): a degraded
+                    // Durability-health transitions (D4): a degraded
                     // state retains the visible banner; Healthy clears it.
                     nuo_wire::MonitorEvent::PersistenceHealth(health) => {
                         mutations
@@ -447,7 +446,7 @@ pub async fn run_tui_with_terminal(
                             ))
                             .await;
                     }
-                    // The server began its graceful shutdown (ADR-0101): the
+                    // The server began its graceful shutdown: the
                     // stream closes right after; the next server interaction
                     // re-discovers or re-spawns.
                     nuo_wire::MonitorEvent::ServerDraining => {}
@@ -461,7 +460,7 @@ pub async fn run_tui_with_terminal(
         });
     }
 
-    // Spawn the response listener: a **translator** (ADR-0197 M1). It owns
+    // Spawn the response listener: a **translator** (M1). It owns
     // only its own routing/bookkeeping locals and mirrors of the values it
     // itself receives; every application-state change is a mutation.
     {
@@ -505,7 +504,7 @@ pub async fn run_tui_with_terminal(
             // It is a **counter, not state**: it holds no setback, no timer and
             // no failure text, so it is not a second copy of the clause the
             // activity bar renders — that clause is owned by the session's
-            // phase and retired with it (ADR-0235), and nothing here sends a
+            // phase and retired with it, and nothing here sends a
             // clause write at all. The `retry_attempts = 0` writes below exist
             // only so a later error cannot be blamed for an earlier round's
             // attempts.
@@ -566,7 +565,7 @@ pub async fn run_tui_with_terminal(
                 use event_loop::mutations::AppMutation as M;
                 use event_loop::mutations::TranscriptEdit as E;
                 match resp {
-                    // ADR-0017 + ADR-0103: per-turn events arrive tagged with the
+                    // +: per-turn events arrive tagged with the
                     // session they belong to. The translator routes each event to
                     // the side buffer when its `session_id` belongs to a live
                     // aside — *whether or not that aside is the focused view* —
@@ -611,7 +610,7 @@ pub async fn run_tui_with_terminal(
                                 ));
                             }
                             RoundEvent::SteerUnavailable { input_id } => {
-                                // ADR-0212: Steer is ephemeral to the active round. It MUST NOT silently mutate
+                                // Steer is ephemeral to the active round. It MUST NOT silently mutate
                                 // into a next-round follow-up item. Remove the optimistic entry from transcript
                                 // and restore the text directly to the composer draft.
                                 mutations
@@ -658,7 +657,7 @@ pub async fn run_tui_with_terminal(
                                     .await;
                             }
                             RoundEvent::QueueUpdated { items, paused } => {
-                                // The authoritative queue snapshot (ADR-0197
+                                // The authoritative queue snapshot (
                                 // M4): full-replace projection.
                                 mutations
                                     .send(M::QueueSnapshot {
@@ -761,7 +760,7 @@ pub async fn run_tui_with_terminal(
                                 // keeps reading "waiting for model" after the
                                 // model has answered — and, since the setback
                                 // clause is retired when the phase leaves
-                                // `AwaitingModel` (ADR-0235), the countdown for
+                                // `AwaitingModel`, the countdown for
                                 // the attempt that just landed rides on.
                                 chrome!(event_loop::mutations::ChromeEdit::PhaseOnly(Some(
                                     Phase::Answering,
@@ -806,7 +805,7 @@ pub async fn run_tui_with_terminal(
                                 }
                             }
                             RoundEvent::RetryResolved(_resolution) => {
-                                // ADR-0194: the retry loop recovered; ephemeral
+                                // The retry loop recovered; ephemeral
                                 // state retires, no permanent notice row.
                                 transcript!(E::RetainNotRetry);
                             }
@@ -897,7 +896,7 @@ pub async fn run_tui_with_terminal(
                                 let position = positions_by_session.get(&session_id).copied();
                                 let round = position.map(|(round, _)| round);
                                 let turn = position.map(|(_, turn)| turn);
-                                // Identity-addressed (ADR-0114): the applier
+                                // Identity-addressed: the applier
                                 // resolves the streaming entry by position. The
                                 // fallback (providers that deliver only a final
                                 // payload) is built only for non-empty content.
@@ -1274,7 +1273,7 @@ pub async fn run_tui_with_terminal(
                                     can_retry: snapshot.retry_pending && !running,
                                 });
                                 if !routes_to_side {
-                                    // ADR-0175: publish a quarantined snapshot to
+                                    // Publish a quarantined snapshot to
                                     // the PreAttach mount when the per-run gate
                                     // has not already answered. The applier
                                     // deduplicates (it mounts only when the
@@ -1311,7 +1310,7 @@ pub async fn run_tui_with_terminal(
                                         // The dispatch cycle is complete: any
                                         // command component still Pending will
                                         // never receive its reply on this pass
-                                        // (ADR-0108) — mark Cancelled.
+                                        // mark Cancelled.
                                         mutations
                                             .send(M::Transcript {
                                                 buffer: event_loop::mutations::Buffer::Primary,
@@ -1389,7 +1388,7 @@ pub async fn run_tui_with_terminal(
                                     failure: message.clone(),
                                 };
                                 retry_attempts = attempt;
-                                // Publish-only (ADR-0235). The clause is
+                                // Publish-only. The clause is
                                 // retired by the next phase write for *this*
                                 // session — each store owns its own phase —
                                 // never by this translator, which is why no
@@ -1482,7 +1481,7 @@ pub async fn run_tui_with_terminal(
                             }
                             RoundEvent::BackgroundJobProgress { .. } => {}
                             RoundEvent::BackgroundJobReady { job_id } => {
-                                // ADR-0190: a service task reported readiness.
+                                // A service task reported readiness.
                                 let message = TranscriptMessage::notice(
                                     NoticeSeverity::Info,
                                     format!("Background service ready: {}", job_id.0),
@@ -1567,7 +1566,7 @@ pub async fn run_tui_with_terminal(
                     AgentResponse::InputHistory(rows) => {
                         mutations.send(M::InputHistory(rows)).await;
                     }
-                    // ADR-0208: dashboard Archivist search hits. The TUI's
+                    // Dashboard Archivist search hits. The TUI's
                     // Archivist pane lands in a later stage; for now the
                     // response is acknowledged (logged) so the wire stays
                     // exhaustive without inventing premature UI state.
@@ -1708,7 +1707,7 @@ pub async fn run_tui_with_terminal(
                         }
                     }
                     AgentResponse::UsageStatsReport { report } => {
-                        // Session-independent by design (ADR-0122).
+                        // Session-independent by design.
                         mutations.send(M::UsageStats(report)).await;
                     }
                     AgentResponse::ProviderQuotas(snapshot) => {
@@ -1739,7 +1738,7 @@ pub async fn run_tui_with_terminal(
                     }
                     AgentResponse::ProviderSwitched { provider, model } => {
                         // Refreshes the hint bar; NOT appended to the transcript
-                        // (the acknowledgment is a command ack, ADR-0088).
+                        // (the acknowledgment is a command ack).
                         current_provider = provider.clone();
                         current_model = model.clone();
                         mutations
@@ -1823,7 +1822,7 @@ pub async fn run_tui_with_terminal(
                             } => {
                                 // A refusal is actionable and permanent (the
                                 // account may not use this provider); a
-                                // transient failure is not. Say which (ADR-0273).
+                                // transient failure is not. Say which.
                                 let text = match kind {
                                     nuo_wire::CatalogSyncFailure::Refused => format!(
                                         "{provider}: the upstream refused the model-list request ({message}). This connection is not usable with the current credentials or plan; the previously cached list is still shown."
@@ -2057,7 +2056,7 @@ pub async fn run_tui_with_terminal(
         pending_permission: None,
         active_sheet: None,
         pending_permission_depth: 0,
-        // ADR-0175 §6: `NUO_FORCE_PRE_ATTACH=1` force-mounts the
+        // `NUO_FORCE_PRE_ATTACH=1` force-mounts the
         // PreAttach interstitial at startup so operators can verify
         // the surface — wording, highlight, navigation, transition —
         // without preparing a quarantined workspace. Resolved to
@@ -2240,7 +2239,7 @@ pub async fn run_tui_with_terminal(
         app.send_intent(AgentRequest::QueryWebSearchConfig);
     }
     // Hydrate the prompt history from the server (the SSOT for the shared
-    // SQLite store — the TUI never opens the database itself, ADR-0197).
+    // SQLite store — the TUI never opens the database itself).
     app.send_intent(AgentRequest::QueryInputHistory);
 
     // Run app
@@ -2278,7 +2277,7 @@ pub async fn run_tui_with_terminal(
     })
 }
 
-/// What a TUI run produced (ADR-0096): the input history to persist, and —
+/// What a TUI run produced: the input history to persist, and —
 /// when the user picked a session in the `/host` panel — the server session
 /// to switch to (the caller re-attaches).
 pub struct TuiOutcome {
@@ -2318,7 +2317,7 @@ pub(crate) fn begin_stream(messages: &mut Vec<TranscriptMessage>) {
 /// cheap per-message patch path; `None` means the caller must create the
 /// entry.
 ///
-/// Identity-addressed (ADR-0114): resolves the target by scanning backwards
+/// Identity-addressed: resolves the target by scanning backwards
 /// for the Thinking entry matching `(round, turn)`, **not** by "is the last
 /// message". Command entries (`/delegate`, shell passthrough) and local
 /// notices can be appended between reasoning deltas — under `last_mut()`
@@ -2345,7 +2344,7 @@ pub(crate) fn append_reasoning_delta(
 /// caller must perform the structural insertion (and request a full transcript
 /// snapshot); returning an id permits the cheap per-message patch path.
 ///
-/// Identity-addressed (ADR-0114): the target assistant-text entry is resolved
+/// Identity-addressed: the target assistant-text entry is resolved
 /// by scanning backwards for the entry matching `(round, turn)`, **not** by
 /// "is the last message". Command entries and local notices appended between
 /// text deltas must not fork the stream into a second entry.
@@ -2367,7 +2366,7 @@ pub(crate) fn append_stream_text_delta(
 
 #[cfg(test)]
 mod streaming_appends_tests {
-    //! Identity-addressed streaming appends (ADR-0114).
+    //! Identity-addressed streaming appends.
     use super::*;
     use crate::model::document::MessageKind;
 
@@ -2380,7 +2379,7 @@ mod streaming_appends_tests {
 
     #[test]
     fn reasoning_delta_appends_across_an_intervening_command_entry() {
-        // Regression (ADR-0114): dispatching `/delegate` mid-stream pushes a
+        // Regression: dispatching `/delegate` mid-stream pushes a
         // CommandResult entry after the still-streaming Thinking entry. The
         // next reasoning delta must extend the *original* entry, not fork a
         // second Thinking block.

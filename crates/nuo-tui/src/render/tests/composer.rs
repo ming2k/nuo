@@ -1613,7 +1613,7 @@ fn queued_user_message_renders_badge_and_dimmer_bg() {
     );
 }
 
-/// ADR-0126: a *held* insert — one whose round ended (naturally or by an
+/// A *held* insert — one whose round ended (naturally or by an
 /// Esc Esc interrupt) before admission — renders the same pending panel
 /// as a queued message, with a label that spells out the different fate:
 /// `⏸ Held for next round`, not the plain `⏸ Queued`.
@@ -2126,7 +2126,7 @@ fn composer_top_row_renders_history_mode_badges() {
     );
 }
 
-/// The inline ↑/↓ recall badge (ADR-0192): when the recall pointer sits on a
+/// The inline ↑/↓ recall badge: when the recall pointer sits on a
 /// history row the top breathing row declares it — 1-based position over the
 /// session slice, the `draft saved` reassurance while the stash is intact,
 /// the `edited` clause once the buffer forks from the loaded row. Draft mode

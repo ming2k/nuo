@@ -46,7 +46,6 @@
 //! module strips the path suffix (`/chat/completions`, `/messages`, or the
 //! bare `/v1beta` root) and re-appends the models path. A caller that already
 //! has a bare API root can pass it directly.
-
 use std::collections::HashSet;
 
 use nuo_model_codec::{Availability, ReasoningSupport, WireProtocol};
@@ -79,7 +78,7 @@ fn append_query(url: &str, params: &[(&str, &str)]) -> String {
 
 /// Derive the `GET /models` endpoint from an API root URL.
 ///
-/// Under ADR-0259 (Deterministic Root URL Algebra), catalog paths are derived
+/// (Deterministic Root URL Algebra), catalog paths are derived
 /// directly from the API root: `models_url = root_url + relative_catalog_path`.
 /// Callers pass the provider's API root (never a full inference path); suffix
 /// stripping is forbidden by `[INV-ROUTE-01]`.
@@ -130,7 +129,7 @@ pub async fn fetch_remote_catalog(
         CatalogShape::SceneMap => {
             // The catalog rides the dialect's own request signing. The signer
             // and the identity headers are supplied by the catalog sync layer as
-            // data, so this fetcher names no provider (ADR-0260).
+            // data, so this fetcher names no provider.
             let signing = req.catalog_signing.ok_or_else(|| {
                 ModelListError::Parse(
                     "the signed catalog shape requires a catalog signer".to_string(),
@@ -327,7 +326,7 @@ fn anthropic_version() -> &'static str {
     nuo_provider_anthropic::request::ANTHROPIC_VERSION
 }
 
-/// Strongly-typed catalog parser trait for model list payloads (ADR-0259).
+/// Strongly-typed catalog parser trait for model list payloads.
 pub trait CatalogParser: Send + Sync {
     /// Parse raw JSON value into standardized discovered models.
     fn parse_json(&self, json: &Value) -> Vec<DiscoveredModel>;
@@ -394,7 +393,7 @@ impl CatalogParser for SceneMapCatalogParser {
     }
 }
 
-/// Return the typed catalog parser for the given catalog shape (ADR-0259).
+/// Return the typed catalog parser for the given catalog shape.
 ///
 /// The shape is a parser, not a provider: many providers share one shape and
 /// therefore one parser. `dimensions` supplies the request dimensions a
@@ -428,7 +427,7 @@ pub fn parser_for_with_dimensions(
 }
 
 /// Parse a `GET /models` response body into a list of model entries, per
-/// protocol via the typed CatalogParser pipeline (ADR-0259).
+/// protocol via the typed CatalogParser pipeline.
 ///
 /// Test-facing shorthand for the dimension-free shapes; the live path calls
 /// [`parse_models_with_dimensions`] so a shape can read its request dimensions.
@@ -505,7 +504,7 @@ fn parse_codex_models(json: &Value) -> Vec<DiscoveredModel> {
                 .collect();
             let reasoning = !effort_levels.is_empty();
             // Two independent declarations, never ANDed into one bit
-            // (ADR-0273): `visibility` says whether the model is *listed*, and
+            // `visibility` says whether the model is *listed*, and
             // `supported_in_api` says whether the API will *run* it. The
             // `hidden-helper` case — listed nowhere, yet API-supported — is
             // exactly why they must not be conflated.
@@ -1268,7 +1267,7 @@ mod tests {
         assert_eq!(models[0].id, "hidden-helper");
         // `visibility:"hide"` is a *listing* declaration, not an availability
         // one. `hidden-helper` is `supported_in_api:true`, so it stays usable —
-        // exactly the distinction the old single bit erased (ADR-0273).
+        // exactly the distinction the old single bit erased.
         assert_eq!(models[0].advertised, Some(false));
         assert_eq!(
             models[0].availability,
@@ -1691,7 +1690,7 @@ mod tests {
     fn copilot_unconfigured_policy_is_undeclared_not_disabled() {
         // `policy.state` is a closed vocabulary. Only an explicit `disabled`
         // is a declaration; `unconfigured` means "no policy set" and must
-        // deserialize to undeclared — never to unavailable (ADR-0273).
+        // deserialize to undeclared — never to unavailable.
         let json = serde_json::json!({
             "data": [{
                 "id": "o5-mini",

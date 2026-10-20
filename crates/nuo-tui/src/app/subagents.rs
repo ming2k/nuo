@@ -1,5 +1,4 @@
 //! Subagent and side views: focus targets, step pinning, enter/exit transitions, sibling cycling.
-
 use super::*;
 
 impl App {
@@ -47,7 +46,7 @@ impl App {
         // single exact match and, for slash commands, with a trailing space
         // fire the subcommand menu). Applies equally to Tab and Enter since
         // both route through here. Directory and namespace accepts (PathDir)
-        // stay live (ADR-0256 DrillDown) so Tab/Enter keeps descending the
+        // stay live (DrillDown) so Tab/Enter keeps descending the
         // tree or exploring sub-entities.
         if !matches!(comp.kind, CompletionItemKind::PathDir) {
             self.suggestion_index = None;
@@ -311,7 +310,7 @@ impl App {
 
     /// Whether the view is currently zoomed into a subagent task.
     /// Whether the view is currently zoomed into a subagent task. Derived
-    /// from the router (ADR-0141), not from zoom-stack emptiness: a
+    /// from the router, not from zoom-stack emptiness: a
     /// dashboard opened over the zoom keeps the zoom alive underneath.
     pub fn in_subagent_view(&self) -> bool {
         self.current_scene() == crate::surfaces::SceneKind::Subagent
@@ -326,7 +325,7 @@ impl App {
 
     /// Whether the focused subagent task's own round is still live — the
     /// scene-local liveness that gates the Subagent scene's `Esc` interrupt
-    /// (ADR-0205). Distinct from the primary's `is_responding`: a finished
+    /// Distinct from the primary's `is_responding`: a finished
     /// child under a still-running parent reports `false`, so the zoom never
     /// advertises (or fires) a primary interrupt. Derived from the step's
     /// status, not a session-scoped mirror, because a subagent has no entry in
@@ -364,7 +363,7 @@ impl App {
 
     /// Zoom into a subagent task's child messages. The zoom frame (call id +
     /// saved scroll) stays on `App` as data; the surface is the router's
-    /// `SceneKind::TaskInspection` (ADR-0205).
+    /// `SceneKind::TaskInspection`.
     pub fn enter_subagent(&mut self, call_id: String) {
         let saved_scroll = ScrollSnapshot {
             offset: self.scroll,

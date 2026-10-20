@@ -1,5 +1,4 @@
 //! Connection detail and provider usage / quota models.
-
 use serde::{Deserialize, Serialize};
 
 /// Time window categorization for periodic rate limits / quotas.
@@ -204,7 +203,7 @@ pub struct ProviderModelInfo {
 }
 
 impl ProviderModelInfo {
-    /// Extract the materialized route capabilities from this model info row (ADR-0182).
+    /// Extract the materialized route capabilities from this model info row.
     pub fn route_capabilities(&self) -> RouteCapabilities {
         RouteCapabilities {
             context_window: self.context_window,
@@ -222,7 +221,7 @@ impl ProviderModelInfo {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConnectionDetail {
-    /// Connection name — the connection's identity (ADR-0201).
+    /// Connection name — the connection's identity.
     pub name: String,
     /// The model provider this connection points at (e.g. "deepseek", "anthropic").
     pub provider: String,

@@ -14,7 +14,6 @@
 //! The text-fallback path (one call per turn) stays inside
 //! `dispatch_tool_calls`, driving [`Agent::execute_tool_evented`], which
 //! mirrors the same cancellation contract for a single call.
-
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
@@ -141,7 +140,7 @@ impl Agent {
             ));
         }
 
-        // Pre-dispatch trajectory-loop check (ADR-0247). Before
+        // Pre-dispatch trajectory-loop check. Before
         // any tool runs this turn, evaluate trajectory against repeating ruts.
         let trajectory_calls: Vec<(&str, &str)> = tool_calls
             .iter()
@@ -169,7 +168,7 @@ impl Agent {
             tracing::info!(
                 signature = %input.signature,
                 tier = input.threshold_tier,
-                "L1 trajectory detector flagged repetition candidate; invoking Steward cognitive arbiter (ADR-0247)"
+                "L1 trajectory detector flagged repetition candidate; invoking Steward cognitive arbiter"
             );
             let verdict = self.cognitive().review_trajectory_loop(input.clone()).await;
             if verdict.is_loop() {
@@ -182,7 +181,7 @@ impl Agent {
                 tracing::info!(
                     signature = %input.signature,
                     tier = input.threshold_tier,
-                    "Cognitive arbiter acquitted candidate; escalating backoff ladder (ADR-0247)"
+                    "Cognitive arbiter acquitted candidate; escalating backoff ladder"
                 );
                 state
                     .guards
@@ -232,7 +231,7 @@ impl Agent {
                 arguments: call.arguments.clone(),
             });
         }
-        // Signature-level trajectory guard (ADR-0247): a call whose canonical
+        // Signature-level trajectory guard: a call whose canonical
         // signature is in the per-round block mask is short-circuited here, before execution. The model gets an
         // explanatory error instead of the content/side-effect, so it is
         // physically unable to re-enter the loop. Blocked calls are split

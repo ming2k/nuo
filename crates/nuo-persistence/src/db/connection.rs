@@ -1,8 +1,7 @@
-//! Connection lifecycle and snapshot backup management for `DatabaseEngine` (ADR-0231).
+//! Connection lifecycle and snapshot backup management for `DatabaseEngine`.
 //!
 //! Provides factory constructors for SQLite storage backing Nuo persistence and
 //! online snapshot creation using `VACUUM INTO`.
-
 use std::path::Path;
 
 use rusqlite::{Result, params};
@@ -19,7 +18,7 @@ impl DatabaseEngine {
 
     /// Open an in-memory database engine. Test-only: the shipped surface has
     /// no way to name a connection — every real read and write goes through
-    /// the handle's two doors (ADR-0231).
+    /// the handle's two doors.
     #[cfg(test)]
     pub(crate) fn open_in_memory() -> Result<Self> {
         let conn = initialize_in_memory_db()?;

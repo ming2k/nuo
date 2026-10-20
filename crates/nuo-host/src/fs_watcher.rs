@@ -1,9 +1,8 @@
-//! Platform-agnostic, kernel-level reactive filesystem watcher (ADR-0165).
+//! Platform-agnostic, kernel-level reactive filesystem watcher.
 //!
 //! Uses OS-native notification backends (Linux inotify, macOS FSEvents/kqueue,
 //! Windows IOCP/ReadDirectoryChangesW) via [`notify`] with an integrated async
 //! debouncing layer to produce high-signal, burst-coalesced filesystem change events.
-
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

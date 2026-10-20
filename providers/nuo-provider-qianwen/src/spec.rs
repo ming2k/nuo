@@ -35,7 +35,6 @@
 //! DeepSeek ids therefore ride their home platform's vocabulary — the narrower
 //! `DEEPSEEK_V4_PLAN` floor on this surface is documented, not enforceable
 //! here, exactly like GLM-5.3's `xhigh` rejection above.
-
 use nuo_model_codec::reasoning::ReasoningSupport;
 use nuo_model_codec::{Model, WireProtocol};
 
@@ -135,7 +134,7 @@ mod tests {
 
     /// Every seeded id is registered (the same invariant
     /// `builtin_provider_models_resolve_with_expected_wire_formats` enforces
-    /// cross-provider). The route is provider-scoped (ADR-0260): the qianwen
+    /// cross-provider). The route is provider-scoped: the qianwen
     /// spec resolves Chat Completions for every seeded id, including ids whose
     /// home baseline speaks Responses at another provider.
     #[test]

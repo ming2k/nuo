@@ -1,6 +1,6 @@
-//! Schema catalog and migration machinery (ADR-0163/0186/0187/0236).
+//! Schema catalog and migration machinery (0186/0187/0236).
 //!
-//! Split out of `db.rs`; still inside `nuo-persistence::db`, so ADR-0231's
+//! Split out of `db.rs`; still inside `nuo-persistence::db`, so
 //! one-door boundary is unchanged.
 use super::*;
 
@@ -17,7 +17,7 @@ pub const MIGRATION_CATALOG_FINGERPRINT: &str =
 /// Payload size threshold (4 KB) beyond which text content is offloaded to CAS BlobStore.
 pub const CAS_THRESHOLD_BYTES: usize = 4096;
 
-/// Hard cap on retained request-projection records per session (ADR-0218). The
+/// Hard cap on retained request-projection records per session. The
 /// archive is forensic, not authoritative: a bounded ring keeps a long session
 /// from growing it without limit.
 pub const MAX_RETAINED_REQUEST_PROJECTIONS: usize = 64;
@@ -49,7 +49,7 @@ pub(crate) fn initialize_in_memory_db() -> Result<Connection> {
 ///
 /// Used by the offline migration tool to prepare a target database without
 /// going through the server's single-writer door (the tool is a separate
-/// process; ADR-0280 §4).
+/// process).
 pub(crate) fn initialize_connection_schema(conn: &mut Connection) -> Result<()> {
     configure_connection(conn)?;
     migrate_schema(conn)
@@ -219,7 +219,7 @@ pub const MIGRATIONS: &[Migration] = &[
      "#,
     },
     Migration {
-        // ADR-0186: single-transcript persistence foundation. Facts live in
+        // Single-transcript persistence foundation. Facts live in
         // `entries` (position-free, immutable), positions in `entry_memberships`
         // (many-to-one so forks share facts), and projection decisions in
         // `projections`. The event ledger is renamed `events` to match the
@@ -339,7 +339,7 @@ pub const MIGRATIONS: &[Migration] = &[
     "#,
     },
     Migration {
-        // Corrective migration: development builds of the ADR-0186 tranche stamped
+        // Corrective migration: development builds of the tranche stamped
         // databases at version 5 with an interim `sessions` rebuild that carried
         // the legacy `scheduled_jobs` column and predated the final working-state
         // columns (`round_counter`, `unattended`, ... ). Because migration 5's SQL
@@ -354,7 +354,7 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: "",
     },
     Migration {
-        // Persistence v2 (ADR-0187): incremental append needs a transcript
+        // Persistence v2: incremental append needs a transcript
         // generation id and a durable blob reference ledger; the schema must stop
         // promising what the runtime does not do (event ledger, session_blobs,
         // applied_seq, projections kind CHECK); timestamps and FTS become honest.
@@ -366,11 +366,11 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: "",
     },
     Migration {
-        // Usage ledger (ADR-0187): per-attempt usage records move out of the
+        // Usage ledger: per-attempt usage records move out of the
         // session row into their own key-addressed table. The row column
         // forced an O(records) serialization on every save; the table upserts
         // only the attempts a commit actually changed. DDL and the JSON
-        // backfill are conditional (the column exists only on ADR-0186
+        // backfill are conditional (the column exists only on
         // databases), so the work happens in `apply_usage_ledger_schema`
         // below — this entry only advances `user_version`.
         version: 8,
@@ -387,7 +387,7 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: "",
     },
     Migration {
-        // Corrective migration (ADR-0186 integrity fix): migration 5's
+        // Corrective migration (integrity fix): migration 5's
         // `entries` CHECK `origin IS NULL OR hidden = 1` coupled two orthogonal
         // concepts — `origin` (WHY a message exists) and `hidden` (whether it
         // is shown). That coupling was false: the durable transcript
@@ -414,7 +414,7 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: "",
     },
     Migration {
-        // Durable request-projection archive (ADR-0218): a key-addressed table
+        // Durable request-projection archive: a key-addressed table
         // for forensic snapshots of assembled requests. It is deliberately a
         // table, not a `sessions` JSON column: the projection is written on the
         // request hot path, and a row column would force an O(records)
@@ -437,7 +437,7 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
     },
     Migration {
-        // Session scope (ADR-0219): the mandatory `project_root` partition key
+        // Session scope: the mandatory `project_root` partition key
         // becomes a typed `SessionScope` (`scope_kind` + namespaced `scope_key`)
         // orthogonal to an optional `workspace_root` binding. The rebuild
         // enforces the NOT NULL constraints ALTER cannot add; every existing row
@@ -447,7 +447,7 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: "",
     },
     Migration {
-        // Grouping is derived (ADR-0226): the stored `scope_kind`/`scope_key`
+        // Grouping is derived: the stored `scope_kind`/`scope_key`
         // partition key is retired for the concrete `space` column; workspace
         // sessions keep grouping by `workspace_root`, non-workspace rows
         // migrate to the Personal grouping (`space IS NULL`).
@@ -455,7 +455,7 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: "",
     },
     Migration {
-        // Workspace-only partition (ADR-0226 revised): drop `space` (an unbound
+        // Workspace-only partition (revised): drop `space` (an unbound
         // session is simply `workspace_root IS NULL`) and add `persona`
         // metadata (the persona that staffed the session). Conditional DDL.
         version: 14,
@@ -470,26 +470,26 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: "",
     },
     Migration {
-        // Session IR clean break (ADR-0241): initialize pure headless
+        // Session IR clean break: initialize pure headless
         // `sessions_v2`, `session_policies`, `causal_nodes` schema and create
         // `session_list_view` read projection.
         version: 17,
         sql: "",
     },
     Migration {
-        // Universal Asset Attestation Ledger (ADR-0243): initialize
+        // Universal Asset Attestation Ledger: initialize
         // `asset_attestations` table for process and endpoint trust.
         version: 18,
         sql: "",
     },
     Migration {
-        // Session Role Manifest Snapshotting (ADR-0245):
+        // Session Role Manifest Snapshotting:
         // add immutable role_manifest column to sessions table.
         version: 19,
         sql: "",
     },
     Migration {
-        // Role-Anchored Session Isolation Index (ADR-0250):
+        // Role-Anchored Session Isolation Index:
         // add covering index for workspace-free role session queries.
         version: 20,
         sql: "",
@@ -501,7 +501,7 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: "",
     },
     Migration {
-        // Canonical context-lifecycle substrate (ADR-0275 §7, ADR-0276, ADR-0279):
+        // Canonical context-lifecycle substrate:
         // immutable facts, branch cursors, derived views/checkpoints, artifact
         // manifests + references, request manifests, tombstones, and the
         // idempotency ledger. The schema enforces fact immutability at the SQL
@@ -510,7 +510,7 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: "",
     },
     Migration {
-        // Retrieval leases, deletion jobs, and GC continuation (ADR-0279 §4–§6):
+        // Retrieval leases, deletion jobs, and GC continuation:
         // read leases protect live reads from concurrent GC; deletion jobs make
         // purge observable and resumable across a crash.
         version: 23,
@@ -527,7 +527,7 @@ pub const MIGRATIONS: &[Migration] = &[
     },
 ];
 
-/// Working-state columns the final ADR-0186 `sessions` rebuild must carry,
+/// Working-state columns the final `sessions` rebuild must carry,
 /// with their DDL. Shared by the migration-6 repair and the startup schema
 /// guard so the two cannot drift.
 pub const SESSIONS_WORKING_STATE_COLUMNS: &[(&str, &str)] = &[
@@ -548,7 +548,7 @@ pub const SESSIONS_WORKING_STATE_COLUMNS: &[(&str, &str)] = &[
     ("role_manifest", "TEXT"),
 ];
 
-/// Columns persistence v2 (ADR-0187) added to `sessions`. Guard-only:
+/// Columns persistence v2 added to `sessions`. Guard-only:
 /// migration 7 owns their creation, so the migration-6 repair must not add
 /// them (it runs first and its additions would collide with migration 7's).
 pub const SESSIONS_V2_COLUMNS: &[(&str, &str)] = &[
@@ -600,7 +600,7 @@ pub fn table_columns(
     Ok(columns)
 }
 
-/// Reconcile an interim version-5 `sessions` table to the final ADR-0186
+/// Reconcile an interim version-5 `sessions` table to the final
 /// schema: drop retired columns, add any missing working-state column. Every
 /// step is conditional because both version-5 incarnations (interim and
 /// final) must converge through this repair.
@@ -631,8 +631,8 @@ pub fn table_exists(conn: &Connection, name: &str) -> Result<bool> {
     )? == 1)
 }
 
-/// Persistence v2 (ADR-0187) schema repair, applied by migration 7. Every
-/// step is conditional: fresh ADR-0186 databases, final version-5 databases,
+/// Persistence v2 schema repair, applied by migration 7. Every
+/// step is conditional: fresh databases, final version-5 databases,
 /// and interim version-5 databases (no transcript tables) must all converge.
 pub fn apply_persistence_v2_schema(tx: &rusqlite::Transaction) -> Result<()> {
     // Dead ledgers: the event log never had a writer or a replay path, and
@@ -653,7 +653,7 @@ pub fn apply_persistence_v2_schema(tx: &rusqlite::Transaction) -> Result<()> {
     }
     // Restore the listing indexes the v5 table rebuild dropped. The
     // project-root indexes exist only while `project_root` is still a column:
-    // a schema already migrated to ADR-0219 `scope_key` (an artificial
+    // a schema already migrated to `scope_key` (an artificial
     // re-stamp) must not fail here.
     tx.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at_s DESC);",
@@ -664,7 +664,7 @@ pub fn apply_persistence_v2_schema(tx: &rusqlite::Transaction) -> Result<()> {
              CREATE INDEX IF NOT EXISTS idx_sessions_project_updated ON sessions(project_root, updated_at_s DESC);",
         )?;
     }
-    // Working state that v5 lost on the floor (ADR-0186 regressions).
+    // Working state that v5 lost on the floor (regressions).
     if !existing.contains("digest_anchor") {
         tx.execute_batch("ALTER TABLE sessions ADD COLUMN digest_anchor INTEGER;")?;
     }
@@ -679,7 +679,7 @@ pub fn apply_persistence_v2_schema(tx: &rusqlite::Transaction) -> Result<()> {
         tx.execute_batch("ALTER TABLE sessions DROP COLUMN applied_seq;")?;
     }
 
-    // The transcript ledger tables exist only in ADR-0186 databases; an
+    // The transcript ledger tables exist only in databases; an
     // interim version-5 database converges later, when the tables appear.
     if !table_exists(tx, "entries")? || !table_exists(tx, "entry_memberships")? {
         return Ok(());
@@ -758,7 +758,7 @@ pub fn apply_persistence_v2_schema(tx: &rusqlite::Transaction) -> Result<()> {
     Ok(())
 }
 
-/// Usage ledger (ADR-0187) schema repair, applied by migration 8: create the
+/// Usage ledger schema repair, applied by migration 8: create the
 /// key-addressed `usage_records` table and migrate the session-row JSON
 /// column into it when that column exists.
 pub fn apply_usage_ledger_schema(tx: &rusqlite::Transaction) -> Result<()> {
@@ -803,7 +803,7 @@ pub fn apply_usage_ledger_schema(tx: &rusqlite::Transaction) -> Result<()> {
 }
 
 /// Migration 10 repair: rewrite `entries` with the corrected `origin`/`hidden`
-/// CHECKs (ADR-0186 integrity fix). The whole step runs in the caller's outer
+/// CHECKs (integrity fix). The whole step runs in the caller's outer
 /// transaction with foreign-key enforcement disabled by the migration subagent
 /// (sqlite.org/lang_altertable procedure): the rebuild briefly drops
 /// `entries`, the parent of `entry_memberships`' foreign key, and re-creating
@@ -814,7 +814,7 @@ pub fn apply_usage_ledger_schema(tx: &rusqlite::Transaction) -> Result<()> {
 /// copied byte-for-byte, the FTS-insert trigger is dropped before the rename
 /// (ALTER TABLE RENAME reparses trigger bodies) and re-anchored after.
 pub fn apply_entries_integrity_schema(tx: &rusqlite::Transaction) -> Result<()> {
-    // The `entries` table exists only in databases that ran the ADR-0186
+    // The `entries` table exists only in databases that ran the
     // transcript migration. An interim version-5 database (no transcript
     // tables) converges later, when the entries/entry_memberships tables
     // appear; skip the repair here exactly like the v2 schema guard does.
@@ -869,7 +869,7 @@ pub fn apply_entries_integrity_schema(tx: &rusqlite::Transaction) -> Result<()> 
     Ok(())
 }
 
-/// Session-scope rebuild (ADR-0219), applied by migration 12. Rebuilds
+/// Session-scope rebuild, applied by migration 12. Rebuilds
 /// `sessions` so the partition key becomes `scope_kind` + namespaced
 /// `scope_key` with an optional `workspace_root`, enforcing the NOT NULL
 /// constraints `ALTER TABLE` cannot add. Existing rows backfill as workspace
@@ -939,7 +939,7 @@ pub fn apply_session_scope_schema(tx: &rusqlite::Transaction) -> Result<()> {
     Ok(())
 }
 
-/// Grouping rebuild (ADR-0226), applied by migration 13. Adds `space`, drops
+/// Grouping rebuild, applied by migration 13. Adds `space`, drops
 /// `scope_kind`/`scope_key`, and re-indexes on the concrete grouping columns.
 /// Conditional so a database already at the derived-grouping schema passes
 /// through unchanged.
@@ -972,7 +972,7 @@ pub fn apply_session_grouping_schema(tx: &rusqlite::Transaction) -> Result<()> {
     Ok(())
 }
 
-/// Workspace-only partition (ADR-0226 revised), applied by migration 14:
+/// Workspace-only partition (revised), applied by migration 14:
 /// drops the `space` column and adds `persona` metadata.
 pub fn apply_workspace_partition_schema(tx: &rusqlite::Transaction) -> Result<()> {
     if !table_exists(tx, "sessions")? {
@@ -997,7 +997,7 @@ pub fn apply_workspace_partition_schema(tx: &rusqlite::Transaction) -> Result<()
     Ok(())
 }
 
-/// Fast FTS entry triggers (ADR-0187 fix), applied by migration 16: replaces
+/// Fast FTS entry triggers (fix), applied by migration 16: replaces
 /// the unindexed `trg_memberships_ad` trigger (which scanned the entire virtual
 /// table on every deleted entry, stalling session persistence for seconds) with
 /// an O(1) `rowid`-addressed delete, drops legacy `trg_entries_ai`/`trg_entries_ad`
@@ -1048,7 +1048,7 @@ pub fn apply_fast_fts_triggers_schema(tx: &rusqlite::Transaction) -> Result<()> 
     Ok(())
 }
 
-/// Session IR Clean Break (ADR-0241), applied by migration 17:
+/// Session IR Clean Break, applied by migration 17:
 /// Initializes headless `sessions_v2`, `session_policies`, `causal_nodes` schema,
 /// migrates historical data out of legacy tables, and establishes `session_list_view`.
 pub fn apply_session_ir_clean_break_schema(tx: &rusqlite::Transaction) -> Result<()> {
@@ -1160,7 +1160,7 @@ pub fn insert_legacy_usage_record_tx(
     Ok(())
 }
 
-/// Universal Asset Attestation Schema (ADR-0243), applied by migration 18:
+/// Universal Asset Attestation Schema, applied by migration 18:
 /// Initializes the `asset_attestations` table for process and endpoint trust.
 pub fn apply_asset_attestation_schema(tx: &rusqlite::Transaction) -> Result<()> {
     tx.execute_batch(
@@ -1179,7 +1179,7 @@ pub fn apply_asset_attestation_schema(tx: &rusqlite::Transaction) -> Result<()> 
     Ok(())
 }
 
-/// Migration 19 (ADR-0245): Session Role Manifest Snapshotting.
+/// Migration 19: Session Role Manifest Snapshotting.
 /// Adds `role_manifest TEXT` JSON column to `sessions` table.
 pub fn apply_role_manifest_schema(tx: &rusqlite::Transaction) -> Result<()> {
     if !table_exists(tx, "sessions")? {
@@ -1192,7 +1192,7 @@ pub fn apply_role_manifest_schema(tx: &rusqlite::Transaction) -> Result<()> {
     Ok(())
 }
 
-/// Adds covering index on `sessions(persona, updated_at_s DESC)` for workspace-free role partitions (ADR-0250).
+/// Adds covering index on `sessions(persona, updated_at_s DESC)` for workspace-free role partitions.
 pub fn apply_role_anchored_session_partition_schema(tx: &rusqlite::Transaction) -> Result<()> {
     if !table_exists(tx, "sessions")? {
         return Ok(());
@@ -1339,7 +1339,7 @@ pub fn verify_sessions_schema(conn: &Connection) -> Result<()> {
             missing.join(", ")
         )));
     }
-    // Table owned by migration 11 (ADR-0218). In version 24+ (ADR-0059),
+    // Table owned by migration 11. In version 24+ (ADR-0059),
     // request_projections is retired; only enforce for legacy databases.
     if !table_exists(conn, "threads")? && !table_exists(conn, "request_projections")? {
         return Err(rusqlite::Error::InvalidParameterName(
@@ -1640,7 +1640,7 @@ pub struct HistorySearchResult {
     pub session_id: String,
     pub workspace_root: Option<String>,
     /// Stored AI/manual title of the owning session, when one exists
-    /// (joined from `sessions.title`, ADR-0208).
+    /// (joined from `sessions.title`).
     pub session_title: Option<String>,
     pub role: String,
     pub snippet: String,
@@ -1648,7 +1648,7 @@ pub struct HistorySearchResult {
 }
 
 /// One persisted session's projected transcript tail plus metadata — the
-/// public, field-private shape out-of-crate readers consume (ADR-0208).
+/// public, field-private shape out-of-crate readers consume.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SessionTranscriptView {
     pub id: String,
@@ -1659,7 +1659,7 @@ pub struct SessionTranscriptView {
     pub messages: Vec<SessionMessageView>,
 }
 
-/// Canonical context-lifecycle substrate (ADR-0275 §7, ADR-0276, ADR-0279),
+/// Canonical context-lifecycle substrate,
 /// applied by migration 22. Creates the immutable fact tables, branch cursors,
 /// derived views/checkpoints, artifact manifests and references, request
 /// manifests, tombstones, and the idempotency ledger.
@@ -1667,7 +1667,7 @@ pub struct SessionTranscriptView {
 /// The `facts` triggers enforce `INV-FACT-02` at the SQL layer: a payload or
 /// ancestry may never be updated, and a fact may never be deleted. The one
 /// sanctioned payload replacement is a purge, which flips `deletion` in the
-/// same statement (the tombstone path, ADR-0279 §6). DDL is idempotent so a
+/// same statement (the tombstone path). DDL is idempotent so a
 /// database that already carries the tables passes through unchanged.
 pub fn apply_context_lifecycle_schema(tx: &rusqlite::Transaction) -> Result<()> {
     tx.execute_batch(
@@ -1879,7 +1879,7 @@ pub fn apply_context_lifecycle_schema(tx: &rusqlite::Transaction) -> Result<()> 
     Ok(())
 }
 
-/// Retrieval leases, deletion jobs, and GC bookkeeping (ADR-0279 §4–§6),
+/// Retrieval leases, deletion jobs, and GC bookkeeping,
 /// applied by migration 23.
 ///
 /// A read lease protects an artifact from concurrent collection; a deletion job

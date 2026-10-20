@@ -1,13 +1,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-//! ADR-0132 integration: the session-scoped unattended execution posture is persisted
+//! Integration: the session-scoped unattended execution posture is persisted
 //! (`SessionEvent::UnattendedSet`) and restored by the bootstrap resume path —
 //! so a server that dies mid-unattended-session reopens unattended when the
 //! session is re-hosted (attach, lazy-resume, or boot rehost). These tests
 //! exercise the real `bootstrap::assemble` resume path against a store on
 //! disk, standing in for "process died, new process opened the same session
 //! file".
-
 use std::sync::Arc;
 
 use super::sandbox_once;

@@ -4,7 +4,6 @@
 //! embedded verbatim. The test resolves every id through the new
 //! provider-registered baselines and compares every field, proving the
 //! per-provider distribution changed no capability data.
-
 use nuo_model_codec::reasoning::ReasoningSupport;
 use nuo_model_codec::{Model, WireProtocol, resolve_model};
 
@@ -820,7 +819,7 @@ fn resolve_matches_the_pre_migration_registry_for_every_model() {
             expected.id
         );
         assert_eq!(m.vision, expected.vision, "{}: vision", expected.id);
-        // `protocol` is provider-scoped (ADR-0260): the global baseline union
+        // `protocol` is provider-scoped: the global baseline union
         // is a capability source, and provider routers resolve protocol through
         // `ModelProviderSpec::model_protocol` (covered by the registry tests).
         // Protocol is therefore intentionally not part of this capability

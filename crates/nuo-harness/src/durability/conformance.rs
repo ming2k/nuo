@@ -2,7 +2,7 @@
 //!
 //! "Hydration parity is tested, not assumed": any store used with the kernel must
 //! pass this suite, and the suite *is* the definition of a valid sink. The
-//! property is `hydrate(append(facts)) == facts` — the re-carriage of ADR-0241's
+//! property is `hydrate(append(facts)) == facts` — the re-carriage of the
 //! hydration-parity invariant as a port contract.
 //!
 //! # How a host uses this
@@ -34,7 +34,6 @@
 //!
 //! A failure names the check and the offending fact, because "hydration parity
 //! failed" without a fact id is not actionable.
-
 use futures::future::BoxFuture;
 use nuo_wire::{
     CausalNode, ExecutionStatus, Message, NodeKind, NodePayload, Role, SessionDelta, StateUpdate,

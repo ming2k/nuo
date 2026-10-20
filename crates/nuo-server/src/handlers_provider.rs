@@ -6,7 +6,6 @@
 //! holds only *behavior* (`default_provider` / `default_model` / favorites),
 //! which is what these handlers persist there. Routes are derived by the
 //! catalog at activation time.
-
 use nuo_harness::Agent;
 use nuo_harness::orchestration::round_response;
 use nuo_persistence::config::{Config, Credentials, RemoteCatalogCache};
@@ -60,9 +59,9 @@ pub(crate) struct AddConnectionParams {
     pub budget: nuo_wire::ConnectionBudget,
 }
 
-/// Register a user-declared model provider surface (ADR-0258).
+/// Register a user-declared model provider surface.
 /// Request-specific payload for [`register_provider`]: the declared surface of
-/// a user-registered model provider (ADR-0258).
+/// a user-registered model provider.
 pub(crate) struct RegisterProviderParams {
     pub id: String,
     pub label: Option<String>,
@@ -258,7 +257,7 @@ pub(crate) async fn add(
         budget,
     } = params;
     let mut connections = Connections::load();
-    // The name IS the connection's identity (ADR-0201 INV-3): reject a
+    // The name IS the connection's identity (INV-3): reject a
     // duplicate with a suggested alternative instead of silently renaming it.
     let name = match connections.check_new_name(&name) {
         Ok(name) => name,
@@ -267,7 +266,7 @@ pub(crate) async fn add(
             return;
         }
     };
-    // The provider must resolve (ADR-0201 INV-2): an unknown value is a hard
+    // The provider must resolve (INV-2): an unknown value is a hard
     // error and never degrades into a different connection kind.
     let Some(spec) = crate::provider_registry::model_provider_spec(&provider) else {
         reject(
@@ -422,7 +421,7 @@ pub(crate) async fn add(
         }
     }
 
-    // Step 2: Publish connection to Connections store (purified pipe, ADR-0258).
+    // Step 2: Publish connection to Connections store (purified pipe).
     let connection = Connection {
         name: name.clone(),
         provider: provider.clone(),
@@ -456,7 +455,7 @@ pub(crate) async fn add(
     }
 
     // Step 3: activating a connection is a *model-switch* concern, not a
-    // connection-management concern (ADR-0201): `/connections` adds a
+    // connection-management concern: `/connections` adds a
     // connection to the store, it never hijacks the session's live model. Only
     // two bootstrap cases may activate here:
     //   * the session has no usable provider at all (the `NoProvider` sentinel
@@ -552,7 +551,7 @@ pub(crate) async fn add(
 
 /// Refuse a connection request with a user-visible error. The add / edit /
 /// rename handlers reject rather than silently degrading or renaming
-/// (ADR-0201 INV-2, INV-3).
+/// (INV-2, INV-3).
 fn reject(resp_tx: &mpsc::UnboundedSender<AgentResponse>, title: &str, reason: &str) {
     let _ = resp_tx.send(AgentResponse::Error(format!("{title}: {reason}")));
 }
@@ -577,7 +576,7 @@ pub(crate) async fn edit(
 ) {
     let mut connections = Connections::load();
     let trimmed_key = api_key.expose_secret().trim();
-    // The provider must resolve (ADR-0201 INV-2).
+    // The provider must resolve (INV-2).
     if crate::provider_registry::model_provider_spec(&provider).is_none() {
         reject(
             resp_tx,
@@ -640,7 +639,7 @@ pub(crate) async fn edit(
 }
 
 /// `AgentRequest::RenameConnection` — rename a connection, rewriting every hard
-/// join key in one transaction (ADR-0201 INV-4): `credentials.toml`,
+/// join key in one transaction (INV-4): `credentials.toml`,
 /// `auth.toml`, and `config.toml`'s `default_connection`.
 ///
 /// Every *live* store keyed by the connection name is re-keyed too — the
@@ -818,7 +817,7 @@ pub(crate) async fn rename(
     }
 }
 
-/// `AgentRequest::IncludeModel` — declare or include a model within a target scope (preset or connection) (ADR-0199).
+/// `AgentRequest::IncludeModel` — declare or include a model within a target scope (preset or connection).
 pub(crate) async fn include_model(
     config: &mut Config,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
@@ -865,7 +864,7 @@ pub(crate) async fn include_model(
     ));
 }
 
-/// `AgentRequest::ExcludeModel` — exclude/hide a model within a target scope (ADR-0199).
+/// `AgentRequest::ExcludeModel` — exclude/hide a model within a target scope.
 pub(crate) async fn exclude_model(
     config: &mut Config,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
@@ -908,7 +907,7 @@ pub(crate) async fn exclude_model(
     ));
 }
 
-/// `AgentRequest::ClearModelRule` — clear explicit inclusion, exclusion, or overrides for a model (ADR-0199).
+/// `AgentRequest::ClearModelRule` — clear explicit inclusion, exclusion, or overrides for a model.
 pub(crate) async fn clear_model_rule(
     config: &mut Config,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
@@ -948,7 +947,7 @@ pub(crate) async fn clear_model_rule(
     ));
 }
 
-/// `AgentRequest::SetModelCapabilities` — update per-scope model capability overrides (ADR-0199).
+/// `AgentRequest::SetModelCapabilities` — update per-scope model capability overrides.
 pub(crate) async fn set_model_capabilities(
     config: &mut Config,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
@@ -1045,7 +1044,7 @@ pub(crate) async fn edit_model(
         }
         nuo_model_codec::catalog::Transport::Google { .. } => {}
     }
-    // Capability overrides (ADR-0149 layer 1): `None` keeps the stored
+    // Capability overrides (layer 1): `None` keeps the stored
     // record untouched; `Some(record)` replaces it wholesale (empty clears).
     if let Some(record) = overrides {
         entry.capability_overrides = (!record.is_empty()).then_some(record);
@@ -1697,7 +1696,7 @@ pub async fn set_default_model(
     .await;
 }
 
-/// Apply one connection's streamed catalog-sync result (ADR-0227). Called as each
+/// Apply one connection's streamed catalog-sync result. Called as each
 /// connection completes, so a slow sibling never delays this one's picker
 /// update.
 pub fn apply_connection_update(
@@ -2302,7 +2301,7 @@ mod tests {
             ..Default::default()
         });
         // A different name is accepted (trimmed), a duplicate is rejected with
-        // a suggestion, and an empty name is rejected (ADR-0201 INV-3).
+        // a suggestion, and an empty name is rejected (INV-3).
         assert_eq!(
             connections.check_new_name(" My Relay ").unwrap(),
             "My Relay"
@@ -2635,7 +2634,7 @@ mod tests {
 
         let conns = Connections::load();
         let conn = conns.get("openai-test").expect("connection was saved");
-        // ADR-0203 [INV-CATALOG-05]: filter rule is persisted, not materialized model ID list!
+        // [INV-CATALOG-05]: filter rule is persisted, not materialized model ID list!
         assert!(
             conn.models.include.is_empty(),
             "curated connection must not persist materialized model list"

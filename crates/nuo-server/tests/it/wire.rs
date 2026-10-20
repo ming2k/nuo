@@ -12,7 +12,6 @@
 //! drive the full request → HTTP → SSE-byte-reassembly → event-parse path, so
 //! the integration behaviour — header attachment, error classification, and
 //! echo suppression over a real stream — is covered.
-
 use futures::StreamExt;
 use mockito::{Matcher, Server};
 use nuo_model_codec::{Message, Provider, ProviderStreamEvent, Role, SecretString};
@@ -371,7 +370,7 @@ async fn openrouter_stream_uses_gateway_dialect_and_returns_replay_artifacts() {
         max_output_tokens: Some(235_929),
         thinking: nuo_model_codec::ReasoningSupport::ReasoningContent,
         tool_call: true,
-        // `vision` is three-valued (ADR-0230); this fixture declares support
+        // `vision` is three-valued; this fixture declares support
         // explicitly rather than leaving it undeclared.
         vision: Some(true),
         effort_levels: vec![

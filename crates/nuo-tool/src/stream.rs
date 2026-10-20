@@ -7,7 +7,6 @@
 //! input-execution contract ([`InputContract`]) tells the command tool how a
 //! child's stdin/terminal is provisioned; and [`ShellTermination`] /
 //! [`ShellLine`] carry *why* and *how* a shell step ended.
-
 use serde::{Deserialize, Serialize};
 
 /// An incremental chunk streamed by a long-running tool before its final
@@ -60,7 +59,7 @@ pub struct InputExpectation {
 ///
 /// The channel the answer goes to is not named here: in the supervised model
 /// the child's stdin *is* its controlling terminal, so there is exactly one
-/// channel and the platform seam owns it (ADR-0293).
+/// channel and the platform seam owns it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputPrompt {
     /// The command awaiting input, shown for context.
@@ -100,7 +99,7 @@ pub enum ShellTermination {
     /// examiner detected *at runtime*. Rendered with a remedy hint.
     InputUnanswered,
     /// The sync budget expired while the child was still alive and producing
-    /// output (ADR-0190 detach-on-budget): the process was *not* killed — it
+    /// output (detach-on-budget): the process was *not* killed — it
     /// was adopted by the background-job fabric, results arrive via job
     /// notification. `exit` is `None`; the job id rides the output payload.
     Detached,
@@ -111,7 +110,7 @@ pub enum ShellTermination {
     /// was killed.
     Cancelled,
     /// The foreground command produced unbounded continuous streaming output
-    /// reaching the StreamGuard budget without self-terminating (ADR-0257).
+    /// reaching the StreamGuard budget without self-terminating.
     /// The process was killed and an instantaneous snapshot was preserved.
     StreamGuard,
 }

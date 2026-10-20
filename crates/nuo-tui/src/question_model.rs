@@ -34,7 +34,6 @@
 //! both the final model *and* the emitted effects, then render each
 //! intermediate state to a snapshot. That is the "see the interaction" debug
 //! loop the old inline arms made impossible.
-
 use nuo_wire::{UserQuestion, UserQuestionRequest};
 
 /// The "Other" free-text option label emitted in a reply when the user
@@ -466,7 +465,6 @@ impl QuestionModel {
 mod tests {
     //! Pure state-machine tests: feed a script of actions, assert the model
     //! and the emitted effects. No terminal, no async, no agent.
-
     use super::*;
     use nuo_wire::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 
@@ -1176,7 +1174,7 @@ mod tests {
                 &mut scroll,
                 true,
                 0,
-                // Slot-anchored sheet (ADR-0173 §3): the bottom band of the
+                // Slot-anchored sheet: the bottom band of the
                 // terminal, as if the composer slot it replaces sat there.
                 nuotc::Rect::new(0, height * 5 / 8, width, height * 3 / 8),
                 true,

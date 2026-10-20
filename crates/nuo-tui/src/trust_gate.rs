@@ -31,7 +31,6 @@
 //! Escaping the dialog is an explicit "keep quarantined" — the same outcome
 //! as picking the option — which mirrors how the old banner left the
 //! workspace untrusted, just with a decision the user actually made.
-
 use nuo_wire::{
     TrustDomain, UserQuestion, UserQuestionOption, UserQuestionRequest, WorkspaceSecuritySnapshot,
     WorkspaceTrustState,
@@ -203,7 +202,7 @@ mod tests {
             ))
             .is_none()
         );
-        // Explicitly denied domains do not gate again (ADR-0253 zero-nagging).
+        // Explicitly denied domains do not gate again (zero-nagging).
         assert!(
             gate_request(&snapshot(
                 WorkspaceTrustState::Denied,

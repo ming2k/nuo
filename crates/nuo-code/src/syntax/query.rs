@@ -1,5 +1,5 @@
 //! The structural-query grammar: a closed, human-writable way to ask "where is
-//! this declaration?" (ADR-0237).
+//! this declaration?".
 //!
 //! A tree-sitter query language (S-expression patterns) is powerful and
 //! completely unsuitable as a model-facing surface: a malformed pattern is a
@@ -25,7 +25,6 @@
 //! the function happens to live inside an `impl`/`class` is an implementation
 //! detail of the caller's mental model, not of its intent. `method` stays
 //! exact.
-
 use super::declarations::{DECLARATION_KINDS, Declaration};
 
 /// One OR arm of a parsed pattern.

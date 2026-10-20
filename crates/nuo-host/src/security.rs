@@ -5,7 +5,6 @@
 //!
 //! Distinct and decoupled from AI runtime tool permissions, which are governed
 //! purely by the Tool Hazard model (`HazardLevel` and `PermissionStore`).
-
 use serde::{Deserialize, Serialize};
 
 /// Trust state for one project-authored asset domain.
@@ -19,11 +18,11 @@ pub enum WorkspaceTrustState {
     Quarantined,
     /// The exact current content digest of contributions was explicitly trusted by the user.
     Trusted,
-    /// Contributions were explicitly rejected/denied by human review (ADR-0253).
+    /// Contributions were explicitly rejected/denied by human review.
     Denied,
     /// Contributions were previously trusted or denied, but their content/digest has changed.
     Changed,
-    /// Asset 30-day lease has expired and requires routine human re-attestation (ADR-0252).
+    /// Asset 30-day lease has expired and requires routine human re-attestation.
     Expired,
 }
 
@@ -71,7 +70,7 @@ pub enum TrustDomain {
     /// Trust project-level external workspace roots (`[workspace].additional_roots`).
     #[serde(rename = "ex_workspace", alias = "ex-workspace")]
     ExWorkspace,
-    /// Trust user-level MCP and global executable assets (ADR-0252).
+    /// Trust user-level MCP and global executable assets.
     #[serde(rename = "user_assets", alias = "user-assets")]
     UserAssets,
 }
@@ -118,7 +117,7 @@ pub struct WorkspaceSecuritySnapshot {
     /// Trust status for project-declared external workspace roots.
     #[serde(default)]
     pub ex_workspace: WorkspaceTrustState,
-    /// Trust status for user-level MCP and global executable assets (ADR-0252).
+    /// Trust status for user-level MCP and global executable assets.
     #[serde(default)]
     pub user_assets: WorkspaceTrustState,
 }
@@ -191,7 +190,7 @@ impl WorkspaceSecuritySnapshot {
     }
 }
 
-/// Specification of an external capability unit subject to attestation (ADR-0243).
+/// Specification of an external capability unit subject to attestation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AssetSpec {
@@ -252,7 +251,7 @@ impl AssetSpec {
     }
 }
 
-/// Canonical locator identifying an external capability unit (ADR-0252).
+/// Canonical locator identifying an external capability unit.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AssetLocator {
@@ -262,9 +261,9 @@ pub enum AssetLocator {
     UserSkill { name: String },
     /// User-level lifecycle hook in global configuration.
     UserHook { event: String },
-    /// Role-scoped MCP server declared in role bundle (ADR-0253).
+    /// Role-scoped MCP server declared in role bundle.
     RoleMcp { role: String, name: String },
-    /// Role-scoped custom skill (ADR-0253).
+    /// Role-scoped custom skill.
     RoleSkill { role: String, name: String },
     /// Workspace-scoped MCP server declared in workspace configuration.
     WorkspaceMcp {
@@ -352,7 +351,7 @@ fn canonical_root_prefix(root: &str) -> String {
     hex[..16].to_string()
 }
 
-/// Attestation status for an asset in the universal ledger (ADR-0243, ADR-0252).
+/// Attestation status for an asset in the universal ledger.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttestationStatus {
@@ -363,12 +362,12 @@ pub enum AttestationStatus {
     Trusted,
     /// Asset is temporarily allowed for the active session lifetime only.
     SessionEphemeral,
-    /// Asset was explicitly rejected / denied by human review (ADR-0253).
+    /// Asset was explicitly rejected / denied by human review.
     /// Silently quarantined; does not re-trigger trust gate unless content hash changes.
     Denied,
-    /// Asset content has changed compared to previously trusted or denied fingerprint (ADR-0252, ADR-0253).
+    /// Asset content has changed compared to previously trusted or denied fingerprint.
     Changed,
-    /// Asset lease has expired (> 30 days) and requires re-attestation (ADR-0252).
+    /// Asset lease has expired (> 30 days) and requires re-attestation.
     Expired,
 }
 

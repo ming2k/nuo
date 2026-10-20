@@ -41,7 +41,7 @@
 //! - **weight** (luminance) — from Disclosure alone, via
 //!   [`state::summary_weight`]. Expanded → the primary foreground; collapsed →
 //!   muted. Interaction is deliberately **not** a rung on this ladder
-//!   (ADR-0174): under the old `muted < hover < fg` model the affordance was
+//!   under the old `muted < hover < fg` model the affordance was
 //!   structurally dimmer than the active state, so the hover cue always lost
 //!   the salience contest it existed to win.
 //! - **affordance** (hue) — from Interaction, via [`state::Interaction::color`]
@@ -54,7 +54,6 @@
 //! disclosure luminance, then the affordance tint rides on top — so the cue
 //! reads identically on plain, accented, and open summaries without ever
 //! changing their brightness ordering.
-
 use super::Theme;
 
 pub(crate) mod renderers;

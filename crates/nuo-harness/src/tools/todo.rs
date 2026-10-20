@@ -1,4 +1,4 @@
-//! The `todo` tool (ADR-0215): one tool, two mutually exclusive modes.
+//! The `todo` tool: one tool, two mutually exclusive modes.
 //!
 //! It implements the core [`Tool`] contract and mutates an injected
 //! [`TodoToolContext`]. The agent owns the underlying state; this crate owns
@@ -8,7 +8,6 @@
 //! - `key` + `status` present → surgical status update without re-sending
 //!   the list.
 //! - Both or neither → a guiding error naming the two modes.
-
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -54,7 +53,7 @@ impl TodoToolContext {
     }
 }
 
-/// The todo tool (ADR-0215). One model-visible tool owning the whole task-list
+/// The todo tool. One model-visible tool owning the whole task-list
 /// lifecycle: full-replace reconcile *and* surgical status edit, selected by
 /// which parameters the call carries.
 pub struct TodoTool {

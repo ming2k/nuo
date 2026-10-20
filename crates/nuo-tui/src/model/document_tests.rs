@@ -1,5 +1,4 @@
 //! Tests for the transcript document model and markdown parser.
-
 use super::*;
 
 #[test]
@@ -1005,7 +1004,7 @@ fn notice_strips_terminal_controls_from_crlf_http_errors() {
     assert!(!n.raw.chars().any(|c| c.is_control() && c != '\n'));
 }
 
-/// Streaming reasoning rows show activity, never a token count (ADR-0191);
+/// Streaming reasoning rows show activity, never a token count;
 /// finished traces settle to the milestone/duration line.
 #[test]
 fn reasoning_summary_shows_activity_then_settles() {
@@ -1161,7 +1160,7 @@ fn normalize_reasoning_topic_edge_cases() {
 }
 
 // ---------------------------------------------------------------------------
-// Incremental streaming equivalence (ADR-0184)
+// Incremental streaming equivalence
 // ---------------------------------------------------------------------------
 
 /// Deterministic LCG so the corpus/delta splits are stable across runs.
@@ -1268,7 +1267,7 @@ fn streamed_message_equals_freshly_parsed_message() {
     assert_eq!(streamed.blocks, fresh.blocks);
 }
 
-/// Perf guard for ADR-0184: per-frame cost must be O(live construct), not
+/// Perf guard for: per-frame cost must be O(live construct), not
 /// O(whole message). A representative long stream — bounded paragraphs,
 /// regular structure — pushed in small deltas must complete in bounded time.
 /// The pre-ADR full-reparse behavior re-parsed the entire accumulated message

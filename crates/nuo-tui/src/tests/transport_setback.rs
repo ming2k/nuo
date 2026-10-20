@@ -1,4 +1,4 @@
-//! Transport-setback clause lifetime (ADR-0235).
+//! Transport-setback clause lifetime.
 //!
 //! The activity bar's `retry N/M (…)` clause annotates one phase —
 //! `Phase::AwaitingModel` — and the bar showed it long after the retry had

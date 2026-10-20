@@ -1,5 +1,4 @@
 //! The semantic action vocabulary the dispatcher produces.
-
 /// Which OAuth pending-sheet field to copy: the device verification code (the
 /// value the user pastes at github.com/login/device) or the verification URL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,7 +58,7 @@ pub enum InputAction {
     /// Toggle the favorite flag on the highlighted Models row (model-level,
     /// ADR-0046). The Connections list has no favorite concept.
     ProviderPickerToggleFavorite,
-    /// Block/intercept the highlighted model from the connection pipe (`x` in Models modal, ADR-0203 §10).
+    /// Block/intercept the highlighted model from the connection pipe (`x` in Models modal).
     ProviderPickerBlockModel,
     /// Open the unified provider editor (`e`): the per-model settings editor
     /// for the highlighted Models row, or the provider editor (key / meta) for
@@ -85,7 +84,7 @@ pub enum InputAction {
     /// Toggle extended thinking on/off (Space) on the Anthropic key editor's
     /// thinking field. Orthogonal to effort.
     ModelEditorThinkingToggle,
-    /// Cycle the vision capability override (ADR-0149 layer 1) tri-state:
+    /// Cycle the vision capability override (layer 1) tri-state:
     /// inherit → force on → force off. Field 3 of the settings editor.
     ModelEditorVisionCycle,
     /// Cycle the tool-call capability override tri-state. Field 4.
@@ -176,12 +175,12 @@ pub enum InputAction {
     /// command (intercepted locally, never sent to the backend). The request is
     /// never forwarded — it only opens the overlay.
     OpenTools,
-    /// Open the usage-statistics overlay (`/usage`, ADR-0122): daily token
+    /// Open the usage-statistics overlay (`/usage`): daily token
     /// totals, per-model breakdown, and the recent request event log, from
     /// the durable cross-session store. Intercepted locally; the handler
     /// issues `AgentRequest::QueryUsageStats` on every open, so the overlay
     /// always reflects the server-side store (the report is fetched on demand,
-    /// never pushed — see ADR-0209's 2026-09-11 addendum). While the reply is
+    /// never pushed — 2026-09-11 addendum). While the reply is
     /// in flight the previously rendered numbers stay on screen.
     OpenUsage,
     /// Open the provider quota dashboard (`/quota`, ADR-0036): type-scoped
@@ -245,20 +244,20 @@ pub enum InputAction {
     SessionActivate,
     /// Open the currently-selected session in the sessions picker.
     OpenSelectedSession,
-    /// Toggle expand/fold of child timeline branches (asides/forks) in the sessions picker (ADR-0251).
+    /// Toggle expand/fold of child timeline branches (asides/forks) in the sessions picker.
     ToggleSessionTimelineExpand,
     /// `/host` panel Enter: switch the TUI to drive the selected server
-    /// session (ADR-0096). Handled by exiting to re-attach.
+    /// session. Handled by exiting to re-attach.
     HostSwitchSelected,
     /// Dashboard Enter on a dock selection: open the read-only preview modal
-    /// for that session (ADR-0097 §3). Selection alone never triggers this —
+    /// for that session. Selection alone never triggers this —
     /// only an explicit Enter.
     HostPreviewSelected,
     /// Dashboard `Tab`: toggle keyboard focus between the session list and
     /// the detail pane.
     HostFocusToggle,
     /// Dashboard `i`: interrupt the selected session's current round
-    /// (control-plane verb, ADR-0096).
+    /// (control-plane verb).
     HostInterruptSelected,
     /// Dashboard `k`: kill (tear down) the selected session — a two-press
     /// confirm, since a session's running work dies with it. The receipt
@@ -347,7 +346,7 @@ pub enum InputAction {
     /// (text + attachments). Triggered by `Esc` while the recall pointer sits
     /// on a history row — the universal "get me back" chord must exit the
     /// recall state, which otherwise has no exit short of walking ↓ to the
-    /// end or sending (ADR-0192).
+    /// end or sending.
     CancelHistoryRecall,
     /// Paste from the system clipboard (image or text). Resolved by the app
     /// loop, which reads the clipboard asynchronously.
@@ -468,7 +467,7 @@ pub enum InputAction {
     QuestionPrevious,
     /// Cancel the question modal.
     QuestionCancel,
-    /// ADR-0175: navigation/decision actions on the PreAttach
+    /// Navigation/decision actions on the PreAttach
     /// interstitial surface. The four variants mirror the Question
     /// sheet's, but route to `PreAttachState::apply` instead of the
     /// Question sheet's `QuestionModel::update`, keeping the two
@@ -536,7 +535,7 @@ pub enum InputAction {
     },
     /// Drop the last character from the switcher's filter (Backspace).
     ViewSwitcherBackspace,
-    /// Switch to the view highlighted in the quick switcher (ADR-0139,
+    /// Switch to the view highlighted in the quick switcher (
     /// Enter). Hides the current browse view (state retained in the
     /// `PanelRegistry`) and focuses the target with its retained
     /// scroll/index restored.
@@ -545,7 +544,7 @@ pub enum InputAction {
     /// Delete never removes the underlying session or backend resource.
     ViewCloseSelected,
     /// Interrupt the viewed subagent's in-flight round (Esc inside the Subagent
-    /// scene, ADR-0205). Scene-scoped: it stops only the focused child and never
+    /// scene). Scene-scoped: it stops only the focused child and never
     /// the enclosing primary round or a sibling subagent. The target is the top
     /// of the focus stack.
     InterruptSubagent,
@@ -563,9 +562,9 @@ pub enum InputAction {
     CancelSceneNamespace,
     /// Step back one level inside the active Scene — a dropdown, a drill-in
     /// pane, the dashboard's preview or inline prompt. Esc on a scene produces
-    /// this (ADR-0298 §2). It never leaves the Scene: tab closure is
+    /// this. It never leaves the Scene: tab closure is
     /// [`InputAction::CloseTab`] (`C-x w`, ADR-0077), never the universal
-    /// dismiss chord (ADR-0205 `[INV-TUI-CLEAN-02]`).
+    /// dismiss chord (`[INV-TUI-CLEAN-02]`).
     SceneBack,
     /// Navigate directly to the server session orchestrator dashboard scene (`C-x d`).
     NavigateDashboard,

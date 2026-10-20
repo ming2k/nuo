@@ -88,7 +88,7 @@ fn enter_shell(input: &mut String) -> InputAction {
 
 fn key_in_view(code: KeyCode, in_subagent_view: bool, input: &mut String) -> InputAction {
     key_in_view_with(code, input, move |dispatch| {
-        // Surface dispatch keys off the explicit scene (ADR-0205), not the
+        // Surface dispatch keys off the explicit scene, not the
         // legacy flags.
         dispatch.scene = if in_subagent_view {
             crate::surfaces::SceneKind::Subagent

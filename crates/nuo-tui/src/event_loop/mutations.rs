@@ -1,4 +1,4 @@
-//! The translator seam (ADR-0197 M1): typed mutations from the response
+//! The translator seam (M1): typed mutations from the response
 //! translator to the event loop.
 //!
 //! The server-response listener (and the monitor client) own **no**
@@ -18,7 +18,6 @@
 //! - The channel is bounded. Overflow cannot happen silently: a full channel
 //!   applies backpressure to the translator (which is driven by the server
 //!   stream), and the loop drains eagerly each iteration.
-
 use std::collections::HashMap;
 
 use nuo_wire::{
@@ -202,12 +201,12 @@ pub(crate) enum TranscriptEdit {
     /// mid-trace; the spinner would breathe forever).
     FinalizeOrphanedReasoning { duration_ms: Option<u64> },
     /// Cancel every still-Pending command row (round boundary with no reply
-    /// on this pass; ADR-0108).
+    /// on this pass).
     CancelPendingCommands,
     /// Rebase message rounds after a transcript rebuild.
     RebaseRounds { round_counter: u64 },
     /// Stamp the composer's latest unpositioned driving prompt with the
-    /// authoritative round at `TurnStarted` admission (ADR-0197 M1: the
+    /// authoritative round at `TurnStarted` admission (M1: the
     /// translator cannot read the document to find it).
     StampTurnPrompt { round: u64 },
     /// Wholesale replace (session switch / aside open: rebuilt + merged).
@@ -216,7 +215,7 @@ pub(crate) enum TranscriptEdit {
     Clear,
 }
 
-/// View-scoped chrome edit (per-session bookkeeping; ADR-0089/0103).
+/// View-scoped chrome edit (per-session bookkeeping; /0103).
 #[derive(Debug, Clone)]
 pub(crate) enum ChromeEdit {
     /// The authoritative running/idle transition (`HarnessState`).
@@ -240,7 +239,7 @@ pub(crate) enum ChromeEdit {
     /// The session's in-flight model request was retried (`RetryScheduled`):
     /// publish the setback clause beside its phase.
     ///
-    /// There is no clear counterpart, and that is the point (ADR-0235): the
+    /// There is no clear counterpart, and that is the point: the
     /// clause is retired by the *next phase write* for this session
     /// ([`crate::app::SessionChrome::set_phase`]), so the producer states the fact and
     /// forgets it. A producer that could clear it would reintroduce the
@@ -286,7 +285,7 @@ pub(crate) enum AppMutation {
     /// countdown) beside its phase.
     ///
     /// Not an `Option`: the clause cannot be "set to nothing" because clearing
-    /// it here is precisely how the bar went stale (ADR-0235). It is retired by
+    /// it here is precisely how the bar went stale. It is retired by
     /// the next [`AppMutation::SetPhase`] that is not `AwaitingModel` — the one
     /// writer that sees every phase move.
     SetProviderRetry(ProviderRetryState),
@@ -303,7 +302,7 @@ pub(crate) enum AppMutation {
     QueueInput(InputRequest),
     ClearPermissions,
 
-    // Background task mutations (ADR-0212 TaskBar authority).
+    // Background task mutations (TaskBar authority).
     BackgroundTaskStarted {
         id: String,
         label: String,
@@ -323,7 +322,7 @@ pub(crate) enum AppMutation {
         session_id: String,
         input_id: String,
     },
-    /// ADR-0212: Steer missed the active round. Restored to composer draft,
+    /// Steer missed the active round. Restored to composer draft,
     /// never queued as a follow-up item.
     SteerMissed {
         session_id: String,
@@ -335,7 +334,7 @@ pub(crate) enum AppMutation {
         session_id: String,
         input_id: String,
     },
-    /// The authoritative follow-up queue snapshot (ADR-0197 M4): replace the
+    /// The authoritative follow-up queue snapshot (M4): replace the
     /// session's projection, keeping in-flight optimistic entries the
     /// snapshot cannot know about yet, and mirror the server's paused flag.
     QueueSnapshot {
@@ -376,7 +375,7 @@ pub(crate) enum AppMutation {
     ServerEndpoints(nuo_wire::ServerEndpointsReport),
     PreAttach(PreAttachSignal),
     /// A failed trust-grant round-trip for the mounted PreAttach surface
-    /// (ADR-0175): the server could not persist the trust decision. The
+    /// the server could not persist the trust decision. The
     /// applier gates on the surface being mounted — with no gate up, the
     /// notice keeps its normal transcript/toast flow.
     PreAttachAttestationError(String),
@@ -392,7 +391,7 @@ pub(crate) enum AppMutation {
     Quit,
     HostSessions(Vec<nuo_wire::MonitoredSession>),
     PersistenceHealth(Option<nuo_wire::monitor::PersistenceHealth>),
-    /// A dashboard console receipt (ADR-0097 §3): appended to
+    /// A dashboard console receipt: appended to
     /// `App::host_console_log` by the applier.
     HostConsole(crate::overlays::ConsoleLine),
 }

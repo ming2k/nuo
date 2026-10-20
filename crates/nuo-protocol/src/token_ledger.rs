@@ -8,7 +8,6 @@
 //! **estimated**. This module keeps a running tally so the UI can answer
 //! "how accurate is my context meter?" and surface which providers/models
 //! are measured vs. guessed.
-
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -298,7 +297,7 @@ pub struct RequestUsageKey {
     pub attempt: u32,
 }
 
-/// Canonical actor ID for the top-level session root agent (ADR-0183).
+/// Canonical actor ID for the top-level session root agent.
 pub const ROOT_ACTOR_ID: &str = "root";
 
 /// Whether the given actor ID represents the root agent (including legacy `"master"` records).
@@ -603,7 +602,7 @@ pub struct TokenSourceLedger {
     /// to this id, preventing usage from another opened session leaking into
     /// the current report.
     active_session: Mutex<Option<String>>,
-    /// Optional durable mirror (ADR-0122): every terminally settled request
+    /// Optional durable mirror: every terminally settled request
     /// is forwarded to this sink. `None` in tests / when no store is bound.
     usage_sink: Mutex<Option<Arc<dyn UsageStatSink>>>,
     dirty_usage: Mutex<std::collections::HashSet<RequestUsageKey>>,
@@ -663,7 +662,7 @@ impl TokenSourceLedger {
             .clone()
     }
 
-    /// Install the durable usage-statistics sink (ADR-0122). Every
+    /// Install the durable usage-statistics sink. Every
     /// terminally settled request attempt is forwarded to it from
     /// [`Self::settle_request`]. Replaces any prior sink.
     pub fn install_usage_sink(&self, sink: Arc<dyn UsageStatSink>) {

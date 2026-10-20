@@ -1,10 +1,9 @@
-//! Homogeneous agent execution policies (ADR-0183).
+//! Homogeneous agent execution policies.
 //!
 //! Replaces heterogeneous agent species with a unified [`ExecutionPolicy`].
 //! Every agent runs the same cognitive engine; its behavioral boundaries,
 //! recursion limits, and human-interaction posture are governed entirely by
 //! this typed policy.
-
 use serde::{Deserialize, Serialize};
 use std::fmt;
 

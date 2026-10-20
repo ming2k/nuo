@@ -1,10 +1,9 @@
-//! Turn-aware split compaction on Session IR CausalNodes (ADR-0255).
+//! Turn-aware split compaction on Session IR CausalNodes.
 //!
 //! Features:
 //! - Turn-aware atomic cut point selection that never cuts on a Tool Result.
 //! - Conservative token estimation per CausalNode.
 //! - LLM structured summarization into dense context checkpoints.
-
 use super::file_tracker::FileOperations;
 use nuo_wire::{CausalNode, Message, ModelRequest, NodePayload, Provider, Role};
 use std::sync::Arc;
@@ -52,7 +51,7 @@ pub struct CutPointResult {
     pub tokens_before: usize,
 }
 
-/// Conservative token estimation for a CausalNode (chars / 4 heuristic, ADR-0255).
+/// Conservative token estimation for a CausalNode (chars / 4 heuristic).
 pub fn estimate_causal_node_tokens(node: &CausalNode) -> usize {
     match &node.payload {
         NodePayload::Message { message } => {
@@ -83,7 +82,7 @@ pub fn estimate_causal_node_tokens(node: &CausalNode) -> usize {
 }
 
 /// Find a turn-aware cut point on CausalNodes that preserves approximately `keep_recent_tokens` of newest context.
-/// Never cuts on a Tool Result — always keeps tool calls and their results together (ADR-0255).
+/// Never cuts on a Tool Result — always keeps tool calls and their results together.
 pub fn find_cut_point_nodes(
     nodes: &[&CausalNode],
     keep_recent_tokens: usize,
@@ -150,7 +149,7 @@ pub fn find_cut_point_nodes(
     })
 }
 
-/// Find a cut point on CausalNodes preserving the last `preserve_rounds` user rounds (ADR-0296).
+/// Find a cut point on CausalNodes preserving the last `preserve_rounds` user rounds.
 /// Folds rounds [0..N-preserve_rounds] and preserves the volatile tail verbatim.
 /// Returns None if there are fewer than `preserve_rounds + 1` complete rounds (meaning no past rounds to fold).
 pub fn find_tail_preserving_cut_point(
@@ -190,7 +189,7 @@ pub fn find_tail_preserving_cut_point(
         return None;
     }
 
-    // Adjust cut_index so we never cut in the middle of a ToolResult chain (ADR-0255 / ADR-0296)
+    // Adjust cut_index so we never cut in the middle of a ToolResult chain
     while cut_index > 0 {
         if let NodePayload::Message { ref message } = nodes[cut_index].payload
             && message.role == Role::Tool
@@ -222,7 +221,7 @@ pub fn find_tail_preserving_cut_point(
     })
 }
 
-/// Serialize CausalNodes to clean text representation for LLM summarization (ADR-0255).
+/// Serialize CausalNodes to clean text representation for LLM summarization.
 pub fn serialize_nodes_for_summary(nodes: &[&CausalNode]) -> String {
     let mut out = String::new();
     for node in nodes {
@@ -275,7 +274,7 @@ pub fn serialize_nodes_for_summary(nodes: &[&CausalNode]) -> String {
     out
 }
 
-/// Execute turn-aware split compaction on CausalNode lineage (ADR-0255).
+/// Execute turn-aware split compaction on CausalNode lineage.
 pub async fn compact_causal_nodes(
     provider: Arc<dyn Provider>,
     nodes: &[&CausalNode],

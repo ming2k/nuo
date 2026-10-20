@@ -1,5 +1,4 @@
 //! Qoder's COSY request-signing protocol (`api*.qoder.sh`).
-
 use base64::Engine as _;
 use cbc::cipher::{BlockEncryptMut, KeyIvInit};
 use md5::Md5;
@@ -277,7 +276,7 @@ fn mint_cosy_request_id() -> String {
     )
 }
 
-/// Universal COSY transport signer for Qoder (ADR-0267).
+/// Universal COSY transport signer for Qoder.
 #[derive(Debug, Clone, Default)]
 pub struct CosyTransportSigner;
 

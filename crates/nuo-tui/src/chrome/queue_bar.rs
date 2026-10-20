@@ -1,5 +1,4 @@
 //! The persistent single-row queue/outbox bar pinned below transcript gap.
-
 use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
@@ -21,7 +20,7 @@ pub struct QueueBarProps<'a> {
     pub paused: bool,
     pub blocked: bool,
     /// The chord that actually opens the queue panel, resolved from the
-    /// command registry (ADR-0238). `None` — the command was unbound or the
+    /// command registry. `None` — the command was unbound or the
     /// user remapped it away — renders no keycap: the bar advertises the
     /// binding that fires, and nothing when none does.
     pub expand_key: Option<crate::keymap::Key>,
@@ -96,7 +95,7 @@ pub fn draw_queue_bar(
             return spans;
         }
         // No resolved chord → no keycap. The label alone would advertise an
-        // affordance with no way to reach it by keyboard (ADR-0238).
+        // affordance with no way to reach it by keyboard.
         let Some(key) = expand_key else {
             return spans;
         };

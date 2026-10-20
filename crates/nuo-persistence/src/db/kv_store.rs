@@ -1,7 +1,6 @@
-//! Key-value storage implementation against SQLite `kv_store` (ADR-0168).
+//! Key-value storage implementation against SQLite `kv_store`.
 //!
 //! Provides flat string KV, prefix search, and typed JSON serialization/deserialization.
-
 use rusqlite::{Connection, OptionalExtension, Result, params};
 use serde::Deserialize;
 

@@ -21,7 +21,6 @@
 //!    ([`ends_transport_setback`]). No producer retires the clause, which is
 //!    what keeps a wire event this fold has not learned yet from leaving a
 //!    dead clause on the bar.
-
 use std::borrow::Cow;
 
 /// The closed set of live-round phases the activity bar can be in.
@@ -159,7 +158,7 @@ impl Phase {
 }
 
 /// Whether writing this phase ends the transport-setback clause of the session
-/// it belongs to (design rule 4, ADR-0235).
+/// it belongs to (design rule 4).
 ///
 /// A setback clause sells one thing: *the model request in flight for this
 /// phase did not land*. Only [`Phase::AwaitingModel`] can host that claim.
@@ -256,7 +255,7 @@ mod tests {
         assert!(!Phase::AwaitingModel.is_gate());
     }
 
-    /// Design rule 4 (ADR-0235): the transport-wait phase hosts the setback
+    /// Design rule 4: the transport-wait phase hosts the setback
     /// clause; every other phase — including idle — ends it. This is the only
     /// statement of the clause's lifetime, so it is pinned here.
     #[test]

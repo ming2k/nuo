@@ -3,7 +3,6 @@
 //! Everything an embedder sets up before the first round: tool variant
 //! selection, context budgets, the trajectory guard, bash policy, hook registries,
 //! todo lists, and the identity/preset accessors.
-
 use super::*;
 
 /// Whether any message in `messages` carries an inline image attachment.
@@ -19,7 +18,7 @@ pub(crate) fn carries_images(messages: &[Message]) -> bool {
 /// Strip every inline image attachment from `messages`, returning how many were
 /// dropped. Text content is untouched.
 ///
-/// The unconditional half of the image projection (ADR-0230): callers decide
+/// The unconditional half of the image projection: callers decide
 /// *whether* the route can be given attachments and use
 /// [`Agent::project_images_away_if_unusable`] for that. The image-cause probe
 /// calls this directly, because it deliberately withholds attachments from a
@@ -101,7 +100,7 @@ impl Agent {
         // master's identity selection (unrestricted) composed with the
         // model's capability limits. `set_variant_selection` re-resolves once
         // the model's `[tool_variants]` selection is known and on every switch.
-        // The provider's capability snapshot (route-resolved, ADR-0149)
+        // The provider's capability snapshot (route-resolved)
         // overrides the static registry's vision flag — a fitted relay model
         // the baseline does not know would otherwise lose its vision-gated
         // tools at seed time.
@@ -244,7 +243,7 @@ impl Agent {
     /// the dispatch table always reflect `agent_scope ∩ model_caps`.
     fn reresolve_tools(&self, model_variants: &nuo_wire::VariantSelection) {
         // The provider's own capability snapshot is the authority — it is the
-        // full ADR-0149 route resolution (`Channel::capabilities()`: baseline ⊕
+        // full route resolution (`Channel::capabilities`: baseline ⊕
         // remote advertisement ⊕ user overrides). Resolving the model id
         // through the static registry here would miss the fitted-model overlay
         // and per-route overrides, and silently drop vision-gated tools (e.g.
@@ -411,7 +410,7 @@ impl Agent {
     /// cache makes the resulting request cheap to re-estimate; nothing in
     /// this path can stall the executor behind filesystem reads.
     ///
-    /// Image visibility is decided **here, per request** (ADR-0230), never on
+    /// Image visibility is decided **here, per request**, never on
     /// the durable transcript: a route that declares no image input, or one the
     /// harness has already seen reject an image, has its attachments projected
     /// away for this request only. That is what makes switching to a text-only
@@ -427,7 +426,7 @@ impl Agent {
             .filter(|message| message.role != Role::System)
             .cloned()
             .collect();
-        // ADR-0288 `[INV-REF-03]`/`[INV-REF-04]`: canonicalize `@`-addresses
+        // `[INV-REF-03]`/`[INV-REF-04]`: canonicalize `@`-addresses
         // and consume suppressed escapes on the provider-facing view only, and
         // only where the user actually wrote a reference. Harness-injected
         // messages (the hidden `<file>`/`<skill>` envelopes and every note) are
@@ -452,7 +451,7 @@ impl Agent {
         self.project_images_away_if_unusable(&mut enriched);
 
         // `E_n` (the request-local temporary context) is empty by default
-        // (ADR-0213/ADR-0214/ADR-0217): code structure is delivered on demand
+        // code structure is delivered on demand
         // via `code_query`, not as an automatic ambient Repo Map. The facet
         // loop remains the generic extension point for explicitly-approved,
         // budgeted temporary-context producers. A projection is bounded and
@@ -487,7 +486,7 @@ impl Agent {
     }
 
     /// Compile a [`nuo_wire::ModelRequest`] directly from a canonical [`nuo_wire::SessionIR`]
-    /// via the multi-pass compiler pipeline (ADR-0241/ADR-0249, INV-EXEC-02).
+    /// via the multi-pass compiler pipeline (INV-EXEC-02).
     pub fn model_request_from_ir(
         &self,
         ir: &nuo_wire::SessionIR,
@@ -522,7 +521,7 @@ impl Agent {
     }
 
     /// Project inline images away when this route cannot be given them
-    /// (ADR-0230). Two independent reasons qualify, and both are *projection*
+    /// Two independent reasons qualify, and both are *projection*
     /// facts rather than history edits:
     ///
     /// - the route **declared** no image input (the wire builders strip these
@@ -574,7 +573,6 @@ impl Agent {
     /// The latch is keyed by [`nuo_wire::RouteFingerprint`], so a model or
     /// endpoint switch disarms it by construction: the correction belongs to the
     /// route that demonstrated it, never to the model id in the abstract
-    /// (ADR-0149/ADR-0230).
     pub fn images_suppressed_for_current_route(&self) -> bool {
         let current = self.provider.route_fingerprint();
         self.images_suppressed
@@ -585,12 +583,12 @@ impl Agent {
     }
 
     /// Learn that the active route rejects image input, and withhold images
-    /// from it from now on (ADR-0230).
+    /// from it from now on.
     ///
     /// Called when a provider refuses a request with an image-shaped error while
     /// that request carried attachments. Recording it as a *route* fact is what
     /// keeps a session alive across a model switch that leaves images in the
-    /// durable history: the transcript is append-only (ADR-0186), so the only
+    /// durable history: the transcript is append-only, so the only
     /// thing that may change is what a request projects.
     ///
     /// Returns `true` when this call armed the latch (i.e. the route was not
@@ -924,7 +922,7 @@ impl Agent {
         }
     }
 
-    /// Install the request-projection archive sink (ADR-0218). Called by the
+    /// Install the request-projection archive sink. Called by the
     /// session driver; `None` (subagents, tests) makes recording a no-op.
     pub fn set_request_projection_persist(&self, f: RequestProjectionFn) {
         *self
@@ -967,14 +965,14 @@ impl Agent {
     /// and the base relative file-tool paths resolve against. `None` when no
     /// project was designated (subagents, tests, or a detached session), in which
     /// case file injection is disabled.
-    /// Record the session's additional workspace roots (ADR-0142). Called
+    /// Record the session's additional workspace roots. Called
     /// once by the assembling bootstrap after they validate; they surface to
     /// the model through the `WorkspaceRootsGuidance` system-prompt section.
     pub fn set_additional_workspace_roots(&mut self, roots: Vec<std::path::PathBuf>) {
         self.additional_workspace_roots = roots;
     }
 
-    /// The session's additional workspace roots, if any (ADR-0142).
+    /// The session's additional workspace roots, if any.
     pub fn additional_workspace_roots(&self) -> &[std::path::PathBuf] {
         &self.additional_workspace_roots
     }
@@ -1040,7 +1038,7 @@ impl Agent {
     /// produce and persist the next model-visible window.
     /// Gate the assembled request on context pressure. Takes the
     /// already-assembled request so the turn's estimate reuses it instead of
-    /// rebuilding the full request a second time (ADR-0187 hot path).
+    /// rebuilding the full request a second time (hot path).
     /// Returns `true` when the projection replaced `messages` (the caller
     /// must re-assemble before calling the provider).
     pub(super) async fn project_context_if_needed(
@@ -1128,7 +1126,7 @@ impl Agent {
         *self.todos.lock().unwrap_or_else(|e| e.into_inner()) = nuo_wire::TodoList::default();
     }
 
-    /// Access the harness internal task pipeline for out-of-band typed execution (ADR-0211).
+    /// Access the harness internal task pipeline for out-of-band typed execution.
     pub fn harness_tasks(&self) -> crate::cognitive::HarnessTaskPipeline {
         crate::cognitive::HarnessTaskPipeline::new(self.provider.clone())
     }
@@ -1138,12 +1136,12 @@ impl Agent {
         crate::cognitive::CognitivePipeline::new(self.provider.clone())
     }
 
-    /// Access the Spatiotemporal Aspect Engine governing lifecycle phases (ADR-0183 / ADR-0211).
+    /// Access the Spatiotemporal Aspect Engine governing lifecycle phases.
     pub fn aspects(&self) -> crate::aspects::AspectEngine {
         crate::aspects::AspectEngine::new(self.harness_tasks())
     }
 
-    /// Access the atomic extensions bound to this agent (ADR-0224).
+    /// Access the atomic extensions bound to this agent.
     pub fn extensions(&self) -> Vec<Arc<dyn nuo_wire::Extension>> {
         self.extensions
             .read()
@@ -1151,7 +1149,7 @@ impl Agent {
             .clone()
     }
 
-    /// Add an atomic extension to this agent (ADR-0224).
+    /// Add an atomic extension to this agent.
     pub fn add_extension(&self, extension: Arc<dyn nuo_wire::Extension>) {
         self.extensions
             .write()
@@ -1161,7 +1159,7 @@ impl Agent {
 }
 
 /// Hard byte budget for a single request-local temporary-context producer
-/// (ADR-0213 §2). Temporary context is optional enrichment, not a channel for
+/// Temporary context is optional enrichment, not a channel for
 /// bulk repository state, so the budget is deliberately small.
 pub(crate) const TEMPORARY_CONTEXT_BUDGET_BYTES: usize = 8 * 1024;
 
@@ -1199,7 +1197,7 @@ mod budget_tests {
         assert!(bounded.ends_with("[temporary context truncated to its byte budget]"));
     }
 
-    /// ADR-0218: the archive sink fires with the record and a write failure is
+    /// The archive sink fires with the record and a write failure is
     /// non-fatal (forensic, never authoritative).
     #[tokio::test]
     async fn request_projection_sink_fires_and_is_non_fatal() {

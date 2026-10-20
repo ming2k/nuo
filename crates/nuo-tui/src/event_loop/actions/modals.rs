@@ -3,7 +3,6 @@
 //! ↑/↓ modal navigation. Extracted verbatim from the corresponding arms of
 //! `dispatch_action`'s match; only `SubmitModelEditor`'s arm-level `continue`
 //! became an [`ActionFlow`] value (it already was, inside `dispatch_action`).
-
 use std::sync::atomic::Ordering;
 
 use nuo_wire::AgentRequest;
@@ -34,7 +33,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
             if name.is_empty() {
                 app.load_custom_field();
             } else {
-                // The connection's identity is its `name` (ADR-0201 INV-3).
+                // The connection's identity is its `name` (INV-3).
                 // A changed Name is the separate atomic `RenameConnection`
                 // transaction; the metadata edit itself stays keyed by the
                 // current name.
@@ -82,7 +81,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                     client_identity: Some(app.custom_client_identity.clone()),
                     budget: app.custom_budget.clone(),
                 });
-                // Phase 3 (ADR-0133): the chain ends at chat. Pop the nav
+                // Phase 3: the chain ends at chat. Pop the nav
                 // frame (the picker this editor was opened over) and hand
                 // the composer draft back from that view's per-view slot.
                 app.restore_chat_after_editor_chain();
@@ -112,7 +111,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
             if name.is_empty() || !usable {
                 app.load_custom_field();
             } else {
-                // The template's id IS the model provider id (ADR-0201): the
+                // The template's id IS the model provider id: the
                 // connection is created against that service surface. Only the
                 // `custom` provider takes a protocol/endpoint override; a
                 // curated provider owns its wire. The name is sent raw and
@@ -185,7 +184,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
             && row.usable
         {
             let is_builtin = !app.provider_is_custom(&row.provider_id);
-            // Phase 3 (ADR-0133): the picker that opened this editor goes on
+            // Phase 3: the picker that opened this editor goes on
             // the navigation stack; its Esc/submit pops back to it.
             app.surfaces.present_sheet(SheetKind::ModelEditor);
             app.editor_target = Some(row.provider_id.clone());
@@ -193,9 +192,9 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
             app.editor_model_settings_only = true;
             app.editor_target_is_builtin = is_builtin;
             app.editor_key.clear();
-            // Load the stored capability overrides (ADR-0149 layer 1) so
+            // Load the stored capability overrides (layer 1) so
             // the editor shows what is already forced, if anything. The read
-            // is a server round-trip now (ADR-0197): open with the defaults
+            // is a server round-trip now: open with the defaults
             // cleared and prefill when the `RouteSettings` answer lands.
             app.editor_vision_override = None;
             app.editor_tool_override = None;
@@ -210,7 +209,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
             // the segmented selector can highlight.
             //
             // The ladder itself comes from the snapshot row (the server's
-            // ADR-0149 resolution), never from `resolve_model`: this client
+            // Resolution), never from `resolve_model`: this client
             // does not link `nuo-providers`, so the static baseline tables are
             // absent here and a client-side resolve would yield an empty
             // ladder — which is exactly what collapsed the node slider.
@@ -466,7 +465,7 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
             },
             base_url: None,
         });
-        // Close to chat: the chain ends here (phase 3, ADR-0133). Pop the
+        // Close to chat: the chain ends here (phase 3). Pop the
         // nav frame (the picker the editor was opened over) and hand the
         // composer draft back from that view's per-view slot.
         app.restore_chat_after_editor_chain();
@@ -479,7 +478,7 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
 
 /// Loop stage (input dispatch): the `CloseModal` arm — the generic overlay
 /// dismiss. **Overlay-scoped**: every branch below closes, backs out of, or
-/// quits *from* an overlay. No branch leaves a Scene (ADR-0205
+/// quits *from* an overlay. No branch leaves a Scene (
 /// `[INV-TUI-CLEAN-02]`): Esc over a Scene's own chrome produces
 /// [`InputAction::SceneBack`] instead, and tab closure is
 /// [`InputAction::CloseTab`] (`C-x w`, ADR-0043, ADR-0077).
@@ -489,7 +488,7 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
     // before any close/quit logic runs — otherwise pressing Esc
     // in e.g. the Sessions › Info sub-view at startup would quit
     // the program instead of dropping back to the sessions list.
-    // One step back through any drill-in sub-layer (ADR-0133 phase 4):
+    // One step back through any drill-in sub-layer (phase 4):
     // the single shared pop — Esc here and the outside-click mirror below
     // can no longer drift apart. A view with a sub-layer open stays up.
     if app.pop_sublayer() {
@@ -505,7 +504,7 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
         tracing::info!(reason = "startup_picker_cancelled", "app exiting");
         app.should_quit.store(true, Ordering::SeqCst);
     } else {
-        // Retained browse dialogs hide instead of closing (ADR-0205), and the
+        // Retained browse dialogs hide instead of closing, and the
         // quick switcher cancels back to its origin surface — both via the
         // shared dismiss verb.
         if app.dismiss_surface() {
@@ -531,7 +530,7 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
         }
         // Nothing left to dismiss: the gesture is spent. The Scene beneath is
         // deliberately left exactly as it was — a dismiss never navigates
-        // (ADR-0298 §2). (A trailing `reset_to_thread()` used to demote
+        // (A trailing `reset_to_thread` used to demote
         // the Scene here, which made every overlay-dismiss on the Dashboard or
         // Settings scene a back-door scene exit.)
     }
@@ -543,7 +542,7 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
 ///
 /// This is a **program exit**, not a scene transition: with no thread
 /// ever requested, "returning" to the carrier chat would trap the user in an
-/// empty session (the trap ADR-0205's startup carve-outs exist to prevent).
+/// empty session (the trap startup carve-outs exist to prevent).
 /// Called from the scene-exit verbs (`C-x w`, each scene's own `q`)
 /// after the scene itself declined to navigate. Returns `true` when it handled
 /// the exit by quiting.
@@ -816,7 +815,7 @@ pub(crate) mod question_effects {
                     request_id,
                     answers,
                 } => {
-                    // ADR-0175: trust gate requests no longer route
+                    // Trust gate requests no longer route
                     // through the pending_question queue (they mount
                     // the PreAttach interstitial instead). This guard
                     // is defensive: should a trust_gate request ever
@@ -839,7 +838,7 @@ pub(crate) mod question_effects {
                     });
                 }
                 crate::question_model::QuestionEffect::Cancelled { request_id } => {
-                    // ADR-0175 defensive guard — see the Reply arm.
+                    // Defensive guard — see the Reply arm.
                     if request_id == crate::trust_gate::TRUST_GATE_REQUEST_ID {
                         runtime.trust_gate_dismissed.store(true, Ordering::SeqCst);
                         continue;
@@ -855,7 +854,7 @@ pub(crate) mod question_effects {
                     app.pending_questions.retain(|r| r.id != *request_id);
                     if app.pending_questions.is_empty() {
                         app.question = None;
-                        // The sheet is composer-slot state (ADR-0173 §3),
+                        // The sheet is composer-slot state,
                         // not router foreground identity: unmount it via
                         // `dismiss_sheet`, never `pop_transient_surface`.
                         // Popping the surface router here consumed an
@@ -893,7 +892,7 @@ mod tests {
 
     /// Regression (composer stuck inactive after the question sheet is
     /// answered): `Closed` must unmount the sheet as composer-slot state
-    /// (`dismiss_sheet`, ADR-0173 §3) — never `pop_transient_surface`, which
+    /// (`dismiss_sheet`) — never `pop_transient_surface`, which
     /// consumed an unbalanced return frame and left the composer dimmed.
     #[tokio::test]
     async fn closed_effect_unmounts_question_sheet_not_router_transient() {

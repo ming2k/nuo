@@ -141,7 +141,7 @@ fn restored_command_echo_origin_from_durable_provenance() {
     assert_eq!(restored_shell.origin, UserMessageOrigin::Slash);
 }
 
-/// ADR-0108: a restored slash/shell echo folds into the command ledger
+/// A restored slash/shell echo folds into the command ledger
 /// projection — the invocation renders once, on the `⌘` command component,
 /// never twice (a `▌ cmd` user bubble *and* a command row). The echo is
 /// dropped from the dialogue before merge; the ledger row keeps the record.
@@ -171,7 +171,7 @@ fn restored_slash_echoes_fold_into_command_components() {
     assert_eq!(
         raws,
         vec!["hello", "hi", "and me too"],
-        "command echoes must not render as user bubbles (ADR-0108); the ledger row owns the invocation"
+        "command echoes must not render as user bubbles; the ledger row owns the invocation"
     );
     // The projection builder still classifies them correctly when asked
     // directly (used by Activity-modal prompt gating) — the fold happens at
@@ -827,7 +827,7 @@ async fn record_input_history_skips_slash_commands_by_default() {
 /// record path must never dispatch persistence intents to the server
 /// (regression: `record_input_history` used to merge synthetic `prompt N`
 /// rows straight into the user's database file). The frontend has no
-/// database access at all now (ADR-0197) — the guarantee is that no
+/// database access at all now — the guarantee is that no
 /// persistence intent leaves the App when persistence is disabled.
 #[tokio::test]
 async fn test_app_does_not_touch_disk_history() {
@@ -902,11 +902,11 @@ async fn history_rows_are_readonly_snapshots() {
     assert_eq!(app.input, app.draft_capsule.text);
 }
 
-/// The composer's recall badge (ADR-0192): a 1-based pointer position over
+/// The composer's recall badge: a 1-based pointer position over
 /// the current session's newest-first slice, present exactly while
 /// `history_index` is `Some`, with the `edited` clause when the live buffer
 /// has forked from the loaded row. Draft mode renders no badge — the
-/// zero-mode-indication-tax stance (ADR-0173) means the only announced state
+/// zero-mode-indication-tax stance means the only announced state
 /// is the one that silently swaps the buffer.
 #[tokio::test]
 async fn history_recall_badge_tracks_the_pointer() {
@@ -944,7 +944,7 @@ async fn history_recall_badge_tracks_the_pointer() {
 }
 
 /// Esc during inline recall cancels it and restores the stashed draft —
-/// the universal "get me back" chord must exit the recall state (ADR-0192).
+/// the universal "get me back" chord must exit the recall state.
 #[tokio::test]
 async fn esc_cancels_history_recall_and_restores_draft() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);

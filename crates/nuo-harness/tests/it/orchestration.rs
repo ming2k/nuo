@@ -2,7 +2,7 @@
 //! proxy provider, retry-delay math, context-overflow classification, and
 //! the self-registration of built-in tools via `inventory`. These live with
 //! the code under test (they were historically parked in the `nuo`
-//! binary, which exercised this layer end-to-end before ADR-0096 moved
+//! binary, which exercised this layer end-to-end before moved
 //! session hosting into the server).
 
 // Tests panic on assertion failure by design; the workspace's unwrap/expect
@@ -496,7 +496,7 @@ impl Provider for TelemetryPublishingProvider {
     }
 }
 
-/// ADR-0232: the transport's timings reach the attempt that caused them.
+/// The transport's timings reach the attempt that caused them.
 ///
 /// One turn, two attempts — the first fails transiently and is retried, and a
 /// retry reuses the turn's assembled request. Each attempt must therefore carry
@@ -690,7 +690,7 @@ async fn turn_retries_transient_provider_failure_before_tool_activity() {
     let _ = std::fs::remove_dir_all(directory);
 }
 
-/// ADR-0218: a real round archives one request projection into the
+/// A real round archives one request projection into the
 /// key-addressed archive, and that archive never enters the model window.
 #[tokio::test]
 async fn execute_round_archives_a_request_projection_outside_the_window() {
@@ -1061,7 +1061,7 @@ impl Provider for FailThenSucceedProvider {
             .push(provider_history_snapshot(&request.messages));
         if self.attempts.fetch_add(1, Ordering::SeqCst) == 0 {
             // Terminal: `parse_retryable_error` finds no envelope, so the
-            // harness surfaces it and (with ADR-0128) arms the resume point.
+            // harness surfaces it and (with) arms the resume point.
             Ok(Box::pin(stream::iter(vec![Err(
                 nuo_wire::ProviderError::new(
                     "mock",
@@ -1080,7 +1080,7 @@ impl Provider for FailThenSucceedProvider {
     }
 }
 
-/// The round-level `/retry` contract (ADR-0128): a round whose provider
+/// The round-level `/retry` contract: a round whose provider
 /// fails terminally parks a durable resume point, and resuming through it
 /// *continues the same round* — the round counter never advances, no second
 /// user message is appended, and the turn sequence numbers onward instead of
@@ -1772,7 +1772,7 @@ fn unix_epoch_ms_for_test() -> u64 {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Route image refusal (ADR-0230)
+// Route image refusal
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A provider that refuses the first N requests the way a relay that cannot take
@@ -1781,7 +1781,7 @@ fn unix_epoch_ms_for_test() -> u64 {
 ///
 /// `rejection` is the vendor's error text. The harness never reads it: the
 /// recovery is decided by the *outcome* of retrying without the attachments
-/// (ADR-0230), so these tests can use prose the harness has no knowledge of.
+/// so these tests can use prose the harness has no knowledge of.
 struct ImageRejectingProvider {
     /// Attachment count seen per request, in order. Its length is also the
     /// attempt counter.
@@ -1853,10 +1853,9 @@ impl Provider for ImageRejectingProvider {
 }
 
 /// Switching to a model that cannot see images must not brick the session
-/// (ADR-0230).
 ///
 /// The durable transcript keeps the image the user pasted while a multimodal
-/// model was active — history is append-only (ADR-0186), so no projection may
+/// model was active — history is append-only, so no projection may
 /// rewrite it. What changes is the *request*: the refusal teaches the harness
 /// that this route cannot take attachments (because withholding them made the
 /// identical turn succeed), and later requests stop carrying them.
@@ -1944,7 +1943,7 @@ async fn image_refusal_is_learned_and_the_round_continues_without_images() {
     );
 }
 
-/// Recognition must not depend on any vendor's error format (ADR-0230).
+/// Recognition must not depend on any vendor's error format.
 ///
 /// This provider refuses with prose the harness has no knowledge of — the shape
 /// of every relay whose wording nobody anticipated. The recovery rests entirely
@@ -2016,7 +2015,7 @@ async fn an_unrecognized_refusal_is_probed_and_confirmed_by_outcome() {
 }
 
 /// When the probe **disproves** the hypothesis, nothing may be latched and the
-/// user must see the refusal of the request they actually composed (ADR-0230).
+/// user must see the refusal of the request they actually composed.
 ///
 /// The refusal here is unrelated to images — it recurs with the attachments
 /// withheld — and its text even *mentions* `image_url`, exactly like a relay
@@ -2074,7 +2073,7 @@ async fn an_unrelated_refusal_is_not_blamed_on_images() {
     );
 }
 
-/// The `RoundContext` every ADR-0230 test runs with: a tight retry budget so a
+/// The `RoundContext` every test runs with: a tight retry budget so a
 /// probe is unmistakable in the request log.
 fn image_round_context(
     agent: &Arc<Agent>,
@@ -2102,7 +2101,7 @@ fn image_round_context(
     }
 }
 
-/// The `RoundInput` every ADR-0230 test runs with: a fresh round carrying
+/// The `RoundInput` every test runs with: a fresh round carrying
 /// `images`.
 fn image_round_input(prompt: &str, images: Vec<nuo_wire::ImagePart>) -> RoundInput {
     RoundInput {

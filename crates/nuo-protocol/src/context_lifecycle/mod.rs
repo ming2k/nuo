@@ -1,4 +1,4 @@
-//! Context-lifecycle domain contracts (ADR-0275 – ADR-0280).
+//! Context-lifecycle domain contracts.
 //!
 //! This module is the **Phase A** substrate of the unified context architecture:
 //! immutable execution facts, branch-local context views, the orthogonal
@@ -8,7 +8,7 @@
 //!
 //! It intentionally introduces new types *beside* the existing `session_ir`
 //! model rather than mutating it in place: the cutover that removes the legacy
-//! representation is Phase F (ADR-0280 §5–§6), and no release may carry two
+//! representation is Phase F, and no release may carry two
 //! online execution paths. Until then these types are the canonical *shape*
 //! that later phases wire into persistence and the request pipeline.
 //!
@@ -20,7 +20,6 @@
 //! - [`retrieval`]: scoped inspect handles, cursors, and the error taxonomy.
 //! - [`policy`]: the versioned `context` policy and the legacy remap.
 //! - [`model`]: the canonical fact/view/checkpoint/artifact shapes.
-
 pub mod axes;
 pub mod budget;
 pub mod group;

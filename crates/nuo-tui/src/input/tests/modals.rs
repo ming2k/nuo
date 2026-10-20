@@ -9,7 +9,7 @@ use crate::surfaces::{DialogKind, OverlaySurface};
 
 /// The queue bar's legend advertises `Ctrl+Q expand`, so `Ctrl+Q` must resolve
 /// to the panel it names — at the top level only (the bar is session chrome and
-/// is not on screen behind a modal). This is the dispatch half of ADR-0238's
+/// is not on screen behind a modal). This is the dispatch half of
 /// "a bar advertises a chord that fires, or nothing at all".
 #[test]
 fn ctrl_q_opens_the_queue_panel_at_the_top_level_only() {

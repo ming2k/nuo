@@ -1,6 +1,5 @@
 //! The per-frame draw routine for the TUI event loop, extracted from
 //! `run_app_loop`'s `if needs_draw` stage (it was a ~1000-line closure).
-
 use crate::completion::{CompletionKind, completion_anchor, resolved_slash_command_len};
 use crate::composer::{ComposerProps, ComposerText};
 use crate::model::document::TranscriptMessage;
@@ -34,7 +33,7 @@ fn compose_frame(
     mut ui: &mut crate::ui::ComponentTree,
 ) {
     ui.begin(f.area());
-    // Modality is scene-owned (ADR-0197 §D2): a modal owns keys because the
+    // Modality is scene-owned: a modal owns keys because the
     // mounted component declares `Modal` policy, not because an app flag says
     // so. The mount here pre-registers the modal at viewport size; the modal
     // renderer places it at its drawn rect further down.
@@ -46,7 +45,7 @@ fn compose_frame(
     }
     let mut layout_map = LayoutMap::new();
 
-    // ADR-0175: PreAttach interstitial takes over the terminal before
+    // PreAttach interstitial takes over the terminal before
     // any chat/composer/transcript chrome is painted. The render
     // early-returns, exactly like the SessionsPicker guard below, so
     // nothing downstream (chrome, composer, panels) runs while the
@@ -142,7 +141,7 @@ fn compose_frame(
     let status = if let Some(ref target) = app.switching_session {
         format!("loading session {target}…")
     } else if app.link_down {
-        // Dead-link chrome state (ADR-0197 D6): the server link is gone, so
+        // Dead-link chrome state (D6): the server link is gone, so
         // user intents cannot be delivered. The live-status bar is the
         // visible anchor; it stays until the process exits, because nothing
         // can acknowledge recovery.
@@ -152,7 +151,7 @@ fn compose_frame(
             app.loop_status,
             gate_phase.as_ref().or(viewed_chrome.phase.as_ref()),
         );
-        // ADR-0240: Prioritize system lifecycle (e.g. MCP connecting progress) when round is idle.
+        // Prioritize system lifecycle (e.g. MCP connecting progress) when round is idle.
         if (base_status.is_empty() || base_status == "idle") && gate_phase.is_none() {
             if let Some(mcp_progress) = mcp_connecting_status(app) {
                 mcp_progress
@@ -166,7 +165,7 @@ fn compose_frame(
     // Transport-setback clause: rides beside the status label (never in its
     // slot), counting down while a provider retry backs off.
     //
-    // Read from the *viewed* session's chrome (ADR-0235): the clause annotates
+    // Read from the *viewed* session's chrome: the clause annotates
     // that session's phase, so a background aside backing off against a
     // rate-limited upstream cannot paint a countdown onto the primary's bar.
     // Its lifetime is already over if the phase moved on — `set_phase` retires
@@ -221,7 +220,7 @@ fn compose_frame(
         Recess::None
     };
 
-    // The frame-level caret arbitration (ADR-0205). Exactly one layer owns the
+    // The frame-level caret arbitration. Exactly one layer owns the
     // physical terminal cursor; every overlay renderer receives this single
     // verdict (`App::caret_visible` + `App::caret_owner`) instead of
     // re-deriving it from its own local flags — which is how a suspended
@@ -345,7 +344,7 @@ fn compose_frame(
     //
     // Every outbox item is a next-round item now: a live busy-Enter steer is
     // transcript-owned and never passes through
-    // the outbox (ADR-0126), so there is no `steering` slice to
+    // the outbox, so there is no `steering` slice to
     // exclude from the modal either.
     let queue_items: Vec<render::QueueItemProps> = app
         .pending_dispatch
@@ -381,7 +380,7 @@ fn compose_frame(
                 queue_bar: render::QueueBarProps {
                     items: &queue_items,
                     // "Paused" = items waiting on the server's round boundary
-                    // (ADR-0197 M4: the server decides when they ship).
+                    // (M4: the server decides when they ship).
                     paused: app.pending_dispatch.iter().any(|item| {
                         item.session_id == viewed_session_id
                             && item.state == crate::app::QueuedDispatchState::Waiting
@@ -390,7 +389,6 @@ fn compose_frame(
                         && app.is_queue_blocked(viewed_session_id),
                     // The legend's keycap comes from the registry, never a
                     // literal: the bar can only advertise a chord that fires
-                    // (ADR-0238).
                     expand_key: app
                         .key_overrides
                         .effective_binding(crate::keymap::CommandId::OpenQueue),
@@ -399,7 +397,7 @@ fn compose_frame(
                     tasks: &app.background_tasks,
                 },
                 subagent_bar,
-                // ADR-0205: a head legend advertises scene chords, which are
+                // A head legend advertises scene chords, which are
                 // suspended the moment an overlay takes the keyboard
                 // foreground — so the row is withheld rather than left
                 // dimmed-but-readable behind the backdrop.
@@ -488,7 +486,7 @@ fn compose_frame(
             .is_none_or(|row| row.models.iter().any(|m| m == &app.current_model));
         let busy = app.running_sessions.contains(viewed_session_id);
         let _ = busy; // keys-row input; consumed by the composer draw below
-        // `/retry` affordance (ADR-0128): offered exactly while the viewed
+        // `/retry` affordance: offered exactly while the viewed
         // session has a stopped round parked for retry — mirrored from the
         // session-scoped harness snapshot into `SessionChrome`, never
         // re-derived by scanning the transcript (an error notice can follow
@@ -593,7 +591,7 @@ fn compose_frame(
             // `caret_visible` reduces to "no step focus, no selection"
             // — exactly the old hand-rolled condition, without the risk
             // of drifting from the hide/show state machine.
-            // ADR-0174: browse focus joins step selection as the second
+            // Browse focus joins step selection as the second
             // "keys act on the transcript" signal — a click anywhere in
             // the transcript content parks attention there and dims the
             // composer panel until a composer click or a keystroke
@@ -744,7 +742,7 @@ fn compose_frame(
         }
     }
 
-    // Interaction sheets (ADR-0173 §3): the AI-initiated sheets occupy the
+    // Interaction sheets: the AI-initiated sheets occupy the
     // composer slot — the same bottom edge, extended over the hint bar —
     // while the transcript behind them stays live. The question and
     // input-injection sheets paint their own panel over the composer's
@@ -867,7 +865,7 @@ fn compose_frame(
     // `SceneKind::Dashboard` arm sets it.
     let mut dashboard_list_body_height: Option<u16> = None;
 
-    // Overlays and Scenes (ADR-0205)
+    // Overlays and Scenes
     let drawn_modal_rect = if let Some(overlay) = app.surfaces.active_overlay() {
         match overlay {
             OverlaySurface::Dialog(d) if app.dialog_keys() => {
@@ -1251,7 +1249,7 @@ fn compose_frame(
     // Floating which-key card while the `Ctrl+X` scene namespace is armed. The
     // leave row spells the *resolved* action for the current surface stack (an
     // overlay dismiss, a scene exit, or a spent gesture at the home scene)
-    // rather than a fixed promise (ADR-0238).
+    // rather than a fixed promise.
     let close_label = crate::components::which_key::close_label_for(app.active_dialog().is_some());
     crate::components::which_key::draw_which_key_overlay(
         f,
@@ -1299,7 +1297,7 @@ fn compose_frame(
     }
 }
 
-/// ADR-0240 [INV-MCP-04]: Extract in-flight MCP connection status during system bootstrapping.
+/// [INV-MCP-04]: Extract in-flight MCP connection status during system bootstrapping.
 fn mcp_connecting_status(app: &App) -> Option<String> {
     let snapshot = app.session_context.as_ref()?;
     if snapshot.mcp.is_empty() {

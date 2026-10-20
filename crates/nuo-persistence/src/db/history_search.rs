@@ -1,8 +1,7 @@
-//! SQLite FTS5 full-text transcript search implementation (ADR-0208).
+//! SQLite FTS5 full-text transcript search implementation.
 //!
 //! Provides BM25 full-text search across transcript entries with workspace filtering
 //! and relaxed recall fallback.
-
 use rusqlite::{Connection, Result, params};
 
 use super::{HistorySearchResult, map_search_row, sanitize_fts_query_joined};
@@ -10,7 +9,7 @@ use super::{HistorySearchResult, map_search_row, sanitize_fts_query_joined};
 /// Perform BM25 full-text search across transcript entries, optionally
 /// filtered by workspace root. Hits join the owning session's title and
 /// `updated_at` so a hit is presentable and rankable without a second
-/// round-trip (ADR-0208).
+/// round-trip.
 pub(crate) fn search_history(
     conn: &Connection,
     query: &str,

@@ -108,4 +108,39 @@ Detail why alternative options were discarded:
 ## Links
 
 - Related ADRs: [Link]
+
+---
+
+## 4. Reference Resolution
+
+A citation is a promise that the reader can open the decision. Two rules follow:
+
+1. **Every `ADR-NNNN` must resolve to `docs/adr/NNNN-*.md`.** The canonical series
+   in this repository is `0001`..`0083`. Numbers from the pre-ingestion log
+   (`ADR-0085`..`ADR-0304`) were never imported and are **not** citable: a
+   reader cannot verify them, and they cannot be amended in place.
+2. **Cite an in-repo ADR, or carry the rationale itself.** If a decision has no
+   in-repo record, state the constraint in the comment or document instead of
+   pointing at a number that does not resolve.
+
+The rule is mechanical, not advisory:
+
+- `scripts/check_adr_lineage.py` walks every `.rs` comment and `.md` prose line
+  and fails on an unresolvable citation (`python3 scripts/check_adr_lineage.py`).
+- CI (`.github/workflows/ci.yml`) runs it on every push and pull request.
+- `scripts/retire_legacy_adr_refs.py` is the one-shot migration helper that
+  produced the current state; it is kept so the transformation is auditable and
+  re-runnable.
+
+Two classes are exempt by construction, and the checker encodes both:
+
+- **String literals are not documentation.** Prompts, log lines and assertion
+  messages are behaviour; editing them is a code change, not a citation fix.
+- **Shipped migration SQL is immutable.** Its text is pinned by
+  `MIGRATION_CATALOG_FINGERPRINT`
+  (`crates/nuo-persistence/src/db/tests.rs::migration_catalog_fingerprint_is_stable`),
+  because rewriting an applied migration strands databases stamped by the old
+  SQL. The legacy numbers inside those SQL comments are frozen artifacts; the
+  checker allowlists that file explicitly.
+
 ```

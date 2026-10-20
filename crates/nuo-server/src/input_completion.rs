@@ -4,7 +4,6 @@
 //! candidates. Command matching, intent steering, content-admitted workspace
 //! commands, project-file discovery, and explicit-path expansion all live here
 //! so terminal and browser apps cannot drift into separate completion products.
-
 use ignore::WalkBuilder;
 use nuo_wire::{AgentResponse, CommandCatalog, CommandSpec, InputCompletion, InputCompletionKind};
 use std::path::{Path, PathBuf};
@@ -169,7 +168,7 @@ impl InputCompletionEngine {
 /// Complete slash commands and subcommands synchronously against a `CommandCatalog`.
 ///
 /// This is a pure-domain, zero-I/O computation that guarantees instant (< 1µs) execution
-/// for both the server and frontend applications without transient latency (ADR-0162).
+/// for both the server and frontend applications without transient latency.
 pub fn complete_slash_items(
     catalog: &CommandCatalog,
     input: &str,
@@ -369,7 +368,7 @@ pub fn complete_for_frontend_test(
     } else if is_explicit_path_prefix(query) {
         engine.complete_explicit_path(input, query, at_start, cursor_end)
     } else {
-        // ADR-0290: Stage 1 is namespace-only; no content pass-through.
+        // Stage 1 is namespace-only; no content pass-through.
         namespace_items(input, query, at_start, cursor_end, true)
     }
 }
@@ -412,7 +411,7 @@ fn is_file_query(query: &str) -> bool {
 /// Build skill completion items for a `@skill:` / `@skills:` (or bare, during
 /// Stage 2) query. Pure: the filter/prefix derivation and the enabled/quarantine
 /// and substring checks live here, so the server engine and the frontend-test
-/// adapter share one implementation (ADR-0290 `[INV-COMPLETE-03]`).
+/// adapter share one implementation (`[INV-COMPLETE-03]`).
 fn skill_completion_items(
     input: &str,
     query: &str,
@@ -452,7 +451,7 @@ fn skill_completion_items(
 
 /// Build file/dir completion items for a `@file:` / `@files:` query. Pure: the
 /// filter derivation and the path matching live here so the server engine and
-/// the frontend-test adapter share one implementation (ADR-0290
+/// the frontend-test adapter share one implementation (
 /// `[INV-COMPLETE-03]`).
 fn file_completion_items(
     input: &str,
@@ -484,14 +483,14 @@ fn file_completion_items(
     items
 }
 
-/// Stage 1 of the two-stage `@` pipeline (ADR-0290): list only the entity
+/// Stage 1 of the two-stage `@` pipeline: list only the entity
 /// **namespaces** (`@file:`, `@skill:`) whose name is a prefix of what has been
 /// typed so far.
 ///
 /// This is the entire Stage 1 — there is no content pass-through. A query that
 /// is not a prefix of a namespace name yields nothing, so typing `@xyz` cannot
 /// leak files or skills (which live in Stage 2, reachable only *after* a
-/// namespace has been committed). This is the fix for ADR-0256's
+/// namespace has been committed). This is the fix for
 /// "fuzzy-at-mention", which let a bare `@query` bypass the namespace gate.
 fn namespace_items(
     input: &str,
@@ -1201,10 +1200,10 @@ mod tests {
         assert_eq!(items[0].label, "@skill:");
         assert_eq!(items[0].kind, InputCompletionKind::PathDir);
 
-        // 6. ADR-0290: a bare `@` query that is not a namespace prefix yields
+        // 6.: a bare `@` query that is not a namespace prefix yields
         //    NOTHING. Stage-2 content (skills, files) must never leak through a
         //    bare `@query` — it is reachable only after `@skill:` / `@file:` has
-        //    been committed. This is the reversal of ADR-0256's
+        //    been committed. This is the reversal of
         //    "fuzzy-at-mention" pass-through.
         for bare in ["@creat", "@skill-creator", "@main", "@Cargo"] {
             let AgentResponse::ComposerCompletions { items, .. } = engine

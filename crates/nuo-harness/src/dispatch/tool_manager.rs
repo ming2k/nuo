@@ -4,7 +4,7 @@
 //! from the registry + agent-owned instances like todo) and `mcp` (dynamic
 //! tools published through [`nuo_wire::DynamicToolSink`], today only MCP
 //! servers). There is deliberately no third, config-driven source; see
-//! ADR-0221 and ADR-0222.
+//! And.
 //!
 //! ### Why this exists
 //!
@@ -28,7 +28,6 @@
 //! read-side view over them. The storage layers keep their existing
 //! invariants (static > dynamic on name clash; dynamic source-keyed groups;
 //! disable is name-level and uniform across sources).
-
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -74,7 +73,7 @@ pub(crate) struct ToolManager {
     disabled: Arc<Mutex<HashSet<String>>>,
     /// In-memory hook-scoped disable mask (per RestorePoint).
     scoped_disabled: Arc<Mutex<crate::agent::ScopedToolDisable>>,
-    /// Role-level admitted MCP patterns (ADR-0242).
+    /// Role-level admitted MCP patterns.
     admit_mcp: Arc<RwLock<Vec<String>>>,
 }
 
@@ -128,7 +127,7 @@ impl ToolManager {
             }
         }
 
-        // 2. mcp (dynamic snapshot, filtered by role admission patterns, ADR-0242).
+        // 2. mcp (dynamic snapshot, filtered by role admission patterns).
         let admit_patterns = self
             .admit_mcp
             .read()
@@ -155,7 +154,7 @@ impl ToolManager {
     /// disabled mask (user + hook-scoped).
     ///
     /// Preserves a stable, deterministic tool schema across delegated-posture transitions
-    /// (ADR-0137) to prevent KV-cache invalidation. Delegated-mode restrictions on `ask_user`
+    /// to prevent KV-cache invalidation. Delegated-mode restrictions on `ask_user`
     /// are enforced at execution time via PermissionPolicy Gate 6 (Runtime Gating).
     pub(crate) fn loop_tools(&self, _delegated: bool) -> Vec<Arc<dyn Tool>> {
         let mut tools: Vec<Arc<dyn Tool>> = self

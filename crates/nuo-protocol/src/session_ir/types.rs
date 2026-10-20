@@ -1,10 +1,9 @@
 //! Core types of the Session Intermediate Representation (Session IR).
 //!
-//! Defined by ADR-0241, Session IR is organized into:
+//! Defined, Session IR is organized into:
 //! - [`CausalGraph`]: immutable, append-only historical facts (`history`)
 //! - [`SessionState`]: mutable cursor, status machine, and event mailbox (`state`)
 //! - [`SessionPolicy`]: declarative governance rules, capabilities, and budgets (`policy`)
-
 use crate::Role;
 use crate::message::Message;
 use serde::{Deserialize, Serialize};
@@ -182,7 +181,7 @@ impl SessionIR {
         node_id
     }
 
-    /// Create a new named timeline branching from the current active leaf (ADR-0251).
+    /// Create a new named timeline branching from the current active leaf.
     pub fn create_timeline(
         &mut self,
         id: impl Into<String>,
@@ -209,7 +208,7 @@ impl SessionIR {
         id
     }
 
-    /// Switch active timeline to the given timeline ID (ADR-0251).
+    /// Switch active timeline to the given timeline ID.
     /// Updates `active_leaf` to the timeline's head node.
     pub fn switch_timeline(&mut self, id: &str) -> bool {
         if let Some(cursor) = self.state.timelines.get(id) {
@@ -221,7 +220,7 @@ impl SessionIR {
         }
     }
 
-    /// Resolve the linear causal sequence of nodes along the specified timeline (ADR-0251).
+    /// Resolve the linear causal sequence of nodes along the specified timeline.
     pub fn resolve_timeline_branch(&self, timeline_id: &str) -> Vec<&CausalNode> {
         let head = self
             .state
@@ -302,7 +301,7 @@ impl SessionIR {
         node_id
     }
 
-    /// Append a compaction checkpoint node and advance the authoritative compaction horizon (ADR-0255).
+    /// Append a compaction checkpoint node and advance the authoritative compaction horizon.
     #[allow(clippy::too_many_arguments)]
     pub fn append_compaction(
         &mut self,
@@ -457,7 +456,7 @@ impl CausalGraph {
         self.linear_path_with_horizon(leaf_id, None)
     }
 
-    /// Trace linear lineage stopping at the given horizon or compaction anchor (ADR-0255).
+    /// Trace linear lineage stopping at the given horizon or compaction anchor.
     pub fn linear_path_with_horizon(
         &self,
         leaf_id: &str,
@@ -484,7 +483,7 @@ impl CausalGraph {
                     // compaction anchor are elided from the active linear view.
                     break;
                 }
-                // ADR-0275 / ADR-0278: Facts are immutable and parent edges never mutate.
+                // Facts are immutable and parent edges never mutate.
                 // When we reach first_kept_node_id, anchor to the horizon node without
                 // modifying the preserved tail's head node parent_id.
                 if let Some(fkid) = first_kept_id
@@ -523,7 +522,7 @@ pub struct CausalNode {
 pub enum NodeKind {
     /// Dialogue turns: User, Assistant, or Tool result messages.
     Dialogue,
-    /// First-class tool execution observation (ADR-0282).
+    /// First-class tool execution observation.
     Observation,
     /// Compaction horizon replacing historical turns up to a checkpoint.
     Compaction,
@@ -541,7 +540,7 @@ pub enum NodePayload {
     Message {
         message: Message,
     },
-    /// First-class tool execution observation fact (ADR-0282).
+    /// First-class tool execution observation fact.
     Observation {
         call_id: String,
         tool_name: String,
@@ -576,7 +575,7 @@ pub enum NodePayload {
     },
 }
 
-/// Physical metrics captured for a tool execution observation (ADR-0282).
+/// Physical metrics captured for a tool execution observation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ObservationMetrics {
     pub original_bytes: usize,
@@ -584,7 +583,7 @@ pub struct ObservationMetrics {
     pub original_tokens: usize,
 }
 
-/// Lifecycle states of a tool execution observation (ADR-0282).
+/// Lifecycle states of a tool execution observation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum ObservationLifecycle {
@@ -639,7 +638,7 @@ impl ObservationLifecycle {
     }
 }
 
-/// Causal invalidation reason for transitioning an observation to Retired (ADR-0282).
+/// Causal invalidation reason for transitioning an observation to Retired.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum InvalidationReason {
@@ -664,7 +663,7 @@ impl InvalidationReason {
     }
 }
 
-/// Typed BeliefState produced by Generative Horizon Compaction (ADR-0283).
+/// Typed BeliefState produced by Generative Horizon Compaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct BeliefState {
     pub task_objective: String,
@@ -698,10 +697,10 @@ pub struct SessionState {
     /// Active timeline identifier (default "main").
     #[serde(default = "default_main_timeline")]
     pub active_timeline: String,
-    /// Named timeline branch cursors (ADR-0251).
+    /// Named timeline branch cursors.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub timelines: HashMap<String, TimelineCursor>,
-    /// Authoritative compaction horizon (ADR-0255).
+    /// Authoritative compaction horizon.
     /// Nodes strictly prior to this pointer along the active branch are folded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compaction_horizon: Option<NodeId>,
@@ -710,7 +709,7 @@ pub struct SessionState {
     /// Queue of asynchronous notifications received during sleep/suspension.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_notifications: Vec<SystemNoticePayload>,
-    /// Unidirectional exhaustion flag for budget-driven pruning (ADR-0283).
+    /// Unidirectional exhaustion flag for budget-driven pruning.
     #[serde(default)]
     pub pruning_exhausted: bool,
     /// Turn counter within the current session.
@@ -736,7 +735,7 @@ fn default_main_timeline() -> String {
     "main".to_string()
 }
 
-/// A named branch cursor on the Causal DAG (ADR-0251).
+/// A named branch cursor on the Causal DAG.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimelineCursor {
     pub id: String,

@@ -1,14 +1,13 @@
-//! Atomic harness extensions implementation (ADR-0224).
+//! Atomic harness extensions implementation.
 //!
 //! `CodeIntelligenceExtension` retains its identity for existing catalogs but
 //! never gates mutations. Writing tools return post-write syntax diagnostics.
-
 use nuo_wire::extension::{HookContext, HookOutcome};
 use nuo_wire::{Extension, HookPhase};
 
-/// Code-intelligence extension (ADR-0211, revised by ADR-0214 / ADR-0224).
+/// Code-intelligence extension (revised by).
 ///
-/// ADR-0233 removes syntax interception; ADR-0214 prohibits ambient repository
+/// Removes syntax interception; prohibits ambient repository
 /// maps. Structure remains available through the separate `code_query` tool.
 #[derive(Debug, Clone)]
 pub struct CodeIntelligenceExtension;
@@ -29,7 +28,7 @@ impl CodeIntelligenceExtension {
         Self
     }
 
-    /// Compatibility entry point: syntax never vetoes mutations (ADR-0233).
+    /// Compatibility entry point: syntax never vetoes mutations.
     /// The writing tool owns diagnostics after a successful filesystem commit.
     pub fn check_mutation(&self, _path: &std::path::Path, _content: &str) -> Option<String> {
         None
@@ -124,7 +123,7 @@ mod tests {
         assert!(ext.hooks().is_empty());
     }
 
-    /// ADR-0214: `model_request` must not append an ambient code-structure
+    /// `model_request` must not append an ambient code-structure
     /// outline; the assembled window equals the filtered source window plus
     /// only skill injections, and source messages stay unmutated.
     #[tokio::test]

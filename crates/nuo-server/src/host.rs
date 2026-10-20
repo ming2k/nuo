@@ -24,7 +24,6 @@
 //! The exit code is part of the contract: 0 for any completed graceful
 //! shutdown (signals included — a supervisor's `stop` succeeding is the
 //! normal outcome), 1 for fatal startup errors and forced exits.
-
 use crate::UiBridge;
 use crate::bootstrap;
 use crate::registry::{HostParams, SessionRegistry};
@@ -206,7 +205,7 @@ async fn run_inner(
         Arc::new((*gate).clone().with_version(crate::serve::server_version()));
     bootstrap::ensure_app_roots();
 
-    // Single instance & takeover (ADR-0029, ADR-0034, ADR-0101):
+    // Single instance & takeover (ADR-0029, ADR-0034):
     // MUST complete takeover and acquire the instance lock BEFORE initializing
     // SessionRegistry or any persistence handles, preventing lock races and handle poisoning.
     let lock_path = discovery::global_lock_path();
@@ -327,7 +326,7 @@ async fn run_inner(
         }
     };
 
-    // Discovery record (ADR-0096/0100): written only after both configured
+    // Discovery record (0100): written only after both configured
     // transports are confirmed bound, carrying the server's version for skew
     // detection.
     // The lease removes it on *every* exit path (Drop), including panics.

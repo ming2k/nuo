@@ -1,6 +1,5 @@
 //! The `chatgpt-oauth` provider preset: GPT-5.x over the ChatGPT
 //! Subscription backend (the Codex Responses API).
-
 use nuo_model_codec::reasoning::ReasoningSupport;
 use nuo_model_codec::{Model, WireProtocol};
 
@@ -22,7 +21,7 @@ pub use nuo_model_codec::model_providers::CHATGPT_BUILTIN_MODELS;
 /// [`nuo_model_codec::model::BaselineModels`]).
 ///
 /// These entries record the subscription's Responses protocol per model
-/// (ADR-0260: protocol is provider-scoped). The global baseline registry is a
+/// (protocol is provider-scoped). The global baseline registry is a
 /// capability union, so the same ids may carry a different protocol in another
 /// provider table; provider routers resolve protocol through
 /// [`ModelProviderSpec::model_protocol`], never through the global union.

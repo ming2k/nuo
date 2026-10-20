@@ -1,4 +1,4 @@
-//! Native Causal Compactor for Session IR (ADR-0255).
+//! Native Causal Compactor for Session IR.
 //!
 //! Replaces legacy transcript-based compaction with native topological operations
 //! on the [`SessionIR`] causal graph (`CausalGraph` and `SessionState`).
@@ -8,7 +8,6 @@
 //! - Deterministic file operations tracking across folded nodes.
 //! - LLM structured summarization with automatic deterministic excerpt fallback.
 //! - Direct horizon advancement on `SessionState.compaction_horizon`.
-
 use super::file_tracker::FileOperations;
 use super::split_compaction::{
     compact_causal_nodes, find_cut_point_nodes, find_tail_preserving_cut_point,
@@ -16,7 +15,7 @@ use super::split_compaction::{
 use nuo_wire::{CausalNode, NodePayload, Provider, Role, SessionIR};
 use std::sync::Arc;
 
-/// Strategy determining where the compaction boundary cuts the active lineage (ADR-0296).
+/// Strategy determining where the compaction boundary cuts the active lineage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompactionCutMode {
     /// Token budget preserving mode: preserves ~target_tokens of recent context (used for auto-compaction backstops).
@@ -36,9 +35,9 @@ pub struct CausalCompactionOutcome {
     pub nodes_folded: usize,
     /// Estimated tokens before compaction.
     pub tokens_before: usize,
-    /// Generated structured summary (ADR-0296).
+    /// Generated structured summary.
     pub summary: String,
-    /// Artifact file paths touched across the compacted lineage (ADR-0296).
+    /// Artifact file paths touched across the compacted lineage.
     pub tracked_files: Vec<String>,
 }
 
@@ -63,7 +62,7 @@ impl CausalCompactor {
                 return Ok(None);
             }
 
-            // 1. Find atomic cut point according to chosen mode (ADR-0296)
+            // 1. Find atomic cut point according to chosen mode
             let cut_point = match cut_mode {
                 CompactionCutMode::TargetTokens(target_tokens) => {
                     find_cut_point_nodes(&active_nodes, target_tokens)
@@ -96,7 +95,7 @@ impl CausalCompactor {
                 }
             });
 
-            // 3. Track file operations across folded nodes programmatically (ADR-0255)
+            // 3. Track file operations across folded nodes programmatically
             let mut file_tracker = FileOperations::new();
             for node in nodes_to_fold {
                 file_tracker.extract_from_node(node);
@@ -123,7 +122,7 @@ impl CausalCompactor {
                         Err(err) => {
                             tracing::warn!(
                                 error = %err,
-                                "LLM compaction failed; falling back to deterministic excerpt compaction (ADR-0255)"
+                                "LLM compaction failed; falling back to deterministic excerpt compaction"
                             );
                             build_deterministic_causal_excerpt(
                                 nodes_to_fold,
@@ -188,7 +187,7 @@ impl CausalCompactor {
             modified_files,
         );
 
-        // ADR-0275 / ADR-0278: Facts are immutable and parent edges never mutate.
+        // Facts are immutable and parent edges never mutate.
         // A checkpoint references a source interval; the preserved tail's head
         // node parent_id is strictly preserved and never reparented (INV-CHK-01).
 
@@ -203,7 +202,7 @@ impl CausalCompactor {
     }
 }
 
-/// Deterministic, zero-LLM excerpt summarizer (ADR-0255).
+/// Deterministic, zero-LLM excerpt summarizer.
 ///
 /// Collects user prompts, tool accomplishments, and file touch manifests
 /// without model hallucinations or failure modes.

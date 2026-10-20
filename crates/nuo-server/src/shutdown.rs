@@ -1,8 +1,8 @@
-//! The server's shutdown machinery (ADR-0101): one gate every trigger source
+//! The server's shutdown machinery: one gate every trigger source
 //! funnels into, a supervised task book, and the signal listeners that turn
 //! OS signals into [`ShutdownReason`]s.
 //!
-//! Three invariants replace the pre-ADR-0101 "one hopefully-cooperative
+//! Three invariants replace the pre- "one hopefully-cooperative
 //! `await` chain" model:
 //!
 //! 1. **Shutdown is a state transition, not a code path.** Signals, the
@@ -16,7 +16,6 @@
 //! 3. **Every spawned task has an owner.** [`TaskBook`] tracks task names →
 //!    handles so teardown can *confirm* exit (no more fire-and-forget racing
 //!    the process end) and report exactly which task refused to stop.
-
 use std::collections::HashMap;
 
 use tokio::task::JoinHandle;
@@ -31,14 +30,14 @@ pub enum ShutdownReason {
     SignalInterrupt,
     /// SIGTERM — the default for `kill <pid>`, systemd/docker stop, and every
     /// supervisor. Historically this bypassed graceful shutdown entirely
-    /// (pre-ADR-0101); it now runs the same teardown as Ctrl-C.
+    /// (pre-); it now runs the same teardown as Ctrl-C.
     SignalTerminate,
     /// SIGHUP — terminal closed. A server spawned from an interactive shell
     /// gets this when the terminal goes away; draining beats dying.
     SignalHangup,
-    /// The `Shutdown` control-plane verb (ADR-0100): a remote, scripted stop.
+    /// The `Shutdown` control-plane verb: a remote, scripted stop.
     ControlVerb,
-    /// Idle-exit (ADR-0100 rule 3): zero hosted sessions and zero attached
+    /// Idle-exit (rule 3): zero hosted sessions and zero attached
     /// clients held for the configured grace period.
     IdleTimeout,
     /// A startup or runtime failure the server cannot survive (bind failure,
@@ -73,7 +72,7 @@ pub struct ShutdownGate {
     /// *original* trigger for the exit line while `forced()` drives the
     /// run loop's phase decisions.
     forced: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    /// The server build's version for handshake negotiation (ADR-0100).
+    /// The server build's version for handshake negotiation.
     version: Option<String>,
 }
 
@@ -90,7 +89,7 @@ impl ShutdownGate {
     }
 
     /// Attach this server build's version, reported to skewed clients in the
-    /// handshake refusal (ADR-0100 rule 4). Set once by `host::run` before
+    /// handshake refusal (rule 4). Set once by `host::run` before
     /// the listeners start accepting.
     pub fn with_version(self, version: impl Into<String>) -> Self {
         Self {

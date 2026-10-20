@@ -17,10 +17,10 @@ use nuo_tool_fs::SystemToolContext;
 use serde::Deserialize;
 use serde_json::Value;
 
-/// Maximum lines a foreground command may produce before StreamGuard terminates it early (ADR-0257, ADR-0057).
+/// Maximum lines a foreground command may produce before StreamGuard terminates it early (ADR-0057).
 /// Calibrated to ~80 bytes per terminal line (200 lines * ~80 B = 16 KB).
 pub const SHELL_STREAM_FLOOD_LINES: usize = 200;
-/// Maximum bytes a foreground command may produce before StreamGuard terminates it early (ADR-0257, ADR-0057).
+/// Maximum bytes a foreground command may produce before StreamGuard terminates it early (ADR-0057).
 pub const SHELL_STREAM_FLOOD_BYTES: usize = 16 * 1024;
 /// Relaxed bounds when raw mode is explicitly requested.
 pub const RAW_STREAM_FLOOD_LINES: usize = 1_000;
@@ -32,7 +32,7 @@ pub struct ExecuteCommandArgs {
     #[tool(desc = "The shell command to execute. Commands MUST be finite and self-terminating.")]
     pub command: String,
     #[tool(
-        desc = "Overall timeout in seconds (default 1800 = 30 minutes). Enforced by StreamGuard (ADR-0257/0263)."
+        desc = "Overall timeout in seconds (default 1800 = 30 minutes). Enforced by StreamGuard."
     )]
     pub timeout: Option<u64>,
     #[tool(

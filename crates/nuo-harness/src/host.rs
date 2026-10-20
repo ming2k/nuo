@@ -6,7 +6,6 @@
 //! use. Each has a null implementation whose behaviour is stated rather than
 //! implied, so an embedding that supplies nothing gets a documented outcome
 //! instead of a silent default.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -27,7 +26,7 @@ pub trait RoleCatalog: Send + Sync + 'static {
     fn declaration(&self, role: &str) -> Option<CustomRole>;
 }
 
-/// The host's role-scoped dialogue memory (ADR-0248).
+/// The host's role-scoped dialogue memory.
 ///
 /// The kernel records what was said and recalls it on request; *where* that
 /// memory lives, how it is scored, and whether the host keeps it at all are the
@@ -140,7 +139,7 @@ impl ProjectPaths for NoProjectStorage {
 /// The titler's only needs from the product are "what is the current title" and
 /// "record this one". The session's identity, lineage, and durable store are the
 /// product's business, so this is a two-method sink rather than a store trait:
-/// a narrow question instead of a container (ADR-0300 §1).
+/// a narrow question instead of a container.
 pub trait TitleSink: Send + Sync + 'static {
     /// The current title and whether a human set it.
     ///
@@ -183,7 +182,7 @@ impl TitleSink for NoTitles {
 /// what it means is entirely the host's business (refresh the catalog, re-derive
 /// fitted models, prune stale favourites, or nothing at all). The kernel's part
 /// is to notice and to say so; the host's part is the maintenance, which is
-/// product policy over product stores (ADR-0300 §1).
+/// product policy over product stores.
 pub trait CatalogMaintenance: Send + Sync + 'static {
     /// React to a new catalog version. Returns whether anything changed, which
     /// is what decides whether the host is told to refresh a picker.
@@ -244,13 +243,13 @@ impl KernelHost {
         }
     }
 
-    /// Supply the host's catalog maintenance (ADR-0273).
+    /// Supply the host's catalog maintenance.
     pub fn with_catalog(mut self, catalog: Arc<dyn CatalogMaintenance>) -> Self {
         self.catalog = catalog;
         self
     }
 
-    /// Supply the host's role-scoped dialogue memory (ADR-0248).
+    /// Supply the host's role-scoped dialogue memory.
     pub fn with_memory(mut self, memory: Arc<dyn RoleMemory>) -> Self {
         self.memory = memory;
         self

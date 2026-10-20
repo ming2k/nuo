@@ -1,8 +1,8 @@
-//! Canonical context-lifecycle persistence (ADR-0275 §7, ADR-0276, ADR-0279).
+//! Canonical context-lifecycle persistence.
 //!
 //! The revisioned writer that commits immutable facts and derived views under
 //! optimistic concurrency and idempotent operation IDs. It lives inside
-//! `nuo_persistence::db` so ADR-0231's one-door boundary is unchanged: it
+//! `nuo_persistence::db` so one-door boundary is unchanged: it
 //! takes an already-open [`Connection`] (the single writer's), never opens its
 //! own.
 //!
@@ -13,13 +13,12 @@
 //! - `INV-FACT-03`: view, checkpoint, and cursor commit atomically under a
 //!   compare-and-swap on the branch revision.
 //! - `INV-FACT-01`: this module is the only writer of the canonical fact tables.
-
 use nuo_wire::context_lifecycle::{
     ArtifactId, Checkpoint, ContextView, FactId, FactNode, SourceAuthority,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
-/// The typed result of a commit (ADR-0275 §7).
+/// The typed result of a commit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommitOutcome {
     /// The commit applied and advanced the branch to `revision`.
@@ -36,7 +35,7 @@ pub enum CommitOutcome {
 }
 
 /// A commit failure. Every variant is explicit; none degrades into a silent
-/// success (ADR-0275 §7).
+/// success.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContextCommitError {
     /// The branch revision did not match the expected precondition.
@@ -152,7 +151,7 @@ fn record_operation(
     Ok(())
 }
 
-/// A fact-commit request (ADR-0275 §7).
+/// A fact-commit request.
 pub struct FactCommit<'a> {
     /// Owning session.
     pub session_id: &'a str,
@@ -197,7 +196,7 @@ impl OwnedFactCommit {
 }
 
 /// Commit immutable facts (and their artifact references) to a branch under a
-/// compare-and-swap on the branch revision (ADR-0275 §7).
+/// compare-and-swap on the branch revision.
 ///
 /// Idempotent on `operation_id`: replaying the same operation returns the
 /// original revision instead of double-applying. The commit is a single
@@ -302,7 +301,7 @@ fn commit_facts_tx(
     })
 }
 
-/// A view-commit request (ADR-0275 §7, ADR-0278).
+/// A view-commit request.
 pub struct ViewCommit<'a> {
     /// Owning session.
     pub session_id: &'a str,
@@ -347,10 +346,10 @@ impl OwnedViewCommit {
 }
 
 /// Commit a derived context view (and its optional checkpoint) to a branch
-/// under a compare-and-swap on the branch revision (ADR-0275 §7, `INV-FACT-03`).
+/// under a compare-and-swap on the branch revision (`INV-FACT-03`).
 ///
 /// This writes **no facts**: a checkpoint is a derived record referencing a
-/// fact interval, never a parent edge (ADR-0278 §1, `INV-CKPT-02`).
+/// fact interval, never a parent edge (`INV-CKPT-02`).
 pub fn commit_view(
     conn: &Connection,
     commit: &ViewCommit<'_>,
@@ -529,7 +528,7 @@ pub fn facts_digest(conn: &Connection, session_id: &str) -> Result<String, Conte
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Why a CAS-guarded view commit failed (ADR-0278 §4, `INV-CKPT-04`).
+/// Why a CAS-guarded view commit failed (`INV-CKPT-04`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CasCommitError<E> {
     /// Every attempt lost the compare-and-swap race.
@@ -557,7 +556,7 @@ impl<E: std::fmt::Display> std::fmt::Display for CasCommitError<E> {
 
 impl<E: std::fmt::Debug + std::fmt::Display> std::error::Error for CasCommitError<E> {}
 
-/// Commit a view/checkpoint under a bounded compare-and-swap (ADR-0278 §4).
+/// Commit a view/checkpoint under a bounded compare-and-swap.
 ///
 /// Each attempt reads the branch's current revision, asks `plan` to produce a
 /// view **for that revision** (re-planning, never reusing a stale candidate),

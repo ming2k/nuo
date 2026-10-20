@@ -8,7 +8,7 @@ use super::*;
 
 #[test]
 fn bare_arrows_walk_steps_when_focused() {
-    // ADR-0176: When a target is focused, bare ↑/↓ navigate targets.
+    // When a target is focused, bare ↑/↓ navigate targets.
     // When composer is active, bare ↑/↓ hand off to history recall.
     assert_eq!(key_with_focus(KeyCode::Up), InputAction::FocusPrevTarget);
     assert_eq!(key_with_focus(KeyCode::Down), InputAction::FocusNextTarget);
@@ -16,7 +16,7 @@ fn bare_arrows_walk_steps_when_focused() {
 
 #[test]
 fn home_and_end_navigate_line_in_composer_and_scroll_in_focus() {
-    // ADR-0176: Home/End in the composer move caret to line-start/end (readline convention).
+    // Home/End in the composer move caret to line-start/end (readline convention).
     // In target focus or browse focus, Home/End scroll the transcript to top/bottom.
     let mut input = "hello".to_string();
     let mut cursor = 3;
@@ -494,7 +494,7 @@ fn arrows_navigate_completion_menu_while_command_is_partial() {
 fn arrows_recall_history_once_command_is_fully_typed() {
     // Once a command is resolved (exact match), completion popup closes and
     // arrows hand off at the draft's edges to inline history recall
-    // (ADR-0174): a single-line command draft is all edge.
+    // a single-line command draft is all edge.
     let kind = crate::CompletionKind::Slash;
     assert_eq!(
         compose_key_with_completion(KeyCode::Down, kind, 1, true),
@@ -513,8 +513,8 @@ fn up_arrow_in_browse_hands_off_to_history() {
     // The queued-message recall only fires from Compose (where the user can
     // actually edit the recalled draft). In Browse (a step selected, no
     // completion), a single-line draft's ↑ still hands off to inline
-    // history recall at the edge (ADR-0174); step walking stays verb-owned
-    // (Alt+↑, ADR-0173).
+    // history recall at the edge; step walking stays verb-owned
+    // (Alt+↑).
     let mut input = String::new();
     let mut cursor = 0;
     let mut drag = SelectionDrag::default();
@@ -557,7 +557,7 @@ fn up_arrow_in_browse_hands_off_to_history() {
 #[test]
 fn up_arrow_walks_lines_in_multiline_and_hands_off_at_top_line() {
     // In a multi-line draft, ↑ moves the caret up a line. From the top
-    // line, it hands off to inline history recall (ADR-0174).
+    // line, it hands off to inline history recall.
     let seed = "hello\nworld";
     // Caret at end of second line: ↑ should move to the same column on
     // the first line ("hello", col 5) and stay a caret motion.
@@ -580,7 +580,7 @@ fn down_arrow_walks_lines_in_multiline_and_hands_off_at_bottom_line() {
     assert_eq!(cur, 6, "down should land at col 0 of the second line");
 
     // Caret at end of the second line: ↓ hands off to history recall
-    // (ADR-0174) — walking forward, or restoring the stashed draft.
+    // walking forward, or restoring the stashed draft.
     let (action, _) = multiline_arrow(seed, "hello\nworld".chars().count(), KeyCode::Down);
     assert_eq!(action, InputAction::HistoryNext);
 }
@@ -639,7 +639,7 @@ fn ctrl_x_arms_the_scene_namespace() {
     assert_eq!(action, InputAction::SetSceneNamespaceArmed(true));
 }
 
-/// ADR-0298 §1: every second stroke resolves through the namespace's own verb
+/// Every second stroke resolves through the namespace's own verb
 /// table (`keymap::scene_namespace`) — the same table the which-key card
 /// renders. Case is folded, because a leader chord is typed blind.
 #[test]
@@ -815,7 +815,7 @@ fn scene_namespace_comma_navigates_to_settings() {
     assert_eq!(action, InputAction::NavigateSettings);
 }
 
-/// ADR-0298: the scenes have **no** `q` exit. `q` is an ordinary printable on
+/// The scenes have **no** `q` exit. `q` is an ordinary printable on
 /// the Dashboard (it seeds the console composer) and an unclaimed char on
 /// Settings, so leaving either is the `C-x` namespace alone.
 #[test]
@@ -878,7 +878,7 @@ fn q_is_not_a_scene_exit_on_settings() {
     );
 }
 
-/// ADR-0298 §2: Esc on a scene never leaves it. On the Dashboard and Settings
+/// Esc on a scene never leaves it. On the Dashboard and Settings
 /// scenes it resolves to the scene-local step-back verb, whatever sub-layer is
 /// open — the scene's own exit is `C-x w` (or `q`) only.
 #[test]

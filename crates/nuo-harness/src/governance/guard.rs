@@ -5,7 +5,6 @@
 //! [`RoundGuardState`] — the per-round carrier holding the pre-dispatch trajectory
 //! loop guard ([`crate::trajectory_guard::TrajectoryLoopGuard`]) and the per-round block mask
 //! enforced by the tool dispatch layer.
-
 use std::collections::HashSet;
 
 /// The outcome a guard returns for one ReAct turn's tool calls.
@@ -121,7 +120,7 @@ impl GuardAction {
     }
 }
 
-/// Per-round state carrying the pre-dispatch trajectory loop guard (ADR-0247) and the per-round
+/// Per-round state carrying the pre-dispatch trajectory loop guard and the per-round
 /// block mask the dispatch layer consults. Lives in `RoundState`; one per round,
 /// dropped when the round ends, so block state never leaks across rounds.
 #[derive(Default)]
@@ -146,7 +145,7 @@ impl RoundGuardState {
         Self::default()
     }
 
-    /// Attach the pre-dispatch trajectory loop guard (ADR-0247).
+    /// Attach the pre-dispatch trajectory loop guard.
     pub fn with_trajectory(mut self, guard: crate::trajectory_guard::TrajectoryLoopGuard) -> Self {
         self.trajectory = Some(guard);
         self

@@ -28,7 +28,7 @@ pub async fn run_headless(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Two mutually exclusive transports, resolved once:
     //
-    // - `--remote <addr>` names an explicit server endpoint (ADR-0105's
+    // - `--remote <addr>` names an explicit server endpoint (
     //   LAN shape): connect to it directly — no discovery read, no local
     //   spawn. A remote run that silently fell back to the local instance
     //   would be the worst kind of lie: it would *appear* to work while
@@ -53,7 +53,7 @@ pub async fn run_headless(
         }
     };
 
-    // ADR-0141: declare the human-channel posture before the attach. A
+    // Declare the human-channel posture before the attach. A
     // headless run has no interactive UI by definition — `is_tty` below only
     // distinguishes "can print a question and read a line" from a pipe. A
     // TTY headless run declares Interactive (the operator is on the other
@@ -344,7 +344,7 @@ pub async fn run_headless(
     Ok(())
 }
 
-/// Tell the server the headless run's session is over (ADR-0112) and wait
+/// Tell the server the headless run's session is over and wait
 /// for it to acknowledge with the terminal `AgentResponse::Exit`. Headless
 /// runs are ephemeral by design — the operator asked one question and is
 /// gone — so leaving the session hosted (the detach semantics a TUI get)
@@ -438,7 +438,7 @@ async fn handle_user_question_request(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut all_answers = Vec::new();
 
-    // ADR-0141: the non-TTY fabrication branch is gone. A piped run
+    // The non-TTY fabrication branch is gone. A piped run
     // declares the Autonomous posture at attach, so the session's posture
     // gate settles `ask_user` by labeled policy (fail-closed or
     // recommended-labeled per `[agent] ask_user_fallback`) *inside* the

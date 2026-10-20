@@ -1,5 +1,4 @@
 //! Slash-command execution results and durable ack bodies.
-
 use nuotc::{
     Color, Modifier, Style, {Line, Span},
 };
@@ -53,11 +52,11 @@ pub fn draw_command_result(
 
     let time_label = msg.sent_at_ms.map(crate::time::sent_time_label);
 
-    // One component in two lifecycle states (ADR-0108/ADR-0111), deliberately
+    // One component in two lifecycle states, deliberately
     // *not* an expandable step: the invocation and its reply are a single
     // entry, so it carries no disclosure marker and no folding state. The
     // interaction channel tints the header so a hovered or focused command is
-    // visibly the component under attention (ADR-0174).
+    // visibly the component under attention.
     let header_tone = summary_text_color(
         Some((*ctx.theme).info()),
         Disclosure::Expanded,
@@ -115,7 +114,7 @@ pub fn draw_command_result(
     // Result body blocks
     if phase == CommandPhase::Completed && msg.command_result_text().is_some() {
         ctx.advance_blank_rows(1);
-        // An ack with detail renders in its own two-tone scheme (ADR-0106):
+        // An ack with detail renders in its own two-tone scheme:
         // the headline in the entry's foreground tone — the part the eye
         // should land on first — and each explanation line muted below it.
         // The generic body path stays for every other result shape.

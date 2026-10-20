@@ -1,5 +1,4 @@
 //! Provider service roots and catalog declarations shared by configuration and routing.
-
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct ApiRoot(String);
@@ -67,7 +66,7 @@ impl CatalogShape {
 
     /// The catalog path, relative to the provider's API root.
     ///
-    /// Under ADR-0259 the endpoint is `root_url + path()`. The path is a
+    /// the endpoint is `root_url + path`. The path is a
     /// property of the *shape*, so a new provider reusing an existing shape
     /// inherits it with no new code.
     pub fn path(self) -> &'static str {

@@ -1,11 +1,10 @@
-//! Workspace binding and the history query filter (ADR-0226, revised).
+//! Workspace binding and the history query filter (revised).
 //!
 //! A session is partitioned by its **workspace** alone: sessions bound to a
 //! directory group by that directory, and sessions with no workspace form the
 //! unbound set. There is no separate "space" concept — an agent that needs no
 //! workspace simply has `workspace = None`. `WorkspaceFilter` is the query
 //! filter that expresses "any / a specific workspace / unbound".
-
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -37,7 +36,7 @@ impl WorkspaceBinding {
     }
 }
 
-/// Canonical session domain partition (ADR-0250).
+/// Canonical session domain partition.
 /// A session is symmetrically anchored either to a physical workspace directory
 /// or to an autonomous cognitive role.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

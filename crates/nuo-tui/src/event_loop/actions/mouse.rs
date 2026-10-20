@@ -1,7 +1,6 @@
 //! Mouse-action handlers for the input dispatch match — selection drags,
 //! block select, right-click, and hover affordance. Extracted verbatim from
 //! the corresponding arms of `dispatch_action`'s match.
-
 use crate::input;
 use crate::interaction::{self, ClickTarget};
 use crate::model::document::{NoticeSeverity, TranscriptMessage};
@@ -339,7 +338,7 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // Click inside the live input box: clear any
                 // focused step so the next keypress edits rather
                 // than acting on a step, and return keyboard
-                // attention to the composer (ADR-0174).
+                // attention to the composer.
                 app.focused_target = None;
                 app.transcript_focused = false;
                 // Relay hand-off: place the (possibly hidden) caret at the
@@ -450,7 +449,7 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // drag. A zero-length range is created so an
                 // immediate drag extends it normally. Message-text
                 // clicks also park attention on the transcript
-                // (ADR-0174 browse focus).
+                // (browse focus).
                 app.drag.begin_range(&mut app.selection, cursor);
                 app.focused_target = None;
                 app.transcript_focused = true;
@@ -459,7 +458,7 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // Click inside the content band but not on a
                 // region: clear any step focus and selection
                 // without starting a text selection. A blank-space
-                // click parks attention on the transcript (ADR-0174
+                // click parks attention on the transcript (
                 // browse focus): the composer dims until a composer
                 // click or a keystroke hands focus back.
                 app.selection = SelectionState::None;

@@ -9,7 +9,6 @@
 //! Admission of tools to the subagent is driven by [`nuo_wire::SubAgentProfile::EXPLORE`]
 //! — the single source of truth for the read-only / non-interactive /
 //! non-recursive policy. See ADR-0011.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -20,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agent::{Agent, SubagentHandle};
 
-/// Canonical tool name for spawning a delegated child agent (ADR-0183).
+/// Canonical tool name for spawning a delegated child agent.
 pub const SPAWN_AGENT_TOOL_NAME: &str = nuo_wire::BuiltinTool::SpawnAgent.as_str();
 
 /// The roles a **model-facing** dispatch tool may request, in the order the
@@ -30,7 +29,7 @@ pub const SPAWN_AGENT_TOOL_NAME: &str = nuo_wire::BuiltinTool::SpawnAgent.as_str
 /// [`Tool::parameters`] and the runtime check in `run_subagent_outcome`, so the
 /// advertised contract and the enforced one cannot drift: a role the schema
 /// offers is always resolvable, and a role it does not offer is rejected
-/// instead of being silently treated as the bound default (ADR-0179's
+/// instead of being silently treated as the bound default (
 /// "actionable diagnostics for mode errors").
 ///
 /// Deliberately narrower than [`nuo_wire::SubAgentProfile::ALL`]:
@@ -39,7 +38,7 @@ pub const SPAWN_AGENT_TOOL_NAME: &str = nuo_wire::BuiltinTool::SpawnAgent.as_str
 /// it lives in the same pool.
 pub const DISPATCH_ROLES: &[&str] = &["explore", "debug", "skill"];
 
-/// Canonical description of the default `spawn_agent` dispatch tool (ADR-0183).
+/// Canonical description of the default `spawn_agent` dispatch tool.
 pub const SPAWN_AGENT_TOOL_DESCRIPTION: &str = "\
 Spawn an isolated child agent to perform a focused subtask in a separate \
 context window and return a consolidated summary. Set 'role' to 'explore' for read-only \
@@ -87,7 +86,7 @@ impl Default for SubagentRetryConfig {
 pub struct SubagentRegistry {
     map: std::sync::Mutex<std::collections::HashMap<String, SubagentHandle>>,
     /// Live child cancellation tokens keyed by the parent tool-call id
-    /// (ADR-0205 scene scope). Mirror of the tool's own `active_cancels`, but
+    /// (scene scope). Mirror of the tool's own `active_cancels`, but
     /// reachable from the harness so a **single** subagent can be interrupted
     /// promptly (the token races the child's in-flight model request) without
     /// stopping the enclosing primary round — which the primary round's own
@@ -146,7 +145,7 @@ impl SubagentRegistry {
             .remove(parent_call_id);
     }
 
-    /// Interrupt the single subagent spawned by `parent_call_id` (ADR-0205
+    /// Interrupt the single subagent spawned by `parent_call_id` (
     /// scene scope): cancel its live token so an in-flight model request or
     /// tool call unwinds promptly, unblock any parked human decision, and
     /// submit a boundary `AgentOp::Interrupt` as the idle/queued fallback. The
@@ -213,7 +212,7 @@ pub struct SubagentTool {
     /// narrow this through the subagent's operation scope, never widen it.
     parent_workspace_security:
         std::sync::Mutex<Option<Arc<std::sync::Mutex<nuo_wire::WorkspaceSecuritySnapshot>>>>,
-    /// ADR-0141: the parent's human-channel accountant, inherited by every
+    /// The parent's human-channel accountant, inherited by every
     /// spawned subagent so a child's posture tracks the session's live OR over
     /// attached clients (an interactive session's subagent can ask the user;
     /// an autonomous one's child never parks on a missing human).
@@ -240,11 +239,11 @@ pub struct SubagentTool {
     active_cancels: std::sync::Mutex<std::collections::HashMap<String, CancellationToken>>,
     /// Agent preset delegation policy gating which subagent presets may be dispatched.
     parent_delegation: std::sync::Mutex<Option<nuo_wire::AgentRoleDelegation>>,
-    /// Parent execution policy enforcing recursion limits and depth bounds (ADR-0183).
+    /// Parent execution policy enforcing recursion limits and depth bounds.
     parent_execution_policy: std::sync::Mutex<Option<nuo_wire::ExecutionPolicy>>,
     /// The session's workspace root, captured at bootstrap so the child's
     /// tools resolve relative paths against the session's project — not the
-    /// server process's cwd (ADR-0096). `None` falls back to the process cwd
+    /// server process's cwd. `None` falls back to the process cwd
     /// (tests, single-project processes).
     workspace_root: std::sync::Mutex<Option<std::path::PathBuf>>,
     retry_config: std::sync::Mutex<SubagentRetryConfig>,
@@ -364,7 +363,7 @@ impl SubagentTool {
             .unwrap_or_else(|e| e.into_inner()) = Some(delegation);
     }
 
-    /// Bind the parent agent's execution policy to govern child depth bounds (ADR-0183).
+    /// Bind the parent agent's execution policy to govern child depth bounds.
     pub fn bind_execution_policy(&self, policy: nuo_wire::ExecutionPolicy) {
         *self
             .parent_execution_policy
@@ -374,7 +373,7 @@ impl SubagentTool {
 
     /// Pin the session's workspace root so spawned subagents resolve relative
     /// paths against the session's project rather than the server process's
-    /// cwd (ADR-0096). Called by the bootstrap right after construction;
+    /// cwd. Called by the bootstrap right after construction;
     /// `None` (the default) keeps the process-cwd fallback.
     pub fn set_workspace_root(&self, root: Option<std::path::PathBuf>) {
         self.workspace_root
@@ -415,7 +414,7 @@ impl SubagentTool {
             .unwrap_or_else(|e| e.into_inner()) = Some(handle);
     }
 
-    /// ADR-0141: bind the session's channel accountant; spawned subagents
+    /// Bind the session's channel accountant; spawned subagents
     /// inherit it (see the `run_subagent` wiring of
     /// `Agent::set_human_channel_accountant`).
     pub fn bind_human_channel(&self, handle: Arc<nuo_wire::human_request::HumanChannelAccountant>) {
@@ -498,7 +497,7 @@ impl Tool for SubagentTool {
         })
     }
 
-    /// Whether invoking this tool spawns a nested sub-agent (ADR-0183).
+    /// Whether invoking this tool spawns a nested sub-agent.
     /// `spawn_agent` does; subagent presets exclude it to prevent unbounded
     /// recursion.
     fn spawns_subagent(&self) -> bool {
@@ -668,7 +667,7 @@ impl SubagentTool {
             .and_then(|b| b.as_bool())
             .unwrap_or(false);
         if is_background {
-            // ADR-0234: the parameter is gone from the schema, and the
+            // The parameter is gone from the schema, and the
             // execution path below awaits the child round inside this tool
             // call — there is no background job registration, no `job_id`, and
             // no result to poll. Rejecting an explicitly requested background
@@ -736,7 +735,7 @@ impl SubagentTool {
         let mut subagent = Agent::new(self.provider.clone(), sub_tools, identity);
         subagent.set_kind(nuo_wire::AgentKind::Subagent);
 
-        // ADR-0224: bind instance-scoped extensions according to the child's mission.
+        // Bind instance-scoped extensions according to the child's mission.
         match profile.name {
             "explore" => {
                 subagent.add_extension(std::sync::Arc::new(
@@ -829,7 +828,7 @@ impl SubagentTool {
         // `reply_permission` (the parked oneshot resolves directly, no inbox
         // drain needed).
         subagent.set_unattended(profile.unattended);
-        // ADR-0141: the child inherits the parent's human-channel posture
+        // The child inherits the parent's human-channel posture
         // source. An interactive session's subagents can ask the user through
         // the parent's channel (permission requests flow up via
         // SubagentEvent); an autonomous parent's children never park on a
@@ -875,7 +874,7 @@ impl SubagentTool {
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(id.to_string(), child_cancel.clone());
             // ALSO register the token in the shared registry so a scene-scoped
-            // interrupt (ADR-0205) can stop this one child promptly — the token
+            // interrupt can stop this one child promptly — the token
             // races its in-flight model request, exactly like the primary's —
             // while leaving the parent round and every sibling running. The
             // tool's own `active_cancels` map stays the `Tool::request_cancel`
@@ -1150,7 +1149,7 @@ impl SubagentTool {
                     duration_ms,
                 });
             }
-            // Full-duplex (ADR-0029 / ADR-0138): a permission broker request from the
+            // Full-duplex (ADR-0029): a permission broker request from the
             // child travels *up* stamped with the child's short hash and profile origin.
             nuo_wire::AgentEvent::PermissionRequest(mut request) => {
                 if request.origin.is_none() {
@@ -1656,7 +1655,7 @@ mod tests {
         assert!(tool.call(r#"{"prompt":"x"}"#).await.is_err());
     }
 
-    /// ADR-0234: the tool cannot dispatch a background child (the call awaits
+    /// The tool cannot dispatch a background child (the call awaits
     /// the child round and returns its result), so both the schema and an
     /// explicit request must say so instead of promising a notification that
     /// never arrives.

@@ -1,11 +1,9 @@
 //! User-declared model provider customizations (`model_providers.toml`,
-//! ADR-0199, ADR-0201).
 //!
 //! Stores provider-level model scoping and capability customizations keyed by
 //! model provider id (e.g. `deepseek`, `anthropic`, `openai`). Applied across
 //! every connection that points at that provider — model semantics belong to
 //! the provider, not to a credential binding.
-
 use nuo_wire::model::ModelScopeConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -21,10 +19,10 @@ pub use nuo_model_codec::model_providers::UserDeclaredProvider;
 pub struct ModelProviders {
     #[serde(default = "schema_version")]
     pub version: u32,
-    /// Declarative user-defined provider services (ADR-0258).
+    /// Declarative user-defined provider services.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub providers: BTreeMap<String, UserDeclaredProvider>,
-    /// Scoped model inclusions, exclusions, and capability overrides per provider (ADR-0199, ADR-0201).
+    /// Scoped model inclusions, exclusions, and capability overrides per provider.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub model_providers: BTreeMap<String, ModelScopeConfig>,
 }

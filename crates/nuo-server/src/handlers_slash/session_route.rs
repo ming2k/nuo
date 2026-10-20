@@ -1,7 +1,6 @@
 //! Shared `/sessions` routing + posture-flag parsing, split out of the
-//! retired `/schedule` module (ADR-0186 removed the scheduled-prompt
+//! retired `/schedule` module (removed the scheduled-prompt
 //! feature; these helpers serve `/sessions` and the command flags).
-
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SessionRoute<'a> {
     Open(Option<&'a str>),

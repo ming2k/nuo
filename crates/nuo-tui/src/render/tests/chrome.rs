@@ -1384,7 +1384,7 @@ fn main_view_thread_governance_row_carries_run_mode_flags() {
 }
 
 /// The empty-state tour renders the current carousel page beneath the
-/// logo (ADR-0104) — no static tagline, no dot indicator.
+/// logo — no static tagline, no dot indicator.
 #[test]
 fn empty_state_tour_renders_the_current_carousel_page() {
     let theme = Theme::default();
@@ -1434,7 +1434,7 @@ fn empty_state_tour_renders_the_current_carousel_page() {
         .map(|y| (0..width).map(|x| buffer[(x as u16, y)].symbol()).collect())
         .collect();
     let joined = all.join("\n");
-    // The static tagline is retired (ADR-0104): the carousel's first
+    // The static tagline is retired: the carousel's first
     // page already answers "how do I start", so no duplicate line.
     assert!(
         !joined.contains("Type a message below to begin."),
@@ -1442,7 +1442,7 @@ fn empty_state_tour_renders_the_current_carousel_page() {
     );
     // Page 2 of the tour is the /fork page (ADR-0058).
     assert!(joined.contains("/fork"), "page 2 visible: {joined}");
-    // No dot indicator row (ADR-0104): the carousel is a single line and
+    // No dot indicator row: the carousel is a single line and
     // the rotation is self-explaining.
     assert!(!joined.contains('●'), "no dot indicator anywhere: {joined}");
 }
@@ -1730,7 +1730,7 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
     }
 }
 
-/// The durability-health banner (ADR-0196 D4) renders its state label, the
+/// The durability-health banner (D4) renders its state label, the
 /// cause detail, and truncates under width pressure; a healthy writer never
 /// places the row at all, so no code path draws a healthy banner.
 #[test]

@@ -10,7 +10,6 @@
 //! the client renders the reported credits and windows verbatim and never
 //! recomputes either. Response shape: `docs/reference/openapi/commandcode-plan.yml`
 //! (`/alpha/billing/credits`).
-
 use nuo_wire::{
     BalanceQuota, PeriodicQuota, ProviderQuotaData, ProviderUsage, QuotaWindowBucket,
     QuotaWindowKind, UsageMetric,
@@ -66,7 +65,7 @@ pub struct CommandCodeUsageFetcher;
 
 impl CommandCodeUsageFetcher {
     pub fn matches(&self, provider: &str, base_url: &str) -> bool {
-        // The canonical provider id is `commandcode-plan` (ADR-0201); the
+        // The canonical provider id is `commandcode-plan`; the
         // legacy `commandcode` spelling is kept for old stored connections.
         matches!(provider, "commandcode" | "commandcode-plan")
             || base_url.contains("commandcode.ai")

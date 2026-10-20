@@ -1,12 +1,11 @@
 //! Domain contracts for background process and subagent execution.
 //!
-//! Dual-track execution model (ADR-0145):
+//! Dual-track execution model:
 //! - **Deterministic Process Jobs**: Shell commands, long test runs, compilation, dev servers.
 //!   Managed at the OS level via `tokio::process`, 0 LLM token cost.
 //! - **Autonomous Sub-Subagent Jobs**: Read-only exploration and analysis subagents with isolated contexts.
 //!
 //! Both tracks report into a unified lifecycle and event notification pipe.
-
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -26,7 +25,7 @@ pub trait BackgroundJobService: Send + Sync {
         timeout: Option<Duration>,
     ) -> Result<BackgroundJobInfo, String>;
 
-    /// Spawn a process with full ADR-0190 control (kind, readiness,
+    /// Spawn a process with full control (kind, readiness,
     /// restart, ownership). Defaults to `spawn_process` semantics.
     async fn spawn_process_ex(
         &self,
@@ -45,7 +44,7 @@ pub trait BackgroundJobService: Send + Sync {
     }
 
     /// Record the outcome of a foreground command that hit its sync budget
-    /// with the process still alive (ADR-0190 detach-on-budget): the fabric
+    /// with the process still alive (detach-on-budget): the fabric
     /// adopts the already-running child and notifies on completion.
     async fn adopt_process(
         &self,
@@ -56,19 +55,19 @@ pub trait BackgroundJobService: Send + Sync {
         Err("adoption is not supported by this job service".to_string())
     }
 
-    /// Arm a Timer task (ADR-0190): the fabric's clock arm. When the trigger
+    /// Arm a Timer task: the fabric's clock arm. When the trigger
     /// fires, the digest below is published through the ordinary completion
     /// path (event stream, outcome queue, ledger) so the session can act on
     /// it. The payload is *not* a shell command — the fabric never executes
-    /// it. A re-arming timer keeps its cancel handle between fires (ADR-0234):
+    /// it. A re-arming timer keeps its cancel handle between fires:
     /// only `kill_job` stops the loop, and the last fire's state is not
     /// terminal while the next one is armed.
     ///
     /// No tool currently arms a timer: `execute_command`'s former
-    /// `schedule_in_secs`/`repeat` parameters were removed in ADR-0234 because
+    /// `schedule_in_secs`/`repeat` parameters were removed in because
     /// they promised "the command runs at fire time" and, with the wake turn
-    /// disabled (ADR-0212), no consumer existed for the digest. Re-expose a
-    /// model-facing timer only alongside a real execution contract (ADR-0234
+    /// disabled, no consumer existed for the digest. Re-expose a
+    /// model-facing timer only alongside a real execution contract (
     /// Stage 1) or an enabled SystemWake (Stage 2).
     async fn spawn_timer(
         &self,
@@ -89,7 +88,7 @@ pub trait BackgroundJobService: Send + Sync {
     /// Retrieve tail logs of a background job.
     fn get_logs(&self, id: &JobId, tail_lines: usize) -> Option<Vec<String>>;
 
-    /// Claim the retained settlement(s) of a settled job (ADR-0234).
+    /// Claim the retained settlement(s) of a settled job.
     ///
     /// Returns the outcomes that had not already been claimed, oldest first,
     /// and marks them claimed. This is the acknowledgment primitive: a caller
@@ -150,7 +149,7 @@ impl From<&str> for JobId {
     }
 }
 
-/// Execution kind of a process task (ADR-0190): bounded work that should
+/// Execution kind of a process task: bounded work that should
 /// complete, or a long-lived service where *running is the success state*.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -160,7 +159,7 @@ pub enum JobKind {
     #[serde(rename = "interactive")]
     #[default]
     Interactive,
-    /// Long-lived work (dev server, watcher, server). Readiness (ADR-0190
+    /// Long-lived work (dev server, watcher, server). Readiness (
     /// `Ready`) is reported once met; the task never settles while running,
     /// and an unsolicited exit settles `Failed` so the session is woken with
     /// the crash.
@@ -168,7 +167,7 @@ pub enum JobKind {
     Service,
 }
 
-/// How a service task declares itself ready (ADR-0190 §D1).
+/// How a service task declares itself ready.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "readiness", rename_all = "snake_case")]
 pub enum Readiness {
@@ -184,7 +183,7 @@ pub enum Readiness {
     PortProbe { port: u16 },
 }
 
-/// Optional automatic-restart policy for service tasks (ADR-0190 §D1).
+/// Optional automatic-restart policy for service tasks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct RestartPolicy {
@@ -207,7 +206,7 @@ pub enum JobSpec {
         cwd: Option<PathBuf>,
         #[serde(default)]
         detached: bool,
-        /// Execution kind (ADR-0190). Legacy snapshots deserialize as
+        /// Execution kind. Legacy snapshots deserialize as
         /// `Interactive`.
         #[serde(default)]
         task_kind: JobKind,
@@ -218,12 +217,12 @@ pub enum JobSpec {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         restart: Option<RestartPolicy>,
     },
-    /// A scheduled wake (ADR-0190 Timer spec): the fabric's clock arm. When
+    /// A scheduled wake (Timer spec): the fabric's clock arm. When
     /// the trigger fires, the digest below is published as a completed
     /// outcome — the successor of the retired `/schedule` scheduler, driven by
     /// the same completion path as every other task event.
     ///
-    /// The payload is a *digest/prompt*, not a command line (ADR-0234): the
+    /// The payload is a *digest/prompt*, not a command line: the
     /// fabric does not run it. Nothing model-facing arms a timer today.
     Timer {
         /// Human-readable form the caller supplied (an ISO-ish local
@@ -252,7 +251,7 @@ pub enum JobState {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pid: Option<u32>,
     },
-    /// Service task is ready (ADR-0190): readiness condition met and the
+    /// Service task is ready: readiness condition met and the
     /// task continues running. Wake-eligible.
     Ready {
         started_at_ms: u64,
@@ -318,7 +317,7 @@ pub struct BackgroundJobOutcome {
 }
 
 /// An already-running foreground child the fabric adopts at the sync budget
-/// (ADR-0190 detach-on-budget). The tool crate keeps the OS handles and hands
+/// (detach-on-budget). The tool crate keeps the OS handles and hands
 /// them to the runtime service through this bridge.
 pub struct AdoptionInfo {
     /// Tail lines already captured by the foreground collector (chronological).

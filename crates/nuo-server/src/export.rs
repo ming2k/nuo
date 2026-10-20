@@ -7,7 +7,6 @@
 //! - Clean `## User`, `## Reasoning`, `## Assistant`, and `## Activity` sections.
 //! - Activities render tool invocations and outputs as indented code blocks (4 spaces).
 //! - Hidden and system messages are skipped. Subagent transcripts are summarised inline.
-
 use nuo_wire::{Message, Role, SubagentMeta, ToolCall};
 
 /// Metadata carried from the harness into the exporter so the header reflects
@@ -21,7 +20,7 @@ pub struct ExportContext<'a> {
 
 /// Render the current thread as a Markdown handoff document.
 ///
-/// `commands` is the ADR-0091 command ledger: slash commands (and `!cmd`
+/// `commands` is the command ledger: slash commands (and `!cmd`
 /// passthroughs) are operations, not thread dialogue, so they render as a
 /// distinct blockquote block after the dialogue instead of a `## User`
 /// heading, keeping the dialogue pure.
@@ -92,7 +91,7 @@ pub fn format_export_markdown(
         }
     }
 
-    // Command ledger (ADR-0091): operations are not dialogue, so they render
+    // Command ledger: operations are not dialogue, so they render
     // as a distinct blockquote block rather than a `## User` heading.
     for record in commands {
         emitted_any = true;

@@ -2,7 +2,6 @@
 //! [`input::InputAction`] that `run_app_loop`'s input-drain stage ran inline,
 //! moved here verbatim (one arm per variant) with only the loop-control
 //! statements rewritten as [`ActionFlow`] values.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -238,7 +237,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
 
     // An armed scene namespace survives exactly one keystroke: any action other
     // than re-arming it disarms it, so a half-typed chord cannot linger and
-    // change the meaning of a later, unrelated key (ADR-0298 §1).
+    // change the meaning of a later, unrelated key.
     if app.scene_namespace_armed && !matches!(action, input::InputAction::SetSceneNamespaceArmed(_))
     {
         app.scene_namespace_armed = false;
@@ -615,7 +614,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::ProviderPickerBlockModel => {
-            // ADR-0203 §10: 'x' blocks/intercepts the highlighted model from the connection pipe.
+            // 'x' blocks/intercepts the highlighted model from the connection pipe.
             if app.active_dialog() == Some(DialogKind::Models) {
                 let ranked = app.models_flat_filtered();
                 if let Some(row) = ranked.get(app.active_index()).or_else(|| ranked.first()) {
@@ -729,7 +728,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::ModelEditorVisionCycle => {
-            // Cycle the vision capability override (ADR-0149 layer 1):
+            // Cycle the vision capability override (layer 1):
             // inherit → force on → force off → inherit.
             app.editor_vision_override = cycle_tri_state(app.editor_vision_override);
         }
@@ -1344,7 +1343,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             if text.is_empty() {
                 return ActionFlow::Handled;
             }
-            // The composer is a command line now (ADR-0097 §2 grammar plus
+            // The composer is a command line now (grammar plus
             // slash verbs): `@3 text` addresses, `/kill`-family manages,
             // bare text keeps the legacy role — prompt the selection, or
             // create when the prompt was opened with `n`.
@@ -1756,7 +1755,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // at the front (the next item to pop). This mirrors a
             // click on the queue bar.
             //
-            // A retained view (ADR-0133 phase 4): the cursor/scroll
+            // A retained view (phase 4): the cursor/scroll
             // survive hide; the auto-block runs on EVERY entry (not just
             // first open) because it is an editing safety latch — the
             // matching resume is the view's exit hook (hide). A
@@ -1800,7 +1799,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // the recall and restore the stashed draft (text + attachments).
             // `cancel_history_recall` is a no-op when the pointer is already
             // `None`, so a key race between the context snapshot and dispatch
-            // cannot clobber a draft (ADR-0192).
+            // cannot clobber a draft.
             app.cancel_history_recall();
         }
         input::InputAction::ActivateFocusedTarget => {
@@ -1830,7 +1829,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             clipboard_ops::apply_clipboard_paste(app, clipboard::ClipboardRead::Text(text));
         }
         input::InputAction::InterruptSubagent => {
-            // Esc inside the Subagent scene (ADR-0205): interrupt only the
+            // Esc inside the Subagent scene: interrupt only the
             // viewed child, with the same armed press-twice contract. It never
             // reaches the primary round, so the outer turn keeps running.
             handle_esc_interrupt_with_runtime(app, runtime, commands::InterruptTarget::Subagent)
@@ -2112,7 +2111,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         }
         input::InputAction::QueueToggleBlock => {
             // `Ctrl+P` inside the queue modal: toggle the hard block on the
-            // viewed session's outbox. ADR-0197 M4: the pause is the
+            // viewed session's outbox. M4: the pause is the
             // *server's* queue flag — the local toggle is the optimistic
             // projection and the verb is authoritative.
             let paused = !app.is_queue_blocked(viewed_session_id);
@@ -2257,7 +2256,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 question_effects::apply(&effects, app, runtime).await;
             }
         }
-        // ADR-0175: PreAttach interstitial actions. The surface owns
+        // PreAttach interstitial actions. The surface owns
         // the keyboard when mounted; routing is disjoint from the
         // Question sheet so neither flow can interact with the other.
         // Quit decisions flip `should_quit` so the loop terminates on
@@ -2443,7 +2442,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
     ActionFlow::Handled
 }
 
-/// The sole retained-panel entry transaction (ADR-0141: panels are
+/// The sole retained-panel entry transaction (panels are
 /// retained modals). It focuses/restores the panel, runs one-time
 /// initialization, then applies the panel's refresh-on-show and enter-hook
 /// policy. Dedicated shortcuts, mouse targets, backend open signals and the
@@ -2558,7 +2557,7 @@ pub(super) fn enter_panel(
     }
 
     if id == DialogKind::Queue {
-        // ADR-0197 M4: the editing-safety auto-pause is mirrored to the
+        // M4: the editing-safety auto-pause is mirrored to the
         // server queue authority (resume on close, via `queue_exit_session`).
         app.set_queue_blocked(viewed_session_id, true);
         app.send_intent(AgentRequest::QueuePaused {
@@ -2617,7 +2616,7 @@ pub(super) fn enter_panel(
     first
 }
 
-/// Enter a full-screen scene (ADR-0205): navigate the router, run the scene's
+/// Enter a full-screen scene: navigate the router, run the scene's
 /// every-show UI refresh, and fire its data-refresh request.
 pub(super) fn enter_scene(
     app: &mut App,
@@ -3642,7 +3641,7 @@ pub(crate) mod host_test_shims {
     }
 }
 
-/// Cycle a capability-override tri-state (ADR-0149 layer 1): unset (inherit
+/// Cycle a capability-override tri-state (layer 1): unset (inherit
 /// from the lower layers) → forced on → forced off → unset. Used by the
 /// settings editor's Space cycling on fields 3/4.
 fn cycle_tri_state(v: Option<bool>) -> Option<bool> {
@@ -3669,7 +3668,7 @@ async fn execute_command_by_id(
             // The palette-invoked twin of the Esc chord, and therefore the
             // same scope: dismiss the overlay if one is up, else clear focus,
             // else step back one level *inside* the Scene. It never navigates
-            // between Scenes (ADR-0298 §2).
+            // between Scenes.
             if app.surfaces.active_overlay().is_some() {
                 modals::handle_close_modal(app, viewed_session_id);
             } else if app.focused_target.is_some() {
@@ -3966,7 +3965,7 @@ async fn execute_command_by_id(
     ActionFlow::Handled
 }
 
-/// ADR-0175: apply a PreAttach surface decision.
+/// Apply a PreAttach surface decision.
 ///
 /// `TrustCommand` routes through the canonical `/trust` slash command
 /// — the same path the server's `/trust` handler uses, so persistence
@@ -3977,7 +3976,7 @@ async fn execute_command_by_id(
 /// `Quit` flips `should_quit` so the loop terminates on its next
 /// iteration; the cleanup path (EndSession wire message, terminal
 /// restore) runs in the existing `run_tui` epilogue. There is no
-/// chat surface to fall through to under ADR-0175 §4 — dismissing is
+/// chat surface to fall through to — dismissing is
 /// quitting.
 async fn apply_pre_attach_decision(
     decision: Option<crate::PreAttachDecision>,

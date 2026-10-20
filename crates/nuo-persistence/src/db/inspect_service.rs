@@ -1,9 +1,9 @@
-//! Scoped inspect retrieval, retention, and deletion (ADR-0279).
+//! Scoped inspect retrieval, retention, and deletion.
 //!
 //! Phase E substrate: an indexed, paginated, scoped retrieval service over the
 //! canonical fact/artifact substrate, plus bounded garbage collection and a
 //! recoverable, observable deletion path. It lives inside `nuo_persistence::db`
-//! because it reads through a `Connection` (ADR-0231 one-door).
+//! because it reads through a `Connection` (one-door).
 //!
 //! Realized invariants:
 //! - `INV-RET-01`: retrieval is authorized by session/branch; a handle confers
@@ -15,14 +15,13 @@
 //! - `INV-RET-04`: GC uses bounded batches and read leases; a leased artifact is
 //!   never concurrently collected.
 //! - `INV-RET-05`: deleting a requirement fact cascades to open task state.
-
 use nuo_wire::context_lifecycle::{
     AuthScope, Capture, CursorBinding, Deletion, InspectError, InspectStatus, PageLimits,
     Representation, Validity,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
-/// A page of retrieved content (ADR-0279 §1).
+/// A page of retrieved content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArtifactPage {
     /// The returned text (already truncated to the page limits).
@@ -37,7 +36,7 @@ pub struct ArtifactPage {
     pub bytes: u64,
 }
 
-/// Why a GC batch stopped (ADR-0279 §5).
+/// Why a GC batch stopped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CollectionProgress {
     /// Objects collected in this batch.
@@ -48,7 +47,7 @@ pub struct CollectionProgress {
     pub next_seq: u64,
 }
 
-/// The outcome of a deletion job (ADR-0279 §6).
+/// The outcome of a deletion job.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeletionReport {
     /// The job identity.
@@ -66,7 +65,7 @@ pub struct DeletionReport {
     pub reclaimed: bool,
 }
 
-/// Indexed, scoped inspect retrieval over the canonical substrate (ADR-0279 §1).
+/// Indexed, scoped inspect retrieval over the canonical substrate.
 pub struct InspectService<'a> {
     conn: &'a Connection,
 }
@@ -210,7 +209,7 @@ pub fn grant_read_lease(
     Ok(())
 }
 
-/// A bounded mark/sweep batch over orphaned artifact references (ADR-0279 §5).
+/// A bounded mark/sweep batch over orphaned artifact references.
 ///
 /// Collects at most `batch_objects` rows or until `batch_ms` elapsed, saving a
 /// continuation. An artifact referenced by a live read lease is never swept.
@@ -304,7 +303,7 @@ fn has_live_lease(
     Ok(count > 0)
 }
 
-/// Commit a deletion job's state before reclaiming (ADR-0279 §6, `INV-RET-03`).
+/// Commit a deletion job's state before reclaiming (`INV-RET-03`).
 ///
 /// The job is observable (a row exists) and resumable (state is durable), and a
 /// requirement deletion cascades to open task state (`INV-RET-05`).

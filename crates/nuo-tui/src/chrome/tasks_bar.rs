@@ -1,9 +1,8 @@
-//! ADR-0212: Authoritative background tasks status bar.
+//! Authoritative background tasks status bar.
 //!
 //! Renders persistent or transient background jobs (running and settled)
 //! immediately above the composer/activity bar. Decouples task execution
 //! observability from thread history.
-
 use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 
 use crate::theme::Theme;

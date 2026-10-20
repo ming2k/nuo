@@ -1,6 +1,5 @@
 //! Transcript append/replace, round and interrupt records, retry
-//! bookkeeping, fork/lineage queries, and the session tree (ADR-0186).
-
+//! bookkeeping, fork/lineage queries, and the session tree.
 use super::*;
 
 /// One unified turn commit for [`SessionStore::commit_turn`]. `messages` is
@@ -15,11 +14,11 @@ pub struct CommitTurn<'a> {
     pub usage_records: &'a [nuo_wire::RequestUsageRecord],
     pub retry_point: Option<Option<nuo_wire::RetryPoint>>,
     pub round_interrupt: Option<nuo_wire::RoundInterrupt>,
-    /// ADR-0236 D3 idempotency identity. Replaying the same key returns the
+    /// D3 idempotency identity. Replaying the same key returns the
     /// original commit receipt instead of applying the deltas a second time.
     /// `None` mints a fresh identity for this commit.
     pub operation_id: Option<String>,
-    /// ADR-0236 D3 revision precondition. When supplied, the writer refuses
+    /// D3 revision precondition. When supplied, the writer refuses
     /// the commit if the durable session revision no longer matches — the
     /// check fails closed rather than writing over content the caller did
     /// not see.
@@ -59,7 +58,7 @@ fn _persist_guard_doc() {}
 
 /// Wire-normalized equality: harness sidecars (timestamps, display content,
 /// provenance) are not provider-visible content, so comparisons that decide
-/// append-vs-rebuild must ignore them (ADR-0186).
+/// append-vs-rebuild must ignore them.
 ///
 /// Implemented via zero-copy `semantic_wire_eq` to eliminate repetitive heap
 /// allocations and clones on the ReAct turn hot path.
@@ -105,7 +104,7 @@ impl SessionStore {
         Ok(())
     }
 
-    /// The durable request-projection archive (ADR-0218): forensic snapshots
+    /// The durable request-projection archive: forensic snapshots
     /// of assembled requests, oldest first. Pure projection state — never part
     /// of the transcript, never replayed into a later model request. Read from
     /// the key-addressed `request_projections` table on demand; it is not held
@@ -128,7 +127,7 @@ impl SessionStore {
         .unwrap_or_default()
     }
 
-    /// Insert one request-projection record (ADR-0218), awaiting the durable
+    /// Insert one request-projection record, awaiting the durable
     /// write. Keyed by `(session, round, turn)`, so re-recording a logical
     /// invocation replaces its row rather than duplicating it. Retention is a
     /// bounded ring enforced by the storage layer.
@@ -143,7 +142,7 @@ impl SessionStore {
             .map_err(|error| error.to_string())
     }
 
-    /// Fire-and-forget request-projection insert (ADR-0218) for the model
+    /// Fire-and-forget request-projection insert for the model
     /// request hot path: forensic persistence must never block dispatch. The
     /// caller passes the session id because this path cannot await the store
     /// lock to read it. A dropped write is logged, never surfaced as a round
@@ -273,7 +272,7 @@ impl SessionStore {
         Ok(())
     }
 
-    /// Replace the durable dialogue with exactly `messages` (ADR-0186): the
+    /// Replace the durable dialogue with exactly `messages`: the
     /// transcript's entries are rebuilt from scratch and the projection
     /// decision history is cleared — the caller asserts the window is the
     /// whole truth.
@@ -304,7 +303,7 @@ impl SessionStore {
         Ok(())
     }
 
-    /// The durable command ledger (ADR-0091).
+    /// The durable command ledger.
     pub async fn commands(&self) -> Vec<nuo_wire::CommandRecord> {
         self.state.lock().await.data.commands.clone()
     }
@@ -384,7 +383,7 @@ impl SessionStore {
 
     /// Commit everything a finished ReAct turn changed, in **one** lock
     /// acquisition and at most **one** snapshot write. Returns the committed
-    /// session revision (ADR-0236 D3).
+    /// session revision (D3).
     pub async fn commit_turn(&self, commit: CommitTurn<'_>) -> Result<u64, String> {
         let guard = crate::db::CommitGuard {
             operation_id: commit.operation_id.clone(),
@@ -433,7 +432,7 @@ impl SessionStore {
 
             // 3. Usage records — upsert only the records that changed. The
             // durable ledger lives in its own key-addressed table, so the
-            // changed records ride to the save as upserts (ADR-0187); the
+            // changed records ride to the save as upserts; the
             // in-memory mirror feeds the token ledger.
             let mut usage_upserts: Vec<nuo_wire::RequestUsageRecord> = Vec::new();
             if !commit.usage_records.is_empty() {
@@ -516,7 +515,7 @@ impl SessionStore {
             .await
     }
 
-    /// Durably classify crash residue (ADR-0236 D4): every request attempt
+    /// Durably classify crash residue (D4): every request attempt
     /// still `InFlight` in this session becomes `Abandoned` with its projected
     /// prompt as a lower bound, committed so every reader sees the resolution
     /// instead of a silently filtered unresolved attempt. Returns the number
@@ -556,7 +555,7 @@ impl SessionStore {
         Ok(count)
     }
 
-    /// Commit a model-context projection (ADR-0186): translate the
+    /// Commit a model-context projection: translate the
     /// agent-computed result into append-only directives where the new window
     /// is exactly reproducible, and fall back to a full transcript rebuild
     /// when it is not (correctness over cleverness — the caller's window is
@@ -569,7 +568,7 @@ impl SessionStore {
             let mut state = self.state.lock().await;
             let translated = translate_projection(&mut state.data.transcript, &result);
             if translated.is_none() {
-                return Err("projection translation failed: view commit writes no execution facts and history cannot be rebuilt from model window (ADR-0275/0280)".into());
+                return Err("projection translation failed: view commit writes no execution facts and history cannot be rebuilt from model window".into());
             }
             state.data.last_projection = Some(result.checkpoint);
             state.invalidate_projection_cache();
@@ -695,7 +694,7 @@ impl SessionStore {
         // Blocking I/O stays outside the session lock.
         persist_to(&self.writer, &child, &self.blob_store)?;
 
-        // Fork canonical SessionIR into SQLite (ADR-0241/ADR-0249/ADR-0058)
+        // Fork canonical SessionIR into SQLite
         let parent_ir = self.session_ir().await;
         let parent_delta = parent_ir.drain_delta(0);
         let _ = self.writer.save_session_delta(parent_delta).await;
@@ -790,7 +789,7 @@ impl SessionStore {
         Ok(messages)
     }
 
-    /// Project the current session state into canonical [`nuo_wire::SessionIR`] (ADR-0241/ADR-0249/ADR-0275).
+    /// Project the current session state into canonical [`nuo_wire::SessionIR`].
     pub async fn session_ir(&self) -> nuo_wire::SessionIR {
         let session_id = self.id().await;
         if let Ok(reader) = self.writer.reader()
@@ -802,16 +801,16 @@ impl SessionStore {
         nuo_wire::SessionIR::new(session_id, nuo_wire::SessionPolicy::default(), now)
     }
 
-    /// Commit mutations from a [`nuo_wire::SessionIR`] back into the session store (ADR-0241/ADR-0249/ADR-0275).
+    /// Commit mutations from a [`nuo_wire::SessionIR`] back into the session store.
     pub async fn commit_session_ir(&self, ir: &nuo_wire::SessionIR) -> Result<(), String> {
-        // Direct O(Δ) persistence to sessions_v2 and causal_nodes tables (INV-SESSION-05, ADR-0275)
+        // Direct O(Δ) persistence to sessions_v2 and causal_nodes tables (INV-SESSION-05)
         let delta = ir.drain_delta(0);
         self.writer.save_session_delta(delta).await.map_err(|e| {
             format!("failed to persist SessionDelta directly to canonical storage: {e}")
         })
     }
 
-    /// Commit an incremental [`nuo_wire::SessionDelta`] directly into SQLite (ADR-0241/ADR-0249, INV-SESSION-05).
+    /// Commit an incremental [`nuo_wire::SessionDelta`] directly into SQLite (INV-SESSION-05).
     pub async fn commit_session_delta(
         &self,
         delta: nuo_wire::SessionDelta,
@@ -820,7 +819,7 @@ impl SessionStore {
     }
 
     /// Compile a model request directly from the session's in-memory IR
-    /// using the 4-pass optimizing compiler pipeline (ADR-0241).
+    /// using the 4-pass optimizing compiler pipeline.
     pub async fn compile_request(
         &self,
         options: nuo_wire::CompilerOptions,
@@ -830,13 +829,13 @@ impl SessionStore {
     }
 }
 
-/// Intercept subagent results in an admission delta (ADR-0186 §6): each nested
+/// Intercept subagent results in an admission delta: each nested
 /// transcript becomes a **subagent session** (its own `sessions` row, facts
 /// shared by identity), and the parent's tool entry gains a `SubagentRef`
 /// pointer. The in-memory `Message` keeps its `children` for the live view;
 /// the persisted entry carries only the pointer. The subagent rows are
 /// *returned*, not written here: the caller persists them after releasing the
-/// session lock so no blocking I/O runs under the lock (ADR-0187).
+/// session lock so no blocking I/O runs under the lock.
 fn admit_subagent_children(state: &mut SessionData, candidates: &[Message]) -> Vec<SessionData> {
     let mut subagents = Vec::new();
     for message in candidates {
@@ -900,7 +899,7 @@ fn persist_subagent_children(
 /// Rebuild a transcript from a flat message window (entries get fresh ids;
 /// projection history is cleared). The caller must mint a fresh
 /// `SessionData::generation` afterwards: the new transcript shares no rows
-/// with the durable one (ADR-0187).
+/// with the durable one.
 pub(crate) fn rebuild_transcript_from_messages(messages: &[Message]) -> nuo_wire::Transcript {
     let mut transcript = nuo_wire::Transcript::new();
     for message in messages {
@@ -910,7 +909,7 @@ pub(crate) fn rebuild_transcript_from_messages(messages: &[Message]) -> nuo_wire
 }
 
 /// Translate a projection result into append-only directives **iff** the
-/// resulting projection is exactly `result.model_window` (ADR-0186). Returns
+/// resulting projection is exactly `result.model_window`. Returns
 /// `None` when translation is not possible and the caller must rebuild.
 fn translate_projection(
     transcript: &mut nuo_wire::Transcript,
@@ -1005,7 +1004,7 @@ fn translate_projection(
                 continue;
             }
 
-            // ADR-0285 / ADR-0074-era CAS invoice: User-uploaded visual media
+            // ADR-0074-era CAS invoice: User-uploaded visual media
             // pruning lands either the legacy `[cleared image payload` stub or
             // the VFS invoice `[Image Offloaded: …elided… Virtual Path`.
             let is_pruned_user_image = before.role == Role::User

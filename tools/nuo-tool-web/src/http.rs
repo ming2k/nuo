@@ -1,4 +1,4 @@
-//! The web tools' HTTP handle, on the owned transport (ADR-0200).
+//! The web tools' HTTP handle, on the owned transport.
 //!
 //! Every web tool — search backends and the page reader — used to thread a
 //! `reqwest::Client` through its signatures. They now share this handle, which
@@ -6,7 +6,6 @@
 //! direct connections, content-encoding decoding, and **no automatic redirects**
 //! (the SSRF guard re-validates every hop itself, so the transport must not
 //! follow one behind its back).
-
 use std::time::Duration;
 
 use bytes::Bytes;

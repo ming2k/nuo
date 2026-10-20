@@ -177,7 +177,7 @@ fn escape_clears_focus() {
     );
 }
 
-/// ADR-0298 §2: Esc does not close a Scene. On the TaskInspection zoom it is
+/// Esc does not close a Scene. On the TaskInspection zoom it is
 /// inert once a completion and step/browse focus are clear — the scene's own
 /// exit is `q` (or `C-x w`).
 #[test]
@@ -199,7 +199,7 @@ fn escape_never_exits_subagent_view() {
     );
 }
 
-/// ADR-0298 §2 / ADR-0103 §2: Esc in an aside interrupts the aside's round and
+/// Esc in an aside interrupts the aside's round and
 /// never leaves the view; `Ctrl+C` is the detach gesture.
 #[test]
 fn bracket_keys_navigate_scene_history_only_when_typing_is_empty() {

@@ -87,7 +87,7 @@ In production execution traces, this legacy topology introduced four critical sy
 
 ### 2. Retaining `list_dir` While Instructing Models to Prefer `find_files`
 - **Concept**: Keep `list_dir` in the role manifest but add system prompt instructions asking agents to prefer `find_files`.
-- **Failure Mode**: Violates ADR-0261 (Mechanisms over Exhortation). Models routinely ignore soft prompt advisories when simple tools like `list_dir` are available, lapsing back into directory wandering loops. Physical omission from the tool surface is the only fail-safe guarantee.
+- **Failure Mode**: Violates (Mechanisms over Exhortation). Models routinely ignore soft prompt advisories when simple tools like `list_dir` are available, lapsing back into directory wandering loops. Physical omission from the tool surface is the only fail-safe guarantee.
 
 ### 3. Preserving `todo` Tool as an Optional Meta-Tool
 - **Concept**: Retain `todo` for agents to record checkpoints on complex multi-step workflows.

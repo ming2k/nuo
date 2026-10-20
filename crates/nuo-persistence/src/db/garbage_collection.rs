@@ -1,7 +1,6 @@
-//! Garbage collection and CAS blob ledger sweeps (ADR-0187).
+//! Garbage collection and CAS blob ledger sweeps.
 //!
 //! Provides zero-reference transcript entry purging and CAS blob reference tracking.
-
 use std::collections::HashSet;
 
 use rusqlite::{Connection, Result};
@@ -16,7 +15,7 @@ pub(crate) fn live_blob_hashes(conn: &Connection) -> Result<HashSet<String>> {
     Ok(live)
 }
 
-/// Reclaim transcript entries that no session membership references (ADR-0187).
+/// Reclaim transcript entries that no session membership references.
 ///
 /// Entries are global facts shared by identity across forks, so only zero-reference
 /// rows are removable; the foreign key from `entry_memberships` makes the two tables'

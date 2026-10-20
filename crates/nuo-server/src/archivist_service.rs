@@ -1,4 +1,4 @@
-//! The Archivist conversational service (ADR-0208): how the server answers a
+//! The Archivist conversational service: how the server answers a
 //! dashboard `?` prompt.
 //!
 //! The Archivist **agent** (`crate::archivist::build_archivist`) defines the
@@ -14,7 +14,6 @@
 //! inner), so the Archivist always rides the user's configured model and
 //! follows every `/models` switch without separate wiring. A `NoProvider`
 //! sentinel degrades to the honest refusal the chat path already uses.
-
 use std::sync::Arc;
 
 use nuo_harness::Agent;

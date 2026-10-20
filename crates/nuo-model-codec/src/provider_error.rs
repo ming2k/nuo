@@ -1,5 +1,4 @@
 //! Typed failures crossing provider, tool, and harness boundaries.
-
 /// Stable classification of a provider failure.
 ///
 /// This enum is transport-independent so provider adapters can expose HTTP,
@@ -124,7 +123,7 @@ impl ProviderError {
 
     /// Whether this failure is a **deterministic refusal of the request we just
     /// sent** — the only kind of failure from which the image-cause probe can
-    /// draw a valid inference (ADR-0230).
+    /// draw a valid inference.
     ///
     /// The probe reasons: *re-send the same request with the attachments
     /// withheld; if that succeeds, the attachments were the cause.* That
@@ -182,7 +181,7 @@ impl ProviderError {
     // both bad: a false negative re-bricks a session, a false positive withholds
     // a capability that works. The harness answers the question from an
     // **outcome differential** instead — retry the identical turn with the
-    // attachments withheld and observe whether the refusal goes away (ADR-0230)
+    // attachments withheld and observe whether the refusal goes away
     // — which needs to understand no vendor format at all. The only
     // classification kept here is [`Self::is_request_refusal`], which derives
     // from the HTTP status the transport already mapped and reads none of the
@@ -321,7 +320,7 @@ mod request_refusal_tests {
     #[test]
     fn payload_rejections_may_arm_the_image_probe() {
         // The "this payload is unacceptable" family: deterministic AND
-        // body-caused, so the probe's inference is sound (ADR-0230).
+        // body-caused, so the probe's inference is sound.
         for status in [400, 413, 415, 422] {
             assert!(
                 http(status, ProviderErrorKind::InvalidRequest).is_request_refusal(),

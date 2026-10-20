@@ -17,7 +17,6 @@
 //! the registry's own output. Those are still assembled explicitly where the
 //! dependency is created; the registry collects everything that is
 //! self-contained.
-
 use crate::model::Model;
 use crate::{BuiltinTool, Tool, VariantSelection, empty_variant_selection};
 use std::any::{Any, TypeId};
@@ -55,7 +54,7 @@ impl ToolContext {
 /// The directory every workspace-relative tool operation resolves against,
 /// and the directory shell commands run in.
 ///
-/// Under the unified session server (ADR-0096) one process hosts sessions for
+/// Under the unified session server one process hosts sessions for
 /// *many* projects, so the server's own process cwd is whichever directory the
 /// first client happened to spawn it from — correct only by coincidence. A
 /// session-scoped tool must therefore never consult the process cwd: it
@@ -83,14 +82,14 @@ impl ToolContext {
     /// The session's admitted root set, when the bootstrap provided one.
     ///
     /// `None` means the session declared no additional roots (or predates
-    /// ADR-0142); callers fall back to [`Self::workspace_root`]-only
+    /// ); callers fall back to [`Self::workspace_root`]-only
     /// admission, which is the strictly narrower set.
     pub fn workspace_roots(&self) -> Option<&WorkspaceRoots> {
         self.get::<WorkspaceRoots>()
     }
 }
 
-/// The session's complete admitted filesystem authority (ADR-0142): the
+/// The session's complete admitted filesystem authority: the
 /// primary workspace root plus any configured additional roots.
 ///
 /// The primary root keeps every historical duty — relative paths resolve
@@ -597,7 +596,7 @@ impl ToolScope {
         ToolScope::Only(names.into_iter().map(Into::into).collect())
     }
 
-    /// Build a scope from an allowlist of capability names or patterns (ADR-0246).
+    /// Build a scope from an allowlist of capability names or patterns.
     pub fn from_allowlist<I, S>(patterns: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -682,7 +681,7 @@ impl ToolSelection {
         Self::default()
     }
 
-    /// A selection that admits only capabilities matching the given allowlist patterns (ADR-0246).
+    /// A selection that admits only capabilities matching the given allowlist patterns.
     pub fn from_allowlist<I, S>(patterns: I) -> Self
     where
         I: IntoIterator<Item = S>,

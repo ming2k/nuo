@@ -1,4 +1,4 @@
-//! `nuo status` (ADR-0093): the first control-plane client of the server
+//! `nuo status`: the first control-plane client of the server
 //! monitor protocol. One-shot by default (`nuo status`), a live table with
 //! `--watch`, machine-readable frames with `--json`.
 //!
@@ -11,7 +11,6 @@
 //! ([`nuo_client::upsert_session_row`]) live with the wire protocol
 //! in `nuo-client`; what remains here is the terminal rendering of the
 //! snapshot.
-
 use std::path::Path;
 
 use nuo_client::{self as client, ServerDiagnostics, upsert_session_row, upsert_task_row};
@@ -87,7 +86,7 @@ pub async fn run(
             MonitorEvent::PersistenceHealth(health) => {
                 state.persistence_health = Some(health);
             }
-            // The server is draining (ADR-0101): the stream ends right
+            // The server is draining: the stream ends right
             // after this frame. Print a note and stop watching — the next
             // `nuo status` re-discovers (or reports none running).
             MonitorEvent::ServerDraining => {
@@ -123,7 +122,7 @@ pub(crate) fn format_diagnostics(diag: &ServerDiagnostics) -> String {
     let mut out = String::new();
     out.push_str("nuo status — system status & diagnostics:\n");
 
-    // Instance scope first (ADR-0121): every path below reads differently
+    // Instance scope first: every path below reads differently
     // once the reader knows whether this client resolves the host instance
     // or an isolated `NUO_HOME` sandbox.
     out.push_str(&format!(
@@ -367,7 +366,7 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
         root,
         snapshot.sessions.len()
     ));
-    // Durability health (ADR-0196 D4): visible in the operator's first line
+    // Durability health (D4): visible in the operator's first line
     // of view, never log-only.
     if let Some(health) = &snapshot.persistence_health
         && !health.is_healthy()
@@ -438,7 +437,7 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
     out
 }
 
-/// How the row's session is driven. Since ADR-0096 every session is
+/// How the row's session is driven. Every session is
 /// server-held, so this is always `hosted`; the column stays so older
 /// servers' rows (which may omit `hosting`) still render.
 fn hosting_cell(row: &MonitoredSession) -> String {
@@ -725,7 +724,7 @@ mod tests {
         assert!(text.contains("PID 12345"), "{text}");
         assert!(text.contains("HELD by PID 12345"), "{text}");
         assert!(text.contains("Server is running and healthy"), "{text}");
-        // The instance scope line leads the report (ADR-0121).
+        // The instance scope line leads the report.
         assert!(text.contains("Instance:"), "{text}");
         assert!(text.contains("default port 9800"), "{text}");
     }
@@ -786,7 +785,7 @@ mod tests {
 
     #[test]
     fn diagnostics_formatter_names_the_sandbox_instance() {
-        // A sandboxed client (ADR-0121) must be identifiable at a glance:
+        // A sandboxed client must be identifiable at a glance:
         // the report's first data line names the instance dir and the
         // client-resolved default port, so "two servers, one discovered"
         // becomes a one-command diagnosis.

@@ -1,6 +1,5 @@
 //! Tool-execution tail of [`Agent`] rounds: output normalization, image
 //! plumbing, and the PostToolUse/PostToolUseFailure hook fire points.
-
 use super::*;
 
 impl Agent {
@@ -199,7 +198,7 @@ impl Agent {
 
     /// Emit a [`AgentEvent::TodosUpdated`] snapshot whenever a tool mutates
     /// the task list (`todo` full-replace or surgical edit; the legacy
-    /// `write_todos`/`update_todo`/`todo_update` names predate ADR-0215 and
+    /// `write_todos`/`update_todo`/`todo_update` names predate and
     /// match only so persisted prompts replaying them still refresh the
     /// panel).
     /// The TUI stores the snapshot and re-renders the sticky panel above the
@@ -258,7 +257,7 @@ impl Agent {
             origin: None,
         };
 
-        // ADR-0141 posture gate: an ask_user call only parks when a human
+        // Posture gate: an ask_user call only parks when a human
         // channel exists. Autonomous sessions (headless no-TTY, CI, subagents
         // with `allow_user_interaction: false`) never fabricate a user —
         // they settle by the configured fallback policy, labeled as such.
@@ -364,7 +363,7 @@ impl Agent {
         prompt: &nuo_wire::InputPrompt,
         event_tx: &mpsc::UnboundedSender<AgentEvent>,
     ) -> Option<String> {
-        // ADR-0141 posture gate: with no human channel there is nobody to type
+        // Posture gate: with no human channel there is nobody to type
         // into the panel; do not park.
         if self.human_posture() == HumanChannelPosture::Autonomous {
             self.human_broker
@@ -518,7 +517,7 @@ impl Agent {
                         id: format!("permission_{}", uuid::Uuid::new_v4()),
                         ..*request
                     };
-                    // ADR-0141 posture gate: permissions fail closed when no
+                    // Posture gate: permissions fail closed when no
                     // human channel exists — a missing human cannot grant
                     // authority. (Delegated sessions reach this arm only with
                     // an interactive watcher attached, so this is the belt to

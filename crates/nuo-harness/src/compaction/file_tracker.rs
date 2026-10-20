@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 /// File operations (read vs modified) tracked across a sequence of messages or branch.
 ///
-/// Under ADR-0275 §1, attempted, failed, and confirmed effects are tracked
+/// attempted, failed, and confirmed effects are tracked
 /// separately; an unconfirmed intent never masquerades as a confirmed modification.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FileOperations {
@@ -54,12 +54,12 @@ impl FileOperations {
                 || message.content.starts_with("error:")
                 || message.content.contains("Failed to"))
         {
-            // Failed tool executions are recorded as failed (ADR-0275 §1)
+            // Failed tool executions are recorded as failed
             self.failed.insert(message.content.clone());
         }
     }
 
-    /// Extract file operations from a Session IR CausalNode (ADR-0255).
+    /// Extract file operations from a Session IR CausalNode.
     pub fn extract_from_node(&mut self, node: &CausalNode) {
         match &node.payload {
             NodePayload::Message { message } => {

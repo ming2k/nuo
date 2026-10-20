@@ -15,7 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group, Runtime Engineering
 - Consulted: Runtime (`nuo-agent`), Harness (`nuo-harness`), Tooling (`nuo-tool`), Wire (`nuo-wire`)
 - Informed: System Architects, Documentation Governance
-- Supersedes: Legacy embedded `cl100k_base.packed` BPE vocabulary and `vendor/` tree (former ADR-0117 / ADR-0019 §Heuristics rejection)
+- Supersedes: Legacy embedded `cl100k_base.packed` BPE vocabulary and `vendor/` tree (see "Heuristics rejection" above)
 - Complements: [ADR-0019](0019-token-pressure-measurement-and-budget-accounting.md), [ADR-0055](0055-hierarchical-workspace-topology-and-component-namespace.md)
 
 ---

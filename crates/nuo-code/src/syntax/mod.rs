@@ -1,4 +1,4 @@
-//! AST and Code Intelligence utilities powered by Tree-sitter (ADR-0211).
+//! AST and Code Intelligence utilities powered by Tree-sitter.
 //!
 //! Provides:
 //! - Pre-mutation syntax verification (`verify_ast_syntax`)
@@ -7,12 +7,11 @@
 //!   ([`extract_declarations`], for the `code_query` tool)
 //! - The closed structural-query grammar ([`parse_syntax_pattern`])
 //!
-//! Per ADR-0214 there is no ambient repository-wide Repo Map generator here:
+//! there is no ambient repository-wide Repo Map generator here:
 //! structure enters the model context only through the scoped, bounded
 //! `code_query` tool. This module owns parsing; it does not own freshness or
 //! context delivery, and an on-demand parse of the current bytes is the
 //! correctness baseline.
-
 pub mod declarations;
 pub mod query;
 

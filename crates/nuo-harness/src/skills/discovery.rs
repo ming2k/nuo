@@ -1,5 +1,4 @@
 //! Skill discovery across project, user, configured, and remote sources.
-
 use super::SkillsConfig;
 use super::metadata::{Skill, SkillScope, parse_skill_metadata};
 use super::remote::{cached_remote_roots, fetch_remote_repo};
@@ -47,7 +46,7 @@ pub struct DiscoveryResult {
 /// skills override lower-priority skills with the same name.
 ///
 /// Project-local sources (`.nuo/skills`, `skills/`) are discovered transparently in
-/// all trust states (ADR-0165). While the workspace's skills-domain state is
+/// all trust states. While the workspace's skills-domain state is
 /// [`WorkspaceTrustState::Quarantined`], project skills are marked `quarantined: true`
 /// and `enabled: false`, surfaced in TUI and CLI with actionable `/trust skills` guidance
 /// without being injected into model context.
@@ -150,7 +149,7 @@ async fn skill_sources(
         quarantined: false,
     });
 
-    // 2.5 Role-scoped skills ($XDG_DATA_HOME/nuo/roles/<name>/skills/, ADR-0253).
+    // 2.5 Role-scoped skills ($XDG_DATA_HOME/nuo/roles/<name>/skills).
     if let Some(role) = &config.role {
         sources.push(SkillSource::Local {
             root: dirs.role_skills_dir(role),
@@ -170,7 +169,7 @@ async fn skill_sources(
     }
 
     // 4. Project-local skills (highest priority).
-    //    Discovered transparently in all trust states; flagged as quarantined when untrusted (ADR-0165).
+    //    Discovered transparently in all trust states; flagged as quarantined when untrusted.
     let project_root = resolve_project_root(config);
     let is_quarantined = !trust_state.is_trusted();
     sources.push(SkillSource::Local {
@@ -221,7 +220,7 @@ pub fn discoverable_skill_directories(config: &SkillsConfig) -> Vec<PathBuf> {
     // 1. User-global nuo skills ($XDG_DATA_HOME/nuo/skills)
     dirs.push(paths_helper.user_skills_dir());
 
-    // 1.5 Role-scoped skills ($XDG_DATA_HOME/nuo/roles/<name>/skills/, ADR-0253)
+    // 1.5 Role-scoped skills ($XDG_DATA_HOME/nuo/roles/<name>/skills)
     if let Some(role) = &config.role {
         dirs.push(paths_helper.role_skills_dir(role));
     }
@@ -380,7 +379,7 @@ mod tests {
 
     /// Regression (the "wrong workspace" bug): a config whose `project_root`
     /// is pinned (the session bootstrap does this under the unified server,
-    /// ADR-0096) discovers project-local skills from that root, not from the
+    /// ) discovers project-local skills from that root, not from the
     /// process cwd — which under the server belongs to a different project
     /// than the session invoking discovery.
     ///
@@ -419,7 +418,7 @@ mod tests {
     }
 
     /// Repo-scope sources are discovered transparently in all trust states, but
-    /// flagged as quarantined: true and enabled: false when untrusted (ADR-0165).
+    /// flagged as quarantined: true and enabled: false when untrusted.
     #[tokio::test]
     async fn quarantined_skills_discovered_as_disabled_and_quarantined() {
         let temp = tempfile::tempdir().unwrap();

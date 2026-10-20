@@ -269,7 +269,7 @@ pub use pressure::{
 pub use secret::SecretString;
 pub use session_title::{SessionTitle, TITLE_MAX_LEN, clean_title};
 pub use skills_config::SkillsConfig;
-/// The BPE token counter ([`crate::tokenizer`], ADR-0117) under the name the
+/// The BPE token counter ([`crate::tokenizer`]) under the name the
 /// heuristic estimator used to own: token prediction is BPE now, and callers
 /// that imported `count_tokens` for budget-fitting (summary truncation)
 /// must measure in the same unit as the projection thresholds.

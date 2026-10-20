@@ -1,10 +1,10 @@
-//! Route-scoped image projection for the wire (ADR-0230).
+//! Route-scoped image projection for the wire.
 //!
 //! Image attachments live in two different planes, and conflating them is the
 //! bug this module exists to prevent:
 //!
 //! - **Durable**: the transcript stores pasted images as content-addressed
-//!   blobs and keeps them forever (ADR-0186). History is never rewritten
+//!   blobs and keeps them forever. History is never rewritten
 //!   because the user switched models mid-session.
 //! - **Per request**: the wire body is a projection of that history, built
 //!   fresh for every turn against the *current* route's capabilities.
@@ -19,7 +19,6 @@
 //! (`None`) is attempted — providers reject images loudly, while a client that
 //! strips them silently leaves the model answering confidently about a picture
 //! it never received.
-
 use nuo_model_codec::{Message, ModelCapabilities};
 
 /// Project `messages` for a route whose image support is `capabilities`.
@@ -89,7 +88,7 @@ mod tests {
 
     #[test]
     fn undeclared_route_keeps_images() {
-        // The whole point of ADR-0230: an endpoint that advertises nothing must
+        // The whole point of: an endpoint that advertises nothing must
         // not have its images silently stripped.
         let messages = vec![image_message("look")];
         let (projected, dropped) = project_images_for_route("m", messages, &caps(None));

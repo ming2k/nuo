@@ -1,9 +1,8 @@
-//! Incremental commit delta for Session IR (ADR-0241).
+//! Incremental commit delta for Session IR.
 //!
 //! Guarantees `INV-SESSION-05`: turn persistence is bounded by O(Δ)
 //! allocations and writes. Only newly appended causal nodes (`seq > watermark`)
 //! and updated state registers travel in a delta.
-
 use super::types::{
     CausalNode, ExecutionStatus, NodeId, SessionIR, SessionPolicy, SystemNoticePayload,
 };

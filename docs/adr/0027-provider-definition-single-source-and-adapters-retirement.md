@@ -16,7 +16,7 @@ negative_knowledge: true
 - Consulted: Runtime, Capability, Interface Teams, and Model Infrastructure Engineers
 - Informed: System Architects
 - Amends: [ADR-0015](0015-dependency-inversion-architecture-for-model-providers.md) (executes its unfinished relocation and closes its `[INV-PROV-01..05]` enforcement gap)
-- Related: [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), `ADR-0065`, `ADR-0149`, `ADR-0230`, `ADR-0259`, `ADR-0260`, `ADR-0267`, `ADR-0273`
+- Related: [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), `ADR-0065`, ``, ``, ``, ``, ``, ``
 - Verification: Complete read-only forensic diff of `nuo-provider-adapters` against `providers/*` performed 2026-10-08; results recorded in §Evidence below, including one live production defect.
 
 ---
@@ -53,7 +53,7 @@ We now finish the migration ADR-0015 began, and close the enforcement gap that l
 - **A declaration without a consumer is a defect, not a placeholder.** `ProviderDescriptor`, `ProviderRegistry` (`register_quota_tracker`/`get_quota_tracker`/`fetch_quota`/`register_descriptor`/`get_descriptor`), and `builtin_provider_metadata` have **zero production call sites**. ADR-0015's `[INV-PROV-03]` "orthogonal capability segregation" was *declared by types* but never *bound by wiring*. Three dead abstractions are how `[INV-PROV-03]` came to be false in practice.
 - **Dispatch must not be string-sniffing.** `ProviderUsageFetcher::matches(provider: &str, base_url: &str)` decides behaviour by substring-matching an identity string and a URL. This is the mechanism that produced the Kimi defect; it is a class of bug, not an instance.
 - **The dependency-inversion topology must be real, not aspirational.** `[INV-PROV-04]` is currently satisfied only by luck (the harness→adapters edge is in `[dev-dependencies]`, for tests). The composition root — not a monolithic adapter crate — must be the only thing that knows all providers.
-- **Preserve every behavioural guarantee already earned.** Capability resolution order (`ADR-0149`), the fitted-model overlay (`ADR-0065`), vision's three-valued semantics (`ADR-0230`), the root URL algebra (`ADR-0259`), and declarative wire surfaces (`ADR-0260`) are all correct. This migration must be behaviour-preserving *except* where a defect is fixed deliberately and with evidence.
+- **Preserve every behavioural guarantee already earned.** Capability resolution order (``), the fitted-model overlay (`ADR-0065`), vision's three-valued semantics (``), the root URL algebra (``), and declarative wire surfaces (``) are all correct. This migration must be behaviour-preserving *except* where a defect is fixed deliberately and with evidence.
 
 ---
 
@@ -96,7 +96,7 @@ Runtime fact        (varies per connection)                    →  RemoteModelM
 Behaviour (has I/O) (quota, catalog, token refresh, signing)   →  a typed port; the table binds WHICH port
 ```
 
-A capability is **never** a bare `serde_json::Value` catch-all on a core DTO, and **never** a substring match on an identity string. ADR-0260's "everything is a table" is correct for *wire shape*; it is **not** a universal rule, because quota/health/OAuth have irreducible behaviour. The honest formulation: **a table declares which implementation to call; a table is not the implementation.**
+A capability is **never** a bare `serde_json::Value` catch-all on a core DTO, and **never** a substring match on an identity string. "everything is a table" is correct for *wire shape*; it is **not** a universal rule, because quota/health/OAuth have irreducible behaviour. The honest formulation: **a table declares which implementation to call; a table is not the implementation.**
 
 ### Decision on openness of provider-advertised values
 
@@ -105,10 +105,10 @@ Splitting the question that `ADR-0065` tends to over-generalize:
 > **Open vocabulary is safe where the value is only passed through; it is dangerous where the value gates a client decision.**
 
 - `EffortLevel::Other(String)` is open and correct — an unknown tier is stamped to the wire verbatim (`ADR-0065`).
-- `vision: Option<bool>` **must** stay closed and three-valued — it gates whether images are stripped (`ADR-0230`).
+- `vision: Option<bool>` **must** stay closed and three-valued — it gates whether images are stripped (``).
 - `Availability::reason` is a free string and correct — `[INV-AVAIL-03]` forbids any code path from parsing it.
 
-Therefore provider-private data that nuo does not model travels in a **namespaced extension bag** with an explicit "clients may ignore" contract (`ADR-0267`'s `ExtensionMap` is the existing pattern), never as a flattened core field.
+Therefore provider-private data that nuo does not model travels in a **namespaced extension bag** with an explicit "clients may ignore" contract (``'s `ExtensionMap` is the existing pattern), never as a flattened core field.
 
 ### Invariants & Behavioral Boundaries
 
@@ -215,7 +215,7 @@ per-step verification gates — is in [`docs/dev/provider-consolidation-migratio
 
 ### Rejected — `ecosystem: Ecosystem` provider field
 - **Why considered**: Convenient browsing taxonomy (`FirstParty` / `Subscription` / `Gateway` / `Local`).
-- **Why rejected**: It is a label with zero decision consumers — everything that differs (auth, catalog shape, dialect, quota source) is already declared separately — and it runs against `ADR-0260`, whose stated purpose is to move from brand enums to declarative data tables.
+- **Why rejected**: It is a label with zero decision consumers — everything that differs (auth, catalog shape, dialect, quota source) is already declared separately — and it runs against ``, whose stated purpose is to move from brand enums to declarative data tables.
 
 ---
 
@@ -223,6 +223,6 @@ per-step verification gates — is in [`docs/dev/provider-consolidation-migratio
 
 - Amends: [ADR-0015](0015-dependency-inversion-architecture-for-model-providers.md)
 - Execution runbook: [`docs/dev/provider-consolidation-migration.md`](../dev/provider-consolidation-migration.md)
-- Related: [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), `ADR-0065`, `ADR-0149`, `ADR-0230`, `ADR-0259`, `ADR-0260`, `ADR-0267`, `ADR-0273`
+- Related: [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), `ADR-0065`, ``, ``, ``, ``, ``, ``
 - Implementation anchors: `nuo-provider-adapters/src/{lib,list_models,client,endpoint}.rs`, `nuo-provider-adapters/src/{protocol,registry,usage,oauth}/`, `providers/nuo-provider-*`, `nuo-provider/src/{capability,registry,descriptor,spec}.rs`, `nuo-server/src/{bootstrap,handlers_provider}.rs`, `nuo-model-codec/src/model_providers.rs`
 - Deferred (tracked, not rejected): model-level pricing, extended capability matrix, provider account/tenant dimension declarations. Extension design recorded in [`docs/dev/provider-extension-design.md`](../dev/provider-extension-design.md) — includes the audit finding that provider **health/recovery semantics already exist** (`ProviderErrorKind` + `RetryDisposition`) and need no new fields.

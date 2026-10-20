@@ -123,9 +123,9 @@ pub use session_driver::SessionDriver;
 pub use skills_host::DurableWorkspaceTrust;
 pub use ui_bridge::{CopyOutcome, UiBridge};
 
-/// Authoritative runtime configuration shared across all hosted sessions (ADR-0209).
+/// Authoritative runtime configuration shared across all hosted sessions.
 pub type SharedConfig = std::sync::Arc<tokio::sync::RwLock<nuo_persistence::config::Config>>;
-/// Authoritative model recency telemetry shared across all hosted sessions (ADR-0209).
+/// Authoritative model recency telemetry shared across all hosted sessions.
 pub type SharedConnectionUsage =
     std::sync::Arc<tokio::sync::RwLock<nuo_persistence::connection_usage::ConnectionUsage>>;
 

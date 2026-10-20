@@ -10,7 +10,7 @@ fn fresh_db_migrates_to_latest_version() {
 }
 
 /// Regression for the interim version-5 stamp: development builds of the
-/// ADR-0186 tranche wrote `sessions` with `scheduled_jobs` and without the
+/// Tranche wrote `sessions` with `scheduled_jobs` and without the
 /// final working-state columns, then stamped `user_version = 5`. The
 /// migrator must reconcile such databases to the final schema instead of
 /// letting runtime INSERTs fail with "no column named ...".
@@ -89,7 +89,7 @@ fn migration_ten_rebuilds_parent_entries_with_membership_rows_present() {
     configure_connection(&mut conn).unwrap();
     conn.execute_batch(
         r#"
-            -- Final version-5 shape (ADR-0186) with live transcript rows that
+            -- Final version-5 shape with live transcript rows that
             -- satisfy the pre-migration CHECKs. Stamped v5 so the v6-v9 hooks
             -- build the real pre-v10 state on the way up (column repairs,
             -- membership/projection rebuilds, FTS backfill), exactly like a
@@ -193,7 +193,7 @@ fn migration_ten_rebuilds_parent_entries_with_membership_rows_present() {
     assert_eq!(violations, 0);
 
     // The migration-10 CHECKs accept the visible harness provenance the
-    // v5 schema rejected (the ADR-0186 integrity fix the rebuild ships).
+    // v5 schema rejected (the integrity fix the rebuild ships).
     conn.execute(
         "INSERT INTO entries (id, kind, role, content, origin, hidden, created_at_ms, payload)
              VALUES ('e4', 'message', 'user', 'steer', 'harness', 0, 4, '{}')",
@@ -951,7 +951,7 @@ fn test_v16_to_v17_clean_break_migration() {
     assert_eq!(last_prompt.as_deref(), Some("Legacy question"));
 }
 
-/// Supervision fault-injection suite (ADR-0196 D6). Every variant of
+/// Supervision fault-injection suite (D6). Every variant of
 /// [`PersistenceError`] and every supervisor transition is exercised.
 mod supervision {
     use super::*;
@@ -1061,7 +1061,7 @@ mod supervision {
         assert_eq!(reader.get_kv("after").unwrap().as_deref(), Some("v"));
     }
 
-    /// ADR-0231 reader-wedge self-heal: removing the on-disk `-wal`/`-shm`
+    /// Reader-wedge self-heal: removing the on-disk `-wal`/`-shm`
     /// pair under a live writer leaves every fresh read-only open failing at
     /// the WAL-index attach (`disk I/O error`) while the writer keeps
     /// serving and its health stays `Healthy`. Past the failure threshold
@@ -1134,7 +1134,7 @@ mod supervision {
         );
     }
 
-    /// ADR-0236 D3: a commit that is durable but whose acknowledgement was
+    /// D3: a commit that is durable but whose acknowledgement was
     /// lost (writer death between COMMIT and ack) is resolved by operation
     /// identity on replay — exactly one committed result, no duplicated
     /// transcript or usage.
@@ -1193,7 +1193,7 @@ mod supervision {
         );
     }
 
-    /// ADR-0236 D7: reader pressure is observable — the pool size, the
+    /// D7: reader pressure is observable — the pool size, the
     /// active snapshot count, and the oldest snapshot's age are reported,
     /// and a dropped reader releases its registration.
     #[tokio::test]
@@ -1274,7 +1274,7 @@ mod supervision {
         ));
     }
 
-    /// ADR-0208: cross-project FTS recall end-to-end — persist a session
+    /// Cross-project FTS recall end-to-end — persist a session
     /// with a distinctive message, then find it back with a raw
     /// multi-word query through `search_history` (the Archivist's
     /// retrieval plane). Also pins the workspace filter.
@@ -1338,7 +1338,7 @@ mod supervision {
         );
     }
 
-    /// ADR-0208 Layer 3 (deterministic leg): when the strict AND query
+    /// Layer 3 (deterministic leg): when the strict AND query
     /// recalls nothing because its words never co-occur, the relaxed OR
     /// form recalls the entries carrying any word, BM25-ranked so
     /// multi-word matches float up.
@@ -1386,7 +1386,7 @@ mod supervision {
         assert_eq!(scores, sorted);
     }
 
-    /// ADR-0208: the sanitizer converts free text into a safe MATCH
+    /// The sanitizer converts free text into a safe MATCH
     /// expression — quoted phrase tokens joined with AND, operator and
     /// punctuation characters stripped, so raw user input can never
     /// reach the FTS5 grammar.
@@ -1405,7 +1405,7 @@ mod supervision {
     }
 }
 
-/// ADR-0226: `latest_session` filters by the workspace partition and,
+/// `latest_session` filters by the workspace partition and,
 /// optionally, the staffing persona (backs `--resume`).
 #[test]
 fn latest_session_filters_by_workspace_and_persona() {

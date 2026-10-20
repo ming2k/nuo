@@ -5,7 +5,6 @@
 //! (`promptTokenCount` / `candidatesTokenCount` / `totalTokenCount`), and
 //! content lives in `candidates[0].content.parts[]` as either `text` or
 //! `functionCall`.
-
 use nuo_model_codec::{Message, ProviderStreamEvent, Role, TokenUsage, ToolCall};
 use serde_json::{Map, Value};
 
@@ -33,7 +32,7 @@ pub fn usage(usage: &Value) -> Option<TokenUsage> {
     let total = usage["totalTokenCount"].as_i64();
     let reasoning = usage["thoughtsTokenCount"].as_i64();
     // Route cache-read accounting through the shared helper so the cache
-    // policy is enforced in one place (ADR-0161). Google hides the discount in
+    // policy is enforced in one place. Google hides the discount in
     // `cachedContentTokenCount`, which the helper reads.
     let cache = nuo_model_codec::read_prompt_cache_usage(usage);
     match (prompt, completion, total) {
@@ -165,7 +164,7 @@ pub fn stream_events(payload: &str) -> Vec<ProviderStreamEvent> {
 /// Parse one `streamGenerateContent` SSE payload into normalized provider
 /// events plus any Google thought signatures attached to function-call parts.
 pub fn stream_payload(payload: &str) -> StreamPayload {
-    // Single-parse entry point (ADR-0184): callers holding an already-parsed
+    // Single-parse entry point: callers holding an already-parsed
     // payload should prefer [`stream_payload_value`] to avoid re-parsing.
     match serde_json::from_str(payload) {
         Ok(value) => stream_payload_value(&value),
@@ -178,7 +177,7 @@ pub fn stream_payload(payload: &str) -> StreamPayload {
 }
 
 /// Assemble the stream payload from an already-parsed JSON value — the
-/// single-parse path used by the SSE executor (ADR-0184).
+/// single-parse path used by the SSE executor.
 pub fn stream_payload_value(value: &Value) -> StreamPayload {
     let root = value.get("response").unwrap_or(value);
     let mut events = Vec::new();

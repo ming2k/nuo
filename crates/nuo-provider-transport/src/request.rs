@@ -1,4 +1,4 @@
-//! Request construction, without a third-party client (ADR-0200).
+//! Request construction, without a third-party client.
 //!
 //! The protocol adapters describe a request as `method + url + headers + body`.
 //! That description used to be a `reqwest::RequestBuilder`; it is now this type,
@@ -9,7 +9,6 @@
 //! The surface deliberately mirrors the four builder calls the adapters use
 //! (`header`, `headers`, `json`, `timeout`) so the migration is a constructor
 //! swap, not a rewrite.
-
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -41,7 +40,7 @@ impl RequestBuilder {
         }
     }
 
-    /// Attach the attempt's telemetry handle (ADR-0232).
+    /// Attach the attempt's telemetry handle.
     ///
     /// The transport publishes this attempt's timings into `telemetry`, which
     /// belongs to whoever issued the attempt. A builder left without one carries

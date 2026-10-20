@@ -1,9 +1,9 @@
-//! General-purpose trajectory loop guard (ADR-0247): a pre-dispatch detector that intercepts
+//! General-purpose trajectory loop guard: a pre-dispatch detector that intercepts
 //! tool calls matching an in-window repeating trajectory pattern before execution.
 //!
-//! # Architecture (ADR-0247)
+//! # Architecture
 //!
-//! Extends the ADR-0148 deterministic signature bookkeeper into a dual-tier Trajectory Loop Guard:
+//! Extends the deterministic signature bookkeeper into a dual-tier Trajectory Loop Guard:
 //! 1. **L1 Heuristic Probe**: Watches normalized signatures across all covered tools within a sliding window.
 //! 2. **L2 Cognitive Arbiter (Steward)**: When a signature trips the current threshold tier in cognitive mode,
 //!    the Steward evaluates whether the repetition represents genuine non-converging paralysis or
@@ -12,7 +12,6 @@
 //!    redundant reviews while preserving the safety ceiling.
 //! 4. **Fail-Open Invariant (`[INV-LOOP-02]`)**: If the cognitive review times out or errors, it defaults to
 //!    `NoLoop` and advances the ladder, avoiding deadlocks on infrastructure faults.
-
 use std::collections::{HashMap, VecDeque};
 
 use nuo_wire::{BuiltinTool, TrajectoryGuardConfig};
@@ -120,7 +119,7 @@ pub fn trajectory_signature(name: &str, args: &str) -> String {
             return format!("{name}|{}", normalize_query_locator(s));
         }
     }
-    // Content-addressed mutations (ADR-0148): edits and writes key on path
+    // Content-addressed mutations: edits and writes key on path
     // plus a hash of the payload.
     if name == "edit_text" || name == "write_file" {
         let path = value
@@ -251,11 +250,11 @@ fn is_watched_sig(sig: &str) -> bool {
     !sig.ends_with("|<unwatched>")
 }
 
-/// The pre-dispatch trajectory loop detector (ADR-0247).
+/// The pre-dispatch trajectory loop detector.
 pub struct TrajectoryLoopGuard {
     config: TrajectoryGuardConfig,
     window: VecDeque<String>,
-    /// Per-signature escalating backoff tier (ADR-0247).
+    /// Per-signature escalating backoff tier.
     ladder_tiers: HashMap<String, usize>,
 }
 

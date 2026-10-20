@@ -3,7 +3,6 @@
 //! Cache behavior belongs to one concrete provider route: endpoint, wire
 //! protocol, dialect, and model generation together determine which controls
 //! are valid. Protocol resemblance never grants cache support to a relay.
-
 use serde::{Deserialize, Serialize};
 
 /// A request-visible cache placement mode.
@@ -306,7 +305,7 @@ fn first_non_negative(values: &[Option<i64>]) -> Option<i64> {
     values.iter().flatten().copied().find(|value| *value >= 0)
 }
 
-/// Provider-neutral cache plan derived from a prepared request (ADR-0217).
+/// Provider-neutral cache plan derived from a prepared request.
 ///
 /// It carries the deterministic content identity of the cacheable prefix
 /// `S | H | I` and separates the durable conversation from the request-local

@@ -1,13 +1,12 @@
-//! Input-history and route-settings services for the frontend (ADR-0197):
+//! Input-history and route-settings services for the frontend:
 //! the server is the source of truth for the shared SQLite store, and the
 //! frontend reaches it only through these wire requests — it never opens the
 //! database directly.
 //!
-//! Every access goes through the single-writer actor (ADR-0231): reads take a
+//! Every access goes through the single-writer actor: reads take a
 //! reader snapshot off the handle, writes are actor commands. This module used
 //! to open its own engine per request, racing the writer for the SQLite write
 //! lock.
-
 use tokio::sync::mpsc::UnboundedSender;
 
 use nuo_persistence::db::get_persistence_handle;
@@ -62,10 +61,10 @@ pub fn query_route_settings(
 }
 
 /// `AgentRequest::SearchHistory`: BM25 full-text search over every persisted
-/// transcript entry in the shared store (ADR-0208). `workspace: None`
+/// transcript entry in the shared store. `workspace: None`
 /// searches all project buckets — the Archivist's cross-project recall plane.
 ///
-/// Two-stage recall (ADR-0208 Layer 3's deterministic leg): the strict
+/// Two-stage recall (Layer 3's deterministic leg): the strict
 /// AND-form query runs first; when it recalls nothing, the same words are
 /// re-queried OR-joined (`search_history_relaxed`) so a gist whose words
 /// never co-occur still surfaces its candidates. Fail-open: any engine error

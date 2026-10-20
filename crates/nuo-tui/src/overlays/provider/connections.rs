@@ -1,5 +1,4 @@
 //! The Connections modal (provider instance management) and connection inspection details.
-
 use nuotc::{
     Frame, {Line, Span}, {Modifier, Style},
 };
@@ -33,7 +32,7 @@ pub struct ConnectionsModalProps<'a> {
     pub follow_selection: bool,
     pub search: bool,
     /// Whether this surface currently owns the terminal cursor
-    /// (`App::caret_owner() == CaretOwner::Overlay`, ADR-0205). The picker
+    /// (`App::caret_owner == CaretOwner::Overlay`). The picker
     /// never places the physical cursor on its own authority — the frame-level
     /// arbiter decides that, and this flag is its verdict threaded down.
     pub show_caret: bool,

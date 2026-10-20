@@ -1,4 +1,4 @@
-//! The human-request broker (ADR-0141): single owner of every parked
+//! The human-request broker: single owner of every parked
 //! human-decision oneshot.
 //!
 //! Three protocols used to park an agent mid-round on a human decision —
@@ -31,7 +31,6 @@
 //! are [`ReplyProvenance::User`], and any result text handed to the model
 //! names its true source, so a labeled recommendation can never masquerade
 //! as a decision.
-
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};

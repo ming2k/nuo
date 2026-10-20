@@ -1,5 +1,4 @@
 //! Sessions picker.
-
 use chrono::{Local, TimeZone};
 use nuotc::{
     Frame, Style, {Line, Span},
@@ -60,7 +59,7 @@ pub struct SessionsModalProps<'a> {
     pub running_sessions: Option<&'a std::collections::HashSet<String>>,
 }
 
-/// A projected row item in the sessions picker modal (ADR-0251).
+/// A projected row item in the sessions picker modal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionPickerItem<'a> {
     Trunk {
@@ -83,7 +82,7 @@ impl<'a> SessionPickerItem<'a> {
     }
 }
 
-/// Project session overviews into a hierarchical trunk-first list with expandable timeline branches (ADR-0251).
+/// Project session overviews into a hierarchical trunk-first list with expandable timeline branches.
 pub fn project_session_rows<'a>(
     sessions: &'a [nuo_wire::SessionOverview],
     expanded_set: Option<&std::collections::HashSet<String>>,
@@ -182,7 +181,7 @@ pub fn draw_sessions_modal(
     // Detail sub-view (`i`): a focused read-out of the selected session. Its
     // own footer (`Esc` → back to list) and own scroll slot; Esc is handled by
     // the event loop's CloseModal arm, which backs out one sub-layer per press
-    // (a sub-page back-out never leaves the Scene, ADR-0298).
+    // (a sub-page back-out never leaves the Scene).
     // The header is a breadcrumb (`Sessions › Info`) — the modal hierarchy
     // convention: a sub-page keeps the same modal but shows where it sits.
     if session_info_detail {

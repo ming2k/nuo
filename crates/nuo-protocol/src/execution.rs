@@ -2,7 +2,6 @@
 //!
 //! Separates the agent's high-level intent (tools, prompts, ReAct loop) from
 //! physical execution (local OS, Docker sandbox, remote E2B VM, or memory mock).
-
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fmt;
@@ -219,12 +218,12 @@ pub trait ExecutionEnvironment: Send + Sync {
     fn workspace_root(&self) -> &Path;
 
     /// Canonicalized additional roots admitted alongside the primary
-    /// (ADR-0142). Empty for the default single-root environment; shell
+    /// Empty for the default single-root environment; shell
     /// sandboxes bind each entry read-write and path confinement admits
     /// anything under them.
     ///
     /// Returns an owned snapshot rather than a borrowed slice: the admitted
-    /// set is live state (ADR-0147 trust decisions recompute it mid-session),
+    /// set is live state (trust decisions recompute it mid-session),
     /// so implementers backed by the [`super::SharedAdditionalRoots`] handle
     /// must clone under a short lock instead of exposing one.
     fn additional_roots(&self) -> Vec<PathBuf> {

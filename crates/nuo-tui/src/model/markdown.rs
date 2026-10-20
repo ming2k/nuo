@@ -1,7 +1,6 @@
 //! Markdown block and inline parsing for transcript messages
 //! (ADR-0001 structured output): blocks, tables, links, code ranges.
 //! Pure text-in / structured-out; no rendering concerns here.
-
 use super::document::{Block, CodeRange, Inline, InlineScan, LinkRange, TableAlignment};
 
 type ParsedLink = ((usize, usize), (usize, usize), String);
@@ -10,7 +9,7 @@ pub fn parse_blocks(text: &str) -> Vec<Block> {
     parse_blocks_tracked(text).0
 }
 
-/// Resume metadata from a tracked parse (ADR-0184): where a later suffix
+/// Resume metadata from a tracked parse: where a later suffix
 /// parse must resume, and how many trailing blocks belong to the still-open
 /// final construct.
 ///

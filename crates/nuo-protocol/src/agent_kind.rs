@@ -4,12 +4,11 @@
 //! `Subagent` (the mission worker). Pure domain vocabulary, owned by the
 //! contract layer (`[INV-WIRE-04]` single source of truth); relocated here from
 //! `nuo-agent` per ADR-0009 to remove the `nuo-wire → nuo-agent` inversion.
-
 use serde::{Deserialize, Serialize};
 
 /// Archetype / classification of an agent entity.
 ///
-/// In the homogeneous agent model (ADR-0183), an agent entity runs either in a
+/// In the homogeneous agent model, an agent entity runs either in a
 /// top-level root posture or a delegated child posture:
 /// - [`AgentKind::Root`]: Full cognitive loop, tool execution, session/server orchestrator.
 /// - [`AgentKind::Subagent`]: Isolated, sandboxed, short-lived task execution worker.

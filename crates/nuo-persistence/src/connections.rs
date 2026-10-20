@@ -1,6 +1,6 @@
 //! Connections — the persisted "who I connect to" records.
 //!
-//! A connection is a **named pipe** to a model provider (ADR-0201): it points
+//! A connection is a **named pipe** to a model provider: it points
 //! at exactly one model provider by id, owns one credential, declares the
 //! client identity (impersonation / User-Agent) it speaks with, and may narrow
 //! or override the provider's model universe. It never defines models itself.
@@ -20,7 +20,6 @@
 //!
 //! Stored in `$XDG_STATE_HOME/nuo/connections.toml` — a program-managed
 //! state file, separate from the user-edited `config.toml`.
-
 use nuo_wire::model_providers::{canonical_provider_id, is_known_model_provider};
 use nuo_wire::{ClientIdentity, ConnectionAuth, ConnectionBudget, WireProtocol};
 use serde::{Deserialize, Serialize};
@@ -33,15 +32,15 @@ pub use nuo_wire::model::{
     NamedFilterPolicy,
 };
 
-/// One connection: a credentialed pipe to a model provider (ADR-0201, ADR-0258).
+/// One connection: a credentialed pipe to a model provider.
 ///
-/// Purified of transport-level concerns (endpoint, wire protocol, discovery) per ADR-0258.
+/// Purified of transport-level concerns (endpoint, wire protocol, discovery).
 /// A connection binds an authentication mode and identity to a model provider, and
 /// optionally applies model scoping/filtering.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Connection {
-    /// Connection name — the connection's identity and primary key (ADR-0201).
+    /// Connection name — the connection's identity and primary key.
     /// Unique (case-insensitive) across the store; referenced by
     /// `config.toml`'s `default_connection` and by every per-connection store.
     pub name: String,
@@ -62,7 +61,7 @@ pub struct Connection {
     /// Defaults to [`nuo_wire::ClientProfile::Native`].
     #[serde(default, alias = "client_profile")]
     pub client_identity: ClientIdentity,
-    /// Model scope configuration (ADR-0199, ADR-0201): this connection's
+    /// Model scope configuration: this connection's
     /// include / exclude / override delta over the provider's universe.
     #[serde(default, skip_serializing_if = "ModelScopeConfig::is_empty")]
     pub models: ModelScopeConfig,
@@ -118,7 +117,7 @@ pub struct Connections {
     pub connections: Vec<Connection>,
 }
 
-/// Pre-ADR-0201 wire shape, accepted only when reading an existing file. The
+/// Pre- wire shape, accepted only when reading an existing file. The
 /// loader rewrites it into [`Connection`] and never serializes these fields
 /// back — the migration is one-shot and leaves no alias in the schema.
 #[derive(Debug, Deserialize)]
@@ -172,7 +171,7 @@ impl RawConnection {
     /// Migrate to the current shape, resolving the provider id and folding the
     /// legacy `extra_models` list into `models.include`.
     ///
-    /// Before ADR-0203, curated connections persisted the provider's entire
+    /// Before, curated connections persisted the provider's entire
     /// materialized model snapshot in `models`. A missing filter is the
     /// unambiguous legacy marker: migrate that connection to the official
     /// remote-catalog policy and discard the materialized snapshot. Explicit
@@ -298,7 +297,7 @@ impl RawConnection {
     }
 }
 
-/// ADR-0268/ADR-0079: OpenCode Plan connects to the zen/go relay using an API
+/// OpenCode Plan connects to the zen/go relay using an API
 /// key (`OPENCODE_API_KEY`). Connections still carrying the retired OpenCode
 /// Console OAuth subscription auth are restored to `ApiKey` on load so they
 /// authenticate properly.
@@ -350,7 +349,7 @@ impl Connections {
     /// Read the connections store, returning an empty value when missing or
     /// unparseable. Entries that fail migration — an unknown provider id, or no
     /// name at all — are rejected with an error log rather than reinterpreted
-    /// as a different connection kind (ADR-0201 INV-2).
+    /// as a different connection kind (INV-2).
     pub fn load() -> Self {
         let path = Self::path();
         let Ok(content) = std::fs::read_to_string(&path) else {
@@ -467,7 +466,7 @@ impl Connections {
 
     /// Validate a proposed new connection name. Returns the rejection reason
     /// plus a suggested alternative when the name is empty or already taken.
-    /// Names are compared case-insensitively (ADR-0201 INV-3).
+    /// Names are compared case-insensitively (INV-3).
     pub fn check_new_name(&self, name: &str) -> Result<String, String> {
         let trimmed = name.trim();
         if trimmed.is_empty() {
@@ -484,7 +483,7 @@ impl Connections {
 
     /// A free name derived from `name`: the name with a numeric suffix, chosen
     /// to avoid every existing connection. Never used to silently rename a
-    /// connection — only to fill the rejection message (ADR-0201 INV-3).
+    /// connection — only to fill the rejection message (INV-3).
     pub fn suggest_name(&self, name: &str) -> String {
         let base = name.trim();
         let base = if base.is_empty() { "connection" } else { base };

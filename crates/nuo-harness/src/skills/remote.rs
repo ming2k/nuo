@@ -13,7 +13,6 @@
 //!
 //! The first load fetches the index and every listed file into a local cache.
 //! Subsequent loads reuse the cache unless `reload_skills` is called.
-
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -57,7 +56,7 @@ pub async fn clear_remote_cache() -> Result<(), String> {
     Ok(())
 }
 
-/// A GET client over the owned transport (ADR-0200).
+/// A GET client over the owned transport.
 ///
 /// One shared connection pool, platform trust roots, and one overall deadline
 /// per fetch — the same behaviour the previous `reqwest` client had, without

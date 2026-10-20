@@ -3,7 +3,7 @@ use nuo_wire::context_lifecycle::{ContextPolicy, WatermarkPolicy};
 
 /// The legacy `compaction.*` family, as read from an old configuration file.
 ///
-/// Ratios are fractions of the model window `W` (ADR-0280 §3).
+/// Ratios are fractions of the model window `W`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LegacyCompactionConfig {
     /// `compaction.utilization`

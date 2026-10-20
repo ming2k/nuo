@@ -287,7 +287,7 @@ fn subagent_step_and_view_render_without_panicking() {
         "scene row no longer carries namespace pair: {scene_row:?}"
     );
     // The TaskInspection scene carries no *shortcut legend* row beyond the
-    // shared band (ADR-0205): its three chords are one `Esc` and a pair of
+    // shared band: its three chords are one `Esc` and a pair of
     // remappable sibling walks, which a fixed keycap row cannot advertise
     // faithfully under a remap. So the last terminal row is transcript, not a
     // pinned legend strip.
@@ -632,7 +632,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
 /// The TaskInspection scene renders the head row only — no second row and no
 /// pinned legend band, because the scene's three chords (one `Esc` plus a pair
 /// of remappable sibling walks) cannot be rendered faithfully by a fixed
-/// keycap row (ADR-0205/ADR-0104). Discovery lives in the Command Palette and
+/// keycap row. Discovery lives in the Command Palette and
 /// Help instead.
 /// ADR-0024: every scene's head band stands up **two** rows — the session
 /// identity on row 1 and the scene row (`subagent` here) on row 2. The scene

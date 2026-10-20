@@ -1,4 +1,4 @@
-//! App-owned reconciliation passes (ADR-0197 M1).
+//! App-owned reconciliation passes (M1).
 //!
 //! The old per-frame mirror (`sync_runtime_state_to_app` hydrating `App`
 //! from ~45 shared cells) is gone: the response translator produces
@@ -7,7 +7,6 @@
 //! state machine* — mounting/dismissing sheets in reaction to request
 //! queues, projecting viewed-session data, and the scroll-relevant
 //! transcript-change bookkeeping — all reading and writing `App` alone.
-
 use nuo_wire::Role;
 
 use crate::app::App;
@@ -49,7 +48,7 @@ pub(crate) fn sync_request_surfaces(app: &mut App, runtime: &UiRuntime) {
     // Question modal sync
     {
         let front = app.pending_questions.front().cloned();
-        // ADR-0175 §7: the badge reports items queued *behind* the one
+        // The badge reports items queued *behind* the one
         // already mounted on the sheet — not counting the mounted one
         // itself. The permission sheet's predicate is `> 1` for the
         // same reason; the question sheet's renderer uses `> 0`, so the
@@ -177,7 +176,7 @@ fn user_prompt_tail(messages: &[TranscriptMessage]) -> Vec<(String, bool, u64)> 
         .collect()
 }
 
-/// The per-frame session/view reconciliation (ADR-0197 M1): project the
+/// The per-frame session/view reconciliation (M1): project the
 /// viewed session's state, publish the routing fact to the translator, and
 /// run the history backfill. Returns whether the *displayed* transcript
 /// changed shape (bottom-follow staging) and the viewed session id.
@@ -220,7 +219,7 @@ pub(crate) async fn sync_transcripts_and_session(
 }
 
 /// Consume the one-shot backend navigation signals the applier latched
-/// (ADR-0197 M1: formerly `AtomicBool` swaps on shared cells).
+/// (M1: formerly `AtomicBool` swaps on shared cells).
 pub(crate) fn consume_navigation_signals(app: &mut App, runtime: &UiRuntime) -> (bool, bool) {
     let can_apply_backend_navigation = app.can_accept_navigation_signal();
     let open_sessions =

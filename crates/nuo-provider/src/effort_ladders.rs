@@ -1,4 +1,4 @@
-//! Baseline reasoning-effort ladders for known model families (ADR-0270).
+//! Baseline reasoning-effort ladders for known model families.
 //!
 //! Reasoning depth rungs are an intrinsic capability of a model architecture
 //! and family. Because upstream `/models` endpoints rarely advertise capability
@@ -7,7 +7,6 @@
 //!
 //! These constants are provider/model capability metadata and belong here in
 //! the provider registry rather than in the core `nuo-wire` domain vocabulary.
-
 use nuo_model_codec::effort::Effort;
 
 /// Universal conservative subset: `low`/`medium`/`high`. Safe fallback for

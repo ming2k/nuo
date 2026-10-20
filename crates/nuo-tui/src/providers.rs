@@ -18,7 +18,6 @@
 //!   list is grouped into three labeled sections (Favorites → Recent → All
 //!   models; see [`ModelSection`]), and [`models_body_lines`] maps the flat
 //!   row indices onto the body's line geometry for the renderer.
-
 use nuo_wire::{ConnectionAuth, ProviderModelInfo, ProviderPickerSnapshot, WireProtocol};
 
 use crate::fuzzy;
@@ -144,7 +143,7 @@ impl ConnectionTemplate {
 /// `↑/↓` movement to it, so the declared order here IS the display order —
 /// insert new entries at their sorted position, not at the end.
 ///
-/// Every `id` is a **model provider id** (ADR-0201 §5) and is persisted on the
+/// Every `id` is a **model provider id** and is persisted on the
 /// created connection as `provider`.
 pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
     ConnectionTemplate {
@@ -360,7 +359,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
 ];
 
 /// The `custom` provider's template — the generic bring-your-own-endpoint
-/// definition (ADR-0201 §6). It is intentionally separate from
+/// definition. It is intentionally separate from
 /// [`PROVIDER_PRESETS`]: the Connections surface exposes "Add curated
 /// connection" and "Add custom connection" as sibling actions, so a custom
 /// endpoint is never presented as though it were a curated service.
@@ -474,7 +473,7 @@ fn protocol_model_candidates(protocol_wire: &str) -> Vec<&'static str> {
 }
 
 /// One selectable row in the **flat model picker** (the `Models` dialog,
-/// ADR-0205; equivalent): a single (provider, model) pair drawn from anywhere
+/// equivalent): a single (provider, model) pair drawn from anywhere
 /// in the snapshot. Built by [`models_flat_filtered_from`]; the picker
 /// browses, searches, and activates these directly — there is no drill-in
 /// stage.
@@ -521,9 +520,9 @@ pub struct RankedModel {
     /// A model with usage history sorts into the **Recent** section
     /// (most-recently-used first).
     pub last_used_ms: Option<u64>,
-    /// Context window limit in tokens (ADR-0182).
+    /// Context window limit in tokens.
     pub context_window: usize,
-    /// Whether this model may be run on this account right now (ADR-0273).
+    /// Whether this model may be run on this account right now.
     /// `false` renders the row greyed-out and refuses activation. Undeclared
     /// availability — the common case — is always usable.
     pub usable: bool,
@@ -537,7 +536,7 @@ pub struct RankedModel {
     pub availability_overridden: bool,
     /// The availability verdict was observed before a refresh that has since
     /// failed, so it may already be out of date upstream. The row says so
-    /// rather than presenting a stale verdict as freshly confirmed (ADR-0273).
+    /// rather than presenting a stale verdict as freshly confirmed.
     pub availability_stale: bool,
     /// Subsequence match against the wire model ID (`model`). The renderer
     /// highlights the ID column with these positions, and uses them for the
@@ -599,7 +598,7 @@ pub struct RankedProvider {
     pub builtin: bool,
     /// The model provider this connection points at (`"openai"`, …),
     /// surfaced so the Connections list can show the provider *type* beside
-    /// the connection name (ADR-0201).
+    /// the connection name.
     pub provider: String,
     /// Client identity configured for this connection.
     pub client_identity: nuo_wire::ClientIdentity,
@@ -747,7 +746,7 @@ pub fn models_flat_filtered_from(
                 provider_label: prow.name.clone(),
                 effort: info.effort,
                 thinking: info.thinking,
-                // The server already resolved this route's ladder (ADR-0149:
+                // The server already resolved this route's ladder (
                 // baseline ⊕ remote ⊕ user overrides) and shipped it on the
                 // snapshot. It must ride through to the editor: the client
                 // cannot re-resolve it, because `nuo-providers` (which owns

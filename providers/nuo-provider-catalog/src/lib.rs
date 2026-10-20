@@ -5,7 +5,7 @@
 //! the composition root registers.
 //!
 //! The `CatalogParser` family is shape-keyed, not provider-keyed: a provider
-//! that reuses a shape costs zero new code (`ADR-0260`). Two parsers delegate
+//! that reuses a shape costs zero new code (``). Two parsers delegate
 //! to their owning provider crate, which is why this crate depends on them:
 //!
 //! - `OpenAiCatalogParser`/`AnthropicCatalogParser`/`GoogleCatalogParser`/`CodexCatalogParser`

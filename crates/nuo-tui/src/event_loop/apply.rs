@@ -1,4 +1,4 @@
-//! The mutation applier (ADR-0197 M1): the **sole writer** of `App`.
+//! The mutation applier (M1): the **sole writer** of `App`.
 //!
 //! Every [`AppMutation`] produced by the response translator (and the
 //! monitor client) lands here. The applier is deliberately mechanical: the
@@ -7,7 +7,6 @@
 //! `App` and maintains the two bookkeeping facts the render loop consumes —
 //! the height-cache invalidation and the "transcript changed" flag that
 //! drives bottom-follow scrolling.
-
 use nuo_wire::Role;
 
 use crate::app::App;
@@ -51,7 +50,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             apply_chrome(app, &session_id, edit);
             // The round-boundary chrome edit is also the live-session fact:
             // the queue bar's running rows and the keymap's has-running-task
-            // guard read `App::running_sessions` (ADR-0197 M4: formerly the
+            // guard read `App::running_sessions` (M4: formerly the
             // deleted dispatch `HarnessState` signal).
             if let Some(chrome) = app.session_chrome.get(&session_id) {
                 let running = chrome.responding;
@@ -78,7 +77,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             } else if app.current_role.is_some() {
                 app.current_workspace.clear();
             }
-            // PreAttach unmount (ADR-0175, ADR-0253): when the snapshot transitions
+            // PreAttach unmount: when the snapshot transitions
             // to having no unresolved quarantined/changed/expired domains (or the
             // workspace is no longer quarantined), clear the interstitial and latch
             // the per-run gate so a subsequent periodic republish cannot re-mount
@@ -149,7 +148,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             // The primary's half of the setback-clause lifetime: this mirror is
             // written by every primary phase move, so retiring the clause here
             // is what makes "the clause ends with its phase" true by
-            // construction (ADR-0235).
+            // construction.
             app.set_phase(phase);
             true
         }
@@ -239,7 +238,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             session_id,
             input_id,
         } => {
-            // ADR-0212: Steer is ephemeral to the targeted round. If admission
+            // Steer is ephemeral to the targeted round. If admission
             // missed the round window, purge the optimistic entry from transcript
             // and restore text to the composer draft — never re-queue as follow-up.
             let mut text_to_restore = None;
@@ -377,7 +376,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
                     }
                 }
             }
-            // Self-exclusion (ADR-0250): remove the active session from the switch candidates list
+            // Self-exclusion: remove the active session from the switch candidates list
             // so the cursor immediately targets the most recently active alternative session (MRU top).
             sessions.retain(|s| !s.active);
             app.modal_index = app.modal_index.min(sessions.len().saturating_sub(1));
@@ -1058,7 +1057,7 @@ fn apply_chrome(app: &mut App, session_id: &str, edit: ChromeEdit) {
         ChromeEdit::TransportSetback(setback) => {
             // Publish-only: the clause is retired by this session's next phase
             // write (`SessionChrome::set_phase`), never by another mutation
-            // (ADR-0235).
+
             chrome.transport_setback = Some(*setback);
         }
     }

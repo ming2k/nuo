@@ -15,8 +15,7 @@
 //! title semantics — the product's state model wearing a trait. The kernel's port
 //! is stated in *facts*, and this adapter is the one place the two meet. The
 //! direction is application → kernel, which is the only direction allowed
-//! (ADR-0300 `[INV-SUBSTRATE-02]`).
-
+//! (`[INV-SUBSTRATE-02]`).
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
@@ -75,7 +74,7 @@ impl FactSink for StoreSink {
     }
 
     fn health(&self) -> SinkHealth {
-        // The writer is supervised (ADR-0196): a dead writer is a real state the
+        // The writer is supervised: a dead writer is a real state the
         // kernel should see, not something to discover at the next append.
         match get_persistence_handle().health() {
             nuo_persistence::db::WriterHealth::Healthy => SinkHealth::Healthy,

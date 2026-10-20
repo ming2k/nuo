@@ -11,7 +11,6 @@
 //! The [`WireProtocol`] on each model is the baseline wire protocol when no live
 //! provider metadata supplies a more specific endpoint. A remote catalogue can
 //! legitimately route the same model id through a different surface.
-
 use crate::effort::Effort;
 use crate::reasoning::ReasoningSupport;
 pub use crate::wire_protocol::WireProtocol;
@@ -84,7 +83,7 @@ impl Model {
 
 /// A provider's declared availability verdict for a model on the account
 /// behind the connection: whether the account may run it, and — when the
-/// provider states one — why not (ADR-0273).
+/// provider states one — why not.
 ///
 /// This is a **declaration**, never an inference: it exists only because a
 /// provider response carried it, and it is never synthesized from status codes,
@@ -153,8 +152,8 @@ pub struct RemoteModelMetadata {
     pub protocol: Option<WireProtocol>,
     /// Provider-advertised **API root** override for this model (e.g. OpenCode
     /// Console's per-model `provider.api`). The wire suffix is still appended
-    /// by the ADR-0259 root algebra for [`Self::protocol`]; absent means the
-    /// provider spec's route for that protocol holds (ADR-0269).
+    /// by the root algebra for [`Self::protocol`]; absent means the
+    /// provider spec's route for that protocol holds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
     /// Provider's model-family label.
@@ -205,7 +204,7 @@ pub struct RemoteModelMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub catalog_source: Option<String>,
     /// The provider's declared availability for this model on this account
-    /// (ADR-0273). Qoder's `enable:false`, Codex's `supported_in_api:false`,
+    /// Qoder's `enable:false`, Codex's `supported_in_api:false`,
     /// and Copilot's `policy.state:"disabled"` all land here. `None` — the
     /// common case, since most providers declare no such verdict — means
     /// undeclared and therefore usable. `Some(usable: false)` is a declaration
@@ -246,14 +245,14 @@ pub struct ModelCapabilities {
     pub thinking: ReasoningSupport,
     pub tool_call: bool,
     /// Effective image-input support for this route, as a **three-valued**
-    /// resolution of the layers in ADR-0149.
+    /// resolution of the layers in.
     ///
     /// - `Some(true)` — a layer declared image support;
     /// - `Some(false)` — a layer declared that images are *not* accepted;
     /// - `None` — **no layer declared anything**. The route is *unknown*, not
     ///   text-only, and the client policy is permissive: an undeclared route is
     ///   attempted rather than silently stripped, because vision is the one
-    ///   capability most vendors do not advertise (ADR-0230).
+    ///   capability most vendors do not advertise.
     pub vision: Option<bool>,
     /// The effort ladder this channel honors, as [`crate::EffortLevel`] so a
     /// provider-advertised tier outside the [`crate::Effort`] vocabulary is preserved
@@ -272,7 +271,7 @@ pub struct ModelCapabilities {
 
 impl RemoteModelMetadata {
     /// The declared availability verdict, defaulting to usable when the
-    /// provider declared none (ADR-0273). Undeclared is *not* a declaration:
+    /// provider declared none. Undeclared is *not* a declaration:
     /// it must never render as disabled.
     pub fn availability_or_usable(&self) -> Availability {
         self.availability.clone().unwrap_or_default()
@@ -291,8 +290,8 @@ impl RemoteModelMetadata {
     }
 }
 
-/// Materialized, route-scoped capabilities evaluated server-side via ADR-0149.
-/// Projected to frontends as the infallible single source of truth (ADR-0182).
+/// Materialized, route-scoped capabilities evaluated server-side via.
+/// Projected to frontends as the infallible single source of truth.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct RouteCapabilities {
     /// Context window size in tokens. Guaranteed > 0 for all routed channels.
@@ -301,7 +300,7 @@ pub struct RouteCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
     /// Whether the route accepts image attachments, as declared by the
-    /// resolution layers: `None` means **undeclared** (ADR-0230), never a
+    /// resolution layers: `None` means **undeclared**, never a
     /// client-side guess that images are unsupported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vision: Option<bool>,
@@ -312,7 +311,7 @@ pub struct RouteCapabilities {
 }
 
 impl RouteCapabilities {
-    /// Unknown is permissive (ADR-0230): only an explicit `Some(false)` vetoes images.
+    /// Unknown is permissive: only an explicit `Some(false)` vetoes images.
     pub const fn accepts_images(&self) -> bool {
         !matches!(self.vision, Some(false))
     }
@@ -332,7 +331,7 @@ impl ModelCapabilities {
 
     /// Whether image attachments may be put on the wire for this route.
     ///
-    /// **Unknown is permissive** (ADR-0230): only an explicit `Some(false)`
+    /// **Unknown is permissive**: only an explicit `Some(false)`
     /// vetoes images. A route whose layers never declared vision support is
     /// attempted, because the alternative — silently dropping the pixels and
     /// letting the model answer about an image it never saw — is the one
@@ -520,7 +519,7 @@ impl WireEntityResolution<'_> {
 }
 
 /// A user's explicit capability override for one (provider-instance, model)
-/// route -- the **top layer** of the capability resolution order (ADR-0149).
+/// route -- the **top layer** of the capability resolution order.
 ///
 /// Every field is optional; `None` means "no opinion, fall through to the
 /// layer below". A present `Some(false)` is meaningful: it forces the
@@ -573,7 +572,7 @@ impl CapabilityOverrides {
             && self.vision.is_none()
     }
 
-    /// Layer `over` on top of `self` (ADR-0199). Any explicitly set `Some(...)` field in `over`
+    /// Layer `over` on top of `self`. Any explicitly set `Some` field in `over`
     /// takes precedence over `self`.
     pub fn merge_with(&self, over: &CapabilityOverrides) -> CapabilityOverrides {
         CapabilityOverrides {
@@ -588,7 +587,7 @@ impl CapabilityOverrides {
     }
 }
 
-/// One user-declared model on a preset or connection scope (ADR-0199): a hidden,
+/// One user-declared model on a preset or connection scope: a hidden,
 /// preview, or unlisted upstream id pinned to a scope with optional capability facts.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -641,7 +640,7 @@ impl DeclaredModel {
     }
 }
 
-/// The default admission gate for models passing through a connection pipe (ADR-0203).
+/// The default admission gate for models passing through a connection pipe.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum ConnectionFilterPolicy {
@@ -651,7 +650,7 @@ pub enum ConnectionFilterPolicy {
 
 /// A connection-local override for the provider's remote catalog source.
 ///
-/// Standard named pipe filter policies (ADR-0203).
+/// Standard named pipe filter policies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NamedFilterPolicy {
@@ -703,7 +702,7 @@ pub fn simple_glob_matches(pattern: &str, text: &str) -> bool {
     }
 }
 
-/// Sparse capability patch from a remote catalog or declaration (ADR-0203).
+/// Sparse capability patch from a remote catalog or declaration.
 ///
 /// Follows tristate sparse merge semantics: `None` means absent/unspecified,
 /// allowing fallthrough to the layer below; `Some(val)` overrides explicitly.
@@ -724,11 +723,11 @@ pub struct ModelCapabilityPatch {
     pub effort_levels: Option<Vec<String>>,
 }
 
-/// Unified model scope configuration for preset-level or connection-level customization (ADR-0199, ADR-0203).
+/// Unified model scope configuration for preset-level or connection-level customization.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ModelScopeConfig {
-    /// Pipeline admission filter rule (ADR-0203).
+    /// Pipeline admission filter rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<ConnectionFilterPolicy>,
     /// Explicitly declared or included/injected models with optional capability facts.
@@ -779,7 +778,7 @@ impl ModelScopeConfig {
     }
 }
 
-/// Target scope for model customizations (ADR-0199).
+/// Target scope for model customizations.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ModelTargetScope {
     /// Provider-level customization (affects every connection to this provider).
@@ -792,7 +791,7 @@ impl ModelCapabilities {
     /// Resolve effective capabilities for `model_id`, applying all explicitly
     /// advertised remote fields over the local baseline.
     ///
-    /// # Capability resolution order (ADR-0149)
+    /// # Capability resolution order
     ///
     /// This method implements the **lower two layers** of the canonical
     /// three-layer capability resolution order:
@@ -800,7 +799,7 @@ impl ModelCapabilities {
     /// ```text
     /// 1. user config     — `RouteSettings::capability_overrides`
     ///                      (per provider-instance + model id, applied last
-    ///                      by the catalog derivation, see ADR-0149)
+    ///                      by the catalog derivation)
     /// 2. remote metadata — the `remote` argument here: fields a trusted
     ///                      endpoint advertised (presets whose
     ///                      `RemoteCatalogSource` carries capability fields)
@@ -813,7 +812,7 @@ impl ModelCapabilities {
     /// and are stamped on by [`Self::apply_overrides`] at the catalog
     /// derivation site, keeping this function a pure baseline⊕remote merge.
     ///
-    /// **Vision stays three-valued** (ADR-0230): the baseline layer only
+    /// **Vision stays three-valued**: the baseline layer only
     /// contributes a vision declaration when the id is actually *known*
     /// ([`declared_vision`]) — a baseline miss or a fitted entry whose endpoint
     /// said nothing leaves `vision: None` (undeclared), rather than coercing
@@ -858,7 +857,7 @@ impl ModelCapabilities {
         }
     }
 
-    /// Apply the **top layer** of the capability resolution order (ADR-0149):
+    /// Apply the **top layer** of the capability resolution order:
     /// stamp the user's explicit `CapabilityOverrides` onto the already-merged
     /// (baseline + remote) capabilities. Consumes `self` and returns the
     /// overridden copy. This is deliberately a separate step from
@@ -980,7 +979,7 @@ pub fn model_by_id(id: &str) -> Option<&'static Model> {
 /// The **declared** image-input support for `id`, from the layer that owns a
 /// baseline: `Some(_)` when the static registry (or a runtime-fitted entry
 /// whose endpoint advertised the field) declares it, `None` when no layer
-/// declares anything (ADR-0230).
+/// declares anything.
 ///
 /// This is the baseline layer of [`ModelCapabilities::for_channel`]'s vision
 /// resolution, and the reason vision must not be read through
@@ -990,7 +989,7 @@ pub fn model_by_id(id: &str) -> Option<&'static Model> {
 pub fn declared_vision(id: &str) -> Option<bool> {
     if let Some(model) = model_by_id(id) {
         // A vetted baseline entry is a declaration: the registry is maintained
-        // by hand and must cite its source (ADR-0149 checklist).
+        // by hand and must cite its source (checklist).
         return Some(model.vision);
     }
     fitted_entry(id).and_then(|entry| entry.declared_vision)
@@ -1001,7 +1000,7 @@ pub fn declared_vision(id: &str) -> Option<bool> {
 /// harness depends on it) and nothing else.
 ///
 /// `vision: true` is the **permissive policy default** described on
-/// [`ModelCapabilities::accepts_images`] (ADR-0230), not a capability claim: an
+/// [`ModelCapabilities::accepts_images`], not a capability claim: an
 /// unknown route is attempted with images rather than silently having them
 /// stripped. Whether anything was actually *declared* is answered by
 /// [`declared_vision`], which is `None` here.
@@ -1071,7 +1070,7 @@ pub struct FittedModel {
     /// The endpoint advertises reasoning (a `reasoning_content` stream).
     pub reasoning: bool,
     /// The endpoint advertises image inputs. `None` = it said nothing, which
-    /// stays undeclared rather than becoming a text-only claim (ADR-0230).
+    /// stays undeclared rather than becoming a text-only claim.
     pub vision: Option<bool>,
     /// Wire protocol the feeding provider speaks for this model.
     pub protocol: WireProtocol,
@@ -1084,7 +1083,7 @@ pub struct FittedModel {
 /// lookup machinery returns, plus what the feeding endpoint actually
 /// **declared** about image input.
 ///
-/// The two are deliberately separate (ADR-0230). `model.vision` is the
+/// The two are deliberately separate. `model.vision` is the
 /// permissive *policy* view (`true` when undeclared, so image-bearing requests
 /// are attempted rather than silently stripped), while `declared_vision` is the
 /// honest three-valued fact the capability resolution consumes — collapsing
@@ -1174,10 +1173,10 @@ pub fn register_fitted_models(models: impl IntoIterator<Item = FittedModel>) {
                         ReasoningSupport::None
                     },
                     // Unknown remote ids remain plain-text-only until the source
-                    // or user explicitly declares tool support (ADR-0203).
+                    // or user explicitly declares tool support.
                     tool_call: false,
                     // Permissive *policy* view: an endpoint that advertised no
-                    // vision field must not be read as text-only (ADR-0230).
+                    // vision field must not be read as text-only.
                     // `declared_vision` below keeps what was actually said.
                     vision: fitted.vision.unwrap_or(true),
                     protocol: fitted.protocol,
@@ -1218,7 +1217,7 @@ mod tests {
 
     #[test]
     fn user_overrides_win_over_remote_and_baseline() {
-        // ADR-0149: layer 1 (user) beats layer 2 (remote) beats layer 3
+        // Layer 1 (user) beats layer 2 (remote) beats layer 3
         // (baseline), field-wise; unset user knobs fall through.
         let remote = RemoteModelMetadata {
             vision: Some(true),
@@ -1379,12 +1378,12 @@ mod tests {
     #[test]
     fn resolve_falls_back_for_unknown() {
         let m = resolve("some-local-model");
-        // Safe conservative text defaults (ADR-0203 §4).
+        // Safe conservative text defaults.
         assert_eq!(m.context_window, 128_000);
         assert!(!m.reasoning());
         assert!(!m.tool_call);
         // `Model::vision` is a *policy* view, not a claim: the fallback
-        // permits images so an undeclared route is attempted (ADR-0230). What
+        // permits images so an undeclared route is attempted. What
         // was actually declared is `declared_vision`, which stays `None`.
         assert!(m.vision);
         assert_eq!(declared_vision("some-local-model"), None);

@@ -1,5 +1,5 @@
 //! Persisted session state: the [`SessionStore`] single-transcript model and
-//! its split submodules (ADR-0186).
+//! its split submodules.
 //!
 //! The module root keeps the data model (`SessionData`), checksum/blob
 //! plumbing, the free helper functions, and the pure compaction pipeline; the
@@ -14,9 +14,8 @@
 //!
 //! The durable state is the **single transcript** (`Transcript`: immutable
 //! entries + projection directives) plus working state on the session row,
-//! both stored authoritatively in SQLite (ADR-0168 / ADR-0186). Every
+//! both stored authoritatively in SQLite. Every
 //! consumer-facing window is a pure derive; nothing derived is persisted.
-
 use crate::blobs::BlobStore;
 use crate::paths;
 use nuo_wire::{
@@ -39,17 +38,17 @@ use tokio::sync::Mutex;
 /// `config.toml` or affect other concurrent sessions.
 /// C11 added `round_interrupts` (durable round-interrupt records): a
 /// structural no-op — legacy snapshots load with an empty list.
-/// v13 (ADR-0186): clean break — the transcript is entries + directives;
+/// v13: clean break — the transcript is entries + directives;
 /// legacy pre-transcript snapshots are not migrated and load as empty.
-/// v14 (ADR-0187): persistence v2 — the row checksum covers the session row
+/// v14: persistence v2 — the row checksum covers the session row
 /// (working state) instead of the transcript, and is verified on load.
-/// v15 (ADR-0236): the row checksum no longer folds the per-session
+/// v15: the row checksum no longer folds the per-session
 /// `request_usage_records` mirror — usage lives in its own key-addressed table
 /// (its integrity is the table's PK), so including it made every ordinary turn
 /// checksum scale with the session's total retained attempts (invariant #3).
 pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 15;
 
-/// A session-scoped connection + model pin (C6 / ADR-0186). `connection`
+/// A session-scoped connection + model pin (C6). `connection`
 /// carries the **connection id** (provider + account + endpoint, per
 /// ADR-0066's dual-write selection); it overlays the global
 /// `config.default_connection` / `config.default_model` for this session
@@ -77,7 +76,7 @@ pub struct SessionData {
     pub(crate) fork_kind: nuo_wire::SessionForkKind,
     pub(crate) created_at: u64,
     pub(crate) updated_at: u64,
-    /// The single durable transcript (ADR-0186): immutable entries plus the
+    /// The single durable transcript: immutable entries plus the
     /// projection decision history. The model window and every other read
     /// model derive from it via `Transcript::project`.
     #[serde(default)]
@@ -88,17 +87,17 @@ pub struct SessionData {
     pub(crate) workspace: Option<nuo_wire::WorkspaceBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) role: Option<String>,
-    /// Immutable role manifest snapshot captured at session creation (ADR-0245, ADR-0246).
+    /// Immutable role manifest snapshot captured at session creation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) role_manifest: Option<nuo_wire::SessionRoleManifest>,
     /// Schema version of this session. Migrations are no longer applied —
-    /// ADR-0186 is a clean break and legacy snapshots load as empty.
+    /// Is a clean break and legacy snapshots load as empty.
     pub(crate) schema_version: u32,
     /// CRC32C checksum of the canonical JSON payload (excluding this field).
     #[serde(default)]
     pub(crate) checksum: Option<u32>,
     /// AI-generated session title. Non-`NULL` is terminal: AI generation only
-    /// fills `None` (ADR-0186 dropped `title_manual`).
+    /// fills `None` (dropped `title_manual`).
     #[serde(default)]
     pub(crate) title: Option<String>,
     /// AI-generated session digest — the resume-time working-memory
@@ -108,7 +107,7 @@ pub struct SessionData {
     /// Transcript char count when `digest` was generated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) digest_anchor: Option<u64>,
-    /// Identity of the transcript lineage (ADR-0187). Incremental saves are
+    /// Identity of the transcript lineage. Incremental saves are
     /// appended only while this matches the store's generation; any rebuild
     /// mints a new one and the next save escalates to a full rewrite.
     #[serde(default)]
@@ -126,17 +125,17 @@ pub struct SessionData {
     /// Per-request token accounting for this session.
     #[serde(default)]
     pub(crate) request_usage_records: Vec<nuo_wire::RequestUsageRecord>,
-    /// Durable command ledger (ADR-0091).
+    /// Durable command ledger.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) commands: Vec<nuo_wire::CommandRecord>,
     /// Durable round-interrupt records (C11): projection state, never part of
-    /// the transcript (ADR-0186 §3).
+    /// the transcript.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) round_interrupts: Vec<nuo_wire::RoundInterrupt>,
     /// Durable retry-resolution records: the success-side mirror of
     /// `round_interrupts` — one per round that recovered from transient
     /// provider faults via the harness retry loop. Projection state, never
-    /// part of the transcript (ADR-0186 §3).
+    /// part of the transcript.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) retry_resolutions: Vec<nuo_wire::RetryResolution>,
     /// The durable `/retry` resume point (C12).
@@ -149,7 +148,7 @@ pub struct SessionData {
     #[serde(default)]
     pub(crate) tree: nuo_wire::SessionTree,
     /// Transcript entries this binary cannot decode, preserved verbatim
-    /// (ADR-0187): raw rows ride in memory and round-trip through every
+    /// raw rows ride in memory and round-trip through every
     /// save, so a newer binary's data survives an older binary untouched.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) unknown_entries: Vec<UnknownEntryRow>,
@@ -159,7 +158,7 @@ pub struct SessionData {
 }
 
 impl SessionData {
-    /// Borrow the underlying transcript entries and directives (ADR-0186, ADR-0262).
+    /// Borrow the underlying transcript entries and directives.
     pub fn transcript(&self) -> &nuo_wire::Transcript {
         &self.transcript
     }
@@ -189,7 +188,7 @@ impl SessionData {
             provider_selection: self.provider_selection.clone(),
             disabled_tools: self.disabled_tools.clone(),
             round_counter: self.round_counter,
-            // ADR-0236 invariant #3: the delta carries only new transcript rows
+            // Invariant #3: the delta carries only new transcript rows
             // and the changed usage upserts (passed separately to the save), so
             // the per-session usage mirror is *not* cloned here. Cloning it made
             // every turn O(total retained attempts).
@@ -207,7 +206,7 @@ impl SessionData {
 }
 
 /// A transcript entry preserved verbatim because its payload kind is unknown
-/// to this binary (ADR-0187). The envelope columns are stored raw and are
+/// to this binary. The envelope columns are stored raw and are
 /// written back unchanged; the payload JSON is opaque.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct UnknownEntryRow {
@@ -225,7 +224,7 @@ pub(crate) struct UnknownEntryRow {
 }
 
 /// A projection directive preserved verbatim because its payload kind is
-/// unknown to this binary (ADR-0187).
+/// unknown to this binary.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct UnknownDirectiveRow {
     pub seq: u64,
@@ -317,7 +316,7 @@ fn default_workspace() -> Option<nuo_wire::WorkspaceBinding> {
     Some(nuo_wire::WorkspaceBinding::new(default_project_root()))
 }
 
-/// ADR-0186 is a clean break: legacy snapshots (pre-transcript `SessionData`
+/// Is a clean break: legacy snapshots (pre-transcript `SessionData`
 /// JSON) are **not migrated**. serde's missing-field defaults load them as an
 /// empty transcript — the session content is retired, the identity remains.
 /// `schema_version` is stamped to the current version on load.
@@ -385,7 +384,7 @@ impl<'a> From<&'a SessionData> for SessionRowChecksumView<'a> {
 }
 
 /// Compute the CRC32C checksum over the session **row** — the working state
-/// (ADR-0187). The transcript and the verbatim unknown rows are excluded:
+/// The transcript and the verbatim unknown rows are excluded:
 /// they live in their own append-only tables with primary-key integrity, so
 /// the row checksum covers exactly the data a single UPSERT writes. Returns
 /// `Err` on serialization failure rather than a sentinel `0`.
@@ -398,7 +397,7 @@ fn compute_checksum(data: &SessionData) -> Result<u32, String> {
     Ok(crc32c::crc32c(&bytes))
 }
 
-/// Verify the stored row checksum on load (ADR-0187). Rows stamped by an
+/// Verify the stored row checksum on load. Rows stamped by an
 /// older schema (whose checksum covered the transcript) are exempt via
 /// `schema_version`. A mismatch is reported loudly but is not fatal: the
 /// durable per-row data remains authoritative and the next save restamps.
@@ -535,7 +534,7 @@ pub struct SessionStore {
     persist_gate: Mutex<()>,
 }
 
-/// Write `data` authoritatively through the single-writer actor (ADR-0231).
+/// Write `data` authoritatively through the single-writer actor.
 ///
 /// There is no path where a session write opens its own connection: the caller
 /// passes the handle that owns this database — the process-wide one in
@@ -554,7 +553,7 @@ fn persist_to(
 
 /// Load the session for `session_id` directly from SQLite (SSOT).
 /// A session not present in SQLite (or one stored under the pre-transcript
-/// schema) loads as a brand-new empty session — ADR-0186 retires legacy
+/// schema) loads as a brand-new empty session — retires legacy
 /// content instead of migrating it.
 fn load_or_seed(
     reader: Option<&crate::db::DbReader>,
@@ -814,7 +813,7 @@ fn summary_token_budget(target_tokens: usize, tail: &[Message]) -> usize {
 }
 
 /// Token budget for the compaction summary, derived from the post-compaction
-/// token target (ADR-0120: token-native; the old `target × 4` char budget was
+/// token target (token-native; the old `target × 4` char budget was
 /// then binary-searched back into tokens — a pure-loss round trip). Bounded
 /// so huge windows do not produce enormous summaries and tiny windows still
 /// get a useful digest.
@@ -871,7 +870,7 @@ pub fn build_compaction_result(
 /// context is never crowded out by older verbose messages; selected excerpts
 /// are then emitted in chronological order for readability. When a previous
 /// summary exists it is carried forward as anchored context. The budget and
-/// per-message caps are **tokens** (ADR-0120); every cut lands on an exact
+/// per-message caps are **tokens**; every cut lands on an exact
 /// token boundary.
 pub fn build_excerpt_summary(
     archived: &[Message],
@@ -1018,7 +1017,7 @@ Rules:\n\
 - Do not mention the summary process or that context was compacted.";
 
 /// Token cap applied to each tool-result when serializing history for the
-/// summarizer (ADR-0120).
+/// summarizer.
 const SUMMARY_TOOL_OUTPUT_CAP_TOKENS: usize = 375;
 
 /// Render `archived` as a readable transcript for the summarizer, capping tool
@@ -1089,7 +1088,7 @@ pub fn serialize_for_summary(archived: &[Message], budget: usize) -> String {
 }
 
 /// Per-subagent token cap when rendering the nested transcript into the
-/// summarizer prompt (ADR-0120). Large enough to surface the subagent's task,
+/// summarizer prompt. Large enough to surface the subagent's task,
 /// its key tool calls, and its conclusion; small enough that a turn with
 /// five subagents cannot crowd out the rest of the conversation.
 const SUMMARY_SUBAGENT_CAP_TOKENS: usize = 500;
@@ -1284,14 +1283,14 @@ pub async fn run_compaction(
 /// ignores its requested length. Now a thin wrapper over the exact
 /// token-boundary cut ([`nuo_wire::tokenizer::truncate_to_tokens`]);
 /// the old binary search existed only because the budget round-tripped
-/// through characters (ADR-0120 removed that).
+/// through characters (removed that).
 fn truncate_summary_to_token_budget(text: String, max_tokens: usize) -> String {
     let (prefix, _) = nuo_wire::tokenizer::truncate_to_tokens(&text, max_tokens);
     prefix.trim_end().to_string()
 }
 
 /// Diagnostic scan of stored sessions. SQLite is the only store; every row is
-/// checked for presence of the authoritative tables (ADR-0186). Prints one
+/// checked for presence of the authoritative tables. Prints one
 /// line per session and a summary.
 pub async fn run_doctor(project_root: Option<&std::path::Path>) -> Result<(), String> {
     let db_path = paths::get().db_file();

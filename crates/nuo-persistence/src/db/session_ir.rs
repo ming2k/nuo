@@ -1,11 +1,10 @@
-//! Session IR persistence bridge for DatabaseEngine (ADR-0241).
+//! Session IR persistence bridge for DatabaseEngine.
 //!
 //! Implements isomorphic serialization and hydration between SQLite and
 //! [`nuo_wire::SessionIR`]:
 //! - `causal_nodes`: stores immutable fact nodes and DAG edges.
 //! - `session_policies`: stores declarative policy, capabilities, and budgets.
 //! - `sessions_v2`: stores session working cursor, execution status, and timestamps.
-
 use nuo_wire::{
     CausalNode, ExecutionStatus, NodeKind, NodePayload, SessionDelta, SessionIR, SessionPolicy,
     SessionState, SuspensionReason, SystemNoticePayload,

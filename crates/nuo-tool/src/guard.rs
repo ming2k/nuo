@@ -1,12 +1,11 @@
-//! Trajectory-guard configuration (ADR-0247).
+//! Trajectory-guard configuration.
 //!
 //! [`TrajectoryGuardConfig`] is the serializable DTO that governs the
 //! pre-dispatch trajectory loop guard (`nuo_agent::trajectory_guard`).
 //! Canonical TOML sub-table is `[agent.trajectory_guard]`.
-
 use serde::{Deserialize, Serialize};
 
-/// User-tunable trajectory-guard behaviour (ADR-0247).
+/// User-tunable trajectory-guard behaviour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TrajectoryGuardConfig {

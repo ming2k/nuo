@@ -3,7 +3,6 @@
 //! Adapted from the original monolithic `anthropic_compat.rs` tests to the new
 //! layered API: tests call the pure `request::body` / `response::*` functions
 //! directly rather than the old `provider.request_body` method.
-
 use super::request::{self, BodyInput};
 use super::response;
 use super::*;
@@ -58,7 +57,7 @@ fn image_message(text: &str) -> Message {
 
 #[test]
 fn declared_text_only_route_projects_image_blocks_away() {
-    // Anthropic `image` blocks were emitted unconditionally before ADR-0230, so
+    // Anthropic `image` blocks were emitted unconditionally before, so
     // a route that declares no image input failed the whole turn.
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");

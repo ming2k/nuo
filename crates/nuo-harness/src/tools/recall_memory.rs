@@ -1,12 +1,11 @@
 //! `recall_memory`: the model's way to reach the host's role-scoped dialogue
-//! memory (ADR-0248).
+//! memory.
 //!
 //! The tool holds a [`RoleMemory`] port rather than opening a store: *where*
 //! memory lives is the host's business (storage is host-owned), and a tool
 //! that resolved a database path would make the kernel own one. An embedding
 //! that supplies no memory gets [`NoRoleMemory`], whose `recall` is an empty set
 //! — which the tool renders as the honest "nothing found", not as an error.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -166,7 +165,7 @@ fn capitalize(s: &str) -> String {
 }
 
 nuo_wire::register_tool!(RecallMemoryFactory => |ctx| {
-    // The host's dialogue memory arrives as a service (ADR-0300 §1); a context
+    // The host's dialogue memory arrives as a service; a context
     // that provides none gets the no-memory tool, whose recall is an empty set.
     let memory = ctx
         .shared::<RecallMemoryService>()

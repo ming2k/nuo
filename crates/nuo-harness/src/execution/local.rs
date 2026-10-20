@@ -1,7 +1,6 @@
 //! Local host execution environment implementation.
 //!
 //! Executes filesystem operations and subprocess commands directly on the host OS.
-
 use async_trait::async_trait;
 use nuo_wire::execution::{
     DirEntry, ExecutionEnvironment, FsError, FsMetadata, FsProvider, ProcessOutput, ProcessRunner,
@@ -205,7 +204,7 @@ impl ExecutionEnvironment for LocalExecutionEnvironment {
 }
 
 /// Filesystem provider that physically confines every operation to the
-/// admitted root set (ADR-0142: the workspace root plus any configured
+/// admitted root set (the workspace root plus any configured
 /// additional roots).
 ///
 /// The additional set lives behind a [`SharedAdditionalRoots`] handle so a
@@ -231,7 +230,7 @@ impl WorkspaceFsProvider {
         }
     }
 
-    /// Widen admission to extra canonicalized roots (ADR-0142). The primary
+    /// Widen admission to extra canonicalized roots. The primary
     /// root keeps its exclusive duties — relative resolution and every
     /// project-bound decision; additional roots only expand containment.
     fn with_additional_roots(mut self, additional: Vec<PathBuf>) -> Self {
@@ -421,7 +420,7 @@ impl WorkspaceExecutionEnvironment {
         }
     }
 
-    /// Multi-root construction (ADR-0142): the primary root keeps its
+    /// Multi-root construction: the primary root keeps its
     /// resolution/cwd duties, and each canonicalized additional root widens
     /// filesystem admission and sandbox mounts for cross-project workflows.
     pub fn with_additional_roots(
@@ -437,7 +436,7 @@ impl WorkspaceExecutionEnvironment {
         }
     }
 
-    /// Canonicalized additional roots admitted alongside the primary (ADR-0142).
+    /// Canonicalized additional roots admitted alongside the primary.
     pub fn additional_roots(&self) -> Vec<PathBuf> {
         self.fs.additional_roots()
     }
@@ -616,7 +615,7 @@ pub(crate) mod workspace_tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn trust_decision_rewires_admission_live() {
-        // ADR-0147: the boundary takes shape at trust-decision time. The
+        // The boundary takes shape at trust-decision time. The
         // same environment instance must admit a linked root after a grant
         // handle-store and close it again after a revoke — with no rebuild
         // between — because every confined operation snapshots the live set.

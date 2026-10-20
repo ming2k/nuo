@@ -12,7 +12,6 @@
 //! Moved from `nuo-provider-adapters`' `registry/mod.rs` + `lib.rs::init()`;
 //! the per-provider spec modules there were duplicates of the `providers/`
 //! crates' own `spec.rs` and are deleted.
-
 use nuo_model_codec::catalog::{Channel, Transport};
 use nuo_model_codec::{Provider, RemoteCatalogSource};
 use std::borrow::Cow;
@@ -359,7 +358,7 @@ impl nuo_provider::CatalogDiscovery for NuoCatalogDiscovery {
     }
 }
 
-/// Build a dynamic or static credential source for one connection (ADR-0267).
+/// Build a dynamic or static credential source for one connection.
 pub fn build_credential_source(
     host: &nuo_provider::CredentialHost,
     connection_name: &str,

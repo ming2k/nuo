@@ -10,7 +10,6 @@
 //! - Auth: `Authorization: Bearer <oauth access_token>` plus the optional
 //!   `ChatGPT-Account-Id` header (applied by the provider, not here).
 //! - Body: `{model, instructions?, input, tools?, reasoning?, tool_choice?, stream}`.
-
 use nuo_model_codec::{Effort, Message, Role};
 use serde_json::{Value, json};
 
@@ -101,7 +100,7 @@ pub fn body_with_capabilities(
     // project images for this route's declared support (the Responses API
     // rejects `input_image` on a route without it), and project a remote
     // continuation down to only the locally new suffix. The image policy is
-    // shared with every other transport (`crate::vision`, ADR-0230): only a
+    // shared with every other transport (`crate::vision`): only a
     // route that *declared* no image input loses its attachments.
     let (messages, _dropped_images) =
         nuo_provider_transport::vision::project_images_for_route(model_id, messages, capabilities);
@@ -957,7 +956,7 @@ mod tests {
 
     #[test]
     fn declared_text_only_route_projects_remote_continuation_images_away() {
-        // ADR-0230: the projection runs before the delivery split, so an image
+        // The projection runs before the delivery split, so an image
         // carried by the locally-new suffix of a remote continuation is dropped
         // for a route that declared no image input — the Responses API 400s on
         // `input_image` outright.

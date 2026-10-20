@@ -5,13 +5,12 @@
 //!
 //! - **Where skills live.** The product resolves its directories (XDG user
 //!   skills, role-scoped skills, the remote cache) and hands them in as
-//!   [`SkillRoots`]. The kernel has no durable state to locate (ADR-0300 §1),
+//!   [`SkillRoots`]. The kernel has no durable state to locate,
 //!   so this crate never consults a path resolver.
 //! - **Whether a workspace's skill content is admitted.** Repo-scoped skills are
 //!   a prompt-injection surface, so the *host* owns the trust decision and
 //!   exposes it through [`SkillTrust`]. The kernel asks per use and
 //!   never caches a verdict.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -25,7 +24,6 @@ pub struct SkillRoots {
     /// User-global skill root (e.g. `<XDG_DATA_HOME>/nuo/skills`).
     pub user: PathBuf,
     /// Role-scoped skill root, when the session runs under a role with one
-    /// (ADR-0253).
     pub role: Option<PathBuf>,
     /// Cache root for remote skill repositories.
     pub remote_cache: PathBuf,

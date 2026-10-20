@@ -605,7 +605,7 @@ fn two_stage_skill_completion_descends_and_terminates() {
 
 #[test]
 fn bare_at_query_does_not_pass_through_to_stage2_content() {
-    // ADR-0290: typing `@wright` (no namespace committed) must NOT surface any
+    // Typing `@wright` (no namespace committed) must NOT surface any
     // Stage-2 skill/file content. The server engine returns nothing for a bare
     // query that is not a namespace prefix; the composer mirrors that.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
@@ -820,7 +820,7 @@ fn ctrl_c_at_startup_picker_quits_instead_of_dropping_to_empty_session() {
 /// 1. The scene-exit verb (`C-x w` / `q` → `CloseTab`) quits
 ///    immediately when it would otherwise demote the dashboard to a carrier
 ///    thread the user never asked for. **Esc is not an exit** — it only
-///    unwinds scene-local sub-layers (ADR-0298 §2).
+///    unwinds scene-local sub-layers.
 /// 2. Ctrl+C follows the app-wide double-press contract: first press arms
 ///    the 2s quit window WITHOUT closing the dashboard, second press quits.
 ///    Regression: Ctrl+C used to hit the generic modal-close arm and drop
@@ -1145,7 +1145,7 @@ fn esc_interrupt_fires_on_second_press_and_rearms_after() {
     );
 }
 
-/// The Esc interrupt is **scene-scoped** (ADR-0205): `Esc Esc` inside the
+/// The Esc interrupt is **scene-scoped**: `Esc Esc` inside the
 /// Subagent scene must interrupt only the viewed child — never the enclosing
 /// primary round. Regression guard for the bug where the Subagent scene's Esc
 /// borrowed the Conversation's `Interrupt` and stopped the outer round.
@@ -1395,7 +1395,7 @@ fn range_selection_cjk_left_arrow_snaps_grapheme() {
     assert_eq!(app.cursor_position, 0, "← steps left from char 1 to char 0");
 }
 
-// ADR-0162 Zero-Latency Two-Tier Completion & SWR Tests
+// Zero-Latency Two-Tier Completion & SWR Tests
 
 #[test]
 fn adr0162_slash_completions_are_synchronous_and_zero_latency() {

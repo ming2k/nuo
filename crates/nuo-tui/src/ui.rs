@@ -1,6 +1,5 @@
 //! Application component composition. Structural behavior belongs to the
 //! engine runtime; this module supplies typed identities and surface policy.
-
 use nuotc::Rect;
 use nuotc::ui::{Component, InputPolicy, LayoutBox, PointerPolicy, Scene, UiRuntime};
 
@@ -8,7 +7,7 @@ use crate::model::layout::{LayoutMap, PermissionActionHit, QuestionOptionHit};
 use crate::sheet::SheetKind;
 use crate::surfaces::{DialogKind, OverlaySurface, SheetKind as SurfaceSheetKind};
 
-/// Keyboard event families (ADR-0197 §D2). Scene components claim the
+/// Keyboard event families. Scene components claim the
 /// families they own at mount time; keyboard routing resolves the foreground
 /// per family, so an unclaimed family falls through to the components below.
 pub mod family {
@@ -16,7 +15,7 @@ pub mod family {
     pub const COMPOSER: u64 = 1 << 0;
     /// Transcript scrolling and step navigation.
     pub const TRANSCRIPT: u64 = 1 << 1;
-    /// Sheet decision keys (ADR-0173 §3).
+    /// Sheet decision keys.
     pub const SHEET: u64 = 1 << 2;
     /// Completion-menu cycling and auto-accept.
     pub const COMPLETION: u64 = 1 << 3;
@@ -84,7 +83,7 @@ impl ComponentTree {
 
     /// Opens a frame. Which components mount is decided by the render phase
     /// below; the scene — not an app-side modal flag — is the sole source of
-    /// keyboard modality (ADR-0197 §D2).
+    /// keyboard modality.
     pub fn begin(&mut self, viewport: Rect) {
         self.pending_document = None;
         self.runtime.begin(viewport);
@@ -211,7 +210,7 @@ impl ComponentTree {
                 10,
                 PointerPolicy::Target,
                 if matches!(kind, SheetKind::Permission) {
-                    // The pass-through sheet (ADR-0173 §2): it claims its own
+                    // The pass-through sheet: it claims its own
                     // decision keys and the composer slot it occupies, but not
                     // the transcript family, so scroll/navigation below it
                     // stays live.

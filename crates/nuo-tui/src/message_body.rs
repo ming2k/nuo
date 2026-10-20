@@ -2,7 +2,6 @@
 //! headings, quotes, lists, rules, breaks. Emits one rendered line per row
 //! and records semantic [`BlockRegion`]s / table cell hit boxes for selection
 //! and click hit-testing.
-
 use nuotc::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
@@ -287,7 +286,7 @@ pub fn draw_message_body(
                 let is_sending = is_user && msg.delivery == DeliveryStatus::Sending;
                 let is_cancelled = is_user && msg.delivery == DeliveryStatus::Cancelled;
                 // A `Role::Tool` body reaching here is a command result
-                // (ADR-0111): a harness artifact, not model prose, so it
+                // a harness artifact, not model prose, so it
                 // reads one step quieter than assistant text. Tool *steps*
                 // never take this path (they render via `draw_tool_step`).
                 let base = match msg.role {
@@ -1006,7 +1005,7 @@ pub fn draw_message_body(
                 // source even after per-line wrapping. The gutter width (and
                 // therefore the wrap width) depends on the line count, so
                 // count lines first, then resolve geometry from the
-                // content-addressed cache (ADR-0184): a frozen code block is
+                // content-addressed cache: a frozen code block is
                 // split and wrapped exactly once per width.
                 let line_count = content.bytes().filter(|&b| b == b'\n').count() + 1;
                 let gutter_width = line_count.to_string().len().max(CODE_BAND_GUTTER_MIN_WIDTH);

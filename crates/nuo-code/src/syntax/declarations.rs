@@ -1,12 +1,12 @@
 //! Named-declaration extraction: the structural index behind structural
-//! queries (ADR-0237).
+//! queries.
 //!
 //! `extract_symbols` answers "what does this file look like?"
 //! by rendering one signature line per top-level item. A structural *query*
 //! needs something stronger: a stable **kind**, a **name** to match on, and a
 //! **byte range** to slice source from. That is what this module produces.
 //!
-//! Two deliberate limits keep the result honest (ADR-0214: structure output is
+//! Two deliberate limits keep the result honest (structure output is
 //! bounded evidence, never semantic ground truth):
 //!
 //! - **Kinds are a closed vocabulary** ([`DECLARATION_KINDS`]), mapped from
@@ -16,7 +16,6 @@
 //! - **Extraction is bounded** by `MAX_DECLARATIONS` and
 //!   `MAX_NESTING_DEPTH`. It is a syntactic index, not a type-aware symbol
 //!   table: no resolution, no generics, no macro expansion.
-
 use tree_sitter::Node;
 
 use super::SupportedLanguage;

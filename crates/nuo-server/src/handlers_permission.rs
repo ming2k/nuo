@@ -5,7 +5,6 @@
 //! match the original loop locals (`agent`, `session`, `resp_tx`,
 //! `lifecycle`, `side`, `subagent_registry`, …) so the body reads exactly as
 //! it did inline.
-
 use crate::session_driver::send_harness_state_for_session;
 use nuo_harness::{Agent, RoundLifecycle, SubagentRegistry};
 use nuo_persistence::session::SessionStore;
@@ -63,7 +62,7 @@ pub async fn interrupt(
 }
 
 /// `AgentRequest::InterruptSubagent` — interrupt one in-flight subagent spawned
-/// by this session, addressed by the parent tool-call id (ADR-0205 scene scope).
+/// by this session, addressed by the parent tool-call id (scene scope).
 ///
 /// Esc Esc inside the Subagent scene resolves here instead of the primary
 /// [`interrupt`]: the chord is scoped to the viewed child, so stopping it must

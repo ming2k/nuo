@@ -1,4 +1,4 @@
-//! Transport middleware pipeline for request transformation and stream framing (ADR-0267).
+//! Transport middleware pipeline for request transformation and stream framing.
 //!
 //! Generic protocol clients (OpenAI, Claude, Gemini) execute this phased pipeline rather than
 //! branching on provider names or dialects. Every wire customization (request envelope,
@@ -7,7 +7,6 @@
 //!   Phase 1: `EnvelopePhase` (Structural JSON body transformation)
 //!   Phase 2: `BodyCodecPhase` (Payload byte encoding/compression)
 //!   Phase 3: `RequestSignerPhase` (Final immutable request inspection and cryptographic signing)
-
 use crate::request::RequestBuilder;
 use nuo_model_codec::{
     OpenAiChatDialect, PreflightValidator, ProviderError, ProviderErrorKind, ResolvedAuth,
@@ -50,7 +49,7 @@ pub trait RequestSignerPhase: Send + Sync {
     ///
     /// Signed surfaces usually POST to a declared inference path rather than
     /// the plain base URL, so the signer — which already owns the surface's
-    /// signed-path contract — also owns the URL rewrite (ADR-0271 §2). The
+    /// signed-path contract — also owns the URL rewrite. The
     /// auth argument lets a provider-owned identity carry a server-elected
     /// transport endpoint (e.g. Qoder's region map, integration doc §3.1a)
     /// that overrides the executor's pinned base. The default keeps the
@@ -68,7 +67,7 @@ pub trait RequestSignerPhase: Send + Sync {
     ) -> Result<RequestBuilder, ProviderError>;
 }
 
-/// A fully planned outbound request (ADR-0271).
+/// A fully planned outbound request.
 ///
 /// The pipeline produces this; the executor only executes it. Holding the
 /// header stamper as a closure keeps the plan opaque — the executor never
@@ -89,7 +88,7 @@ impl TransportPipeline {
     ///
     /// This is the *only* wire-shaping entry point the executor calls: it
     /// replaces the former `prepare_body`/`sign_request`/`rewrite_url` trio
-    /// and the executor's wire-shape branch (ADR-0271 §1). `base_url` is the
+    /// and the executor's wire-shape branch. `base_url` is the
     /// executor's plain endpoint URL — the seed every phase plans over; a
     /// shaped signer rewrites it to its surface's inference URL, a
     /// pass-through pipeline keeps it verbatim. The planned body is the
@@ -148,7 +147,7 @@ impl TransportPipeline {
                 // (omitted for keyless credentials; some servers reject
                 // `Bearer `). The executor's request builder previously
                 // inlined this exact set via `request::headers`; the plan
-                // now owns it (ADR-0271 §1).
+                // now owns it.
                 let token = auth.token.expose_secret().to_string();
                 let token = (!token.trim().is_empty()).then_some(token);
                 let dialect_headers: Vec<(String, String)> = self
@@ -190,7 +189,7 @@ pub struct ProviderFault {
     pub message: String,
 }
 
-/// Algebraic outcome of parsing an inbound raw SSE event (ADR-0267).
+/// Algebraic outcome of parsing an inbound raw SSE event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransformedFrame {
     /// Standard LLM chunk payload (canonical JSON string).

@@ -1,7 +1,6 @@
 //! End-to-end server spawn coverage owned by the CLI package so Cargo supplies
 //! the exact freshly-built `nuo` binary through `CARGO_BIN_EXE_nuo`.
 //! This must never discover an incidental or stale `target/debug/nuo`.
-
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
@@ -67,7 +66,7 @@ fn discovery_path(root: &Path) -> PathBuf {
     root.join("nuo").join("instance").join("server.json")
 }
 
-/// ADR-0121's inheritance invariant plus ADR-0129's detachment invariant:
+/// Inheritance invariant plus detachment invariant:
 /// a real client binary carrying `NUO_HOME` starts this exact build in a
 /// fresh Unix session and keeps every server artifact inside the sandbox.
 #[tokio::test]

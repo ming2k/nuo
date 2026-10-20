@@ -1,5 +1,4 @@
-//! Collapsible, inspectable compaction checkpoint card renderer (ADR-0296).
-
+//! Collapsible, inspectable compaction checkpoint card renderer.
 use nuotc::{
     Modifier, Style, {Line, Span},
 };
@@ -86,7 +85,7 @@ pub fn draw_compacted_card(
     // The card is an activatable entry like every other step summary, so it
     // composes the same three channels: disclosure luminance, lifecycle hue
     // (none — compaction is not a failure), and the transient
-    // hover/focus affordance hue (ADR-0174).
+    // hover/focus affordance hue.
     let summary_color = summary_text_color(
         None,
         Disclosure::from_expanded(expanded),

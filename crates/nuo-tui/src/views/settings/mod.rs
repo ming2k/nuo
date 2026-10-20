@@ -1,4 +1,4 @@
-//! Modular Settings View (`/settings`): first-class, full-screen configuration center (ADR-0141).
+//! Modular Settings View (`/settings`): first-class, full-screen configuration center.
 //!
 //! Layout: the shared two-row head band (row 1 the session identity, row 2 the
 //! scene row naming `settings` with the category breadcrumb, ADR-0024), then a
@@ -13,7 +13,6 @@
 //! - [`components`]: Interactive component styles, default disclosure states, and auto-scroll
 //! - [`web`]: singleton Web Search and Web Reader provider selection
 //! - [`system`]: Paths, runtime info, version
-
 pub mod appearance;
 pub mod components;
 pub mod system;

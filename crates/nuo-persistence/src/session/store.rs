@@ -1,9 +1,8 @@
 //! Construction, load/persist, snapshot persistence, the list/detail/active views, and the offline corruption scan tools of [`SessionStore`].
-
 use super::*;
 
 /// Retry a `save_session` across the supervisor's respawn window
-/// (ADR-0196 D3). Only [`crate::db::PersistenceError::WriterDown`] is
+/// (D3). Only [`crate::db::PersistenceError::WriterDown`] is
 /// retried — it is the one transient variant (the actor is being
 /// respawned); engine rejections and encode failures are deterministic and
 /// surface immediately.
@@ -18,7 +17,7 @@ async fn save_retrying(
     const MAX_ATTEMPTS: u32 = 5;
     const BASE_DELAY: Duration = Duration::from_millis(100);
 
-    // ADR-0236 D3: every logical save carries an idempotency identity, so a
+    // D3: every logical save carries an idempotency identity, so a
     // retry after a commit whose acknowledgement was lost resolves to the
     // original receipt instead of re-applying. A caller-supplied identity is
     // preserved across the attempts; otherwise one is minted once here.
@@ -28,8 +27,8 @@ async fn save_retrying(
 
     let mut delay = BASE_DELAY;
     for attempt in 1..=MAX_ATTEMPTS {
-        // The save is idempotent by watermark (ADR-0187) and now by operation
-        // receipt (ADR-0236 D3), so re-sending a possibly-delivered delta is
+        // The save is idempotent by watermark and now by operation
+        // receipt (D3), so re-sending a possibly-delivered delta is
         // safe — that license is what makes the retry honest.
         match writer
             .save_session(data.clone(), full, usage_upserts.clone(), guard.clone())
@@ -49,7 +48,7 @@ async fn save_retrying(
 impl SessionStore {
     /// Open a store pinned to the **workspace**.
     ///
-    /// Under ADR-0168 all session state is stored authoritatively in SQLite (`nuo.db`).
+    /// all session state is stored authoritatively in SQLite (`nuo.db`).
     pub fn load_for_project(project_root: PathBuf) -> Self {
         let project_root = project_root.canonicalize().unwrap_or(project_root);
         let workspace = Some(nuo_wire::WorkspaceBinding::new(project_root));
@@ -63,7 +62,7 @@ impl SessionStore {
         Self::load_for_project(project_root)
     }
 
-    /// Open a `SessionStore` pinned to an optional workspace binding (ADR-0226).
+    /// Open a `SessionStore` pinned to an optional workspace binding.
     /// `None` is the workspace-free (unbound) set. `persona` is the staffing
     /// persona recorded on a fresh session, if any.
     pub fn for_workspace(
@@ -189,7 +188,7 @@ impl SessionStore {
         )
     }
 
-    /// Canonical domain partition for this session (ADR-0250).
+    /// Canonical domain partition for this session.
     pub fn partition(&self) -> nuo_wire::SessionPartition {
         nuo_wire::SessionPartition::from_binding(
             self.workspace
@@ -257,7 +256,7 @@ impl SessionStore {
     }
 
     /// Start a brand-new session and repoint this store at it, inheriting
-    /// the current session's workspace and role (ADR-0244, ADR-0245).
+    /// the current session's workspace and role.
     pub async fn reset(&self) -> Result<String, String> {
         let mut state = self.state.lock().await;
         let workspace = state.data.workspace.clone();
@@ -292,7 +291,7 @@ impl SessionStore {
         Ok(id)
     }
 
-    /// Start a brand-new session with explicit workspace and role (ADR-0244, ADR-0245).
+    /// Start a brand-new session with explicit workspace and role.
     pub async fn reset_with(
         &self,
         workspace: Option<nuo_wire::WorkspaceBinding>,
@@ -323,7 +322,7 @@ impl SessionStore {
         Ok(id)
     }
 
-    /// The immutable role manifest snapshot captured for this session, if any (ADR-0245).
+    /// The immutable role manifest snapshot captured for this session, if any.
     pub async fn role_manifest(&self) -> Option<nuo_wire::SessionRoleManifest> {
         self.state.lock().await.data.role_manifest.clone()
     }
@@ -378,7 +377,7 @@ impl SessionStore {
         *self.role.write().unwrap_or_else(|e| e.into_inner()) = data.role.clone();
         state.path = path;
         state.data = data;
-        // ADR-0189: the projection cache belongs to the session being left.
+        // The projection cache belongs to the session being left.
         // A stale cache made `model_window` return the *previous* session's
         // window after a switch, and the resume path (`restore_session_runtime`)
         // then `replace_messages`-ed it over the newly opened session — wiping
@@ -502,7 +501,7 @@ impl SessionStore {
         .map_err(|e| format!("session detail task failed: {e}"))?
     }
 
-    /// Run the persistence off the async runtime (ADR-0187): append the
+    /// Run the persistence off the async runtime: append the
     /// transcript delta above the durable watermark and upsert the session
     /// row. The engine escalates to a full rewrite whenever `data`'s
     /// transcript generation differs from the store's, so no caller-side
@@ -517,13 +516,13 @@ impl SessionStore {
     }
 
     /// Persist a transcript delta plus the usage-record upserts a commit
-    /// produced (ADR-0187): the usage ledger is key-addressed, so only the
+    /// produced: the usage ledger is key-addressed, so only the
     /// changed attempts are written.
     ///
     /// The delta save is idempotent by watermark (a replayed save escalates
-    /// by generation, ADR-0187), so a `WriterDown` failure is retried across
+    /// by generation), so a `WriterDown` failure is retried across
     /// the supervisor's respawn window before the round is failed
-    /// (ADR-0196 D3). Engine-level rejections are not retried — they are
+    /// (D3). Engine-level rejections are not retried — they are
     /// deterministic.
     pub(crate) async fn persist_with_usage(
         &self,
@@ -541,7 +540,7 @@ impl SessionStore {
         .map(|_| ())
     }
 
-    /// [`Self::persist_with_usage`] that carries an ADR-0236 D3 commit guard
+    /// [`Self::persist_with_usage`] that carries an D3 commit guard
     /// and returns the committed session revision.
     pub(crate) async fn persist_with_usage_guarded(
         &self,
@@ -568,7 +567,7 @@ impl SessionStore {
     /// Persist a full rewrite (rare: wholesale working-state replacement).
     ///
     /// A full rewrite is idempotent (it replaces every projection row), so
-    /// the same `WriterDown` retry policy applies (ADR-0196 D3).
+    /// the same `WriterDown` retry policy applies (D3).
     pub(crate) async fn persist_full_rewrite(&self, data: SessionData) -> Result<(), String> {
         let _persist_gate = self.persist_gate.lock().await;
         let mut data = data;
@@ -607,7 +606,7 @@ impl SessionStore {
             matches.push((active.data.id.clone(), active.path.clone()));
         }
 
-        // Query the durable store through this store's reader (ADR-0231).
+        // Query the durable store through this store's reader.
         if let Ok(reader) = self.writer.reader() {
             let filter = self.workspace_filter();
             if let Ok(found) = reader.resolve_session_prefix(input, Some(&filter)) {

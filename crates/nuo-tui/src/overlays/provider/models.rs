@@ -1,5 +1,4 @@
 //! The flat Models picker modal (selecting the active model/instance).
-
 use nuotc::{
     Frame, Rect, {Line, Span}, {Modifier, Style},
 };
@@ -43,7 +42,7 @@ pub struct ModelsModalProps<'a> {
     pub follow_selection: bool,
     pub search: bool,
     /// Whether this surface currently owns the terminal cursor
-    /// (`App::caret_owner() == CaretOwner::Overlay`, ADR-0205). The picker
+    /// (`App::caret_owner == CaretOwner::Overlay`). The picker
     /// never places the physical cursor on its own authority — the frame-level
     /// arbiter decides that, and this flag is its verdict threaded down.
     pub show_caret: bool,
@@ -374,7 +373,7 @@ pub(crate) fn model_list_body(
                 // the column is never empty. Identity itself is unaffected by
                 // what is drawn: activation, favorites, hiding and every config
                 // surface still key on `rm.model` (docs/reference/tui/modals.md
-                // "name-first, id-fallback"; ADR-0131 — the display name is
+                // "name-first, id-fallback"; — the display name is
                 // presentation, never the wire value).
                 let display = rm.name.as_deref().unwrap_or(rm.model.as_str());
                 let distinct_name = rm.name.as_deref().filter(|name| *name != rm.model.as_str());

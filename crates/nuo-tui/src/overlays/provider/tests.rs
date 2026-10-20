@@ -821,7 +821,7 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
     }
 }
 
-/// ADR-0273: when the provider states a reason, the row shows *that* — nuo
+/// When the provider states a reason, the row shows *that* — nuo
 /// must never invent "locked for the current plan", which is a different,
 /// unstated diagnosis (the `403 code 110` quota incident is exactly a case
 /// where the plan is fine).

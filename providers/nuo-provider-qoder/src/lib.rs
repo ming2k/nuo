@@ -187,7 +187,7 @@ impl nuo_provider::CatalogSigning for QoderCatalogSigning {
 ///
 /// Function switches never appear in the result: they are routing modes, not
 /// models, so their absence is a membership fact rather than an availability
-/// verdict (ADR-0281). Dropping them here — rather than marking them
+/// verdict. Dropping them here — rather than marking them
 /// unavailable — keeps the model universe pure: a switch that becomes
 /// `enable:true` on a paid plan must not surface as a selectable model, because
 /// selecting it hands model choice to the server and invalidates every
@@ -236,7 +236,7 @@ pub fn parse_scene_catalog(json: &Value, scene: &str) -> Vec<nuo_provider::Disco
 /// recording it and nothing more: the key is stored as the provider stated it,
 /// and no surface resolves it against the vendor's own text table — that would
 /// localize the reason (`[INV-AVAIL-03]`) and would put a vendor copy table in
-/// nuo's core (ADR-0281).
+/// nuo's core.
 fn disabled_reason(entry: &Value) -> Option<String> {
     entry
         .get("strategies")
@@ -260,7 +260,7 @@ fn discovered_from_scene_entry(
     // `/model` menu lists such entries greyed-out, so the entry is kept as a
     // declared-unusable model. The verdict carries the provider's own reason
     // when the payload states one (`strategies[].disabled_message_key`) and
-    // `None` otherwise — no surface may invent one (ADR-0273).
+    // `None` otherwise — no surface may invent one.
     let reason = disabled_reason(entry);
     let availability = match entry.get("enable") {
         Some(Value::Bool(true)) => Some(nuo_model_codec::Availability::usable()),
@@ -403,7 +403,7 @@ mod tests {
             Some(nuo_model_codec::Availability::usable())
         );
         // A locked entry the payload gives no reason for stays reasonless: no
-        // surface may invent one (ADR-0273).
+        // surface may invent one.
         assert_eq!(
             by_id("gmodel").availability,
             Some(nuo_model_codec::Availability::locked(None))
@@ -460,7 +460,7 @@ mod tests {
     /// model universe, in either their bare or their scene-prefixed form.
     /// Their absence is a membership fact, not an availability verdict — a
     /// switch that becomes `enable:true` on a paid plan must still not surface
-    /// as a selectable model (ADR-0281).
+    /// as a selectable model.
     #[test]
     fn scene_catalog_drops_function_switches() {
         let json = json!({

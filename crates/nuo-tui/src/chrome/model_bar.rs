@@ -1,5 +1,4 @@
 //! The persistent single-line model bar pinned below composer input.
-
 use nuotc::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
@@ -178,7 +177,7 @@ pub fn draw_model_bar(
 
     let keycap_badge =
         |text: &str| Span::styled(text.to_string(), Style::default().fg(theme.dim()).bg(bg));
-    // Both keycaps render the chord the registry actually resolves (ADR-0238):
+    // Both keycaps render the chord the registry actually resolves:
     // a retired/remapped/unbound chord must never be advertised.
     let telemetry_key = key_overrides.effective_binding(crate::keymap::CommandId::OpenSessionStats);
     let connection_key =

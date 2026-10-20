@@ -1,10 +1,9 @@
-//! Request-scoped model-request assembly (ADR-0056 / ADR-0160).
+//! Request-scoped model-request assembly (ADR-0056).
 //!
 //! The assembler is intentionally independent of [`crate::Agent`]. The agent
 //! owns when assembly occurs and supplies a plain state snapshot; this module
 //! owns the pure projection from a live conversation window to one immutable
 //! [`nuo_wire::ModelRequest`].
-
 pub mod policies;
 pub(crate) mod system_prompt;
 
@@ -52,9 +51,9 @@ impl ModelRequestAssembler {
 
     /// Assemble from an already-filtered, owned message list. The hot path
     /// (`Agent::model_request`) builds that list with a single clone and
-    /// hands it over — no second copy of the window per turn (ADR-0187).
+    /// hands it over — no second copy of the window per turn.
     ///
-    /// `temporary_context` is the request-local `E_n` tail (ADR-0213/ADR-0217):
+    /// `temporary_context` is the request-local `E_n` tail:
     /// it is attached to the snapshot but excluded from the cacheable prefix and
     /// never enters durable history.
     pub(crate) fn assemble_prepared(
@@ -74,7 +73,7 @@ impl ModelRequestAssembler {
     }
 
     /// Compile a [`nuo_wire::ModelRequest`] directly from a canonical [`nuo_wire::SessionIR`]
-    /// via the 4-pass compiler pipeline (ADR-0241/ADR-0249, INV-EXEC-02).
+    /// via the 4-pass compiler pipeline (INV-EXEC-02).
     pub fn compile_from_ir(
         &self,
         ir: &nuo_wire::SessionIR,

@@ -5,7 +5,6 @@
 //! frontend's presentation state and the server's behavioural policy stay
 //! cleanly decoupled while both live under one application directory
 //! (ADR-0011, ADR-0031).
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -50,7 +49,7 @@ pub struct TuiConfig {
     pub custom_color_scheme: ColorSchemeConfig,
     #[serde(default)]
     pub input_history: InputHistoryConfig,
-    /// User remaps of the chords (ADR-0172): bare `command-id → chord spec`
+    /// User remaps of the chords: bare `command-id → chord spec`
     /// entries for the global layer (e.g. `interrupt = "ctrl+x"`), plus a
     /// `[keybindings.session]` sub-table for the full-screen-view verbs. See
     /// [`crate::keymap::parse_key`] for the chord syntax.
@@ -58,7 +57,7 @@ pub struct TuiConfig {
     pub keybindings: KeybindingsConfig,
 }
 
-/// The `[keybindings]` table (ADR-0172). Unknown top-level keys are the
+/// The `[keybindings]` table. Unknown top-level keys are the
 /// global command remaps; the nested `session` table holds the surface verbs
 /// of the full-screen views.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,12 +95,12 @@ impl Default for TuiConfig {
 
 impl TuiConfig {
     /// The effective global-chord overrides declared in `[keybindings]`
-    /// (ADR-0172). Empty when the user has not customized any global chord.
+    /// Empty when the user has not customized any global chord.
     pub fn global_key_overrides(&self) -> crate::keymap::GlobalOverrides {
         crate::keymap::GlobalOverrides::from_config(&self.keybindings.commands)
     }
     /// The effective surface-verb overrides declared in `[keybindings.session]`
-    /// (ADR-0172 step 9). Empty when the user has not customized any
+    /// (step 9). Empty when the user has not customized any
     /// full-screen-view chord.
     pub fn surface_key_overrides(&self) -> crate::keymap::SurfaceOverrides {
         crate::keymap::SurfaceOverrides::from_config(&self.keybindings.session)

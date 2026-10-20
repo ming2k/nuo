@@ -19,7 +19,6 @@
 //! cache that has since legitimately grown a fresh (empty) map.
 //!
 //! See ADR-0014 for the category rules this split follows.
-
 use std::collections::BTreeMap;
 use std::fs;
 
@@ -36,7 +35,7 @@ use crate::paths;
 /// file (`models_discovery.json`, the pre-rename name of the current
 /// `remote_catalog.json`), then the retired cache-dir file. Only the
 /// `route_settings` key is taken; the catalog payload around it is derivable
-/// and intentionally not migrated (ADR-0203 §29).
+/// and intentionally not migrated.
 fn read_legacy_cache_route_settings() -> BTreeMap<String, BTreeMap<String, RouteSettings>> {
     let dirs = paths::get();
     let candidates = [
@@ -301,7 +300,7 @@ mod tests {
         // no longer has the field — that is the point). The `route_settings`
         // map is **user data** (reasoning overrides) and must be rescued; the
         // catalog payload around it is derivable and must NOT be migrated
-        // (ADR-0203 §29).
+
         let retired_json = serde_json::json!({
             "connection_models": { "kimi": ["kimi-k2"] },
             "route_settings": {
@@ -333,7 +332,7 @@ mod tests {
         let cache_after = crate::config::RemoteCatalogCache::load();
         assert!(
             cache_after.connection_models.is_empty(),
-            "derivable catalog state must not be migrated (ADR-0203 §29)"
+            "derivable catalog state must not be migrated"
         );
 
         // Idempotency: a second load must not re-fold or lose entries.

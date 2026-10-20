@@ -1,4 +1,4 @@
-//! Bounded checkpoint builder and CAS-guarded view commit (ADR-0278).
+//! Bounded checkpoint builder and CAS-guarded view commit.
 //!
 //! This is the Phase D substrate: it turns a fact interval into a derived
 //! [`Checkpoint`] and a branch-local [`ContextView`], and commits the pair under
@@ -17,8 +17,7 @@
 //! The builder is pure: the LLM is injected through [`Summarizer`] and time
 //! through [`Clock`], so the whole flow is deterministic and testable without a
 //! provider or a database. The commit helper takes an already-open `Connection`
-//! (ADR-0231 one-door) and never opens its own.
-
+//! (one-door) and never opens its own.
 use nuo_wire::context_lifecycle::{
     Checkpoint, CheckpointId, ContextView, ExecutionGroup, FactId, FactNode, Representation,
     RepresentationEntry, SourceAuthority, SourceInterval, SourceManifest, Validity, ViewId,
@@ -69,7 +68,7 @@ pub struct SummaryShard {
     pub tokens: u64,
 }
 
-/// Why a summarization call failed (ADR-0278 §4).
+/// Why a summarization call failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SummaryFailure {
     /// The call exceeded its deadline.
@@ -118,7 +117,7 @@ impl Summarizer for FailingSummarizer {
     }
 }
 
-/// The required sections of a checkpoint summary (ADR-0278 §3).
+/// The required sections of a checkpoint summary.
 pub const REQUIRED_SECTIONS: &[&str] = &[
     "## Objective",
     "## Completed",
@@ -149,7 +148,7 @@ pub struct CheckpointPlan {
     pub view_id: ViewId,
 }
 
-/// Why a checkpoint build failed (ADR-0278 §2, §4).
+/// Why a checkpoint build failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CheckpointError {
     /// The cut would split an open execution group (`INV-CKPT-01`).
@@ -215,7 +214,7 @@ impl std::fmt::Display for CheckpointError {
 
 impl std::error::Error for CheckpointError {}
 
-/// A validated checkpoint plus its branch view (ADR-0278 §1).
+/// A validated checkpoint plus its branch view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidatedCheckpoint {
     /// The derived checkpoint (never an execution parent).
@@ -226,13 +225,13 @@ pub struct ValidatedCheckpoint {
     pub used_fallback: bool,
 }
 
-/// The bounded checkpoint builder (ADR-0278 §3–§4).
+/// The bounded checkpoint builder.
 pub struct CheckpointBuilder<'a> {
     summarizer: &'a dyn Summarizer,
     clock: &'a dyn Clock,
-    /// Per-call timeout (ADR-0280 default 45 s).
+    /// Per-call timeout (default 45 s).
     call_timeout_ms: u64,
-    /// Total build budget (ADR-0280 default 120 s).
+    /// Total build budget (default 120 s).
     total_budget_ms: u64,
     /// Checkpoint output ceiling.
     output_ceiling: u64,
@@ -509,7 +508,7 @@ impl<'a> CheckpointBuilder<'a> {
         Ok(())
     }
 
-    /// The deterministic fallback template (ADR-0278 §4): preserves mandatory
+    /// The deterministic fallback template: preserves mandatory
     /// state and references the remaining evidence, never nests a full older
     /// summary and never byte-slices.
     fn deterministic_template(&self, plan: &CheckpointPlan) -> String {
@@ -601,7 +600,7 @@ fn render_fact(fact: &FactNode) -> String {
     )
 }
 
-/// A hash-verified ordered manifest of the summarized interval (ADR-0278 §1).
+/// A hash-verified ordered manifest of the summarized interval.
 ///
 /// Serialization is the only fallible step, and it is *not* ignorable: a manifest
 /// hashed over empty bytes would silently misreport what the checkpoint covers.
@@ -624,7 +623,7 @@ fn source_manifest(facts: &[FactNode]) -> Result<SourceManifest, CheckpointError
     })
 }
 
-/// The default CAS retry bound (ADR-0280 §2), re-exported from the domain
+/// The default CAS retry bound, re-exported from the domain
 /// contracts for callers of the persistence-door CAS helper.
 pub const DEFAULT_CAS_ATTEMPTS: u32 = nuo_wire::context_lifecycle::CAS_MAX_ATTEMPTS;
 

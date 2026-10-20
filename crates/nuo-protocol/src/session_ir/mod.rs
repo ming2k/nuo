@@ -1,6 +1,6 @@
 //! Canonical Session Intermediate Representation (Session IR).
 //!
-//! Defined by ADR-0241, Session IR is the headless, platform-agnostic domain
+//! Defined, Session IR is the headless, platform-agnostic domain
 //! model and single source of truth for an agent conversation.
 //!
 //! It replaces the dual representation of `SessionTree` and `Transcript`,
@@ -13,7 +13,6 @@
 //! - [`types`]: Fundamental domain structures and node definitions.
 //! - [`delta`]: Incremental mutation deltas and $O(\Delta)$ sync primitives.
 //! - [`compiler`]: Multi-pass request compilation targeting provider wire protocols.
-
 pub mod compiler;
 pub mod delta;
 pub mod types;

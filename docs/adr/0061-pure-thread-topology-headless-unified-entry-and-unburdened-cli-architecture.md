@@ -26,7 +26,7 @@ Following the initial CLI consolidation under [ADR-0048](0048-cli-architecture-m
 1. **The Semantic Distortion of `run`**:
    `nuo run <prompt>` suggested daemon orchestration or script execution (akin to `docker run` or `cargo run`), creating false mental models against `nuo server start`. In reality, `run` was merely a headless, one-shot turn streaming to stdout.
 2. **Pseudo-CRUD Bloat (`config`, `mcp`, `skill`)**:
-   Under ADR-0252, MCP and environment configuration transitioned to declarative-only TOML specifications. Mutations from the CLI were retired, leaving `nuo mcp`, `nuo skill`, and `nuo config` as vestigial read-only inspect commands. These cluttered top-level discovery, duplicated the TUI's dynamic `/settings` scene, and fragmented system observability away from `nuo status`.
+MCP and environment configuration transitioned to declarative-only TOML specifications. Mutations from the CLI were retired, leaving `nuo mcp`, `nuo skill`, and `nuo config` as vestigial read-only inspect commands. These cluttered top-level discovery, duplicated the TUI's dynamic `/settings` scene, and fragmented system observability away from `nuo status`.
 3. **Absence of an Interactive Thread Recovery Workflow**:
    While `nuo thread ls` rendered a static tabular summary and `--resume` blindly restored the last session without discrimination, users lacked a first-class affordance to launch the interactive TUI directly into the thread history picker to select and restore specific past threads.
 4. **Option Scope Pollution and Categorical Bureaucracy**:

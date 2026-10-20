@@ -4,7 +4,6 @@
 //! Each handler is one match arm, lifted unchanged. Parameters are named to
 //! match the original loop locals (`session`, `agent`, `resp_tx`, `side`, …)
 //! so the body reads exactly as it did inline.
-
 use crate::mcp::McpRuntime;
 use nuo_harness::Agent;
 use nuo_harness::skills::SkillRegistry;
@@ -116,7 +115,7 @@ pub fn token_usage(
 }
 
 /// `AgentRequest::QueryUsageStats` — aggregate the durable cross-session
-/// usage store (ADR-0122) and reply with
+/// usage store and reply with
 /// [`AgentResponse::UsageStatsReport`]. Pure read over `data/usage/`;
 /// independent of the live ledger and of any session, so it reflects days
 /// whose sessions were long since deleted.
@@ -300,7 +299,7 @@ mod tests {
         let (_dir, store) = store_with_prompt().await;
         let old_id = store.id().await;
         let (resp_tx, mut resp_rx) = mpsc::unbounded_channel();
-        // Reset to a new session so `old_id` becomes an alternative switch candidate (ADR-0250)
+        // Reset to a new session so `old_id` becomes an alternative switch candidate
         let _ = store.reset().await;
 
         rename(
@@ -334,7 +333,7 @@ mod tests {
     #[tokio::test]
     async fn overview_query_returns_data_without_a_navigation_signal() {
         let (_dir, store) = store_with_prompt().await;
-        // Reset so the persisted session becomes an alternative switch candidate (ADR-0250)
+        // Reset so the persisted session becomes an alternative switch candidate
         let _ = store.reset().await;
         let (resp_tx, mut resp_rx) = mpsc::unbounded_channel();
 

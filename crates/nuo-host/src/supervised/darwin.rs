@@ -1,8 +1,7 @@
 //! Darwin (macOS) kernel-evidence supervised input examiner.
 //!
-//! Implements ADR-0294: multi-factor kernel introspection via `libproc` and
+//! Implements: multi-factor kernel introspection via `libproc` and
 //! terminal buffer telemetry.
-
 use super::InputWait;
 use crate::process::PtyMaster;
 

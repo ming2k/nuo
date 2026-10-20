@@ -1,9 +1,8 @@
-//! Authoritative embedded SQLite storage engine (ADR-0163, ADR-0187).
+//! Authoritative embedded SQLite storage engine.
 //!
 //! Provides relational database initialization, schema migration tracking via
 //! `PRAGMA user_version`, FTS5 full-text search, Content-Addressed Storage (CAS)
 //! threshold isolation, and a single-writer persistence engine.
-
 use crate::blobs::BlobStore;
 use rusqlite::{Connection, OptionalExtension, Result, Row, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -203,7 +202,7 @@ fn map_search_row(row: &Row) -> Result<HistorySearchResult> {
     })
 }
 
-/// Sanitize a free-text query into a safe FTS5 MATCH expression (ADR-0208).
+/// Sanitize a free-text query into a safe FTS5 MATCH expression.
 ///
 /// Every whitespace-separated word becomes a quoted phrase token (`"retry"`
 /// → `"retry"`, `retry loop` → `"retry" AND "loop"`), so user input can never
@@ -249,7 +248,7 @@ fn sanitize_fts_query(query: &str) -> String {
     sanitize_fts_query_joined(query, false)
 }
 
-/// Envelope columns of one `entries` row, as written by a save (ADR-0186 §3).
+/// Envelope columns of one `entries` row, as written by a save.
 struct EntryEnvelope<'a> {
     id: &'a str,
     kind: &'a str,
@@ -265,7 +264,7 @@ struct EntryEnvelope<'a> {
 pub(crate) struct DatabaseEngine {
     pub(crate) conn: Connection,
     /// CAS store used to offload oversized entry bodies at insert time
-    /// (ADR-0187): only rows this transaction inserts are offloaded, so the
+    /// only rows this transaction inserts are offloaded, so the
     /// per-save cost stays proportional to the delta. `None` keeps content
     /// inline (readers, tests).
     pub(crate) blob_store: Option<BlobStore>,
@@ -325,9 +324,9 @@ pub struct DbReader {
     _age: Option<ReaderAgeGuard>,
 }
 
-// Asynchronous Persistence Actor (Single-Writer Pattern, supervised — ADR-0196)
+// Asynchronous Persistence Actor (Single-Writer Pattern, supervised)
 
-/// Typed failure of a persistence command (ADR-0196 D2).
+/// Typed failure of a persistence command (D2).
 ///
 /// The single-writer actor is a long-lived service, so its failures are
 /// *lifecycle* facts, not SQL facts. Every `PersistenceHandle` method returns
@@ -352,10 +351,10 @@ pub enum PersistenceError {
     /// teardown is distinguishable from a crash.
     Closed,
     /// The commit carried an `expected_revision` that no longer matches the
-    /// durable session revision (ADR-0236 D3). The write was **not** applied;
+    /// durable session revision (D3). The write was **not** applied;
     /// the caller must re-read and retry against the current revision.
     StaleRevision { expected: u64, actual: u64 },
-    /// An idempotency key was reused with a different payload (ADR-0236 D3):
+    /// An idempotency key was reused with a different payload (D3):
     /// the original operation already committed, so reusing its identity for
     /// other content is refused rather than silently applied or dropped.
     OperationConflict { operation_id: String },
@@ -397,7 +396,7 @@ impl From<rusqlite::Error> for PersistenceError {
 }
 
 /// Liveness of the single-writer actor, observable by any handle clone
-/// (ADR-0196 D1/D4). Transitions are published on a `watch` channel; the
+/// (D1/D4). Transitions are published on a `watch` channel; the
 /// server folds them into the monitor stream, frontends render degradation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriterHealth {
@@ -435,7 +434,7 @@ impl WriterHealth {
         }
     }
 
-    /// The wire representation for the monitor stream (ADR-0196 D4). The
+    /// The wire representation for the monitor stream (D4). The
     /// conversion lives here, next to the state machine, so no consumer can
     /// mis-translate a transition.
     pub fn to_wire(&self) -> nuo_wire::monitor::PersistenceHealth {
@@ -471,7 +470,7 @@ fn unix_ms() -> u64 {
 }
 
 /// Optional idempotency identity and revision precondition for one session
-/// commit (ADR-0236 D3).
+/// commit (D3).
 ///
 /// `operation_id` makes a replay return the original receipt instead of
 /// re-applying the operation; `expected_revision` fails the commit closed
@@ -484,7 +483,7 @@ pub(crate) struct CommitGuard {
 }
 
 /// Typed outcome of [`DatabaseEngine::save_session_inner`]: either the committed
-/// revision, a SQL failure, or one of the ADR-0236 D3 refusals.
+/// revision, a SQL failure, or one of the D3 refusals.
 #[derive(Debug)]
 pub(crate) enum SaveError {
     Sql(rusqlite::Error),
@@ -530,7 +529,7 @@ impl fmt::Display for SaveError {
     }
 }
 
-/// SHA-256 fingerprint of the authoritative commit payload (ADR-0236 D3): it
+/// SHA-256 fingerprint of the authoritative commit payload (D3): it
 /// detects an idempotency key reused for different content.
 ///
 /// The fingerprint is deliberately O(1) in the session's size. It covers the
@@ -562,7 +561,7 @@ fn commit_payload_digest(
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// The durable revision for a session (ADR-0236 D3). Absent means revision 0.
+/// The durable revision for a session (D3). Absent means revision 0.
 fn session_revision(conn: &Connection, session_id: &str) -> Result<u64> {
     conn.query_row(
         "SELECT revision FROM session_revisions WHERE session_id=?1",
@@ -634,7 +633,7 @@ fn decode_json<T: serde::de::DeserializeOwned>(value: &str) -> Result<T> {
 /// facts for the same attempt identity are *reported* and the first record
 /// wins, instead of aborting the migration — aborting leaves `user_version`
 /// below v15, so every later open retries and fails the same import forever
-/// (ADR-0236 "report conflicting records rather than silently selecting one").
+/// "report conflicting records rather than silently selecting one".
 /// The live settlement path keeps [`upsert_attempt`]'s hard refusal.
 fn import_legacy_attempt(
     conn: &Connection,
@@ -823,15 +822,15 @@ pub(crate) enum PersistenceCommand {
         data: Box<crate::session::SessionData>,
         /// `true`: rewrite every membership/projection/blob reference from
         /// `data`. `false`: append only rows above the durable watermark,
-        /// escalating to a full rewrite on generation mismatch (ADR-0187).
+        /// escalating to a full rewrite on generation mismatch.
         full: bool,
         /// Usage-record upserts to apply on a delta save (the durable usage
         /// ledger lives in its own table; a full save rewrites it from
         /// `data`).
         usage_upserts: Vec<nuo_wire::RequestUsageRecord>,
-        /// ADR-0236 D3 idempotency identity and revision precondition.
+        /// D3 idempotency identity and revision precondition.
         guard: CommitGuard,
-        /// The committed session revision (ADR-0236 D3); a replay returns the
+        /// The committed session revision (D3); a replay returns the
         /// original receipt rather than a second revision.
         ack: oneshot::Sender<Result<u64, PersistenceError>>,
     },
@@ -893,11 +892,10 @@ pub(crate) enum PersistenceCommand {
         ack: Option<oneshot::Sender<Result<usize, PersistenceError>>>,
     },
     /// Reclaim transcript entries no session membership references
-    /// (ADR-0187).
     CollectEntryGarbage {
         ack: oneshot::Sender<Result<usize, PersistenceError>>,
     },
-    /// Rebuild the writer generation from scratch (ADR-0231): stop the live
+    /// Rebuild the writer generation from scratch: stop the live
     /// writer — a clean engine close checkpoints any live WAL back into the
     /// main database — then open a fresh generation, which recreates the
     /// on-disk `-wal`/`-shm` pair.
@@ -925,12 +923,12 @@ pub(crate) enum PersistenceCommand {
         target_path: PathBuf,
         ack: oneshot::Sender<Result<(), PersistenceError>>,
     },
-    /// Persist an incremental Session IR delta directly into SQLite (ADR-0241/ADR-0249, INV-SESSION-05).
+    /// Persist an incremental Session IR delta directly into SQLite (INV-SESSION-05).
     SaveSessionDelta {
         delta: Box<nuo_wire::SessionDelta>,
         ack: oneshot::Sender<Result<(), PersistenceError>>,
     },
-    /// Commit immutable execution facts to the canonical context store (ADR-0275 §7).
+    /// Commit immutable execution facts to the canonical context store.
     CommitContextFacts {
         commit: Box<crate::db::context_store::OwnedFactCommit>,
         ack: oneshot::Sender<
@@ -940,7 +938,7 @@ pub(crate) enum PersistenceCommand {
             >,
         >,
     },
-    /// Commit a branch context view to the canonical context store (ADR-0275 §7, ADR-0278).
+    /// Commit a branch context view to the canonical context store.
     CommitContextView {
         commit: Box<crate::db::context_store::OwnedViewCommit>,
         ack: oneshot::Sender<
@@ -950,7 +948,7 @@ pub(crate) enum PersistenceCommand {
             >,
         >,
     },
-    /// Execute an inspect deletion job (ADR-0279 §6).
+    /// Execute an inspect deletion job.
     ExecuteInspectDeletion {
         session_id: String,
         job_id: String,
@@ -962,7 +960,7 @@ pub(crate) enum PersistenceCommand {
             >,
         >,
     },
-    /// Collect a bounded garbage collection batch for artifacts/leases (ADR-0279 §5).
+    /// Collect a bounded garbage collection batch for artifacts/leases.
     CollectInspectGarbage {
         session_id: String,
         now_ms: u64,
@@ -976,12 +974,12 @@ pub(crate) enum PersistenceCommand {
         >,
     },
     /// Test-only: the writer acks and then exits its loop, simulating actor
-    /// death so the supervisor's respawn path is exercisable (ADR-0196 D6).
+    /// death so the supervisor's respawn path is exercisable (D6).
     #[cfg(test)]
     Die { ack: oneshot::Sender<()> },
     /// Test-only: apply a session commit and then exit the loop **without
     /// acknowledging** — simulating death after the commit but before its ack
-    /// (ADR-0236 D3 verification gate: an unknown outcome is resolved by
+    /// (D3 verification gate: an unknown outcome is resolved by
     /// operation identity, never assumed uncommitted).
     #[cfg(test)]
     SaveSessionThenDie {
@@ -992,7 +990,7 @@ pub(crate) enum PersistenceCommand {
     },
 }
 
-/// Run one engine call, catching handler panics (ADR-0196 D1).
+/// Run one engine call, catching handler panics (D1).
 fn guarded<T>(f: impl FnOnce() -> Result<T>) -> Result<T, PersistenceError> {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(res) => res.map_err(PersistenceError::Engine),
@@ -1001,7 +999,7 @@ fn guarded<T>(f: impl FnOnce() -> Result<T>) -> Result<T, PersistenceError> {
 }
 
 /// Run one session commit, catching handler panics and preserving the typed
-/// ADR-0236 D3 refusals (`StaleRevision` / `OperationConflict`) instead of
+/// D3 refusals (`StaleRevision` / `OperationConflict`) instead of
 /// flattening them into `Engine`.
 fn guarded_save<T>(
     f: impl FnOnce() -> std::result::Result<T, SaveError>,
@@ -1023,7 +1021,7 @@ fn panic_message(panic: &Box<dyn std::any::Any + Send>) -> String {
 }
 
 /// Asynchronous handle for interacting with the supervised single-writer
-/// persistence actor without blocking the Tokio runtime (ADR-0196).
+/// persistence actor without blocking the Tokio runtime.
 ///
 /// The front door and the health channel survive writer death: a respawned
 /// writer is reachable through the same handle, so no call site changes on
@@ -1037,7 +1035,7 @@ pub struct PersistenceHandle {
     startup_error: Option<Arc<str>>,
     readers: Arc<tokio::sync::Semaphore>,
     reader_ages: Arc<ReaderAges>,
-    /// Consecutive fresh-reader open failures (ADR-0231 reader wedge
+    /// Consecutive fresh-reader open failures (reader wedge
     /// detection). Reset on every successful open; crossing
     /// [`READER_REBUILD_FAILURE_THRESHOLD`] requests exactly one
     /// `RebuildEngine` until the next success clears the latch.
@@ -1045,17 +1043,17 @@ pub struct PersistenceHandle {
     rebuild_requested: Arc<std::sync::atomic::AtomicBool>,
 }
 
-/// Reader-pool capacity (ADR-0231: one lease per read session).
+/// Reader-pool capacity (one lease per read session).
 const READER_POOL_CAPACITY: usize = 16;
 
 /// Consecutive fresh-reader open failures tolerated before the handle asks
-/// the supervisor to rebuild the engine (ADR-0231 reader-wedge self-heal).
+/// the supervisor to rebuild the engine (reader-wedge self-heal).
 /// Three: low enough to heal within one user-visible interaction burst (the
 /// trust gate polls several reads per snapshot), high enough that a single
 /// transient open failure never tears down a healthy writer generation.
 const READER_REBUILD_FAILURE_THRESHOLD: usize = 3;
 
-/// Live reader registrations for the ADR-0236 D7 measurement contract: a
+/// Live reader registrations for the D7 measurement contract: a
 /// long-lived reader snapshot is what pins the WAL, so its age is the useful
 /// pressure signal. Keyed by a monotonic id so each `DbReader`'s drop guard
 /// removes exactly its own entry.
@@ -1110,7 +1108,7 @@ impl Drop for ReaderAgeGuard {
     }
 }
 
-/// A storage-observability snapshot (ADR-0236 D7 measurement contract):
+/// A storage-observability snapshot (D7 measurement contract):
 /// WAL growth and reader age are what decide whether checkpointing can make
 /// progress. Recorded without prompt contents or credentials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

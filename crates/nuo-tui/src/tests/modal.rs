@@ -501,13 +501,13 @@ async fn adopt_as_draft_replaces_stale_draft_and_is_restored() {
     assert_eq!(app.pending_images.len(), 1);
 }
 
-/// ADR-0110: dispatching a slash command must not arm the activity bar's
+/// Dispatching a slash command must not arm the activity bar's
 /// liveness surface. A command is a synchronous control-plane operation
 /// outside the round state machine — no `is_responding`, no optimistic
 /// `"queued"` label (which would also fabricate an `Esc Esc interrupt`
 /// affordance over a dispatch that cannot be interrupted), and no running-
 /// session bookkeeping. The pending command row is the command's in-flight
-/// feedback (ADR-0108); this locks the bar against ever lighting for it.
+/// feedback; this locks the bar against ever lighting for it.
 #[tokio::test]
 async fn slash_dispatch_never_arms_activity_state() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
@@ -541,7 +541,7 @@ async fn slash_dispatch_never_arms_activity_state() {
             .is_some_and(|message| message.is_command_result()
                 && message.command_result_phase()
                     == Some(crate::model::document::CommandPhase::Pending)),
-        "dispatch must push the pending command row (ADR-0108)"
+        "dispatch must push the pending command row"
     );
 }
 
@@ -563,7 +563,7 @@ fn toggle_queue_block_flips_state_and_blocks_dispatch() {
     assert_eq!(app.pending_count("session-a"), 2);
 
     // Toggle on (the local flag is the optimistic projection of the
-    // server's `QueuePaused` verb — ADR-0197 M4).
+    // server's `QueuePaused` verb — M4).
     app.set_queue_blocked("session-a", true);
     assert!(app.is_queue_blocked("session-a"));
 
@@ -879,7 +879,7 @@ fn picker_caret_owner_exists_only_in_search_mode() {
 fn overlay_caret_owner_is_arbitrated_by_the_layer_stack() {
     // Caret ownership is never declared statically by a surface type. It is
     // arbitrated once per frame by `App::caret_owner()` from the mounted layer
-    // stack (ADR-0205), so every state-dependent case — a picker that is only
+    // stack, so every state-dependent case — a picker that is only
     // editable while its search row is open, the Question sheet's "Other"
     // field, the HistorySearch panel that borrows the live composer line —
     // resolves through the same function instead of a per-surface copy. See
@@ -1447,11 +1447,11 @@ fn adopt_caret_head_and_tail_break_selection() {
 
 #[test]
 fn config_view_reopen_keeps_pane_and_category() {
-    // Settings is a full-screen scene (ADR-0141) whose fields persist
+    // Settings is a full-screen scene whose fields persist
     // natively on `App`: the enter ritual (pane reset + current-scheme
     // positioning) runs on every enter; a reopen keeps the category/pane
     // the user left. Esc's step-backs unwind the pane/dropdown *inside* the
-    // scene and stop there (ADR-0298 §2); leaving the scene is `close_scene`
+    // scene and stop there; leaving the scene is `close_scene`
     // (`C-x w`, or the scene's own `q`).
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.switch_scene(crate::surfaces::SceneKind::Settings);
@@ -1482,7 +1482,7 @@ fn config_view_reopen_keeps_pane_and_category() {
     );
 }
 
-/// ADR-0298 §2 / ADR-0205 `[INV-TUI-CLEAN-02]`: Esc is never a scene exit.
+/// `[INV-TUI-CLEAN-02]`: Esc is never a scene exit.
 /// Sweeps every scene and every Esc-reachable dispatch surface (the router's
 /// Esc arm, the shared close-modal handler, the `CancelOrBack` command, and the
 /// scene-local back verb) and asserts the current scene survives all of them.
@@ -1552,7 +1552,7 @@ fn close_scene_at_home_is_a_spent_gesture() {
 
 /// `C-x w` dismisses a foreground dialog before touching the scene —
 /// the overlay is the visual foreground, so one press spends itself on it and
-/// the scene survives (ADR-0298 §1). Regression: the chord used to treat any
+/// the scene survives. Regression: the chord used to treat any
 /// dialog as "the scene", so the second press could land on a demoted view.
 #[test]
 fn close_scene_spends_itself_on_a_foreground_dialog_first() {
@@ -1612,7 +1612,7 @@ fn config_view_navigation_and_theme_preview() {
     );
 
     // Leaving from Categories is the scene-exit verb — a dismiss on the bare
-    // scene is a spent gesture and never navigates (ADR-0298 §2).
+    // scene is a spent gesture and never navigates.
     assert!(
         !app.dismiss_surface(),
         "a dismiss has nothing to close on a bare scene"
@@ -2050,10 +2050,10 @@ fn pop_sublayer_pops_trace_turn_page_before_round_detail() {
 
 #[test]
 fn dashboard_reopen_keeps_selection_and_log() {
-    // The dashboard is a full-screen scene (ADR-0141) whose dock selection
+    // The dashboard is a full-screen scene whose dock selection
     // and cockpit log persist natively on `App` across hide. Leaving is the
     // scene-exit verb (`close_scene`) — a dismiss never navigates
-    // (ADR-0298 §2).
+
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.switch_scene(crate::surfaces::SceneKind::Dashboard);
     app.host_console_log

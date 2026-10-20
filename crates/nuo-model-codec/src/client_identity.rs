@@ -3,7 +3,6 @@
 //! Provides first-class client identity presets (e.g. OpenCode, Claude Code,
 //! Cursor, Antigravity, Copilot, ZCode) and customizable client profiles to ensure
 //! accurate wire protocol parity, client compatibility, and feature enablement.
-
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Default user agent this project sends to providers.
@@ -149,7 +148,7 @@ pub const ANTIGRAVITY_JETSKI_BRAND_NAME: &str = "Jetski CLI";
 ///
 /// This is the *standalone CLI* (`agy`) version, not an IDE build number: the
 /// Cloud Code inference backend admits requests only from the `antigravity/cli/`
-/// product brand. See ADR-0289, `ANTIGRAVITY_CLI_MIN_PRODUCT_VERSION`, and
+/// product brand. `ANTIGRAVITY_CLI_MIN_PRODUCT_VERSION`, and
 /// `docs/reference/openapi/antigravity.yml`.
 ///
 /// Live re-verification 2026-10-16 (`agy` 1.3.6 under inspection / upstream tracking):
@@ -166,7 +165,7 @@ pub const ANTIGRAVITY_VERSION: &str = "1.3.6";
 
 /// Lowest Antigravity CLI version the Cloud Code backend routes to inference.
 ///
-/// Empirically derived (ADR-0289): the backend returned HTTP `404 NOT_FOUND`
+/// Empirically derived: the backend returned HTTP `404 NOT_FOUND`
 /// for `antigravity/cli/<v>` below `1.2`. Live re-verification 2026-10-14:
 /// `antigravity/cli/1.2.0` is admitted (`200` across all verbs), so the floor
 /// holds; the legacy brand-less `antigravity/<version>` form was also observed
@@ -1105,7 +1104,7 @@ mod tests {
     /// brand; the pin **tracks the shipped client** so the profile sits at the
     /// top of the admission band (the realistic narrowing direction is the
     /// floor rising under an auto-updating wild client population, which kills
-    /// floor-hugging pins first — ADR-0289 and the 2026-10-14 differential
+    /// floor-hugging pins first — and the 2026-10-14 differential
     /// probe in `docs/reference/openapi/antigravity.yml` `x-admission-band`). This test
     /// freezes that wire identity so it cannot silently regress to the
     /// brand-less `antigravity/<version>` form or the retired `cl=0`

@@ -65,7 +65,7 @@ impl From<HazardLevel> for RiskProfile {
     }
 }
 
-/// Four-tier runtime hazard taxonomy for tool invocation and prompt-injection defense (ADR-0243).
+/// Four-tier runtime hazard taxonomy for tool invocation and prompt-injection defense.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HazardTier {

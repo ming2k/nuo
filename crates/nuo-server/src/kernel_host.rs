@@ -12,7 +12,6 @@
 //!
 //! Both are thin: they exist to keep the kernel's vocabulary free of the words
 //! `roles.toml`, `permissions.json`, and `.nuo`, not to add behaviour.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -58,7 +57,7 @@ impl ProjectPaths for ProductProjectPaths {
     }
 }
 
-/// The product's role-scoped dialogue memory (`role_memory.db`, ADR-0248).
+/// The product's role-scoped dialogue memory (`role_memory.db`).
 ///
 /// Opens the store lazily on first use and keeps the handle, which is what the
 /// process-global accessor did — the difference is that the kernel now receives
@@ -122,7 +121,7 @@ impl RoleMemory for ProductRoleMemory {
 /// The session store as the kernel's title sink.
 ///
 /// The adapter exists here, in the application plane, precisely because it is
-/// the one place both types are visible (ADR-0300 §1): the kernel names a title
+/// the one place both types are visible: the kernel names a title
 /// port, the store owns the session record, and this impl bridges them without
 /// either side learning about the other.
 pub struct SessionTitles {
@@ -153,19 +152,19 @@ impl TitleSink for SessionTitles {
         let session = Arc::clone(&self.session);
         Box::pin(async move {
             // `false` = not a manual title. A non-`NULL` title is terminal
-            // (ADR-0186), so the titler's re-read is what protects a human's
+            // so the titler's re-read is what protects a human's
             // choice rather than this flag.
             session.set_title(Some(title), false).await
         })
     }
 }
 
-/// The product's catalog maintenance (ADR-0273).
+/// The product's catalog maintenance.
 ///
 /// The engine sees the provider's `ModelCatalogEtag` and asks; the work —
 /// refresh the connection's models, re-derive the fitted-model overlay, prune
 /// favourites that no longer exist — is product policy over product stores, so
-/// it lives here rather than in the kernel (ADR-0300 §1).
+/// it lives here rather than in the kernel.
 pub struct ProductCatalogMaintenance;
 
 impl CatalogMaintenance for ProductCatalogMaintenance {

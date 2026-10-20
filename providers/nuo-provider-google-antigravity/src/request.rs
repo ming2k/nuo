@@ -16,7 +16,6 @@
 //!   `{contents: [{role, parts}], systemInstruction?: {parts:[{text}]}, tools?}`.
 //! - Roles are only `user` and `model` (assistant). Tool calls are assistant
 //!   `functionCall` parts; tool results are user `functionResponse` parts.
-
 use nuo_model_codec::{Message, Role};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -117,7 +116,7 @@ pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
 }
 
 /// Build the request body with the channel's resolved capabilities, projecting
-/// image parts for this route (ADR-0230). The provider calls this; [`body`]
+/// image parts for this route. The provider calls this; [`body`]
 /// remains the entry point for standalone callers and tests that have no
 /// channel view. `model` is the wire id, used only to label the projection's
 /// diagnostic log.
@@ -998,7 +997,7 @@ mod tests {
     #[test]
     fn declared_text_only_route_projects_inline_data_away() {
         // Google's `inline_data` used to be emitted unconditionally, so a route
-        // without image input failed the whole turn (ADR-0230).
+        // without image input failed the whole turn.
         let body = body_with_capabilities(
             "gemini-test",
             vec![image_message("look")],

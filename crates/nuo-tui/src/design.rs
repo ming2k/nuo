@@ -1,6 +1,5 @@
 //! Non-color design tokens: spacing, gutters, fixed row counts, and text
 //! measurement limits shared by renderer components.
-
 /// Uniform horizontal inset applied to transcript-area components so bands,
 /// bars, and text do not touch the terminal frame.
 pub(crate) const TRANSCRIPT_H_INSET: u16 = 2;
@@ -11,7 +10,7 @@ pub(crate) const TRANSCRIPT_H_INSET: u16 = 2;
 /// inset rect.
 pub(crate) const TRANSCRIPT_BODY_LEADING_INDENT: u16 = 2;
 
-// Command card (ADR-0109)
+// Command card
 // A command row is a *card*, not flat prose: it paints a full-width band
 // (`Theme::command_surface`) with a thick `┃` identity bar in the family
 // tone — the same card grammar the user-message panel, the code band, and

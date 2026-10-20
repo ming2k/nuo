@@ -10,7 +10,6 @@
 //! Entries are persisted to a single global file (`history.json`) and merged
 //! across concurrent processes (ADR-0018's union-on-write strategy), so the
 //! history is the union of every session the user has ever run.
-
 use serde::{Deserialize, Serialize};
 
 /// A single recorded user input, tagged with the session and workspace it
@@ -172,7 +171,7 @@ pub fn merge_history(
     merged
 }
 
-/// One full-text search hit across persisted session transcripts (ADR-0208).
+/// One full-text search hit across persisted session transcripts.
 ///
 /// Produced by the server's FTS5 query over `fts_entries` — the wire-facing
 /// mirror of the persistence layer's raw result, enriched with the session
@@ -185,7 +184,7 @@ pub struct HistorySearchHit {
     pub entry_id: String,
     /// The session the entry belongs to — the dashboard's jump/attach anchor.
     pub session_id: String,
-    /// Project root of the owning session (addressing metadata, ADR-0093).
+    /// Project root of the owning session (addressing metadata).
     pub workspace: String,
     /// Stored AI/manual title of the owning session, when one exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]

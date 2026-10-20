@@ -1,4 +1,4 @@
-//! AI-initiated interaction sheets (ADR-0173 §3): the inline surfaces that
+//! AI-initiated interaction sheets: the inline surfaces that
 //! replace the composer slot when the agent needs a decision from the user.
 //!
 //! A sheet is *not* a modal and *not* a surface: it never floats above the
@@ -11,7 +11,6 @@
 //! never sees it. The initiator taxonomy is the boundary: AI → user
 //! interaction requests are sheets; user-invoked tools are modals;
 //! user-invoked spaces are full-screen views.
-
 /// Keyboard claims for action surfaces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Claims {
@@ -24,7 +23,7 @@ pub struct Claims {
     pub transcript_nav: bool,
 }
 
-/// The sheet handlers' own sub-state (ADR-0197 M2): which sheet row/sub-view
+/// The sheet handlers' own sub-state (M2): which sheet row/sub-view
 /// is live and whether the transcript navigation facts pass through. Built
 /// once per event by the caller; every read below is sheet-local.
 #[derive(Debug, Default, Clone)]
@@ -64,7 +63,7 @@ impl SheetKind {
     /// Every sheet kind, for exhaustive policy assertions.
     pub const ALL: [SheetKind; 3] = [Permission, Question, InputInjection];
 
-    /// The keyboard-ownership declaration for this sheet (ADR-0173 §2).
+    /// The keyboard-ownership declaration for this sheet.
     ///
     /// The permission sheet is the one deliberate pass-through surface: it
     /// owns only its decision keys, and transcript navigation/scrolling fall
@@ -106,7 +105,7 @@ impl SheetKind {
     }
 }
 
-/// The sheets' self-owned key schemes (ADR-0173 §3): a key the sheet owns
+/// The sheets' self-owned key schemes: a key the sheet owns
 /// resolves here; everything else falls through to the shared affordance
 /// library and the sheet arms of the input router.
 ///
@@ -144,7 +143,7 @@ pub(crate) fn resolve_sheet_key(
             KeyCode::Tab if !ctrl_alt_super => Some(InputAction::PermissionNextOption),
             KeyCode::BackTab => Some(InputAction::PermissionPrevOption),
             // Decision + navigation family moved from the router's fallback
-            // arms (ADR-0173 §3): Enter commits the pending decision (Alt+
+            // arms: Enter commits the pending decision (Alt+
             // Enter stays the shared multi-line newline chord), and ↑/↓ act
             // on the focused step first, then the details body, then fall
             // back to transcript scrolling — the permission sheet is the one
@@ -193,7 +192,7 @@ pub(crate) fn resolve_sheet_key(
                 }
             }
             // Decision + navigation family moved from the router's fallback
-            // arms (ADR-0173 §3): Enter commits, ↑/↓ walk the option cursor,
+            // arms: Enter commits, ↑/↓ walk the option cursor,
             // Backspace edits the "Other" field, and Ctrl+V routes the paste
             // into that field's own buffer.
             KeyCode::Enter if !key.modifiers.contains(crossterm::event::KeyModifiers::ALT) => {

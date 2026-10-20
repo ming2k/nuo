@@ -31,10 +31,10 @@ pub struct HostParams {
     pub ui: Arc<dyn UiBridge>,
 }
 pub struct HostedSession {
-    /// The workspace root, when one is bound (ADR-0220: a workspace-free
+    /// The workspace root, when one is bound (a workspace-free
     /// persona has none).
     pub workspace_root: Option<PathBuf>,
-    /// ADR-0141: channel accounting shared with the assembled agent.
+    /// Channel accounting shared with the assembled agent.
     pub human_channel: Arc<nuo_wire::human_request::HumanChannelAccountant>,
     pub session: Arc<SessionStore>,
     pub req_tx: mpsc::Sender<AgentRequest>,
@@ -42,7 +42,7 @@ pub struct HostedSession {
     pub cancel: CancellationToken,
     pub shared_confinement: nuo_wire::SharedConfinement,
     /// The panel-facing tracker folding this session's event stream
-    /// (ADR-0093). Owned here so the broadcast-tap task can fold events in
+    /// Owned here so the broadcast-tap task can fold events in
     /// and the registry can read rows out for snapshots.
     pub tracker: Arc<Mutex<MonitorTracker>>,
     /// Durable workspace trust store for the project at
@@ -96,7 +96,7 @@ pub struct HostedSession {
 #[derive(Clone)]
 pub struct BoundSession {
     pub workspace_root: Option<std::path::PathBuf>,
-    /// ADR-0141: the human-channel accountant for this hosted session.
+    /// The human-channel accountant for this hosted session.
     /// The WS attach layer ORs each client's declared posture in (attach /
     /// detach); the assembled agent's posture gate reads the effective
     /// value before parking any human request.
@@ -163,7 +163,7 @@ pub enum ResolveOutcome {
     Error(String),
 }
 
-/// The host-level observability topic (ADR-0093): one broadcast channel
+/// The host-level observability topic: one broadcast channel
 /// carrying [`MonitorEvent`] diffs for every hosted session. The registry is
 /// the only publisher; any number of monitor clients subscribe. A fresh
 /// subscriber is expected to first take a [`SessionRegistry::monitor_snapshot`]
@@ -184,13 +184,13 @@ pub struct SessionRegistry {
     sessions: Arc<Mutex<HashMap<String, Arc<HostedSession>>>>,
     monitor: MonitorBus,
     meta: Arc<Mutex<MonitorMeta>>,
-    /// Server-level task fabric (ADR-0190 D6): rehosted services and other
+    /// Server-level task fabric (D6): rehosted services and other
     /// owner-less tasks live here, published onto the monitor bus as
     /// `TaskUpdated`/`TaskRemoved` diffs and folded into monitor snapshots.
     server_tasks: Arc<crate::background_jobs::BackgroundJobManager>,
     /// The live server-task rows folded for snapshots (id → row).
     server_task_rows: Arc<std::sync::Mutex<HashMap<String, nuo_wire::MonitoredTask>>>,
-    /// Latest durability-health state (ADR-0196 D4): folded from the
+    /// Latest durability-health state (D4): folded from the
     /// persistence supervisor's transitions for monitor snapshots and
     /// published as `PersistenceHealth` diffs. `None` = never degraded.
     persistence_health: Arc<std::sync::Mutex<Option<nuo_wire::monitor::PersistenceHealth>>>,
@@ -202,11 +202,11 @@ pub struct SessionRegistry {
     /// any session hydrate the current global ordering instead of the stale
     /// one captured at that session's last local switch.
     latest_picker: Arc<Mutex<Option<AgentResponse>>>,
-    /// Authoritative runtime configuration shared across all hosted sessions (ADR-0209).
+    /// Authoritative runtime configuration shared across all hosted sessions.
     shared_config: crate::SharedConfig,
-    /// Authoritative model recency telemetry shared across all hosted sessions (ADR-0209).
+    /// Authoritative model recency telemetry shared across all hosted sessions.
     shared_provider_usage: crate::SharedConnectionUsage,
-    /// The server's Archivist conversational service (ADR-0208): lazily
+    /// The server's Archivist conversational service: lazily
     /// consulted by the `AskArchivist` control verb; one agent, borrowed
     /// provider per round.
     archivist: Arc<crate::archivist_service::ArchivistService>,
@@ -237,7 +237,7 @@ const STORAGE_MAINTENANCE_INTERVAL: std::time::Duration =
 /// sessions bounded without meaningfully waking the server.
 const IDLE_REAPER_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// Per-session budget for `SessionEnd` hooks during teardown (ADR-0101).
+/// Per-session budget for `SessionEnd` hooks during teardown.
 /// A user hook runs an external process; a hung one must not pin the server
 /// (this bound applies to single-session kills; server shutdown sizes the
 /// same budget against its remaining grace).
@@ -287,7 +287,7 @@ impl SessionRegistry {
         }
     }
 
-    /// The server-level task fabric (ADR-0190 D6). Rehosted services and
+    /// The server-level task fabric (D6). Rehosted services and
     /// other owner-less tasks spawn here; every lifecycle event is folded
     /// into the snapshot cache and published as a monitor diff.
     pub fn server_tasks(&self) -> Arc<crate::background_jobs::BackgroundJobManager> {
@@ -328,7 +328,7 @@ impl SessionRegistry {
         self.server_tasks.kill_job(&nuo_wire::JobId::from(task_id))
     }
 
-    /// Subscribe the durability-health tap (ADR-0196 D4): the persistence
+    /// Subscribe the durability-health tap (D4): the persistence
     /// supervisor's transitions are folded into the snapshot cache and
     /// published as `MonitorEvent::PersistenceHealth` diffs, so every
     /// frontend (and `nuo status`) sees degradation, not just the log.
@@ -375,7 +375,7 @@ impl SessionRegistry {
         self.latest_picker.lock().await.clone()
     }
 
-    /// Ask the Archivist (ADR-0208) one question, synchronously. The round
+    /// Ask the Archivist one question, synchronously. The round
     /// borrows the live provider of any hosted session's agent (all sessions
     /// resolve the same shared channel after a switch); with no hosted
     /// session the round runs on the last-bound channel or refuses via the
@@ -583,7 +583,7 @@ impl SessionRegistry {
         };
     }
     /// Resolve an attach. `caller_project` scopes creation and lazy resume
-    /// (ADR-0096): `New` / `Attach(None)` create in the caller's project;
+    /// `New` / `Attach(None)` create in the caller's project;
     /// `Attach(Some(id))` first looks up every hosted session globally, then
     /// lazy-resumes from the caller's project on disk.
     pub async fn resolve(
@@ -618,7 +618,7 @@ impl SessionRegistry {
             }
             AttachAction::Attach(None) => self.resolve_auto(caller_project, declared).await,
             AttachAction::Attach(Some(id)) => self.resolve_id(&id, caller_project).await,
-            // The picker carrier (ADR-0116): a throwaway session whose only
+            // The picker carrier: a throwaway session whose only
             // job is to host the client's picker modal. The bootstrap skips
             // restore and hooks for it; `/sessions <id>` switches to the
             // real session through the ordinary re-attach path.
@@ -681,7 +681,7 @@ impl SessionRegistry {
         }
     }
 
-    /// Control plane (ADR-0096): create a session for `project` and return
+    /// Control plane: create a session for `project` and return
     /// its id. The session is server-held; no client is attached yet.
     pub async fn create_session(&self, project: PathBuf) -> Result<String, String> {
         self.create_session_with_options(project, nuo_client::wire::SessionInitOptions::default())
@@ -730,7 +730,7 @@ impl SessionRegistry {
             }
         }
     }
-    /// Control plane (ADR-0096): send an interrupt to a hosted session.
+    /// Control plane: send an interrupt to a hosted session.
     pub async fn interrupt(&self, session_id: &str) -> Result<(), String> {
         let map = self.sessions.lock().await;
         let Some(e) = map.get(session_id) else {
@@ -742,7 +742,7 @@ impl SessionRegistry {
         Ok(())
     }
 
-    /// Control plane (ADR-0096): answer a pending permission request.
+    /// Control plane: answer a pending permission request.
     pub async fn resolve_permission(
         &self,
         session_id: &str,
@@ -766,7 +766,7 @@ impl SessionRegistry {
         Ok(())
     }
 
-    /// Control plane (ADR-0096): send a prompt to a hosted session as a new
+    /// Control plane: send a prompt to a hosted session as a new
     /// round (how a panel or web UI "starts a task" on an existing session).
     pub async fn send_prompt(&self, session_id: &str, text: String) -> Result<(), String> {
         let map = self.sessions.lock().await;
@@ -786,7 +786,7 @@ impl SessionRegistry {
         Ok(())
     }
 
-    /// Control plane (ADR-0096): tear down a hosted session — cancel its
+    /// Control plane: tear down a hosted session — cancel its
     /// driver, fire its SessionEnd hooks (a killed session is a
     /// session that ended), drop it from the registry, and tell monitors it
     /// is gone.
@@ -1000,7 +1000,7 @@ impl SessionRegistry {
     }
 
     /// [`Self::kill_session`] with an explicit hook budget, so server
-    /// shutdown can size it against its own remaining grace (ADR-0101).
+    /// shutdown can size it against its own remaining grace.
     pub async fn kill_session_with_hook_budget(
         &self,
         session_id: &str,
@@ -1008,7 +1008,7 @@ impl SessionRegistry {
     ) -> Result<(), String> {
         let removed = self.sessions.lock().await.remove(session_id);
         self.drop_session_mailbox(session_id).await;
-        // ADR-0234: a closed session's retained results are dropped with it —
+        // A closed session's retained results are dropped with it —
         // no cross-session delivery, and a closed session is not revived to
         // receive one. Server-level jobs (`owner_session: None`) are untouched.
         let dropped = self.server_tasks.discard_pending_for_session(session_id);
@@ -1078,11 +1078,10 @@ impl SessionRegistry {
         }
     }
 
-    /// Graceful server shutdown (ADR-0096): tear down every hosted session
+    /// Graceful server shutdown: tear down every hosted session
     /// via [`Self::kill_session_with_hook_budget`], so each one's SessionEnd
     /// hooks fire before the process exits. `host::run` calls
     /// this after the listeners stop accepting and the connections drain
-    /// (ADR-0101).
     ///
     /// Sessions are torn down **concurrently** and each hook is bounded by
     /// `hook_budget` individually: N sessions cost max(hook) — not the sum —
@@ -1224,7 +1223,7 @@ impl SessionRegistry {
     /// over-age usage day files. Both phases are synchronous directory scans
     /// proportional to the data dir's size, so the work runs on the blocking
     /// pool. Blob liveness is decided by the durable `blob_refs` ledger
-    /// (ADR-0187), not by a filesystem scan.
+    /// not by a filesystem scan.
     pub fn spawn_storage_maintenance(self: &Arc<Self>) {
         let dirs = nuo_persistence::paths::get();
         let blobs = nuo_persistence::blobs::BlobStore::new(dirs.blobs_dir());
@@ -1232,7 +1231,7 @@ impl SessionRegistry {
         tokio::task::spawn_blocking(move || {
             let handle = nuo_persistence::db::get_persistence_handle();
             // The blob sweep is a filesystem pass, so it runs here against a
-            // reader snapshot instead of holding up the writer (ADR-0231);
+            // reader snapshot instead of holding up the writer;
             // the entry DELETE is a real mutation and goes through the actor.
             let (count, bytes) = match handle.reader().and_then(|r| r.live_blob_hashes()) {
                 Ok(live) => blobs.retain_only(&live),
@@ -1350,7 +1349,7 @@ impl SessionRegistry {
         }
         // Lazy resume resolves the session's own durable binding (scope +
         // workspace) so an unbound session is reachable from any caller
-        // (ADR-0219/0220), not only the caller's workspace.
+        // (0220), not only the caller's workspace.
         let Some(binding) = lookup_session_workspace(id) else {
             return ResolveOutcome::Error(format!("unknown session id '{id}'"));
         };
@@ -1383,7 +1382,7 @@ impl SessionRegistry {
             preset,
             ui,
         } = self.params.as_ref().ok_or(AssembleErr::NoHost)?.clone();
-        // ADR-0220/0226: a persona overrides the server's fixed identity and
+        // 0226: a persona overrides the server's fixed identity and
         // preset. An explicit selection (`init_options.persona`) also applies
         // the persona's workspace policy; a resume uses the stored workspace
         // binding unchanged. `workspace = None` is the unbound set.
@@ -1393,7 +1392,7 @@ impl SessionRegistry {
         let role_selected = init_options.role.clone();
         let role_id = role_selected.clone().or(binding.role);
 
-        // `--resume` (ADR-0250): pick the most recent matching session instead
+        // `--resume`: pick the most recent matching session instead
         // of a fresh one, partitioned truthfully by Workspace or Role.
         let mut startup = startup;
         if init_options.resume && matches!(startup, crate::startup::SessionStart::Fresh) {
@@ -1404,7 +1403,7 @@ impl SessionRegistry {
             }
         }
 
-        // Hermetic session manifest restoration (ADR-0245):
+        // Hermetic session manifest restoration:
         // If resuming an existing session, restore directly from its immutable birth manifest.
         // This guarantees 100% byte-identical prompt cache and zero crash if external roles.toml was modified/deleted.
         let resumed_session_id = match &startup {
@@ -1474,13 +1473,13 @@ impl SessionRegistry {
             } else {
                 init_options.confined
             };
-        // The session's lifetime token (ADR-0125): shared by the driver
+        // The session's lifetime token: shared by the driver
         // select below and the background `/schedule` scheduler inside the
         // assemble, so one cancel stops the harness *and* its tick loop.
         // Created before the assemble because the scheduler is spawned
         // during it and receives the token as a spawn parameter.
         let cancel = CancellationToken::new();
-        // ADR-0141: per-session channel accounting — attach/detach on the
+        // Per-session channel accounting — attach/detach on the
         // WS layer keeps this fresh; the agent reads it live.
         let human_channel = Arc::new(nuo_wire::human_request::HumanChannelAccountant::new());
         let boot = bootstrap::assemble(BootstrapParams {
@@ -1500,7 +1499,7 @@ impl SessionRegistry {
         .await
         .map_err(AssembleErr::AssembleFailed)?;
         let session = boot.session.clone();
-        // ADR-0167 mesh registration: the session's master joins the server
+        // Mesh registration: the session's master joins the server
         // mesh at `session/<id>`, parented to the Hypervisor. Failure is not
         // session-fatal (mesh delivery is fail-open observability), so a
         // duplicate registration simply replaces the mailbox.
@@ -1537,7 +1536,7 @@ impl SessionRegistry {
         let tap = events_tx.clone();
         let mut rr = boot.resp_rx;
 
-        // Monitor wiring (ADR-0093): seed the tracker from the session header,
+        // Monitor wiring: seed the tracker from the session header,
         // then fold every broadcast response into the row and publish diffs.
         // A lazily-resumed session whose round was cut off mid-flight will
         // re-drive from the first `TurnStarted` the driver emits, so the
@@ -1733,7 +1732,7 @@ impl SessionRegistry {
         false
     }
 
-    /// Subscribe to the host-level monitor topic (ADR-0093 §4).
+    /// Subscribe to the host-level monitor topic.
     pub fn subscribe_monitor(&self) -> broadcast::Receiver<MonitorEvent> {
         self.monitor.subscribe()
     }
@@ -1772,13 +1771,13 @@ impl SessionRegistry {
 
     /// Publish a host-level diff. Best-effort: with no subscribers the
     /// broadcast send fails, which is fine — a fresh subscriber always takes
-    /// a snapshot first (ADR-0093 §4).
+    /// a snapshot first.
     async fn publish(&self, event: MonitorEvent) {
         let _ = self.monitor.send(event);
     }
 
     /// Publish a host-level (server-scope) event on the monitor bus
-    /// (ADR-0101): the run loop announces `ServerDraining` when the graceful
+    /// the run loop announces `ServerDraining` when the graceful
     /// drain begins so every watch client learns the server is going away
     /// before its connection closes. Public and synchronous because the bus
     /// is a broadcast sender — sending never blocks on subscribers.
@@ -1852,7 +1851,7 @@ fn base_row(
         project_root: workspace_root
             .map(|root| root.display().to_string())
             .unwrap_or_else(|| "workspace-free".to_string()),
-        // Lineage rides from the overview (ADR-0103 fork surfacing).
+        // Lineage rides from the overview (fork surfacing).
         parent_id: overview.parent_id,
         fork_kind: overview.fork_kind,
         digest: overview.digest,
@@ -1905,7 +1904,7 @@ fn lookup_latest_session_in_partition(partition: &nuo_wire::SessionPartition) ->
 }
 
 /// Resolve a session's durable binding (scope + workspace) by exact id,
-/// independent of the caller's workspace (ADR-0219/0220).
+/// independent of the caller's workspace (0220).
 fn lookup_session_workspace(id: &str) -> Option<SessionBinding> {
     let (workspace, role) = nuo_persistence::db::get_persistence_handle()
         .reader()

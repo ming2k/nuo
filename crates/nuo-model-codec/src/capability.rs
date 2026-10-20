@@ -1,7 +1,6 @@
 //! Foundational capability traits: how the harness talks to a model
 //! ([`Provider`]) and to tools ([`Tool`]), the stream events a provider emits
 //! ([`ProviderStreamEvent`]).
-
 use crate::endpoint::TransportTelemetry;
 use crate::message::Message;
 use crate::usage::TokenUsage;
@@ -124,7 +123,7 @@ impl ToolSpec {
 pub struct ModelRequest {
     #[serde(skip)]
     pub turn_context: Arc<ProviderTurnContext>,
-    /// The telemetry handle of the attempt issuing this request (ADR-0232).
+    /// The telemetry handle of the attempt issuing this request.
     ///
     /// Created by the attempt's owner immediately before dispatch and filled by
     /// the transport that executes it. Runtime-only, like [`Self::turn_context`]:
@@ -140,7 +139,7 @@ pub struct ModelRequest {
     #[serde(default, skip_serializing_if = "crate::InstructionBundle::is_empty")]
     pub instructions: crate::InstructionBundle,
     pub messages: Vec<Message>,
-    /// Request-local temporary context (`E_n`, ADR-0213/ADR-0217): optional,
+    /// Request-local temporary context (`E_n`): optional,
     /// bounded, and never persisted to the durable interaction record. Provider
     /// adapters append it at the tail of the wire message sequence; it is
     /// deliberately excluded from the request envelope's revisions and from the
@@ -355,7 +354,7 @@ impl ModelRequest {
 
     /// Derive the provider-neutral cache plan: the identity of the cacheable
     /// prefix `S | H | I` plus message counts separated from `E`. See
-    /// [`crate::CachePlan`] and ADR-0217.
+    /// [`crate::CachePlan`] and.
     pub fn cache_plan(&self) -> crate::CachePlan {
         crate::CachePlan::new(
             crate::request_prefix_fingerprint(&self.instructions, &self.messages, &self.tool_specs),

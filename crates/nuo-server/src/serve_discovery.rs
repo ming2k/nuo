@@ -13,7 +13,6 @@
 //! The pre-`server.json` per-project layout (`serve/<bucket>.json`) is dead:
 //! current clients discover through `server.json` only, so nothing here
 //! resolves a per-project path any more.
-
 use std::path::{Path, PathBuf};
 
 use nuo_persistence::paths;
@@ -30,16 +29,16 @@ pub struct Discovery {
     /// The bound TCP port the WebSocket listener serves.
     pub port: u16,
     /// The bearer token clients must present, when auth is active
-    /// (`--public`, or loopback with `[server] local_auth` — ADR-0105);
+    /// (`--public`, or loopback with `[server] local_auth`);
     /// `null` for an unauthenticated loopback listener.
     pub token: Option<String>,
     /// The project root the host serves. Empty for the unified server
-    /// (ADR-0096), which is project-agnostic; retained for the legacy
+    /// which is project-agnostic; retained for the legacy
     /// per-project records.
     pub project_root: String,
     /// Unix seconds at startup.
     pub started_at: u64,
-    /// Unix domain socket the control plane also listens on (ADR-0096).
+    /// Unix domain socket the control plane also listens on.
     /// `None` for legacy records and when UDS is disabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uds_path: Option<PathBuf>,
@@ -47,7 +46,7 @@ pub struct Discovery {
     /// reading discovery records written before v0.30.2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_endpoint: Option<nuo_host::ipc::LocalEndpoint>,
-    /// The server build's `CARGO_PKG_VERSION` (ADR-0100 rule 4): a client
+    /// The server build's `CARGO_PKG_VERSION` (rule 4): a client
     /// that reads a record whose version differs from its own refuses with
     /// an actionable both-versions message instead of speaking a wire
     /// protocol it may not share. `None` on records predating the field —
@@ -55,7 +54,7 @@ pub struct Discovery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     /// The server's configured graceful-drain budget, **seconds**
-    /// (ADR-0116). `nuo stop` reads this so its escalation
+    /// `nuo stop` reads this so its escalation
     /// tiers wait *the server's own budget* before SIGTERM/SIGKILL: a
     /// signal arriving mid-drain escalates the server to a forced exit,
     /// so a client that escalates early destroys the graceful drain it
@@ -63,7 +62,7 @@ pub struct Discovery {
     /// fall back to a conservative default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grace_secs: Option<u64>,
-    /// The wire protocol number this server speaks (ADR-0134). Lets a
+    /// The wire protocol number this server speaks. Lets a
     /// local client refuse a server outside its window *before* the
     /// handshake, the same way `version` above always has. `None` on
     /// records predating the field — the client then falls back to the
@@ -95,21 +94,21 @@ impl Discovery {
     }
 }
 
-/// The global discovery path for the unified server (ADR-0096): one record
-/// per user, in the instance dir (ADR-0121: `NUO_HOME`, else
+/// The global discovery path for the unified server: one record
+/// per user, in the instance dir (`NUO_HOME`, else
 /// `$XDG_RUNTIME_DIR`, else the native data/state fallback).
 pub fn global_discovery_path() -> PathBuf {
     paths::get().instance_dir().join("server.json")
 }
 
-/// The resolved server instance directory (ADR-0121). Exposed for
+/// The resolved server instance directory. Exposed for
 /// diagnostics so a report can name *which* instance — host or sandbox —
 /// it probed before listing paths inside it.
 pub fn instance_dir() -> PathBuf {
     paths::get().instance_dir()
 }
 
-/// The default UDS path the server binds (ADR-0096), inside the instance dir.
+/// The default UDS path the server binds, inside the instance dir.
 #[cfg(unix)]
 pub fn default_uds_path() -> PathBuf {
     paths::get().instance_dir().join("server.sock")
@@ -123,7 +122,7 @@ pub fn default_local_endpoint() -> Result<nuo_host::ipc::LocalEndpoint, String> 
         .map_err(|error| format!("could not resolve local server endpoint: {error}"))
 }
 
-/// The server's single-instance lock path (ADR-0101): a companion
+/// The server's single-instance lock path: a companion
 /// `server.lock` next to the global discovery record. The server holds a
 /// `flock` on it for its whole lifetime; a second server (spawned while the
 /// first drains) blocks on it for a bounded wait instead of unlinking a live
@@ -270,7 +269,7 @@ pub fn read_at(path: &Path) -> Option<Discovery> {
     serde_json::from_slice(&bytes).ok()
 }
 
-/// Write the unified server's global discovery record (ADR-0096). Atomic.
+/// Write the unified server's global discovery record. Atomic.
 pub fn write_global(record: &Discovery) -> Result<PathBuf, String> {
     let path = global_discovery_path();
     write_to(&path, record)?;

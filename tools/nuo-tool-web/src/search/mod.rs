@@ -12,7 +12,6 @@
 //! agents. Be aware that with the default, search queries are sent to a
 //! third-party service; set a different `provider` (e.g. self-hosted
 //! `searxng`) in `config.toml` if that matters.
-
 use async_trait::async_trait;
 use nuo_wire::{WebRuntimeConfig, WebSearchProvider};
 
@@ -39,7 +38,7 @@ pub struct SearchResult {
 /// The tool layer owns the token budget for both shapes: structured results
 /// are formatted entry-by-entry with titles+URLs never truncated (they are the
 /// model's candidate list), and blobs go through the same token cap. This is
-/// the ADR-0118 known-limitation fix: providers no longer pre-format.
+/// the known-limitation fix: providers no longer pre-format.
 pub enum ProviderOutput {
     /// Parsed, structured hits — preferred: the tool layer can dedupe URLs,
     /// cap per-domain counts, and budget each entry individually.
@@ -276,12 +275,12 @@ pub(crate) fn budget_web_hits(
     (out, truncated)
 }
 
-/// Token budget for one `websearch` result (ADR-0120). Shared by the structured
+/// Token budget for one `websearch` result. Shared by the structured
 /// renderer and the blob pass-through.
 pub(super) const MAX_RESULT_TOKENS: usize = 4_000;
 
 /// Guard the model's context window against huge provider payloads.
-/// Token-bounded (ADR-0120): the cut lands on an exact token boundary and the
+/// Token-bounded: the cut lands on an exact token boundary and the
 /// notice reports the context cost in the model's own unit.
 #[allow(dead_code)]
 pub(super) fn cap_output(text: &str) -> String {

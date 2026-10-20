@@ -1,13 +1,12 @@
-//! Budget arithmetic for request admission (ADR-0277 §1–§3, `INV-ADMIT-02/04`).
+//! Budget arithmetic for request admission (`INV-ADMIT-02/04`).
 //!
 //! Shared windows reserve total output once; independently declared input
 //! limits do not subtract output. Model contracts carry accounting provenance. Every watermark
 //! is a fraction of `I`, not of `W`, so a rename cannot silently change
-//! behavior (ADR-0280 §3).
+//! behavior.
 //!
 //! All arithmetic is integer and deterministic (`INV-ADMIT-03`): no floating
 //! point, so the same inputs always produce the same thresholds.
-
 use std::fmt;
 
 /// The model's total context window `W`, in tokens.
@@ -134,7 +133,7 @@ impl ModelBudgetContract {
     }
 }
 
-/// The framing/media/safety reserve `F` (ADR-0277 §1).
+/// The framing/media/safety reserve `F`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
 pub struct FramingReserve {
@@ -170,7 +169,7 @@ pub struct BudgetComponent {
     pub tokens: u64,
 }
 
-/// Why admission failed (ADR-0277 §2, `INV-ADMIT-04`).
+/// Why admission failed (`INV-ADMIT-04`).
 ///
 /// The planner never resolves these by silently deleting mandatory blocks; the
 /// caller chooses a larger window or narrows the input.
@@ -297,7 +296,7 @@ impl Budget {
     }
 }
 
-/// Soft/hard/target watermarks as basis points of `I` (ADR-0277 §3, ADR-0280).
+/// Soft/hard/target watermarks as basis points of `I`.
 ///
 /// Hysteresis: below `soft` no reclamation runs; between `soft` and `hard`
 /// lightweight degradation runs; at or above `hard` strong reclamation
@@ -315,7 +314,7 @@ pub struct WatermarkPolicy {
 }
 
 impl WatermarkPolicy {
-    /// The ADR-0280 initial default: 0.65 / 0.85 / 0.50.
+    /// The initial default: 0.65 / 0.85 / 0.50.
     pub const DEFAULT: Self = Self {
         soft_bp: 6500,
         hard_bp: 8500,
@@ -353,7 +352,7 @@ impl WatermarkPolicy {
     }
 }
 
-/// Per-item ceilings derived from `I` (ADR-0280 §2).
+/// Per-item ceilings derived from `I`.
 impl Budget {
     /// Observation preview ceiling: `min(2048, floor(0.05 * I))`, per item.
     pub const fn observation_preview_tokens(&self) -> u64 {
@@ -376,11 +375,11 @@ impl Budget {
     }
 }
 
-/// Finite-planning bound (ADR-0277 §3, `INV-ADMIT-04`): a pass that makes no
+/// Finite-planning bound (`INV-ADMIT-04`): a pass that makes no
 /// progress after this many iterations returns a typed error.
 pub const PLANNING_MAX_ITERATIONS: u32 = 8;
 
-/// Bounded compare-and-swap retries for a view commit (ADR-0278 §4,
+/// Bounded compare-and-swap retries for a view commit (
 /// `INV-CKPT-04`).
 pub const CAS_MAX_ATTEMPTS: u32 = 3;
 

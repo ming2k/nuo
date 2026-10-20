@@ -1,4 +1,4 @@
-//! The PreAttach trust gate's decision lifecycle (ADR-0175).
+//! The PreAttach trust gate's decision lifecycle.
 //!
 //! The reported failure mode this pins: the user confirms with Enter, the
 //! grant is dispatched, and the gate silently loops — because the server

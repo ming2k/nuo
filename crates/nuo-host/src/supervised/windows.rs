@@ -1,7 +1,6 @@
 //! Windows supervised input examiner.
 //!
-//! Implements ADR-0295: Win32 Job Object accounting and quiescence telemetry.
-
+//! Implements: Win32 Job Object accounting and quiescence telemetry.
 use super::InputWait;
 use crate::process::OwnedProcessTree;
 

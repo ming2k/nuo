@@ -8,7 +8,7 @@ use super::*;
 
 /// The transcript content rect must be recorded after rendering so that
 /// clicks on blank transcript space (gap rows, space below the last message,
-/// the outer gutters) park keyboard attention on the transcript (ADR-0174
+/// the outer gutters) park keyboard attention on the transcript (
 /// browse focus). It must span the **full transcript viewport** — the user's
 /// mental model is that the whole transcript area is the browse surface, so
 /// no part of it is a dead click.

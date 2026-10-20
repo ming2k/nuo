@@ -10,7 +10,7 @@
 //! This mirrors [`ClientProfileSpec`](crate::ClientProfileSpec) exactly: a
 //! struct of `&'static` scalars and `&'static [(&str, _)]` tables, with small
 //! enums where a *kind* must be distinguished. The executor reads the table; it
-//! never branches on a provider name. That is the ADR-0260 invariant — the
+//! never branches on a provider name. That is the invariant — the
 //! derivation and request paths contain no provider-name or dialect branches.
 //!
 //! ## Why the surface is data and not code
@@ -23,12 +23,11 @@
 //!
 //! ## Identity slots vs. value remapping
 //!
-//! ADR-0131 forbids *remapping* a model id (the value sent upstream is always
+//! Forbids *remapping* a model id (the value sent upstream is always
 //! the user's choice, verbatim). It does not forbid *declaring where* that value
 //! appears on the wire. [`ModelCarrier`] declares the slot; the value is always
 //! [`IdentityValue::WireId`] or a sibling fact about the same model. No carrier
 //! may rewrite the id.
-
 /// Where a model's identity is written on the wire.
 ///
 /// A dialect lists the carriers it needs; the executor stamps each one from the
@@ -52,7 +51,7 @@ pub enum ModelCarrier {
 
 /// The value a carrier is stamped with. Every variant is a *fact about the
 /// selected model*, never a substitution: `WireId` is the user's choice
-/// verbatim (ADR-0131).
+/// verbatim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdentityValue {
     /// The channel's wire model id, verbatim.

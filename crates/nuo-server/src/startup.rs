@@ -2,23 +2,22 @@
 //! vocabulary the harness assembles from, and the slash-command table that
 //! distinguishes built-in commands from user-defined ones.
 //!
-//! The *command-line parser* no longer lives here (ADR-0116): parsing is a
+//! The *command-line parser* no longer lives here: parsing is a
 //! frontend concern and moved to the `nuo` binary's `cli`, which also owns help
 //! text and shell completions. What remains is what the session runtime
 //! itself needs to start a session and interpret slash commands.
-
 use tracing_appender::non_blocking::WorkerGuard;
 
 use crate::log_rotate::RetainedRollingFile;
 use nuo_persistence::paths;
 
-/// The CLI default control-plane port (ADR-0105): fixed so browser clients
+/// The CLI default control-plane port: fixed so browser clients
 /// (which cannot read the discovery record) have a well-known endpoint; the
 /// server falls back to an ephemeral port when it is taken.
 pub const DEFAULT_SERVE_PORT: u16 = 9800;
 
 /// The port a server binds when no `--port` was given, honouring
-/// `NUO_PORT` (ADR-0121): an isolated instance — `NUO_HOME` sandbox,
+/// `NUO_PORT`: an isolated instance — `NUO_HOME` sandbox,
 /// second user session, container — must not fight the host server over the
 /// well-known port. Explicit `--port` still wins over the env var. An
 /// unparsable value falls back to the well-known default (an env var is
@@ -31,7 +30,7 @@ pub fn env_default_port() -> u16 {
         .unwrap_or(DEFAULT_SERVE_PORT)
 }
 
-/// How a hosted session begins (ADR-0116: the session-runtime half of what
+/// How a hosted session begins (the session-runtime half of what
 /// used to be the CLI's `StartupMode`). Only the shapes the harness can
 /// assemble exist here; one-shot CLI modes (`run`, `server`, `config`, …)
 /// are frontend concerns and never reach a session assembly.

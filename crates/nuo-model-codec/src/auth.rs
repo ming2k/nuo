@@ -3,7 +3,6 @@
 //! Provides a uniform [`CredentialSource`] abstraction for resolving live
 //! authentication credentials and associated account metadata just-in-time
 //! before sending requests to upstream LLMs.
-
 use futures::future::BoxFuture;
 use nuo_host::SecretString;
 use std::any::{Any, TypeId};
@@ -11,7 +10,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-/// Type-safe extensible property carrier for runtime provider authentication metadata (ADR-0267).
+/// Type-safe extensible property carrier for runtime provider authentication metadata.
 #[derive(Clone, Default)]
 pub struct ExtensionMap {
     map: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
@@ -63,7 +62,7 @@ impl ExtensionMap {
     }
 }
 
-/// Preflight contract assertion for components declaring required extension dependencies (ADR-0267).
+/// Preflight contract assertion for components declaring required extension dependencies.
 pub trait PreflightValidator: Send + Sync {
     /// Declare the exact extension [`TypeId`]s required by this component.
     fn required_extensions(&self) -> Vec<TypeId>;
@@ -118,7 +117,7 @@ pub struct CopilotAuthMetadata {
 
 /// Resolved authentication credentials and account metadata for an outbound request.
 ///
-/// Designed per ADR-0267: core struct contains only generic transport authentication
+/// Designed: core struct contains only generic transport authentication
 /// fields. All provider-specific identity parameters reside in [`ExtensionMap`].
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct ResolvedAuth {

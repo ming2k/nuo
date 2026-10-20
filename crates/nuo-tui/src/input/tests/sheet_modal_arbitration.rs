@@ -1,4 +1,4 @@
-//! The coexisting-modal arbitration tests (ADR-0173 §3, revised contract):
+//! The coexisting-modal arbitration tests (revised contract):
 //! when an overlay modal is open above a mounted interaction sheet, the
 //! modal is the visual foreground and owns every non-global key. The
 //! regression these lock: pressing Esc while a modal floats over the

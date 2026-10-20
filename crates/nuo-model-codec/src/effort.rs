@@ -36,7 +36,7 @@
 //! [`Effort`] is the *vocabulary*; a model still needs to know *which rungs it
 //! accepts*. That per-model ladder is a **capability**, and — like every other
 //! capability (context window, reasoning, vision) — it resolves through one
-//! precedence chain (ADR-0065, ADR-0270):
+//! precedence chain (ADR-0065):
 //!
 //! ```text
 //! live discovery (a preset whose RemoteCatalogSource carries effort tiers)
@@ -62,7 +62,6 @@
 //!
 //! This module is the implementation; the prose reference for users and
 //! contributors lives in `docs/reference/effort.md`.
-
 /// How much reasoning effort a model should spend before answering.
 ///
 /// A model accepts only a subset of these levels (its
@@ -409,7 +408,7 @@ const fn nonzero(tokens: u64) -> i64 {
 // tiers (so the baseline is just a pre-fetch seed) or advertises nothing (so
 // the baseline *is* the effective ladder, sourced from prose docs).
 
-/// Universal conservative fallback ladder: `low`/`medium`/`high` (ADR-0270).
+/// Universal conservative fallback ladder: `low`/`medium`/`high`.
 ///
 /// Safe default subset for any model whose deeper tiers (`xhigh`/`max`) are
 /// unknown. Concrete vendor/model family capability ladders are maintained in

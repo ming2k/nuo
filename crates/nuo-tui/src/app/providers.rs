@@ -1,5 +1,4 @@
 //! Provider modals state: template chooser, custom editor fields, the OAuth flow, and delete staging.
-
 use super::*;
 
 impl App {
@@ -168,7 +167,7 @@ impl App {
     /// Antigravity) shows Name only. The Model field is always hidden (models
     /// are managed in the Models picker).
     ///
-    /// `key` is the connection's identity (ADR-0201 INV-3) — the request that
+    /// `key` is the connection's identity (INV-3) — the request that
     /// saves this form is keyed by it, and a changed Name is submitted as the
     /// separate `RenameConnection` transaction.
     #[allow(clippy::too_many_arguments)] // Editor state is seeded from one connection snapshot.
@@ -362,7 +361,7 @@ impl App {
     }
 
     /// Return the authoritative model info for the currently active route
-    /// (current_provider, current_model) as projected by the server (ADR-0182).
+    /// (current_provider, current_model) as projected by the server.
     pub fn active_model_info(&self) -> Option<&nuo_wire::ProviderModelInfo> {
         self.provider_picker
             .rows
@@ -375,7 +374,7 @@ impl App {
             })
     }
 
-    /// Return the authoritative route capabilities for the active route (ADR-0182).
+    /// Return the authoritative route capabilities for the active route.
     pub fn active_route_capabilities(&self) -> nuo_wire::RouteCapabilities {
         self.active_model_info()
             .map(|info| info.route_capabilities())
@@ -384,14 +383,14 @@ impl App {
                 // refreshed): the baseline layer alone, resolved through the
                 // same three-valued merge the server uses, so an id no layer
                 // knows stays *undeclared* rather than being reported as a
-                // text-only claim (ADR-0230).
+                // text-only claim.
                 nuo_wire::ModelCapabilities::for_channel(&self.current_model, None)
                     .to_route_capabilities()
             })
     }
 
     /// Return the authoritative context window (in tokens) for the active route.
-    /// Evaluated server-side via ADR-0149 (ADR-0182). Falls back to static
+    /// Evaluated server-side via. Falls back to static
     /// baseline only when the snapshot has not mounted.
     pub fn active_model_context_window(&self) -> usize {
         let cw = self.active_route_capabilities().context_window;
@@ -404,7 +403,7 @@ impl App {
 
     /// Whether images would travel to the active route.
     ///
-    /// **Permissive on undeclared** (ADR-0230): `true` unless a layer declared
+    /// **Permissive on undeclared**: `true` unless a layer declared
     /// that the route rejects images. This answers the *request* policy, not
     /// "was vision advertised" — a gate that must be certain should read
     /// [`Self::active_route_capabilities`]`.vision` and treat `None` as

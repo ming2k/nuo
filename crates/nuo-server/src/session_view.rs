@@ -3,7 +3,6 @@
 //!
 //! Extracted verbatim from `main.rs` to keep the binary entry-point focused on
 //! wiring rather than presentation shaping.
-
 use nuo_harness::Agent;
 use nuo_harness::skills::SkillRegistry;
 use nuo_persistence::{config::Config, session::SessionStore};
@@ -123,7 +122,7 @@ pub fn build_session_context(
 /// managers. The live provider exposes the channel-scoped capability view, so
 /// a provider's remote catalogue can override a static model baseline.
 ///
-/// Vision is listed only when some layer **declared** it (ADR-0230): these
+/// Vision is listed only when some layer **declared** it: these
 /// hints are read as a statement about the route, and an undeclared route has
 /// nothing to state. (The *request* path is permissive instead — an undeclared
 /// route still carries images — but that is `accepts_images`, a policy rather

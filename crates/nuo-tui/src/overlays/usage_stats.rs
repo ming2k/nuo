@@ -1,4 +1,4 @@
-//! Usage-statistics overlay (`/usage`, ADR-0122): the durable cross-session
+//! Usage-statistics overlay (`/usage`): the durable cross-session
 //! view over the day-partitioned store under `data/usage/`.
 //!
 //! Three sections in one scrolling body:
@@ -13,7 +13,6 @@
 //! modal; only lifecycle state is colored. A light bar chart of the last two
 //! weeks of daily totals heads the body so daily shape is legible at a
 //! glance.
-
 use nuo_wire::RequestUsageStatus;
 use nuo_wire::usage_stats::{UsageStatRecord, UsageStatsReport};
 use nuotc::{

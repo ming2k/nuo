@@ -1,4 +1,4 @@
-//! Shared lexical grammar for `@`-references in prompt text (ADR-0288, ADR-0291).
+//! Shared lexical grammar for `@`-references in prompt text.
 //!
 //! `@` is a **reference operator**, not content: `@file:{path}` and
 //! `@skill:{name}` name an asset, and the asset (not the bare token) is what a
@@ -22,9 +22,8 @@
 //! recognizes and segments references, and resolves nothing.
 //!
 //! Resolution (loading a file, matching a skill) and rewriting (canonicalizing
-//! an address for the request projection, ADR-0288 `[INV-REF-03]`) are
+//! an address for the request projection, `[INV-REF-03]`) are
 //! *policy* and stay with their owners; only the shared *grammar* is here.
-
 /// Which asset namespace a reference names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Namespace {
@@ -47,7 +46,7 @@ pub enum Form {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Start {
     /// Preceded by a backslash: literal text, not a reference — unless the
-    /// consumer is the canonicalizer, which consumes the escape (ADR-0288
+    /// consumer is the canonicalizer, which consumes the escape (
     /// `[INV-REF-04]`).
     Escaped,
     /// Start of text, or preceded by whitespace or an open delimiter.

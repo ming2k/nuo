@@ -1,13 +1,13 @@
 //! `code_query` — bounded structural queries against the current bytes of a
-//! file or a workspace scope (ADR-0214 direction, consolidated in ADR-0237).
+//! file or a workspace scope (direction, consolidated in).
 //!
 //! One tool, three modes, one parser. `outline` answers "what is in this
 //! file?", `symbol` answers "give me the source of this declaration", and
 //! `find` answers "where are declarations matching this kind/name?". They were
 //! merged rather than shipped as sibling tools because they operate on one
 //! resource (the parse of a source snapshot) with one input language
-//! (declaration kinds + names) — the boundary ADR-0143 drew for `search_text`
-//! and ADR-0215 generalized to the whole surface.
+//! (declaration kinds + names) — the boundary drew for `search_text`
+//! and generalized to the whole surface.
 //!
 //! Every mode obeys the same three contracts:
 //!
@@ -21,7 +21,6 @@
 //! 3. **Honest.** The result is a syntactic summary, never semantic ground
 //!    truth: unsupported formats, oversized inputs, unparseable regions, and
 //!    exhausted budgets are reported as such rather than being papered over.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -48,7 +47,7 @@ const DEFAULT_BUDGET_BYTES: usize = 16 * 1024;
 const MAX_BUDGET_BYTES: usize = 128 * 1024;
 
 /// Maximum source size eligible for parsing. Parsing is work, so the input is
-/// bounded independently of the rendered-output budget (ADR-0214 §3).
+/// bounded independently of the rendered-output budget.
 const MAX_SOURCE_BYTES: u64 = 2 * 1024 * 1024;
 
 /// Maximum files scanned by one unscoped `find`/`symbol` query, and the total
@@ -80,7 +79,7 @@ impl Mode {
     /// `"type": "object"`, which would tell the model to send an object where a
     /// string is required. The field is therefore declared as a string and the
     /// enum is injected from here, so the published contract and the enforced
-    /// one cannot drift (ADR-0237 invariant 6).
+    /// one cannot drift (invariant 6).
     const ALL: [Mode; 3] = [Mode::Outline, Mode::Symbol, Mode::Find];
 
     fn as_str(self) -> &'static str {
@@ -133,7 +132,7 @@ struct CodeQueryArgs {
     budget: Option<u64>,
 }
 
-/// Structural queries over a source snapshot (ADR-0211 / ADR-0214 / ADR-0237).
+/// Structural queries over a source snapshot.
 ///
 /// Read-only: this tool observes the workspace through the execution
 /// environment's filesystem and permission boundary and never writes.
@@ -807,7 +806,7 @@ pub fn top_level() {}
         CodeQueryTool::new(Some(root.to_path_buf()))
     }
 
-    /// ADR-0214 §4: a structural result must identify the source version it
+    /// A structural result must identify the source version it
     /// describes, and that identity must track the bytes on disk — it is the
     /// value a later `expected_version` write is checked against.
     #[tokio::test]
@@ -927,7 +926,7 @@ pub fn top_level() {}
     }
 
     /// A bad kind is rejected with the legal vocabulary named — never a silent
-    /// empty result (ADR-0179).
+    /// empty result.
     #[tokio::test]
     async fn find_rejects_unknown_kinds_with_the_vocabulary() {
         let dir = tempdir().unwrap();
@@ -972,7 +971,7 @@ pub fn top_level() {}
     }
 
     /// The mode enum must be advertised as a string enum, for the same reason
-    /// the dispatch role enum must be (ADR-0237 invariant 6): the model reads
+    /// the dispatch role enum must be (invariant 6): the model reads
     /// the schema, and a value it cannot see is a value it cannot use. It is
     /// generated from the same const the parser accepts against, so the
     /// advertised set and the enforced set are equal by construction.
@@ -1088,7 +1087,7 @@ pub fn top_level() {}
         }
     }
 
-    /// ADR-0214 §3: structure output has a finite budget and discloses
+    /// Structure output has a finite budget and discloses
     /// truncation rather than silently clipping or emitting everything.
     #[tokio::test]
     async fn outline_discloses_truncation_at_the_entry_limit() {
@@ -1109,7 +1108,7 @@ pub fn top_level() {}
         assert!(!out.contains("item_5"), "{out}");
     }
 
-    /// ADR-0214 §3: the *input* is bounded too, not only the rendered output.
+    /// The *input* is bounded too, not only the rendered output.
     #[tokio::test]
     async fn rejects_source_above_the_parse_budget() {
         let dir = tempdir().unwrap();

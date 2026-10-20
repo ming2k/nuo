@@ -1,5 +1,4 @@
 //! Color palette used across the renderer.
-
 use std::borrow::Cow;
 use std::path::Path;
 
@@ -141,7 +140,7 @@ pub struct Theme {
     /// `text_muted` (idle) and `text` (expanded) so hover reads as a softer
     /// affordance than "open".
     pub text_hover: Color,
-    /// The transient **interaction** hue (ADR-0174): the color a collapsed
+    /// The transient **interaction** hue: the color a collapsed
     /// step summary takes while the pointer rests on it or keyboard focus is
     /// on it. This is the *affordance* channel — a hue shift, not a luminance
     /// step — so "look here, this is interactive" never competes with the
@@ -209,7 +208,7 @@ pub struct Theme {
     /// the exact edited word sits on this brighter surface.
     pub diff_add_hl: Color,
     pub diff_del_hl: Color,
-    /// Command-card band (ADR-0109). A slash/shell command row is a *card*,
+    /// Command-card band. A slash/shell command row is a *card*,
     /// not flat prose: `body_surface` is its idle band, `body_hover` the
     /// band while the row is under the pointer or keyboard focus — the same
     /// element_bg → input_bg_active hover ladder the notice card uses. The
@@ -808,7 +807,7 @@ impl Theme {
             diff_del_bg: mix(background, error, if light { 0.10 } else { 0.14 }),
             diff_add_hl: mix(background, success, if light { 0.24 } else { 0.34 }),
             diff_del_hl: mix(background, error, if light { 0.22 } else { 0.32 }),
-            // Command card (ADR-0109): derive the pair from the body/raised
+            // Command card: derive the pair from the body/raised
             // surfaces so the card inherits each scheme's elevation ladder
             // rather than a fixed literal. Idle is the menu surface lifted a
             // hair off the page; hover is the same scheme-wide active tone
@@ -1045,7 +1044,7 @@ impl Theme {
     pub fn hover(&self) -> Color {
         self.text_hover
     }
-    /// The transient interaction hue (ADR-0174): the collapsed summary's
+    /// The transient interaction hue: the collapsed summary's
     /// color while hovered or keyboard-focused. A tinted affordance channel,
     /// distinct from every luminance rung of the disclosure ladder.
     pub fn affordance(&self) -> Color {
@@ -1205,7 +1204,7 @@ impl Theme {
     pub fn diff_del_hl(&self) -> Color {
         self.diff_del_hl
     }
-    /// Command-card band (ADR-0109): the full-width surface a command row
+    /// Command-card band: the full-width surface a command row
     /// paints its card on while idle. Distinct from the page background in
     /// every scheme so a command never reads as flat prose.
     pub fn command_surface(&self) -> Color {
@@ -1813,7 +1812,7 @@ hover_bg = "#282828"
         }
     }
 
-    /// ADR-0109: the command card must read as a *card* in every scheme —
+    /// The command card must read as a *card* in every scheme —
     /// both its idle band and its hover band have to clear the page
     /// background by a visible margin (otherwise the row collapses back
     /// into "flat prose", the exact defect the card exists to fix), and the

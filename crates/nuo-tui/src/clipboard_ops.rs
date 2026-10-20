@@ -2,7 +2,6 @@
 //! spawned tasks so a stuck system clipboard (arboard / wl-copy / wl-paste)
 //! can never freeze the TUI's event poll; results flow back through channels
 //! and are applied on the next frame.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -17,13 +16,13 @@ use crate::composer_attachments::{image_chip, paste_chip, paste_line_count, shou
 use crate::surfaces::{DialogKind, OverlaySurface, SceneKind, SheetKind};
 
 /// Which layer, if any, **declared** whether the active route takes images.
-/// `None` = undeclared: the client must not gate on it (ADR-0230).
+/// `None` = undeclared: the client must not gate on it.
 ///
 /// This is the paste gate's question, and it is deliberately not
 /// [`App::active_model_supports_vision`]: that one answers the permissive
 /// *request* policy ("would images travel?"), while a paste may only be
 /// refused when a layer actually said the route rejects them. The authority is
-/// still the server-built picker snapshot (ADR-0182) — the full ADR-0149
+/// still the server-built picker snapshot — the full
 /// resolution for the route the server will serve — merely read as a
 /// declaration rather than as a policy.
 pub(crate) fn active_route_vision_declaration(app: &App) -> Option<bool> {
@@ -32,14 +31,14 @@ pub(crate) fn active_route_vision_declaration(app: &App) -> Option<bool> {
 
 /// The escape hatch named in the paste rejection: a declared text-only route is
 /// the user's own `CapabilityOverrides::vision` decision away from accepting
-/// images (ADR-0149 layer 1).
+/// images (layer 1).
 const VISION_OVERRIDE_HINT: &str = "set Vision in the model editor to override";
 
 /// Suffix for a successful image paste on a route whose image support **no
 /// layer declared**.
 ///
 /// The paste is accepted — deliberately, since vendors rarely publish this
-/// capability (ADR-0230) — but an accepted paste is not a promise that the
+/// capability — but an accepted paste is not a promise that the
 /// model will see the picture. Saying so up front costs one parenthetical and
 /// is the difference between a user who understands the next failure and one
 /// who thinks the client lost their image.
@@ -131,7 +130,7 @@ fn apply_composer_paste(app: &mut App, read: ClipboardRead) {
     match read {
         ClipboardRead::Image { data, mime } => {
             // Only a route that *declared* no image support refuses the paste,
-            // and it says how to change that (ADR-0230). An undeclared route
+            // and it says how to change that. An undeclared route
             // attaches the image and lets the provider answer: whether a vendor
             // accepts images is exactly the kind of fact most of them do not
             // publish, so the client must not guess it on their behalf.
@@ -232,7 +231,7 @@ fn apply_composer_paste(app: &mut App, read: ClipboardRead) {
 /// staged as `[Image #N]` attachments through the same pipeline as image-data
 /// pastes; non-image files are skipped and reported in the toast rather than
 /// silently dropped, and only a route that declared no image support blocks the
-/// image (ADR-0230), with the same override hint as the image-data paste.
+/// image, with the same override hint as the image-data paste.
 fn apply_composer_files_paste(app: &mut App, paths: Vec<std::path::PathBuf>) {
     let mut attached: Option<usize> = None;
     let mut skipped = 0usize;

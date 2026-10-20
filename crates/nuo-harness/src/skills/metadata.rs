@@ -1,5 +1,4 @@
 //! Skill metadata, frontmatter parsing, and core data types.
-
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -12,7 +11,7 @@ pub enum SkillScope {
     Remote,
     /// User-global skills: XDG (`$XDG_DATA_HOME/nuo/skills`). See ADR-0013/0014.
     User,
-    /// Role-scoped skills: XDG (`$XDG_DATA_HOME/nuo/roles/<name>/skills/`). See ADR-0253.
+    /// Role-scoped skills: XDG (`$XDG_DATA_HOME/nuo/roles/<name>/skills/`)..
     Role,
     /// Additional paths configured in `config.toml`.
     Extra,

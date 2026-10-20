@@ -5,7 +5,6 @@
 //! results to relieve pressure while keeping the OpenAI `tool_call_id` chain
 //! intact. Compaction thresholds are derived from the active model's context
 //! window via [`CompactionPolicy`] / [`ContextBudget`].
-
 use crate::tokenizer;
 use crate::{Message, Role};
 use serde::{Deserialize, Serialize};
@@ -20,22 +19,22 @@ pub const CLEARED_TOOL_PREFIX: &str = "[cleared tool result:";
 /// Marker embedded in a *truncated* tool result (head + tail kept, middle
 /// elided). Distinguishes the intermediate "truncated" tier from a full clear so
 /// a later, higher-pressure pass can escalate truncation to a clear.
-/// Reports **tokens** (ADR-0120).
+/// Reports **tokens**.
 const ELIDED_MARKER: &str = " tokens elided to relieve context ...]";
 /// Marker text baked into a frozen tool output at record time.
 const RECENT_COMPACTED_MARKER: &str = "Previous turn output compacted";
 
-/// Minimum quantum tokens required for budget-driven pruning to execute (ADR-0283).
+/// Minimum quantum tokens required for budget-driven pruning to execute.
 /// Pruning for less than this floor causes cache thrashing without meaningful context relief.
 pub const PRUNE_QUANTUM_FLOOR_TOKENS: usize = 4_000;
 
-/// Default high watermark entry point for budget-driven pruning (ADR-0283).
+/// Default high watermark entry point for budget-driven pruning.
 pub const CRUISE_HIGH_WATERMARK: f64 = 0.70;
 
-/// Target recovery low watermark for dual-band hysteresis loop (ADR-0283).
+/// Target recovery low watermark for dual-band hysteresis loop.
 pub const CRUISE_LOW_WATERMARK: f64 = 0.50;
 
-/// Hot-tail quarantine budget in tokens protected from budget pruning (ADR-0283).
+/// Hot-tail quarantine budget in tokens protected from budget pruning.
 pub const TAIL_QUARANTINE_TOKENS: usize = 16_000;
 
 /// Token size of a tool result above which a prune candidate is first
@@ -147,14 +146,14 @@ pub struct ContextBudget {
     pub compaction_threshold_tokens: usize,
     /// Post-compaction active-window target, in tokens.
     pub target_tokens: usize,
-    /// Quantum floor: minimum tokens that a prune pass must recover to execute (ADR-0283).
+    /// Quantum floor: minimum tokens that a prune pass must recover to execute.
     pub quantum_floor_tokens: usize,
-    /// Target low-watermark landing zone for hysteresis loop (ADR-0283).
+    /// Target low-watermark landing zone for hysteresis loop.
     pub cruise_low_tokens: usize,
 }
 
 /// Wire-size (bytes) of a message list: byte length of `content` +
-/// tool-call `name`+`arguments`. **Diagnostic only** (ADR-0120): context
+/// tool-call `name`+`arguments`. **Diagnostic only**: context
 /// pressure and every budget are token-denominated; bytes answer a transport
 /// question ("how big is the payload"), not a context question.
 /// `reasoning_content` is excluded (never sent to providers).
@@ -163,7 +162,7 @@ pub fn estimate_bytes(messages: &[Message]) -> usize {
 }
 
 /// Token estimate of a message list using the native BPE tokenizer
-/// (ADR-0117) with per-message chat framing overhead. This is the pressure
+/// with per-message chat framing overhead. This is the pressure
 /// predictor: exact for `cl100k_base`-family models, a close approximation
 /// for sibling encodings.
 ///
@@ -254,7 +253,7 @@ pub struct PruneOutcome {
 /// reclaimed, else `None` with `messages` untouched (atomic: nothing is mutated
 /// unless the gate passes).
 ///
-/// All budgets are **tokens** (ADR-0120): the recency-protection window and
+/// All budgets are **tokens**: the recency-protection window and
 /// the reclaim gate compare against exactly what the provider's context
 /// window charges.
 ///
@@ -317,14 +316,14 @@ struct ToolMeta {
     /// True when the call mutated the file (write/edit). A mutation invalidates
     /// every prior read of the same path regardless of range.
     mutates: bool,
-    /// Salient command string for shell/command tools (ADR-0254).
+    /// Salient command string for shell/command tools.
     command_str: Option<String>,
-    /// Tool call ID correlating this result with its invocation (ADR-0262).
+    /// Tool call ID correlating this result with its invocation.
     call_id: Option<String>,
 }
 
 impl ToolMeta {
-    /// Whether this tool represents a build, test, or check command (ADR-0254).
+    /// Whether this tool represents a build, test, or check command.
     fn is_build_or_test_command(&self) -> bool {
         let Some(cmd) = &self.command_str else {
             return false;
@@ -401,7 +400,7 @@ fn plan_prune(messages: &[Message], protect_recent_tokens: usize) -> Vec<PrunePl
         .map(|(i, _)| i)
         .collect();
 
-    // ADR-0285: User-uploaded visual media candidates for eviction
+    // User-uploaded visual media candidates for eviction
     let user_images: Vec<usize> = messages
         .iter()
         .enumerate()
@@ -424,7 +423,7 @@ fn plan_prune(messages: &[Message], protect_recent_tokens: usize) -> Vec<PrunePl
     all_candidates.sort_unstable();
 
     // Recency protection: protect newest results until the token budget is
-    // met. Token-denominated (ADR-0120) — the byte accumulator this replaced
+    // met. Token-denominated — the byte accumulator this replaced
     // under-protected CJK-heavy sessions by 3–4×.
     let mut protected: HashSet<usize> = HashSet::new();
     let mut protected_tokens = 0usize;
@@ -456,7 +455,7 @@ fn plan_prune(messages: &[Message], protect_recent_tokens: usize) -> Vec<PrunePl
             })
         });
 
-        // Command staleness (ADR-0254):
+        // Command staleness:
         // 1. A build/test command is superseded if a LATER tool call is also a build/test command.
         // 2. A build/test command is invalidated if a LATER tool call mutated files (`mutates == true`).
         let command_stale = meta_i.is_build_or_test_command() && {
@@ -500,7 +499,7 @@ fn plan_prune(messages: &[Message], protect_recent_tokens: usize) -> Vec<PrunePl
         });
     }
 
-    // ADR-0285: Evict user visual media that has exited the recency quarantine window
+    // Evict user visual media that has exited the recency quarantine window
     for &i in &user_images {
         if protected.contains(&i) {
             continue;
@@ -559,10 +558,10 @@ fn apply_prune(
         outcome.cleared_count += 1;
         messages[item.index].content = item.new_content;
         messages[item.index].reasoning_content = None;
-        // ADR-0254: Strip image attachments from pruned messages
+        // Strip image attachments from pruned messages
         messages[item.index].images = None;
         let call_id = messages[item.index].tool_call_id.clone();
-        // ADR-0254 / ADR-0285: Also prune companion ToolImage user message if immediately following
+        // Also prune companion ToolImage user message if immediately following
         if let Some(next_msg) = messages.get_mut(item.index + 1)
             && next_msg
                 .origin
@@ -794,7 +793,7 @@ fn classify_file_touch(arguments: &str) -> (Option<(usize, usize)>, bool) {
 
 /// Informative cleared-placeholder carrying the tool label and the size that was
 /// dropped, so the model can decide whether to re-fetch. The size is in
-/// **tokens** (ADR-0120) — the model's own unit of context.
+/// **tokens** — the model's own unit of context.
 #[allow(dead_code)]
 fn cleared_placeholder(meta: &ToolMeta, content: &str) -> String {
     cleared_placeholder_with_reason(meta, content, None)
@@ -818,7 +817,7 @@ fn cleared_placeholder_with_reason(meta: &ToolMeta, content: &str, reason: Optio
 
 /// Keep head + tail, eliding the middle with a recognisable marker. Returns the
 /// content unchanged when it is too short for truncation to help. Head and tail
-/// are bounded in **tokens** (ADR-0120): the cut lands on exact token
+/// are bounded in **tokens**: the cut lands on exact token
 /// boundaries, so what survives costs precisely what the budget says.
 fn truncate_middle(content: &str, call_id: Option<&str>) -> String {
     let keep = TRUNCATE_KEEP_EACH_SIDE_TOKENS;
@@ -844,7 +843,6 @@ fn truncate_middle(content: &str, call_id: Option<&str>) -> String {
 /// message. Re-deriving the shape per assembly round (the previous
 /// position-driven ladder) broke the server-side KV-cache prefix on two
 /// consecutive rounds; freezing at record time keeps it stable forever
-/// (ADR-0137).
 pub fn freeze_tool_output(content: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
     if lines.len() > 25 {
@@ -900,7 +898,7 @@ pub fn estimate_message_tokens(message: &Message) -> i64 {
             tokens += 2;
         }
     }
-    // ADR-0254: Account for multimodal vision tokens (~1600 tokens per image on standard vision models).
+    // Account for multimodal vision tokens (~1600 tokens per image on standard vision models).
     if let Some(images) = message.images.as_ref() {
         tokens += (images.len() * 1600) as i64;
     }
@@ -943,7 +941,7 @@ fn message_fingerprint(message: &Message) -> MessageContentFingerprint {
             call.arguments.hash(&mut h2);
         }
     }
-    // ADR-0254: Track image content fingerprint
+    // Track image content fingerprint
     if let Some(images) = message.images.as_ref() {
         for img in images {
             img.mime.hash(&mut h1);
@@ -1002,7 +1000,7 @@ impl MessageTokenWeights {
 }
 
 /// Thread-safe, content-addressed cache of per-tool-spec token weights
-/// (ADR-0187 companion to [`MessageTokenWeights`]). A toolset is stable across
+/// (companion to [`MessageTokenWeights`]). A toolset is stable across
 /// turns; without the cache every estimate pass re-serialized every visible
 /// spec to JSON and re-tokenized it. The fingerprint is over the spec's
 /// semantic content, so a changed description or schema re-weights exactly
@@ -1137,7 +1135,7 @@ pub struct RequestTokenEstimate {
     pub total_tokens: usize,
     /// Request-local temporary-context tokens (`E_n`), a subset of
     /// `overhead_tokens`. Diagnostics must report this separately from durable
-    /// input and provider-reported cache usage (ADR-0213 §8).
+    /// input and provider-reported cache usage.
     pub temporary_context_tokens: usize,
 }
 

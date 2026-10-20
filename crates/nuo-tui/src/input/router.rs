@@ -1,5 +1,4 @@
-//! Terminal event normalization and cross-layer routing (ADR-0197 M2).
-
+//! Terminal event normalization and cross-layer routing (M2).
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 
 use crate::model::layout::{LayoutMap, SemanticCursor};
@@ -13,24 +12,24 @@ use super::readline::{
     previous_grapheme_char_index,
 };
 
-/// What the committed scene says owns the keyboard (ADR-0197 §D2: modality
+/// What the committed scene says owns the keyboard (modality
 /// is scene-owned, not an app-state mirror) plus the two shared navigation
 /// facts every dispatch layer arbitrates against. Built once per event by
 /// the caller; the fields it needs are exactly these — nothing else.
 #[derive(Debug, Default, Clone)]
 pub struct Dispatch {
-    /// Active overlay on top of the scene (ADR-0205).
+    /// Active overlay on top of the scene.
     pub overlay: Option<crate::surfaces::OverlaySurface>,
-    /// The AI-initiated sheet occupying the composer slot, if any (ADR-0173
+    /// The AI-initiated sheet occupying the composer slot, if any (
     /// §3).
     pub sheet: Option<crate::sheet::SheetKind>,
-    /// ADR-0175: `true` while the PreAttach interstitial surface owns
+    /// `true` while the PreAttach interstitial surface owns
     /// the terminal. Mirrors `App::pre_attach.is_some()` so `route_event`
     /// can route keyboard events to PreAttach without inspecting `App`.
     pub pre_attach: bool,
-    /// The root scene the user stands in (ADR-0205).
+    /// The root scene the user stands in.
     pub scene: crate::surfaces::SceneKind,
-    /// User remaps of the global chords (`[keybindings]` config, ADR-0172).
+    /// User remaps of the global chords (`[keybindings]` config).
     /// Global resolution and the keycap hints both consult it.
     pub key_overrides: crate::keymap::GlobalOverrides,
     /// Whether a transcript step/action target currently holds keyboard focus.
@@ -48,7 +47,7 @@ pub struct Dispatch {
     /// component handler declined the key, so only global chords may run.
     pub scene_blocked: bool,
     /// Whether the `Ctrl+X` scene namespace is armed, awaiting its second
-    /// stroke (ADR-0298).
+    /// stroke.
     pub scene_namespace_armed: bool,
 }
 
@@ -121,7 +120,7 @@ pub fn event_family(
     }
 }
 
-/// Whether an interaction sheet is the keyboard foreground (ADR-0173 §3).
+/// Whether an interaction sheet is the keyboard foreground.
 ///
 /// A sheet owns its decision keys only while no overlay modal coexists: the
 /// modal renders centered above the bottom-slot sheet, so visual order makes
@@ -136,7 +135,7 @@ fn sheet_foreground(dispatch: &Dispatch) -> bool {
 
 /// Whether the permission sheet occupies the composer slot and is the
 /// keyboard foreground. The one pass-through surface: transcript navigation
-/// and scrolling stay live behind it (ADR-0173 §2) — a coexisting modal
+/// and scrolling stay live behind it — a coexisting modal
 /// covers it and suspends the pass-through.
 fn permission_sheet_foreground(dispatch: &Dispatch) -> bool {
     dispatch.sheet == Some(crate::sheet::SheetKind::Permission) && dispatch.overlay.is_none()
@@ -258,10 +257,10 @@ pub fn route_event(
 
             let physical_key = crate::keymap::Key::from_event(key);
 
-            // The `Ctrl+X` scene namespace's second stroke (ADR-0298 §1). The
+            // The `Ctrl+X` scene namespace's second stroke. The
             // verb table is `keymap::scene_namespace` — the same table the
             // which-key card renders, so dispatch and advertisement cannot
-            // drift (ADR-0238). A second stroke is typed without looking, so
+            // drift. A second stroke is typed without looking, so
             // case is folded before resolution; `Esc` and `C-g` cancel, and
             // anything unrecognized cancels rather than falling through (a
             // half-typed chord must never fire a global).
@@ -335,7 +334,7 @@ pub fn route_event(
                         return InputAction::OpenSessionTrace;
                     }
                     crate::keymap::CommandId::OpenQueue if dispatch.overlay.is_none() => {
-                        // Ctrl+Q (queue-bar expand keycap, ADR-0126's Ctrl row).
+                        // Ctrl+Q (queue-bar expand keycap, Ctrl row).
                         // Top level only: the bar is session chrome and is not
                         // visible behind a modal, so behind one the chord falls
                         // through to whatever the modal claims.
@@ -363,7 +362,7 @@ pub fn route_event(
                 return InputAction::None;
             }
 
-            // ADR-0175: PreAttach interstitial owns the keyboard. The
+            // PreAttach interstitial owns the keyboard. The
             // four navigation keys map to dedicated PreAttach actions
             // and everything else is swallowed (no chat composer,
             // modal, or sheet behind the surface). Global chords
@@ -383,7 +382,7 @@ pub fn route_event(
                 };
             }
 
-            // Surface Dispatch (ADR-0172 / ADR-0205)
+            // Surface Dispatch
             // Each full-screen scene owns the keys for its own focus planes
             // while no modal is up: the Conversation scene's chat scheme (and its
             // TaskInspection / Aside siblings) resolves them here, before the modal /
@@ -401,13 +400,13 @@ pub fn route_event(
                 return action;
             }
 
-            // Modal Verb Dispatch (ADR-0172)
+            // Modal Verb Dispatch
             // Each modal owns its single-letter verb keys (space/r in the MCP
             // manager, d/n/i in the sessions picker, the dashboard console,
             // …) in its own scheme. A key the modal does not own falls through
             // to the shared affordance library (list nav, readline, paste,
             // scrolling) and text insertion.
-            // Sheet Verb Dispatch (ADR-0173 §3)
+            // Sheet Verb Dispatch
             // Each interaction sheet owns its single-key verbs in its own
             // scheme; a key the sheet does not own falls through to the
             // shared affordance library and the sheet arms below. A sheet is
@@ -476,7 +475,7 @@ pub fn route_event(
                         // Esc steps back one *scene-owned* sub-layer (a
                         // dropdown, a drill-in pane, the dashboard's preview or
                         // inline prompt) and nothing else. It never leaves the
-                        // scene (ADR-0205 `[INV-TUI-CLEAN-02]`): the scene's
+                        // scene (`[INV-TUI-CLEAN-02]`): the scene's
                         // own exit is `C-x w` (ADR-0043, ADR-0077).
                         InputAction::SceneBack
                     } else {
@@ -485,7 +484,7 @@ pub fn route_event(
                 }
                 KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     // Ctrl+R (history search) is a chat-surface chord resolved
-                    // by the Conversation scene's scheme (ADR-0172 / ADR-0205); no other
+                    // by the Conversation scene's scheme; no other
                     // surface claims it.
                     InputAction::None
                 }
@@ -542,29 +541,29 @@ pub fn route_event(
                     InputAction::None
                 }
                 KeyCode::Enter => {
-                    // Sheet submits (ADR-0173 §3) and modal activation verbs
-                    // (ADR-0172) are owned by the sheet / modal schemes,
+                    // Sheet submits and modal activation verbs
+                    // are owned by the sheet / modal schemes,
                     // resolved above. Alt+Enter stays the multi-line newline
                     // chord (arm above). What remains here is inert: the
                     // chat surface's Enter (activate focused step / commit
                     // completion / send / queue / slash) is resolved by the
-                    // Session scene's scheme (ADR-0172 / ADR-0205) before this match,
+                    // Session scene's scheme before this match,
                     // and the surfaces that punt (e.g. the pickers' read-only
                     // info sub-views) are no-ops too.
                     InputAction::None
                 }
                 KeyCode::Tab => {
-                    // Modal Tab-focus verbs (ADR-0172) and the HistorySearch
+                    // Modal Tab-focus verbs and the HistorySearch
                     // insert are owned by the modal schemes above; the chat
                     // surface's Tab (commit / reopen a completion) by the
-                    // Session scene's scheme (ADR-0173 / ADR-0205). Inert here.
+                    // Session scene's scheme. Inert here.
                     InputAction::None
                 }
                 KeyCode::BackTab => {
-                    // Modal BackTab verbs (ADR-0172) and the sheets'
+                    // Modal BackTab verbs and the sheets'
                     // reverse-walk are owned by the surface schemes above;
                     // the chat surface's BackTab by the Session scene's
-                    // scheme (ADR-0172 / ADR-0205). Inert here.
+                    // scheme. Inert here.
                     InputAction::None
                 }
                 // Ctrl+J: alias for Alt+Enter — insert a literal newline.
@@ -741,10 +740,10 @@ pub fn route_event(
                 }
                 // Alt+S / Alt+P / Alt+N are chat-surface chords (steer now /
                 // previous / next prompt history), resolved by the Conversation
-                // scene's scheme (ADR-0172 / ADR-0205) before this match.
+                // scene's scheme before this match.
                 KeyCode::Char(c) => {
                     // The command palette's filter is owned by its scheme
-                    // (modal_keys::resolve_view_switcher_key, ADR-0172);
+                    // (modal_keys::resolve_view_switcher_key);
                     // the modal verb keys too. Only shared text insertion
                     // remains here: editing surfaces (chat composer, borrowed
                     // one-line modal filters, the key editor's API-key field)
@@ -779,9 +778,9 @@ pub fn route_event(
                 }
                 KeyCode::Backspace => {
                     // The palette's query backspace is owned by its scheme
-                    // (modal_keys, ADR-0172) and the question sheet's
+                    // (modal_keys) and the question sheet's
                     // "Other"-field backspace by the sheet scheme
-                    // (sheet.rs, ADR-0173 §3).
+                    // (sheet.rs).
                     if edits_input_field(&dispatch, modal_keys) && *cursor_position > 0 {
                         // Alt+Backspace / Ctrl+Backspace delete the previous
                         // whitespace-delimited word in one stroke, matching
@@ -852,7 +851,7 @@ pub fn route_event(
                 // does not move (forward delete only shortens the text).
                 KeyCode::Delete => {
                     // The palette's delete-selected is owned by its scheme
-                    // (modal_keys, ADR-0172).
+                    // (modal_keys).
                     if edits_input_field(&dispatch, modal_keys)
                         && *cursor_position < input.chars().count()
                     {
@@ -877,7 +876,7 @@ pub fn route_event(
                     // Modal segment/cycle verbs (telemetry tabs, settings
                     // segments, the effort ladder, the provider-editor
                     // choice row) are owned by the modal scheme (modal_keys,
-                    // ADR-0172), resolved above.
+                    // ), resolved above.
                     // In provider-editor text fields, ←/→ retain ordinary
                     // caret movement.
                     if edits_input_field(&dispatch, modal_keys) && *cursor_position > 0 {
@@ -901,7 +900,7 @@ pub fn route_event(
                 }
                 KeyCode::Right => {
                     // Modal segment/cycle verbs are owned by the modal
-                    // scheme (modal_keys, ADR-0172), resolved above.
+                    // scheme (modal_keys), resolved above.
                     if edits_input_field(&dispatch, modal_keys)
                         && *cursor_position < input.chars().count()
                     {
@@ -922,7 +921,7 @@ pub fn route_event(
                 }
                 // Alt+↑ / Alt+↓ (transcript step focus switching) are
                 // chat-surface chords, resolved by the Conversation scene's scheme
-                // (ADR-0172 / ADR-0205) before this match.
+                // before this match.
                 // Ctrl+↑ / Ctrl+↓ inside a modal scroll the modal body by one
                 // page — the same gesture a pager or editor binds to a
                 // half-page jump. Mirrors PageUp / PageDown so users have both
@@ -941,8 +940,8 @@ pub fn route_event(
                     InputAction::ScrollPageDown
                 }
                 KeyCode::Up => {
-                    // Sheet ↑ (ADR-0173 §3) and the modal list-walk verbs
-                    // (ADR-0172) are owned by the surface schemes, resolved
+                    // Sheet ↑ and the modal list-walk verbs
+                    // are owned by the surface schemes, resolved
                     // above. The palette's ↑/↓ stay here: its scheme
                     // resolves the arrows to None (they are shared list-walk
                     // affordances), so the router keeps them.
@@ -955,7 +954,7 @@ pub fn route_event(
                     } else {
                         // Chat-surface ↑ (walk focused steps / completion
                         // suggestions / multi-line caret) is resolved by the
-                        // Conversation scene's scheme (ADR-0172 / ADR-0205); everything else
+                        // Conversation scene's scheme; everything else
                         // the schemes punted on is inert.
                         InputAction::None
                     }
@@ -972,7 +971,7 @@ pub fn route_event(
                         InputAction::ModalDown
                     } else {
                         // Chat-surface ↓ is resolved by the Conversation scene's
-                        // scheme (ADR-0172 / ADR-0205).
+                        // scheme.
                         InputAction::None
                     }
                 }
@@ -980,7 +979,7 @@ pub fn route_event(
                 KeyCode::PageUp => {
                     // Transcript paging on the bare chat surface and behind
                     // the foreground permission sheet; a body-scrolling
-                    // sheet or modal pages itself (claims, ADR-0173 §2).
+                    // sheet or modal pages itself (claims).
                     if bare_chat_surface(&dispatch)
                         || permission_sheet_foreground(&dispatch)
                         || foreground_scrolls_own_body(&dispatch)
@@ -993,7 +992,7 @@ pub fn route_event(
                 KeyCode::PageDown => {
                     // Transcript paging on the bare chat surface and behind
                     // the foreground permission sheet; a body-scrolling
-                    // sheet or modal pages itself (claims, ADR-0173 §2).
+                    // sheet or modal pages itself (claims).
                     if bare_chat_surface(&dispatch)
                         || permission_sheet_foreground(&dispatch)
                         || foreground_scrolls_own_body(&dispatch)

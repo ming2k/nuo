@@ -354,7 +354,7 @@ async fn test_select_then_attach_round_trip() {
         other => panic!("expected TodosUpdated sync, got {other:?}"),
     }
 
-    // Followed by the attach-time HarnessState sync (ADR-0128).
+    // Followed by the attach-time HarnessState sync.
     let state_msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
         .await
         .unwrap()
@@ -599,7 +599,7 @@ async fn unknown_id_is_an_error() {
     }
 }
 
-/// Project scoping (ADR-0096): the Select frame's optional `project` declares
+/// Project scoping: the Select frame's optional `project` declares
 /// the caller's working directory, and auto-attach must resolve inside THAT
 /// project — not the server process's cwd, which is whatever the first client
 /// that spawned the server happened to use. `New` creation and lazy resume
@@ -742,7 +742,7 @@ async fn declared_project_is_never_auto_bound_to_a_foreign_session() {
     }
 }
 
-/// ADR-0093: a monitor client receives a snapshot whose rows reflect the
+/// A monitor client receives a snapshot whose rows reflect the
 /// registry's trackers — and, with `watch`, live diffs as sessions report.
 #[tokio::test]
 async fn monitor_handshake_yields_snapshot_then_diffs() {
@@ -931,9 +931,9 @@ async fn monitor_one_shot_closes_after_snapshot() {
     }
 }
 
-/// ADR-0096: the control plane manages sessions without attaching — create,
+/// The control plane manages sessions without attaching — create,
 /// observe in the monitor snapshot, kill.
-/// ADR-0112: a client declares the session ended over its attach
+/// A client declares the session ended over its attach
 /// connection; the server tears the session down (registry entry gone,
 /// `SessionRemoved` published, terminal `Exit` flushed to the attach
 /// client) and the connection closes. The request must never reach the
@@ -1059,7 +1059,7 @@ async fn attach_end_session_tears_down_and_notifies() {
     let _ = tmp;
 }
 
-/// ADR-0096: the control plane manages sessions without attaching — create,
+/// The control plane manages sessions without attaching — create,
 /// observe in the monitor snapshot, kill.
 #[tokio::test]
 async fn control_create_observe_kill_roundtrip() {
@@ -1133,7 +1133,7 @@ async fn control_create_observe_kill_roundtrip() {
     let _ = probe;
 }
 
-/// ADR-0096/0130: the same control plane is served over native local IPC —
+/// 0130: the same control plane is served over native local IPC —
 /// UDS on Unix and a per-user named pipe on Windows. No bearer token is
 /// needed because the OS endpoint permissions are the authentication boundary.
 #[tokio::test]
@@ -1174,7 +1174,7 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
         assert_eq!(mode, 0o600, "socket must be 0600, got {mode:o}");
     }
 
-    // Full handshake over the native endpoint: monitor one-shot (ADR-0158 native framed).
+    // Full handshake over the native endpoint: monitor one-shot (native framed).
     let stream = nuo_host::ipc::connect(&endpoint).await.unwrap();
     let (mut wire_sink, mut wire_source) = nuo::wire_channel::native_framed_split(stream);
     let select = Wire::Select {
@@ -1202,7 +1202,7 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
 
     // Cancel cleans up the socket file — deterministically: the removal runs
     // inside the supervised accept task, so joining the task book (bounded)
-    // guarantees the file is gone before the assertion (ADR-0101; the old
+    // guarantees the file is gone before the assertion (the old
     // 100ms sleep papered over exactly this race).
     handle.cancel.cancel();
     let hung = handle
@@ -1461,10 +1461,10 @@ async fn suspension_skips_empty_unpersisted_sessions() {
     assert!(hosted_ids(&registry).await.contains(&id));
 }
 
-// Server lifecycle (ADR-0100/0101)
+// Server lifecycle (0101)
 
 /// `ControlRequest::Shutdown` funnels into the serve gate: the reply is sent
-/// *before* the drain cancels this very connection (ADR-0100), and the
+/// *before* the drain cancels this very connection, and the
 /// accept loops stop — provable without signals, since the gate is the same
 /// trigger source signals use.
 #[tokio::test]
@@ -1512,7 +1512,7 @@ async fn shutdown_control_verb_replies_then_stops_accepting() {
     assert!(hung.is_empty(), "accept tasks must stop: {hung:?}");
 }
 
-/// Version negotiation (ADR-0100 rule 4): a skewed `Select.version` is
+/// Version negotiation (rule 4): a skewed `Select.version` is
 /// refused with a both-versions error before any session work; a matching
 /// version proceeds normally (and an absent version is served).
 #[tokio::test]
@@ -1596,7 +1596,7 @@ async fn version_skew_is_refused_with_both_versions() {
     }
 }
 
-/// The server's discovery record carries its build version (ADR-0100 rule
+/// The server's discovery record carries its build version (rule
 /// 4), so a client reading a stale record can refuse before speaking.
 #[test]
 fn global_record_carries_the_server_version() {
@@ -1620,12 +1620,12 @@ fn global_record_carries_the_server_version() {
     assert_eq!(back.version.as_deref(), Some(serve::server_version()));
 }
 
-/// Protocol negotiation (ADR-0134). The protocol number is the authority
+/// Protocol negotiation. The protocol number is the authority
 /// when a client declares one: the server serves any number in
 /// [MIN_PROTOCOL_VERSION, PROTOCOL_VERSION] — *whatever the product version
 /// says* — and refuses anything outside the window with
 /// `code: protocol_mismatch` before any session work. A client that
-/// declares no number keeps the ADR-0100 product-version judgment.
+/// declares no number keeps the product-version judgment.
 #[tokio::test]
 async fn protocol_window_governs_when_declared() {
     use nuo_wire::{MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
@@ -1742,7 +1742,7 @@ async fn control_roundtrip(port: u16, request: serve::ControlRequest) -> Result<
     }
 }
 
-/// `suspend_session` (ADR-0096 control plane): an empty never-persisted
+/// `suspend_session` (control plane): an empty never-persisted
 /// session is refused (killing is the honest verb — there is no transcript
 /// to lazy-resume from), while an unknown id is the usual not-hosted error.
 #[tokio::test]

@@ -11,7 +11,7 @@
 //! The footer (input box, status bar, hint bar) renders exactly as in a live
 //! session, so the user lands in a familiar composer immediately.
 //!
-//! Beneath the logo the hero carries a **capability carousel** (ADR-0104): one
+//! Beneath the logo the hero carries a **capability carousel**: one
 //! durable capability hint at a time (`/fork`, `Ctrl-r`, `@` mentions,
 //! …) rotating on a wall-clock cadence, one line at a time (no position
 //! indicator — the copy is self-explaining) and nothing else — the static
@@ -29,7 +29,6 @@
 //! clipping ([`plan_hero`]). When the terminal is too short (or the art too
 //! large) the wordmark is dropped and the guidance line is shown alone,
 //! vertically centred — never a squashed or truncated logo.
-
 use nuotc::{
     Alignment, Frame, Paragraph, Rect, {Line, Span}, {Modifier, Style},
 };
@@ -65,13 +64,13 @@ pub(crate) const MIN_LOGO_ROWS: usize = 3;
 pub(crate) const HERO_LOGO_GAP_ROWS: usize = 1;
 
 /// How long one carousel page stays on screen before rotating to the next
-/// (ADR-0104). Long enough to read a one-line hint at a glance, short
+/// Long enough to read a one-line hint at a glance, short
 /// enough that a user who lingers on the empty state sees several pages.
 /// The index is derived from wall-clock elapsed time (`carousel_epoch`), so
 /// the cadence stays constant regardless of how often the loop redraws.
 pub(crate) const CAROUSEL_SLIDE_SECS: u64 = 8;
 
-/// One rotating capability page beneath the logo (ADR-0104). Each page is one
+/// One rotating capability page beneath the logo. Each page is one
 /// centered line: a muted lead sentence followed by keycap/`command` tokens
 /// picked out in the theme's info tone, so the actionable part of each hint
 /// reads as an affordance the way the hint bar's `◆ effort` tag does.
@@ -296,7 +295,6 @@ pub(crate) fn plan_hero(logo: &[&str], area: Rect, guidance: &EmptyStateGuidance
 ///   setup blocker: a message the user must act on before anything else is
 ///   useful, so it stays pinned instead of rotating.
 /// - [`Self::Tour`] (the default) shows the rotating capability carousel
-///   (ADR-0104).
 ///
 /// The app shell selects the variant; the view layer owns the copy and
 /// styling. This keeps the policy (when to nudge) in the shell and the
@@ -318,7 +316,7 @@ pub enum EmptyStateGuidance {
 }
 
 impl EmptyStateGuidance {
-    /// Whether this variant rotates its capability pages (ADR-0104). The setup
+    /// Whether this variant rotates its capability pages. The setup
     /// blocker stays pinned — it is an action item, not a tour stop.
     #[cfg(test)]
     pub fn is_carousel(&self) -> bool {
@@ -343,11 +341,11 @@ fn guidance_line_count(guidance: &EmptyStateGuidance) -> usize {
 
 /// Rows the carousel itself renders beneath the logo: the current page
 /// line. No tagline above it (page 0 already teaches "send a message or /")
-/// and no indicator row (ADR-0104) — the rotating copy is self-explaining.
+/// and no indicator row — the rotating copy is self-explaining.
 const CAROUSEL_LINES: usize = 1;
 
 /// Resolve the carousel page to show for a wall-clock `elapsed` since the
-/// carousel epoch (ADR-0104). The index is `(elapsed / slide) % pages`, so
+/// carousel epoch. The index is `(elapsed / slide) % pages`, so
 /// the cadence is steady regardless of draw frequency (the same property the
 /// breathing indicator relies on via `spinner_epoch`), and any terminal
 /// size sees the full set over time. Falls back to the first page for an
@@ -361,7 +359,7 @@ pub(crate) fn carousel_page_for(elapsed_ms: u128) -> usize {
 /// indicator — the rotating copy is self-explaining (each page carries its
 /// own affordance), and an indicator row would spend a second row of chrome
 /// restating "this line changes", information the user cannot act on. The
-/// hero stays a minimal landing strip (ADR-0104).
+/// hero stays a minimal landing strip.
 fn carousel_lines(index: usize, theme: &Theme) -> Vec<Line<'static>> {
     let pages = carousel_pages();
     let index = index.min(pages.len().saturating_sub(1));
@@ -375,7 +373,7 @@ fn carousel_lines(index: usize, theme: &Theme) -> Vec<Line<'static>> {
 /// bar uses `info` for the `◆ effort` tag.
 ///
 /// `carousel_index` selects the carousel page for the [`EmptyStateGuidance::Tour`]
-/// variant (ADR-0104); it is ignored by the pinned variants.
+/// variant; it is ignored by the pinned variants.
 fn guidance_section(
     guidance: EmptyStateGuidance,
     carousel_index: usize,
@@ -417,7 +415,7 @@ fn guidance_section(
 /// safety net regardless).
 ///
 /// `guidance` selects the copy shown beneath the logo+gap (ADR-0057): the
-/// rotating tour (ADR-0104) or the pinned provider blocker. It is the app
+/// rotating tour or the pinned provider blocker. It is the app
 /// shell's policy decision — the view layer only renders what it is given.
 ///
 /// `carousel_index` picks the tour page (see [`carousel_page_for`]); the
@@ -601,7 +599,7 @@ mod tests {
             page_line.contains(carousel_pages()[1].lead),
             "page 1 shows its lead: {page_line}"
         );
-        // No dot indicator anywhere (ADR-0104): the rotation is
+        // No dot indicator anywhere: the rotation is
         // self-explaining, so no chrome restates it.
         let joined = lines
             .iter()

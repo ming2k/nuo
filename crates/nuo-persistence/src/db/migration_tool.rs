@@ -1,11 +1,11 @@
-//! Offline legacy→canonical migration (ADR-0280 §4, `INV-POLICY-03`).
+//! Offline legacy→canonical migration (`INV-POLICY-03`).
 //!
 //! This module is the **one-time, offline** converter from the legacy
 //! `causal_nodes` / `entries` representation into the canonical fact substrate.
 //! It is deliberately **not** referenced from the runtime graph, the request
 //! pipeline, or any provider path: it runs only as a standalone maintenance
 //! command against a consistent backup, and the new runtime never reads legacy
-//! formats (ADR-0280 §4, §5).
+//! formats.
 //!
 //! What it guarantees:
 //! - **No fabrication**: a legacy node without scope/version/raw material is
@@ -17,10 +17,9 @@
 //!   reported as known-missing, never marked `Complete`.
 //!
 //! It uses raw `rusqlite` connections on purpose — it is a separate process
-//! from the server, so the ADR-0231 one-door rule (which governs the live
+//! from the server, so the one-door rule (which governs the live
 //! runtime) does not apply to it. The module lives under `db::` so the
 //! one-door source guard, which only scans the live crates, is not tripped.
-
 use nuo_wire::context_lifecycle::{
     FactId, FactNode, FactPayload, RoundId, Sensitivity, SourceAuthority, TurnId,
 };
@@ -37,7 +36,7 @@ pub struct MigrationConflict {
     pub reason: String,
 }
 
-/// A per-session migration result (ADR-0280 §4 step 5).
+/// A per-session migration result (step 5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionMigrationReport {
     /// The session.
@@ -465,7 +464,7 @@ fn digest_facts(facts: &[FactNode]) -> String {
 /// Migrate a legacy database file into a target database file, offline.
 ///
 /// Opens both databases directly. This is a standalone maintenance entry point;
-/// the live runtime never calls it (ADR-0280 §4 step 2).
+/// the live runtime never calls it (step 2).
 pub fn migrate_files(
     legacy_path: &Path,
     target_path: &Path,
@@ -480,7 +479,7 @@ pub fn migrate_files(
     migrate_offline(&legacy, &mut target)
 }
 
-/// A machine-readable integrity report for a canonical database (ADR-0280 §4
+/// A machine-readable integrity report for a canonical database (
 /// step 6, `INV-POLICY-03`).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VerificationReport {

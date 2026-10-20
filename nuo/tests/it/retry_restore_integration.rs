@@ -2,7 +2,6 @@
 
 //! Integration tests: durable `/retry` resume point survives session close and resume
 //! across the entire bootstrap, slash handler, and harness projection lifecycle.
-
 use std::sync::Arc;
 
 use super::sandbox_once;
@@ -112,7 +111,7 @@ async fn retry_point_survives_process_death_and_projects_accurate_harness_state(
     }
 }
 
-/// ADR-0220/0226: a workspace-free explicit grouping assembles without binding
+/// 0226: a workspace-free explicit grouping assembles without binding
 /// a filesystem workspace. The store is pinned to the persona's named grouping
 /// and carries no workspace binding, so no workspace tool root is provided.
 #[tokio::test]
@@ -186,7 +185,7 @@ admit_mcp = ["security-scan"]
     ];
     store.append_turn(&turn).await.unwrap();
 
-    // Verify the store captured the manifest at birth (ADR-0245)
+    // Verify the store captured the manifest at birth
     let manifest = store.role_manifest().await;
     assert!(manifest.is_some(), "manifest must be captured at birth");
     let m = manifest.unwrap();
@@ -202,7 +201,7 @@ admit_mcp = ["security-scan"]
     assert!(!roles_file.exists(), "roles.toml is completely deleted");
 
     // 4. Assemble and resume the session: without manifest snapshotting this would crash with
-    // "unknown role 'sec-auditor'". With ADR-0245, it resumes seamlessly with 100% byte fidelity!
+    // "unknown role 'sec-auditor'". With, it resumes seamlessly with 100% byte fidelity!
     let boot = assemble_for(&project, &session_id).await;
     let resumed_manifest = boot.session.role_manifest().await;
     assert!(

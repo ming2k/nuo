@@ -1,4 +1,4 @@
-//! Per-session monitor state machines (ADR-0093 §3).
+//! Per-session monitor state machines.
 //!
 //! A [`MonitorTracker`] taps one hosted session's [`AgentResponse`] broadcast
 //! and maintains the [`SessionStatus`] + accounting row a control panel
@@ -11,7 +11,6 @@
 //! lifecycle itself stays binary (ADR-0078) — `Idle`/`Running` here are a
 //! display badge, and the `Needs*` states are overlays on a still-running
 //! round.
-
 use nuo_wire::{AgentResponse, MonitoredSession, RoundEvent, SessionStatus};
 
 /// Tracks one hosted session. `base` is the cheap header row (from the same

@@ -1,9 +1,8 @@
-//! Session persistence test suite (ADR-0186 single-transcript model).
+//! Session persistence test suite (single-transcript model).
 //!
 //! Tests exercise the public [`SessionStore`] API against the SQLite store:
 //! the transcript is the authority, the window is a derive, projections are
 //! append-only directives, and fork shares facts by identity.
-
 use crate::session::*;
 use nuo_wire::{Message, Role, ToolCall};
 use std::path::PathBuf;
@@ -69,7 +68,7 @@ async fn full_transcript_includes_everything_unprojected() {
 // Session switching must not inherit the previous session's projection.
 // ---------------------------------------------------------------
 
-/// Regression (ADR-0189 `projected_cache`): `open` swaps the store's whole
+/// Regression (`projected_cache`): `open` swaps the store's whole
 /// `SessionData` but the projection cache belonged to the session being left.
 /// The stale cache made `model_window` return the previous session's window
 /// after a switch — and the resume path then `replace_messages`-ed it over
@@ -438,7 +437,7 @@ async fn crash_residue_is_durably_settled_as_abandoned() {
     assert_eq!(reloaded.settle_abandoned_attempts().await.unwrap(), 0);
 }
 
-/// ADR-0236 invariant #3: an ordinary turn's row checksum and delta must not
+/// Invariant #3: an ordinary turn's row checksum and delta must not
 /// scale with the session's total retained attempts. Usage lives in its own
 /// key-addressed table, so the session-row checksum excludes the mirror and a
 /// delta does not clone it.
@@ -648,7 +647,7 @@ async fn round_interrupts_record_and_clear() {
 }
 
 // ---------------------------------------------------------------
-// Request-projection archive (ADR-0218): durable forensics, never the window.
+// Request-projection archive: durable forensics, never the window.
 // ---------------------------------------------------------------
 
 fn request_projection(round: u64, turn: u64) -> nuo_wire::RequestProjection {
@@ -1035,7 +1034,7 @@ async fn test_session_store_direct_delta_and_ir_hydration() {
     assert_eq!(loaded_ir.history.nodes.len(), 1);
     assert_eq!(loaded_ir.state.active_leaf, Some(node_id.to_string()));
 
-    // 4. Test Durable Suspension Delta (ADR-0249, INV-EXEC-03)
+    // 4. Test Durable Suspension Delta (INV-EXEC-03)
     let mut suspended_ir = loaded_ir.clone();
     suspended_ir.state.status = nuo_wire::ExecutionStatus::Suspended {
         reason: nuo_wire::SuspensionReason::NeedsInput {

@@ -806,7 +806,7 @@ fn curated_template_submits_the_provider_id_without_a_protocol_override() {
 
 #[test]
 fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
-    // ADR-0201 INV-4: the connection name IS the identity, so a rename is its
+    // INV-4: the connection name IS the identity, so a rename is its
     // own atomic request. The editor emits it first (the metadata edit is keyed
     // by the new name) and then the `EditConnection` metadata update.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);

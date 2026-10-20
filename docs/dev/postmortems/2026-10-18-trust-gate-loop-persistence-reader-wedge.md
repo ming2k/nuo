@@ -61,11 +61,11 @@
   unimpeded. The workspace-security store fails closed on unreadable state
   (correct), the snapshot therefore always reported `Quarantined`
   (correct), and the gate re-mounted on every republish (correct per
-  ADR-0175) — the *composition* of three individually-correct policies
+) — the *composition* of three individually-correct policies
   produced an inescapable loop with zero user-visible cause.
 - **Why it could persist indefinitely**: the failure lived entirely in the
   reader-construction path, which sits outside the supervised actor whose
-  respawn machinery (ADR-0196) is the system's only recovery mechanism.
+respawn machinery is the system's only recovery mechanism.
 
 ## 5. Action Items & Defense-in-Depth
 

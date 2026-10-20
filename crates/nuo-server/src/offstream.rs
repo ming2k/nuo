@@ -1,10 +1,9 @@
-//! Concrete [`OffstreamSource`] implementations for `nuo-server` (ADR-0069, ADR-0262).
+//! Concrete [`OffstreamSource`] implementations for `nuo-server` (ADR-0069).
 //!
 //! Provides lock-free offstream readers for:
 //! - `sub:`: Subagent session transcripts and trajectories
 //! - `fold:`: Folded causal subgraphs behind compaction horizons
 //! - `artifact:`: Multimodal media and visual artifacts
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -347,7 +346,7 @@ impl OffstreamSource for FoldedCausalSource {
     }
 }
 
-/// Source for inspecting CAS blobs and visual artifacts (`artifact:<sha256>`) (ADR-0279, ADR-0285).
+/// Source for inspecting CAS blobs and visual artifacts (`artifact:<sha256>`).
 pub struct ArtifactSource {
     _session_id: String,
     blob_store: BlobStore,
