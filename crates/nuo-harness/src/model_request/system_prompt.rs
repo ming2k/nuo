@@ -171,11 +171,14 @@ impl SystemPromptRegistry {
         Self::default()
     }
 
-    /// Register a section. Panics on a duplicate id.
+    /// Register a section. A duplicate id is a programming error in the compiled
+    /// section table, so it is asserted rather than silently dropping a section.
     pub fn register<S: SystemPromptSection + 'static>(&mut self, section: S) {
-        if let Err(error) = self.try_register(section) {
-            panic!("{error}");
-        }
+        let id = section.id();
+        assert!(
+            self.try_register(section).is_ok(),
+            "duplicate system prompt section id: {id}"
+        );
     }
 
     /// Register a section without panicking on an id collision.

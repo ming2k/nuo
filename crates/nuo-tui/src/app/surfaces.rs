@@ -318,9 +318,10 @@ impl App {
     /// Whether the currently active tab is a thread that is completely empty
     /// (no turns, no messages), meaning it can be overwritten and discarded.
     pub fn is_current_thread_empty(&self) -> bool {
-        let is_thread_tab = self.surfaces.active_tab().map_or(false, |t| {
-            matches!(t.kind, crate::surfaces::TabKind::Thread(_))
-        });
+        let is_thread_tab = self
+            .surfaces
+            .active_tab()
+            .is_some_and(|t| matches!(t.kind, crate::surfaces::TabKind::Thread(_)));
         is_thread_tab && self.messages.is_empty() && self.round_count == 0
     }
 

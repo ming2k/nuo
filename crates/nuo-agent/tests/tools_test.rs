@@ -2,6 +2,8 @@
 //! (dynamic closures, MCP bridges, and collaboration) behave uniformly and that
 //! their schemas are valid for providers that reject unknown arguments.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use nuo_agent::agent::Agent;

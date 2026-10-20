@@ -1,6 +1,10 @@
 //! The input test suite, split by interaction concern. Shared key-event
 //! builders live here; per-concern groups are sibling modules.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use super::*;
 use crate::modal_keys::ModalKeys;
 use crate::session::SceneKeys;

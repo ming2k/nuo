@@ -136,10 +136,15 @@ nuo-code = { version = "0.0.42", path = "crates/nuo-code" }
 unsafe_code = "allow"
 
 [workspace.lints.clippy]
-unwrap_used = "warn"
-expect_used = "warn"
-panic = "warn"
-todo = "warn"
-dbg_macro = "warn"
+# Shipped code must not abort the process or silently short-circuit: fallible
+# work returns an error, and startup paths surface a typed failure. Unit-test and
+# integration-test targets opt out explicitly (`cfg_attr(test, allow(..))` at the
+# crate root / `#![allow(..)]` in test targets) because there a panic *is* the
+# report. Denied rather than warned so the exemption cannot rot silently.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+dbg_macro = "deny"
 print_stdout = "allow"
 print_stderr = "allow"

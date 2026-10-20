@@ -1,6 +1,10 @@
 //! The view rendering test suite, split by surface. Shared fixtures
 //! (full-view renderer, grid row reader) live here.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use super::*;
 use crate::composer::{ComposerProps, ComposerText};
 use crate::markdown_table::{build_table_render, shrink_column_widths};
@@ -26,7 +30,7 @@ fn render_full_view_with_head(
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(width, height);
     let hints = page_hints;
-    let head = thread_head.or_else(|| {
+    let head = thread_head.or({
         Some(ThreadHead {
             thread_id: "sess-01a2b3c4",
             workspace: "~/projects/xx",

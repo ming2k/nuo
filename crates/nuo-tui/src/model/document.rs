@@ -773,6 +773,18 @@ pub struct TranscriptMessage {
     live_blocks: usize,
 }
 
+/// Borrowed view over a compaction checkpoint card: how many messages were
+/// folded into the checkpoint, the token window before/after compaction, the
+/// summary body, the tracked-file list, and whether the card is expanded.
+pub struct CompactedCardData<'a> {
+    pub archived_messages: usize,
+    pub tokens_before: usize,
+    pub tokens_after: usize,
+    pub summary: Option<&'a str>,
+    pub tracked_files: &'a [String],
+    pub expanded: bool,
+}
+
 impl TranscriptMessage {
     pub fn new(role: Role, raw: impl Into<String>) -> Self {
         let raw = sanitize_text(&raw.into()).into_owned();
@@ -1290,9 +1302,7 @@ impl TranscriptMessage {
         matches!(self.kind, MessageKind::CompactedCard { .. })
     }
 
-    pub fn compacted_card_data(
-        &self,
-    ) -> Option<(usize, usize, usize, Option<&str>, &[String], bool)> {
+    pub fn compacted_card_data(&self) -> Option<CompactedCardData<'_>> {
         match &self.kind {
             MessageKind::CompactedCard {
                 archived_messages,
@@ -1302,14 +1312,14 @@ impl TranscriptMessage {
                 tracked_files,
                 expanded,
                 ..
-            } => Some((
-                *archived_messages,
-                *window_tokens_before,
-                *window_tokens_after,
-                summary.as_deref(),
-                tracked_files.as_slice(),
-                *expanded,
-            )),
+            } => Some(CompactedCardData {
+                archived_messages: *archived_messages,
+                tokens_before: *window_tokens_before,
+                tokens_after: *window_tokens_after,
+                summary: summary.as_deref(),
+                tracked_files: tracked_files.as_slice(),
+                expanded: *expanded,
+            }),
             _ => None,
         }
     }
@@ -2715,7 +2725,6 @@ impl TranscriptMessage {
             duration_ms,
             structured,
             input_bytes,
-            input_slot: _,
             ..
         } = &self.kind
         else {

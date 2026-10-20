@@ -5,6 +5,8 @@
 //! 4. Human-in-the-loop Tool Approval (ApprovalPolicy / ApprovalHandler).
 //! 5. Distributed Channel Event Replication across multi-host rooms.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use acp::transport::in_memory_pair;

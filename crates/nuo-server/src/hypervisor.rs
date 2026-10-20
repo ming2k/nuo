@@ -31,6 +31,9 @@ impl Hypervisor {
         registry: SessionRegistry,
         fabric: Fabric,
     ) -> Self {
+        // The literal address is a compile-time constant, covered by the
+        // `hypervisor_station_is_addressable` test below.
+        #[allow(clippy::expect_used)]
         let address =
             AgentAddress::parse("agent://local/hypervisor").expect("valid hypervisor address");
 

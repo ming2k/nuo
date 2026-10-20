@@ -3,7 +3,10 @@
 //! Frontends (nuo, web) and CLI tools interact with the running server
 //! through this client library without depending on server internals.
 
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+// Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
+// test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
+// so the shipped graph stays under the workspace `deny` for these lints.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod discovery;
 pub mod wire;
@@ -30,7 +33,7 @@ pub fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
         return None;
     }
     let dir = nuo_host::paths::get().log_dir();
-    if let Err(_) = std::fs::create_dir_all(&dir) {
+    if std::fs::create_dir_all(&dir).is_err() {
         return None;
     }
     let file_appender = tracing_appender::rolling::daily(&dir, "client.log");
@@ -46,8 +49,16 @@ pub fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
 }
 
 /// Standard slash command catalog for frontend client auto-completion.
+/// One slash-command spec row: `(command, help, aliases, key=value flags)`.
+type RawCommandSpec = (
+    &'static str,
+    &'static str,
+    &'static [&'static str],
+    &'static [(&'static str, &'static str)],
+);
+
 pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog {
-    let raw_specs: &[(&str, &str, &[&str], &[(&str, &str)])] = &[
+    let raw_specs: &[RawCommandSpec] = &[
         (
             "/models",
             "Switch the active model (context preserved)",
@@ -726,7 +737,6 @@ fn complete_subcommand_items(
 /// completion implementation without standing up a session driver. Product
 /// clients never call this; they use `CompleteInput` over the control plane.
 #[doc(hidden)]
-
 pub(crate) fn expand_usage_options(usage: &str) -> Vec<String> {
     let mut words = Vec::new();
     for word in usage.split_whitespace() {
@@ -1871,6 +1881,7 @@ const FALLBACK_GRACE: Duration = Duration::from_secs(15);
 ///    the instance lock and identity-conditionally remove the discovery record.
 ///    Native listener state is RAII-owned; a killed Unix server's stale socket
 ///    is removed by the next lock-owning bind, never by a racing stopper.
+///
 /// ADR-0034 Level 1 (soft reload): ask a live server to re-read its
 /// configuration and re-sync MCP servers + skills without dropping any
 /// connection. Fails if the running server predates the reload verb.

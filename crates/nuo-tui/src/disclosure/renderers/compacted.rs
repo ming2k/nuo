@@ -7,7 +7,7 @@ use nuotc::{
 use super::super::{Disclosure, Interaction, summary_text_color};
 use super::base::{MARKER_COLLAPSED, MARKER_EXPANDED, RenderCtx};
 use crate::message_body::draw_message_body;
-use crate::model::document::TranscriptMessage;
+use crate::model::document::{CompactedCardData, TranscriptMessage};
 use crate::model::layout::{BlockRegion, COMPACTED_CARD_BLOCK_IDX};
 use crate::model::selection::{CellDragInfo, SelectionState};
 use crate::render::{REASONING_TRACE_BLOCK_GAP_ROWS, TRANSCRIPT_BODY_LEADING_INDENT};
@@ -22,8 +22,14 @@ pub fn draw_compacted_card(
     hovered: bool,
     focused: bool,
 ) {
-    let Some((archived_messages, tokens_before, tokens_after, summary, tracked_files, expanded)) =
-        msg.compacted_card_data()
+    let Some(CompactedCardData {
+        archived_messages,
+        tokens_before,
+        tokens_after,
+        summary,
+        tracked_files,
+        expanded,
+    }) = msg.compacted_card_data()
     else {
         return;
     };

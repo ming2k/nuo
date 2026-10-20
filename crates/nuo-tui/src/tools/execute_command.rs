@@ -17,7 +17,7 @@ impl ToolPresenter for ExecuteCommandPresenter {
         view: &'a ToolView,
     ) -> crate::components::inline_layout::SemanticLine<'a> {
         if let Some(cmd) = view.str("command") {
-            if let Some(comm) = extract_comm(&cmd) {
+            if let Some(comm) = extract_comm(cmd) {
                 return crate::components::inline_layout::SemanticLine::new()
                     .push_fixed("Run ")
                     .push_flexible(comm);

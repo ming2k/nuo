@@ -16,6 +16,10 @@
 //! regenerates it in one command rather than re-running a `/tmp` recon that
 //! will not survive a reboot.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use nuo_provider_qoder::surface::{FUNCTION_SWITCH_KEYS, is_function_switch};
 use serde_json::Value;
 

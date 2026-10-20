@@ -15,7 +15,10 @@
 //! `[INV-PROV-07]`): a new subscription surface adds code only in its vendor
 //! crate plus one registration.
 
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+// Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
+// test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
+// so the shipped graph stays under the workspace `deny` for these lints.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod credential_source;
 pub mod enricher;

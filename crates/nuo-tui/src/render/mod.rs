@@ -770,7 +770,7 @@ pub fn draw_transcript(
         thread_head.is_some()
             && page_hints_view
                 .as_ref()
-                .map_or(false, |h| h.kind == crate::surfaces::SceneKind::Thread),
+                .is_some_and(|h| h.kind == crate::surfaces::SceneKind::Thread),
     );
     let (tab_rect, scene_rect, context_rect, viewport) = if tab_rows + scene_rows + context_rows > 0
     {

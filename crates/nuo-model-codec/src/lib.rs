@@ -3,6 +3,11 @@
 //! Provides clean, zero-overhead wire-level framing for OpenAI, Anthropic, Google Gemini,
 //! DeepSeek, and Ollama backends.
 
+// Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
+// test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
+// so the shipped graph stays under the workspace `deny` for these lints.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod auth;
 pub mod cache;
 pub mod capability;

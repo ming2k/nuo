@@ -73,13 +73,15 @@ pub enum DialogOutcome {
 }
 
 impl PartialEq for DialogOutcome {
+    /// Identity equality only: a `SwitchTo` payload is a trait object and is
+    /// never equal to another outcome, including another `SwitchTo`.
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (DialogOutcome::Consumed, DialogOutcome::Consumed) => true,
-            (DialogOutcome::Unhandled, DialogOutcome::Unhandled) => true,
-            (DialogOutcome::Dismiss, DialogOutcome::Dismiss) => true,
-            _ => false,
-        }
+        matches!(
+            (self, other),
+            (DialogOutcome::Consumed, DialogOutcome::Consumed)
+                | (DialogOutcome::Unhandled, DialogOutcome::Unhandled)
+                | (DialogOutcome::Dismiss, DialogOutcome::Dismiss)
+        )
     }
 }
 
@@ -206,6 +208,9 @@ pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
 /// Per-dialog teardown run on dismissal: the entity's own hook plus clearing
 /// its embedded search field, so a dismissed picker never leaves a stale query
 /// behind (`[INV-SURFACE-01]`).
+/// The type-erasing downcast below cannot fail: each `DialogView` implementation
+/// reports exactly one `DialogKind`, so the cast is exempt from the workspace
+/// `expect_used` deny (same contract as `input_dialog` / `render_dialog`).
 #[allow(clippy::expect_used)]
 pub fn dismiss_cleanup(view: &mut dyn DialogView) {
     match view.kind() {
@@ -660,6 +665,9 @@ fn scroll_delta(action: &InputAction, app: &crate::App) -> Option<ScrollDelta> {
     }
 }
 
+/// Scroll one dialog entity. The type-erasing downcast cannot fail: each
+/// `DialogView` implementation reports exactly one `DialogKind`.
+#[allow(clippy::expect_used)]
 fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> DialogOutcome {
     if view.keys_open() {
         apply_delta(view.keys_scroll_mut(), delta);
@@ -830,6 +838,9 @@ fn dialog_body_bounds(kind: DialogKind, modal_rect: Rect) -> (u16, u16) {
     }
 }
 
+/// Route a click to one dialog entity. The type-erasing downcast cannot fail:
+/// each `DialogView` implementation reports exactly one `DialogKind`.
+#[allow(clippy::expect_used)]
 fn handle_dialog_click(
     view: &mut dyn DialogView,
     visual_row: usize,
@@ -1288,7 +1299,7 @@ fn input_dialog(
                 return DialogOutcome::Unhandled;
             }
             e.index = rotate_selectable(e.index, count, forward, |idx| {
-                models.get(idx).map_or(false, |m| m.usable)
+                models.get(idx).is_some_and(|m| m.usable)
             });
             e.follow = true;
             DialogOutcome::Consumed

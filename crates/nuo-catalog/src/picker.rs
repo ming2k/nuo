@@ -624,7 +624,7 @@ mod display_policy_tests {
 
     fn ensure_init() {
         static INIT: std::sync::Once = std::sync::Once::new();
-        INIT.call_once(|| nuo_server::provider_registry::init());
+        INIT.call_once(nuo_server::provider_registry::init);
     }
 
     /// The mapping stage is a declared property of the surface, never a guess

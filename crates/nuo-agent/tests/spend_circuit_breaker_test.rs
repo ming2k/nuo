@@ -1,5 +1,9 @@
 //! Integration tests for local spend circuit breaker and model pricing (ADR-0065).
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use nuo_agent::agent::{Agent, SpendCircuitBreaker};
 use nuo_agent::error::AgentError;
 use nuo_agent::provider::{MockProvider, ModelResponse, TokenUsage};

@@ -169,6 +169,11 @@ pub enum CheckpointError {
         /// The missing section heading.
         section: String,
     },
+    /// A fact payload could not be serialized for the integrity manifest.
+    UnserializableFact {
+        /// The offending fact.
+        fact_id: String,
+    },
     /// The total build budget was exceeded.
     DeadlineExceeded,
     /// The summary exceeds the checkpoint ceiling even after reduction.
@@ -193,6 +198,12 @@ impl std::fmt::Display for CheckpointError {
             }
             CheckpointError::MissingSection { section } => {
                 write!(f, "summary is missing required section {section}")
+            }
+            CheckpointError::UnserializableFact { fact_id } => {
+                write!(
+                    f,
+                    "fact {fact_id} is not serializable for the source manifest"
+                )
             }
             CheckpointError::DeadlineExceeded => write!(f, "checkpoint build exceeded its budget"),
             CheckpointError::OverCeiling { tokens, ceiling } => {
@@ -278,7 +289,7 @@ impl<'a> CheckpointBuilder<'a> {
             input: 0,
             output: 0,
         };
-        let manifest = source_manifest(&plan.facts);
+        let manifest = source_manifest(&plan.facts)?;
 
         // --- Map phase: shard by the output ceiling --------------------------
         let shards = shard(&plan.facts, self.output_ceiling);
@@ -591,21 +602,26 @@ fn render_fact(fact: &FactNode) -> String {
 }
 
 /// A hash-verified ordered manifest of the summarized interval (ADR-0278 §1).
-fn source_manifest(facts: &[FactNode]) -> SourceManifest {
+///
+/// Serialization is the only fallible step, and it is *not* ignorable: a manifest
+/// hashed over empty bytes would silently misreport what the checkpoint covers.
+fn source_manifest(facts: &[FactNode]) -> Result<SourceManifest, CheckpointError> {
     let mut hasher = Sha256::new();
     for fact in facts {
-        let bytes = serde_json::to_vec(fact).expect("fact payload is JSON serializable");
+        let bytes = serde_json::to_vec(fact).map_err(|_| CheckpointError::UnserializableFact {
+            fact_id: fact.id.as_str().to_string(),
+        })?;
         hasher.update((bytes.len() as u64).to_le_bytes());
         hasher.update(bytes);
     }
     let hash = format!("{:x}", hasher.finalize());
-    SourceManifest {
+    Ok(SourceManifest {
         intervals: vec![SourceInterval {
             from_seq: facts.first().map(|f| f.seq).unwrap_or(0),
             to_seq: facts.last().map(|f| f.seq).unwrap_or(0),
             hash,
         }],
-    }
+    })
 }
 
 /// The default CAS retry bound (ADR-0280 §2), re-exported from the domain
@@ -742,7 +758,10 @@ mod tests {
         b.payload = FactPayload::UserMessage {
             text: "changed constraint".into(),
         };
-        assert_ne!(source_manifest(&[a]), source_manifest(&[b]));
+        assert_ne!(
+            source_manifest(&[a]).map(|m| m.intervals),
+            source_manifest(&[b]).map(|m| m.intervals)
+        );
     }
 
     #[tokio::test]

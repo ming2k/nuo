@@ -809,14 +809,16 @@ impl SessionDriver {
                     dialect,
                 } => {
                     if let Err(e) = crate::handlers_provider::register_provider(
-                        id,
-                        label,
-                        root_url,
-                        protocol,
-                        client_profile,
-                        user_agent,
-                        catalog_format,
-                        dialect,
+                        crate::handlers_provider::RegisterProviderParams {
+                            id,
+                            label,
+                            root_url,
+                            protocol,
+                            client_profile,
+                            user_agent,
+                            catalog_format,
+                            dialect,
+                        },
                     ) {
                         let _ = resp_tx.send(AgentResponse::Error(format!(
                             "Could not register provider: {e}"

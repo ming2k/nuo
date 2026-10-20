@@ -434,6 +434,38 @@ pub const MODELS: &[Model] = &[
 
 inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 
+pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
+    dialect: nuo_model_codec::ProviderDialect::Standard,
+    protocol_roots: std::borrow::Cow::Borrowed(&[
+        (
+            WireProtocol::AnthropicMessages,
+            std::borrow::Cow::Borrowed("https://opencode.ai/inference/go/anthropic/v1"),
+        ),
+        (
+            WireProtocol::GoogleGemini,
+            std::borrow::Cow::Borrowed("https://opencode.ai/inference/go/google/v1beta"),
+        ),
+    ]),
+    catalog_root_url: Some(std::borrow::Cow::Borrowed("https://opencode.ai/zen/go/v1")),
+    prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
+    id: std::borrow::Cow::Borrowed("opencode-plan"),
+    baselines: MODELS,
+    // Endpoints are per-model by wire format (see `route_for_model`); the
+    // instance-level default is the OpenAI chat-completions surface.
+    root_url: std::borrow::Cow::Borrowed("https://opencode.ai/zen/go/v1"),
+    user_agent: Some(std::borrow::Cow::Borrowed(
+        nuo_model_codec::client_identity::OPENCODE_USER_AGENT,
+    )),
+    protocol: WireProtocol::ChatCompletions,
+    // Served models come from the live /zen/go/v1/models endpoint.
+    catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
+    default_client_profile: nuo_model_codec::ClientPreset::Native,
+    client_profile_sensitive: false,
+    quota: None,
+    display_policy: nuo_provider::DisplayPolicy::Structural,
+    models: OPENCODE_PLAN_MODELS,
+};
+
 #[cfg(test)]
 mod tests {
     use super::{MODELS, OPENCODE_PLAN_MODELS};
@@ -519,35 +551,3 @@ mod tests {
         let _ = BaselineModels(MODELS); // keep the import tied to the real type
     }
 }
-
-pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_model_codec::ProviderDialect::Standard,
-    protocol_roots: std::borrow::Cow::Borrowed(&[
-        (
-            WireProtocol::AnthropicMessages,
-            std::borrow::Cow::Borrowed("https://opencode.ai/inference/go/anthropic/v1"),
-        ),
-        (
-            WireProtocol::GoogleGemini,
-            std::borrow::Cow::Borrowed("https://opencode.ai/inference/go/google/v1beta"),
-        ),
-    ]),
-    catalog_root_url: Some(std::borrow::Cow::Borrowed("https://opencode.ai/zen/go/v1")),
-    prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
-    id: std::borrow::Cow::Borrowed("opencode-plan"),
-    baselines: MODELS,
-    // Endpoints are per-model by wire format (see `route_for_model`); the
-    // instance-level default is the OpenAI chat-completions surface.
-    root_url: std::borrow::Cow::Borrowed("https://opencode.ai/zen/go/v1"),
-    user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_model_codec::client_identity::OPENCODE_USER_AGENT,
-    )),
-    protocol: WireProtocol::ChatCompletions,
-    // Served models come from the live /zen/go/v1/models endpoint.
-    catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_model_codec::ClientPreset::Native,
-    client_profile_sensitive: false,
-    quota: None,
-    display_policy: nuo_provider::DisplayPolicy::Structural,
-    models: OPENCODE_PLAN_MODELS,
-};

@@ -26,6 +26,9 @@
 //! [`DelegationBudget::remaining_hops`] is decremented on each hand-off, so
 //! agents delegating to agents cannot recurse without bound.
 
+// Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
+// test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
+// so the shipped graph stays under the workspace `deny` for these lints.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod address;

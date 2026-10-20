@@ -12,7 +12,6 @@ use std::sync::Arc;
 
 use crate::App;
 use crate::overlays::{ConsoleCommand, ConsoleLine, ConsoleVerb};
-use nuo_client;
 
 use super::UiRuntime;
 

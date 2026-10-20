@@ -4,7 +4,7 @@
 //! Run manually with the key:
 //! `COMMANDCODE_API_KEY=user_… cargo run -p nuo-providers --example commandcode_live_smoke`
 
-#![allow(clippy::expect_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use futures::StreamExt as _;
 use nuo_host::SecretString;

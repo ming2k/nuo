@@ -32,19 +32,10 @@ pub struct NoticeCardProps {
 }
 
 /// Sovereign local volatile interaction state.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NoticeCardState {
     pub focused_button: usize,
     pub expanded: bool,
-}
-
-impl Default for NoticeCardState {
-    fn default() -> Self {
-        Self {
-            focused_button: 0,
-            expanded: false,
-        }
-    }
 }
 
 /// Discrete local event messages handled by this component.

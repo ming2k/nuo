@@ -71,6 +71,10 @@ struct CompiledRule {
 #[derive(Debug, Clone)]
 enum CompiledMatcher {
     Regex(Regex),
+    /// A compiled-in pattern that failed to parse. Unreachable in practice (a unit
+    /// test compiles every built-in pattern); kept so a broken rule is inert
+    /// instead of aborting the session.
+    Inert,
     Contains(String),
     StartsWith(String),
     Program(String),
@@ -219,9 +223,16 @@ impl CompiledRule {
     ) -> Self {
         Self {
             name: name.to_string(),
-            matcher: CompiledMatcher::Regex(Regex::new(pattern).unwrap_or_else(|error| {
-                panic!("built-in bash policy regex must compile: {error}")
-            })),
+            matcher: match Regex::new(pattern) {
+                Ok(regex) => CompiledMatcher::Regex(regex),
+                Err(error) => {
+                    // A built-in pattern is compile-time data verified by
+                    // `builtin_patterns_compile` below; if it somehow fails to
+                    // parse, the rule must not take the session down with it.
+                    tracing::error!(pattern, %error, "built-in bash policy regex did not compile");
+                    CompiledMatcher::Inert
+                }
+            },
             action,
             reason: reason.to_string(),
             origin: RuleOrigin::Builtin,
@@ -231,6 +242,7 @@ impl CompiledRule {
     fn matches(&self, command: &str) -> bool {
         match &self.matcher {
             CompiledMatcher::Regex(regex) => regex.is_match(command),
+            CompiledMatcher::Inert => false,
             CompiledMatcher::Contains(needle) => command.contains(needle),
             CompiledMatcher::StartsWith(prefix) => command.trim_start().starts_with(prefix),
             CompiledMatcher::Program(program) => leading_program(command) == *program,

@@ -4,7 +4,7 @@
 //! API, so it is deliberately an example, not a test.
 
 // Failing loudly on a broken pre-condition is the point of a smoke run.
-#![allow(clippy::expect_used)]
+#![allow(clippy::expect_used, clippy::panic)]
 
 use nuo_model_codec::{ClientPreset, Message, ResolvedAuth, Role, SecretString};
 use nuo_provider_openai::OpenAiChatCompletionsProvider;

@@ -1106,7 +1106,16 @@ fn spawn_connection<S>(
             id,
         };
         let result = tokio::select! {
-            r = handle_connection(stream, registry, token, expose, gate, listeners, conns_for_guard, tcp_manager) => r,
+            r = handle_connection(ConnectionParams {
+                stream,
+                registry,
+                token,
+                expose,
+                gate,
+                listeners,
+                conns: conns_for_guard,
+                tcp_manager,
+            }) => r,
             // Draining server (ADR-0101): cancel the connection's future.
             // The socket drops with it, closing the TCP stream; clients
             // treat the disconnect exactly like a Close frame — reconnect
@@ -1709,8 +1718,9 @@ async fn handle_wire_stream(
     Ok(())
 }
 
-#[allow(clippy::result_large_err)]
-async fn handle_connection<S>(
+/// Everything one accepted TCP connection brings to its handshake: the socket,
+/// the shared services it talks to, and the drain/cancel plumbing that owns it.
+struct ConnectionParams<S> {
     stream: S,
     registry: Arc<crate::registry::SessionRegistry>,
     token: Option<String>,
@@ -1719,10 +1729,23 @@ async fn handle_connection<S>(
     listeners: CancellationToken,
     conns: Arc<ConnTable>,
     tcp_manager: Option<Arc<TcpManager>>,
-) -> Result<(), String>
+}
+
+#[allow(clippy::result_large_err)] // One handshake path: the rejection carries the HTTP reason verbatim.
+async fn handle_connection<S>(params: ConnectionParams<S>) -> Result<(), String>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    let ConnectionParams {
+        stream,
+        registry,
+        token,
+        expose,
+        gate,
+        listeners,
+        conns,
+        tcp_manager,
+    } = params;
     // One handshake path for every TCP connection (ADR-0105), token or not:
     // the callback is where browser-origin and Host validation live, and
     // those checks apply to unauthenticated loopback listeners too.

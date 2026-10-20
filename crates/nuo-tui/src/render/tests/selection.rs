@@ -1,5 +1,9 @@
 //! Semantic selection tests: wrapped-line intersection, block coverage, virtual index geometry.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use super::*;
 
 #[test]

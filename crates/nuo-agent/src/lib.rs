@@ -1,6 +1,9 @@
 //! Cognitive agent runtime: session lifecycle, tool dispatch, and
 //! token-pressure management, plus first-class agent-to-agent collaboration.
 
+// Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
+// test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
+// so the shipped graph stays under the workspace `deny` for these lints.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub use acp;

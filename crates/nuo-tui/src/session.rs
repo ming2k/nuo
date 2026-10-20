@@ -626,7 +626,8 @@ mod tests {
         // Each scene reads its own scene-local liveness: the aside its
         // `is_responding`, the subagent the viewed child's
         // `focused_subagent_running` — never the primary's `is_responding`.
-        for (mode, expected) in [(Mode::Subagent, InputAction::InterruptSubagent)] {
+        let (mode, expected) = (Mode::Subagent, InputAction::InterruptSubagent);
+        {
             let mut c = ctx(mode, |c| {
                 c.is_responding = true;
                 c.focused_subagent_running = true;

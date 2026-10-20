@@ -1,5 +1,9 @@
 //! Transcript layout-map tests: heights, turn headers, gaps, semantic region recording.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use super::*;
 
 /// The transcript content rect must be recorded after rendering so that

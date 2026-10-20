@@ -27,9 +27,10 @@ impl CompleteKind {
 }
 
 /// The four canonical mutually exclusive interaction modes of the Composer ([INV-COMP-01]).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ComposerMode {
     /// 1. Edit: The foundational free-text drafting state (Readline key conventions).
+    #[default]
     Edit,
 
     /// 2. Recall: In-place session prompt stepping via ↑/↓/Alt-P/Alt-N ([INV-COMP-02]).
@@ -55,12 +56,6 @@ pub enum ComposerMode {
         /// Highlighted completion item index.
         selected_index: usize,
     },
-}
-
-impl Default for ComposerMode {
-    fn default() -> Self {
-        Self::Edit
-    }
 }
 
 impl ComposerMode {

@@ -427,7 +427,7 @@ mod tests {
                 ],
             })),
             plan: None,
-            state: ConnectionUsageState::Available(Box::new(nuo_wire::ProviderUsage::default())),
+            state: ConnectionUsageState::Available(Box::default()),
             earliest_reset_ms: None,
         };
 

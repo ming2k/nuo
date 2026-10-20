@@ -1243,6 +1243,18 @@ struct DomainAgentFile {
     tool_variants: Option<ToolVariantsConfig>,
 }
 
+/// Fail-fast boundary for the configuration matrix (`[INV-CONF-04]`).
+///
+/// A malformed or unmigratable config file is unrecoverable: carrying on would run
+/// the daemon on a half-applied domain matrix, which is precisely the silent
+/// degradation that invariant forbids. Kept as *one* auditable abort point rather
+/// than scattered `panic!`s, and exempted from the workspace `panic` deny because
+/// no caller can act on the error — `Config::load` is deliberately infallible.
+#[allow(clippy::panic)]
+fn fatal_config(message: std::fmt::Arguments<'_>) -> ! {
+    panic!("nuo: {message}");
+}
+
 impl Config {
     pub fn load() -> Self {
         Self::promote_legacy_config_if_needed();
@@ -1270,7 +1282,9 @@ impl Config {
             return;
         }
         if let Err(error) = Self::migrate_legacy_config() {
-            panic!("nuo: could not migrate legacy config.toml: {error}");
+            fatal_config(format_args!(
+                "could not migrate legacy config.toml: {error}"
+            ));
         }
         let _ = fs::remove_file(&legacy);
     }
@@ -1317,7 +1331,10 @@ impl Config {
         let content = fs::read_to_string(path).ok()?;
         match toml::from_str::<T>(&content) {
             Ok(value) => Some(value),
-            Err(error) => panic!("nuo: invalid config file {}: {error}", path.display()),
+            Err(error) => fatal_config(format_args!(
+                "invalid config file {}: {error}",
+                path.display()
+            )),
         }
     }
 
@@ -1386,7 +1403,7 @@ impl Config {
             }
             if let Some(c) = agent_doc.context {
                 if let Err(error) = c.validate() {
-                    panic!("nuo: invalid agent.toml [context]: {error}");
+                    fatal_config(format_args!("invalid agent.toml [context]: {error}"));
                 }
                 cfg.context = c;
             }

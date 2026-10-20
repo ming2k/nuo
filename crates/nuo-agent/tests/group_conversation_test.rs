@@ -2,6 +2,8 @@
 //! context, subscription policy must control interruption, and a member that was
 //! busy must be able to catch up.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use acp::{ChannelId, Fabric, SubscriptionMode};

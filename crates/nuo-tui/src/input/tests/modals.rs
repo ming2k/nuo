@@ -1,5 +1,9 @@
 //! Modal input routing tests: models/connections modals, fuzzy filters, question modals, queue/oauth editors, focus.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use super::*;
 use crate::surfaces::{DialogKind, OverlaySurface};
 

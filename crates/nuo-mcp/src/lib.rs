@@ -4,6 +4,11 @@
 //! bridging from external MCP servers to [`nuo_tool::Tool`], and bidirectional
 //! MCP server export for external AI agent hosts.
 
+// Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
+// test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
+// so the shipped graph stays under the workspace `deny` for these lints.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod adapter;
 pub mod client;
 pub mod config;

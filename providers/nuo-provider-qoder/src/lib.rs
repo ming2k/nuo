@@ -1,6 +1,11 @@
 //! The `qoder` provider template: Alibaba Qoder's subscription coding
 //! platform (`api*.qoder.sh`, CN: `*.qoder.com.cn`), COSY-signed SSE wire.
 
+// Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
+// test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
+// so the shipped graph stays under the workspace `deny` for these lints.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod identity;
 pub mod oauth;
 pub mod pipeline;
@@ -92,14 +97,15 @@ pub fn sign_catalog_request(
     let cosy = wire::signer::CosyIdentity::parse(identity.machine_key_hex.expose_secret())
         .ok_or_else(|| "the connection's machine key is malformed".to_string())?;
     let identity_json = identity.identity_payload_json(bearer, "");
-    Ok(wire::signer::prepare_request_for_path(
+    wire::signer::prepare_request_for_path(
         &cosy,
         &identity_json,
         &identity.uid,
         "",
         signed_path,
         now_secs,
-    ))
+    )
+    .ok_or_else(|| "could not wrap the Qoder COSY identity".to_string())
 }
 
 /// Build the Qoder catalog signer from the persisted identity.

@@ -8,6 +8,25 @@ const QODER_ALPHABET: &[u8; 64] =
     b"_doRTgHZBKcGVjlvpC,@aFSx#DPuNJme&i*MzLOEn)sUrthbf%Y^w.(kIQyXqWA!";
 const STANDARD_B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+/// Standard-base64 byte → Qoder-alphabet byte, identity everywhere else.
+///
+/// A table, not a search: the substitution becomes a total lookup, so there is no
+/// "base64 char not in the alphabet" case left to assert on.
+const QODER_REMAP: [u8; 256] = {
+    let mut table = [0u8; 256];
+    let mut i = 0;
+    while i < 256 {
+        table[i] = i as u8;
+        i += 1;
+    }
+    let mut i = 0;
+    while i < STANDARD_B64.len() {
+        table[STANDARD_B64[i] as usize] = QODER_ALPHABET[i];
+        i += 1;
+    }
+    table
+};
+
 /// Encode raw JSON bytes using QoderEncoding.
 pub fn encode_body(raw: &[u8]) -> String {
     let b64 = base64::engine::general_purpose::STANDARD.encode(raw);
@@ -15,13 +34,7 @@ pub fn encode_body(raw: &[u8]) -> String {
         .bytes()
         .map(|c| match c {
             b'=' => '$',
-            _ => {
-                let idx = STANDARD_B64
-                    .iter()
-                    .position(|&s| s == c)
-                    .expect("base64 char");
-                QODER_ALPHABET[idx] as char
-            }
+            other => QODER_REMAP[other as usize] as char,
         })
         .collect();
     outer_third_swap(&remapped)
@@ -45,16 +58,20 @@ pub fn decode_body(encoded: &str) -> Option<Vec<u8>> {
 }
 
 /// Swap outer thirds: `A‖B‖C` → `C‖B‖A` where `k = len/3`.
+///
+/// Permutes characters rather than bytes, so it cannot split a UTF-8 sequence;
+/// on the pure-ASCII alphabets this codec handles the result is byte-identical
+/// to a byte permutation, but no input can make it fail.
 pub fn outer_third_swap(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let k = bytes.len() / 3;
-    let (a, rest) = bytes.split_at(k);
+    let chars: Vec<char> = s.chars().collect();
+    let k = chars.len() / 3;
+    let (a, rest) = chars.split_at(k);
     let (b, c) = rest.split_at(rest.len() - k);
-    let mut out = Vec::with_capacity(bytes.len());
-    out.extend_from_slice(c);
-    out.extend_from_slice(b);
-    out.extend_from_slice(a);
-    String::from_utf8(out).expect("byte-level permutation of ASCII")
+    let mut out = String::with_capacity(s.len());
+    out.extend(c);
+    out.extend(b);
+    out.extend(a);
+    out
 }
 
 /// BodyCodecPhase implementation for Qoder.

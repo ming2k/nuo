@@ -3,6 +3,10 @@
 //! Shared fixtures live here in `mod.rs`; the per-surface test groups are
 //! sibling modules.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use super::*;
 use nuo_wire::{AgentResponse, LoopStatus, Message, Role, RoundEvent, ToolCall};
 

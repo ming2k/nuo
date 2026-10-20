@@ -153,7 +153,7 @@ pub async fn fetch_remote_catalog(
                 request = request.header(name.as_str(), value);
             }
             for (name, value) in req.extra_headers {
-                request = request.header(*name, *value);
+                request = request.header(name, *value);
             }
             nuo_provider_transport::http::Http::control_plane()
                 .map_err(ModelListError::Http)?

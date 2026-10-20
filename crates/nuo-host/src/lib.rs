@@ -5,7 +5,10 @@
 //! mechanisms stay behind those boundaries so callers never emulate a missing
 //! capability with a successful no-op.
 
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+// Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
+// test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
+// so the shipped graph stays under the workspace `deny` for these lints.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod clipboard;
 pub mod color_scheme;

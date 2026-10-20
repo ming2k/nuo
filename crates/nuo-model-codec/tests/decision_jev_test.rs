@@ -1,5 +1,9 @@
 //! Integration and wire fidelity tests for System One decision models (TypeSafe Jev).
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use nuo_model_codec::decision::{
     DecisionAnswer, DecisionEndpoint, DecisionRequest, DecisionResponse, DecisionUsage, NoulAnswer,
 };

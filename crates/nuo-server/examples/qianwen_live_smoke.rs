@@ -6,7 +6,7 @@
 //! `QIANWEN_API_KEY=sk-sp-… cargo run -p nuo-server --example qianwen_live_smoke`
 //!
 //! Hits the real API, so it is deliberately an example, not a test.
-#![allow(clippy::expect_used)]
+#![allow(clippy::expect_used, clippy::panic)]
 
 use async_trait::async_trait;
 use nuo_host::SecretString;

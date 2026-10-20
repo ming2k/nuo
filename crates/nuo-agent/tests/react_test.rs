@@ -3,6 +3,8 @@
 //! This deliberately drives an agent rather than a loop object: the loop is an
 //! implementation detail, so tests must not be able to depend on it directly.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use nuo_agent::agent::Agent;

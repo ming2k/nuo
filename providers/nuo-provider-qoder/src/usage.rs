@@ -171,7 +171,6 @@ pub(crate) fn parse_qoder_userinfo(body: QoderUserInfoResponse) -> Result<Provid
     // Account identity fields feed the connection detail view (who am I
     // connected as) and match the account-scoped semantics other fetchers
     // expose; they are surfaced as metrics so the UI shows the account.
-    let mut metrics = metrics;
     if let Some(email) = &data.email {
         metrics.push(UsageMetric {
             label: "Account".to_string(),

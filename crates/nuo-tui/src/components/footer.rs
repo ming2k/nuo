@@ -107,7 +107,7 @@ impl FooterHint {
 
     /// Convert this footer hint to an ADR-0054 [`crate::components::keycap::KeyAffordance`].
     #[allow(dead_code)]
-    pub(crate) fn to_key_affordance(&self) -> super::keycap::KeyAffordance {
+    pub(crate) fn to_key_affordance(self) -> super::keycap::KeyAffordance {
         let intent = match self.priority {
             FooterPriority::Primary => AffordanceIntent::Primary,
             _ => AffordanceIntent::Neutral,

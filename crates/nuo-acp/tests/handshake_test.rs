@@ -7,6 +7,8 @@
 //! coverage must live here, independent of any cognitive runtime, so it
 //! survives the retirement of the orphaned `nuo-agent` runtime.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use nuo_acp::*;

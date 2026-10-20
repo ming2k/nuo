@@ -1,6 +1,8 @@
 //! Verifies uncompromised tool behaviors: cooperative cancellation,
 //! capability risk profiles, and execution error observations.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use nuo_agent::agent::Agent;

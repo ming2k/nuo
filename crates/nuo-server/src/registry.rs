@@ -407,9 +407,11 @@ impl SessionRegistry {
     ///
     /// Returns the session's [`acp::MailboxHandle`] so the caller can wire ACP
     /// collaboration tools into the live agent (ADR-0008 step 8 / ADR-0009 §3).
-    async fn register_session_mailbox(&self, session_id: &str) -> acp::MailboxHandle {
-        let addr = acp::AgentAddress::parse(&format!("agent://local/session/{session_id}"))
-            .expect("valid session address");
+    async fn register_session_mailbox(&self, session_id: &str) -> Option<acp::MailboxHandle> {
+        // Mesh registration is fail-open observability (ADR-0167): an
+        // unaddressable session id skips the mailbox instead of aborting the
+        // session, and the caller simply wires no collaboration tools.
+        let addr = acp::AgentAddress::parse(&format!("agent://local/session/{session_id}")).ok()?;
         let manifest = acp::AgentManifest::new(
             addr.clone(),
             format!("Session {session_id}"),
@@ -433,7 +435,7 @@ impl SessionRegistry {
                 .await,
             ));
         }
-        handle
+        Some(handle)
     }
 
     /// Drop one session's ACP mailbox (teardown path).
@@ -1511,16 +1513,19 @@ impl SessionRegistry {
         // tools can address peers and channels on the server fabric.
         #[cfg(feature = "collaboration")]
         {
-            let addr = acp::AgentAddress::parse(&format!("agent://local/session/{session_id}"))
-                .expect("valid session address");
-            let ctx = Arc::new(acp::AcpToolContext::for_fabric(
-                addr,
-                self.fabric.clone(),
+            if let (Ok(addr), Some(mailbox)) = (
+                acp::AgentAddress::parse(&format!("agent://local/session/{session_id}")),
                 mailbox_handle,
-                std::time::Duration::from_secs(120),
-            ));
-            let acp_tools = acp::create_acp_tools(ctx);
-            boot.agent.dynamic_tool_sink().replace("acp", acp_tools);
+            ) {
+                let ctx = Arc::new(acp::AcpToolContext::for_fabric(
+                    addr,
+                    self.fabric.clone(),
+                    mailbox,
+                    std::time::Duration::from_secs(120),
+                ));
+                let acp_tools = acp::create_acp_tools(ctx);
+                boot.agent.dynamic_tool_sink().replace("acp", acp_tools);
+            }
         }
         #[cfg(not(feature = "collaboration"))]
         {

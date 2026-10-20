@@ -93,20 +93,20 @@ impl ConformanceReport {
         self.outcomes.iter().filter(|outcome| !outcome.passed)
     }
 
-    /// Panic with every failure named. The one call a host test makes.
+    /// Fail with every failure named. The one call a host test makes.
+    ///
+    /// Expressed as an assertion (`assert!` formats its message only on failure),
+    /// so this stays a reporting helper rather than a panicking code path.
     pub fn assert_all_passed(&self) {
-        if self.passed() {
-            return;
-        }
-        let failures: Vec<String> = self
-            .failures()
-            .map(|failure| format!("  {}: {}", failure.name, failure.detail))
-            .collect();
-        panic!(
+        assert!(
+            self.passed(),
             "the durability sink is not conformant ({} of {} checks failed):\n{}",
-            failures.len(),
+            self.failures().count(),
             self.outcomes.len(),
-            failures.join("\n")
+            self.failures()
+                .map(|failure| format!("  {}: {}", failure.name, failure.detail))
+                .collect::<Vec<_>>()
+                .join("\n")
         );
     }
 }

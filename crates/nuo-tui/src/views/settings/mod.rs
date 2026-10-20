@@ -421,7 +421,7 @@ fn draw_categories_pane(
     let mut category_rects = Vec::new();
     for (i, _) in ConfigCategory::ALL.iter().enumerate() {
         let line_top = i * 2;
-        if line_top + 1 <= content_offset || line_top >= content_offset + visible_rows {
+        if line_top < content_offset || line_top >= content_offset + visible_rows {
             continue;
         }
         let rel_y = line_top.saturating_sub(content_offset) as u16;

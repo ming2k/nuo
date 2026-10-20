@@ -80,11 +80,19 @@ fn write_pointer(root: &mut Value, pointer: &str, value: Value) {
         if !cursor.is_object() {
             *cursor = Value::Object(Map::new());
         }
-        let obj = cursor.as_object_mut().expect("cursor was made an object");
+        // Both `let .. else` arms are unreachable by construction; they fail
+        // closed instead of asserting so a malformed pointer can never abort the
+        // request path (it simply writes a shorter prefix).
+        let Value::Object(obj) = cursor else {
+            return;
+        };
         if !obj.contains_key(*segment) || !obj.get(*segment).is_some_and(Value::is_object) {
             obj.insert((*segment).to_string(), Value::Object(Map::new()));
         }
-        cursor = obj.get_mut(*segment).expect("entry was just inserted");
+        let Some(next) = obj.get_mut(*segment) else {
+            return;
+        };
+        cursor = next;
     }
 }
 

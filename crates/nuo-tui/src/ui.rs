@@ -100,7 +100,11 @@ impl ComponentTree {
 
     pub fn commit(&mut self) {
         if let Err(error) = self.runtime.commit() {
-            panic!("invalid application component frame: {error}");
+            // A rejected component tree is a layout/programming error. Report it and
+            // keep the previous frame: crashing the TUI would destroy the session
+            // state the user is looking at.
+            tracing::error!(%error, "nuo tui: component tree rejected; frame not committed");
+            return;
         }
         if let Some(document) = self.pending_document.take() {
             self.document = document;
@@ -338,7 +342,9 @@ impl ComponentTree {
             self.runtime.mount(component)
         };
         if let Err(error) = result {
-            panic!("invalid component {key:?}: {error}");
+            // The component simply stays unmounted; the frame renders without it and
+            // the next layout pass can still succeed.
+            tracing::error!(?key, %error, "nuo tui: component rejected; not mounted");
         }
     }
 
@@ -346,6 +352,12 @@ impl ComponentTree {
         self.mount(UiKey::Completion, rect);
     }
 
+    /// Paint a mounted component.
+    ///
+    /// Painting a key that was never mounted is a caller bug, and `R` cannot be
+    /// fabricated for a skipped paint, so this is the one place in the render facade
+    /// that must fail loudly instead of degrading.
+    #[allow(clippy::panic)]
     pub fn paint<R>(
         &self,
         frame: &mut nuotc::Frame<'_>,

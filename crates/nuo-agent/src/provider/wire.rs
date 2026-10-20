@@ -323,13 +323,15 @@ impl Provider for ModelCodecAdapter {
                                 }
                             }
                             Ok(nuo_model_codec::capability::ProviderStreamEvent::Usage(u)) => {
-                                let mut delta = super::ProviderDelta::default();
-                                delta.usage = Some(super::TokenUsage {
-                                    prompt_tokens: u.prompt_tokens.max(0) as usize,
-                                    completion_tokens: u.completion_tokens.max(0) as usize,
-                                    total_tokens: u.total_tokens.max(0) as usize,
-                                    cached_tokens: u.cache_read_input_tokens.max(0) as usize,
-                                });
+                                let delta = super::ProviderDelta {
+                                    usage: Some(super::TokenUsage {
+                                        prompt_tokens: u.prompt_tokens.max(0) as usize,
+                                        completion_tokens: u.completion_tokens.max(0) as usize,
+                                        total_tokens: u.total_tokens.max(0) as usize,
+                                        cached_tokens: u.cache_read_input_tokens.max(0) as usize,
+                                    }),
+                                    ..Default::default()
+                                };
                                 if tx.send(Ok(delta)).await.is_err() {
                                     return;
                                 }

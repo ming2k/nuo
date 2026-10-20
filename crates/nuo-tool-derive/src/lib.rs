@@ -21,7 +21,10 @@
 //! This is deliberately a small, dependency-light macro (syn/quote only — no
 //! heavy external schema runtime) so the schema shape is fully deterministic and auditable.
 
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+// Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
+// test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
+// so the shipped graph stays under the workspace `deny` for these lints.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use proc_macro::TokenStream;
 use quote::quote;

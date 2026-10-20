@@ -977,7 +977,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     });
                     show_local_toast(
                         app,
-                        &format!("Switched active connection to `{conn_name}`"),
+                        format!("Switched active connection to `{conn_name}`"),
                         false,
                         std::time::Duration::from_millis(1500),
                     );
@@ -1070,27 +1070,25 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             handle_config_activate(app);
         }
         input::InputAction::ConfigSegmentPrev => {
-            if app.current_scene() == SceneKind::Settings {
-                if crate::overlays::ConfigCategory::from_index(app.config_category)
+            if app.current_scene() == SceneKind::Settings
+                && crate::overlays::ConfigCategory::from_index(app.config_category)
                     == crate::overlays::ConfigCategory::WebReader
-                {
-                    app.config_category = crate::overlays::ConfigCategory::WebSearch as usize;
-                    app.config_detail_index = 0;
-                    app.config_detail_scroll = 0;
-                    app.config_hover_index = None;
-                }
+            {
+                app.config_category = crate::overlays::ConfigCategory::WebSearch as usize;
+                app.config_detail_index = 0;
+                app.config_detail_scroll = 0;
+                app.config_hover_index = None;
             }
         }
         input::InputAction::ConfigSegmentNext => {
-            if app.current_scene() == SceneKind::Settings {
-                if crate::overlays::ConfigCategory::from_index(app.config_category)
+            if app.current_scene() == SceneKind::Settings
+                && crate::overlays::ConfigCategory::from_index(app.config_category)
                     == crate::overlays::ConfigCategory::WebSearch
-                {
-                    app.config_category = crate::overlays::ConfigCategory::WebReader as usize;
-                    app.config_detail_index = 0;
-                    app.config_detail_scroll = 0;
-                    app.config_hover_index = None;
-                }
+            {
+                app.config_category = crate::overlays::ConfigCategory::WebReader as usize;
+                app.config_detail_index = 0;
+                app.config_detail_scroll = 0;
+                app.config_hover_index = None;
             }
         }
         input::InputAction::McpToggle => {

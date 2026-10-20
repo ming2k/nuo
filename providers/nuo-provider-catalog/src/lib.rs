@@ -16,7 +16,10 @@
 //! `ANTHROPIC_VERSION` is re-exported from `nuo-provider-anthropic` because the
 //! Anthropic parser stamps it on the catalog request.
 
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+// Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
+// test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
+// so the shipped graph stays under the workspace `deny` for these lints.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 // ── Ports & envelopes (unchanged home: the contract leaf) ──
 pub use nuo_model_codec::CatalogShape;

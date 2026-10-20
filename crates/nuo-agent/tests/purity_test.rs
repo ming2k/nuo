@@ -4,6 +4,8 @@
 //! capability must never depend on whether it happens to be attached to a
 //! transport, and every tool advertised to the model must be executable by it.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use acp::{AgentAddress, AgentManifest, Fabric};

@@ -5,6 +5,8 @@
 //! to the mentioning agent. A serve loop acts only on Delegate/Query/Steer, so
 //! that reply was silently discarded and the answer was lost entirely.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use acp::{ChannelId, Fabric, SubscriptionMode};

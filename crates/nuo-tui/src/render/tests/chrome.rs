@@ -1,5 +1,9 @@
 //! Chrome and layout shells: footer stack, too-small notice, empty states, brand head band, H1 underline rules, config appearance pages.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use super::*;
 
 /// A fixed thread head for the scene tests (ADR-0043, ADR-0060): the head band's row 2

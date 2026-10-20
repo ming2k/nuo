@@ -31,8 +31,7 @@ pub async fn load_substrate_mcp_tools(
 
 /// Convert a `nous-mcp` tool definition and client into a Nuo application `Tool`.
 pub fn adapt_mcp_tool(client: Arc<McpClient>, tool_def: McpToolDefinition) -> Arc<dyn Tool> {
-    let native_tool = Arc::new(McpNativeTool::new(client, tool_def));
-    native_tool
+    (Arc::new(McpNativeTool::new(client, tool_def))) as _
 }
 
 #[cfg(test)]

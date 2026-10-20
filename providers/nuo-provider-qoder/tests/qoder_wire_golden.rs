@@ -9,9 +9,11 @@
 //! (`nuo-llm-client`) and the Qoder wire implementation without inverting the
 //! dependency graph.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 // Golden-wire tests assert on parsed JSON; an `expect` that names the missing
 // field is the most useful failure mode here.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use nuo_model_codec::{ClientPreset, ResolvedAuth, SecretString, TransportTelemetry};
 use nuo_provider_openai::OpenAiChatCompletionsProvider;

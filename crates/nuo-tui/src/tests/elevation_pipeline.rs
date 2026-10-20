@@ -1,6 +1,10 @@
 //! End-to-end integration tests for ADR-0053: Capability-First Visual Archetypes,
 //! Structural Elevation, and Responsive Layout Pipeline.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use nuotc::{ElevationArchetype, Frame, Grid, Modifier, Rect, SpatialCost, TerminalProfile};
 
 use crate::primitives::{ElevationContainer, LayoutTier, modal_frame};

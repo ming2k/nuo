@@ -61,16 +61,30 @@ pub(crate) struct AddConnectionParams {
 }
 
 /// Register a user-declared model provider surface (ADR-0258).
-pub(crate) fn register_provider(
-    id: String,
-    label: Option<String>,
-    root_url: String,
-    protocol: Option<WireProtocol>,
-    client_profile: Option<nuo_wire::ClientPreset>,
-    user_agent: Option<String>,
-    catalog_format: Option<String>,
-    dialect: Option<String>,
-) -> Result<(), String> {
+/// Request-specific payload for [`register_provider`]: the declared surface of
+/// a user-registered model provider (ADR-0258).
+pub(crate) struct RegisterProviderParams {
+    pub id: String,
+    pub label: Option<String>,
+    pub root_url: String,
+    pub protocol: Option<WireProtocol>,
+    pub client_profile: Option<nuo_wire::ClientPreset>,
+    pub user_agent: Option<String>,
+    pub catalog_format: Option<String>,
+    pub dialect: Option<String>,
+}
+
+pub(crate) fn register_provider(params: RegisterProviderParams) -> Result<(), String> {
+    let RegisterProviderParams {
+        id,
+        label,
+        root_url,
+        protocol,
+        client_profile,
+        user_agent,
+        catalog_format,
+        dialect,
+    } = params;
     let mut store = ModelProviders::try_load()?;
     let existing = store.get_provider(&id).cloned();
     let protocol_roots = store
@@ -1510,7 +1524,7 @@ async fn run_oauth(
         }
     };
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let token_set = nuo_oauth::build_token_set_from_login(&oauth, &label, tokens, now_ms).await;
+    let token_set = nuo_oauth::build_token_set_from_login(&oauth, label, tokens, now_ms).await;
     Some(token_set)
 }
 
@@ -2034,7 +2048,7 @@ fn build_provider_quota_snapshot(
             nuo_wire::ConnectionUsageState::Available(u) => u
                 .primary_balance
                 .as_deref()
-                .map_or(false, |b| b.starts_with("0%") || b.contains("DEPLETED")),
+                .is_some_and(|b| b.starts_with("0%") || b.contains("DEPLETED")),
             _ => false,
         })
         .count();

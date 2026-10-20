@@ -700,8 +700,7 @@ fn draw_composer_impl(
             let mut ghost_cols = 0;
             if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
                 if start + i == wrapped.len() - 1 {
-                    if ghost.starts_with(input) {
-                        let suffix = &ghost[input.len()..];
+                    if let Some(suffix) = ghost.strip_prefix(input) {
                         let ghost_first_line = match suffix.find('\n') {
                             Some(pos) => &suffix[..pos],
                             None => suffix,

@@ -452,10 +452,9 @@ fn parse_dir_entry(line: &str) -> Option<DirEntry<'_>> {
         (ListingClass::Exec, rest)
     } else if let Some(rest) = rest.strip_prefix("[LINK]") {
         (ListingClass::Link, rest)
-    } else if let Some(rest) = rest.strip_prefix("[FILE]") {
-        (ListingClass::File, rest)
     } else {
-        return None;
+        let rest = rest.strip_prefix("[FILE]")?;
+        (ListingClass::File, rest)
     };
     let rest = rest.trim();
     // The name is left-justified in a fixed-width field, then ` (SIZE B)` is
@@ -2661,7 +2660,7 @@ pub(crate) struct NormalizedCode {
     pub detected_path: Option<String>,
 }
 
-fn parse_numbered_line<'a>(line: &'a str, delim: char) -> Option<(usize, &'a str)> {
+fn parse_numbered_line(line: &str, delim: char) -> Option<(usize, &str)> {
     let trimmed = line.trim_start();
     let digits_end = trimmed.find(|c: char| !c.is_ascii_digit())?;
     if digits_end == 0 {
@@ -2852,10 +2851,8 @@ pub(crate) fn normalize_code_content(
         header_start
     } else if let Some(offset) = arg_offset {
         offset
-    } else if let Some(first) = first_matched_num {
-        first
     } else {
-        1
+        first_matched_num.unwrap_or(1)
     };
 
     let mut content = clean_lines.join("\n");

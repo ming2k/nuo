@@ -193,10 +193,9 @@ impl Matcher {
 
         // Inductive case: one forward pass per needle char, maintaining a running
         // max so the inner loop stays O(h_len) instead of O(h_len^2).
-        for i in 1..n_len {
+        for (i, &ni) in n.iter().enumerate().take(n_len).skip(1) {
             let row_offset = i * h_len;
             let prev_row_offset = (i - 1) * h_len;
-            let ni = n[i];
 
             scratch.dp[row_offset..row_offset + h_len].fill(NEG);
             scratch.back[row_offset..row_offset + h_len].fill(None);

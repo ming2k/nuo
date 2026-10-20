@@ -2,6 +2,8 @@
 //! a transport link. This is the "agents on different hosts" topology — the
 //! in-process room tests do not exercise the gateway path.
 
+// Integration test target: assertions fail by panicking, so the production
+// no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::collections::HashMap;

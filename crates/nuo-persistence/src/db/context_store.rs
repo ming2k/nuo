@@ -723,7 +723,7 @@ mod tests {
         for id in ["s1", "s2"] {
             seed_session(&conn, id);
             commit_facts(
-                &mut conn,
+                &conn,
                 &FactCommit {
                     session_id: id,
                     branch_id: "main",
@@ -852,7 +852,7 @@ mod tests {
             policy_revision: 1,
         };
         let outcome = commit_view(
-            &mut conn,
+            &conn,
             &ViewCommit {
                 session_id: "s1",
                 branch_id: "main",
@@ -875,11 +875,11 @@ mod tests {
 
     #[test]
     fn a_branchless_commit_is_refused() {
-        let mut conn = initialize_in_memory_db().unwrap();
+        let conn = initialize_in_memory_db().unwrap();
         seed_session(&conn, "s1");
         // expected_revision != 0 with no branch row → BranchNotFound.
         let err = commit_facts(
-            &mut conn,
+            &conn,
             &FactCommit {
                 session_id: "s1",
                 branch_id: "ghost",
@@ -921,7 +921,7 @@ mod tests {
 
         let mut attempts = 0;
         let outcome = commit_view_with_cas(
-            &mut conn,
+            &conn,
             "s1",
             "main",
             "op-view",
@@ -952,7 +952,7 @@ mod tests {
         commit(&mut conn, 1, "other", &[fact("s1", 2)]).unwrap(); // revision 2
         let mut attempts = 0;
         let err = commit_view_with_cas(
-            &mut conn,
+            &conn,
             "s1",
             "main",
             "op-view",
@@ -982,7 +982,7 @@ mod tests {
         // normal commit after each read is impossible inside the closure (it has
         // no connection), so assert the bound directly with max_attempts = 0→1.
         let outcome = commit_view_with_cas(
-            &mut conn,
+            &conn,
             "s1",
             "main",
             "op-view",

@@ -915,11 +915,10 @@ fn wrap_impl(text: &str, max_width: usize, hidden_ranges: &[(usize, usize)]) -> 
             let mut moved_grapheme = None;
             if move_previous
                 && let Some((offset, last_g)) = current_line.grapheme_indices(true).next_back()
+                && offset > 0
             {
-                if offset > 0 {
-                    moved_grapheme = Some(last_g.to_string());
-                    current_line.truncate(offset);
-                }
+                moved_grapheme = Some(last_g.to_string());
+                current_line.truncate(offset);
             }
 
             if let Some(moved) = moved_grapheme {

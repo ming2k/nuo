@@ -415,7 +415,7 @@ mod tests {
         let text = "你好，世界！这是一个测试。";
         let count = count_tokens(text);
         // 13 characters -> approximately 13 tokens in modern tokenizers
-        assert!(count >= 10 && count <= 15, "got {count}");
+        assert!((10..=15).contains(&count), "got {count}");
     }
 
     #[test]

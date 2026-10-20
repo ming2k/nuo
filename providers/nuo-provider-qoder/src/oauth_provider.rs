@@ -235,24 +235,21 @@ impl OAuthProvider for QoderOAuthProvider {
             return Ok(stored);
         };
         let mut changed = false;
-        if identity.uid.is_empty() {
-            if let Ok(client) = Http::control_plane()
-                && let Ok(uid) =
-                    crate::oauth::fetch_uid(&client, stored.access.expose_secret()).await
-                && !uid.is_empty()
-            {
-                identity.uid = uid;
-                changed = true;
-            }
+        if identity.uid.is_empty()
+            && let Ok(client) = Http::control_plane()
+            && let Ok(uid) = crate::oauth::fetch_uid(&client, stored.access.expose_secret()).await
+            && !uid.is_empty()
+        {
+            identity.uid = uid;
+            changed = true;
         }
-        if identity.infer_endpoint.is_none() {
-            if let Ok(client) = Http::control_plane()
-                && let Ok(endpoint) =
-                    crate::elect_infer_endpoint(&client, stored.access.expose_secret()).await
-            {
-                identity.infer_endpoint = Some(endpoint);
-                changed = true;
-            }
+        if identity.infer_endpoint.is_none()
+            && let Ok(client) = Http::control_plane()
+            && let Ok(endpoint) =
+                crate::elect_infer_endpoint(&client, stored.access.expose_secret()).await
+        {
+            identity.infer_endpoint = Some(endpoint);
+            changed = true;
         }
         if !changed {
             return Ok(stored);

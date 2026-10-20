@@ -433,18 +433,18 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
 #[test]
 fn preset_connection_derives_models_from_the_preset() {
     let deepseek = instance("deepseek", Some("deepseek"));
-    let models = route_models(&deepseek, &RemoteCatalogCache::default(), &declarations());
+    let models = route_models(&deepseek, &RemoteCatalogCache::default(), declarations());
     assert_eq!(models, DEEPSEEK_BUILTIN_MODELS);
     // Catalog-enabled presets without a cache fall back to the snapshot.
     let openai = instance("openai", Some("openai"));
-    assert!(!route_models(&openai, &RemoteCatalogCache::default(), &declarations()).is_empty());
+    assert!(!route_models(&openai, &RemoteCatalogCache::default(), declarations()).is_empty());
 }
 
 #[test]
 fn openrouter_connection_derives_gateway_dialect_and_nex_seed() {
     let connection = instance("openrouter", Some("openrouter"));
     assert_eq!(
-        route_models(&connection, &RemoteCatalogCache::default(), &declarations()),
+        route_models(&connection, &RemoteCatalogCache::default(), declarations()),
         vec!["nex-agi/nex-n2.5-pro:free"]
     );
     let channel = derive_channel(
@@ -516,7 +516,7 @@ fn discovered_model_list_prefers_the_cache() {
     );
     let deepseek = instance("deepseek", Some("deepseek"));
     assert_eq!(
-        route_models(&deepseek, &cache, &declarations()),
+        route_models(&deepseek, &cache, declarations()),
         vec!["deepseek-v4-flash"]
     );
 }
@@ -530,7 +530,7 @@ fn declared_extra_models_union_after_the_derived_set() {
         ..Default::default()
     }];
     // Snapshot floor (no cache): extras append after the preset ids.
-    let models = route_models(&deepseek, &RemoteCatalogCache::default(), &declarations());
+    let models = route_models(&deepseek, &RemoteCatalogCache::default(), declarations());
     assert_eq!(models.first().map(String::as_str), Some("deepseek-flash"));
     assert!(models.contains(&"deepseek-v4-pro-preview-0912".to_string()));
 
@@ -542,7 +542,7 @@ fn declared_extra_models_union_after_the_derived_set() {
         vec!["deepseek-v4-flash".to_string()],
     );
     assert_eq!(
-        route_models(&deepseek, &cache, &declarations()),
+        route_models(&deepseek, &cache, declarations()),
         vec![
             "deepseek-v4-flash".to_string(),
             "deepseek-v4-pro-preview-0912".to_string()
@@ -553,11 +553,11 @@ fn declared_extra_models_union_after_the_derived_set() {
     // its snapshot floor is untouched and no extra id appears.
     let other = instance("ds-other", Some("deepseek"));
     assert_eq!(
-        route_models(&other, &cache, &declarations()),
+        route_models(&other, &cache, declarations()),
         DEEPSEEK_BUILTIN_MODELS
     );
     assert!(
-        !route_models(&other, &cache, &declarations())
+        !route_models(&other, &cache, declarations())
             .contains(&"deepseek-v4-pro-preview-0912".to_string())
     );
 
@@ -570,10 +570,7 @@ fn declared_extra_models_union_after_the_derived_set() {
             "deepseek-v4-pro-preview-0912".to_string(),
         ],
     );
-    assert_eq!(
-        route_models(&deepseek, &cache_hit, &declarations()).len(),
-        2
-    );
+    assert_eq!(route_models(&deepseek, &cache_hit, declarations()).len(), 2);
 }
 
 #[test]
@@ -636,7 +633,7 @@ fn custom_instance_serves_its_declared_models() {
         },
     ];
     assert_eq!(
-        route_models(&custom, &RemoteCatalogCache::default(), &declarations()),
+        route_models(&custom, &RemoteCatalogCache::default(), declarations()),
         vec!["a", "b"]
     );
     let entry = derive_entries(
@@ -677,7 +674,7 @@ fn adr0203_connection_pipe_valve_algebra() {
     // gpt-6-unannotated is remote-discovered but NOT in baseline, so it is filtered out.
     let mut conn = instance("my-openai", Some("openai"));
     conn.models.filter = Some(ConnectionFilterPolicy::Named(NamedFilterPolicy::Baseline));
-    let models = route_models(&conn, &cache, &declarations());
+    let models = route_models(&conn, &cache, declarations());
     assert!(models.contains(&"gpt-5.6-sol".to_string()));
     assert!(models.contains(&"gpt-5.6-luna".to_string()));
     assert!(
@@ -687,7 +684,7 @@ fn adr0203_connection_pipe_valve_algebra() {
 
     // 2. Open filter ("all"): all remote models pass through pipe!
     conn.models.filter = Some(ConnectionFilterPolicy::Named(NamedFilterPolicy::All));
-    let models = route_models(&conn, &cache, &declarations());
+    let models = route_models(&conn, &cache, declarations());
     assert!(
         models.contains(&"gpt-6-unannotated".to_string()),
         "open filter admits remote astra"
@@ -695,7 +692,7 @@ fn adr0203_connection_pipe_valve_algebra() {
 
     // 3. Glob pattern filter: admits matching pattern only.
     conn.models.filter = Some(ConnectionFilterPolicy::Glob(vec!["gpt-5.6*".to_string()]));
-    let models = route_models(&conn, &cache, &declarations());
+    let models = route_models(&conn, &cache, declarations());
     assert!(models.contains(&"gpt-5.6-sol".to_string()));
     assert!(models.contains(&"gpt-5.6-luna".to_string()));
     assert!(!models.contains(&"gpt-4o-mini".to_string()));
@@ -707,7 +704,7 @@ fn adr0203_connection_pipe_valve_algebra() {
         context_window: Some(1_050_000),
         ..Default::default()
     }];
-    let models = route_models(&conn, &cache, &declarations());
+    let models = route_models(&conn, &cache, declarations());
     assert!(
         models.contains(&"gpt-6-unannotated".to_string()),
         "inject bypasses glob filter"
@@ -715,7 +712,7 @@ fn adr0203_connection_pipe_valve_algebra() {
 
     // 5. Absolute block: prunes model unconditionally!
     conn.models.exclude = vec!["gpt-5.6-luna".to_string()];
-    let models = route_models(&conn, &cache, &declarations());
+    let models = route_models(&conn, &cache, declarations());
     assert!(
         !models.contains(&"gpt-5.6-luna".to_string()),
         "block prunes unconditionally"
@@ -731,7 +728,7 @@ fn remote_catalog_provider_defaults_to_open_admission() {
     let connection = instance("chatgpt", Some("openai-subscription"));
 
     assert_eq!(
-        route_models(&connection, &cache, &declarations()),
+        route_models(&connection, &cache, declarations()),
         vec!["gpt-6-astra"]
     );
 
@@ -739,7 +736,7 @@ fn remote_catalog_provider_defaults_to_open_admission() {
     cache
         .model_lists
         .insert("chatgpt".to_string(), ModelListCacheState::default());
-    assert!(route_models(&connection, &cache, &declarations()).is_empty());
+    assert!(route_models(&connection, &cache, declarations()).is_empty());
 }
 
 #[test]
@@ -1242,7 +1239,7 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
     let provider_id = "test-mock-agy";
     register_mock_provider(
         provider_id,
-        &format!("{}", server.url()),
+        &server.url().to_string(),
         WireProtocol::GoogleGemini,
         &[],
         nuo_provider::CatalogShape::GoogleCloudCode,
@@ -1543,14 +1540,7 @@ async fn successful_empty_remote_catalog_clears_previous_models() {
     let cache = RemoteCatalogCache::load();
     assert_eq!(cache.connection_models.get("deepseek"), Some(&Vec::new()));
     let connections = Connections::load();
-    assert!(
-        route_models(
-            connections.get("deepseek").unwrap(),
-            &cache,
-            &declarations()
-        )
-        .is_empty()
-    );
+    assert!(route_models(connections.get("deepseek").unwrap(), &cache, declarations()).is_empty());
 }
 
 #[tokio::test]
@@ -2179,7 +2169,7 @@ fn relay_surfaces_default_to_curated_noise_hygiene() {
     );
     let connection = instance("my-go", Some("opencode-plan"));
 
-    let models = route_models(&connection, &cache, &declarations());
+    let models = route_models(&connection, &cache, declarations());
     assert!(models.contains(&"deepseek-v4.1-flash".to_string()));
     assert!(models.contains(&"glm-5.3".to_string()));
     assert!(
@@ -2203,7 +2193,7 @@ fn relay_surfaces_default_to_curated_noise_hygiene() {
         ..Default::default()
     }];
     assert!(
-        route_models(&sovereign, &cache, &declarations()).contains(&"beam-free".to_string()),
+        route_models(&sovereign, &cache, declarations()).contains(&"beam-free".to_string()),
         "an explicit include is never filtered"
     );
 
@@ -2216,7 +2206,7 @@ fn relay_surfaces_default_to_curated_noise_hygiene() {
     );
     let native = instance("my-deepseek", Some("deepseek"));
     assert_eq!(
-        route_models(&native, &native_cache, &declarations()),
+        route_models(&native, &native_cache, declarations()),
         vec!["deepseek-v4.1-flash"]
     );
 }
@@ -2252,7 +2242,7 @@ fn relay_labels_and_seeds_survive_the_hygiene_valve() {
     );
 
     // A promotional id discovered from the relay is pruned from the listing.
-    let models = route_models(&connection, &cache, &declarations());
+    let models = route_models(&connection, &cache, declarations());
     assert!(models.contains(&"deepseek-v4.1-flash".to_string()));
     assert!(!models.contains(&"beam-free".to_string()));
 
@@ -2267,7 +2257,7 @@ fn relay_labels_and_seeds_survive_the_hygiene_valve() {
             "glm-5.3-flash-free".to_string(),
         ],
     );
-    let seeded = route_models(&connection, &seeded_cache, &declarations());
+    let seeded = route_models(&connection, &seeded_cache, declarations());
     assert!(
         seeded.contains(&"deepseek-v4.1-flash-free".to_string()),
         "a seeded free tier survives its own hygiene valve: {seeded:?}"

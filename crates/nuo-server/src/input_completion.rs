@@ -107,7 +107,7 @@ impl InputCompletionEngine {
                     .unwrap_or_default()
             })
             .await;
-        file_completion_items(input, query, at_start, cursor_end, &entries)
+        file_completion_items(input, query, at_start, cursor_end, entries)
     }
 
     async fn complete_namespaces(

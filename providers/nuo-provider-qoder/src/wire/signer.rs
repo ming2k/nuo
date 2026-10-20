@@ -46,10 +46,11 @@ pub struct CosyIdentity {
 }
 
 impl CosyIdentity {
+    /// Mint a fresh identity. `None` only if key wrapping fails — the generated
+    /// hex is 32 lowercase digits by construction (`fill_hex`).
     #[allow(dead_code)]
-    pub fn generate() -> Self {
-        let machine_key_hex = generate_machine_key_hex();
-        Self::from_machine_key_hex(machine_key_hex).expect("generated hex is 32 chars")
+    pub fn generate() -> Option<Self> {
+        Self::from_machine_key_hex(generate_machine_key_hex())
     }
 
     pub fn from_machine_key_hex(machine_key_hex: String) -> Option<Self> {
@@ -61,7 +62,7 @@ impl CosyIdentity {
             return None;
         }
         let key = key_bytes(&machine_key_hex);
-        let key_b64 = rsa_encrypt_with_pinned_key(&key);
+        let key_b64 = rsa_encrypt_with_pinned_key(&key)?;
         Some(Self {
             machine_key_hex,
             key_b64,
@@ -82,18 +83,21 @@ impl CosyIdentity {
         key_bytes(&self.machine_key_hex)
     }
 
-    fn encrypt_info(&self, plaintext: &str) -> String {
+    /// AES-CBC wrap of the identity payload. `None` means the cipher could not be
+    /// constructed or the plaintext overflowed the output buffer — both are
+    /// reported to the caller instead of aborting the transport task.
+    fn encrypt_info(&self, plaintext: &str) -> Option<String> {
         type Aes128Cbc = cbc::Encryptor<aes::Aes128>;
         let key = key_bytes(&self.machine_key_hex);
         let mut out = vec![0u8; plaintext.len() + 16];
-        let ct = Aes128Cbc::new_from_slices(&key, &key)
-            .expect("16-byte key and IV")
+        let cipher = Aes128Cbc::new_from_slices(&key, &key).ok()?;
+        let ct = cipher
             .encrypt_padded_b2b_mut::<cbc::cipher::block_padding::Pkcs7>(
                 plaintext.as_bytes(),
                 &mut out,
             )
-            .expect("exact block multiple");
-        base64::engine::general_purpose::STANDARD.encode(ct)
+            .ok()?;
+        Some(base64::engine::general_purpose::STANDARD.encode(ct))
     }
 }
 
@@ -119,20 +123,23 @@ fn fill_hex(out: &mut [u8]) {
 pub fn generate_machine_key_hex() -> String {
     let mut raw = [0u8; 32];
     fill_hex(&mut raw);
-    String::from_utf8(raw.to_vec()).expect("hex digits are valid ASCII")
+    // `fill_hex` only ever writes `HEX_DIGITS`, so collect the bytes as chars
+    // instead of validating UTF-8 that cannot be invalid here.
+    raw.iter().map(|byte| *byte as char).collect()
 }
 
-fn rsa_encrypt_with_pinned_key(data: &[u8]) -> String {
+/// Wrap `data` with the pinned Qoder RSA key. `None` if the pinned material or
+/// the encryption itself fails; callers surface that as an auth error rather
+/// than aborting the task.
+fn rsa_encrypt_with_pinned_key(data: &[u8]) -> Option<String> {
     use rsa::pkcs8::DecodePublicKey;
     let der = base64::engine::general_purpose::STANDARD
         .decode(QODER_RSA_PUBLIC_KEY_B64)
-        .expect("pinned key is valid base64");
-    let key = rsa::RsaPublicKey::from_public_key_der(&der).expect("pinned SPKI key parses");
+        .ok()?;
+    let key = rsa::RsaPublicKey::from_public_key_der(&der).ok()?;
     let mut rng = QoderRng;
-    let ciphertext = key
-        .encrypt(&mut rng, rsa::Pkcs1v15Encrypt, data)
-        .expect("encryption succeeds");
-    base64::engine::general_purpose::STANDARD.encode(ciphertext)
+    let ciphertext = key.encrypt(&mut rng, rsa::Pkcs1v15Encrypt, data).ok()?;
+    Some(base64::engine::general_purpose::STANDARD.encode(ciphertext))
 }
 
 struct QoderRng;
@@ -189,7 +196,7 @@ pub fn prepare_request(
     uid: &str,
     encoded_body: &str,
     now_secs: u64,
-) -> PreparedCosy {
+) -> Option<PreparedCosy> {
     prepare_request_for_path(
         identity,
         identity_json,
@@ -207,8 +214,8 @@ pub fn prepare_request_for_path(
     encoded_body: &str,
     signed_path: &str,
     now_secs: u64,
-) -> PreparedCosy {
-    let info = identity.encrypt_info(identity_json);
+) -> Option<PreparedCosy> {
+    let info = identity.encrypt_info(identity_json)?;
     let request_id = mint_cosy_request_id();
     let auth_payload = serde_json::json!({
         "version": "v1",
@@ -230,14 +237,14 @@ pub fn prepare_request_for_path(
     let digest = hasher.finalize();
     let signature_hex = format!("{digest:x}");
 
-    PreparedCosy {
+    Some(PreparedCosy {
         authorization: format!("Bearer COSY.{payload_b64}.{signature_hex}"),
         date: now_secs.to_string(),
         key: identity.key_b64.clone(),
         payload_b64,
         request_id,
         signature_hex,
-    }
+    })
 }
 
 fn mint_cosy_request_id() -> String {
@@ -340,7 +347,14 @@ impl RequestSignerPhase for CosyTransportSigner {
             encoded_body,
             SIGNED_PATH,
             now_secs,
-        );
+        )
+        .ok_or_else(|| {
+            ProviderError::new(
+                "qoder",
+                ProviderErrorKind::Authentication,
+                "could not wrap the Qoder COSY identity",
+            )
+        })?;
 
         // Stamp static identity headers
         for (name, value) in IDENTITY_HEADERS {

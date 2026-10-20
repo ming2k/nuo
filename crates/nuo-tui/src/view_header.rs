@@ -16,8 +16,8 @@
 //!   - For `Thread`: `THREAD <id_tail>` + authentic task title (with vestigial
 //!     dummy `thread` placeholders eliminated when untitled [INV-SCENE-01]).
 //!   - For Non-Thread (`Dashboard`, `Settings`): scene label + domain summary context.
-//!   On the right: right-aligned drill-in navigation stack / breadcrumbs
-//!   (`‹ thread › subagent #1 › diff`) with back affordance (`‹ `).
+//!   - On the right: right-aligned drill-in navigation stack / breadcrumbs
+//!     (`‹ thread › subagent #1 › diff`) with back affordance (`‹ `).
 //!
 //! - **Tier 3 — Sovereign ThreadContextBar (`draw_thread_context_bar`).**
 //!   Height: 1 row on Thread viewports; **0 rows on non-thread scenes** (`Dashboard`, `Settings`)
@@ -340,7 +340,7 @@ pub(crate) fn draw_scene_bar(
             }
         }
     } else {
-        let lead_label = if hints.breadcrumbs.map_or(true, |c| c.len() <= 1) {
+        let lead_label = if hints.breadcrumbs.is_none_or(|c| c.len() <= 1) {
             Some(hints.kind.scene_label())
         } else {
             None
