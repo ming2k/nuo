@@ -6,6 +6,51 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.44] - 2026-10-20
+
+### Added
+
+- **Every Documented Gate Now Has a Runner**: `.github/workflows/ci.yml`
+  executes the pre-release checklist on every push and pull request instead of
+  leaving it to whoever remembered to run it locally — which is how the
+  workspace reached 1,011 clippy diagnostics and 52 unformatted files. The
+  `verify` job runs `cargo fmt --all --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace` and `python3 scripts/check_adr_lineage.py`; the
+  `release` job (tags `v*` only, gated on `verify`) builds the prebuilt `nuo`
+  binaries for linux-x86_64, macOS-arm64 and windows-x86_64, which Playbook 2 of
+  `docs/dev/release-and-versioning.md` already promised.
+  `docs/dev/standards/workflow.md` §3 now lists all six items and names the
+  runner.
+- **`scripts/check_adr_lineage.py`**: walks `.rs` comments and `.md` prose and
+  fails on any `ADR-NNNN` citation that does not resolve inside `docs/adr/`,
+  with one explicit allowlist — the SQL bodies of shipped migrations, immutable
+  by construction.
+
+### Changed
+
+- **ADR Citations Are Resolvable or Absent**: 2,117 occurrences of 170
+  pre-ingestion ADR numbers (0085..0304) that no reader could verify and no
+  author could amend were retired across 341 files.
+  `scripts/retire_legacy_adr_refs.py` stripped the citation token — with its
+  `§` anchors, `'s` and `/` shorthand — and kept the sentence, because the
+  rationale is load-bearing while the pointer was dead. Scope is comment- and
+  prose-only: `.rs` string literals were never touched, since shipped migration
+  SQL is pinned by `MIGRATION_CATALOG_FINGERPRINT` and prompt/assertion strings
+  are behaviour. Where the citation was the grammatical subject or object, 16
+  sentences were reworded by hand, and 18 doc blocks split by a removal were
+  rejoined so no doc comment is left detached from its item. 22 message
+  literals (log lines, the MCP truncation notice, one-door invariant messages
+  and their matching `.contains(..)` assertions) were cleaned deliberately;
+  migration SQL comments stay frozen, so 15 legacy numbers remain there by
+  design — removing them would strand databases stamped by the old text.
+
+### Fixed
+
+- **Nested Changelog Bullets**: three sub-items under `[0.0.35]` and `[0.0.28]`
+  had their indentation stripped by the lineage migration and nest under their
+  parent again.
+
 ## [0.0.43] - 2026-10-20
 
 ### Changed
@@ -259,7 +304,7 @@ the project adheres to the federated SemVer model described in
   fail with `disk I/O error`, so workspace-security reads failed closed and
   the `[file asset trust]` pre-attach gate re-presented itself on every
   Enter with no visible cause. Two-sided hardening:
-- *Persistence (reader-wedge self-heal)*: the supervisor gained a
+  - *Persistence (reader-wedge self-heal)*: the supervisor gained a
     typed `RebuildEngine` verb with a `RetireEngine` handshake — the live
     engine is drained with an explicit `wal_checkpoint(FULL)` *while still
     fully functional* (an unlinked WAL's frames are recovered
@@ -270,7 +315,7 @@ the project adheres to the federated SemVer model described in
     failures and requests exactly one rebuild per wedge episode at the
     3-failure threshold (CAS latch, cleared by the next successful open);
     non-owner handles never request a rebuild.
-- *TUI (attestation outcome)*: a failed trust-grant round-trip is
+  - *TUI (attestation outcome)*: a failed trust-grant round-trip is
     now rendered on the gate itself (the server's `trust_changed` notice
     text), clearing the submitting spinner so the user can retry with full
     knowledge of the cause instead of looping a silent dialog; trust
@@ -384,7 +429,7 @@ the project adheres to the federated SemVer model described in
   - Dynamically mapped canonical `gemini-3.8-flash` with orthogonal reasoning effort depth to concrete wire variants (`gemini-3.8-flash-minimal/low/medium/high`) preventing upstream 404/400 errors.
   - Standardized companion project fallback to `aicode-consumers` across inference execution (`prepare_request_for_auth`) and quota queries (`fetch_usage_with_project`, `retrieve_antigravity_quota_summary`), preventing HTTP 429 `RESOURCE_EXHAUSTED` faults.
   - Preserved curated priority ordering (`[INV-CATALOG-01]`) for `CatalogShape::GoogleCloudCode` in `fetch_remote_catalog` to guarantee top-tier frontier models (`gemini-4-argon`, `gemini-3.8-flash`) lead model selection.
-- Lifted subscription-disabled variants (e.g. `gemini-4-argon-disabled`) into canonical representations with `Availability::locked`.
+  - Lifted subscription-disabled variants (e.g. `gemini-4-argon-disabled`) into canonical representations with `Availability::locked`.
 
 ## [0.0.27] - 2026-11-06
 
