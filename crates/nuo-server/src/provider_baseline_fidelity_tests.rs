@@ -761,10 +761,50 @@ const PRE_MIGRATION: &[Model] = &[
     },
 ];
 
+/// Ids whose capability row was **deliberately amended** after the registry
+/// migration, together with the record that authorized the amendment.
+///
+/// The snapshot above is a historical artifact: it proves the *migration* moved
+/// no capability data. A later, intentional capability change must not be
+/// folded back into it — that would erase the proof. Instead it is listed here,
+/// which keeps the exemption explicit and auditable.
+const POST_MIGRATION_AMENDMENTS: &[(&str, &str)] = &[
+    // ADR-0083: the retired V4 Flash generation is served by
+    // DeepSeek-V4.1-Flash-1017 upstream (multimodal), and the DeepSeek platform
+    // accepts its whole effort vocabulary — `none` is the thinking off switch.
+    ("deepseek-v4-flash", "ADR-0083"),
+    ("deepseek-v4-pro", "ADR-0083"),
+];
+
+#[test]
+fn every_post_migration_amendment_names_a_snapshotted_model() {
+    for (id, adr) in POST_MIGRATION_AMENDMENTS {
+        assert!(
+            PRE_MIGRATION.iter().any(|model| model.id == *id),
+            "{id} ({adr}) is exempted but never existed in the snapshot"
+        );
+    }
+}
+
 #[test]
 fn resolve_matches_the_pre_migration_registry_for_every_model() {
     assert_eq!(PRE_MIGRATION.len(), 56, "snapshot covers every known model");
     for expected in PRE_MIGRATION {
+        if let Some((_, adr)) = POST_MIGRATION_AMENDMENTS
+            .iter()
+            .find(|(id, _)| *id == expected.id)
+        {
+            // The capabilities are covered by the owning provider's spec tests;
+            // what must still hold here is that a post-migration amendment never
+            // renames or drops the id.
+            assert_eq!(
+                resolve_model(expected.id).id,
+                expected.id,
+                "{}: {adr} may amend capabilities, never identity",
+                expected.id
+            );
+            continue;
+        }
         let m = resolve_model(expected.id);
         assert_eq!(m.id, expected.id, "id");
         assert_eq!(m.family, expected.family, "{}: family", expected.id);

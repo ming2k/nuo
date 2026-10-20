@@ -291,11 +291,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         return ok(Mode::Fresh);
     };
     let extra = &rest[1..];
-    let unexpected = |arg: &str| {
-        Err(format!(
-            "unexpected argument '{arg}' found for 'nuo {cmd}'"
-        ))
-    };
+    let unexpected = |arg: &str| Err(format!("unexpected argument '{arg}' found for 'nuo {cmd}'"));
 
     if cmd == "run" {
         return Err(

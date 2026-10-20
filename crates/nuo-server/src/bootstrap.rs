@@ -18,7 +18,6 @@
 //! (or client-side) short-circuits and must be dispatched by the caller
 //! before invoking [`assemble`].
 
-use crate::catalog;
 use nuo_harness::orchestration::{ProxyProvider, round_response};
 use nuo_harness::{Agent, AgentIdentity, AgentRoleProfile, RoundLifecycle, SubagentTool};
 use nuo_wire::{
@@ -219,7 +218,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // Overlay persisted fitted-model metadata onto model resolution, so ids a
     // trusted provider advertised (but the static registry does not know)
     // resolve with their real capabilities from the very first request.
-    catalog::sync_fitted_model_registry();
+    nuo_catalog::sync_fitted_model_registry();
 
     // Startup is read-only for the remote catalog (ADR-0227). The persisted
     // per-connection `RemoteCatalogCache` plus the compiled baseline/seed are the
@@ -291,17 +290,17 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // an unknown default). Install the explicit `NoProvider` sentinel so the
     // holder type is satisfied; the chat dispatch refuses up-front with a
     // user-facing notification while this sentinel is live.
-    let provider_id = catalog::default_provider_id(&config);
+    let provider_id = nuo_catalog::default_provider_id(&config);
     crate::handlers_provider::refresh_oauth_if_needed(&config, provider_id).await;
 
     let session_id = session.id().await;
-    let initial_provider: Arc<dyn Provider> = catalog::build_provider_for_model(
+    let initial_provider: Arc<dyn Provider> = nuo_catalog::build_provider_for_model(
         &config,
         provider_id,
         config.default_model.as_deref(),
         Some(&session_id),
     )
-    .or_else(|| catalog::build_provider_for(&config, provider_id))
+    .or_else(|| nuo_catalog::build_provider_for(&config, provider_id))
     .unwrap_or_else(|| Arc::new(nuo_harness::NoProvider));
 
     let provider_holder = Arc::new(RwLock::new(initial_provider));
@@ -882,10 +881,13 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     let lifecycle = Arc::new(RoundLifecycle::new());
     let req_tx_for_commands = req_tx.clone();
     // Initial values for the frontend
-    let initial_provider_name = catalog::default_provider_id(&config).to_string();
-    let initial_model_name =
-        catalog::resolved_model_name_with_usage(&config, &initial_provider_name, &provider_usage)
-            .unwrap_or_default();
+    let initial_provider_name = nuo_catalog::default_provider_id(&config).to_string();
+    let initial_model_name = nuo_catalog::resolved_model_name_with_usage(
+        &config,
+        &initial_provider_name,
+        &provider_usage,
+    )
+    .unwrap_or_default();
 
     // Keep an Arc handle for the caller so SessionEnd hooks can
     // fire after its UI returns — the driver below moves `agent`.

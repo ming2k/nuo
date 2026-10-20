@@ -24,15 +24,20 @@ pub use nuo_model_codec::model_providers::OPENCODE_PLAN_MODELS;
 pub const MODELS: &[Model] = &[
     // DeepSeek (opencode-go / direct)
     Model {
+        // The retired V4 Flash generation: still accepted upstream and served by
+        // DeepSeek-V4.1-Flash-1017, so the capability row is the *serving*
+        // model's (1M, multimodal) and the effort ladder is the platform's
+        // accepted set (ADR-0083). Shared with `nuo-provider-deepseek`, which
+        // must stay byte-identical (the registry invariant).
         id: "deepseek-v4-flash",
         family: "deepseek",
         context_window: 1_000_000,
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
-        vision: false,
+        vision: true,
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
-        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
     },
     Model {
@@ -50,7 +55,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
-        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
     },
     Model {
@@ -62,7 +67,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
-        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
     },
     Model {
@@ -410,7 +415,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
-        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
     },
     Model {
@@ -432,8 +437,8 @@ inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
 #[cfg(test)]
 mod tests {
     use super::{MODELS, OPENCODE_PLAN_MODELS};
-    use nuo_model_codec::effort::Effort;
     use nuo_model_codec::model::{BaselineModels, resolve};
+    use nuo_provider::effort_ladders;
 
     /// A discovered id with no baseline entry falls back to the 128k/no-effort
     /// conservative default (`nuo_model_codec::model::fallback_model`), which
@@ -465,27 +470,28 @@ mod tests {
             );
             assert_eq!(
                 model.effort_levels,
-                &[Effort::Low, Effort::High, Effort::Max],
-                "{id}: DeepSeek's Go relay ladder"
+                effort_ladders::DEEPSEEK_NATIVE,
+                "{id}: the platform's accepted vocabulary, `none` (thinking off) included"
             );
             assert_eq!(model.context_window, 1_000_000, "{id}: 1M context");
             assert!(model.tool_call, "{id}: agent harness requires tool calls");
         }
     }
 
-    /// Ids the upstream endpoint table has retired stay unregistered: the
-    /// compiled baseline never outlives its source. A relay that still leaks
+    /// Ids the upstream endpoint table has retired stay out of *this* table: the
+    /// compiled baseline never outlives its source, so a relay that still leaks
     /// such an id from `/models` surfaces it capability-less (the conservative
-    /// fallback) instead of a hand-maintained shadow entry — the registry does
-    /// not curate aliases for spellings upstream dropped.
+    /// fallback) instead of from a hand-maintained shadow entry.
+    ///
+    /// `deepseek-flash` is the *official* platform id — `nuo-provider-deepseek`
+    /// registers it, and this relay simply does not serve it (ADR-0083). The
+    /// assertion is therefore table-scoped: the global registry is a union of
+    /// every linked provider's declarations, not this relay's private view.
     #[test]
-    fn retired_relay_ids_stay_unregistered() {
-        let model = resolve("deepseek-flash");
-        assert_eq!(model.id, "", "a retired id must not resolve to a name");
-        assert_eq!(model.context_window, 128_000, "retired id: fallback window");
+    fn relay_table_does_not_carry_ids_the_endpoint_table_dropped() {
         assert!(
-            model.effort_levels.is_empty(),
-            "retired id: no invented ladder"
+            !MODELS.iter().any(|model| model.id == "deepseek-flash"),
+            "the Go endpoint table no longer lists the bare `deepseek-flash`"
         );
     }
 
@@ -542,5 +548,6 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,
+    display_policy: nuo_provider::DisplayPolicy::Structural,
     models: OPENCODE_PLAN_MODELS,
 };

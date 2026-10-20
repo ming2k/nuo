@@ -530,10 +530,9 @@ fn split_dir_leaf(raw: &str) -> (Option<&str>, &str) {
 ///   no per-row type glyph. The entry's class colours the name the way `ls`
 ///   does (blue directory, green executable, cyan symlink) and a directory
 ///   carries a trailing `/`; the byte size sits in a dim right-aligned column;
-/// - a **`find_files`** run keeps its per-directory **title band** on
-///   [`Theme::match_title_surface`] under a brand-tinted **count band** on
-///   [`Theme::match_count_surface`], so a run of siblings no longer repeats the
-///   shared prefix on every row;
+/// - a **`find_files`** run renders directly with its per-directory **title band**
+///   on [`Theme::match_title_surface`], omitting redundant "Found N files" count
+///   bands so the hierarchy stays clean and transitions directly to file entries;
 /// - a dim **omission band** for the tool's `... (N additional entries
 ///   omitted)` trailer.
 ///
@@ -549,17 +548,12 @@ pub(crate) fn draw_listing_content(
     inner_w: usize,
 ) {
     let code_bg = ctx.theme.code_surface();
-    let count_bg = ctx.theme.match_count_surface();
     let title_bg = ctx.theme.match_title_surface();
     let pad = Style::default().bg(code_bg);
     let dim = ctx.theme.dim();
     let sel_range = block_selection_range(selection, mi, block_idx);
     let wrap_w = inner_w.max(1);
 
-    let count_style = Style::default()
-        .bg(count_bg)
-        .fg(ctx.theme.brand())
-        .add_modifier(Modifier::BOLD);
     let title_style = Style::default()
         .bg(title_bg)
         .fg(ctx.theme.heading())
@@ -580,8 +574,8 @@ pub(crate) fn draw_listing_content(
 
     // A tagged-entry body is a `list_dir` table; a bare set of paths is a
     // `find_files` run. The distinction drives whether the top tier is a column
-    // header (table) or a count band (grouped paths), and it is derived from the
-    // rows themselves so a restored session (header dropped) still resolves.
+    // header (table) or direct directory groups (find_files), and it is derived
+    // from the rows themselves so a restored session (header dropped) still resolves.
     let header_label = logical
         .first()
         .and_then(|(_, line)| parse_listing_header(line));
@@ -610,11 +604,11 @@ pub(crate) fn draw_listing_content(
         (0, 0)
     };
 
-    // Top tier: a column header for a table, else the parsed count band.
+    // Top tier: a column header for a table. Non-table listings (`find_files`)
+    // transition directly to directory title bands and entries, stripping the
+    // redundant "Found N files" count header to keep the hierarchy clean.
     if table {
         draw_listing_header(ctx, indent, name_col, max_size_w, header_style, pad);
-    } else if let Some(label) = &header_label {
-        draw_band_row(ctx, indent, label, count_style, count_bg);
     }
 
     let mut current_dir: Option<&str> = None;

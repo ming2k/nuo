@@ -1465,7 +1465,7 @@ fn announced_command_and_find_steps_collapse_with_arguments() {
     assert!(find_step.collapse_tool_call("c2", r#"{"patterns":["*.rs"],"path":"."}"#));
     assert_eq!(
         find_step.tool_step_summary().expect("summary"),
-        "Find *.rs (executing)"
+        "Find *.rs in . (executing)"
     );
 
     let mut find_in_path =

@@ -28,7 +28,8 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 │   crates/nuo-host              crates/nuo-persistence                  │
 │   crates/nuo-harness           crates/nuo-mcp                          │
 │   crates/nuo-oauth             crates/nuo-provider                     │
-│   crates/nuo-provider-transportcrates/nuo-model-codec                  │
+│   crates/nuo-provider-transport crates/nuo-model-codec                 │
+│   crates/nuo-catalog                                                   │
 │   crates/nuo-tool              crates/nuo-tool-derive                  │
 │   crates/nuo-code                                                      │
 └───────────────────┬────────────────────────────────┬───────────────────┘
@@ -67,6 +68,7 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 ### 2.3 Subsystems & Host Infrastructure
 - **`nuo-server`**: Pure service runtime managing Unix Domain Socket / WebSocket connection gateways, session registry, SQLite persistence coordination, and graceful shutdown.
 - **`nuo-harness`**: Host execution harness: manages agent identity/role projection, permission brokering, human confirmation checkpoints, execution sandboxing, tool scheduling, and causal context compaction.
+- **`nuo-catalog`**: The single definition of the model-catalog pipeline ([ADR-0081](../adr/0081-unidirectional-catalog-pipeline-structural-normalization-and-relay-noise-hygiene.md), [ADR-0082](../adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md)): derives a `ProviderEntry`/`Channel` per route from the connection store, provider specs, and the discovery cache; resolves the display label once (Source → Mapping → Overwrite); syncs remote `/models` catalogs through the `nuo_provider` fetch port and maintains the fitted-model overlay; and materializes the provider-picker snapshot. Links no `providers/*` crate and no presentation crate. Both `nuo-harness` and `nuo-server` import it directly — neither hosts a `catalog` module (`[INV-CATALOG-07]`).
 - **`nuo-persistence`**: SQLite transactional store, database migrations, configuration parsing, role memory, and full-text search indexing.
 - **`providers/nuo-provider-*`** *(the authoritative provider namespace — [ADR-0027](../adr/0027-provider-definition-single-source-and-adapters-retirement.md), Accepted)*: Multi-vendor model catalog resolution, OAuth2/PKCE authentication flows, credential management, and concrete provider adapters implementing `nuo-provider` (ADR-0015). Each provider id has exactly one `ModelProviderSpec`, owned by its `providers/nuo-provider-*` crate, and the shipped build links every such crate (`[INV-PROV-06..09]`). The retired `nuo-provider-adapters` monolith's residual engines now live in `providers/nuo-provider-{catalog,siliconflow}` and the workspace-root **`nuo-oauth`** engine; each vendor crate additionally owns its `OAuthConfig`, device grant, and enricher and registers it through the typed `nuo_oauth::OAuthProvider` port. The **provider composition root** (`init()`, `MODEL_PROVIDER_SPECS`, `build_provider_for_channel`, typed `QuotaPort` dispatch, and OAuth-provider registration) lives in `nuo-server::provider_registry`, and both entry points (`nuo` and the server bootstrap) call it. Operates the **two local-direct invocation lanes** plus a **subscription server-proxy surface** (ADR-0014):
   - *Local-direct · static-key lane* — `ConnectionAuth::ApiKey` resolves a static bearer from `api_key_env` (env-first) or `credentials.toml` (mode 0600), speaking OpenAI chat-completions / Responses / Anthropic Messages / Google Gemini against first-party (OpenAI, Anthropic, DeepSeek, xAI, Kimi, GLM-CN, Qianwen) or relay (OpenRouter, OpenCode Zen/Go) endpoints; keyless relays send no auth header at all.
@@ -142,6 +144,10 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 - **`[INV-PROV-08]` No String-Sniffing Dispatch (ADR-0027)**: Capability dispatch keys off typed declarations; no code path selects behaviour by matching a provider id or base-URL substring.
 - **`[INV-PROV-09]` Providers Are Linked (ADR-0027)**: The shipped build links every crate that claims to be a provider; an unlinked `providers/nuo-provider-*` crate is dead code.
 - **`[INV-PROV-10]` Behaviour Behind Ports (ADR-0027)**: Static facts are `&'static` tables; runtime facts are overlays; behaviour is a trait port. No fourth mechanism.
+- **`[INV-CATALOG-04]` Single Unidirectional Catalog Pipeline (ADR-0081)**: Catalog rows flow Source → Mapping → Overwrite, once and in that order; no stage re-derives what a previous stage settled, and a Source is never labelled by its own downstream.
+- **`[INV-CATALOG-05]` Declared Display Policy (ADR-0081)**: A surface's labels come from its declared `DisplayPolicy` (`Native` trusts the published name; `Structural` lifts bare ids), never from an id-shaped guess or a per-model lookup table.
+- **`[INV-CATALOG-06]` Structural Noise Hygiene (ADR-0081)**: Relay noise is pruned by structural markers only (`-free`, `-preview`, `-contributor`, `alpha-`, `-alpha`, `test`), never by an ad-hoc product blacklist; a connection's `models.include` bypasses the valve unconditionally.
+- **`[INV-CATALOG-07]` Single Definition of the Catalog Pipeline (ADR-0082)**: The pipeline exists in exactly one crate (`nuo-catalog`); consumers import it directly and MUST NOT host a `catalog` module or re-export it as a local path shim.
 
 ---
 

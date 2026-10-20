@@ -533,15 +533,6 @@ fn render_dialog(
                     spinner_phase: ctx.spinner_phase,
                     info_detail: d.info_detail,
                     info_scroll: &mut d.info_scroll,
-                    live_effort: app
-                        .editor_target
-                        .as_ref()
-                        .map(|_| app.editor_effort.as_str()),
-                    live_thinking: app
-                        .editor_target
-                        .as_ref()
-                        .filter(|_| app.editor_thinking_available)
-                        .map(|_| app.editor_thinking),
                 },
                 ctx.theme,
             ))

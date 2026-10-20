@@ -1225,7 +1225,11 @@ impl RemoteServer {
             };
 
         // Strip trailing paths (e.g. /ws or /)
-        let authority = without_scheme.split('/').next().unwrap_or(without_scheme).trim();
+        let authority = without_scheme
+            .split('/')
+            .next()
+            .unwrap_or(without_scheme)
+            .trim();
         if authority.is_empty() {
             return Err(format!("invalid remote address '{addr}': missing host"));
         }
@@ -1248,9 +1252,11 @@ impl RemoteServer {
 
         let host = host.unwrap_or_else(|| "127.0.0.1".to_string());
 
-        let token = token
-            .filter(|t| !t.trim().is_empty())
-            .or_else(|| std::env::var("NUO_TOKEN").ok().filter(|t| !t.trim().is_empty()));
+        let token = token.filter(|t| !t.trim().is_empty()).or_else(|| {
+            std::env::var("NUO_TOKEN")
+                .ok()
+                .filter(|t| !t.trim().is_empty())
+        });
 
         let Some(token) = token else {
             return Err(

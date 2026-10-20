@@ -1,0 +1,955 @@
+# OpenAPI 3.1 reference for the DeepSeek Platform API (api.deepseek.com),
+# documenting the official production inference, models, and account balance endpoints.
+#
+# Live-verified against the official DeepSeek API platform (2026-10 revision,
+# ADR-0080; model ids and the reasoning surface corrected in ADR-0083).
+# Consumers: the implementer maintaining `providers/nuo-provider-deepseek` in Nuo,
+# prompt caching, time-varying rate schedule rating, and multi-protocol channels.
+#
+# Model wire ids: `deepseek-flash` (DeepSeek-V4.1-Flash-1017) and
+# `deepseek-v4-pro` (DeepSeek-V4-Pro-0813). `deepseek-v4-flash` and
+# `deepseek-v4-flash-vision-exp` are retired names still accepted and served by
+# V4.1 Flash; `deepseek-v4.1-flash` is a *relay* id (Novita/OpenRouter), never an
+# `api.deepseek.com` model id.
+#
+# Reasoning: thinking mode is ON by default at effort `high`. Depth rides
+# `reasoning.effort` (Responses) / `reasoning_effort` (Chat Completions); `none`
+# is the off switch; `minimal`/`medium`/`xhigh`/`ultra` are accepted and mapped
+# by the server (see `x-reasoning-effort-ladder`).
+#
+# Vendor extensions used (x-…):
+#   x-reasoning-effort-ladder     Accepted reasoning strings + the rung each one is served as
+#   x-prompt-cache                Implicit prompt-caching characteristics (64-token alignment)
+#   x-rate-schedule-offpeak       Beijing time (UTC+08:00) 50% discount window and statutory holiday schedule
+#   x-models                      Curated catalog baseline metadata (1M context, vision, reasoning)
+
+openapi: 3.1.0
+info:
+  title: DeepSeek Platform API
+  version: 4.1.0
+  summary: >-
+    Official DeepSeek API platform offering high-efficiency inference over the
+    OpenAI Responses and Chat Completions protocols, with native thinking/reasoning
+    content streaming, implicit prompt caching, multimodal vision, and account balance tracking.
+  description: |
+    Environments and Base URLs:
+
+    | Environment | Base URL | Usage / Protocol |
+    | --- | --- | --- |
+    | Production | `https://api.deepseek.com` | Account balance (`/user/balance`), Root API |
+    | Versioned API | `https://api.deepseek.com/v1` | Responses (`/v1/responses`), Chat (`/v1/chat/completions`), Models (`/v1/models`) |
+    | Beta Endpoint | `https://api.deepseek.com/beta` | Prefix completion, specialized FIM, and preview features |
+
+    Authentication:
+    All endpoints require a standard HTTP Bearer token using the `DEEPSEEK_API_KEY` environment variable:
+    ```http
+    Authorization: Bearer sk-...
+    ```
+
+    Dual Protocol Architecture:
+    - **Responses API** (`/v1/responses`): Nuo's native default wire format for DeepSeek,
+      supporting structured tool calling and integrated reasoning content envelopes.
+    - **Chat Completions API** (`/v1/chat/completions`): OpenAI-compatible streaming interface
+      carrying `reasoning_content` in delta chunks alongside normal `content`.
+
+    Prompt Caching:
+    - DeepSeek uses an **implicit** prompt caching mechanism: identical prompt prefixes
+      exceeding 64 tokens are automatically cached on disk/memory clusters without manual breakpoint tags.
+    - Cache hits receive up to a 90% discount on input tokens.
+    - Usage reports return `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens`.
+
+    Time-Varying Rate Schedule (Off-Peak Discount):
+    - DeepSeek implements a 50% discount across all billing factors (standard input, cache hit, output)
+      outside Beijing working hours (UTC+08:00, standard working hours: Mon–Fri 09:00–12:00, 14:00–18:00,
+      excluding Chinese statutory holidays).
+    - See ADR-0080 for Nuo's deterministic dispatch-anchored rating implementation.
+
+servers:
+  - url: https://api.deepseek.com/v1
+    description: Production versioned inference endpoint (Responses, Chat, Models)
+  - url: https://api.deepseek.com
+    description: Production root endpoint (User balance and account services)
+  - url: https://api.deepseek.com/beta
+    description: Beta features endpoint
+
+security:
+  - BearerAuth: []
+
+paths:
+  /responses:
+    post:
+      summary: Create model response (OpenAI Responses protocol)
+      description: >-
+        Nuo's default invocation protocol for DeepSeek. Streams or returns complete model responses
+        with reasoning traces, tool calling, and multimodal inputs.
+      operationId: createResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResponseRequest'
+      responses:
+        '200':
+          description: Response successfully generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseObject'
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ResponseStreamEvent'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '402':
+          $ref: '#/components/responses/InsufficientBalanceError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /chat/completions:
+    post:
+      summary: Create chat completion (OpenAI Chat Completions protocol)
+      description: >-
+        OpenAI-compatible chat completion surface. When `stream: true`, DeepSeek streams
+        reasoning content in the `delta.reasoning_content` field before delivering the final response.
+      operationId: createChatCompletion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: Completion successfully returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionChunk'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '402':
+          $ref: '#/components/responses/InsufficientBalanceError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /models:
+    get:
+      summary: List available models
+      description: Returns the list of currently active DeepSeek models and their permissions.
+      operationId: listModels
+      responses:
+        '200':
+          description: List of models
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /user/balance:
+    get:
+      summary: Get account balance
+      description: >-
+        Retrieves the account's current credit balance, distinguishing currency (CNY, USD),
+        granted promotional balance, and topped-up cash balance.
+      operationId: getUserBalance
+      servers:
+        - url: https://api.deepseek.com
+          description: Balance endpoint resides on the root domain
+      responses:
+        '200':
+          description: Current user balance status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: APIKey
+      description: DeepSeek API Key starting with `sk-`
+
+  responses:
+    BadRequestError:
+      description: Invalid request body, unsupported reasoning integer, or schema mismatch
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnauthorizedError:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InsufficientBalanceError:
+      description: Account balance depleted
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimitError:
+      description: Requests per minute (RPM) or tokens per minute (TPM) limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalServerError:
+      description: Upstream server failure
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    # -------------------------------------------------------------------------
+    # Responses API Schemas
+    # -------------------------------------------------------------------------
+    CreateResponseRequest:
+      type: object
+      required:
+        - model
+      description: >-
+        At least one of `input` and `instructions` is required. The surface is
+        stateless: responses and conversations are not stored on the server, so
+        there is no `store` / `previous_response_id`; a multi-turn client replays
+        the full history (Nuo replays the provider output items verbatim).
+      properties:
+        model:
+          type: string
+          description: Target model ID
+          enum: [deepseek-flash, deepseek-v4-pro]
+          example: deepseek-flash
+        input:
+          description: >-
+            A plain string (one `user` message) or a list of typed items.
+            Supported item types: `message`, `function_call`,
+            `function_call_output`, `custom_tool_call`,
+            `custom_tool_call_output`, `reasoning`, `web_search_call`; other
+            types are ignored. Message roles: `user`/`assistant`/`system`/
+            `developer` (`developer` is treated as `user`). `input_image`
+            content parts are accepted on `deepseek-flash` in `user`/`developer`
+            messages (and in `function_call_output`); images in `system` or
+            `assistant` messages return 400. File inputs are not supported.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                $ref: '#/components/schemas/InputItem'
+        instructions:
+          type: string
+          nullable: true
+          description: System-level instruction, inserted as the first system message.
+        stream:
+          type: boolean
+          default: false
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          default: 1
+          description: Has no effect in thinking mode.
+        top_p:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 1
+          description: >-
+            `deepseek-flash`: effective range 0.95–1.0 in thinking mode (values
+            below 0.95 are treated as 0.95) and ignored in non-thinking mode.
+            `deepseek-v4-pro`: ignored in thinking mode, effective otherwise.
+        max_output_tokens:
+          type: integer
+          nullable: true
+          description: >-
+            Upper bound on generated tokens, visible output *and* reasoning
+            included. Maximum 384K (393216).
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolDefinition'
+        reasoning:
+          type: object
+          description: Thinking-mode configuration. Omit to keep the default (on, effort `high`).
+          properties:
+            effort:
+              type: string
+              enum: [none, minimal, low, medium, high, xhigh, max, ultra]
+              description: >-
+                `none` disables thinking mode; every other rung enables it. The
+                server maps the tiers it does not distinguish (see
+                `x-reasoning-effort-ladder`).
+
+    InputItem:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [message, function_call, function_call_output, custom_tool_call, custom_tool_call_output, reasoning, web_search_call]
+        role:
+          type: string
+          description: For `message` items.
+          enum: [user, assistant, system, developer]
+        content:
+          description: >-
+            For `message` items: a string or a list of `input_text` /
+            `output_text` / `input_image` parts. For `reasoning` items: a list
+            of `reasoning_text` parts — this is how a client replays the chain
+            of thought a tool-calling turn produced.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                $ref: '#/components/schemas/ContentPart'
+        call_id:
+          type: string
+          description: For `function_call` / `function_call_output` (and the custom variants).
+        name:
+          type: string
+          description: For `function_call` / `custom_tool_call`.
+        arguments:
+          type: string
+          description: JSON-encoded arguments for `function_call`.
+        output:
+          type: string
+          description: Tool result for `function_call_output`.
+
+    ContentPart:
+      type: object
+      description: >-
+        Responses items use `input_text` / `output_text` / `input_image` /
+        `reasoning_text`; Chat Completions messages use `text` / `image_url` /
+        `file`. Both protocols accept the same media formats (JPEG, PNG, GIF,
+        WebP) detected from file content, not the declared MIME type.
+      properties:
+        type:
+          type: string
+          enum: [input_text, output_text, input_image, reasoning_text, text, image_url, file]
+        text:
+          type: string
+        image_url:
+          type: object
+          properties:
+            url:
+              type: string
+              description: HTTP(S) URL (max 8192 chars) or base64 data URI (`data:image/png;base64,...`)
+            detail:
+              type: string
+              enum: [low, high, original, auto]
+        file_id:
+          type: string
+          description: A `file-api-...` id uploaded through the Files API.
+        file_data:
+          type: string
+          description: Base64 data URL of an image; mutually exclusive with `file_id`.
+
+    ToolDefinition:
+      type: object
+      required:
+        - type
+        - function
+      properties:
+        type:
+          type: string
+          enum: [function]
+        function:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+            description:
+              type: string
+            parameters:
+              type: object
+
+    ResponseObject:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          example: response
+        created:
+          type: integer
+        model:
+          type: string
+        output:
+          type: array
+          items:
+            $ref: '#/components/schemas/OutputItem'
+        usage:
+          $ref: '#/components/schemas/UsageMetadata'
+        store:
+          type: boolean
+          example: false
+          description: Always false — the surface does not persist responses.
+        previous_response_id:
+          type: string
+          nullable: true
+          description: Not supported on this stateless surface; always null.
+        incomplete_details:
+          type: object
+          nullable: true
+          properties:
+            reason:
+              type: string
+              example: max_output_tokens
+
+    OutputItem:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [message, reasoning, function_call]
+        id:
+          type: string
+        role:
+          type: string
+          example: assistant
+        status:
+          type: string
+        content:
+          description: >-
+            `message` items carry `output_text` parts; `reasoning` items carry
+            the raw chain of thought as `reasoning_text` parts (plaintext — this
+            surface returns no encrypted reasoning).
+          type: array
+          items:
+            $ref: '#/components/schemas/ContentPart'
+        summary:
+          type: array
+          description: >-
+            Always empty on this surface: it exposes the raw CoT as
+            `reasoning_text`, not OpenAI's summarized view, and does not
+            implement the `reasoning.summary` request field.
+          items:
+            type: object
+
+    ResponseStreamEvent:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [response.created, response.in_progress, response.output_item.added, response.output_item.done, response.output_text.delta, response.reasoning_text.delta, response.function_call_arguments.delta, response.function_call_arguments.done, response.completed, response.incomplete, response.failed]
+        response:
+          $ref: '#/components/schemas/ResponseObject'
+      description: >-
+        Semantic server-sent events, terminated by exactly one of
+        `response.completed`, `response.incomplete` (output cap reached) or
+        `response.failed` (upstream error carried in `response.error`). There is
+        no `data: [DONE]` sentinel.
+
+    # -------------------------------------------------------------------------
+    # Chat Completions Schemas
+    # -------------------------------------------------------------------------
+    ChatCompletionRequest:
+      type: object
+      required:
+        - model
+        - messages
+      properties:
+        model:
+          type: string
+          enum: [deepseek-flash, deepseek-v4-pro]
+          example: deepseek-flash
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        stream:
+          type: boolean
+          default: false
+        stream_options:
+          type: object
+          properties:
+            include_usage:
+              type: boolean
+              description: >-
+                Usage rides the last content chunk with a non-null
+                `finish_reason`; the server does not emit a separate
+                usage-only chunk.
+        temperature:
+          type: number
+          maximum: 2
+          default: 1
+          description: Has no effect in thinking mode.
+        top_p:
+          type: number
+          maximum: 1
+          default: 1
+          description: >-
+            `deepseek-flash`: effective range 0.95–1.0 in thinking mode, fixed
+            at 1.0 (value ignored) in non-thinking mode. `deepseek-v4-pro`: the
+            inverse — fixed in thinking mode, effective otherwise.
+        max_tokens:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 393216
+          description: >-
+            Between 1 and 384K. Default: 8K in non-thinking mode, 64K in
+            thinking mode, 128K when `reasoning_effort` is `max`.
+        response_format:
+          type: object
+          nullable: true
+          description: >-
+            `{ "type": "json_object" }` enables JSON output; the prompt must
+            itself instruct the model to emit JSON.
+          properties:
+            type:
+              type: string
+              enum: [json_object]
+        thinking:
+          type: object
+          description: Thinking-mode switch (default enabled).
+          properties:
+            type:
+              type: string
+              enum: [enabled, disabled, adaptive]
+              default: enabled
+        reasoning_effort:
+          type: string
+          enum: [none, minimal, low, medium, high, max, xhigh, ultra]
+          description: >-
+            Thinking depth. `none` disables thinking mode; every other rung
+            enables it and sets depth. The server maps the tiers it does not
+            distinguish (see `x-reasoning-effort-ladder`). Integer values are
+            rejected with HTTP 400.
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolDefinition'
+
+    ChatMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant, tool]
+        content:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                $ref: '#/components/schemas/ContentPart'
+        reasoning_content:
+          type: string
+          description: >-
+            Assistant reasoning trace. When the request carries `tools`, the
+            `reasoning_content` of every previous turn MUST be passed back and
+            is concatenated into the context; without `tools` it is ignored.
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          example: chat.completion
+        created:
+          type: integer
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              message:
+                $ref: '#/components/schemas/ChatMessage'
+              finish_reason:
+                type: string
+                enum: [stop, length, tool_calls, content_filter, insufficient_quota]
+        usage:
+          $ref: '#/components/schemas/UsageMetadata'
+
+    ChatCompletionChunk:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          example: chat.completion.chunk
+        created:
+          type: integer
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              delta:
+                type: object
+                properties:
+                  role:
+                    type: string
+                  content:
+                    type: string
+                  reasoning_content:
+                    type: string
+                    description: Interleaved reasoning content stream
+              finish_reason:
+                type: string
+                nullable: true
+
+    # -------------------------------------------------------------------------
+    # Usage & Balance Schemas
+    # -------------------------------------------------------------------------
+    UsageMetadata:
+      type: object
+      properties:
+        prompt_tokens:
+          type: integer
+        completion_tokens:
+          type: integer
+        total_tokens:
+          type: integer
+        prompt_tokens_details:
+          type: object
+          properties:
+            cached_tokens:
+              type: integer
+        prompt_cache_hit_tokens:
+          type: integer
+          description: Prompt tokens matched in the cache (billed at ~10% rate)
+        prompt_cache_miss_tokens:
+          type: integer
+          description: Uncached prompt tokens (billed at standard input rate)
+        completion_tokens_details:
+          type: object
+          properties:
+            reasoning_tokens:
+              type: integer
+              description: Tokens expended generating reasoning/thinking content
+
+    BalanceResponse:
+      type: object
+      required:
+        - is_available
+        - balance_infos
+      properties:
+        is_available:
+          type: boolean
+          description: Whether the user account is funded and currently active
+        balance_infos:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceInfo'
+
+    BalanceInfo:
+      type: object
+      required:
+        - currency
+        - total_balance
+        - granted_balance
+        - topped_up_balance
+      properties:
+        currency:
+          type: string
+          enum: [CNY, USD]
+          example: CNY
+        total_balance:
+          type: string
+          description: Aggregated available balance string
+          example: "128.50"
+        granted_balance:
+          type: string
+          description: Promotional / non-withdrawable grant balance string
+          example: "20.00"
+        topped_up_balance:
+          type: string
+          description: Direct payment / top-up balance string
+          example: "108.50"
+
+    # -------------------------------------------------------------------------
+    # Catalog Schemas
+    # -------------------------------------------------------------------------
+    ModelListResponse:
+      type: object
+      required:
+        - object
+        - data
+      properties:
+        object:
+          type: string
+          example: list
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelItem'
+
+    ModelItem:
+      type: object
+      required:
+        - id
+        - object
+        - owned_by
+      properties:
+        id:
+          type: string
+          enum: [deepseek-flash, deepseek-v4-pro]
+          example: deepseek-flash
+        object:
+          type: string
+          example: model
+        owned_by:
+          type: string
+          example: deepseek
+        name:
+          type: string
+          description: Display name for model pickers and discovery tools.
+          example: DeepSeek-V4.1-Flash
+        context_window:
+          type: integer
+          description: Total token capacity, input and output counted together.
+        max_output_tokens:
+          type: integer
+          description: Maximum accepted value of `max_tokens` / `max_output_tokens`.
+        input_modalities:
+          type: array
+          items:
+            type: string
+            enum: [text, image]
+        output_modalities:
+          type: array
+          items:
+            type: string
+            enum: [text]
+        effort:
+          type: object
+          description: >-
+            Available effort levels **while thinking mode is on**. `none` — the
+            off switch — is deliberately not listed here; it is accepted by the
+            parameter regardless (see `x-reasoning-effort-ladder`).
+          properties:
+            supported_levels:
+              type: array
+              description: >-
+                The rungs the model *distinguishes*, in recommended display
+                order. Nuo expands this to the accepted set (ADR-0083).
+              items:
+                type: string
+                enum: [low, high, max]
+            default_level:
+              type: string
+              enum: [low, high, max]
+              example: high
+        api_capabilities:
+          type: object
+          description: Model behaviour declared per API protocol.
+          properties:
+            anthropic_messages:
+              type: object
+              properties:
+                system_prompt_update:
+                  type: string
+                  enum: [leading-only, in-history]
+                  description: >-
+                    `leading-only` — only the leading system prompt takes effect
+                    for the whole conversation; `in-history` — a later `system`
+                    message replaces all earlier ones.
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - message
+            - type
+          properties:
+            message:
+              type: string
+            type:
+              type: string
+            param:
+              type: string
+              nullable: true
+            code:
+              type: string
+              nullable: true
+
+# -----------------------------------------------------------------------------
+# DeepSeek Platform Wire Truth & Baseline Catalog (Nuo Registry Data)
+# -----------------------------------------------------------------------------
+x-models:
+  deepseek-flash:
+    family: deepseek
+    description: >-
+      DeepSeek-V4.1-Flash-1017 — the current Flash line with native multimodal
+      vision integrated into the 1M-context architecture. Thinking on by default
+      at effort `high`.
+    context_window: 1000000
+    max_output_tokens: 384000
+    tool_call: true
+    vision: true
+    reasoning: true
+    thinking_default: enabled
+    effort_levels: [none, minimal, low, medium, high, xhigh, max, ultra]
+    distinct_effort_levels: [low, high, max]
+    default_effort: high
+    default_protocol: Responses
+    pricing:
+      peak:
+        input_standard_usd_per_m: 0.30
+        cache_read_usd_per_m: 0.006
+        cache_write_usd_per_m: 0.00
+        output_usd_per_m: 1.20
+      off_peak:
+        input_standard_usd_per_m: 0.15
+        cache_read_usd_per_m: 0.003
+        cache_write_usd_per_m: 0.00
+        output_usd_per_m: 0.60
+
+  deepseek-v4-pro:
+    family: deepseek
+    description: >-
+      DeepSeek-V4-Pro-0813 — high-tier pure-text coding and complex analytical
+      reasoning flagship. Vision is not supported.
+    context_window: 1000000
+    max_output_tokens: 384000
+    tool_call: true
+    vision: false
+    reasoning: true
+    thinking_default: enabled
+    effort_levels: [none, minimal, low, medium, high, xhigh, max, ultra]
+    distinct_effort_levels: [low, high, max]
+    default_effort: high
+    default_protocol: Responses
+    pricing:
+      peak:
+        input_standard_usd_per_m: 1.32
+        cache_read_usd_per_m: 0.044
+        cache_write_usd_per_m: 0.00
+        output_usd_per_m: 3.96
+      off_peak:
+        input_standard_usd_per_m: 0.66
+        cache_read_usd_per_m: 0.022
+        cache_write_usd_per_m: 0.00
+        output_usd_per_m: 1.98
+
+  # Retired V4 Flash generation. Both names are still accepted upstream and are
+  # served by DeepSeek-V4.1-Flash-1017 at the Flash price, so their capability
+  # row is the serving model's. Registered for existing configs, never seeded.
+  deepseek-v4-flash:
+    family: deepseek
+    retired: true
+    served_by: deepseek-flash
+    context_window: 1000000
+    max_output_tokens: 384000
+    tool_call: true
+    vision: true
+    reasoning: true
+    thinking_default: enabled
+    effort_levels: [none, minimal, low, medium, high, xhigh, max, ultra]
+    distinct_effort_levels: [low, high, max]
+    default_effort: high
+    default_protocol: Responses
+    pricing:
+      peak:
+        input_standard_usd_per_m: 0.30
+        cache_read_usd_per_m: 0.006
+        cache_write_usd_per_m: 0.00
+        output_usd_per_m: 1.20
+      off_peak:
+        input_standard_usd_per_m: 0.15
+        cache_read_usd_per_m: 0.003
+        cache_write_usd_per_m: 0.00
+        output_usd_per_m: 0.60
+
+  deepseek-v4-flash-vision-exp:
+    family: deepseek
+    retired: true
+    served_by: deepseek-flash
+    context_window: 1000000
+    max_output_tokens: 384000
+    tool_call: true
+    vision: true
+    reasoning: true
+    thinking_default: enabled
+    effort_levels: [none, minimal, low, medium, high, xhigh, max, ultra]
+    distinct_effort_levels: [low, high, max]
+    default_effort: high
+    default_protocol: Responses
+
+# Relay-only spellings (`deepseek-v4.1-flash`, `deepseek-v4.1-flash-free`) are
+# documented with their relays (`commandcode-plan.yml`, the OpenCode provider
+# specs); they are NOT `api.deepseek.com` model ids.
+
+x-reasoning-effort-ladder:
+  field:
+    responses: reasoning.effort
+    chat_completions: reasoning_effort
+  off_switch: none            # chat additionally accepts thinking.type=disabled
+  thinking_default: enabled
+  default_effort: high
+  # The parameter accepts the whole vocabulary; the server maps the tiers it
+  # does not distinguish. `/models` advertises only the distinct rungs
+  # (`effort.supported_levels`, which deliberately excludes `none` = off) plus
+  # `effort.default_level`; Nuo expands that advertisement back to this accepted
+  # set so the clamp can never turn "off" into "low" (ADR-0083).
+  accepted:
+    none: none
+    minimal: low
+    low: low
+    medium: high
+    high: high
+    xhigh: high
+    max: max
+    ultra: max
+  rules:
+    - "String literals only; integers cause HTTP 400 bad request."
+    - "Applies to both protocols and to `deepseek-flash` / `deepseek-v4-pro` alike."
+    - "`none` disables thinking mode; every other rung enables it."
+
+x-prompt-cache:
+  mode: implicit
+  alignment_chunk_size: 64
+  reports_reads: true
+  reports_misses: true
+  reports_writes: false
+  min_cacheable_tokens: 64
+
+x-rate-schedule-offpeak:
+  timezone: Asia/Shanghai (UTC+08:00 fixed offset, +480 minutes)
+  discount_ratio: 0.50
+  standard_working_hours:
+    - "09:00 - 12:00 (Mon-Fri, non-holiday)"
+    - "14:00 - 18:00 (Mon-Fri, non-holiday)"
+  off_peak_hours:
+    - "All hours outside standard working hours, including weekends and PRC statutory holidays"

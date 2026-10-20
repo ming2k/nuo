@@ -248,6 +248,14 @@ impl Key {
         modifiers: KeyModifiers::NONE,
         code: KeyCode::Down,
     };
+    pub const LEFT: Key = Key {
+        modifiers: KeyModifiers::NONE,
+        code: KeyCode::Left,
+    };
+    pub const RIGHT: Key = Key {
+        modifiers: KeyModifiers::NONE,
+        code: KeyCode::Right,
+    };
     pub const DELETE: Key = Key {
         modifiers: KeyModifiers::NONE,
         code: KeyCode::Delete,

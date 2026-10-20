@@ -432,6 +432,7 @@ impl OpenAiResponsesProvider {
                 reasoning_effort: self.reasoning_effort,
                 delivery: &delivery,
                 store: self.store,
+                dialect: self.dialect,
                 cache_plan: &cache_plan,
             },
             &self.capabilities,

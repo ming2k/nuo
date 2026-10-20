@@ -29,6 +29,12 @@
 //! never emits a rung a model rejected. Thinking on/off rides the same knob:
 //! `enable_thinking` is restricted to `true` on the always-thinking GLM-5.3
 //! and pointless on the effort-gated models, so nuo sends no extra field.
+//!
+//! A tier set can only constrain a route when *this* table owns the model row:
+//! the capability union is keyed by model id, not by route (ADR-0083). The
+//! DeepSeek ids therefore ride their home platform's vocabulary — the narrower
+//! `DEEPSEEK_V4_PLAN` floor on this surface is documented, not enforceable
+//! here, exactly like GLM-5.3's `xhigh` rejection above.
 
 use nuo_model_codec::reasoning::ReasoningSupport;
 use nuo_model_codec::{Model, WireProtocol};
@@ -117,6 +123,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,
+    display_policy: nuo_provider::DisplayPolicy::Native,
 };
 
 #[cfg(test)]
@@ -159,14 +166,16 @@ mod tests {
             assert_eq!(resolve(id).effort_levels, QWEN_MIXED, "{id}");
         }
         // The third-party ids live on their home baselines (the capability
-        // union is model-id-keyed); the qianwen table does not shadow them.
+        // union is model-id-keyed); the qianwen table does not shadow them, so
+        // they carry the home platform's accepted vocabulary — `none`
+        // (thinking off) and the vendor-mapped aliases included (ADR-0083).
         assert_eq!(
             resolve("glm-5.3").effort_levels,
             nuo_provider::effort_ladders::GLM_5
         );
         assert_eq!(
             resolve("deepseek-v4-pro").effort_levels,
-            nuo_provider::effort_ladders::LOW_HIGH_MAX
+            nuo_provider::effort_ladders::DEEPSEEK_NATIVE
         );
     }
 

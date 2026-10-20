@@ -613,26 +613,38 @@ fn discovered_model_from_entry(entry: &Value) -> Option<DiscoveredModel> {
     // Thinking-type precedence mirrors the kimi-code client: the newer
     // three-state field wins over the legacy boolean when present.
     let openrouter_reasoning = entry.get("reasoning").filter(|value| value.is_object());
+    let deepseek_effort = entry.get("effort").filter(|value| value.is_object());
     let reasoning = match entry.get("supports_thinking_type").and_then(Value::as_str) {
         Some("only") | Some("both") => Some(true),
         Some("no") => Some(false),
         _ => entry
             .get("supports_reasoning")
             .and_then(Value::as_bool)
-            .or_else(|| openrouter_reasoning.map(|_| true)),
+            .or_else(|| openrouter_reasoning.map(|_| true))
+            .or_else(|| deepseek_effort.map(|_| true)),
     };
-    let effort_levels = entry
-        .get("think_efforts")
-        .and_then(|efforts| efforts.get("valid_efforts"))
-        .or_else(|| openrouter_reasoning.and_then(|value| value.get("supported_efforts")))
-        .and_then(Value::as_array)
-        .map(|levels| {
+    let string_list = |value: Option<&Value>| -> Option<Vec<String>> {
+        value.and_then(Value::as_array).map(|levels| {
             levels
                 .iter()
                 .filter_map(Value::as_str)
                 .map(str::to_string)
                 .collect()
-        });
+        })
+    };
+    let effort_levels = string_list(
+        entry
+            .get("think_efforts")
+            .and_then(|efforts| efforts.get("valid_efforts"))
+            .or_else(|| openrouter_reasoning.and_then(|value| value.get("supported_efforts"))),
+    )
+    .or_else(|| {
+        // DeepSeek advertises a *narrower* set than its parameter accepts (see
+        // [`deepseek_accepted_efforts`]); expand it so the clamp range is the
+        // accepted set, not the advertised subset.
+        string_list(deepseek_effort.and_then(|value| value.get("supported_levels")))
+            .map(|levels| deepseek_accepted_efforts(&levels))
+    });
     let protocol = entry
         .get("supported_endpoints")
         .and_then(Value::as_array)
@@ -667,15 +679,25 @@ fn discovered_model_from_entry(entry: &Value) -> Option<DiscoveredModel> {
             .map(clean_display_label),
         context_window: entry
             .get("context_length")
+            .or_else(|| entry.get("context_window"))
+            .or_else(|| entry.get("max_context_window"))
+            .or_else(|| entry.get("max_context_length"))
             .and_then(Value::as_u64)
             .map(|length| length as usize),
         max_output_tokens: entry
-            .get("top_provider")
-            .and_then(|provider| provider.get("max_completion_tokens"))
+            .get("max_output_tokens")
+            .or_else(|| entry.get("max_completion_tokens"))
+            .or_else(|| {
+                entry
+                    .get("top_provider")
+                    .and_then(|provider| provider.get("max_completion_tokens"))
+            })
             .and_then(Value::as_u64)
             .and_then(|length| u32::try_from(length).ok()),
         reasoning,
-        thinking: openrouter_reasoning.map(|_| ReasoningSupport::ReasoningContent),
+        thinking: openrouter_reasoning
+            .or(deepseek_effort)
+            .map(|_| ReasoningSupport::ReasoningContent),
         tool_call: entry
             .get("supported_parameters")
             .and_then(Value::as_array)
@@ -691,6 +713,7 @@ fn discovered_model_from_entry(entry: &Value) -> Option<DiscoveredModel> {
                 entry
                     .get("architecture")
                     .and_then(|architecture| architecture.get("input_modalities"))
+                    .or_else(|| entry.get("input_modalities"))
                     .and_then(Value::as_array)
                     .map(|modalities| {
                         modalities
@@ -907,6 +930,54 @@ fn parse_google_models(json: &Value) -> Vec<DiscoveredModel> {
     }
 
     Vec::new()
+}
+
+/// Expand DeepSeek's advertised `effort.supported_levels` into the full set of
+/// strings its `reasoning_effort` (chat) / `reasoning.effort` (Responses)
+/// parameter accepts, in ascending depth order.
+///
+/// The advertisement is deliberately narrower than the parameter surface, and
+/// the vendor documents why: `supported_levels` lists the rungs the model
+/// distinguishes **while thinking mode is on** and explicitly excludes `none`,
+/// *"which turns thinking mode off"*. The same guide states that the parameter
+/// accepts the whole vocabulary and maps the tiers the model does not
+/// distinguish: `minimal`→`low`, `medium`/`xhigh`→`high`, `ultra`→`max`.
+///
+/// Nuo's effort ladder is a **clamp range** — the set of values that may be sent
+/// verbatim — so it must be the accepted set. Two concrete failures follow from
+/// leaving it narrow (ADR-0083):
+/// - `none` would be unreachable, and the clamp would snap a request for "no
+///   thinking" *up* to `low`;
+/// - an explicit `medium` would clamp *down* to `low`, shallower than the `high`
+///   upstream would have served.
+///
+/// An alias is added only when its documented target is advertised, so a future
+/// model that narrows its own set never inherits a rung above its ceiling.
+fn deepseek_accepted_efforts(advertised: &[String]) -> Vec<String> {
+    /// Documented compatibility aliases: `(alias rung, rung the vendor serves)`.
+    const ALIASES: &[(&str, &str)] = &[
+        ("minimal", "low"),
+        ("medium", "high"),
+        ("xhigh", "high"),
+        ("ultra", "max"),
+    ];
+    let mut accepted: Vec<String> = Vec::with_capacity(advertised.len() + ALIASES.len() + 1);
+    // `none` is the off switch: accepted whenever the model reasons at all.
+    accepted.push("none".to_string());
+    accepted.extend(advertised.iter().filter(|level| *level != "none").cloned());
+    for (alias, target) in ALIASES {
+        if advertised.iter().any(|level| level == target) {
+            accepted.push((*alias).to_string());
+        }
+    }
+    accepted.sort_by_key(|level| {
+        nuo_model_codec::Effort::ORDER
+            .iter()
+            .position(|rung| rung.as_str() == level)
+            .unwrap_or(usize::MAX)
+    });
+    accepted.dedup();
+    accepted
 }
 
 #[cfg(test)]
@@ -1302,6 +1373,100 @@ mod tests {
         assert_eq!(models[0].id, "kimi-for-coding");
         assert_eq!(models[0].context_window, Some(262_144));
         assert_eq!(models[0].effort_levels, None);
+    }
+
+    #[test]
+    fn parses_deepseek_catalog_capability_fields() {
+        let json = serde_json::json!({
+            "object": "list",
+            "data": [
+                {
+                    "id": "deepseek-flash",
+                    "object": "model",
+                    "owned_by": "deepseek",
+                    "name": "DeepSeek-V4.1-Flash",
+                    "context_window": 1048576,
+                    "max_output_tokens": 393216,
+                    "input_modalities": ["text", "image"],
+                    "output_modalities": ["text"],
+                    "effort": {
+                        "supported_levels": ["low", "high", "max"],
+                        "default_level": "high"
+                    }
+                },
+                {
+                    "id": "deepseek-v4-pro",
+                    "object": "model",
+                    "owned_by": "deepseek",
+                    "name": "DeepSeek-V4-Pro",
+                    "context_window": 1048576,
+                    "max_output_tokens": 393216,
+                    "input_modalities": ["text"],
+                    "output_modalities": ["text"],
+                    "effort": {
+                        "supported_levels": ["low", "high", "max"],
+                        "default_level": "high"
+                    }
+                }
+            ]
+        });
+        let models = parse_models(CatalogShape::OpenAi, &json);
+        assert_eq!(models.len(), 2);
+
+        let flash = &models[0];
+        assert_eq!(flash.id, "deepseek-flash");
+        assert_eq!(flash.context_window, Some(1_048_576));
+        assert_eq!(flash.max_output_tokens, Some(393_216));
+        assert_eq!(flash.reasoning, Some(true));
+        assert_eq!(flash.thinking, Some(ReasoningSupport::ReasoningContent));
+        assert_eq!(flash.vision, Some(true));
+        // The advertisement (`low`/`high`/`max`) is narrower than the accepted
+        // set: `none` is the off switch and the vocabulary aliases are mapped
+        // by the vendor, so the clamp range is the expanded set (ADR-0083).
+        assert_eq!(
+            flash.effort_levels,
+            Some(
+                [
+                    "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"
+                ]
+                .map(str::to_string)
+                .to_vec()
+            )
+        );
+
+        let pro = &models[1];
+        assert_eq!(pro.id, "deepseek-v4-pro");
+        assert_eq!(pro.context_window, Some(1_048_576));
+        assert_eq!(pro.max_output_tokens, Some(393_216));
+        assert_eq!(pro.reasoning, Some(true));
+        assert_eq!(pro.thinking, Some(ReasoningSupport::ReasoningContent));
+        assert_eq!(pro.vision, Some(false));
+    }
+
+    #[test]
+    fn deepseek_discovery_expands_exactly_to_the_compiled_ladder() {
+        // Anti-drift (ADR-0083): the compiled ladder a DeepSeek route starts
+        // from and the ladder a live `/models` refresh lands on must be the
+        // same set — otherwise the picker's menu changes shape on first sync,
+        // and a persisted `medium`/`none` silently clamps to a different rung.
+        let baseline: Vec<String> = nuo_provider::effort_ladders::DEEPSEEK_NATIVE
+            .iter()
+            .map(|rung| rung.as_str().to_string())
+            .collect();
+        assert_eq!(
+            deepseek_accepted_efforts(&["low".to_string(), "high".to_string(), "max".to_string()]),
+            baseline
+        );
+        // The off switch is reachable on every reasoning model…
+        assert_eq!(
+            deepseek_accepted_efforts(&["low".to_string()]),
+            vec!["none".to_string(), "minimal".to_string(), "low".to_string()]
+        );
+        // …and no rung above the model's own ceiling is ever invented.
+        assert_eq!(
+            deepseek_accepted_efforts(&["max".to_string()]),
+            vec!["none".to_string(), "max".to_string(), "ultra".to_string()]
+        );
     }
 
     #[test]

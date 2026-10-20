@@ -35,6 +35,7 @@ nuo-provider-siliconflow = { workspace = true }
 nuo-provider-qoder = { workspace = true }
 inventory = { workspace = true }
 nuo-harness = { workspace = true }
+nuo-catalog = { workspace = true }
 nuo-mcp = { workspace = true }
 nuo-tool = { workspace = true }
 nuo-tool-fs = { workspace = true }

@@ -2346,13 +2346,18 @@ async fn test_inv_remote_02_remote_symmetry_and_detach() {
     assert!(port > 0, "server must bind to an ephemeral port");
 
     // 1. Wrong token must be rejected at the handshake boundary
-    let bad_remote = RemoteServer::parse(&format!("127.0.0.1:{port}"), Some("bad-token".into())).unwrap();
+    let bad_remote =
+        RemoteServer::parse(&format!("127.0.0.1:{port}"), Some("bad-token".into())).unwrap();
     let bad_target = ClientTarget::Remote(bad_remote);
     let bad_res = bad_target.connect(AttachAction::Attach(None)).await;
-    assert!(bad_res.is_err(), "connecting with invalid bearer token must fail");
+    assert!(
+        bad_res.is_err(),
+        "connecting with invalid bearer token must fail"
+    );
 
     // 2. Correct token connects successfully via ClientTarget::Remote
-    let valid_remote = RemoteServer::parse(&format!("127.0.0.1:{port}"), Some(token.clone())).unwrap();
+    let valid_remote =
+        RemoteServer::parse(&format!("127.0.0.1:{port}"), Some(token.clone())).unwrap();
     let valid_target = ClientTarget::Remote(valid_remote.clone());
 
     let handshake = valid_target
@@ -2361,12 +2366,16 @@ async fn test_inv_remote_02_remote_symmetry_and_detach() {
         .expect("remote attach handshake must succeed");
 
     let (req_tx, resp_rx) = match handshake {
-        Handshake::Attached { req_tx, resp_rx, .. } => (req_tx, resp_rx),
+        Handshake::Attached {
+            req_tx, resp_rx, ..
+        } => (req_tx, resp_rx),
         Handshake::Pick(_) => panic!("expected Handshake::Attached, got Pick"),
     };
 
     // 3. Bidirectional pipe works across the remote WebSocket connection
-    req_tx.send(AgentRequest::Interrupt).expect("send request over remote wire");
+    req_tx
+        .send(AgentRequest::Interrupt)
+        .expect("send request over remote wire");
 
     // 4. [INV-REMOTE-03] Sovereign Detach: drop client connection handles
     drop(req_tx);
@@ -2377,10 +2386,9 @@ async fn test_inv_remote_02_remote_symmetry_and_detach() {
 
     // 5. Remote server is still running and healthy; a subsequent client can attach
     let re_target = ClientTarget::Remote(valid_remote);
-    let re_handshake = re_target
-        .connect(AttachAction::Attach(None))
-        .await
-        .expect("server must remain running and accept re-attachment after previous client detached");
+    let re_handshake = re_target.connect(AttachAction::Attach(None)).await.expect(
+        "server must remain running and accept re-attachment after previous client detached",
+    );
 
     assert!(matches!(re_handshake, Handshake::Attached { .. }));
 

@@ -642,6 +642,69 @@ async fn assert_factory_body(mut channel: Channel, expected: Value) {
     assert_eq!(msg.content, "ok");
 }
 
+/// End-to-end wire proof for the DeepSeek Responses dialect (ADR-0083): the
+/// factory-built provider dispatches the *accepted* effort (`none` — the
+/// thinking off switch, not a clamped-up `low`), keeps the stateless
+/// `store: false`, and emits **none** of OpenAI's own reasoning fields
+/// (`reasoning.summary`, `include: ["reasoning.encrypted_content"]`). The exact
+/// body match is the assertion of absence.
+#[tokio::test]
+async fn deepseek_factory_body_carries_only_its_own_reasoning_surface() {
+    let mut server = Server::new_async().await;
+    let channel = Channel {
+        id: "deepseek-flash".into(),
+        transport: Transport::OpenAiResponses {
+            base_url: format!("{}/v1/responses", server.url()),
+            client_profile: nuo_model_codec::ClientProfile::from("ua"),
+            effort: Some(Effort::None),
+            dialect: nuo_model_codec::OpenAiResponsesDialect::DeepSeek,
+        },
+        credentials: nuo_model_codec::static_credential("k"),
+        model: "deepseek-flash".into(),
+        remote: None,
+        user_overrides: None,
+        prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
+        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+    };
+    let expected = json!({
+        "model": "deepseek-flash",
+        "input": [{
+            "type": "message",
+            "role": "user",
+            "content": [{ "type": "input_text", "text": "hi" }],
+        }],
+        "stream": false,
+        "store": false,
+        "reasoning": { "effort": "none" },
+    });
+    let _mock = server
+        .mock("POST", "/v1/responses")
+        .match_header("authorization", "Bearer k")
+        .match_body(Matcher::Json(expected))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{"id":"resp_1","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}"#,
+        )
+        .create_async()
+        .await;
+
+    let provider = build_provider_for_channel(&channel, "deepseek", None);
+    let completion = provider
+        .chat(vec![Message::new(Role::User, "hi")].into())
+        .await
+        .expect("factory-built DeepSeek provider chat must succeed");
+    assert_eq!(completion.message.content, "ok");
+    assert_eq!(
+        completion
+            .meta
+            .usage
+            .as_ref()
+            .map(|usage| usage.prompt_tokens),
+        Some(3)
+    );
+}
+
 /// Regression #1: an explicit `effort = "high"` MUST publish
 /// `output_config.effort = "high"`. Before the fix the value `High` was
 /// treated as "the default" and silently dropped, so a channel pinned to high
@@ -650,7 +713,6 @@ async fn assert_factory_body(mut channel: Channel, expected: Value) {
 async fn factory_publishes_explicit_high_effort() {
     let channel = Channel {
         id: "claude-opus-4-8".into(),
-        label: "Opus".into(),
         transport: Transport::Anthropic {
             base_url: String::new(), // rewritten by the harness
             client_profile: nuo_model_codec::ClientProfile::from("ua"),
@@ -679,7 +741,6 @@ async fn factory_publishes_explicit_high_effort() {
 async fn factory_keeps_effort_decoupled_from_thinking_off() {
     let channel = Channel {
         id: "claude-opus-4-8".into(),
-        label: "Opus".into(),
         transport: Transport::Anthropic {
             base_url: String::new(),
             client_profile: nuo_model_codec::ClientProfile::from("ua"),
@@ -705,7 +766,6 @@ async fn factory_keeps_effort_decoupled_from_thinking_off() {
 async fn factory_publishes_thinking_without_output_config() {
     let channel = Channel {
         id: "claude-opus-4-8".into(),
-        label: "Opus".into(),
         transport: Transport::Anthropic {
             base_url: String::new(),
             client_profile: nuo_model_codec::ClientProfile::from("ua"),
@@ -736,7 +796,6 @@ async fn factory_publishes_thinking_without_output_config() {
 async fn sonnet5_opt_out_emits_explicit_disabled() {
     let channel = Channel {
         id: "claude-sonnet-5".into(),
-        label: "Sonnet 5".into(),
         transport: Transport::Anthropic {
             base_url: String::new(),
             client_profile: nuo_model_codec::ClientProfile::from("ua"),
@@ -767,7 +826,6 @@ async fn sonnet5_opt_out_emits_explicit_disabled() {
 async fn sonnet5_opt_in_publishes_adaptive_and_full_effort_range() {
     let channel = Channel {
         id: "claude-sonnet-5".into(),
-        label: "Sonnet 5".into(),
         transport: Transport::Anthropic {
             base_url: String::new(),
             client_profile: nuo_model_codec::ClientProfile::from("ua"),
@@ -799,7 +857,6 @@ async fn sonnet5_opt_in_publishes_adaptive_and_full_effort_range() {
 async fn fable5_always_on_thinking_ignores_off_override() {
     let channel = Channel {
         id: "claude-fable-5".into(),
-        label: "Fable 5".into(),
         transport: Transport::Anthropic {
             base_url: String::new(),
             client_profile: nuo_model_codec::ClientProfile::from("ua"),
@@ -1273,7 +1330,6 @@ async fn opencode_plan_wire_request_carries_session_and_client_headers() {
 
     let channel = Channel {
         id: "glm-5.2".into(),
-        label: "GLM-5.2".into(),
         transport: Transport::OpenAi {
             base_url: url,
             client_profile: nuo_model_codec::ClientProfile::OpenCode,
@@ -1319,7 +1375,6 @@ async fn opencode_plan_anthropic_wire_request_carries_session_headers() {
 
     let channel = Channel {
         id: "qwen3.6-plus".into(),
-        label: "Qwen3.6 Plus".into(),
         transport: Transport::Anthropic {
             base_url: url,
             client_profile: nuo_model_codec::ClientProfile::OpenCode,

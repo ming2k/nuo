@@ -807,6 +807,22 @@ mod tests {
     }
 
     #[test]
+    fn test_range_selection_strips_triple_asterisk_formatting_delimiters() {
+        let msg = TranscriptMessage::new(Role::Assistant, "Here is ***bold and italic*** note.");
+        let messages = vec![msg];
+
+        // Triple asterisks: delimiters at 8..11 and 26..29.
+        let sel = SelectionState::Range {
+            anchor: SemanticCursor::new(0, 0, 11), // 'b'
+            head: SemanticCursor::new(0, 0, 28),   // trailing '*'
+        };
+        assert_eq!(
+            get_selected_text(&sel, &messages, &|_, _| None, None),
+            Some("bold and italic".to_string())
+        );
+    }
+
+    #[test]
     fn test_range_cross_blocks() {
         let mut msg = TranscriptMessage::new(Role::Assistant, "");
         msg.blocks = vec![

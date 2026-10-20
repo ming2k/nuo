@@ -32,11 +32,14 @@ pub use credentials::{
 pub use factory::{
     ProviderFactory, build_credential_source, build_provider_for_channel, register_provider_factory,
 };
-pub use pricing::{ModelPricing, NanoUsd, PricingTier, TurnCost, resolve_model_pricing};
+pub use pricing::{
+    CivilDate, HolidayRange, ModelPricing, NanoUsd, OffPeakPricing, PeakWindow, PricingTier,
+    RateSchedule, RateWindow, RatingInstant, TurnCost, Weekday, WeekdayMask, resolve_model_pricing,
+};
 pub use spec::{
-    ModelProviderSpec, PromptCachePolicy, QuotaPort, endpoint_for, model_provider_spec,
-    register_provider_spec, register_provider_specs, route_for_model, sync_user_declared_providers,
-    unsupported_prompt_cache,
+    DisplayPolicy, ModelProviderSpec, PromptCachePolicy, QuotaPort, endpoint_for,
+    model_provider_spec, register_provider_spec, register_provider_specs, route_for_model,
+    sync_user_declared_providers, unsupported_prompt_cache,
 };
 
 // Re-export canonical domain vocabulary

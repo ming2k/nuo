@@ -45,7 +45,7 @@ work: it stops the next reader from rebuilding what is present.
 | **Quota / balance / credit %** | **Data model done; dispatch is not** | `ProviderQuotaData::{Periodic, Balance, Composite}`, `QuotaWindowBucket.used_fraction`, `BalanceQuota.{credit_limit, consumed_amount, display_primary}` (`nuo-model-codec/src/connection_detail.rs`). The gap is *dispatch*, not shape — fixed by ADR-0027 step 4 (`[INV-PROV-08]` typed port). **Do not add a new quota schema.** |
 | **Account / tenant selection** | **Deferred, with a condition** | Values already ride `ResolvedAuth`'s typed extensions (`OpencodeAuthMetadata.org_id`, `GoogleAuthMetadata.project_id`, `ChatGptAuthMetadata.account_id`). See §5. |
 | **`ecosystem` label** | **Rejected** | ADR-0027 §Rejected Alternatives. |
-| **`trust` level** | **Rejected** | ADR-0027 §Rejected Alternatives (the gate is the baseline-precedence rule, `nuo-harness/src/catalog/sync.rs:485`). |
+| **`trust` level** | **Rejected** | ADR-0027 §Rejected Alternatives (the gate is the baseline-precedence rule, `nuo-catalog/src/sync.rs:501`). |
 | **`local_only_safe`** | **Rejected** | ADR-0027 §Rejected Alternatives (feature unimplemented; wrong shape). |
 
 **Net: of the dimensions raised, two are real additions (§3, §4), one is a dispatch fix that ADR-0027

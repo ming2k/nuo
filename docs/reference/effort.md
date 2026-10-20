@@ -74,11 +74,15 @@ The protocol layer maps a chosen `Effort` onto each public API specification, no
 
 Providers that implement the OpenAI Responses / chat-completions specification (xAI Grok, Moonshot Kimi, DeepSeek, Z.AI GLM) reuse the OpenAI translation verbatim. Google is the outlier: a Gemini model declares an `Effort` ladder like any other, and the Google protocol maps each rung onto `thinkingLevel` (3.x) or a `thinkingBudget` bucket (2.5).
 
+A dialect may also *decline* a field the specification defines. DeepSeek's Responses surface defines `reasoning` as `{effort}` only — it has no summarized-CoT channel and returns plaintext `reasoning_text` items — so the builder emits neither `reasoning.summary` nor `include: ["reasoning.encrypted_content"]` there (ADR-0083).
+
 ---
 
 ## 6. Clamping
 
 A model accepts only a subset of the rungs (its `Model::effort_levels`). Callers must **clamp** a requested level down to what the model supports rather than sending an unsupported value, which the upstream rejects with HTTP 400. `EffortLevel::Other` rungs cannot be ranked, so they participate only by exact name match.
+
+The ladder is therefore the **accepted set**, not the set of rungs a model *distinguishes*. This matters when a provider alias-maps tiers: DeepSeek accepts `minimal`/`medium`/`xhigh`/`ultra` and serves them as `low`/`high`/`high`/`max`. A ladder narrowed to the three distinct rungs would make `none` unreachable (the clamp snaps "no thinking" **up** to `low`) and would clamp an explicit `medium` **down** to `low` — shallower than the `high` upstream would have served. Where a provider advertises only its distinct rungs (`/models` → `effort.supported_levels`, which excludes `none` because it is the off switch), the catalog layer expands the advertisement back to the accepted set; compiled baselines declare the same set so a live refresh never changes the menu (ADR-0083).
 
 ---
 
@@ -95,11 +99,14 @@ Specific family ladders are constants in `nuo_provider::effort_ladders`:
 | `OPENAI_GPT_5_6` | adds `max` |
 | `OPENAI_GPT_6` | `low`/`medium`/`high`/`xhigh`/`max`/`ultra` |
 | `XAI_GROK` | `none`/`low`/`medium`/`high` |
-| `LOW_HIGH_MAX` (DeepSeek V4) | `low`/`high`/`max` |
+| `LOW_HIGH_MAX` (Kimi K3, CommandCode DeepSeek lanes) | `low`/`high`/`max` |
+| `DEEPSEEK_NATIVE` (DeepSeek platform + pass-through relays) | `none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`/`ultra` |
 | `GLM_5` | `low`/`high`/`xhigh`/`max` |
 | `GEMINI_LEVEL` (3.x) | `minimal`/`low`/`medium`/`high` |
 | `GEMINI_BUDGET` (2.5) | `minimal`/`low`/`medium`/`high`/`max` |
 | `QWEN_MIXED` (QianwenAI) | `none`/`low`/`medium`/`high`/`xhigh`/`max` |
 | `DEEPSEEK_V4_PLAN` (QianwenAI) | `low`/`medium`/`high`/`xhigh`/`max` |
 
-Notes on the DeepSeek rungs: the DeepSeek platform and its OpenAI-compatible relays accept only the `low`/`high`/`max` presets (integer efforts are rejected upstream with HTTP 400). On the QianwenAI Token Plan surface, `none` is a first-class rung (the endpoint answers with zero reasoning content — the thinking off switch), while its DeepSeek V4 Pro snapshots reject `none` and `minimal` outright, so "reasoning off" is inexpressible there.
+Notes on the DeepSeek rungs: the DeepSeek platform accepts the whole closed vocabulary and maps the tiers it does not distinguish — `minimal`→`low`, `medium`/`xhigh`→`high`, `ultra`→`max` — with `none` as the thinking off switch and `high` as the default (integer efforts are rejected upstream with HTTP 400). Its `/models` advertisement lists only the three distinct rungs plus the default, so both the compiled `DEEPSEEK_NATIVE` ladder and the discovered expansion carry the full accepted set. Only surfaces whose accepted strings are *unverified* beyond the three presets — Kimi K3, the CommandCode `provider/v1` DeepSeek lanes — keep `LOW_HIGH_MAX`.
+
+On the QianwenAI Token Plan surface, `none` is a first-class rung (the endpoint answers with zero reasoning content — the thinking off switch), while its DeepSeek V4 Pro snapshots reject `none` and `minimal` outright, so "reasoning off" is inexpressible there. That route-specific floor cannot be expressed on a shared wire id — capabilities are keyed by model id, not by route — so the DeepSeek ids carry their home platform's vocabulary on every route (ADR-0083).

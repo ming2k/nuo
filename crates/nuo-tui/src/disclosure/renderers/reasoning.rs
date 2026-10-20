@@ -119,7 +119,14 @@ pub fn draw_reasoning_trace(
                     );
                 }
                 emitted_any_block = true;
-                let lines = ctx.wrap.wrap_text(content, body_wrap_width);
+                let hidden = crate::text_layout::block_hidden_ranges(
+                    content,
+                    code_ranges,
+                    bold_ranges,
+                    math_ranges,
+                    link_ranges,
+                );
+                let lines = ctx.wrap.wrap_text_markup(content, body_wrap_width, &hidden);
                 let sel_range = block_selection_range(selection, mi, bi);
                 for wl in lines.iter() {
                     let block_wl = WrappedLine {
@@ -142,7 +149,25 @@ pub fn draw_reasoning_trace(
                         base: Style::default().fg(ctx.theme.muted()),
                         colors: RichTextColors::from_theme(ctx.theme),
                     });
-                    let used = TRANSCRIPT_BODY_LEADING_INDENT as usize + wl.text.width();
+                    let mut hidden_for_line = crate::text_layout::bold_delim_local_ranges(
+                        &wl.text,
+                        wl.start_byte,
+                        bold_ranges,
+                    );
+                    hidden_for_line.extend(crate::text_layout::markup_hidden_ranges(
+                        &wl.text,
+                        wl.start_byte,
+                        code_ranges,
+                        &[],
+                        math_ranges,
+                    ));
+                    hidden_for_line.extend(crate::text_layout::link_delim_local_ranges(
+                        &wl.text,
+                        wl.start_byte,
+                        link_ranges,
+                    ));
+                    let used = TRANSCRIPT_BODY_LEADING_INDENT as usize
+                        + crate::text_layout::visible_width(&wl.text, &hidden_for_line);
                     let mut line = line;
                     line.spans.push(Span::styled(
                         padded_tail(ctx.full_width, used),
@@ -154,7 +179,7 @@ pub fn draw_reasoning_trace(
                         bi,
                         &block_wl,
                         TRANSCRIPT_BODY_LEADING_INDENT,
-                        &[],
+                        &hidden_for_line,
                     );
                 }
             }

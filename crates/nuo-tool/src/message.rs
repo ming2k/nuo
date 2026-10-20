@@ -514,7 +514,7 @@ impl Message {
         self
     }
 
-    /// Retrieve the Google Gemini thought signature for a given tool call ID or name (ADR-0297).
+    /// Retrieve the Google Gemini thought signature for a given tool call ID or name (ADR-0046).
     pub fn gemini_thought_signature(&self, call_key: &str) -> Option<&str> {
         let meta = self.provider_meta.as_ref()?;
         if let Some(signatures) = meta
@@ -529,13 +529,13 @@ impl Message {
             .and_then(serde_json::Value::as_str)
     }
 
-    /// Check if this assistant message carries a valid Gemini thought signature for the given tool call (ADR-0297).
+    /// Check if this assistant message carries a valid Gemini thought signature for the given tool call (ADR-0046).
     pub fn has_gemini_thought_signature_for(&self, call: &ToolCall) -> bool {
         self.gemini_thought_signature(&call.id).is_some()
             || self.gemini_thought_signature(&call.name).is_some()
     }
 
-    /// Check if this assistant message contains at least one Google Gemini thought signature (ADR-0297).
+    /// Check if this assistant message contains at least one Google Gemini thought signature (ADR-0046).
     pub fn has_gemini_thought_signatures(&self) -> bool {
         let Some(meta) = self.provider_meta.as_ref() else {
             return false;

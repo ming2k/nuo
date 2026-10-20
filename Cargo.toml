@@ -125,6 +125,7 @@ nuox = { package = "nuo-tui", version = "0.0.41", path = "crates/nuo-tui" }
 nuo-persistence = { version = "0.0.41", path = "crates/nuo-persistence" }
 nuo-host = { version = "0.0.41", path = "crates/nuo-host" }
 nuo-harness = { version = "0.0.41", path = "crates/nuo-harness" }
+nuo-catalog = { version = "0.0.41", path = "crates/nuo-catalog" }
 nuo-tool-fs = { version = "0.0.41", path = "tools/nuo-tool-fs" }
 nuo-tool-exec = { version = "0.0.41", path = "tools/nuo-tool-exec" }
 nuo-tool-web = { version = "0.0.41", path = "tools/nuo-tool-web" }

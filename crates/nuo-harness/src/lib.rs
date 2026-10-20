@@ -213,7 +213,6 @@ pub use round_lifecycle::{ParkedInterrupt, RoundBegin, RoundLifecycle};
 // -----------------------------------------------------------------------------
 // Capabilities, Skills & Extensions
 // -----------------------------------------------------------------------------
-pub mod catalog;
 pub mod extension;
 pub use extension::CodeIntelligenceExtension;
 pub mod skills;

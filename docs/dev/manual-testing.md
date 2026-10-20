@@ -363,11 +363,9 @@ rm -rf "$NUO_HOME"
     blue, an executable the `ls` green, a symlink the cyan, and a plain file the
     scheme's normal content tone; the byte size sits in a dim right-aligned
     column. The raw `[DIR]` / `[EXEC]` / `[LINK]` / `[FILE]` tags never appear.
-  - **`find_files`** opens with a **count band** parsed from the tool's own
-    header (`Found 27 files`) and groups siblings under a per-directory **title
-    band** (`docs/adr/`), so the shared prefix appears once instead of on every
-    row — rather than dumping the raw `Found N matching files:` header line as
-    a path row.
+  - **`find_files`** opens directly with siblings grouped under per-directory
+    **title bands** (`docs/adr/`), stripping the redundant count header line
+    so the shared prefix appears once without an unnecessary intermediate count tally.
   - A truncated `list_dir` shows a dim `⋯ N more entries not shown` band, not
     the raw `... (N additional entries omitted)` line.
   - Selecting a listing and copying still yields the underlying paths in reading

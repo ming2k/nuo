@@ -165,52 +165,24 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
 /// Loop stage (input dispatch): the `OpenModelDetail` arm.
 pub(crate) fn handle_open_model_detail(app: &mut App) {
     if app.active_dialog() == Some(DialogKind::Models) {
-        let rows = app.models_flat_filtered();
-        let idx = app.active_index();
-        if let Some(row) = rows.get(idx).or_else(|| rows.first()) {
-            let is_builtin = !app.provider_is_custom(&row.provider_id);
-            app.editor_target = Some(row.provider_id.clone());
-            app.editor_model = row.model.clone();
-            app.editor_model_settings_only = true;
-            app.editor_target_is_builtin = is_builtin;
-            app.editor_key.clear();
-            app.editor_vision_override = None;
-            app.editor_tool_override = None;
-            app.editor_effort_levels = row.effort_levels.clone();
-            app.editor_effort = row.effort.clone().unwrap_or_else(|| {
-                let levels: Vec<nuo_wire::EffortLevel> = row
-                    .effort_levels
-                    .iter()
-                    .map(|l| nuo_wire::EffortLevel::parse(l))
-                    .collect();
-                nuo_wire::Effort::Medium
-                    .clamp_to_levels(&levels)
-                    .as_str()
-                    .to_string()
-            });
-            app.editor_thinking_available = row.thinking.is_some();
-            app.editor_thinking = row.thinking.unwrap_or(false);
-            app.editor_field = 1;
-
-            let dlg = app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
-            dlg.info_detail = true;
-            dlg.info_scroll = 0;
-        }
+        let dlg = app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
+        dlg.info_detail = true;
+        dlg.info_scroll = 0;
+        dlg.search = false;
     }
 }
 
 /// Loop stage (input dispatch): the `OpenModelEditor` arm.
 pub(crate) fn handle_open_model_editor(app: &mut App) {
     if app.active_dialog() == Some(DialogKind::Models) {
-        // `e` on a flat model row. The per-model settings popup
-        // opens for any model that exposes effort and/or a
-        // separate thinking switch.
+        // `e` on a flat model row (from browse list or detail sub-view).
+        // The per-model settings popup opens for any usable model to configure
+        // effort, thinking switch, and capability overrides.
         let rows = app.models_flat_filtered();
         if let Some(row) = rows
             .get(app.active_index())
             .or_else(|| rows.iter().find(|r| r.usable))
             && row.usable
-            && (row.effort.is_some() || row.thinking.is_some())
         {
             let is_builtin = !app.provider_is_custom(&row.provider_id);
             // Phase 3 (ADR-0133): the picker that opened this editor goes on
@@ -265,7 +237,13 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
             // thinking switch exists. OpenAI GPT effort has no
             // thinking switch, so this value is ignored there.
             app.editor_thinking = row.thinking.unwrap_or(false);
-            app.editor_field = 1;
+            app.editor_field = if !app.editor_effort_levels.is_empty() || row.effort.is_some() {
+                1
+            } else if app.editor_thinking_available {
+                2
+            } else {
+                3
+            };
             app.input = app.editor_effort.clone();
             app.set_cursor_end();
             app.surfaces

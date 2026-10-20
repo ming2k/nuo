@@ -68,7 +68,6 @@ pub mod archivist;
 pub mod archivist_service;
 pub mod background_jobs;
 pub mod bootstrap;
-pub mod catalog;
 pub mod credentials_host;
 pub mod durability_sink;
 pub mod export;

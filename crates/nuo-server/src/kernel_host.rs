@@ -176,10 +176,10 @@ impl CatalogMaintenance for ProductCatalogMaintenance {
     ) -> futures::future::BoxFuture<'static, bool> {
         Box::pin(async move {
             let outcome =
-                crate::catalog::refresh_connection_models_for_etag(&connection_id, &etag).await;
+                nuo_catalog::refresh_connection_models_for_etag(&connection_id, &etag).await;
             if outcome.changed {
-                crate::catalog::sync_fitted_model_registry();
-                crate::catalog::prune_stale_models_on_disk();
+                nuo_catalog::sync_fitted_model_registry();
+                nuo_catalog::prune_stale_models_on_disk();
             }
             for failure in outcome.failures {
                 tracing::warn!(
@@ -196,7 +196,7 @@ impl CatalogMaintenance for ProductCatalogMaintenance {
     fn picker_snapshot(&self) -> Option<nuo_wire::ProviderPickerSnapshot> {
         let config = nuo_persistence::config::Config::load();
         let usage = nuo_persistence::connection_usage::ConnectionUsage::load();
-        Some(crate::catalog::build_picker_state(&config, &usage))
+        Some(nuo_catalog::build_picker_state(&config, &usage))
     }
 }
 

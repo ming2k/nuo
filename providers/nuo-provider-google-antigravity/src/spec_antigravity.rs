@@ -169,5 +169,6 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     default_client_profile: nuo_model_codec::ClientPreset::Antigravity,
     client_profile_sensitive: true,
     quota: Some(nuo_provider::QuotaPort::Antigravity),
+    display_policy: nuo_provider::DisplayPolicy::Native,
     models: ANTIGRAVITY_OAUTH_MODELS,
 };

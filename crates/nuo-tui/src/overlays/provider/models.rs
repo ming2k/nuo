@@ -51,8 +51,6 @@ pub struct ModelsModalProps<'a> {
     pub spinner_phase: usize,
     pub info_detail: bool,
     pub info_scroll: &'a mut usize,
-    pub live_effort: Option<&'a str>,
-    pub live_thinking: Option<bool>,
 }
 
 /// Draw the **Models** flat model picker modal (`/models`).
@@ -76,8 +74,6 @@ pub fn draw_models_modal(
         spinner_phase,
         info_detail,
         info_scroll,
-        live_effort,
-        live_thinking,
     } = props;
     let area = modal_area(frame, FixedModalSpec::PROVIDER);
     let f = modal_frame(frame, area, theme, true, true);
@@ -89,24 +85,22 @@ pub fn draw_models_modal(
         let breadcrumbs = crate::primitives::breadcrumb_parts("Models", display);
         crate::elevation::modal_header_parts(frame, header_rect, &breadcrumbs, theme);
 
-        let lines = model_detail_body(
-            rm,
-            live_effort,
-            live_thinking,
-            f.body.width as usize,
-            theme,
-        );
+        let lines = model_detail_body(rm, f.body.width as usize, theme);
 
+        let refresh_label = if refreshing {
+            "refreshing…"
+        } else {
+            "refresh"
+        };
         let mut detail_hints: Vec<FooterHint> = Vec::with_capacity(5);
         if rm.usable {
-            detail_hints.push(FooterHint::key_primary(crate::keymap::Key::ENTER, "activate & save"));
-            if !rm.effort_levels.is_empty() {
-                detail_hints.push(FooterHint::secondary(keyvocab::ARROWS_LR, "effort"));
-            }
-            if live_thinking.is_some() || rm.thinking.is_some() {
-                detail_hints.push(FooterHint::secondary(keyvocab::SPACE, "thinking"));
-            }
+            detail_hints.push(FooterHint::key_primary(
+                crate::keymap::Key::ENTER,
+                "activate",
+            ));
+            detail_hints.push(FooterHint::secondary("e", "edit"));
         }
+        detail_hints.push(FooterHint::secondary("r", refresh_label));
         detail_hints.push(FooterHint::key_always(crate::keymap::Key::ESC, "list"));
 
         render_body(
@@ -133,11 +127,12 @@ pub fn draw_models_modal(
     } else {
         "refresh"
     };
-    let browse_hints: [FooterHint; 8] = [
+    let browse_hints: [FooterHint; 9] = [
         FooterHint::navigation(keyvocab::ARROWS_UD, "navigate"),
         FooterHint::secondary("/", "search"),
         FooterHint::key_primary(crate::keymap::Key::ENTER, "activate"),
         FooterHint::secondary("i", "details"),
+        FooterHint::secondary("e", "edit"),
         FooterHint::secondary("*", "favorite"),
         FooterHint::secondary("x", "block"),
         FooterHint::secondary("r", refresh_label),
@@ -546,16 +541,12 @@ pub(crate) fn models_empty_body(theme: &Theme) -> Vec<Line<'static>> {
 /// The model detail sub-view body: renders identity, capabilities, and live configuration or availability reason.
 pub(crate) fn model_detail_body(
     rm: &RankedModel,
-    live_effort: Option<&str>,
-    live_thinking: Option<bool>,
     _body_width: usize,
     theme: &Theme,
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let label_style = Style::default().fg(theme.dim());
-    let value_style = Style::default()
-        .fg(theme.fg())
-        .add_modifier(Modifier::BOLD);
+    let value_style = Style::default().fg(theme.fg()).add_modifier(Modifier::BOLD);
     let section_style = Style::default()
         .fg(theme.brand())
         .add_modifier(Modifier::BOLD);
@@ -596,51 +587,122 @@ pub(crate) fn model_detail_body(
         ));
     }
 
+    // 3. Pricing section (if declared or recognized)
+    if let Some(pricing) = nuo_wire::pricing::resolve_model_pricing(&rm.provider_id, &rm.model) {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("Pricing", section_style)));
+        if pricing
+            .tiers
+            .iter()
+            .all(|t| t.input_standard_nano_per_m == 0 && t.output_standard_nano_per_m == 0)
+        {
+            lines.push(kv(
+                "Rate",
+                "Plan included (zero token surcharge)",
+                value_style,
+            ));
+        } else {
+            let base_tier = &pricing.tiers[0];
+            let in_str =
+                nuo_wire::pricing::NanoUsd(base_tier.input_standard_nano_per_m).format_rate();
+            let out_str =
+                nuo_wire::pricing::NanoUsd(base_tier.output_standard_nano_per_m).format_rate();
+            let base_desc = if pricing.tiers.len() > 1 {
+                format!("{in_str} in · {out_str} out (per 1M tokens, tiered)")
+            } else {
+                format!("{in_str} in · {out_str} out (per 1M tokens)")
+            };
+            lines.push(kv("Standard Rates", &base_desc, value_style));
+
+            if base_tier.cache_read_nano_per_m > 0 {
+                let hit_str =
+                    nuo_wire::pricing::NanoUsd(base_tier.cache_read_nano_per_m).format_rate();
+                let discount_pct = if base_tier.input_standard_nano_per_m > 0 {
+                    let saved = base_tier
+                        .input_standard_nano_per_m
+                        .saturating_sub(base_tier.cache_read_nano_per_m);
+                    (saved as f64 / base_tier.input_standard_nano_per_m as f64 * 100.0).round()
+                        as u32
+                } else {
+                    0
+                };
+                let hit_val = if discount_pct > 0 {
+                    format!("{hit_str} / 1M ({discount_pct}% discount)")
+                } else {
+                    format!("{hit_str} / 1M")
+                };
+                lines.push(kv(
+                    "Prompt Cache Hit",
+                    &hit_val,
+                    Style::default().fg(theme.fg()),
+                ));
+            }
+
+            if let Some(off_peak) = &pricing.off_peak {
+                let op_tier = &off_peak.tiers[0];
+                let op_in =
+                    nuo_wire::pricing::NanoUsd(op_tier.input_standard_nano_per_m).format_rate();
+                let op_out =
+                    nuo_wire::pricing::NanoUsd(op_tier.output_standard_nano_per_m).format_rate();
+                lines.push(kv(
+                    "Off-Peak Rates",
+                    &format!("50% off ({op_in} in · {op_out} out)"),
+                    Style::default().fg(theme.ok()).add_modifier(Modifier::BOLD),
+                ));
+                lines.push(kv(
+                    "Off-Peak Hours",
+                    "Mon–Fri outside 09:00–12:00, 14:00–18:00 (UTC+8); weekends & holidays all day",
+                    Style::default().fg(theme.muted()),
+                ));
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                let window = off_peak
+                    .schedule
+                    .window_at(nuo_wire::pricing::RatingInstant::from_epoch_ms(now_ms));
+                let (win_label, win_style) = if window.is_off_peak() {
+                    (
+                        "Off-Peak (Active)",
+                        Style::default().fg(theme.ok()).add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    ("Peak", Style::default().fg(theme.dim()))
+                };
+                lines.push(kv("Current State", win_label, win_style));
+            }
+        }
+    }
+
     lines.push(Line::from(""));
 
-    // 3. Status or Configuration section
+    // 4. Status or Configuration section
     if rm.usable {
         lines.push(Line::from(Span::styled("Configuration", section_style)));
-        if !rm.effort_levels.is_empty() {
-            let current_effort = live_effort.or(rm.effort.as_deref()).unwrap_or("medium");
-            let mut spans = vec![Span::styled(format!("{:<16}", "Reasoning"), label_style)];
-            for level in &rm.effort_levels {
-                let is_selected = level == current_effort;
-                if is_selected {
-                    spans.push(Span::styled(
-                        format!("▶[{level}]◀ "),
-                        Style::default()
-                            .fg(theme.brand())
-                            .add_modifier(Modifier::BOLD),
-                    ));
-                } else {
-                    spans.push(Span::styled(
-                        format!(" [ {level} ] "),
-                        Style::default().fg(theme.dim()),
-                    ));
-                }
-            }
-            lines.push(Line::from(spans));
+        if !rm.effort_levels.is_empty() || rm.effort.is_some() {
+            let current_effort = rm.effort.as_deref().unwrap_or("medium");
+            lines.push(kv("Reasoning Effort", current_effort, value_style));
         }
-        let current_thinking = live_thinking.or(rm.thinking);
-        if let Some(thinking) = current_thinking {
-            let check = if thinking { "[x] on" } else { "[ ] off" };
+        if let Some(thinking) = rm.thinking {
+            let check = if thinking { "on" } else { "off" };
             let style = if thinking {
                 Style::default().fg(theme.ok()).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(theme.dim())
             };
-            lines.push(Line::from(vec![
-                Span::styled(format!("{:<16}", "Thinking"), label_style),
-                Span::styled(check, style),
-            ]));
+            lines.push(kv("Thinking", check, style));
+        }
+        if rm.effort_levels.is_empty() && rm.effort.is_none() && rm.thinking.is_none() {
+            lines.push(kv("Mode", "Standard", Style::default().fg(theme.fg())));
         }
     } else {
         lines.push(Line::from(Span::styled("Availability", section_style)));
         lines.push(kv(
             "Status",
             "Locked",
-            Style::default().fg(theme.warn()).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.warn())
+                .add_modifier(Modifier::BOLD),
         ));
         let reason_text = rm
             .locked_reason
@@ -648,11 +710,22 @@ pub(crate) fn model_detail_body(
             .unwrap_or("Model requires subscription or account entitlement.");
         lines.push(Line::from(vec![
             Span::styled(format!("{:<16}", "Reason"), label_style),
-            Span::styled(
-                reason_text.to_string(),
-                Style::default().fg(theme.muted()),
-            ),
+            Span::styled(reason_text.to_string(), Style::default().fg(theme.muted())),
         ]));
+        if rm.availability_overridden {
+            lines.push(kv(
+                "Scope Override",
+                "Allowed by user scope",
+                Style::default().fg(theme.ok()),
+            ));
+        }
+        if rm.availability_stale {
+            lines.push(kv(
+                "Notice",
+                "Verdict observed before catalog refresh failure; may be stale upstream.",
+                Style::default().fg(theme.dim()),
+            ));
+        }
     }
 
     lines

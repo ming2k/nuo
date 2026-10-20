@@ -13,11 +13,11 @@ pub const ANTHROPIC_BUILTIN_MODELS: &[&str] = &[
 
 pub const CHATGPT_BUILTIN_MODELS: &[&str] = &[];
 
-pub const DEEPSEEK_BUILTIN_MODELS: &[&str] = &[
-    "deepseek-v4-flash",
-    "deepseek-v4-pro",
-    "deepseek-v4-flash-vision-exp",
-];
+/// The two wire ids `api.deepseek.com` serves (ADR-0083). The retired V4 Flash
+/// generation (`deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`) is still
+/// accepted upstream and stays registered as a baseline, but it is no longer
+/// seeded for new connections.
+pub const DEEPSEEK_BUILTIN_MODELS: &[&str] = &["deepseek-flash", "deepseek-v4-pro"];
 
 pub const COPILOT_SEED_MODELS: &[&str] = &["gpt-4o-mini"];
 
@@ -82,6 +82,11 @@ pub const COMMANDCODE_BUILTIN_MODELS: &[&str] = &[
     "deepseek/deepseek-v4-pro",
 ];
 
+/// Seed models for the OpenCode Plan subscription surface, in activation order.
+///
+/// The surface speaks the `zen/go` endpoint family and publishes ids only, so
+/// these seeds are what the picker shows before the first catalog refresh; the
+/// live `/models` payload remains authoritative for what the account may run.
 pub const OPENCODE_PLAN_MODELS: &[&str] = &[
     "deepseek-v4.1-flash",
     "deepseek-v4-pro",
@@ -94,8 +99,6 @@ pub const OPENCODE_PLAN_MODELS: &[&str] = &[
     "deepseek-v4.1-flash-free",
     "glm-5.3-flash-free",
 ];
-
-pub const OPENCODE_GO_MODELS: &[&str] = OPENCODE_PLAN_MODELS;
 
 pub const OPENCODE_ZEN_MODELS: &[&str] = &[
     "deepseek-v4.1-flash",

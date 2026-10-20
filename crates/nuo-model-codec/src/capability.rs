@@ -470,7 +470,7 @@ pub trait Provider: Send + Sync {
         String::new()
     }
 
-    /// The baseline wire protocol this provider communicates over (ADR-0161, ADR-0297).
+    /// The baseline wire protocol this provider communicates over (ADR-0006, ADR-0046).
     fn wire_protocol(&self) -> Option<crate::WireProtocol> {
         None
     }

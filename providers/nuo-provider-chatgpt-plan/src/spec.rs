@@ -149,6 +149,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     default_client_profile: nuo_model_codec::ClientPreset::Codex,
     client_profile_sensitive: true,
     quota: None,
+    display_policy: nuo_provider::DisplayPolicy::Native,
 };
 
 #[cfg(test)]

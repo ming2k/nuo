@@ -96,7 +96,11 @@ fn piece_tokens(category: CharCategory, slice: &str) -> usize {
         CharCategory::AsciiWord => {
             // For words: short words (1..5 chars) are 1 token. Longer words break into subwords.
             let len = slice.len();
-            if len <= 5 { 1 } else { 1 + (len - 5).div_ceil(4) }
+            if len <= 5 {
+                1
+            } else {
+                1 + (len - 5).div_ceil(4)
+            }
         }
         CharCategory::Cjk => {
             // Modern models (DeepSeek, Qwen, Claude, GPT-4o) encode CJK at ~1 token per character.

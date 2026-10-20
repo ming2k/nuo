@@ -812,6 +812,9 @@ impl App {
 
     /// Pop the deepest sub-layer of a view or dialog.
     pub(crate) fn pop_sublayer(&mut self) -> bool {
+        if self.surfaces.active_sheet().is_some() {
+            return false;
+        }
         if self.dialog_keys() {
             self.set_dialog_keys(false);
             return true;
@@ -899,16 +902,6 @@ impl App {
                     self.surfaces
                         .dlg_mut::<crate::surfaces::ModelsDialog>()
                         .info_scroll = 0;
-                    let is_usable = self
-                        .models_flat_filtered()
-                        .get(self.active_index())
-                        .is_some_and(|r| r.usable);
-                    if is_usable && self.editor_target.is_some() && self.editor_model_settings_only {
-                        crate::event_loop::actions::handle_submit_model_editor(self);
-                    } else {
-                        self.editor_target = None;
-                        self.editor_model_settings_only = false;
-                    }
                     return true;
                 }
                 DialogKind::Connections

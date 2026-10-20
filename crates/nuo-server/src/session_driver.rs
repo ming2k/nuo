@@ -11,7 +11,6 @@
 //! by the original inline task. This keeps the dispatch body unchanged while
 //! making its ownership boundary explicit.
 
-use crate::catalog;
 use crate::handlers_chat::ChatEnv;
 use crate::handlers_slash::SlashEnv;
 use crate::mcp::McpRuntime;
@@ -452,7 +451,7 @@ impl SessionDriver {
             // model rather than the one it actually ran with. Best-effort: usage
             // tracking is rebuildable state and must never block startup.
             {
-                let initial_id = catalog::default_provider_id(&config).to_string();
+                let initial_id = nuo_catalog::default_provider_id(&config).to_string();
                 // Resolve the model the way `build_provider_for` did when main.rs
                 // constructed the startup provider: `config.default_model` when the
                 // entry serves it, otherwise the entry's default-channel model. The
@@ -461,7 +460,7 @@ impl SessionDriver {
                 // so it never pins a model the live provider was not actually built
                 // with. Pinning the exact live model (rather than a usage-derived one)
                 // is what lets the next launch re-open this provider on the same model.
-                let initial_model = catalog::resolved_model_name(&config, &initial_id);
+                let initial_model = nuo_catalog::resolved_model_name(&config, &initial_id);
                 provider_usage.record(&initial_id);
                 // Skip the model pin when the startup provider is unbuildable
                 // (`resolved_model_name` returns `None`): there is no real channel,
@@ -475,14 +474,13 @@ impl SessionDriver {
                     tracing::warn!(?error, "could not persist provider/model usage telemetry");
                 }
             }
-            catalog::prune_stale_models(&mut config, &mut provider_usage);
+            nuo_catalog::prune_stale_models(&mut config, &mut provider_usage);
             // Push the initial model-picker snapshot (default id + per-model
             // favorite / key-ready / last-used) so the picker is ready the moment
             // the user opens it.
-            let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-                &config,
-                &provider_usage,
-            )));
+            let _ = resp_tx.send(AgentResponse::ProviderPicker(
+                nuo_catalog::build_picker_state(&config, &provider_usage),
+            ));
             // Announce the active provider/model as a synthetic `ProviderSwitched`
             // so an attach client (which subscribes to the broadcast only after the
             // handshake and so misses the startup emissions) can seed its hint bar
@@ -495,8 +493,9 @@ impl SessionDriver {
             // not the usage variant) to mirror exactly the model the live provider
             // was built with.
             {
-                let provider = catalog::default_provider_id(&config).to_string();
-                let model = catalog::resolved_model_name(&config, &provider).unwrap_or_default();
+                let provider = nuo_catalog::default_provider_id(&config).to_string();
+                let model =
+                    nuo_catalog::resolved_model_name(&config, &provider).unwrap_or_default();
                 let _ = resp_tx.send(AgentResponse::ProviderSwitched { provider, model });
             }
         }
@@ -517,7 +516,7 @@ impl SessionDriver {
             },
         }
         struct CatalogSyncTaskResult {
-            outcome: catalog::CatalogSyncOutcome,
+            outcome: nuo_catalog::CatalogSyncOutcome,
             session_id: Option<String>,
         }
         let mut active_oauth_task: Option<tokio::task::JoinHandle<OAuthResult>> = None;
@@ -527,7 +526,7 @@ impl SessionDriver {
         // This sender stays alive for the driver's lifetime, so `recv()` yields
         // updates without ever observing a closed channel.
         let (catalog_sync_tx, mut catalog_sync_rx) =
-            mpsc::unbounded_channel::<catalog::ConnectionUpdate>();
+            mpsc::unbounded_channel::<nuo_catalog::ConnectionUpdate>();
         let mut pending_oauth_authorization: Option<
             crate::handlers_provider::PendingOAuthAuthorization,
         > = None;
@@ -1080,7 +1079,7 @@ impl SessionDriver {
                     let session_id = Some(session.id().await);
                     let sink = catalog_sync_tx.clone();
                     active_catalog_sync_task = Some(tokio::spawn(async move {
-                        let outcome = catalog::sync_remote_catalog_streaming(sink).await;
+                        let outcome = nuo_catalog::sync_remote_catalog_streaming(sink).await;
                         CatalogSyncTaskResult {
                             outcome,
                             session_id,

@@ -672,7 +672,10 @@ fn find_files_expanded_groups_entries_under_directory_titles() {
     );
     let grid = render_grid(&m, 80, 30);
 
-    assert!(grid.contains("Found 3 files"), "count band: {grid}");
+    assert!(
+        !grid.contains("Found 3 files") && !grid.contains("Found 3 matching files"),
+        "count band must not be rendered: {grid}"
+    );
     assert!(grid.contains("docs/adr/"), "directory title band: {grid}");
     assert!(
         grid.contains("0001-x.md") && grid.contains("0002-y.md"),

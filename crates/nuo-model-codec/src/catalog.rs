@@ -35,6 +35,13 @@ pub enum OpenAiChatDialect {
     /// HTTP-like envelopes (`{"body":"<chat.completion.chunk JSON>",..}`)
     /// terminated by an `event:finish` frame.
     Qoder,
+    /// DeepSeek's Chat Completions surface. Standard JSON in/out, but the
+    /// thinking contract differs: past assistant turns must carry their
+    /// `reasoning_content` back whenever the request carries `tools`, because
+    /// upstream concatenates that CoT into the context (Thinking Mode guide,
+    /// 2026-10). Dropping it silently shortens the model's reasoning context
+    /// across every tool round trip (ADR-0083).
+    DeepSeek,
 }
 
 /// Provider-specific behavior layered on the OpenAI Responses protocol.
@@ -47,6 +54,31 @@ pub enum OpenAiResponsesDialect {
     DeepSeek,
     ChatGpt,
     Copilot,
+}
+
+impl OpenAiResponsesDialect {
+    /// Whether this backend implements OpenAI's `reasoning.summary` request
+    /// field (a *summary* of the chain of thought, streamed as
+    /// `response.reasoning_summary_text.*`).
+    ///
+    /// False where the backend defines `reasoning` as `{effort}` only and
+    /// returns the raw CoT as `reasoning_text` content parts instead — DeepSeek
+    /// (ADR-0083). Asking such a backend for a summary is a foreign field on
+    /// that wire, not a capability negotiation.
+    pub const fn reasoning_summary(self) -> bool {
+        !matches!(self, OpenAiResponsesDialect::DeepSeek)
+    }
+
+    /// Whether this backend returns replayable encrypted reasoning state and
+    /// therefore understands `include: ["reasoning.encrypted_content"]`.
+    ///
+    /// That field is how OpenAI hands a stateless client the ciphertext it must
+    /// replay to continue a reasoning turn. A backend that returns plaintext
+    /// `reasoning` output items (DeepSeek) needs no such grant, and the field is
+    /// not part of its documented request schema (ADR-0083).
+    pub const fn encrypted_reasoning(self) -> bool {
+        !matches!(self, OpenAiResponsesDialect::DeepSeek)
+    }
 }
 
 /// Provider-specific behavior layered on the Anthropic Messages protocol.
@@ -140,6 +172,8 @@ pub struct DiscoveredModel {
 /// reasoning effort or thinking mode) must remain strictly decoupled. Suffixes like
 /// `(Thinking)` or `[Thinking]` inside model names are redundant and visually noisy because
 /// reasoning is modeled as an orthogonal capability with its own UI controls and tags.
+/// Furthermore, hyphenated marketing names (e.g. `DeepSeek-V4.1-Flash` or `GLM-5.3-Flash`)
+/// are folded to natural spaces (ADR-0081).
 pub fn clean_model_display_name(raw: &str) -> String {
     let mut s = raw.trim();
     loop {
@@ -173,7 +207,159 @@ pub fn clean_model_display_name(raw: &str) -> String {
             break;
         }
     }
-    s.to_string()
+    if s.contains('-') && should_fold_display_hyphens(s) {
+        format_structural_tokens(s)
+    } else {
+        s.to_string()
+    }
+}
+
+/// Whether the string is a hyphenated brand name whose hyphens should be folded into spaces.
+/// Preserves lowercase raw identifiers (e.g. "k3", "glm-5", "deepseek-chat") so repeating-ID
+/// collapse logic remains honest unless explicitly formatted.
+fn should_fold_display_hyphens(s: &str) -> bool {
+    s.chars().any(|c| c.is_ascii_uppercase())
+}
+
+/// Tokenize and structurally format an identifier or brand name into clean typography (ADR-0081).
+fn format_structural_tokens(s: &str) -> String {
+    let raw_tokens: Vec<&str> = s.split('-').filter(|t| !t.is_empty()).collect();
+    let normalized_tokens = normalize_adjacent_version_tokens(&raw_tokens);
+    normalized_tokens
+        .into_iter()
+        .map(|token| capitalize_token(&token))
+        .collect::<Vec<String>>()
+        .join(" ")
+}
+
+fn normalize_adjacent_version_tokens(tokens: &[&str]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        if i + 1 < tokens.len()
+            && tokens[i].chars().all(|c| c.is_ascii_digit())
+            && tokens[i + 1].chars().all(|c| c.is_ascii_digit())
+        {
+            out.push(format!("{}.{}", tokens[i], tokens[i + 1]));
+            i += 2;
+        } else {
+            out.push(tokens[i].to_string());
+            i += 1;
+        }
+    }
+    out
+}
+
+fn capitalize_token(token: &str) -> String {
+    let lower = token.to_ascii_lowercase();
+    match lower.as_str() {
+        "deepseek" => "DeepSeek".to_string(),
+        "glm" => "GLM".to_string(),
+        "qwen" => "Qwen".to_string(),
+        "claude" => "Claude".to_string(),
+        "gpt" => "GPT".to_string(),
+        "mimo" => "MiMo".to_string(),
+        "minimax" => "MiniMax".to_string(),
+        "kimi" => "Kimi".to_string(),
+        "gemini" => "Gemini".to_string(),
+        "grok" => "Grok".to_string(),
+        "mistral" => "Mistral".to_string(),
+        "llama" => "Llama".to_string(),
+        "hy" => "HY".to_string(),
+        "step" => "Step".to_string(),
+        "longcat" => "LongCat".to_string(),
+        "omen" => "Omen".to_string(),
+        "openai" => "OpenAI".to_string(),
+        "flash" => "Flash".to_string(),
+        "pro" => "Pro".to_string(),
+        "max" => "Max".to_string(),
+        "plus" => "Plus".to_string(),
+        "lite" => "Lite".to_string(),
+        "turbo" => "Turbo".to_string(),
+        "exp" => "Exp".to_string(),
+        "vision" => "Vision".to_string(),
+        "code" => "Code".to_string(),
+        "chat" => "Chat".to_string(),
+        "reasoner" => "Reasoner".to_string(),
+        "haiku" => "Haiku".to_string(),
+        "sonnet" => "Sonnet".to_string(),
+        "opus" => "Opus".to_string(),
+        "preview" => "Preview".to_string(),
+        "contributor" => "Contributor".to_string(),
+        "free" => "Free".to_string(),
+        "argon" => "Argon".to_string(),
+        "luna" => "Luna".to_string(),
+        _ => {
+            if let Some(rest) = lower.strip_prefix('v') {
+                if !rest.is_empty() && rest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                    return format!("V{rest}");
+                }
+            }
+            if let Some(rest) = lower.strip_prefix('k') {
+                if !rest.is_empty() && rest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                    return format!("K{rest}");
+                }
+            }
+            if let Some(rest) = lower.strip_prefix('m') {
+                if !rest.is_empty() && rest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                    return format!("M{rest}");
+                }
+            }
+            if let Some(rest) = lower.strip_prefix("qwen") {
+                if !rest.is_empty() && rest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                    return format!("Qwen {rest}");
+                }
+            }
+            if let Some(rest) = lower.strip_prefix("glm") {
+                if !rest.is_empty() && rest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                    return format!("GLM {rest}");
+                }
+            }
+            let mut chars = token.chars();
+            match chars.next() {
+                Some(first) => {
+                    let mut res = first.to_uppercase().to_string();
+                    res.extend(chars);
+                    res
+                }
+                None => String::new(),
+            }
+        }
+    }
+}
+
+/// Rule-based structural display name normalizer (ADR-0081 [INV-CATALOG-05]).
+///
+/// Lifts raw model identifiers or uncurated remote labels into polished,
+/// human-readable typography:
+/// - `"deepseek-v4.1-flash"` -> `"DeepSeek V4.1 Flash"`
+/// - `"DeepSeek-V4.1-Flash"` -> `"DeepSeek V4.1 Flash"`
+/// - `"glm-5.3-flash"` -> `"GLM 5.3 Flash"`
+/// - `"GLM-5.3-Flash"` -> `"GLM 5.3 Flash"`
+/// - `"claude-haiku-5-5"` -> `"Claude Haiku 5.5"`
+/// - `"qwen3.8-max"` -> `"Qwen 3.8 Max"`
+pub fn format_model_display_name(raw_name: Option<&str>, model_id: &str) -> String {
+    if let Some(name) = raw_name {
+        let trimmed = name.trim();
+        if !trimmed.is_empty() && trimmed != model_id {
+            return clean_model_display_name(trimmed);
+        }
+    }
+    format_structural_tokens(model_id)
+}
+
+/// Whether this model identifier represents ephemeral relay noise (ADR-0081 [INV-CATALOG-06]).
+///
+/// Prunes ephemeral promotional tiers, unstable preview snapshots, and partner contributor
+/// nodes from default listing surfaces on multi-model aggregation relays.
+pub fn is_relay_promotional_noise(id: &str) -> bool {
+    let lower = id.to_ascii_lowercase();
+    lower.ends_with("-free")
+        || lower.ends_with("-preview")
+        || lower.ends_with("-contributor")
+        || lower.starts_with("alpha-")
+        || lower.ends_with("-alpha")
+        || lower == "test"
 }
 
 impl DiscoveredModel {
@@ -261,6 +447,7 @@ impl ProviderDialect {
             Self::Copilot => OpenAiChatDialect::Copilot,
             Self::OpenRouter => OpenAiChatDialect::OpenRouter,
             Self::Qoder => OpenAiChatDialect::Qoder,
+            Self::DeepSeek => OpenAiChatDialect::DeepSeek,
             _ => OpenAiChatDialect::Standard,
         }
     }
@@ -283,13 +470,26 @@ impl ProviderDialect {
 }
 
 impl OpenAiChatDialect {
+    /// Whether assistant turns must carry their `reasoning_content` back on
+    /// this surface.
+    ///
+    /// DeepSeek concatenates a replayable CoT into the context whenever the
+    /// request carries `tools`, so omitting the field silently narrows the
+    /// model's reasoning context on every tool round trip (ADR-0083). Other
+    /// surfaces either never expose a replayable CoT (Standard/Copilot/Qoder)
+    /// or replay a structured sidecar instead (OpenRouter's
+    /// `reasoning_details`).
+    pub const fn replays_reasoning_content(self) -> bool {
+        matches!(self, OpenAiChatDialect::DeepSeek)
+    }
+
     /// The declarative wire surface for this chat dialect, when it has one.
     ///
     /// A surface is the *data* form of a dialect: inference path, envelope,
     /// model carriers, emulated identity, and live catalog. Plain,
     /// self-describing dialects (Standard, Copilot, OpenRouter, DeepSeek) have
     /// `None` here; a dialect with a bespoke signed surface returns its table.
-    /// The executor reads the table, never the enum key (ADR-0260).
+    /// The executor reads the table, never the enum key (ADR-0027 [INV-PROV-10]).
     pub fn surface(self) -> Option<&'static crate::wire_surface::DialectSurface> {
         None
     }
@@ -400,8 +600,6 @@ pub struct Channel {
     /// Stable identifier within the model (e.g. `"studio"`, `"vertex"`).
     /// Built-in presets use `"default"`.
     pub id: String,
-    /// Display label shown in the picker (e.g. `"Google Studio"`).
-    pub label: String,
     /// Endpoint shape and provider implementation selector.
     pub transport: Transport,
     /// The dynamic or static credential source for this channel.
@@ -413,7 +611,7 @@ pub struct Channel {
     /// registry remains the fallback for omitted or offline data.
     pub remote: Option<crate::RemoteModelMetadata>,
     /// The user's explicit capability overrides for this route — the top
-    /// layer of the capability resolution order (ADR-0149), applied after
+    /// layer of the capability resolution order (ADR-0068), applied after
     /// the remote overlay in [`Channel::capabilities`]. `None` means the
     /// user has no opinion and the two lower layers decide.
     pub user_overrides: Option<crate::model::CapabilityOverrides>,
@@ -429,7 +627,6 @@ impl fmt::Debug for Channel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Channel")
             .field("id", &self.id)
-            .field("label", &self.label)
             .field("transport", &self.transport)
             .field("credentials", &self.credentials)
             .field("model", &self.model)
@@ -453,7 +650,7 @@ impl Channel {
     /// (Qoder's `system` / `custom`); `display_name` is the presentation label.
     /// Both are empty when the catalog advertises none. A dialect whose surface
     /// declares a matching `CatalogSource`/`DisplayName` carrier stamps them
-    /// into the request; the wire id stays the identity (ADR-0131).
+    /// into the request; the wire id stays the identity (ADR-0027).
     pub fn catalog_provenance(&self) -> (String, String) {
         let remote = self.remote.as_ref();
         (
@@ -558,7 +755,6 @@ mod tests {
             description: String::new(),
             channels: vec![Channel {
                 id: "default".to_string(),
-                label: "DeepSeek V4 Flash".to_string(),
                 transport: Transport::OpenAi {
                     base_url: "https://api.deepseek.com/v1/chat/completions".to_string(),
                     client_profile: crate::ClientProfile::from("agent"),
@@ -593,7 +789,6 @@ mod tests {
     fn key_ready_is_false_for_empty_cloud_key() {
         let channel = Channel {
             id: "default".to_string(),
-            label: "OpenAI".to_string(),
             transport: Transport::OpenAi {
                 base_url: "https://api.openai.com/v1/chat/completions".to_string(),
                 client_profile: crate::ClientProfile::from("agent"),
@@ -626,7 +821,6 @@ mod tests {
 
         let channel = Channel {
             id: "default".to_string(),
-            label: "OpenCode Go (Messages)".to_string(),
             transport: Transport::Anthropic {
                 base_url: "https://opencode.ai/inference/anthropic/v1/messages".to_string(),
                 client_profile: crate::ClientProfile::from("agent"),
@@ -656,7 +850,6 @@ mod tests {
             channels: vec![
                 Channel {
                     id: "glm-5.2".to_string(),
-                    label: "GLM-5.2".to_string(),
                     transport: Transport::OpenAi {
                         base_url: "https://opencode.ai/inference/openai/v1/chat/completions"
                             .to_string(),
@@ -673,7 +866,6 @@ mod tests {
                 },
                 Channel {
                     id: "claude-opus-5".to_string(),
-                    label: "Claude Opus 5".to_string(),
                     transport: Transport::Anthropic {
                         base_url: "https://opencode.ai/inference/anthropic/v1/messages".to_string(),
                         client_profile: crate::ClientProfile::from("agent"),
@@ -716,7 +908,6 @@ mod tests {
             description: String::new(),
             channels: vec![Channel {
                 id: "default".to_string(),
-                label: "Fixture".to_string(),
                 transport: Transport::OpenAi {
                     base_url: "https://example.com/v1/chat/completions".to_string(),
                     client_profile: crate::ClientProfile::from("agent"),
@@ -770,5 +961,53 @@ mod tests {
         };
         let meta = discovered.remote_metadata();
         assert_eq!(meta.name.as_deref(), Some("Claude Opus 4.6"));
+    }
+
+    #[test]
+    fn format_model_display_name_folds_hyphens_and_capitalizes_brands() {
+        assert_eq!(
+            format_model_display_name(None, "deepseek-v4.1-flash"),
+            "DeepSeek V4.1 Flash"
+        );
+        assert_eq!(
+            format_model_display_name(Some("DeepSeek-V4.1-Flash"), "deepseek-v4.1-flash"),
+            "DeepSeek V4.1 Flash"
+        );
+        assert_eq!(
+            format_model_display_name(None, "glm-5.3-flash"),
+            "GLM 5.3 Flash"
+        );
+        assert_eq!(
+            format_model_display_name(Some("GLM-5.3-Flash (Thinking)"), "glm-5.3-flash"),
+            "GLM 5.3 Flash"
+        );
+        assert_eq!(
+            format_model_display_name(None, "claude-haiku-5-5"),
+            "Claude Haiku 5.5"
+        );
+        assert_eq!(
+            format_model_display_name(None, "qwen3.8-max"),
+            "Qwen 3.8 Max"
+        );
+        assert_eq!(format_model_display_name(None, "minimax-m3"), "MiniMax M3");
+        assert_eq!(format_model_display_name(None, "grok-4.7"), "Grok 4.7");
+    }
+
+    #[test]
+    fn is_relay_promotional_noise_filters_transient_models() {
+        assert!(is_relay_promotional_noise("beam-free"));
+        assert!(is_relay_promotional_noise("deepseek-v4.1-flash-free"));
+        assert!(is_relay_promotional_noise("hy4-preview"));
+        assert!(is_relay_promotional_noise("step-5-preview"));
+        assert!(is_relay_promotional_noise("gemini-4-argon-contributor"));
+        assert!(is_relay_promotional_noise("muse-spark-1.2-contributor"));
+        assert!(is_relay_promotional_noise("alpha-test-model"));
+        assert!(is_relay_promotional_noise("omen-alpha"));
+        assert!(is_relay_promotional_noise("test"));
+
+        assert!(!is_relay_promotional_noise("deepseek-v4.1-flash"));
+        assert!(!is_relay_promotional_noise("glm-5.3-flash"));
+        assert!(!is_relay_promotional_noise("claude-haiku-5-5"));
+        assert!(!is_relay_promotional_noise("qwen3.8-max"));
     }
 }

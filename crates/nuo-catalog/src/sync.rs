@@ -1,7 +1,7 @@
 //! Live remote-catalog sync and the fitted-model overlay.
 //!
 //! Catalog sync fetches each catalog-capable connection's `GET /models` list
-//! live and folds it into the catalog's remote-catalog overlay (ADR-0203):
+//! live and folds it into the catalog's remote-catalog overlay (ADR-0081):
 //! advertised capability fields are trusted per preset and recorded in the
 //! per-connection remote-catalog cache. Routes are *derived* from that cache at
 //! catalog-build time — nothing here mutates config or the connection store.
@@ -220,7 +220,7 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
 
 /// One connection's result from a live catalog sync pass. Emitted in completion
 /// order so the frontend updates per connection without waiting on a slow
-/// sibling (ADR-0227).
+/// sibling (ADR-0081).
 #[derive(Debug, Clone)]
 pub struct ConnectionUpdate {
     /// The connection the update belongs to.
@@ -230,7 +230,7 @@ pub struct ConnectionUpdate {
     /// The fetch error, when the source could not be refreshed.
     pub error: Option<String>,
     /// Whether [`Self::error`] was a durable upstream **refusal** (`401`/`403`)
-    /// rather than a transient failure (ADR-0273). A refusal means the account
+    /// rather than a transient failure (ADR-0068). A refusal means the account
     /// was told it may not use the connection; a transient failure means the
     /// network or the server had a bad moment. The notice must not present one
     /// as the other.
@@ -248,7 +248,7 @@ pub struct CatalogSyncOutcome {
 
 /// One connection's catalog-sync failure, with the durable/transient verdict
 /// attached so nothing downstream has to re-derive it from the message text
-/// (ADR-0273).
+/// (ADR-0068).
 #[derive(Debug, Clone)]
 pub struct CatalogSyncFailureEntry {
     pub connection: String,
@@ -281,7 +281,7 @@ pub async fn sync_connection_catalog(connection_name: &str) -> CatalogSyncOutcom
 
 /// Re-run the catalog sync for one connection when the provider advertises a new
 /// catalog ETag on an in-flight response. This is event-initiated, not a
-/// scheduled poll (ADR-0227).
+/// scheduled poll (ADR-0081).
 pub async fn refresh_connection_models_for_etag(
     connection_name: &str,
     advertised_etag: &str,
@@ -473,7 +473,7 @@ async fn sync_catalogs_matching(
 }
 
 /// Fold one connection's fetched result into the remote-catalog cache. A fetch
-/// error leaves the existing list untouched (ADR-0227: failure never diminishes
+/// error leaves the existing list untouched (ADR-0081: failure never diminishes
 /// a connection).
 fn apply_fetched(
     cache: &mut RemoteCatalogCache,
@@ -486,8 +486,7 @@ fn apply_fetched(
             let mut changed = false;
             // A model the provider declared unusable registers in the fitted
             // overlay only when the user's own scope injected it — sovereignty
-            // over an upstream verdict (ADR-0203 `[INV-CATALOG-04]`, ADR-0273
-            // `[INV-AVAIL-05]`).
+            // over an upstream verdict ([INV-CATALOG-04]).
             let sovereign = connection.models.included_ids();
             let fitted: std::collections::BTreeMap<String, FittedModelInfo> = models
                 .iter()
@@ -510,7 +509,7 @@ fn apply_fetched(
             // greyed-out with the provider's own reason (official CLI `/model`
             // parity), but they never register in the fitted overlay: the model
             // registry is the inference-capable set, and a locked model must
-            // not resolve for inference (ADR-0273).
+            // not resolve for inference (ADR-0068).
             let supported: Vec<String> = models.iter().map(|model| model.id.clone()).collect();
             let remote_metadata: std::collections::BTreeMap<String, _> = models
                 .iter()
@@ -536,7 +535,7 @@ fn apply_fetched(
                     source_identity: fetched.source_identity,
                     refreshed_at_ms: now_ms,
                     // A successful refresh re-verifies every availability
-                    // verdict it carried (ADR-0273).
+                    // verdict it carried (ADR-0068).
                     refresh_failed: false,
                 },
             );
@@ -556,10 +555,10 @@ fn apply_fetched(
             (false, None)
         }
         Err(error) => {
-            // The payload is deliberately retained (ADR-0227 / `[INV-CATALOG-03]`),
+            // The payload is deliberately retained (ADR-0081 / `[INV-CATALOG-03]`),
             // so record that the verdicts inside it are now unverified: a
             // retained `unavailable` may have been reversed upstream
-            // (ADR-0273).
+            // (ADR-0068).
             if let Some(state) = cache.model_lists.get_mut(&connection.name) {
                 state.refresh_failed = true;
             }
@@ -827,7 +826,7 @@ mod tests {
     }
 
     /// A user who explicitly injects a provider-declared-unavailable model
-    /// overrides the verdict (ADR-0203 `[INV-CATALOG-04]`): it must register as
+    /// overrides the verdict ([INV-CATALOG-04]): it must register as
     /// inference-capable, because sovereignty beats an upstream declaration.
     #[test]
     fn injected_locked_model_registers_for_inference() {
@@ -872,7 +871,7 @@ mod tests {
     /// A failed refresh retains the payload (`[INV-CATALOG-03]`) but must record
     /// that the retained availability verdicts are no longer verified, so a
     /// surface cannot present a possibly-reversed verdict as freshly confirmed
-    /// (ADR-0273).
+    /// (ADR-0068).
     #[test]
     fn failed_refresh_marks_retained_verdicts_stale() {
         let connection = nuo_persistence::connections::Connection {

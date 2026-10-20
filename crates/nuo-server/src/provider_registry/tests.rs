@@ -45,6 +45,7 @@ fn user_declared_provider_can_be_registered_and_resolved() {
         default_client_profile: nuo_model_codec::ClientPreset::Cursor,
         client_profile_sensitive: false,
         quota: None,
+        display_policy: nuo_provider::DisplayPolicy::Native,
     };
     register_user_declared_provider(custom_spec).unwrap();
     let resolved = model_provider_spec(test_id).expect("dynamic spec resolves");
@@ -290,7 +291,6 @@ fn every_declared_quota_port_is_reachable_from_the_dispatch() {
 fn build_provider_stamps_entry_id_on_openai_compat() {
     let channel = Channel {
         id: "default".to_string(),
-        label: "OpenAI".to_string(),
         transport: Transport::OpenAi {
             base_url: "https://api.openai.com/v1/chat/completions".to_string(),
             client_profile: nuo_model_codec::ClientProfile::from("agent"),
@@ -313,7 +313,6 @@ fn build_provider_stamps_entry_id_on_openai_compat() {
 fn openai_channel_without_override_defaults_effort_on_the_wire() {
     let channel = Channel {
         id: "default".to_string(),
-        label: "ZAI Code".to_string(),
         transport: Transport::OpenAi {
             base_url: "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions".to_string(),
             client_profile: nuo_model_codec::ClientProfile::from("agent"),
@@ -342,7 +341,6 @@ fn openai_channel_without_override_defaults_effort_on_the_wire() {
 fn ladderless_model_keeps_absent_effort_on_the_wire() {
     let channel = Channel {
         id: "default".to_string(),
-        label: "OpenAI".to_string(),
         transport: Transport::OpenAi {
             base_url: "https://api.openai.com/v1/chat/completions".to_string(),
             client_profile: nuo_model_codec::ClientProfile::from("agent"),
@@ -364,7 +362,6 @@ fn ladderless_model_keeps_absent_effort_on_the_wire() {
 fn build_provider_dispatches_anthropic_transport() {
     let channel = Channel {
         id: "qwen3.6-plus".to_string(),
-        label: "Qwen3.6 Plus".to_string(),
         transport: Transport::Anthropic {
             base_url: "https://opencode.ai/inference/anthropic/v1/messages".to_string(),
             client_profile: nuo_model_codec::ClientProfile::from("agent"),

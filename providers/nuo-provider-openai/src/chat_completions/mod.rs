@@ -192,6 +192,7 @@ impl OpenAiChatCompletionsProvider {
             nuo_model_codec::OpenAiChatDialect::Copilot => "Copilot",
             nuo_model_codec::OpenAiChatDialect::OpenRouter => "OpenRouter",
             nuo_model_codec::OpenAiChatDialect::Qoder => "Qoder",
+            nuo_model_codec::OpenAiChatDialect::DeepSeek => "DeepSeek",
             nuo_model_codec::OpenAiChatDialect::Standard => "OpenAI",
         }
     }
@@ -263,16 +264,13 @@ impl OpenAiChatCompletionsProvider {
         // time the request dispatches. A prewarm failure is advisory — the
         // dispatch below reports the real error — so it is logged, not
         // propagated.
-        let prewarm = self
-            .client
-            .prewarm(self.endpoint.base_url(), self.label());
+        let prewarm = self.client.prewarm(self.endpoint.base_url(), self.label());
         let auth_fut = self.endpoint.resolve_auth();
         let (prewarm_outcome, auth_result) = tokio::join!(prewarm, auth_fut);
         if let Err(error) = prewarm_outcome {
             tracing::debug!(error = %error, "prewarm skipped");
         }
-        let auth = auth_result
-            .map_err(|e| ProviderError::authentication(self.label(), e))?;
+        let auth = auth_result.map_err(|e| ProviderError::authentication(self.label(), e))?;
 
         self.pipeline.preflight_assert(&auth)?;
 
@@ -760,7 +758,8 @@ mod tests {
             "cli"
         );
         assert!(
-            headers.get("x-opencode-request")
+            headers
+                .get("x-opencode-request")
                 .unwrap()
                 .to_str()
                 .unwrap()

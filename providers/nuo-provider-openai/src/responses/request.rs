@@ -43,7 +43,7 @@ impl std::error::Error for RequestBuildError {}
 
 /// Inputs to [`body`]: the model id, whether this is a streaming request, the
 /// prepared tool schemas (OpenAI function-spec shape, optional), the optional
-/// reasoning-effort override, and the ChatGPT account id.
+/// reasoning-effort override, and the dialect whose surface this request speaks.
 pub struct BodyInput<'a> {
     pub model: &'a str,
     pub stream: bool,
@@ -54,6 +54,9 @@ pub struct BodyInput<'a> {
     pub reasoning_effort: Option<Effort>,
     pub delivery: &'a nuo_model_codec::RequestDelivery,
     pub store: bool,
+    /// Provider-specific behavior layered on the shared Responses wire. The
+    /// builder never emits a field this dialect does not define (ADR-0083).
+    pub dialect: nuo_model_codec::OpenAiResponsesDialect,
     pub cache_plan: &'a nuo_model_codec::ResolvedCachePolicy,
 }
 
@@ -85,6 +88,7 @@ pub fn body_with_capabilities(
         reasoning_effort,
         delivery,
         store,
+        dialect,
         cache_plan,
     } = input;
 
@@ -220,9 +224,11 @@ pub fn body_with_capabilities(
         //   response objects and enables `previous_response_id` continuation chains.
         "store": store,
     });
-    if !store {
-        // Stateless Responses continuation requires opaque reasoning items in
-        // the returned output. The next turn replays that output verbatim.
+    if !store && dialect.encrypted_reasoning() {
+        // Stateless Responses continuation on OpenAI's own backend requires the
+        // opaque encrypted reasoning items in the returned output; the next
+        // turn replays that output verbatim. Backends that return plaintext
+        // `reasoning` items (DeepSeek) neither define this grant nor need it.
         body["include"] = json!(["reasoning.encrypted_content"]);
     }
     if let nuo_model_codec::RequestDelivery::RemoteContinuation {
@@ -246,8 +252,15 @@ pub fn body_with_capabilities(
     // `reasoning.encrypted_content`), so `detailed` is the ceiling. codex
     // exposes the same lever (`model_reasoning_summary: detailed`). Attach the
     // effort override when the model exposes effort levels.
+    //
+    // Only the fields this dialect defines are emitted: a backend whose
+    // `reasoning` object is `{effort}` alone must not receive OpenAI's
+    // `summary` (DeepSeek, ADR-0083). An empty object is omitted entirely so
+    // the documented server default applies instead of an empty override.
     let mut reasoning = serde_json::Map::new();
-    reasoning.insert("summary".to_string(), json!("detailed"));
+    if dialect.reasoning_summary() {
+        reasoning.insert("summary".to_string(), json!("detailed"));
+    }
     if let Some(effort) = reasoning_effort
         && !capabilities.effort_levels.is_empty()
     {
@@ -256,7 +269,9 @@ pub fn body_with_capabilities(
             json!(effort.clamp_to_levels(&capabilities.effort_levels).as_str()),
         );
     }
-    body["reasoning"] = Value::Object(reasoning);
+    if !reasoning.is_empty() {
+        body["reasoning"] = Value::Object(reasoning);
+    }
     super::super::cache::project_responses_instructions_for_explicit_mode(&mut body, cache_plan);
     super::super::cache::apply(&mut body, cache_plan, "input");
     Ok(body)
@@ -436,6 +451,7 @@ mod tests {
             reasoning_effort,
             delivery,
             store,
+            dialect: nuo_model_codec::OpenAiResponsesDialect::Standard,
             cache_plan,
         }
     }
@@ -445,6 +461,102 @@ mod tests {
             tool_calls: Some(vec![call]),
             ..Message::new(Role::Assistant, content)
         }
+    }
+
+    /// Capability view for a DeepSeek Responses route: reasoning via plaintext
+    /// `reasoning` output items, the full native effort ladder (ADR-0083).
+    fn deepseek_capabilities() -> nuo_model_codec::ModelCapabilities {
+        nuo_model_codec::ModelCapabilities {
+            family: "deepseek".into(),
+            context_window: 1_000_000,
+            max_output_tokens: None,
+            thinking: nuo_model_codec::ReasoningSupport::ReasoningContent,
+            tool_call: true,
+            vision: Some(true),
+            effort_levels: Effort::ORDER.iter().copied().map(Into::into).collect(),
+            effort_entities: Vec::new(),
+        }
+    }
+
+    fn deepseek_body_input<'a>(
+        reasoning_effort: Option<Effort>,
+        store: bool,
+        cache_plan: &'a nuo_model_codec::ResolvedCachePolicy,
+    ) -> BodyInput<'a> {
+        BodyInput {
+            model: "deepseek-flash",
+            stream: true,
+            instructions: None,
+            tool_specs: None,
+            reasoning_effort,
+            delivery: &DEFAULT_DELIVERY,
+            store,
+            dialect: nuo_model_codec::OpenAiResponsesDialect::DeepSeek,
+            cache_plan,
+        }
+    }
+
+    #[test]
+    fn deepseek_dialect_emits_only_the_fields_its_schema_defines() {
+        let body = body_with_capabilities(
+            vec![Message::new(Role::User, "hi")],
+            deepseek_body_input(Some(Effort::None), false, &DEFAULT_CACHE_PLAN),
+            &deepseek_capabilities(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            body["reasoning"]["effort"], "none",
+            "`none` is the Responses thinking off switch and must not clamp up to `low`"
+        );
+        assert!(
+            body["reasoning"].get("summary").is_none(),
+            "`reasoning.summary` is OpenAI's field; DeepSeek defines `effort` only"
+        );
+        assert!(
+            body.get("include").is_none(),
+            "`reasoning.encrypted_content` is an OpenAI-only grant on a stateless surface"
+        );
+        assert_eq!(body["store"], false);
+    }
+
+    #[test]
+    fn standard_dialect_keeps_openai_summary_and_encrypted_reasoning() {
+        let body = body(
+            vec![Message::new(Role::User, "hi")],
+            test_body_input(
+                "gpt-5.6-sol",
+                true,
+                None,
+                Some(Effort::High),
+                &DEFAULT_DELIVERY,
+                false,
+                &DEFAULT_CACHE_PLAN,
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(body["reasoning"]["summary"], "detailed");
+        assert_eq!(body["reasoning"]["effort"], "high");
+        assert_eq!(body["include"], json!(["reasoning.encrypted_content"]));
+    }
+
+    #[test]
+    fn reasoning_object_is_omitted_when_there_is_nothing_to_say() {
+        // A route with no effort ladder and no override must not send `{}`:
+        // the documented default (thinking on, server-chosen effort) applies
+        // only when the field is absent.
+        let capabilities = nuo_model_codec::ModelCapabilities {
+            effort_levels: Vec::new(),
+            ..deepseek_capabilities()
+        };
+        let body = body_with_capabilities(
+            vec![Message::new(Role::User, "hi")],
+            deepseek_body_input(None, false, &DEFAULT_CACHE_PLAN),
+            &capabilities,
+        )
+        .unwrap();
+        assert!(body.get("reasoning").is_none());
     }
 
     #[test]

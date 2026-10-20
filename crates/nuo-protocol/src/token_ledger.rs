@@ -630,6 +630,12 @@ pub struct BeginRequestParams<'a> {
     pub round: u64,
     pub turn: u32,
     pub projected_prompt_tokens: i64,
+    /// Epoch milliseconds at the provider-call boundary.
+    ///
+    /// The caller owns this stamp so the durable record and the cost rating
+    /// derived from it share one instant: they must never disagree about which
+    /// rate window an attempt was billed under (ADR-0080).
+    pub started_at_ms: u64,
 }
 
 impl TokenSourceLedger {
@@ -697,6 +703,7 @@ impl TokenSourceLedger {
             round,
             turn,
             projected_prompt_tokens,
+            started_at_ms: now_epoch_ms(),
         })
     }
 
@@ -709,6 +716,7 @@ impl TokenSourceLedger {
             round,
             turn,
             projected_prompt_tokens,
+            started_at_ms,
         } = params;
         let mut requests = self.requests.lock().unwrap_or_else(|e| e.into_inner());
         let attempt = requests
@@ -739,7 +747,7 @@ impl TokenSourceLedger {
                 status: RequestUsageStatus::InFlight,
                 source: RequestUsageSource::Unknown,
                 projected_prompt_tokens: projected_prompt_tokens.max(0),
-                started_at_ms: now_epoch_ms(),
+                started_at_ms,
                 ..Default::default()
             },
         );
@@ -863,7 +871,10 @@ impl TokenSourceLedger {
                 cache_miss_input_tokens: record.cache_miss_tokens,
                 reasoning_tokens: record.reasoning_tokens,
             };
-            let cost = pricing.calculate_cost(&tool_usage);
+            let cost = pricing.calculate_cost(
+                &tool_usage,
+                nuo_provider::RatingInstant::from_epoch_ms(record.started_at_ms),
+            );
             record.cost_nano_usd = Some(cost.amount.0);
         }
         self.dirty_usage
@@ -1278,6 +1289,7 @@ mod tests {
             round: 3,
             turn: 1,
             projected_prompt_tokens: 300,
+            started_at_ms: 1_700_000_000_000,
         });
         assert_eq!(first.attempt, 1);
         assert_eq!(retry.attempt, 2);
@@ -2015,6 +2027,7 @@ mod tests {
             round: 2,
             turn: 2,
             projected_prompt_tokens: 0,
+            started_at_ms: 1_700_000_000_000,
         });
         ledger.settle_request_with_performance_and_error(
             &subagent,

@@ -680,8 +680,6 @@ fn render_models_modal(modal_index: usize, query: &str, search: bool) -> String 
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
-                live_effort: None,
-                live_thinking: None,
             },
             &theme,
         );
@@ -786,8 +784,6 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
-                live_effort: None,
-                live_thinking: None,
             },
             &theme,
         );
@@ -798,12 +794,7 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
 
     // ADR-0076: verify that locked rows render completely dimmed without bold weight
     let (lines, _) = crate::overlays::provider::models::model_list_body(
-        &ranked,
-        "openai",
-        "gpt-5.5",
-        0,
-        &theme,
-        72,
+        &ranked, "openai", "gpt-5.5", 0, &theme, 72,
     );
     let locked_line = lines
         .iter()
@@ -904,8 +895,6 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
-                live_effort: None,
-                live_thinking: None,
             },
             &theme,
         );
@@ -942,8 +931,6 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
                 spinner_phase: 0,
                 info_detail: true,
                 info_scroll: &mut info_scroll,
-                live_effort: None,
-                live_thinking: None,
             },
             &theme,
         );
@@ -1063,8 +1050,6 @@ fn render_labelled_models_modal(width: u16) -> String {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
-                live_effort: None,
-                live_thinking: None,
             },
             &theme,
         );
@@ -1153,8 +1138,6 @@ fn render_qoder_models_modal(width: u16, query: &str) -> String {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
-                live_effort: None,
-                live_thinking: None,
             },
             &theme,
         );
@@ -1355,8 +1338,6 @@ fn models_modal_empty_state_centered_copy_and_footer() {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
-                live_effort: None,
-                live_thinking: None,
             },
             &theme,
         );
@@ -1392,8 +1373,6 @@ fn models_modal_refreshing_state_renders_spinner_and_indicator() {
                 spinner_phase: 1,
                 info_detail: false,
                 info_scroll: &mut 0,
-                live_effort: None,
-                live_thinking: None,
             },
             &theme,
         );
@@ -1427,8 +1406,6 @@ fn models_modal_search_empty_state() {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
-                live_effort: None,
-                live_thinking: None,
             },
             &theme,
         );
@@ -2438,14 +2415,183 @@ fn connections_modal_quota_bucket_used_percentage_and_separate_reset_line() {
 fn redundant_plan_labels_are_identified_and_suppressed_in_header() {
     use crate::overlays::provider::connections::is_redundant_plan_label;
 
-    assert!(is_redundant_plan_label("Antigravity Quota", "google-antigravity", "Google Antigravity"));
-    assert!(is_redundant_plan_label("antigravity quota active", "google-antigravity", "Google Antigravity"));
-    assert!(is_redundant_plan_label("Google Antigravity", "google-antigravity", "Google Antigravity"));
-    assert!(is_redundant_plan_label("google-antigravity", "google-antigravity", "Google Antigravity"));
-    assert!(is_redundant_plan_label("Quota", "google-antigravity", "Google Antigravity"));
-    assert!(is_redundant_plan_label("  ", "google-antigravity", "Google Antigravity"));
+    assert!(is_redundant_plan_label(
+        "Antigravity Quota",
+        "google-antigravity",
+        "Google Antigravity"
+    ));
+    assert!(is_redundant_plan_label(
+        "antigravity quota active",
+        "google-antigravity",
+        "Google Antigravity"
+    ));
+    assert!(is_redundant_plan_label(
+        "Google Antigravity",
+        "google-antigravity",
+        "Google Antigravity"
+    ));
+    assert!(is_redundant_plan_label(
+        "google-antigravity",
+        "google-antigravity",
+        "Google Antigravity"
+    ));
+    assert!(is_redundant_plan_label(
+        "Quota",
+        "google-antigravity",
+        "Google Antigravity"
+    ));
+    assert!(is_redundant_plan_label(
+        "  ",
+        "google-antigravity",
+        "Google Antigravity"
+    ));
 
-    assert!(!is_redundant_plan_label("Google One AI Premium", "google-antigravity", "Google Antigravity"));
-    assert!(!is_redundant_plan_label("Pay-as-you-go", "deepseek", "DeepSeek"));
+    assert!(!is_redundant_plan_label(
+        "Google One AI Premium",
+        "google-antigravity",
+        "Google Antigravity"
+    ));
+    assert!(!is_redundant_plan_label(
+        "Pay-as-you-go",
+        "deepseek",
+        "DeepSeek"
+    ));
     assert!(!is_redundant_plan_label("Pro", "anthropic", "Anthropic"));
+}
+
+#[test]
+fn model_detail_renders_pricing_and_off_peak_schedule_for_deepseek() {
+    let theme = Theme::default();
+    let rm = crate::providers::RankedModel {
+        section: crate::providers::ModelSection::All,
+        provider_id: "deepseek".to_string(),
+        model: "deepseek-v4.1-flash".to_string(),
+        name: Some("DeepSeek V4.1 Flash".to_string()),
+        provider_label: "DeepSeek".to_string(),
+        effort: Some("high".to_string()),
+        thinking: Some(true),
+        effort_levels: vec!["low".to_string(), "high".to_string(), "max".to_string()],
+        favorite: false,
+        usable: true,
+        context_window: 1_000_000,
+        locked_reason: None,
+        availability_overridden: false,
+        availability_stale: false,
+        last_used_ms: None,
+        match_id: None,
+        match_name: None,
+        match_connection: None,
+    };
+    let lines = crate::overlays::provider::models::model_detail_body(&rm, 80, &theme);
+    let rendered = lines
+        .into_iter()
+        .map(|l| {
+            l.spans
+                .into_iter()
+                .map(|s| s.content.to_string())
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("Pricing"), "must render Pricing header");
+    assert!(
+        rendered.contains("Standard Rates") && rendered.contains("$0.30 in · $1.20 out"),
+        "must render standard flash rates: {rendered}"
+    );
+    assert!(
+        rendered.contains("Prompt Cache Hit") && rendered.contains("$0.006 / 1M"),
+        "must render cache hit rates: {rendered}"
+    );
+    assert!(
+        rendered.contains("Off-Peak Rates") && rendered.contains("50% off ($0.15 in · $0.60 out)"),
+        "must render off-peak rates: {rendered}"
+    );
+    assert!(
+        rendered.contains("Off-Peak Hours") && rendered.contains("UTC+8"),
+        "must explain off-peak schedule: {rendered}"
+    );
+    assert!(
+        rendered.contains("Current State"),
+        "must report live rate window state: {rendered}"
+    );
+}
+
+#[test]
+fn connection_detail_renders_active_model_pricing_and_rates() {
+    let theme = Theme::default();
+    let detail = nuo_wire::ConnectionDetail {
+        name: "deepseek-prod".to_string(),
+        provider: "deepseek".to_string(),
+        provider_label: "DeepSeek".to_string(),
+        protocol: "Responses".to_string(),
+        base_url: "https://api.deepseek.com/v1".to_string(),
+        auth_type: "api_key".to_string(),
+        budget: nuo_wire::ConnectionBudget::Remote,
+        api_key_source: "env:DEEPSEEK_API_KEY".to_string(),
+        api_key_masked: Some("sk-••••1234".to_string()),
+        active_model: Some("deepseek-v4.1-flash".to_string()),
+        active_model_effort: Some("high".to_string()),
+        active_model_thinking: Some(true),
+        client_identity: nuo_wire::ClientIdentity::Native,
+        user_agent: "nuo/0.0.41".to_string(),
+        models: vec!["deepseek-v4.1-flash".to_string()],
+        usage: nuo_wire::ConnectionUsageState::Available(Box::new(nuo_wire::ProviderUsage {
+            plan: Some("Pay-as-you-go".to_string()),
+            quota: Some(nuo_wire::ProviderQuotaData::Balance(
+                nuo_wire::BalanceQuota {
+                    currency: "CNY".to_string(),
+                    total_balance: Some(100.5),
+                    cash_balance: Some(100.5),
+                    voucher_balance: Some(0.0),
+                    credit_limit: None,
+                    consumed_amount: None,
+                    display_primary: Some("¥100.50".to_string()),
+                },
+            )),
+            primary_balance: Some("¥100.50".to_string()),
+            metrics: Vec::new(),
+            description: None,
+            updated_at_ms: None,
+        })),
+        ..Default::default()
+    };
+
+    let rows = crate::overlays::provider::connections::connection_detail_body(&detail, 0, &theme);
+    let rendered = rows
+        .into_iter()
+        .map(|r| {
+            let mut s = String::new();
+            if let Some(p) = r.prefix {
+                s.push_str(&p.text);
+            }
+            for seg in r.segments {
+                s.push_str(&seg.text);
+            }
+            s
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        rendered.contains("Model Pricing & Rates"),
+        "must render Model Pricing header: {rendered}"
+    );
+    assert!(
+        rendered.contains("deepseek-v4.1-flash: $0.30 in · $1.20 out"),
+        "must render active model rates: {rendered}"
+    );
+    assert!(
+        rendered.contains("Off-Peak Rates") && rendered.contains("50% off"),
+        "must render off-peak rates: {rendered}"
+    );
+    assert!(
+        rendered.contains("Off-Peak Window"),
+        "must render off-peak window: {rendered}"
+    );
+    assert!(
+        rendered.contains("Total Balance") && rendered.contains("¥100.50 CNY"),
+        "must keep total balance rendered alongside pricing: {rendered}"
+    );
 }

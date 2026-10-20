@@ -376,7 +376,17 @@ impl LayoutMap {
                     }
                     current_block = Some(region.block_idx);
                 }
-                block_text.push_str(&region.text[lo..hi]);
+                let clean_segment = if region.hidden_ranges.is_empty() {
+                    region.text[lo..hi].to_string()
+                } else {
+                    crate::text_layout::strip_inline_markup_delimiters(
+                        &region.text,
+                        lo,
+                        hi,
+                        &region.hidden_ranges,
+                    )
+                };
+                block_text.push_str(&clean_segment);
             }
         }
 
@@ -725,5 +735,29 @@ mod tests {
                 InteractiveTarget::reasoning(3)
             ]
         );
+    }
+
+    #[test]
+    fn extract_text_for_range_strips_hidden_markup_delimiters() {
+        let mut map = LayoutMap::default();
+        // Region containing "**bold** text", with hidden_ranges for the two "**" pairs
+        let text = "**bold** text".to_string();
+        map.push(BlockRegion {
+            message_idx: MODAL_DOC_MSG_IDX,
+            block_idx: 0,
+            start_byte: 0,
+            end_byte: text.len(),
+            text,
+            prefix_cols: 0,
+            rect: Rect::new(0, 0, 20, 1),
+            hidden_ranges: vec![(0, 2), (6, 8)],
+        });
+
+        let sel = crate::model::selection::SelectionState::Range {
+            anchor: SemanticCursor::new(MODAL_DOC_MSG_IDX, 0, 0),
+            head: SemanticCursor::new(MODAL_DOC_MSG_IDX, 0, 13),
+        };
+        let extracted = map.extract_text_for_range(&sel);
+        assert_eq!(extracted.as_deref(), Some("bold text"));
     }
 }

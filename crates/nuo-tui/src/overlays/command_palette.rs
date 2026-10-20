@@ -563,8 +563,16 @@ mod tests {
         assert!(nav_entries.iter().all(|e| {
             e.category == CommandCategory::Navigate || e.category == CommandCategory::Settings
         }));
-        assert!(nav_entries.iter().any(|e| e.id == CommandId::NavigateDashboard));
-        assert!(nav_entries.iter().any(|e| e.id == CommandId::NavigateSettings));
+        assert!(
+            nav_entries
+                .iter()
+                .any(|e| e.id == CommandId::NavigateDashboard)
+        );
+        assert!(
+            nav_entries
+                .iter()
+                .any(|e| e.id == CommandId::NavigateSettings)
+        );
 
         let nav_filtered = filter_palette_commands("@dash", &[], &ctx);
         assert!(!nav_filtered.is_empty());

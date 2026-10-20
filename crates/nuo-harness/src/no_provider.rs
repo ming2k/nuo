@@ -1,6 +1,6 @@
 //! The explicit "no provider configured" sentinel.
 //!
-//! Replaces the former implicit `MockProvider` fallback in [`crate::catalog`].
+//! Replaces the former implicit `MockProvider` fallback in [`nuo_catalog`].
 //! When the catalog cannot resolve a real channel for a provider id (unknown
 //! id, or the entry has no usable channel), the startup install site installs
 //! a [`NoProvider`] into the shared holder so the type still satisfies

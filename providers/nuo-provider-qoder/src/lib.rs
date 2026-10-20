@@ -78,6 +78,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: Some(nuo_provider::QuotaPort::Qoder),
+    display_policy: nuo_provider::DisplayPolicy::Native,
     models: QODER_MODELS,
 };
 
@@ -418,7 +419,7 @@ mod tests {
                 .map(|a| a.usable),
             Some(false)
         );
-        assert_eq!(by_id("gmodel").name.as_deref(), Some("GLM-5.3"));
+        assert_eq!(by_id("gmodel").name.as_deref(), Some("GLM 5.3"));
     }
 
     /// An entry carrying no `enable` at all declares no verdict. `None` is

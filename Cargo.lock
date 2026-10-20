@@ -1833,6 +1833,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "nuo-catalog"
+version = "0.0.41"
+dependencies = [
+ "chrono",
+ "futures",
+ "glob",
+ "mockito",
+ "nuo-host",
+ "nuo-model-codec",
+ "nuo-persistence",
+ "nuo-protocol",
+ "nuo-provider",
+ "nuo-server",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "nuo-client"
 version = "0.0.41"
 dependencies = [
@@ -1900,6 +1921,7 @@ dependencies = [
  "mockito",
  "netune",
  "nuo-agent",
+ "nuo-catalog",
  "nuo-code",
  "nuo-host",
  "nuo-model-codec",
@@ -2434,6 +2456,7 @@ dependencies = [
  "mockito",
  "netune",
  "nuo-acp",
+ "nuo-catalog",
  "nuo-client",
  "nuo-harness",
  "nuo-host",

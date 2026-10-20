@@ -1173,9 +1173,8 @@ fn test_tui_connection_editor_cycles_budget_and_renders_detail() {
         budget: app.custom_budget.clone(),
         ..Default::default()
     };
-    let rows = crate::overlays::provider::connections::connection_detail_body(
-        &detail, 0, &app.theme,
-    );
+    let rows =
+        crate::overlays::provider::connections::connection_detail_body(&detail, 0, &app.theme);
     let budget_row = rows.iter().find(|r| {
         r.prefix
             .iter()

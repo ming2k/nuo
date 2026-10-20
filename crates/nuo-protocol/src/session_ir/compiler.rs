@@ -25,7 +25,7 @@ pub struct CompilerOptions {
     pub ephemeral_instruction: Option<String>,
     /// Target provider label (e.g. "anthropic", "openai", "gemini").
     pub target_dialect: Option<String>,
-    /// Explicit target wire protocol (ADR-0161, ADR-0297).
+    /// Explicit target wire protocol (ADR-0006, ADR-0046).
     pub target_protocol: Option<crate::WireProtocol>,
 }
 
@@ -118,7 +118,7 @@ pub fn compile_session_request(
     let (instructions, cache_boundary) = pass3_cache_boundary_analysis(ir, &messages, &options);
 
     // -------------------------------------------------------------------------
-    // Pass 4: Lowering to ModelRequest (ADR-0241, ADR-0297)
+    // Pass 4: Lowering to ModelRequest (ADR-0046, ADR-0052)
     // -------------------------------------------------------------------------
     let messages = pass4_target_lowering(
         messages,
@@ -355,7 +355,7 @@ fn estimate_total_tokens(req: &ModelRequest) -> usize {
     chars / 4
 }
 
-/// Pass 4: Lower the budgeted conversation messages into target wire format invariants (ADR-0241, ADR-0297).
+/// Pass 4: Lower the budgeted conversation messages into target wire format invariants (ADR-0046, ADR-0052).
 fn pass4_target_lowering(
     messages: Vec<Message>,
     target_protocol: Option<crate::WireProtocol>,
@@ -378,7 +378,7 @@ fn pass4_target_lowering(
 }
 
 /// Transform messages for Google Gemini, ensuring that any unsigned / cross-provider tool calls
-/// are safely degraded to objective dialogue facts rather than emitting bare functionCalls (ADR-0297).
+/// are safely degraded to objective dialogue facts rather than emitting bare functionCalls (ADR-0046).
 fn lower_messages_for_google(messages: Vec<Message>) -> Vec<Message> {
     let mut lowered = Vec::with_capacity(messages.len());
     let mut degraded_call_names: std::collections::HashMap<String, String> =
@@ -395,7 +395,7 @@ fn lower_messages_for_google(messages: Vec<Message>) -> Vec<Message> {
                         if message.has_gemini_thought_signature_for(&call) {
                             retained_signed_calls.push(call);
                         } else {
-                            // ADR-0297: Unsigned / cross-provider tool call.
+                            // ADR-0046: Unsigned / cross-provider tool call.
                             // Google Gemini strictly requires thought_signature on every functionCall part.
                             // Convert this unsigned call into an objective dialogue fact.
                             let parsed = if call.arguments.trim().is_empty() {
@@ -442,7 +442,7 @@ fn lower_messages_for_google(messages: Vec<Message>) -> Vec<Message> {
             Role::Tool => {
                 let call_id = message.tool_call_id.as_deref().unwrap_or_default();
                 if let Some(name) = degraded_call_names.get(call_id) {
-                    // ADR-0297: The corresponding assistant tool call was degraded to dialogue facts.
+                    // ADR-0046: The corresponding assistant tool call was degraded to dialogue facts.
                     // Lower this tool result into an objective user-role dialogue fact.
                     message.role = Role::User;
                     message.tool_call_id = None;

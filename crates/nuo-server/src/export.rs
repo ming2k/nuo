@@ -261,8 +261,22 @@ fn format_tool_activity(
         "find_files" => {
             let patterns = json_args
                 .as_ref()
-                .and_then(|v| v.get("patterns"))
-                .and_then(|p| serde_json::to_string(p).ok())
+                .and_then(|v| {
+                    v.get("pattern")
+                        .or_else(|| v.get("name"))
+                        .or_else(|| v.get("glob"))
+                        .and_then(|p| p.as_str())
+                        .map(str::to_string)
+                        .or_else(|| {
+                            v.get("patterns").and_then(|p| {
+                                if let Some(s) = p.as_str() {
+                                    Some(s.to_string())
+                                } else {
+                                    serde_json::to_string(p).ok()
+                                }
+                            })
+                        })
+                })
                 .unwrap_or_else(|| "*".to_string());
             let path = json_args
                 .as_ref()

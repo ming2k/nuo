@@ -150,7 +150,7 @@ pub const ANTIGRAVITY_JETSKI_BRAND_NAME: &str = "Jetski CLI";
 /// This is the *standalone CLI* (`agy`) version, not an IDE build number: the
 /// Cloud Code inference backend admits requests only from the `antigravity/cli/`
 /// product brand. See ADR-0289, `ANTIGRAVITY_CLI_MIN_PRODUCT_VERSION`, and
-/// `docs/reference/antigravity.yml`.
+/// `docs/reference/openapi/antigravity.yml`.
 ///
 /// Live re-verification 2026-10-16 (`agy` 1.3.6 under inspection / upstream tracking):
 /// the pin **tracks the shipped client** (`1.3.6`, build `cl=999748552`), and
@@ -1106,7 +1106,7 @@ mod tests {
     /// top of the admission band (the realistic narrowing direction is the
     /// floor rising under an auto-updating wild client population, which kills
     /// floor-hugging pins first — ADR-0289 and the 2026-10-14 differential
-    /// probe in `docs/reference/antigravity.yml` `x-admission-band`). This test
+    /// probe in `docs/reference/openapi/antigravity.yml` `x-admission-band`). This test
     /// freezes that wire identity so it cannot silently regress to the
     /// brand-less `antigravity/<version>` form or the retired `cl=0`
     /// placeholder that exists in no wild cohort.
@@ -1157,12 +1157,12 @@ mod tests {
         assert!(
             pinned >= live,
             "the live agy version advanced past the pinned profile; \
-             re-probe and re-pin per docs/reference/antigravity.yml"
+             re-probe and re-pin per docs/reference/openapi/antigravity.yml"
         );
         assert!(
             floor <= pinned,
             "the admission floor rose past the pinned profile; \
-             the backend narrowed the band — re-probe docs/reference/antigravity.yml"
+             the backend narrowed the band — re-probe docs/reference/openapi/antigravity.yml"
         );
 
         // Version and build pin move as one unit: the User-Agent literal, the
@@ -1187,7 +1187,7 @@ mod tests {
     /// `x-goog-api-client`, nothing else (live capture 2026-10-14). Freezing
     /// the empty header set keeps marker-parity regressions out of the
     /// profile; the probe verdict lives in
-    /// `docs/reference/antigravity.yml` `x-admission-band.headers`.
+    /// `docs/reference/openapi/antigravity.yml` `x-admission-band.headers`.
     #[test]
     fn antigravity_preset_carries_no_client_identity_headers() {
         assert!(

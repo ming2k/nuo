@@ -131,6 +131,9 @@ pub fn sync_user_declared_providers(
                 provider.prompt_cache.clone().unwrap_or_default(),
             ),
             quota: None,
+            // A user-declared surface is never structurally relabelled: its
+            // operator publishes the names it wants shown (ADR-0081).
+            display_policy: nuo_provider::DisplayPolicy::Native,
         };
         spec.validate()?;
         next.insert(id.clone(), Arc::new(spec));

@@ -25,15 +25,19 @@ pub const MODELS: &[Model] = &[
         wire_entities: None,
     },
     Model {
+        // Retired V4 Flash generation, served upstream by V4.1-Flash-1017; the
+        // row is therefore the serving model's (1M, multimodal) with the
+        // platform's accepted effort vocabulary (ADR-0083). Byte-identical to
+        // the `nuo-provider-deepseek` and `opencode-plan` rows.
         id: "deepseek-v4-flash",
         family: "deepseek",
         context_window: 1_000_000,
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
-        vision: false,
+        vision: true,
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
-        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
     },
     Model {
@@ -69,7 +73,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
-        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
     },
     // =========================================================================
@@ -87,7 +91,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::ChatCompletions,
         model_guidance: "",
-        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
     },
     Model {
@@ -134,6 +138,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,
+    display_policy: nuo_provider::DisplayPolicy::Structural,
     models: OPENCODE_ZEN_MODELS,
 };
 
@@ -160,4 +165,3 @@ mod tests {
         }
     }
 }
-

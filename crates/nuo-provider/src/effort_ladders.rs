@@ -62,19 +62,57 @@ pub const OPENAI_GPT_6: &[Effort] = &[
 /// xAI Grok 4.x: `none`/`low`/`medium`/`high`.
 pub const XAI_GROK: &[Effort] = &[Effort::None, Effort::Low, Effort::Medium, Effort::High];
 
-/// `low`/`high`/`max`: shared capability set for DeepSeek and Moonshot Kimi K3.
+/// `low`/`high`/`max`: the conservative three-rung ladder for surfaces whose
+/// accepted **strings** are unverified beyond those presets.
 ///
-/// This is the DeepSeek **V4 / V4.1** family ladder, live-verified on the
-/// DeepSeek platform and its OpenAI-compatible relays as the accepted
-/// `low`/`high`/`max` presets (integer efforts are rejected upstream with HTTP
-/// 400). It is the ladder every DeepSeek id on a relay surface carries —
-/// including the CommandCode `provider/v1` DeepSeek lanes, whose declared
-/// `deepseek/deepseek-v4-flash` the server rewrites to a `deepseek-v4.1-flash`
-/// upstream (ADR-0014), so the V4.1 rungs are the ones that actually land.
-/// Omitting a supported rung is the failure mode to avoid here; see
-/// `docs/reference/commandcode-api.yml` `x-reasoning-effort-ladder` for the
-/// full per-family reference table.
+/// Two surfaces declare it:
+/// - **Moonshot Kimi K3**, whose own accepted set is exactly these three.
+/// - The **CommandCode `provider/v1` DeepSeek lanes**, whose declared
+///   `deepseek/deepseek-v4-flash` the server rewrites to a `deepseek-v4.1-flash`
+///   upstream (ADR-0014). That lane advertises further rungs (`off`) whose token
+///   mapping is not wire-verified, and offering a rung the server would reject
+///   is the failure mode to avoid.
+///
+/// DeepSeek's **own** platform — and the pass-through relay lanes that forward
+/// its parameters — declare [`DEEPSEEK_NATIVE`] instead: they accept the whole
+/// closed vocabulary (ADR-0083).
 pub const LOW_HIGH_MAX: &[Effort] = &[Effort::Low, Effort::High, Effort::Max];
+
+/// DeepSeek's **official platform** (`api.deepseek.com`, ADR-0083): the full
+/// closed vocabulary, because the backend accepts every rung and maps the
+/// aliases itself.
+///
+/// Upstream contract (Thinking Mode guide, 2026-10 revision) for both
+/// `reasoning_effort` (Chat Completions) and `reasoning.effort` (Responses):
+///
+/// | requested | served |
+/// | :--- | :--- |
+/// | `none` | thinking **off** (the on/off switch on the Responses surface) |
+/// | `minimal` | `low` |
+/// | `low` | `low` |
+/// | `medium` | `high` |
+/// | `high` | `high` (server default) |
+/// | `xhigh` | `high` |
+/// | `max` | `max` |
+/// | `ultra` | `max` |
+///
+/// Declaring all eight is what keeps the local clamp honest. A narrowed
+/// `low`/`high`/`max` ladder would (a) make `none` unreachable — the clamp
+/// snaps it *up* to `low`, silently turning "no thinking" into light
+/// thinking — and (b) downgrade an explicit `medium` to `low`, i.e. shallower
+/// than the `high` upstream would have served. The rungs the model serves
+/// *distinctly* are still `low`/`high`/`max`; that distinction is upstream's
+/// business, not the clamp's.
+pub const DEEPSEEK_NATIVE: &[Effort] = &[
+    Effort::None,
+    Effort::Minimal,
+    Effort::Low,
+    Effort::Medium,
+    Effort::High,
+    Effort::Xhigh,
+    Effort::Max,
+    Effort::Ultra,
+];
 
 /// Z.AI GLM-5.2 / GLM-5.3: `low`/`high`/`xhigh`/`max`.
 pub const GLM_5: &[Effort] = &[Effort::Low, Effort::High, Effort::Xhigh, Effort::Max];

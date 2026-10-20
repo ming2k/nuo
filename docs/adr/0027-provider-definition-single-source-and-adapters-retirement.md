@@ -207,7 +207,7 @@ per-step verification gates — is in [`docs/dev/provider-consolidation-migratio
 
 ### Rejected — A `trust: TrustLevel` provider field
 - **Why considered**: Source comments repeatedly say "trusted provider", suggesting an unmodeled concept.
-- **Why rejected**: The actual gate is structural and non-configurable — the fitted-model overlay only accepts ids absent from the compiled baseline (`nuo-harness/src/catalog/sync.rs:485`, `filter(|model| model_by_id(&model.id).is_none())`), which is why a relay cannot inflate a known model. A configurable trust flag would be either redundant with that precedence rule or a **weaker** second gate that can contradict it — and the dangerous case is a maintainer setting it to `Full` and reopening a door the precedence rule closes. Trust is a property of the resolution rule, not of the provider. Making an unconfigurable invariant configurable is a net loss.
+- **Why rejected**: The actual gate is structural and non-configurable — the fitted-model overlay only accepts ids absent from the compiled baseline (`nuo-catalog/src/sync.rs:501`, `filter(|model| model_by_id(&model.id).is_none())`), which is why a relay cannot inflate a known model. A configurable trust flag would be either redundant with that precedence rule or a **weaker** second gate that can contradict it — and the dangerous case is a maintainer setting it to `Full` and reopening a door the precedence rule closes. Trust is a property of the resolution rule, not of the provider. Making an unconfigurable invariant configurable is a net loss.
 
 ### Rejected — `local_only_safe` and `account_dimensions` provider fields
 - **Why considered**: `[INV-LANE-06]` references a local-only mode; opencode/Google/Qoder need workspace/project/region selection.

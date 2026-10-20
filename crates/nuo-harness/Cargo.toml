@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 nuo-tool = { workspace = true }
 nuo-provider = { workspace = true }
+nuo-catalog = { workspace = true }
 nuo-model-codec = { workspace = true }
 nuo-wire = { workspace = true }
 nuo-persistence = { workspace = true }

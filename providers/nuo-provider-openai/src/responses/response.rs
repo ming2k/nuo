@@ -12,7 +12,11 @@
 //! - `response.function_call_arguments.done` → the complete tool call
 //! - `response.output_item.added` (function_call) → captures id/name/call_id
 //! - `response.output_item.done` → preserves the complete opaque output item
-//! - `response.completed` → terminal usage and exact replay artifacts
+//! - `response.reasoning_text.delta` → `ReasoningDelta` (raw CoT, third-party
+//!   Responses backends such as DeepSeek)
+//! - `response.completed` / `response.incomplete` → terminal usage and exact
+//!   replay artifacts (a truncated turn still carries its output and its bill)
+//! - `response.failed` → terminal in-band upstream failure
 
 use nuo_model_codec::{Message, ProviderStreamEvent, Role, TokenUsage, ToolCall};
 use serde_json::Value;
@@ -286,65 +290,102 @@ impl ResponsesStream {
                     ));
                 }
             }
-            "response.completed" => {
-                let response = &value["response"];
-                let output = match response.get("output").and_then(Value::as_array) {
-                    Some(items) if !items.is_empty() => items.clone(),
-                    _ if !self.completed_output.is_empty() => {
-                        for (expected, actual) in self.completed_output.keys().enumerate() {
-                            if expected != *actual {
-                                return Err(format!(
-                                    "Responses stream is missing completed output index {expected}."
-                                ));
-                            }
-                        }
-                        self.completed_output.values().cloned().collect()
-                    }
-                    _ => {
-                        return Err(
-                            "Responses stream completed without any replayable output items."
-                                .to_string(),
-                        );
-                    }
-                };
-                for item in &output {
-                    if !item.is_object()
-                        || item
-                            .get("type")
-                            .and_then(Value::as_str)
-                            .is_none_or(str::is_empty)
-                    {
-                        return Err(
-                            "Responses completion contains a malformed output item.".to_string()
-                        );
-                    }
-                }
-                let mut artifacts = serde_json::Map::new();
-                artifacts.insert(
-                    nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
-                    Value::Array(output),
-                );
-                if let Some(id) = response["id"].as_str() {
-                    artifacts.insert(
-                        nuo_model_codec::OPENAI_RESPONSE_ID_ARTIFACT_KEY.to_string(),
-                        serde_json::Value::String(id.to_string()),
-                    );
-                }
-                events.push(ProviderStreamEvent::Completed(
-                    nuo_model_codec::ProviderCompletionMeta {
-                        usage: usage(&response["usage"]),
-                        artifacts: Some(artifacts),
-                        continuation: None,
-                    },
-                ));
+            // A completed and a truncated (`response.incomplete`) turn are both
+            // *successful* responses: the backend ran out of `max_output_tokens`
+            // rather than of work. DeepSeek documents `response.completed` /
+            // `response.incomplete` / `response.failed` as the three terminal
+            // events, so a truncation must still deliver its output items and
+            // the usage it was billed for — treating it as "not a completion"
+            // would silently discard both (ADR-0083).
+            "response.completed" | "response.incomplete" => {
+                events.extend(self.terminal_completion(&value["response"])?);
+            }
+            // A mid-stream failure carries the upstream error inline, after the
+            // HTTP 200 that opened the stream. Surface the provider's own
+            // message (balance, rate limit, content policy) instead of ending
+            // the turn on an empty answer with no reason.
+            "response.failed" => {
                 self.terminal_seen = true;
+                let error = &value["response"]["error"];
+                let message = error["message"]
+                    .as_str()
+                    .filter(|message| !message.trim().is_empty())
+                    .unwrap_or("the backend reported a failed response");
+                let detail = match error["code"].as_str().filter(|code| !code.is_empty()) {
+                    Some(code) => format!("Responses stream failed: {message} ({code})"),
+                    None => format!("Responses stream failed: {message}"),
+                };
+                return Err(detail);
             }
             // `response.created`, `response.in_progress`, and part-level
             // `*.added`/`*.done` events carry no additional harness payload.
-            // Terminal failures are rejected by the transport before parsing.
+            // Transport-level failures (non-2xx) are rejected before parsing;
+            // the in-band `response.failed` terminal is handled above.
             _ => {}
         }
         Ok(events)
+    }
+
+    /// Fold a terminal `response` object (shared by `response.completed` and
+    /// `response.incomplete`) into the replay artifact plus usage, and emit the
+    /// single [`ProviderStreamEvent::Completed`] that closes the stream.
+    ///
+    /// Both events carry the same `response` shape: the full `output` array, a
+    /// `usage` object, and an optional `incomplete_details.reason`. The reason
+    /// is deliberately not synthesized into a stop signal — Nuo's provider
+    /// contract has no finish-reason field, and the issued output tokens are
+    /// real (and billed) whether the turn ended on its own or on the output cap.
+    fn terminal_completion(
+        &mut self,
+        response: &Value,
+    ) -> Result<Vec<ProviderStreamEvent>, String> {
+        let output = match response.get("output").and_then(Value::as_array) {
+            Some(items) if !items.is_empty() => items.clone(),
+            _ if !self.completed_output.is_empty() => {
+                for (expected, actual) in self.completed_output.keys().enumerate() {
+                    if expected != *actual {
+                        return Err(format!(
+                            "Responses stream is missing completed output index {expected}."
+                        ));
+                    }
+                }
+                self.completed_output.values().cloned().collect()
+            }
+            _ => {
+                return Err(
+                    "Responses stream completed without any replayable output items.".to_string(),
+                );
+            }
+        };
+        for item in &output {
+            if !item.is_object()
+                || item
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .is_none_or(str::is_empty)
+            {
+                return Err("Responses completion contains a malformed output item.".to_string());
+            }
+        }
+        let mut artifacts = serde_json::Map::new();
+        artifacts.insert(
+            nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
+            Value::Array(output),
+        );
+        if let Some(id) = response["id"].as_str() {
+            artifacts.insert(
+                nuo_model_codec::OPENAI_RESPONSE_ID_ARTIFACT_KEY.to_string(),
+                serde_json::Value::String(id.to_string()),
+            );
+        }
+        self.terminal_seen = true;
+        Ok(vec![ProviderStreamEvent::Completed(
+            nuo_model_codec::ProviderCompletionMeta {
+                usage: usage(&response["usage"]),
+                artifacts: Some(artifacts),
+                continuation: None,
+            },
+        )])
     }
 
     /// Assign (or look up) the tool-call index for an `item_id`, in
@@ -366,6 +407,55 @@ fn strip_reasoning_placeholder(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn incomplete_response_still_delivers_output_usage_and_terminality() {
+        // DeepSeek terminates a truncated turn with `response.incomplete`
+        // (`incomplete_details.reason: max_output_tokens`). The tokens were
+        // produced and billed, so the turn is a completion — not a dropped one.
+        let mut stream = ResponsesStream::new();
+        let events = stream
+            .parse(
+                r#"{"type":"response.incomplete","response":{"id":"resp_1","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"partial"}]}],"usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7},"incomplete_details":{"reason":"max_output_tokens"}}}"#,
+            )
+            .unwrap();
+
+        let meta = match events.as_slice() {
+            [ProviderStreamEvent::Completed(meta)] => meta,
+            other => panic!("expected one terminal completion, got {other:?}"),
+        };
+        assert_eq!(
+            meta.usage.as_ref().map(|usage| usage.completion_tokens),
+            Some(2)
+        );
+        let output = meta
+            .artifacts
+            .as_ref()
+            .and_then(|artifacts| {
+                artifacts.get(nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
+            })
+            .and_then(Value::as_array)
+            .expect("the truncated turn stays replayable");
+        assert_eq!(output[0]["content"][0]["text"], "partial");
+        assert!(
+            stream
+                .parse(r#"{"type":"response.output_text.delta","delta":"late"}"#)
+                .is_err(),
+            "a terminal event closes the stream"
+        );
+    }
+
+    #[test]
+    fn failed_response_surfaces_the_upstream_error() {
+        let mut stream = ResponsesStream::new();
+        let error = stream
+            .parse(
+                r#"{"type":"response.failed","response":{"error":{"message":"Insufficient balance","type":"insufficient_balance","code":"insufficient_balance"}}}"#,
+            )
+            .unwrap_err();
+        assert!(error.contains("Insufficient balance"), "{error}");
+        assert!(error.contains("insufficient_balance"), "{error}");
+    }
 
     #[test]
     fn parses_output_text_delta() {

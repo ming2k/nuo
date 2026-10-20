@@ -7,7 +7,6 @@
 //! which is what these handlers persist there. Routes are derived by the
 //! catalog at activation time.
 
-use crate::catalog;
 use nuo_harness::Agent;
 use nuo_harness::orchestration::round_response;
 use nuo_persistence::config::{Config, Credentials, RemoteCatalogCache};
@@ -475,10 +474,9 @@ pub(crate) async fn add(
             &session_id,
             RoundEvent::Notice(AgentNotice::command_ack(ack)),
         ));
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-            config,
-            provider_usage,
-        )));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(
+            nuo_catalog::build_picker_state(config, provider_usage),
+        ));
         return;
     }
 
@@ -504,10 +502,10 @@ pub(crate) async fn add(
     // list. A failure keeps the seed; each failure is reported back as a
     // warning so the user knows the list may be incomplete.
     if auth.is_subscription() && auth.subscription_provider() != Some("google-antigravity") {
-        let outcome = catalog::sync_connection_catalog(&name).await;
+        let outcome = nuo_catalog::sync_connection_catalog(&name).await;
         if outcome.changed {
-            catalog::sync_fitted_model_registry();
-            catalog::prune_stale_models_on_disk();
+            nuo_catalog::sync_fitted_model_registry();
+            nuo_catalog::prune_stale_models_on_disk();
         }
         for failure in &outcome.failures {
             let _ = resp_tx.send(AgentResponse::ConnectStatus(
@@ -599,12 +597,12 @@ pub(crate) async fn edit(
     if connections.save().is_err() {
         tracing::warn!("edit: could not persist connection");
     }
-    catalog::prune_stale_models(config, provider_usage);
+    nuo_catalog::prune_stale_models(config, provider_usage);
     // Only rebuild the live provider when editing the active one (so a new
     // endpoint/key takes effect); editing an inactive provider just refreshes
     // the persisted state + the picker snapshot without switching.
     if config.default_connection.eq_ignore_ascii_case(&name) {
-        let model = catalog::resolved_model_name_with_usage(config, &name, provider_usage)
+        let model = nuo_catalog::resolved_model_name_with_usage(config, &name, provider_usage)
             .unwrap_or_default();
         activate(
             ActivateEnv {
@@ -621,10 +619,9 @@ pub(crate) async fn edit(
         .await;
     } else {
         let _ = resp_tx.send(AgentResponse::ProviderKeys(provider_key_status(config)));
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-            config,
-            provider_usage,
-        )));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(
+            nuo_catalog::build_picker_state(config, provider_usage),
+        ));
     }
 }
 
@@ -782,9 +779,9 @@ pub(crate) async fn rename(
         );
     }
 
-    catalog::prune_stale_models(config, provider_usage);
+    nuo_catalog::prune_stale_models(config, provider_usage);
     if was_default {
-        let model = catalog::resolved_model_name_with_usage(config, &new_name, provider_usage)
+        let model = nuo_catalog::resolved_model_name_with_usage(config, &new_name, provider_usage)
             .unwrap_or_default();
         activate(
             ActivateEnv {
@@ -801,10 +798,9 @@ pub(crate) async fn rename(
         .await;
     } else {
         let _ = resp_tx.send(AgentResponse::ProviderKeys(provider_key_status(config)));
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-            config,
-            provider_usage,
-        )));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(
+            nuo_catalog::build_picker_state(config, provider_usage),
+        ));
     }
 }
 
@@ -849,11 +845,10 @@ pub(crate) async fn include_model(
             }
         }
     }
-    catalog::prune_stale_models(config, provider_usage);
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-        config,
-        provider_usage,
-    )));
+    nuo_catalog::prune_stale_models(config, provider_usage);
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(
+        nuo_catalog::build_picker_state(config, provider_usage),
+    ));
 }
 
 /// `AgentRequest::ExcludeModel` — exclude/hide a model within a target scope (ADR-0199).
@@ -893,11 +888,10 @@ pub(crate) async fn exclude_model(
             }
         }
     }
-    catalog::prune_stale_models(config, provider_usage);
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-        config,
-        provider_usage,
-    )));
+    nuo_catalog::prune_stale_models(config, provider_usage);
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(
+        nuo_catalog::build_picker_state(config, provider_usage),
+    ));
 }
 
 /// `AgentRequest::ClearModelRule` — clear explicit inclusion, exclusion, or overrides for a model (ADR-0199).
@@ -934,11 +928,10 @@ pub(crate) async fn clear_model_rule(
             }
         }
     }
-    catalog::prune_stale_models(config, provider_usage);
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-        config,
-        provider_usage,
-    )));
+    nuo_catalog::prune_stale_models(config, provider_usage);
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(
+        nuo_catalog::build_picker_state(config, provider_usage),
+    ));
 }
 
 /// `AgentRequest::SetModelCapabilities` — update per-scope model capability overrides (ADR-0199).
@@ -979,10 +972,9 @@ pub(crate) async fn set_model_capabilities(
             }
         }
     }
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-        config,
-        provider_usage,
-    )));
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(
+        nuo_catalog::build_picker_state(config, provider_usage),
+    ));
 }
 
 /// `AgentRequest::EditProviderModel` — update the per-(connection, model)
@@ -1012,11 +1004,11 @@ pub(crate) async fn edit_model(
 
     // Resolve the route's transport to decide which knobs apply (Anthropic
     // honors thinking; OpenAI/Responses carry effort only; Google ignores both).
-    let stores = catalog::Stores::load();
+    let stores = nuo_catalog::Stores::load();
     let Some(conn) = stores.connections.get(&connection) else {
         return;
     };
-    let channel = match catalog::derive_channel(conn, &model, &stores.inputs()) {
+    let channel = match nuo_catalog::derive_channel(conn, &model, &stores.inputs()) {
         Ok(channel) => channel,
         Err(error) => {
             let _ = resp_tx.send(AgentResponse::Error(error.to_string()));
@@ -1028,16 +1020,16 @@ pub(crate) async fn edit_model(
     let mut routes = RouteSettingsStore::load();
     let entry = routes.settings_for_mut(&connection, &model);
     match transport {
-        nuo_wire::catalog::Transport::Anthropic { .. } => {
+        nuo_model_codec::catalog::Transport::Anthropic { .. } => {
             entry.effort = valid_effort;
             entry.thinking = thinking;
         }
-        nuo_wire::catalog::Transport::OpenAi { .. }
-        | nuo_wire::catalog::Transport::OpenAiResponses { .. } => {
+        nuo_model_codec::catalog::Transport::OpenAi { .. }
+        | nuo_model_codec::catalog::Transport::OpenAiResponses { .. } => {
             entry.effort = valid_effort;
             entry.thinking = None;
         }
-        nuo_wire::catalog::Transport::Google { .. } => {}
+        nuo_model_codec::catalog::Transport::Google { .. } => {}
     }
     // Capability overrides (ADR-0149 layer 1): `None` keeps the stored
     // record untouched; `Some(record)` replaces it wholesale (empty clears).
@@ -1051,8 +1043,9 @@ pub(crate) async fn edit_model(
         tracing::warn!("edit_model: could not persist route settings");
     }
 
-    let active_model = catalog::resolved_model_name_with_usage(config, &connection, provider_usage)
-        .unwrap_or_default();
+    let active_model =
+        nuo_catalog::resolved_model_name_with_usage(config, &connection, provider_usage)
+            .unwrap_or_default();
     if config.default_connection.eq_ignore_ascii_case(&connection) && active_model == model {
         activate(
             ActivateEnv {
@@ -1068,10 +1061,9 @@ pub(crate) async fn edit_model(
         )
         .await;
     } else {
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-            config,
-            provider_usage,
-        )));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(
+            nuo_catalog::build_picker_state(config, provider_usage),
+        ));
     }
 }
 
@@ -1119,7 +1111,7 @@ pub(crate) async fn edit_model_reasoning(
 
     // Re-activate if this model is the live one so the change applies now.
     let active_model =
-        catalog::resolved_model_name_with_usage(config, &provider_id, provider_usage)
+        nuo_catalog::resolved_model_name_with_usage(config, &provider_id, provider_usage)
             .unwrap_or_default();
     if active_model == model {
         activate(
@@ -1136,10 +1128,9 @@ pub(crate) async fn edit_model_reasoning(
         )
         .await;
     } else {
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-            config,
-            provider_usage,
-        )));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(
+            nuo_catalog::build_picker_state(config, provider_usage),
+        ));
     }
 }
 
@@ -1194,12 +1185,12 @@ pub(crate) async fn delete(
     if routes.save().is_err() {
         tracing::warn!("delete: could not persist route settings");
     }
-    catalog::prune_stale_models(config, provider_usage);
+    nuo_catalog::prune_stale_models(config, provider_usage);
 
     let was_active = config.default_connection == id;
     if was_active {
         config.default_connection =
-            catalog::effective_default_connection_id(config, &catalog::Stores::load());
+            nuo_catalog::effective_default_connection_id(config, &nuo_catalog::Stores::load());
         config.default_model = None;
     }
     if let Err(error) = config.save_preserving_connection_selection() {
@@ -1208,7 +1199,7 @@ pub(crate) async fn delete(
 
     if was_active {
         let fallback = config.default_connection.clone();
-        let model = catalog::resolved_model_name_with_usage(config, &fallback, provider_usage)
+        let model = nuo_catalog::resolved_model_name_with_usage(config, &fallback, provider_usage)
             .unwrap_or_default();
         activate(
             ActivateEnv {
@@ -1227,10 +1218,9 @@ pub(crate) async fn delete(
         // Deleting an inactive connection: refresh the picker + key snapshots
         // without switching the live provider.
         let _ = resp_tx.send(AgentResponse::ProviderKeys(provider_key_status(config)));
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-            config,
-            provider_usage,
-        )));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(
+            nuo_catalog::build_picker_state(config, provider_usage),
+        ));
     }
 }
 
@@ -1273,12 +1263,12 @@ pub async fn reapply_session_selection(
             (sel.connection.clone(), sel.model.clone())
         }
         None => (
-            catalog::default_connection_id(config).to_string(),
+            nuo_catalog::default_connection_id(config).to_string(),
             config.default_model.clone(),
         ),
     };
     let model = model_id.filter(|m| !m.is_empty()).unwrap_or_else(|| {
-        catalog::resolved_model_name_with_usage(&effective, &provider_id, provider_usage)
+        nuo_catalog::resolved_model_name_with_usage(&effective, &provider_id, provider_usage)
             .unwrap_or_default()
     });
     if agent.provider.provider_id() == provider_id && agent.provider.model() == model {
@@ -1432,11 +1422,11 @@ pub async fn connect_post_oauth(
     // fresh token so the picker shows the account's real entitlements right
     // away. A failure keeps the previous subset; each failure is reported back
     // as a warning so the user knows *why* the list did not refresh.
-    let outcome = catalog::sync_connection_catalog(&provider_id).await;
+    let outcome = nuo_catalog::sync_connection_catalog(&provider_id).await;
     if outcome.changed {
-        catalog::sync_fitted_model_registry();
+        nuo_catalog::sync_fitted_model_registry();
     }
-    catalog::prune_stale_models(config, provider_usage);
+    nuo_catalog::prune_stale_models(config, provider_usage);
     for failure in &outcome.failures {
         let _ = resp_tx.send(AgentResponse::ConnectStatus(
             nuo_wire::ConnectStatus::CatalogSyncWarning {
@@ -1450,7 +1440,7 @@ pub async fn connect_post_oauth(
             },
         ));
     }
-    let model = catalog::build_picker_state(config, provider_usage)
+    let model = nuo_catalog::build_picker_state(config, provider_usage)
         .rows
         .into_iter()
         .find(|r| r.id == provider_id)
@@ -1573,13 +1563,13 @@ async fn activate(
     refresh_oauth_if_needed(config, &provider_type).await;
 
     let session_id = agent.thread_id();
-    let Some(new_p) = catalog::build_provider_for_model(
+    let Some(new_p) = nuo_catalog::build_provider_for_model(
         config,
         &provider_type,
         Some(&model),
         session_id.as_deref(),
     )
-    .or_else(|| catalog::build_provider_for(config, &provider_type)) else {
+    .or_else(|| nuo_catalog::build_provider_for(config, &provider_type)) else {
         tracing::warn!(
             provider_type = %provider_type,
             model = %model,
@@ -1590,10 +1580,9 @@ async fn activate(
              Add one with /connections before sending a message."
         )));
         // Re-push the picker so the UI reflects that nothing switched.
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-            config,
-            provider_usage,
-        )));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(
+            nuo_catalog::build_picker_state(config, provider_usage),
+        ));
         return;
     };
     *provider_for_task
@@ -1622,10 +1611,9 @@ async fn activate(
         ));
         record_provider_ack(session, &provider_type, &model, ack).await;
     }
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-        config,
-        provider_usage,
-    )));
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(
+        nuo_catalog::build_picker_state(config, provider_usage),
+    ));
 }
 
 /// `AgentRequest::ToggleFavorite` — flip the model id in the favorites list.
@@ -1643,10 +1631,9 @@ pub async fn toggle_favorite(
     if let Err(error) = config.save_preserving_connection_selection() {
         tracing::warn!(?error, "could not persist favorites");
     }
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-        config,
-        provider_usage,
-    )));
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(
+        nuo_catalog::build_picker_state(config, provider_usage),
+    ));
 }
 
 /// `AgentRequest::SetDefaultModel` — make `id` the default AND activate it.
@@ -1658,8 +1645,8 @@ pub async fn set_default_model(
     provider_usage: &mut ConnectionUsage,
     id: String,
 ) {
-    let stores = catalog::Stores::load();
-    let entries = catalog::derive_entries(&stores.connections, &stores.inputs());
+    let stores = nuo_catalog::Stores::load();
+    let entries = nuo_catalog::derive_entries(&stores.connections, &stores.inputs());
     let current_provider_id = config.default_connection.clone();
     let current_offers = entries
         .iter()
@@ -1703,11 +1690,11 @@ pub fn apply_connection_update(
     config: &mut Config,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     provider_usage: &mut ConnectionUsage,
-    update: catalog::ConnectionUpdate,
+    update: nuo_catalog::ConnectionUpdate,
 ) {
     if update.changed {
-        catalog::sync_fitted_model_registry();
-        catalog::prune_stale_models(config, provider_usage);
+        nuo_catalog::sync_fitted_model_registry();
+        nuo_catalog::prune_stale_models(config, provider_usage);
     }
     if let Some(error) = &update.error {
         let _ = resp_tx.send(AgentResponse::ConnectStatus(
@@ -1722,10 +1709,9 @@ pub fn apply_connection_update(
             },
         ));
     }
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-        config,
-        provider_usage,
-    )));
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(
+        nuo_catalog::build_picker_state(config, provider_usage),
+    ));
 }
 
 /// Close a completed catalog-sync pass: re-derive global state, emit the command
@@ -1736,12 +1722,12 @@ pub fn apply_catalog_sync_outcome(
     config: &mut Config,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     provider_usage: &mut ConnectionUsage,
-    outcome: catalog::CatalogSyncOutcome,
+    outcome: nuo_catalog::CatalogSyncOutcome,
     session_id: Option<String>,
 ) {
     if outcome.changed {
-        catalog::sync_fitted_model_registry();
-        catalog::prune_stale_models(config, provider_usage);
+        nuo_catalog::sync_fitted_model_registry();
+        nuo_catalog::prune_stale_models(config, provider_usage);
     }
 
     if let Some(session_id) = session_id {
@@ -1759,10 +1745,9 @@ pub fn apply_catalog_sync_outcome(
     }
 
     let _ = resp_tx.send(AgentResponse::ProviderKeys(provider_key_status(config)));
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(catalog::build_picker_state(
-        config,
-        provider_usage,
-    )));
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(
+        nuo_catalog::build_picker_state(config, provider_usage),
+    ));
 }
 
 /// Mask an API key for safe display (e.g. `sk-12...abcd`).
@@ -1788,12 +1773,12 @@ pub(crate) async fn query_connection_detail(
     id: String,
     force_refresh: bool,
 ) {
-    let stores = catalog::Stores::load();
+    let stores = nuo_catalog::Stores::load();
     let Some(connection) = stores.connections.get(&id) else {
         return;
     };
 
-    let entry = catalog::derive_entry(connection, &stores.inputs());
+    let entry = nuo_catalog::derive_entry(connection, &stores.inputs());
     let (protocol, base_url) = entry
         .default_channel()
         .map(|c| match &c.transport {
@@ -1823,7 +1808,7 @@ pub(crate) async fn query_connection_detail(
     let provider_label =
         nuo_wire::model_providers::model_provider_label(&connection.provider).to_string();
 
-    let raw_key = catalog::resolve_credential(connection, &stores.creds);
+    let raw_key = nuo_catalog::resolve_credential(connection, &stores.creds);
     let api_key_masked = mask_api_key(raw_key.expose_secret());
 
     let api_key_source = if connection.auth.is_oauth() {
@@ -1854,7 +1839,7 @@ pub(crate) async fn query_connection_detail(
     let model_info = entry
         .channels
         .iter()
-        .map(crate::catalog::channel_model_info)
+        .map(nuo_catalog::channel_model_info)
         .collect::<Vec<_>>();
     let usage_store = nuo_persistence::connection_usage::ConnectionUsage::load();
     let active_model = usage_store
@@ -1866,7 +1851,7 @@ pub(crate) async fn query_connection_detail(
         .as_deref()
         .and_then(|m| entry.channel_for_model(m))
         .or_else(|| entry.default_channel());
-    let active_channel_info = active_channel.map(crate::catalog::channel_model_info);
+    let active_channel_info = active_channel.map(nuo_catalog::channel_model_info);
     let active_model_effort = active_channel_info.as_ref().and_then(|info| {
         let show = match info.protocol.as_str() {
             "anthropic" => info.thinking == Some(true),
@@ -2076,7 +2061,7 @@ pub async fn query_provider_quotas(
     force_refresh: bool,
 ) {
     use futures::StreamExt;
-    let stores = catalog::Stores::load();
+    let stores = nuo_catalog::Stores::load();
     let config = Config::load();
     let default_conn_id = config.default_connection.clone();
 
@@ -2159,7 +2144,7 @@ pub async fn query_provider_quotas(
         .into_iter()
         .map(|conn| {
             let inputs = stores.inputs();
-            let entry = catalog::derive_entry(&conn, &inputs);
+            let entry = nuo_catalog::derive_entry(&conn, &inputs);
             let base_url = entry
                 .default_channel()
                 .map(|c| c.transport.base_url().to_string())
@@ -2168,7 +2153,7 @@ pub async fn query_provider_quotas(
                         .map(|s| s.root_url.to_string())
                         .unwrap_or_default()
                 });
-            let raw_key = catalog::resolve_credential(&conn, &stores.creds);
+            let raw_key = nuo_catalog::resolve_credential(&conn, &stores.creds);
             (conn, raw_key, base_url)
         })
         .collect();
@@ -2208,7 +2193,7 @@ pub(crate) async fn query_all_connections_usage(
     force_refresh: bool,
 ) {
     use futures::StreamExt;
-    let stores = catalog::Stores::load();
+    let stores = nuo_catalog::Stores::load();
     let connections: Vec<String> = stores
         .connections
         .connections
@@ -2482,7 +2467,7 @@ mod tests {
             &mut config,
             &resp_tx,
             &mut usage,
-            catalog::ConnectionUpdate {
+            nuo_catalog::ConnectionUpdate {
                 connection: "gmain".to_string(),
                 changed: false,
                 error: Some("network error".to_string()),
@@ -2510,7 +2495,7 @@ mod tests {
             &mut config,
             &resp_tx,
             &mut usage,
-            catalog::CatalogSyncOutcome::default(),
+            nuo_catalog::CatalogSyncOutcome::default(),
             None,
         );
 

@@ -495,6 +495,13 @@ impl SubagentHandle {
 #[derive(Default)]
 pub(crate) struct RoundState {
     token_usage: TokenUsage,
+    /// Cost already settled for the requests that completed in this round.
+    ///
+    /// The Session budget gate reads this instead of re-pricing
+    /// `token_usage`: once rates vary by time of day, applying one window to
+    /// an aggregate of attempts billed under another silently mis-states the
+    /// spend (ADR-0080).
+    spend: nuo_wire::pricing::NanoUsd,
     /// Accumulated provider *generation* time across every completed request
     /// in this round (sum of each `RequestAccountingGuard`'s sealed span).
     /// Excludes tool execution, hooks, and human-decision pauses — it is the
@@ -739,6 +746,11 @@ struct RequestAccountingGuard {
     /// are sampled as the provider stream yields them; missing stages remain
     /// `None` rather than becoming fabricated zero-duration measurements.
     started_at: Option<std::time::Instant>,
+    /// Epoch-millisecond twin of the dispatch boundary. Stamped once here,
+    /// handed to the ledger record, and reused for cost rating so the durable
+    /// attempt and the rate window it was billed under can never disagree
+    /// (ADR-0080).
+    started_at_epoch_ms: u64,
     stream_ready_at: Option<std::time::Instant>,
     first_output_at: Option<std::time::Instant>,
     last_output_at: Option<std::time::Instant>,
@@ -767,6 +779,7 @@ impl RequestAccountingGuard {
         projected_prompt_tokens: usize,
     ) -> Self {
         let ledger = agent.token_ledger();
+        let started_at_epoch_ms = crate::orchestration::unix_epoch_ms();
         let key = ledger.as_ref().map(|ledger| {
             let thread_id = agent.thread_id().unwrap_or_default();
             let actor_id = agent.accounting_actor_id();
@@ -778,6 +791,7 @@ impl RequestAccountingGuard {
                 round: agent.round_count(),
                 turn: turn_index.saturating_add(1) as u32,
                 projected_prompt_tokens: projected_prompt_tokens as i64,
+                started_at_ms: started_at_epoch_ms,
             })
         });
         let round = agent.round_count();
@@ -797,6 +811,7 @@ impl RequestAccountingGuard {
             error: None,
             settled: false,
             started_at: None,
+            started_at_epoch_ms,
             stream_ready_at: None,
             first_output_at: None,
             last_output_at: None,
@@ -819,6 +834,11 @@ impl RequestAccountingGuard {
     /// Start the monotonic request clock at the provider-call boundary.
     fn start_request(&mut self) {
         self.started_at.get_or_insert_with(std::time::Instant::now);
+    }
+
+    /// The epoch-millisecond dispatch boundary this attempt is rated at.
+    fn started_at_epoch_ms(&self) -> u64 {
+        self.started_at_epoch_ms
     }
 
     /// The provider returned a live response stream (normally after response

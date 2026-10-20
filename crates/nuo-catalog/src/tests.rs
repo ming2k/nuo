@@ -11,6 +11,7 @@ use super::{
     build_catalog, build_picker_state, refresh_connection_models_for_etag, sync_connection_catalog,
     sync_fitted_model_registry, sync_remote_catalog,
 };
+use nuo_model_codec::catalog::Transport;
 use nuo_persistence::config::{
     Config, Credentials, FittedModelInfo, ModelListCacheState, RemoteCatalogCache,
 };
@@ -18,7 +19,6 @@ use nuo_persistence::connections::{Connection, Connections};
 use nuo_persistence::route_settings::RouteSettingsStore;
 use nuo_provider::oauth::{CredentialStore, TokenSet};
 use nuo_provider::{DEEPSEEK_BUILTIN_MODELS, route_for_model};
-use nuo_wire::catalog::Transport;
 use nuo_wire::{
     ConnectionAuth, ConnectionFilterPolicy, Effort, NamedFilterPolicy, OpenAiResponsesDialect,
     ReasoningMode, WireProtocol,
@@ -34,7 +34,7 @@ static TEST_INIT: std::sync::Once = std::sync::Once::new();
 
 fn ensure_test_init() {
     TEST_INIT.call_once(|| {
-        crate::provider_registry::init();
+        nuo_server::provider_registry::init();
     });
 }
 
@@ -88,7 +88,7 @@ fn test_credential_store() -> std::sync::Arc<dyn CredentialStore> {
     ))
 }
 
-/// The host's provider declarations, as a value (ADR-0300 §1).
+/// The host's provider declarations, as a value (ADR-0081 §1).
 ///
 /// Leaked for the same reason `inputs_of` is: the call site stays an expression.
 fn declarations() -> &'static nuo_persistence::model_providers::ModelProviders {
@@ -531,14 +531,11 @@ fn declared_extra_models_union_after_the_derived_set() {
     }];
     // Snapshot floor (no cache): extras append after the preset ids.
     let models = route_models(&deepseek, &RemoteCatalogCache::default(), &declarations());
-    assert_eq!(
-        models.first().map(String::as_str),
-        Some("deepseek-v4-flash")
-    );
+    assert_eq!(models.first().map(String::as_str), Some("deepseek-flash"));
     assert!(models.contains(&"deepseek-v4-pro-preview-0912".to_string()));
 
     // A catalog sync that omits the hidden id can never evict it —
-    // the union happens after the sync, per connection (ADR-0198).
+    // the union happens after the sync, per connection (ADR-0068).
     let mut cache = RemoteCatalogCache::default();
     cache.connection_models.insert(
         "ds-personal".to_string(),
@@ -609,7 +606,7 @@ fn declared_extra_model_rides_the_preset_route_with_declared_capabilities() {
         other => panic!("expected Responses transport, got {other:?}"),
     }
     // Declared capability facts overlay the registry default for an
-    // unregistered id (ADR-0149: user declaration is the remote layer).
+    // unregistered id (ADR-0068: user declaration is the remote layer).
     let capabilities = channel.capabilities();
     assert_eq!(capabilities.context_window, 500_000);
     assert_eq!(capabilities.vision, Some(true));
@@ -1080,11 +1077,11 @@ fn model_level_protocol_cascade_resolution() {
         matches!(
             &channel.transport,
             Transport::Anthropic {
-                dialect: nuo_wire::catalog::AnthropicMessagesDialect::Standard,
+                dialect: nuo_model_codec::catalog::AnthropicMessagesDialect::Standard,
                 ..
             }
         ),
-        "ADR-0259: model-level protocol override is honored over provider default"
+        "ADR-0015: model-level protocol override is honored over provider default"
     );
 }
 
@@ -1099,7 +1096,7 @@ fn build_picker_state_reflects_instances() {
     instances.save().unwrap();
     let config = Config {
         default_connection: "deepseek".to_string(),
-        default_model: Some("deepseek-v4-flash".to_string()),
+        default_model: Some("deepseek-flash".to_string()),
         ..Default::default()
     };
     let snapshot = build_picker_state(
@@ -1114,16 +1111,15 @@ fn build_picker_state_reflects_instances() {
         .expect("deepseek row");
     assert_eq!(row.name, "deepseek");
     assert_eq!(row.provider, "deepseek");
-    assert!(row.models.contains(&"deepseek-v4-flash".to_string()));
+    assert!(row.models.contains(&"deepseek-flash".to_string()));
 }
 
 #[test]
 fn channel_model_info_effort_ladders_survive() {
     // A Gemini model advertises an effort ladder, so its picker row exposes an
     // effort defaulting to `high` (the ladder's top rung) when unset.
-    let gemini37 = nuo_wire::catalog::Channel {
+    let gemini37 = nuo_model_codec::catalog::Channel {
         id: "default".to_string(),
-        label: "gemini-3.7-flash".to_string(),
         transport: Transport::Google {
             base_url: "https://cloudcode-pa.googleapis.com".to_string(),
             client_profile: nuo_wire::ClientProfile::Antigravity,
@@ -1320,7 +1316,7 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
 
 #[tokio::test]
 async fn single_source_endpoint_failure_records_failure_and_preserves_determinism() {
-    // Under ADR-0203 INV-CATALOG-02 / INV-CATALOG-03: single-source determinism.
+    // Under ADR-0081 INV-CATALOG-02 / INV-CATALOG-03: single-source determinism.
     // When the configured endpoint returns 401, it reports failure without flapping
     // to an unrelated fallback source.
     let _sandbox = sandboxed_paths();
@@ -1987,7 +1983,7 @@ fn provider_dialect_selects_endpoint_after_remote_protocol_override() {
 #[test]
 fn catalog_advertised_root_replaces_the_compiled_spec_route() {
     // ADR-0079: a per-model `endpoint` root from the remote catalog overrides
-    // the spec's route, with the suffix still appended by the ADR-0259 algebra.
+    // the spec's route, with the suffix still appended by the ADR-0015 algebra.
     let _sandbox = sandboxed_paths();
     let conn = instance("root-override", Some("opencode-zen"));
     let mut cache = RemoteCatalogCache::default();
@@ -2043,7 +2039,7 @@ fn catalog_advertised_root_replaces_the_compiled_spec_route() {
     assert!(error.message().contains("catalog-advertised root"));
 }
 
-/// ADR-0273 end-to-end: a model the provider declared unavailable for this
+/// ADR-0068 end-to-end: a model the provider declared unavailable for this
 /// account stays *visible* in the picker (so the account can see what an
 /// upgrade would unlock, with the provider's own reason when it gave one) while
 /// the server refuses to build a route for it. A user injection overrides the
@@ -2125,7 +2121,7 @@ fn declared_unavailable_model_is_listed_but_refused_by_the_server() {
         super::build_provider_for_model(&config, "qoder", Some("qfmodel"), None).is_some(),
         "an available sibling must still route"
     );
-    // A user injection overrides the verdict (ADR-0203 `[INV-CATALOG-04]`):
+    // A user injection overrides the verdict ([INV-CATALOG-04]):
     // the route is built, and the override is disclosed rather than silent.
     let mut injected = qoder;
     // An explicit filter keeps the connection out of the legacy-policy
@@ -2160,5 +2156,124 @@ fn declared_unavailable_model_is_listed_but_refused_by_the_server() {
         overridden.availability,
         Some(nuo_wire::Availability::usable()),
         "the effective verdict is usable after the override"
+    );
+}
+
+#[test]
+fn relay_surfaces_default_to_curated_noise_hygiene() {
+    // ADR-0081 [INV-CATALOG-06]: a surface that publishes bare ids publishes a
+    // noisy catalog too, so its default admission gate is `Curated`. The
+    // predicate is the spec's declared display policy, never a hardcoded
+    // provider-id list.
+    let mut cache = RemoteCatalogCache::default();
+    cache.connection_models.insert(
+        "my-go".to_string(),
+        vec![
+            "deepseek-v4.1-flash".to_string(),
+            "glm-5.3".to_string(),
+            "beam-free".to_string(),
+            "hy4-preview".to_string(),
+            "gemini-4-argon-contributor".to_string(),
+            "omen-alpha".to_string(),
+        ],
+    );
+    let connection = instance("my-go", Some("opencode-plan"));
+
+    let models = route_models(&connection, &cache, &declarations());
+    assert!(models.contains(&"deepseek-v4.1-flash".to_string()));
+    assert!(models.contains(&"glm-5.3".to_string()));
+    assert!(
+        !models.contains(&"beam-free".to_string()),
+        "promotional tier pruned"
+    );
+    assert!(
+        !models.contains(&"hy4-preview".to_string()),
+        "preview snapshot pruned"
+    );
+    assert!(
+        !models.contains(&"gemini-4-argon-contributor".to_string()),
+        "contributor node pruned"
+    );
+    assert!(!models.contains(&"omen-alpha".to_string()), "alpha pruned");
+
+    // Sovereign injection bypasses the hygiene filter unconditionally.
+    let mut sovereign = connection.clone();
+    sovereign.models.include = vec![nuo_persistence::connections::DeclaredModel {
+        id: "beam-free".into(),
+        ..Default::default()
+    }];
+    assert!(
+        route_models(&sovereign, &cache, &declarations()).contains(&"beam-free".to_string()),
+        "an explicit include is never filtered"
+    );
+
+    // A curated native surface keeps its open admission: DeepSeek's own
+    // `/models` is trustworthy and its ids are not relay noise.
+    let mut native_cache = RemoteCatalogCache::default();
+    native_cache.connection_models.insert(
+        "my-deepseek".to_string(),
+        vec!["deepseek-v4.1-flash".to_string()],
+    );
+    let native = instance("my-deepseek", Some("deepseek"));
+    assert_eq!(
+        route_models(&native, &native_cache, &declarations()),
+        vec!["deepseek-v4.1-flash"]
+    );
+}
+
+#[test]
+fn relay_labels_and_seeds_survive_the_hygiene_valve() {
+    ensure_test_init();
+    // An ids-only relay advertises no metadata at all, so the structural label
+    // must be produced from the id itself (ADR-0081 [INV-CATALOG-05]) — gating
+    // the mapping on an existing remote record is how it silently never runs.
+    let mut cache = RemoteCatalogCache::default();
+    cache.connection_models.insert(
+        "my-go".to_string(),
+        vec!["deepseek-v4.1-flash".to_string(), "beam-free".to_string()],
+    );
+    let connection = instance("my-go", Some("opencode-plan"));
+    let inputs = inputs_with_cache(&cache);
+
+    let ch = derive_channel(&connection, "deepseek-v4.1-flash", &inputs).expect("channel");
+    assert_eq!(
+        ch.remote.as_ref().and_then(|r| r.name.as_deref()),
+        Some("DeepSeek V4.1 Flash"),
+        "a bare relay id is lifted into typography"
+    );
+    assert_eq!(
+        channel_model_info(&ch).name.as_deref(),
+        Some("DeepSeek V4.1 Flash"),
+        "the picker snapshot carries the mapped label"
+    );
+    assert_eq!(
+        ch.model, "deepseek-v4.1-flash",
+        "identity stays the wire id"
+    );
+
+    // A promotional id discovered from the relay is pruned from the listing.
+    let models = route_models(&connection, &cache, &declarations());
+    assert!(models.contains(&"deepseek-v4.1-flash".to_string()));
+    assert!(!models.contains(&"beam-free".to_string()));
+
+    // ...but an id the surface's own baseline curates is never filtered by that
+    // same valve: `opencode-plan` seeds `*-free` tiers deliberately.
+    let mut seeded_cache = RemoteCatalogCache::default();
+    seeded_cache.connection_models.insert(
+        "my-go".to_string(),
+        vec![
+            "deepseek-v4.1-flash".to_string(),
+            "deepseek-v4.1-flash-free".to_string(),
+            "glm-5.3-flash-free".to_string(),
+        ],
+    );
+    let seeded = route_models(&connection, &seeded_cache, &declarations());
+    assert!(
+        seeded.contains(&"deepseek-v4.1-flash-free".to_string()),
+        "a seeded free tier survives its own hygiene valve: {seeded:?}"
+    );
+    assert!(
+        seeded.contains(&"glm-5.3-flash-free".to_string()),
+        "compiled baseline and surface must agree: {seeded:?}"
     );
 }

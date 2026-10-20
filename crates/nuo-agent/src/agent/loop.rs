@@ -12,6 +12,18 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+/// Epoch milliseconds at a dispatch boundary.
+///
+/// Kept local to the loop: cost rating itself never reads a clock, so the only
+/// place the cognitive loop may look at one is the moment it stamps an attempt
+/// (ADR-0080).
+fn epoch_ms_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// The agent's think → act → observe cycle.
 ///
 /// Owned by [`Agent`](super::Agent) and deliberately private: the loop is not a
@@ -219,6 +231,11 @@ impl CognitiveLoop {
             };
 
             use futures::StreamExt;
+            // The attempt's rating anchor: the instant the request leaves for
+            // the provider, not the instant its response lands. A turn that
+            // straddles a rate-window boundary is billed as the window it was
+            // dispatched in (ADR-0080).
+            let request_started_epoch_ms = epoch_ms_now();
             let mut stream = self.provider.stream(request).await?;
             let mut content_acc = String::new();
             let mut thinking_acc = String::new();
@@ -381,7 +398,14 @@ impl CognitiveLoop {
                 let cost = self
                     .model_pricing
                     .as_ref()
-                    .map(|p| p.calculate_cost(&tool_usage))
+                    .map(|p| {
+                        p.calculate_cost(
+                            &tool_usage,
+                            nuo_wire::pricing::RatingInstant::from_epoch_ms(
+                                request_started_epoch_ms,
+                            ),
+                        )
+                    })
                     .map(|c| c.amount)
                     .unwrap_or(nuo_wire::pricing::NanoUsd::ZERO);
                 breaker.record_spend(cost);

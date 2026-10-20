@@ -92,4 +92,4 @@ The architectural defect is a missing domain concept: **(canonical model id, req
 ## Links
 
 - Amends: [ADR-0068](0068-canonical-model-catalog-normalization-and-semantic-lifting.md) (catalog folding: this ADR extends fold semantics with entity evidence carry)
-- Related: [ADR-0027](0027-provider-definition-single-source-and-adapters-retirement.md) (single-source provider definition), ADR-0065 (open effort ladders), Wire truth reference: `docs/reference/antigravity.yml` (StreamGenerateContentEnvelope.model)
+- Related: [ADR-0027](0027-provider-definition-single-source-and-adapters-retirement.md) (single-source provider definition), ADR-0065 (open effort ladders), Wire truth reference: `docs/reference/openapi/antigravity.yml` (StreamGenerateContentEnvelope.model)

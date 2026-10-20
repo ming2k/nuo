@@ -54,8 +54,17 @@ pub fn trajectory_signature(name: &str, args: &str) -> String {
             .map(normalize_path_locator)
             .unwrap_or_else(|| ".".to_string());
         let patterns = {
-            let s = normalized_string_array(&value, "patterns", false);
-            if s.is_empty() { "*".to_string() } else { s }
+            let single = value
+                .get("pattern")
+                .or_else(|| value.get("name"))
+                .or_else(|| value.get("glob"))
+                .and_then(Value::as_str);
+            if let Some(p) = single {
+                p.trim().to_string()
+            } else {
+                let s = normalized_string_array(&value, "patterns", false);
+                if s.is_empty() { "*".to_string() } else { s }
+            }
         };
         return format!(
             "{name}|{path}|include={patterns}|exclude={}",

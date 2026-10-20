@@ -258,16 +258,13 @@ impl GoogleProvider {
         // time the request dispatches. A prewarm failure is advisory — the
         // dispatch below reports the real error — so it is logged, not
         // propagated.
-        let prewarm = self
-            .client
-            .prewarm(self.endpoint.base_url(), "Google");
+        let prewarm = self.client.prewarm(self.endpoint.base_url(), "Google");
         let auth_fut = self.endpoint.resolve_auth();
         let (prewarm_outcome, auth_result) = tokio::join!(prewarm, auth_fut);
         if let Err(error) = prewarm_outcome {
             tracing::debug!(error = %error, "prewarm skipped");
         }
-        let auth = auth_result
-            .map_err(|e| ProviderError::authentication("Google", e))?;
+        let auth = auth_result.map_err(|e| ProviderError::authentication("Google", e))?;
         let (url, headers, body) =
             self.prepare_request_for_auth(request.clone(), is_stream, omit_thinking, &auth);
 
@@ -844,7 +841,7 @@ impl Provider for GoogleProvider {
 /// offline floor behaves identically to the live surface; its rows cite their
 /// provenance and it is *data*, not inference.
 ///
-/// Wire facts (live-verified; see `docs/reference/antigravity.yml`):
+/// Wire facts (live-verified; see `docs/reference/openapi/antigravity.yml`):
 /// - `gemini-3.8-flash*` family: registers the concrete per-level entities
 ///   `-tiered`/`-high`/`-medium`/`-low`; depth rides in-band (`thinkingLevel`).
 /// - `gemini-4-argon` family: registers only `-{low,medium,high}`; the bare

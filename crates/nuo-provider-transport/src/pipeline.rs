@@ -234,8 +234,7 @@ impl StreamTransformer for PassThroughStreamTransformer {
 /// Headers the pass-through wire stamps, resolved per-request from the
 /// bearer token (dialect-attributed headers; the token itself is stamped by
 /// the plan). A shaped pipeline ignores it.
-pub type PassThroughHeaders =
-    Option<Box<dyn Fn(&str) -> Vec<(String, String)> + Send + Sync>>;
+pub type PassThroughHeaders = Option<Box<dyn Fn(&str) -> Vec<(String, String)> + Send + Sync>>;
 
 /// Composable transport pipeline for request and stream transformations.
 pub struct TransportPipeline {

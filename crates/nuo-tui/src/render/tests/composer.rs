@@ -5,10 +5,9 @@ use super::*;
 #[test]
 fn test_wrap_text() {
     let lines = wrap_text("hello world", 5);
-    assert_eq!(lines.len(), 3);
+    assert_eq!(lines.len(), 2);
     assert_eq!(lines[0].text, "hello");
-    assert_eq!(lines[1].text, " worl");
-    assert_eq!(lines[2].text, "d");
+    assert_eq!(lines[1].text, "world");
 }
 
 #[test]
@@ -2320,8 +2319,8 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
     use crate::model::layout::LayoutMap;
     use crate::model::selection::SelectionState;
     use crate::render::{
-        calculate_composer_height, draw_transcript, QueueBarProps, ThreadHead, TranscriptProps,
-        ViewHints, ViewKind,
+        QueueBarProps, ThreadHead, TranscriptProps, ViewHints, ViewKind, calculate_composer_height,
+        draw_transcript,
     };
 
     let width = 80u16;

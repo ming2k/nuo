@@ -4,9 +4,9 @@
 
 use super::derive::derive_entries;
 use super::{Stores, effective_default_connection_id};
+use nuo_model_codec::catalog::{Channel, ProviderEntry, Transport};
 use nuo_persistence::config::Config;
 use nuo_persistence::connection_usage::ConnectionUsage;
-use nuo_wire::catalog::{Channel, ProviderEntry, Transport};
 use nuo_wire::{
     Effort, ProviderModelInfo, ProviderPickerRow, ProviderPickerSnapshot, ReasoningMode,
 };
@@ -98,7 +98,7 @@ pub fn build_picker_state(config: &Config, usage: &ConnectionUsage) -> ProviderP
                     // the row can never claim a model is runnable when the
                     // route would be refused, and a sovereign override is
                     // disclosed rather than silently erasing the upstream
-                    // declaration (ADR-0273 `[INV-AVAIL-05]`, `[INV-AVAIL-06]`).
+                    // declaration ([INV-CATALOG-04]).
                     if let Some(connection) = connection {
                         let remote = channels_to_show
                             .iter()
@@ -119,7 +119,7 @@ pub fn build_picker_state(config: &Config, usage: &ConnectionUsage) -> ProviderP
                     }
                     // A verdict whose refresh has since failed is presented as
                     // observed-but-unverified rather than freshly confirmed
-                    // (ADR-0273). Only declared verdicts can be stale.
+                    // (ADR-0068). Only declared verdicts can be stale.
                     info.availability_stale = info.availability.is_some()
                         && stores
                             .cache
@@ -259,10 +259,10 @@ pub(super) fn channel_protocol_and_base_url(channel: &Channel) -> (String, Strin
 }
 
 pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
-    // The route's effective capabilities: the full ADR-0149 resolution
+    // The route's effective capabilities: the full ADR-0068 resolution
     // (baseline ⊕ remote advertisement ⊕ user overrides). Surfaced so the
     // frontend can gate image affordances, context meters, and telemetry on
-    // exactly what this route will actually accept (ADR-0182) — never a
+    // exactly what this route will actually accept (ADR-0068) — never a
     // client-side re-resolution of the static registry, which cannot see the
     // fitted overlay or per-route overrides.
     let caps = channel.capabilities();
@@ -273,10 +273,14 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
     // Bottom-up and presentation-only: it comes straight from the remote
     // catalog, the client never invents or curates it, and an absent label
     // leaves the surfaces on the wire id.
-    let name = channel
+    // The provider-published label for this route, when it advertises one.
+    // Bottom-up and presentation-only: it comes straight from the remote
+    // catalog, the client never invents or curates it, and an absent label
+    // leaves the surfaces on the wire id.
+    let name: Option<String> = channel
         .remote
         .as_ref()
-        .and_then(|remote| remote.name.as_deref().map(nuo_model_codec::catalog::clean_model_display_name));
+        .and_then(|remote| remote.name.clone());
     let effort_levels: Vec<String> = caps
         .effort_levels
         .iter()
@@ -288,7 +292,7 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
         .filter_map(|lvl| lvl.as_known())
         .collect();
     // The provider's declared availability for this model, round-tripped from
-    // the remote catalog (ADR-0273). This is the *declaration*; the caller
+    // the remote catalog (ADR-0068). This is the *declaration*; the caller
     // applies the user's sovereign override via `derive::effective_availability`
     // and sets `availability_overridden`. `None` is undeclared, never disabled.
     let availability = channel
@@ -413,7 +417,6 @@ mod tests {
     fn openai_channel(model: &str, remote: Option<nuo_wire::RemoteModelMetadata>) -> Channel {
         Channel {
             id: "default".to_string(),
-            label: "default".to_string(),
             transport: Transport::OpenAi {
                 base_url: "https://example.test/v1/chat/completions".to_string(),
                 client_profile: nuo_wire::ClientProfile::Native,
@@ -450,7 +453,7 @@ mod tests {
     fn channel_model_info_leaves_vision_undeclared_without_evidence() {
         // No remote metadata and no baseline entry: no layer declares image
         // support, so the row carries `None` — *undeclared*, which a frontend
-        // must treat as "try it" rather than as text-only (ADR-0230). The old
+        // must treat as "try it" rather than as text-only (ADR-0068). The old
         // behavior coerced this to `false`, which silently stripped images for
         // every endpoint that does not advertise a capability field.
         let info = channel_model_info(&openai_channel("unknown-relay-model", None));
@@ -481,7 +484,7 @@ mod tests {
     fn channel_model_info_keeps_listing_intent_apart_from_availability() {
         // Codex's `visibility != "list"` is a *listing* declaration. An
         // API-supported model is usable whether or not it is advertised, so the
-        // two fields must move independently (ADR-0273).
+        // two fields must move independently (ADR-0068).
         let unlisted_but_usable = nuo_wire::RemoteModelMetadata {
             availability: Some(nuo_wire::Availability::usable()),
             advertised: Some(false),
@@ -494,7 +497,7 @@ mod tests {
 
     #[test]
     fn channel_model_info_user_override_beats_remote_vision() {
-        // ADR-0149 layer 1: the user's explicit `Some(false)` wins over the
+        // ADR-0068 layer 1: the user's explicit `Some(false)` wins over the
         // provider's advertised vision (e.g. a relay that strips images).
         let remote = nuo_wire::RemoteModelMetadata {
             vision: Some(true),
@@ -541,8 +544,8 @@ mod tests {
 
     #[test]
     fn channel_model_info_surfaces_route_context_window_from_remote_metadata() {
-        // ADR-0182: Discovered models (like glm-5.3 on opencode-go) carry their
-        // remote context_window via ADR-0149 resolution into the picker snapshot.
+        // ADR-0068: Discovered models (like glm-5.3 on opencode-go) carry their
+        // remote context_window via ADR-0068 resolution into the picker snapshot.
         let remote = nuo_wire::RemoteModelMetadata {
             context_window: Some(1_000_000),
             max_output_tokens: Some(131_072),
@@ -580,7 +583,7 @@ mod tests {
 
     #[test]
     fn channel_model_info_user_override_beats_remote_context_window() {
-        // ADR-0149 layer 1: user override takes precedence over remote metadata.
+        // ADR-0068 layer 1: user override takes precedence over remote metadata.
         let remote = nuo_wire::RemoteModelMetadata {
             context_window: Some(1_000_000),
             ..Default::default()
@@ -612,5 +615,56 @@ mod tests {
         assert!(!model_is_hidden("gemini-3.7-flash-tiered", &hidden));
         assert!(!model_is_hidden("gemini-pro-agent", &hidden));
         assert!(!model_is_hidden("claude-sonnet-4-6", &hidden));
+    }
+}
+
+#[cfg(test)]
+mod display_policy_tests {
+    use nuo_provider::DisplayPolicy;
+
+    fn ensure_init() {
+        static INIT: std::sync::Once = std::sync::Once::new();
+        INIT.call_once(|| nuo_server::provider_registry::init());
+    }
+
+    /// The mapping stage is a declared property of the surface, never a guess
+    /// from the id shape (ADR-0081 [INV-CATALOG-05]).
+    #[test]
+    fn native_policy_trusts_a_published_label_verbatim() {
+        ensure_init();
+        let spec = nuo_provider::model_provider_spec("anthropic").expect("spec");
+        assert_eq!(spec.display_policy, DisplayPolicy::Native);
+        assert_eq!(
+            spec.resolve_display_label(Some("Claude Opus 4.6 (Thinking)"), "claude-opus-4-6"),
+            Some("Claude Opus 4.6".to_string())
+        );
+        // No label advertised -> no label invented.
+        assert_eq!(spec.resolve_display_label(None, "claude-opus-4-6"), None);
+        // A label identical to the id collapses to none.
+        assert_eq!(
+            spec.resolve_display_label(Some("claude-opus-4-6"), "claude-opus-4-6"),
+            None
+        );
+    }
+
+    /// A relay publishes bare ids, so its labels are lifted structurally.
+    #[test]
+    fn structural_policy_lifts_bare_relay_ids_into_typography() {
+        ensure_init();
+        let spec = nuo_provider::model_provider_spec("opencode-plan").expect("spec");
+        assert_eq!(spec.display_policy, DisplayPolicy::Structural);
+        assert_eq!(
+            spec.resolve_display_label(None, "deepseek-v4.1-flash"),
+            Some("DeepSeek V4.1 Flash".to_string())
+        );
+        assert_eq!(
+            spec.resolve_display_label(None, "glm-5.3-flash"),
+            Some("GLM 5.3 Flash".to_string())
+        );
+        // A published hyphenated label is folded too.
+        assert_eq!(
+            spec.resolve_display_label(Some("DeepSeek-V4.1-Flash"), "deepseek-v4.1-flash"),
+            Some("DeepSeek V4.1 Flash".to_string())
+        );
     }
 }

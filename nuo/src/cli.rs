@@ -801,7 +801,9 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
             out.push_str("      --no-confinement   disable workspace filesystem confinement\n");
             out.push_str("      --project <PATH>   operate on the project at <PATH>\n");
             out.push_str("      --remote <ADDR>    connect to a remote server (e.g. wss://tunnel.domain.com, :9800)\n");
-            out.push_str("      --token <TOKEN>    authentication bearer token for remote server\n");
+            out.push_str(
+                "      --token <TOKEN>    authentication bearer token for remote server\n",
+            );
             out.push_str("  -h, --help             print help ('nuo help <command>' for more)\n");
             out.push_str("  -V, --version          print the version and exit\n");
             out.push_str("\nEnvironment:\n");

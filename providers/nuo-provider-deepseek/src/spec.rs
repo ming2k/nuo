@@ -1,44 +1,77 @@
-//! The built-in `deepseek` provider preset: DeepSeek V4 Flash, Pro, and the
-//! experimental Flash Vision model over
+//! The built-in `deepseek` provider preset: DeepSeek V4.1 Flash and V4 Pro over
 //! the official Responses API, one key (`DEEPSEEK_API_KEY`).
 //!
-//! DeepSeek V4 (Flash + Pro) is served as one multi-model `deepseek` provider
-//! built in the catalog layer (both models share one `DEEPSEEK_API_KEY`), not
-//! as two single-model registry presets — so it has no entry in
-//! the provider-scoped catalog.
+//! # Model ids
 //!
-//! Both V4 models natively speak the OpenAI **Responses API**
-//! (`https://api.deepseek.com/v1/responses`), so this preset's channels use
-//! the Responses transport. Chat-completions remains available upstream, but
-//! is no longer what the preset seeds.
+//! The official platform serves exactly two wire ids (ADR-0083):
+//!
+//! - `deepseek-flash` — DeepSeek-V4.1-Flash-1017, 1M context, native multimodal
+//!   vision. This is the id the vendor tells every caller to use.
+//! - `deepseek-v4-pro` — DeepSeek-V4-Pro-0813, 1M context, text only.
+//!
+//! The V4 Flash generation is retired: `deepseek-v4-flash` and
+//! `deepseek-v4-flash-vision-exp` are still *accepted* as legacy aliases, but
+//! their requests are served by DeepSeek-V4.1-Flash-1017 at the Flash price.
+//! They stay registered as baselines (never seeded) so a config written by an
+//! older Nuo keeps resolving its capabilities instead of falling back to the
+//! conservative default.
+//!
+//! `deepseek-v4.1-flash` is **not** a model id on this platform — it is a
+//! Novita/OpenRouter *relay* id (ADR-0014) that Nuo previously mistook for the
+//! official one; the provider stopped registering it in ADR-0083.
+//!
+//! # Wire
+//!
+//! All models natively speak the OpenAI **Responses API**
+//! (`https://api.deepseek.com/v1/responses`), so this preset's channels use the
+//! Responses transport. The surface is stateless — responses are not stored and
+//! `previous_response_id` does not exist — so continuation rides Nuo's own
+//! opaque output-artifact replay. Chat Completions remains available upstream
+//! but is no longer what the preset seeds.
+//!
+//! # Reasoning depth
+//!
+//! Thinking is **on by default** at effort `high`. Depth is driven on the wire
+//! by `reasoning.effort` (Responses) / `reasoning_effort` (Chat Completions),
+//! and `none` is the off switch. The official backend accepts the entire closed
+//! [`nuo_provider::effort_ladders::DEEPSEEK_NATIVE`] vocabulary and maps the
+//! tiers it does not distinguish itself, so the ladder is declared in full.
+//!
+//! See `docs/reference/openapi/deepseek.yml` for the full OpenAPI 3.1
+//! specification.
 
 use nuo_model_codec::reasoning::ReasoningSupport;
 use nuo_model_codec::{Model, WireProtocol};
 
 use nuo_provider::*;
 
-/// The model ids the built-in `deepseek` provider serves (V4 Flash, Pro, and
-/// Flash Vision over the Responses API, one key). Each id exists in the model
-/// registry and floats with the upstream latest.
+/// The model ids the built-in `deepseek` provider seeds. Each id exists in the
+/// model registry and floats with the upstream latest.
 pub use nuo_model_codec::model_providers::DEEPSEEK_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_model_codec`'s registry at link time (see
 /// [`nuo_model_codec::model::BaselineModels`]).
+///
+/// The seeded ids come first; the retired V4 Flash aliases follow so an older
+/// config keeps its capabilities without being offered to new users.
 pub const MODELS: &[Model] = &[
-    // DeepSeek (opencode-go / direct)
+    // DeepSeek V4.1 Flash — DeepSeek-V4.1-Flash-1017, the current Flash line
+    // with multimodal vision integrated (ADR-0080).
     Model {
-        id: "deepseek-v4-flash",
+        id: "deepseek-flash",
         family: "deepseek",
         context_window: 1_000_000,
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
-        vision: false,
+        vision: true,
         protocol: WireProtocol::Responses,
         model_guidance: "",
-        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
     },
+    // DeepSeek V4 Pro — DeepSeek-V4-Pro-0813, the pure-text reasoning
+    // flagship. Vision is not supported on this model.
     Model {
         id: "deepseek-v4-pro",
         family: "deepseek",
@@ -48,9 +81,25 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::Responses,
         model_guidance: "",
-        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
     },
+    // Retired V4 Flash generation. The name is still accepted upstream and is
+    // served by DeepSeek-V4.1-Flash-1017, so the capability row is V4.1
+    // Flash's (1M, vision); registered for existing configs only.
+    Model {
+        id: "deepseek-v4-flash",
+        family: "deepseek",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        protocol: WireProtocol::Responses,
+        model_guidance: "",
+        effort_levels: effort_ladders::DEEPSEEK_NATIVE,
+        wire_entities: None,
+    },
+    // The retired experimental vision name, likewise served by V4.1 Flash.
     Model {
         id: "deepseek-v4-flash-vision-exp",
         family: "deepseek",
@@ -60,7 +109,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::Responses,
         model_guidance: "",
-        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
     },
 ];
@@ -98,19 +147,81 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: Some(nuo_provider::QuotaPort::DeepSeekBalance),
+    display_policy: nuo_provider::DisplayPolicy::Native,
 };
 
 #[cfg(test)]
 mod tests {
     use super::{DEEPSEEK_BUILTIN_MODELS, MODELS};
+    use nuo_provider::effort_ladders;
+
+    fn model(id: &str) -> &'static nuo_model_codec::Model {
+        MODELS
+            .iter()
+            .find(|model| model.id == id)
+            .unwrap_or_else(|| panic!("{id} must be a registered baseline"))
+    }
 
     #[test]
-    fn vision_model_is_seeded_with_image_input_support() {
-        let id = "deepseek-v4-flash-vision-exp";
-        assert!(DEEPSEEK_BUILTIN_MODELS.contains(&id));
-        let model = MODELS.iter().find(|model| model.id == id).unwrap();
-        assert!(model.vision);
+    fn seeds_the_two_official_ids_only() {
+        assert_eq!(
+            DEEPSEEK_BUILTIN_MODELS,
+            &["deepseek-flash", "deepseek-v4-pro"],
+            "the platform serves exactly these two wire ids (ADR-0083)"
+        );
+        assert!(MODELS.iter().any(|model| model.id == "deepseek-flash"));
+        assert!(MODELS.iter().any(|model| model.id == "deepseek-v4-pro"));
+    }
+
+    #[test]
+    fn relay_id_is_not_registered_as_an_official_model() {
+        // `deepseek-v4.1-flash` is a Novita/OpenRouter relay id, never an
+        // `api.deepseek.com` model id (ADR-0083).
+        assert!(!MODELS.iter().any(|model| model.id == "deepseek-v4.1-flash"));
+        assert!(!DEEPSEEK_BUILTIN_MODELS.contains(&"deepseek-v4.1-flash"));
+    }
+
+    #[test]
+    fn canonical_flash_is_seeded_with_multimodal_vision() {
+        let model = model("deepseek-flash");
+        assert!(model.vision, "V4.1 Flash accepts image input");
         assert!(model.tool_call);
         assert_eq!(model.context_window, 1_000_000);
+        assert_eq!(model.protocol, nuo_model_codec::WireProtocol::Responses);
+    }
+
+    #[test]
+    fn retired_aliases_keep_the_capabilities_of_the_model_that_serves_them() {
+        // Both retired names are served by DeepSeek-V4.1-Flash-1017, so they
+        // inherit its 1M window and vision — the earlier text-only metadata
+        // predates the retirement.
+        for id in ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"] {
+            let model = model(id);
+            assert!(model.vision, "{id} is served by the multimodal Flash model");
+            assert_eq!(model.context_window, 1_000_000);
+            assert!(!DEEPSEEK_BUILTIN_MODELS.contains(&id), "{id} is not seeded");
+        }
+    }
+
+    #[test]
+    fn pro_model_has_no_vision() {
+        assert!(!model("deepseek-v4-pro").vision);
+    }
+
+    #[test]
+    fn reasoning_depth_declares_the_whole_upstream_vocabulary() {
+        for model in MODELS {
+            assert_eq!(
+                model.effort_levels,
+                effort_ladders::DEEPSEEK_NATIVE,
+                "{} must declare every rung the platform accepts, including `none`",
+                model.id
+            );
+        }
+        assert_eq!(
+            effort_ladders::DEEPSEEK_NATIVE.first(),
+            Some(&nuo_model_codec::Effort::None),
+            "`none` is the thinking off switch and must survive the clamp"
+        );
     }
 }

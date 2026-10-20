@@ -441,11 +441,18 @@ impl Agent {
                 if let nuo_wire::ConnectionBudget::Local { limit, period, .. } = &conn.budget {
                     let current_spend = match period {
                         nuo_wire::BudgetPeriod::Session => {
-                            if let Some(pricing) = nuo_provider::resolve_model_pricing(
+                            if round.state.spend > nuo_wire::pricing::NanoUsd::ZERO {
+                                round.state.spend
+                            } else if let Some(pricing) = nuo_provider::resolve_model_pricing(
                                 &conn.provider,
                                 &self.provider.model(),
                             ) {
-                                pricing.calculate_cost(&round.state.token_usage).amount
+                                pricing
+                                    .calculate_cost(
+                                        &round.state.token_usage,
+                                        nuo_wire::pricing::RatingInstant::UNKNOWN,
+                                    )
+                                    .amount
                             } else {
                                 nuo_wire::pricing::NanoUsd::ZERO
                             }
@@ -707,14 +714,14 @@ impl Agent {
                         match event {
                             ProviderStreamEvent::ModelCatalogEtag(etag) => {
                                 let connection_id = self.provider.provider_id();
-                                let outcome = crate::catalog::refresh_connection_models_for_etag(
+                                let outcome = nuo_catalog::refresh_connection_models_for_etag(
                                     &connection_id,
                                     &etag,
                                 )
                                 .await;
                                 if outcome.changed {
-                                    crate::catalog::sync_fitted_model_registry();
-                                    crate::catalog::prune_stale_models_on_disk();
+                                    nuo_catalog::sync_fitted_model_registry();
+                                    nuo_catalog::prune_stale_models_on_disk();
                                     on_event(AgentEvent::CatalogInvalidated);
                                 }
                                 for failure in outcome.failures {
@@ -1135,7 +1142,13 @@ impl Agent {
                 let conn_id = self.provider.provider_id();
                 let model_id = self.provider.model();
                 if let Some(pricing) = nuo_provider::resolve_model_pricing(&conn_id, &model_id) {
-                    let cost = pricing.calculate_cost(&usage);
+                    let cost = pricing.calculate_cost(
+                        &usage,
+                        nuo_provider::RatingInstant::from_epoch_ms(
+                            request_accounting.started_at_epoch_ms(),
+                        ),
+                    );
+                    round.state.spend += cost.amount;
                     let mut conn_usage = nuo_persistence::connection_usage::ConnectionUsage::load();
                     conn_usage.record_spend(&conn_id, &model_id, cost.amount.0);
                     let _ = conn_usage.save();

@@ -18,7 +18,13 @@ use nuo_model_codec::find_balanced_object;
 /// tool identifier is used, so any text around the JSON is ignored. Both the
 /// `"tool"` key and the OpenAI/MCP `"name"` key are accepted as the tool
 /// identifier.
+///
+/// Past executed tool facts (`[Executed tool ...]` or `[Aborted tool ...]`)
+/// represent historical context rather than live invocation intent and are
+/// strictly ignored.
 pub(crate) fn parse_text_tool_call(text: &str) -> Option<ToolCall> {
+    let sanitized = strip_executed_tool_facts(text);
+    let text = &sanitized;
     let mut start = 0;
     while let Some(offset) = text[start..].find('{') {
         let brace_at = start + offset;
@@ -55,19 +61,54 @@ pub(crate) fn parse_text_tool_call(text: &str) -> Option<ToolCall> {
     parse_called_tool_fallback(text)
 }
 
-/// Parse fallback text formatted as `[Called tool <name> with arguments: <json>]`,
-/// `[Executed tool "<name>" with arguments: <json>]`, or `[Called tool `name` with arguments: <json>]`.
-fn parse_called_tool_fallback(text: &str) -> Option<ToolCall> {
-    let prefixes = ["[Called tool ", "[Executed tool "];
-    let mut found = None;
-    for prefix in prefixes {
-        if let Some(idx) = text.find(prefix) {
-            found = Some((idx, prefix.len()));
+/// Strip historical execution facts (`[Executed tool ...]` and `[Aborted tool ...]`)
+/// from assistant prose so that past transcript facts are never misinterpreted
+/// as live tool invocations.
+fn strip_executed_tool_facts(text: &str) -> String {
+    let markers = ["[Executed tool ", "[Aborted tool "];
+    if !markers.iter().any(|m| text.contains(m)) {
+        return text.to_string();
+    }
+    let mut result = text.to_string();
+    for marker in markers {
+        while let Some(start) = result.find(marker) {
+            let after_marker = &result[start + marker.len()..];
+            let args_marker = "with arguments:";
+            if let Some(args_rel) = after_marker.find(args_marker) {
+                let after_args = &after_marker[args_rel + args_marker.len()..];
+                let after_args_trimmed = after_args.trim_start();
+                let leading = after_args.len() - after_args_trimmed.len();
+                if let Some(brace_rel) = after_args_trimmed.find('{') {
+                    let brace_pos =
+                        start + marker.len() + args_rel + args_marker.len() + leading + brace_rel;
+                    if let Some(end_brace) = find_balanced_object(&result, brace_pos) {
+                        let after_brace = &result[end_brace + 1..];
+                        let trimmed_after = after_brace.trim_start();
+                        if trimmed_after.starts_with(']') {
+                            let offset = after_brace.len() - trimmed_after.len();
+                            let end = end_brace + 1 + offset;
+                            result.replace_range(start..=end, " ");
+                            continue;
+                        }
+                    }
+                }
+            } else if let Some(end_bracket) = after_marker.find(']') {
+                let end = start + marker.len() + end_bracket;
+                result.replace_range(start..=end, " ");
+                continue;
+            }
             break;
         }
     }
-    let (idx, prefix_len) = found?;
-    let rest = &text[idx + prefix_len..];
+    result
+}
+
+/// Parse fallback text formatted as `[Called tool <name> with arguments: <json>]`,
+/// `[Called tool "<name>" with arguments: <json>]`, or `[Called tool `name` with arguments: <json>]`.
+fn parse_called_tool_fallback(text: &str) -> Option<ToolCall> {
+    let prefix = "[Called tool ";
+    let idx = text.find(prefix)?;
+    let rest = &text[idx + prefix.len()..];
     let rest = rest.trim_start();
     let (tool_name, rest) = if let Some(stripped) = rest.strip_prefix('`') {
         let end_backtick = stripped.find('`')?;
@@ -261,17 +302,31 @@ mod tests {
         assert_eq!(call2.name, "todo");
         assert_eq!(call2.arguments, r#"{"items": []}"#);
 
-        let text3 = r#"[Executed tool "read_text" with arguments: {"limit": 120, "path": "docs/adr/0046.md"}]"#;
+        let text3 = r#"[Called tool "read_text" with arguments: {"limit": 120, "path": "docs/adr/0046.md"}]"#;
         let call3 =
-            parse_text_tool_call(text3).expect("should parse executed tool with double quotes");
+            parse_text_tool_call(text3).expect("should parse called tool with double quotes");
         assert_eq!(call3.name, "read_text");
         assert_eq!(
             call3.arguments,
             r#"{"limit": 120, "path": "docs/adr/0046.md"}"#
         );
 
+        // Past executed tool facts must NEVER be dispatched as live executable tool calls (clean break from legacy conflation)
+        let text4 = r#"[Executed tool "read_text" with arguments: {"limit": 120, "path": "docs/adr/0046.md"}]"#;
+        assert!(
+            parse_text_tool_call(text4).is_none(),
+            "past executed tool facts must never be dispatched as executable tool calls"
+        );
+
+        // Even with arguments containing an internal 'name' or 'tool' key, executed facts must be ignored
+        let text5 = r#"[Executed tool "write_file" with arguments: {"name": "shadow", "path": "test.txt"}]"#;
+        assert!(
+            parse_text_tool_call(text5).is_none(),
+            "executed tool fact arguments must not leak internal keys as live tool calls"
+        );
+
         // Incomplete / truncated arguments must NOT parse as a fallback tool call
-        let text4 = r#"[Executed tool "read_text" with arguments: {"limit":120,"offset":1,"path": "docs/adr/018"#;
-        assert!(parse_text_tool_call(text4).is_none());
+        let text6 = r#"[Executed tool "read_text" with arguments: {"limit":120,"offset":1,"path": "docs/adr/018"#;
+        assert!(parse_text_tool_call(text6).is_none());
     }
 }

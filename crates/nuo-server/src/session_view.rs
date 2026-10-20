@@ -4,7 +4,6 @@
 //! Extracted verbatim from `main.rs` to keep the binary entry-point focused on
 //! wiring rather than presentation shaping.
 
-use crate::catalog;
 use nuo_harness::Agent;
 use nuo_harness::skills::SkillRegistry;
 use nuo_persistence::{config::Config, session::SessionStore};
@@ -24,7 +23,7 @@ pub fn short_session_id(id: &str) -> &str {
 /// Derived from the provider catalog so the readiness signal and the actual
 /// provider construction share one resolution path.
 pub fn provider_key_status(_config: &Config) -> Vec<(String, bool)> {
-    catalog::build_catalog()
+    nuo_catalog::build_catalog()
         .iter()
         .map(|entry| (entry.id.clone(), entry.key_ready()))
         .collect()
@@ -45,12 +44,12 @@ pub fn build_session_context(
     mcp_statuses: &[(String, McpConnectionStatus)],
     config: &Config,
 ) -> SessionContextSnapshot {
-    let provider_id = catalog::default_provider_id(config).to_string();
-    let model = catalog::resolved_model_name(config, &provider_id).unwrap_or_default();
+    let provider_id = nuo_catalog::default_provider_id(config).to_string();
+    let model = nuo_catalog::resolved_model_name(config, &provider_id).unwrap_or_default();
 
     // Catalog entry carries the authoritative display metadata; fall back to
     // the raw model id / empty when the provider isn't a known catalog entry.
-    let entry = catalog::build_catalog()
+    let entry = nuo_catalog::build_catalog()
         .into_iter()
         .find(|e| e.id == provider_id);
     let display_name = entry

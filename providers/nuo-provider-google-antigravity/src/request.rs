@@ -168,7 +168,12 @@ fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
         } else {
             "user"
         };
-        let new_parts = message_parts(message, &mut call_names, &mut signed_calls, &mut pending_turn);
+        let new_parts = message_parts(
+            message,
+            &mut call_names,
+            &mut signed_calls,
+            &mut pending_turn,
+        );
 
         // Coalesce consecutive same-role turns into one `contents` entry:
         // Google rejects two adjacent `user` objects, so a tool-result-then-user
@@ -325,7 +330,8 @@ fn has_thought_signature_material(message: &Message) -> bool {
     let Some(meta) = message.provider_meta.as_ref() else {
         return false;
     };
-    (meta.get(THOUGHT_SIGNATURES_META_KEY)
+    (meta
+        .get(THOUGHT_SIGNATURES_META_KEY)
         .and_then(Value::as_object)
         .is_some_and(|signatures| !signatures.is_empty()))
         || meta
@@ -363,7 +369,9 @@ fn message_parts(
     match message.role {
         Role::Assistant => {
             let parts = assistant_parts(message, call_names, signed_calls);
-            *pending_turn = Some(TurnIdentity { signed: signed_calls.clone() });
+            *pending_turn = Some(TurnIdentity {
+                signed: signed_calls.clone(),
+            });
             parts
         }
         Role::Tool => tool_result_parts(message, call_names, pending_turn),
@@ -454,26 +462,45 @@ fn assistant_parts(
 }
 
 fn sanitize_assistant_content(text: &str) -> String {
-    let trimmed = text.trim();
-    for marker in &["[Called tool ", "[Executed tool ", "[Aborted tool "] {
-        if trimmed.starts_with(marker) && trimmed.ends_with(']') {
-            return String::new();
-        }
+    let marker = "[Called tool ";
+    if !text.contains(marker) {
+        return text.to_string();
     }
+
     let mut result = text.to_string();
-    for marker in &["[Called tool ", "[Executed tool ", "[Aborted tool "] {
-        while let Some(start) = result.find(marker) {
-            if let Some(end) = result[start..].find(']') {
-                let candidate = &result[start..=start + end];
-                if candidate.contains("with arguments:")
-                    || candidate.contains("incomplete arguments")
+    while let Some(start) = result.find(marker) {
+        let after_marker = &result[start + marker.len()..];
+        let args_marker = "with arguments:";
+        if let Some(args_rel_idx) = after_marker.find(args_marker) {
+            let after_args = &after_marker[args_rel_idx + args_marker.len()..];
+            let after_args_trimmed = after_args.trim_start();
+            let leading_spaces = after_args.len() - after_args_trimmed.len();
+            if let Some(brace_rel) = after_args_trimmed.find('{') {
+                let brace_in_result = start
+                    + marker.len()
+                    + args_rel_idx
+                    + args_marker.len()
+                    + leading_spaces
+                    + brace_rel;
+                if let Some(end_brace) =
+                    nuo_model_codec::find_balanced_object(&result, brace_in_result)
                 {
-                    result.replace_range(start..=start + end, "");
-                    continue;
+                    let after_brace = &result[end_brace + 1..];
+                    let trimmed_after = after_brace.trim_start();
+                    if trimmed_after.starts_with(']') {
+                        let offset = after_brace.len() - trimmed_after.len();
+                        let end = end_brace + 1 + offset;
+                        result.replace_range(start..=end, "");
+                        continue;
+                    }
                 }
             }
-            break;
+        } else if let Some(end_bracket) = after_marker.find(']') {
+            let end = start + marker.len() + end_bracket;
+            result.replace_range(start..=end, "");
+            continue;
         }
+        break;
     }
     result.trim().to_string()
 }
@@ -516,12 +543,10 @@ fn tool_result_parts(
     // Signature match is scoped to the turn that produced this call: the turn
     // snapshot (taken before the assistant turn merged its own signatures in)
     // plus the per-call entries it just added.
-    let is_signed = pending_turn
-        .as_ref()
-        .is_some_and(|turn| {
-            (!id.is_empty() && turn.signed.contains(&id))
-                || (!name.is_empty() && turn.signed.contains(&name))
-        });
+    let is_signed = pending_turn.as_ref().is_some_and(|turn| {
+        (!id.is_empty() && turn.signed.contains(&id))
+            || (!name.is_empty() && turn.signed.contains(&name))
+    });
 
     if is_signed {
         let mut function_response = json!({
@@ -1241,7 +1266,11 @@ mod tests {
         // …and its result must NOT surface as a bare functionResponse. It
         // degrades to a text fact coalesced into the following user turn.
         let tail = body["contents"][4]["parts"].as_array().unwrap();
-        assert_eq!(tail.len(), 2, "degraded result text + follow-up user turn coalesce");
+        assert_eq!(
+            tail.len(),
+            2,
+            "degraded result text + follow-up user turn coalesce"
+        );
         assert_eq!(
             tail[0]["text"],
             "[Tool result for call \"toolu_vrtx_01LostSignature\"]:\nfile list"
@@ -1484,6 +1513,46 @@ mod tests {
         let model_turn = &body["contents"][1];
         let model_parts = model_turn["parts"].as_array().unwrap();
         assert_eq!(model_parts[0]["text"], "");
+    }
+
+    #[test]
+    fn sanitizes_legacy_mimicked_tool_call_with_inner_brackets() {
+        let body = body(
+            vec![
+                Message::new(Role::User, "save draft"),
+                Message::new(
+                    Role::Assistant,
+                    "[Called tool write_file with arguments: {\"content\": \"# Doc\\n[ADR-0080]: link\\n[item1, item2]\"}]",
+                ),
+                Message::new(Role::User, "continue"),
+            ],
+            test_body_input(None, false, None),
+        );
+
+        let model_turn = &body["contents"][1];
+        let model_parts = model_turn["parts"].as_array().unwrap();
+        // Inner brackets in the arguments object must never cause premature truncation
+        assert_eq!(model_parts[0]["text"], "");
+    }
+
+    #[test]
+    fn preserves_lowered_executed_tool_facts_with_markdown_links_and_brackets() {
+        let prose = r#"I have recorded the architecture decision:
+
+[Executed tool "write_file" with arguments: {"content":"--- id: ADR-0080 title: \"Time-Varying Rate Cards\"\nscope: provider/nuo-provider\n---\n# 0080\nSee [ADR-0065] for details."}]"#;
+        let body = body(
+            vec![
+                Message::new(Role::User, "write adr"),
+                Message::new(Role::Assistant, prose),
+                Message::new(Role::User, "next step"),
+            ],
+            test_body_input(None, false, None),
+        );
+
+        let model_turn = &body["contents"][1];
+        let model_parts = model_turn["parts"].as_array().unwrap();
+        // The lowered historical fact must remain completely intact without being wiped or truncated by [ADR-0065]
+        assert_eq!(model_parts[0]["text"], prose);
     }
 
     #[test]

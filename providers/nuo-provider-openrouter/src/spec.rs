@@ -43,6 +43,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     default_client_profile: nuo_model_codec::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: Some(nuo_provider::QuotaPort::OpenRouterKey),
+    display_policy: nuo_provider::DisplayPolicy::Native,
 };
 
 #[cfg(test)]

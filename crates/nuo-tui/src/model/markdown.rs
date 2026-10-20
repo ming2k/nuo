@@ -634,16 +634,22 @@ pub fn scan_inline(content: &str) -> InlineScan {
             }
         }
 
-        // Bold: `**…**`.
-        if bytes[i] == b'*'
-            && i + 1 < bytes.len()
-            && bytes[i + 1] == b'*'
-            && let Some(rel) = content[i + 2..].find("**")
-        {
-            let end = i + 2 + rel + 2;
-            out.bold_ranges.push((i, end));
-            i = end;
-            continue;
+        // Bold: `**…**` or Bold+Italic: `***…***`.
+        if bytes[i] == b'*' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            if i + 2 < bytes.len() && bytes[i + 2] == b'*' {
+                if let Some(rel) = content[i + 3..].find("***") {
+                    let end = i + 3 + rel + 3;
+                    out.bold_ranges.push((i, end));
+                    i = end;
+                    continue;
+                }
+            }
+            if let Some(rel) = content[i + 2..].find("**") {
+                let end = i + 2 + rel + 2;
+                out.bold_ranges.push((i, end));
+                i = end;
+                continue;
+            }
         }
         i += 1;
     }

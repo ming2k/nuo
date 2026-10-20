@@ -165,13 +165,16 @@ pub(crate) fn bold_local_regions(
         if lo >= hi {
             continue;
         }
-        let left_delim = bytes.get(lo) == Some(&b'*') && bytes.get(lo + 1) == Some(&b'*');
-        let right_delim = hi > 1
-            && bytes.get(hi - 1) == Some(&b'*')
-            && bytes.get(hi - 2) == Some(&b'*')
-            && hi - 2 > lo;
-        let content_lo = if left_delim { lo + 2 } else { lo };
-        let content_hi = if right_delim { hi - 2 } else { hi };
+        let left_stars = bytes[lo..hi].iter().take_while(|&&b| b == b'*').count();
+        let right_stars = bytes[lo..hi]
+            .iter()
+            .rev()
+            .take_while(|&&b| b == b'*')
+            .count();
+        let left_delim = left_stars >= 2;
+        let right_delim = right_stars >= 2 && hi - right_stars > lo;
+        let content_lo = if left_delim { lo + left_stars } else { lo };
+        let content_hi = if right_delim { hi - right_stars } else { hi };
         out.push((lo, content_lo, content_hi, hi));
     }
     out
@@ -814,13 +817,68 @@ pub(crate) fn wrap_text_markup(
     wrap_impl(text, max_width, hidden_ranges)
 }
 
+fn is_cjk_breakable(ch: char) -> bool {
+    matches!(ch,
+        '\u{2E80}'..='\u{2FD5}'
+        | '\u{3000}'..='\u{303F}'
+        | '\u{3040}'..='\u{309F}'
+        | '\u{30A0}'..='\u{30FF}'
+        | '\u{3400}'..='\u{4DBF}'
+        | '\u{4E00}'..='\u{9FFF}'
+        | '\u{AC00}'..='\u{D7AF}'
+        | '\u{F900}'..='\u{FAFF}'
+        | '\u{FF00}'..='\u{FFEF}'
+        | '\u{20000}'..='\u{2FA1F}'
+    )
+}
+
+fn substring_visible_width(
+    text: &str,
+    start_byte: usize,
+    end_byte: usize,
+    hidden_ranges: &[(usize, usize)],
+) -> usize {
+    if start_byte >= end_byte || start_byte >= text.len() {
+        return 0;
+    }
+    let end_byte = end_byte.min(text.len());
+    let slice = &text[start_byte..end_byte];
+    let mut w = 0;
+    for (rel, g) in slice.grapheme_indices(true) {
+        let abs = start_byte + rel;
+        let is_hidden = !hidden_ranges.is_empty()
+            && hidden_ranges.iter().any(|&(lo, hi)| abs >= lo && abs < hi);
+        if !is_hidden && g != "\n" {
+            w += nuotc::text::grapheme_width(g) as usize;
+        }
+    }
+    w
+}
+
 fn wrap_impl(text: &str, max_width: usize, hidden_ranges: &[(usize, usize)]) -> Vec<WrappedLine> {
+    let max_width = max_width.max(1);
     let mut lines = Vec::new();
     let mut current_line = String::new();
     let mut current_width = 0;
     let mut line_start_byte = 0;
+    let mut last_breakpoint: Option<usize> = None;
+    let mut prev_char: Option<char> = None;
 
     for (byte_idx, grapheme) in text.grapheme_indices(true) {
+        let curr_first = grapheme.chars().next();
+        let curr_last = grapheme.chars().last();
+
+        // Check if the boundary between prev_char and this grapheme is a valid break opportunity.
+        if let (Some(prev), Some(first)) = (prev_char, curr_first) {
+            if prev.is_whitespace()
+                || ((is_cjk_breakable(prev) || is_cjk_breakable(first))
+                    && !prohibited_line_end(prev)
+                    && !prohibited_line_start(first))
+            {
+                last_breakpoint = Some(byte_idx);
+            }
+        }
+
         // Markup delimiter bytes are rendered zero-width, so they neither count
         // against the column budget nor trigger a wrap.
         let is_hidden = !hidden_ranges.is_empty()
@@ -842,26 +900,22 @@ fn wrap_impl(text: &str, max_width: usize, hidden_ranges: &[(usize, usize)]) -> 
             });
             line_start_byte = byte_idx + grapheme.len();
             current_width = 0;
+            last_breakpoint = None;
+            prev_char = None;
             continue;
         }
 
-        // Keep closing CJK punctuation with the preceding character. If it
-        // would start the next line, move the preceding character with it.
         if current_width + g_width > max_width && !current_line.is_empty() {
-            let (Some(first_char), Some(last_char)) =
-                (grapheme.chars().next(), current_line.chars().last())
-            else {
-                continue;
+            let last_char = current_line.chars().last();
+            let move_previous = match (curr_first, last_char) {
+                (Some(f), Some(l)) => prohibited_line_start(f) || prohibited_line_end(l),
+                _ => false,
             };
-
-            let move_previous = prohibited_line_start(first_char) || prohibited_line_end(last_char);
 
             let mut moved_grapheme = None;
             if move_previous
                 && let Some((offset, last_g)) = current_line.grapheme_indices(true).next_back()
             {
-                // Only pop when we know a character will move down with the wrap
-                // leaving at least one on the current line.
                 if offset > 0 {
                     moved_grapheme = Some(last_g.to_string());
                     current_line.truncate(offset);
@@ -876,17 +930,22 @@ fn wrap_impl(text: &str, max_width: usize, hidden_ranges: &[(usize, usize)]) -> 
                     end_byte: moved_start,
                 });
                 current_line.push_str(&moved);
-                let moved_is_hidden = !hidden_ranges.is_empty()
-                    && hidden_ranges
-                        .iter()
-                        .any(|&(lo, hi)| moved_start >= lo && moved_start < hi);
-                current_width = if moved_is_hidden {
-                    0
-                } else {
-                    nuotc::text::grapheme_width(&moved) as usize
-                };
+                current_width = substring_visible_width(text, moved_start, byte_idx, hidden_ranges);
                 line_start_byte = moved_start;
+                last_breakpoint = None;
+            } else if let Some(cand_byte) = last_breakpoint.filter(|&b| b > line_start_byte) {
+                // Word wrap: break at the last whitespace or CJK boundary
+                lines.push(WrappedLine {
+                    text: text[line_start_byte..cand_byte].to_string(),
+                    start_byte: line_start_byte,
+                    end_byte: cand_byte,
+                });
+                line_start_byte = cand_byte;
+                current_line = text[cand_byte..byte_idx].to_string();
+                current_width = substring_visible_width(text, cand_byte, byte_idx, hidden_ranges);
+                last_breakpoint = None;
             } else {
+                // Monolithic word wider than max_width: force-break at byte_idx
                 lines.push(WrappedLine {
                     text: std::mem::take(&mut current_line),
                     start_byte: line_start_byte,
@@ -894,11 +953,20 @@ fn wrap_impl(text: &str, max_width: usize, hidden_ranges: &[(usize, usize)]) -> 
                 });
                 line_start_byte = byte_idx;
                 current_width = 0;
+                last_breakpoint = None;
+
+                // If the grapheme that triggered the wrap is whitespace, consume it as the line break
+                if curr_first.is_some_and(|c| c.is_whitespace() && c != '\n') {
+                    line_start_byte = byte_idx + grapheme.len();
+                    prev_char = None;
+                    continue;
+                }
             }
         }
 
         current_line.push_str(grapheme);
         current_width += g_width;
+        prev_char = curr_last;
     }
 
     if !current_line.is_empty() || line_start_byte < text.len() {
@@ -1242,5 +1310,172 @@ mod tests {
         let utf8_text = "你好"; // 6 bytes: [0..3], [3..6]
         assert_eq!(clamp_selection_range(Some((0, 3)), utf8_text), Some((0, 3)));
         assert_eq!(clamp_selection_range(Some((1, 3)), utf8_text), None); // byte 1 is not a char boundary
+    }
+
+    #[test]
+    fn strip_inline_markup_delimiters_boundary_edge_cases() {
+        use super::strip_inline_markup_delimiters;
+
+        let content = "**bold**";
+        let hidden = vec![(0, 2), (6, 8)];
+
+        // Whole span
+        assert_eq!(
+            strip_inline_markup_delimiters(content, 0, 8, &hidden),
+            "bold"
+        );
+
+        // Exactly the inner content
+        assert_eq!(
+            strip_inline_markup_delimiters(content, 2, 6, &hidden),
+            "bold"
+        );
+
+        // Starting inside leading delimiter
+        assert_eq!(
+            strip_inline_markup_delimiters(content, 1, 6, &hidden),
+            "bold"
+        );
+
+        // Ending inside trailing delimiter
+        assert_eq!(
+            strip_inline_markup_delimiters(content, 2, 7, &hidden),
+            "bold"
+        );
+
+        // Enclosing both boundaries partially
+        assert_eq!(
+            strip_inline_markup_delimiters(content, 1, 7, &hidden),
+            "bold"
+        );
+
+        // Substring inside content
+        assert_eq!(strip_inline_markup_delimiters(content, 2, 4, &hidden), "bo");
+    }
+
+    #[test]
+    fn wrap_text_zero_width_clamps_to_one() {
+        use super::wrap_text;
+
+        let lines = wrap_text("hello", 0);
+        assert_eq!(lines.len(), 5);
+        for line in lines {
+            assert_eq!(line.text.len(), 1);
+        }
+    }
+
+    #[test]
+    fn wrap_text_whitespace_and_empty_edge_cases() {
+        use super::wrap_text;
+
+        assert!(wrap_text("", 10).is_empty());
+
+        let lines = wrap_text("   ", 2);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "  ");
+        assert_eq!(lines[1].text, " ");
+
+        let lines_nl = wrap_text("\n\n", 10);
+        assert_eq!(lines_nl.len(), 2);
+        assert_eq!(lines_nl[0].text, "");
+        assert_eq!(lines_nl[1].text, "");
+    }
+
+    #[test]
+    fn wrap_text_multiple_spaces_absorbed_into_previous_line() {
+        use super::wrap_text;
+
+        // "hello   world" at width 10:
+        // "hello   " has 3 spaces, width 8 <= 10.
+        // "world" (5 cols) overflows (8 + 5 = 13 > 10).
+        // Line 1 should be "hello   " (with spaces).
+        // Line 2 should be "world" (no leading spaces).
+        let lines = wrap_text("hello   world", 10);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "hello   ");
+        assert_eq!(lines[1].text, "world");
+        assert_eq!(lines[1].start_byte, 8);
+    }
+
+    #[test]
+    fn wrap_text_preserves_whole_words() {
+        use super::wrap_text;
+
+        // "hello world" at max_width 8: should not break "world" across lines.
+        let lines = wrap_text("hello world", 8);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "hello ");
+        assert_eq!(lines[0].start_byte, 0);
+        assert_eq!(lines[0].end_byte, 6);
+        assert_eq!(lines[1].text, "world");
+        assert_eq!(lines[1].start_byte, 6);
+        assert_eq!(lines[1].end_byte, 11);
+    }
+
+    #[test]
+    fn wrap_text_monolithic_word_falls_back_to_force_break() {
+        use super::wrap_text;
+
+        // Single word longer than max_width: must force-break without dropping chars.
+        let lines = wrap_text("supercalifragilistic", 8);
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].text, "supercal");
+        assert_eq!(lines[0].start_byte, 0);
+        assert_eq!(lines[0].end_byte, 8);
+        assert_eq!(lines[1].text, "ifragili");
+        assert_eq!(lines[1].start_byte, 8);
+        assert_eq!(lines[1].end_byte, 16);
+        assert_eq!(lines[2].text, "stic");
+        assert_eq!(lines[2].start_byte, 16);
+        assert_eq!(lines[2].end_byte, 20);
+    }
+
+    #[test]
+    fn wrap_text_cjk_ideographs_break_cleanly() {
+        use super::wrap_text;
+
+        // CJK text at width 8 (4 Hanzi per line):
+        let lines = wrap_text("这是一个测试文本", 8);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "这是一个");
+        assert_eq!(lines[1].text, "测试文本");
+    }
+
+    #[test]
+    fn wrap_text_cjk_prohibited_line_start_moves_previous_char() {
+        use super::wrap_text;
+
+        // "天气，" at width 4:
+        // "天" (2 cols), "气" (2 cols) = 4 cols.
+        // "，" (2 cols) overflows to next line, but "，" is prohibited line start.
+        // So "气" moves down with "，" -> line 1: "天", line 2: "气，"
+        let lines = wrap_text("天气，", 4);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "天");
+        assert_eq!(lines[1].text, "气，");
+    }
+
+    #[test]
+    fn wrap_text_mixed_cjk_and_western_words() {
+        use super::wrap_text;
+
+        let lines = wrap_text("测试word wrapping", 10);
+        // "测试word " is 4 + 4 + 1 = 9 cols <= 10.
+        // "wrapping" (8 cols) wraps onto line 2.
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "测试word ");
+        assert_eq!(lines[1].text, "wrapping");
+    }
+
+    #[test]
+    fn triple_asterisk_bold_italic_delimiters_stripped_cleanly() {
+        use super::{bold_delim_local_ranges, strip_inline_markup_delimiters};
+
+        let text = "***important note***";
+        let hidden = bold_delim_local_ranges(text, 0, &[(0, text.len())]);
+        assert_eq!(hidden, vec![(0, 3), (17, 20)]);
+
+        let clean = strip_inline_markup_delimiters(text, 0, text.len(), &hidden);
+        assert_eq!(clean, "important note");
     }
 }

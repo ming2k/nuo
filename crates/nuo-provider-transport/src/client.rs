@@ -64,9 +64,7 @@ fn owned_egress() -> Arc<dyn Egress> {
         Err(error) => {
             // No panic; the send path will fail loudly at first dispatch
             // with a genuine error, and clippy::panic is not tripped.
-            let egress = crate::NuoNetEgress::from_connector(
-                netune::TcpConnector::new(),
-            );
+            let egress = crate::NuoNetEgress::from_connector(netune::TcpConnector::new());
             tracing::error!(
                 fallback = "plaintext connector; TLS requests will fail at dispatch",
                 %error,
@@ -148,7 +146,11 @@ impl Client {
             // A prewarm failure is advisory: the real request will surface
             // the genuine error at dispatch. Keep the label, downgrade to
             // transport.
-            ProviderError::new(label, nuo_model_codec::ProviderErrorKind::Transport, error.to_string())
+            ProviderError::new(
+                label,
+                nuo_model_codec::ProviderErrorKind::Transport,
+                error.to_string(),
+            )
         })
     }
 

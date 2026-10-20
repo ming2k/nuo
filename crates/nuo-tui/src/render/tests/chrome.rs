@@ -163,8 +163,6 @@ fn redesigned_components_render_without_panicking() {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
-                live_effort: None,
-                live_thinking: None,
             },
             &theme,
         );

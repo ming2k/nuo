@@ -14,12 +14,15 @@
 //!   the key.
 //! - Body: `{model, messages, stream, reasoning_effort?, tools?, stream_options?}`.
 //!
-//! Two correctness transformations live here:
+//! Three correctness transformations live here:
 //! 1. Images are stripped from non-vision models (the API rejects `image_url`
 //!    on them; text content is preserved).
 //! 2. Orphan tool results and unanswered tool calls are reconciled so the
 //!    request is always wire-valid: every `tool` result references a known
 //!    preceding `tool_call`, and every assistant `tool_calls` has its results.
+//! 3. Reasoning replay is projected per dialect: an assistant turn's CoT
+//!    reaches the wire only where that surface defines a replayable field
+//!    (ADR-0083).
 
 use nuo_model_codec::{Effort, Message, OpenAiChatDialect, Role};
 use serde_json::{Value, json};
@@ -281,7 +284,10 @@ pub fn message_obj(m: Message, dialect: OpenAiChatDialect) -> Value {
         .as_ref()
         .and_then(|meta| meta.get(super::response::OPENROUTER_REASONING_DETAILS_META_KEY))
         .cloned();
-    let reasoning_content = m.reasoning_content.clone();
+    let reasoning_content = m
+        .reasoning_content
+        .clone()
+        .filter(|value| !value.is_empty());
     let mut map = json!({
         "role": match m.role {
             Role::User => "user",
@@ -308,11 +314,22 @@ pub fn message_obj(m: Message, dialect: OpenAiChatDialect) -> Value {
     if let Some(tool_call_id) = m.tool_call_id {
         map["tool_call_id"] = json!(tool_call_id);
     }
-    if dialect == OpenAiChatDialect::OpenRouter && m.role == Role::Assistant {
-        if let Some(details) = openrouter_reasoning_details {
-            map["reasoning_details"] = details;
-        } else if let Some(reasoning) = reasoning_content.filter(|value| !value.is_empty()) {
-            map["reasoning"] = json!(reasoning);
+    if m.role == Role::Assistant {
+        if dialect == OpenAiChatDialect::OpenRouter {
+            if let Some(details) = openrouter_reasoning_details {
+                map["reasoning_details"] = details;
+            } else if let Some(reasoning) = &reasoning_content {
+                map["reasoning"] = json!(reasoning);
+            }
+        }
+        // DeepSeek concatenates a replayed CoT into the context whenever the
+        // request carries `tools`, so an assistant turn that thought must carry
+        // it back under the documented field name — not OpenRouter's unified
+        // `reasoning` object (ADR-0083).
+        if dialect.replays_reasoning_content()
+            && let Some(reasoning) = &reasoning_content
+        {
+            map["reasoning_content"] = json!(reasoning);
         }
     }
     map
@@ -450,6 +467,100 @@ mod tests {
         );
 
         assert_eq!(body["reasoning_effort"], "xhigh");
+    }
+
+    /// The DeepSeek capability row this provider's chat surface can be pointed
+    /// at: reasoning via `reasoning_content`, the full native ladder.
+    fn deepseek_capabilities() -> nuo_model_codec::ModelCapabilities {
+        nuo_model_codec::ModelCapabilities {
+            family: "deepseek".into(),
+            context_window: 1_000_000,
+            max_output_tokens: None,
+            thinking: nuo_model_codec::ReasoningSupport::ReasoningContent,
+            tool_call: true,
+            vision: Some(true),
+            effort_levels: vec![
+                Effort::None.into(),
+                Effort::Minimal.into(),
+                Effort::Low.into(),
+                Effort::Medium.into(),
+                Effort::High.into(),
+                Effort::Xhigh.into(),
+                Effort::Max.into(),
+                Effort::Ultra.into(),
+            ],
+            effort_entities: Vec::new(),
+        }
+    }
+
+    fn assistant_that_thought() -> (Message, Message) {
+        let mut assistant = Message::new(Role::Assistant, "");
+        assistant.reasoning_content = Some("checking".into());
+        assistant.tool_calls = Some(vec![ToolCall {
+            id: "call_1".into(),
+            name: "read".into(),
+            arguments: "{}".into(),
+        }]);
+        let tool_result = Message {
+            role: Role::Tool,
+            content: "ok".into(),
+            tool_call_id: Some("call_1".into()),
+            ..Message::new(Role::Tool, "")
+        };
+        (assistant, tool_result)
+    }
+
+    #[test]
+    fn deepseek_replays_reasoning_content_and_passes_none_through() {
+        let (assistant, tool_result) = assistant_that_thought();
+        let body = body_with_capabilities(
+            vec![Message::new(Role::User, "inspect"), assistant, tool_result],
+            BodyInput {
+                model: "deepseek-flash",
+                stream: true,
+                instructions: None,
+                tool_specs: None,
+                // `none` is the thinking off switch on this surface; the clamp
+                // must not snap it up to `low`.
+                reasoning_effort: Some(Effort::None),
+                dialect: OpenAiChatDialect::DeepSeek,
+                cache_plan: &DEFAULT_CACHE_PLAN,
+            },
+            &deepseek_capabilities(),
+        );
+
+        assert_eq!(body["reasoning_effort"], "none");
+        assert_eq!(
+            body["messages"][1]["reasoning_content"], "checking",
+            "DeepSeek concatenates a replayed CoT into the context (ADR-0083)"
+        );
+        assert!(
+            body["messages"][1].get("reasoning").is_none(),
+            "the documented field is `reasoning_content`, not OpenRouter's `reasoning`"
+        );
+    }
+
+    #[test]
+    fn standard_chat_surface_never_replays_reasoning_content() {
+        let (assistant, tool_result) = assistant_that_thought();
+        let body = body_with_capabilities(
+            vec![Message::new(Role::User, "inspect"), assistant, tool_result],
+            BodyInput {
+                model: "deepseek-flash",
+                stream: true,
+                instructions: None,
+                tool_specs: None,
+                reasoning_effort: Some(Effort::High),
+                dialect: OpenAiChatDialect::Standard,
+                cache_plan: &DEFAULT_CACHE_PLAN,
+            },
+            &deepseek_capabilities(),
+        );
+
+        assert!(
+            body["messages"][1].get("reasoning_content").is_none(),
+            "an OpenAI-compatible surface that defines no replayable CoT gets none"
+        );
     }
 
     #[test]

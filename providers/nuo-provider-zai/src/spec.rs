@@ -153,5 +153,6 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     default_client_profile: nuo_model_codec::ClientPreset::ZCode,
     client_profile_sensitive: false,
     quota: None,
+    display_policy: nuo_provider::DisplayPolicy::Native,
     models: ZAI_CODE_MODELS,
 };

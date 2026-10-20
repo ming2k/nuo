@@ -20,13 +20,13 @@
 //! be exercised with hand-built inputs and cannot observe a change between two
 //! reads of the same input.
 
+use nuo_model_codec::catalog::{Channel, ProviderEntry, Transport};
 use nuo_persistence::config::{Credentials, RemoteCatalogCache};
 use nuo_persistence::connections::Connection;
 use nuo_persistence::connections::Connections;
 use nuo_persistence::model_providers::ModelProviders;
 use nuo_persistence::route_settings::RouteSettingsStore;
 use nuo_provider::{CredentialHost, RemoteCatalogSource, model_provider_spec};
-use nuo_wire::catalog::{Channel, ProviderEntry, Transport};
 use nuo_wire::model::CapabilityOverrides;
 use nuo_wire::{
     ClientProfile, ConnectionFilterPolicy, Effort, NamedFilterPolicy, ProviderDialect,
@@ -38,7 +38,7 @@ pub struct DerivationInputs<'a> {
     pub cache: &'a RemoteCatalogCache,
     pub routes: &'a RouteSettingsStore,
     pub creds: &'a Credentials,
-    /// The host's provider declarations, as a value (ADR-0300 §1).
+    /// The host's provider declarations, as a value (ADR-0081 §1).
     pub providers: &'a ModelProviders,
     /// Where OAuth credentials live for dynamic sources (host-provided).
     pub credentials: &'a CredentialHost,
@@ -77,7 +77,7 @@ pub fn derive_entry(connection: &Connection, inputs: &DerivationInputs<'_>) -> P
     }
 }
 
-/// The model ids a connection serves, in picker order (ADR-0199, ADR-0201).
+/// The model ids a connection serves, in picker order (ADR-0068, ADR-0081).
 /// Evaluates the 3-step Set Delta Algebra:
 /// 1. S_base = (Baseline ∩ RemoteCatalog) or snapshot for the provider.
 /// 2. S_provider = (S_base ∪ Provider.include) \ Provider.exclude
@@ -88,8 +88,7 @@ pub fn route_models(
     providers: &ModelProviders,
 ) -> Vec<String> {
     let Some(spec) = model_provider_spec(&connection.provider) else {
-        // The loader rejects an unknown provider before this runs (ADR-0201
-        // INV-2); deriving nothing is the safe floor if one slips through.
+        // The loader rejects an unknown provider before this runs ([INV-PROV-06]); deriving nothing is the safe floor if one slips through.
         return Vec::new();
     };
     let mut models = if spec.catalog_source != RemoteCatalogSource::None {
@@ -106,10 +105,15 @@ pub fn route_models(
         spec.models.iter().map(|m| (*m).to_string()).collect()
     };
 
-    // Connection pipe admission gate (ADR-0203):
-    // 1. Filter candidates through the connection pipe valve
+    // Connection pipe admission gate (ADR-0081 [INV-CATALOG-06]):
+    // 1. Filter candidates through the connection pipe valve. The default is a
+    //    declared property of the surface, never a hardcoded id list: a relay
+    //    that publishes bare ids is exactly the surface whose catalog is a
+    //    noisy dumping ground, so it defaults to `Curated`.
     let filter_policy = connection.models.filter.as_ref().cloned().unwrap_or(
-        if spec.baselines.is_empty() || spec.catalog_source != RemoteCatalogSource::None {
+        if spec.display_policy == nuo_provider::DisplayPolicy::Structural {
+            ConnectionFilterPolicy::Named(NamedFilterPolicy::Curated)
+        } else if spec.baselines.is_empty() || spec.catalog_source != RemoteCatalogSource::None {
             ConnectionFilterPolicy::Named(NamedFilterPolicy::All)
         } else {
             ConnectionFilterPolicy::Named(NamedFilterPolicy::Baseline)
@@ -117,7 +121,14 @@ pub fn route_models(
     );
     let baseline_ids: std::collections::HashSet<&str> =
         spec.baselines.iter().map(|m| m.id).collect();
-    models.retain(|id| filter_policy.admits(id, baseline_ids.contains(id.as_str())));
+    // The hygiene valve governs *discovered* ids, never ids the surface itself
+    // curates. A `Curated` relay whose own seed list contains a `-free` id has
+    // already made that call with evidence; filtering it out would make the
+    // compiled baseline disagree with the surface it describes.
+    let seeded: std::collections::HashSet<&str> = spec.models.iter().copied().collect();
+    models.retain(|id| {
+        seeded.contains(id.as_str()) || filter_policy.admits(id, baseline_ids.contains(id.as_str()))
+    });
 
     // 2. Provider delta application (from model_providers.toml)
     if let Some(provider_scope) = providers.get(&connection.provider) {
@@ -156,7 +167,7 @@ pub fn derive_channel(
         providers,
         credentials: credential_host,
     } = inputs;
-    // 4-layer descending capability cascade (ADR-0199):
+    // 4-layer descending capability cascade (ADR-0068 / ADR-0081):
     // Connection Overrides > Provider Overrides > Remote-Catalog Advertised Metadata > Baseline Registry Spec
     let provider_scope = providers.get(&connection.provider);
 
@@ -196,6 +207,29 @@ pub fn derive_channel(
         remote.get_or_insert_with(Default::default).protocol = Some(protocol);
     }
     let user_overrides = (!effective_overrides.is_empty()).then_some(effective_overrides);
+
+    // ── Mapping stage (ADR-0081 [INV-CATALOG-05]) ────────────────────────────
+    // The label a route shows is resolved ONCE, here, inside the catalog
+    // boundary — never re-derived by the server projections or the client. The
+    // provider spec's display policy decides whether a published name is
+    // trusted verbatim (`Native`) or a bare relay id is lifted structurally
+    // (`Structural`: `deepseek-v4.1-flash` -> `DeepSeek V4.1 Flash`).
+    //
+    // This must NOT be gated on `remote` already being `Some`: an ids-only relay
+    // advertises no metadata at all, so gating on an existing record is exactly
+    // how the mapping silently never runs for the surfaces that need it. A
+    // label identical to the wire id is dropped, leaving the surfaces on the id.
+    let advertised = remote.as_ref().and_then(|r| r.name.as_deref());
+    let label = model_provider_spec(&connection.provider)
+        .map(|spec| spec.resolve_display_label(advertised, model))
+        .unwrap_or_else(|| {
+            advertised
+                .map(nuo_model_codec::catalog::clean_model_display_name)
+                .filter(|label| !label.is_empty() && label != model)
+        });
+    if label.is_some() {
+        remote.get_or_insert_with(Default::default).name = label;
+    }
     let prompt_cache = model_provider_spec(&connection.provider)
         .map(|provider| provider.prompt_cache.resolve(model))
         .unwrap_or_else(nuo_wire::PromptCacheCapabilities::unsupported);
@@ -261,7 +295,6 @@ pub fn derive_channel(
 
     Ok(Channel {
         id: model.to_string(),
-        label: model.to_string(),
         transport,
         credentials: credentialed,
         model: model.to_string(),
@@ -274,7 +307,7 @@ pub fn derive_channel(
 
 /// Model protocol metadata overrides the provider-scoped baseline and default,
 /// and a catalog-advertised root override replaces the spec's route for that
-/// protocol (ADR-0269). Dialect and credentials remain provider-owned.
+/// protocol (ADR-0015). Dialect and credentials remain provider-owned.
 fn base_route(
     connection: &Connection,
     model: &str,
@@ -307,7 +340,7 @@ fn base_route(
     };
 
     // The advertised root is an **API root**, not a full endpoint: the suffix
-    // is appended by the same ADR-0259 algebra the compiled spec uses.
+    // is appended by the same ADR-0015 algebra the compiled spec uses.
     let base_url = match remote.and_then(|r| r.endpoint.as_deref()) {
         Some(root) => {
             let root = nuo_wire::ApiRoot::parse(root).map_err(|error| {
@@ -360,8 +393,10 @@ pub fn resolve_credential(connection: &Connection, creds: &Credentials) -> Secre
     }
     // The OpenCode relay surfaces share one key env var (`OPENCODE_API_KEY`):
     // Zen (`/zen/v1`) and Plan (`/zen/go/v1`) both authenticate with it.
-    if matches!(connection.provider.as_str(), "opencode-plan" | "opencode-zen" | "opencode-go")
-        && let Ok(value) = std::env::var("OPENCODE_API_KEY")
+    if matches!(
+        connection.provider.as_str(),
+        "opencode-plan" | "opencode-zen" | "opencode-go"
+    ) && let Ok(value) = std::env::var("OPENCODE_API_KEY")
         && !value.trim().is_empty()
     {
         return SecretString::from(value);
@@ -370,14 +405,14 @@ pub fn resolve_credential(connection: &Connection, creds: &Credentials) -> Secre
 }
 
 /// The **effective** availability verdict for `(connection, model)`, plus
-/// whether a user override is what made it usable (ADR-0273).
+/// whether a user override is what made it usable (ADR-0068).
 ///
 /// The provider's declaration lives in the model's
 /// [`nuo_wire::RemoteModelMetadata`]; this resolves it against the
 /// connection's own scope. A model the connection (or the provider scope)
 /// explicitly injected stays usable even when the provider declared otherwise:
-/// ADR-0203 `[INV-CATALOG-04]` gives sovereign injection unconditional
-/// precedence, and ADR-0273 `[INV-AVAIL-05]` requires the override to be
+/// [INV-CATALOG-04] gives sovereign injection unconditional
+/// precedence, and [INV-CATALOG-04] requires the override to be
 /// *disclosed* rather than silently erasing the upstream declaration.
 ///
 /// This is the single source of truth for "may this be run"; the server gate

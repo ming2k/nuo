@@ -8,7 +8,7 @@
 //! This is the authoritative fetcher (the `nuo-provider-adapters` duplicate was retired by ADR-0027). It is
 //! a pure projection of the control plane's answer (ADR-0014 `[INV-LANE-05]`):
 //! the client renders the reported credits and windows verbatim and never
-//! recomputes either. Response shape: `docs/reference/commandcode-api.yml`
+//! recomputes either. Response shape: `docs/reference/openapi/commandcode-plan.yml`
 //! (`/alpha/billing/credits`).
 
 use nuo_wire::{

@@ -1,6 +1,7 @@
 //! DeepSeek balance / usage fetcher.
 //!
 //! Query endpoint: `GET https://api.deepseek.com/user/balance`
+//! (Wire specification: `docs/reference/openapi/deepseek.yml` `/user/balance`).
 
 use nuo_wire::{BalanceQuota, ProviderQuotaData, ProviderUsage, UsageMetric};
 use serde::Deserialize;

@@ -41,6 +41,26 @@ pub struct ModelProviderSpec {
     /// (`[INV-PROV-08]`). `None` means the provider exposes no balance query.
     /// Replaces substring matching on the provider id / base URL.
     pub quota: Option<QuotaPort>,
+    /// How this surface's catalog labels are produced (ADR-0081).
+    ///
+    /// A curated single-model platform publishes real names; an aggregation
+    /// relay publishes bare ids and needs structural typography. This is a
+    /// declared property of the *surface*, never inferred from the id string.
+    pub display_policy: DisplayPolicy,
+}
+
+/// How a provider's model labels are produced from the catalog (ADR-0081).
+///
+/// The mapping stage ([`crate::spec::ModelProviderSpec::resolve_display_label`])
+/// is the single place that answers "what does the user read for this model".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DisplayPolicy {
+    /// Trust the provider: a published label is shown verbatim, and an absent
+    /// label leaves the surfaces on the wire id (name-first, id-fallback).
+    Native,
+    /// The surface publishes bare ids, so labels are lifted structurally
+    /// (`deepseek-v4.1-flash` -> `DeepSeek V4.1 Flash`).
+    Structural,
 }
 
 /// Typed quota/balance port declared by a provider spec (`[INV-PROV-08]`).
@@ -76,6 +96,25 @@ impl PromptCachePolicy {
 
 pub const fn unsupported_prompt_cache(_: &str) -> PromptCacheSpec {
     PromptCacheSpec::UNSUPPORTED
+}
+
+impl ModelProviderSpec {
+    /// Resolve the label a model row shows for `model` (ADR-0081 mapping stage).
+    ///
+    /// `advertised` is whatever the catalog published for this model. The
+    /// result is `None` when the surfaces should fall back to the bare wire id,
+    /// so callers never render a label identical to the id.
+    pub fn resolve_display_label(&self, advertised: Option<&str>, model: &str) -> Option<String> {
+        match self.display_policy {
+            DisplayPolicy::Native => advertised
+                .map(nuo_model_codec::catalog::clean_model_display_name)
+                .filter(|label| !label.is_empty() && label != model),
+            DisplayPolicy::Structural => {
+                let label = nuo_model_codec::catalog::format_model_display_name(advertised, model);
+                (label != model).then_some(label)
+            }
+        }
+    }
 }
 
 impl ModelProviderSpec {
@@ -223,6 +262,9 @@ pub fn sync_user_declared_providers(
                 provider.prompt_cache.clone().unwrap_or_default(),
             ),
             quota: None,
+            // A user-declared surface is never structurally relabelled: its
+            // operator publishes the names it wants shown (ADR-0081).
+            display_policy: DisplayPolicy::Native,
         };
         spec.validate()?;
         next.insert(id.clone(), Arc::new(spec));

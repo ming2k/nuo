@@ -677,13 +677,76 @@ impl Tool for ListDirTool {
     }
 }
 
+/// Directories that are almost never interesting to search or list and can be
+/// enormous: VCS metadata, dependency trees, and build output.
+pub(crate) const IGNORED_DIRS: &[&str] = &[
+    ".git",
+    ".svn",
+    ".hg",
+    "node_modules",
+    "target",
+    "__pycache__",
+    ".next",
+    ".nuxt",
+    ".turbo",
+    "dist",
+    "build",
+    ".venv",
+    "venv",
+    ".cache",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".tox",
+    "coverage",
+    ".gradle",
+    ".idea",
+    ".vscode",
+    "proc",
+    "sys",
+    "dev",
+    "run",
+];
+
+pub(crate) const IGNORED_FILES: &[&str] = &[".DS_Store", "Thumbs.db", "desktop.ini"];
+
+/// Build a ripgrep-style walker that respects project ignore rules (`.gitignore`,
+/// `.ignore`, global gitignore) while pruning metadata and dependency trees (`.git`,
+/// `node_modules`, `target`, etc.).
+pub(crate) fn build_workspace_walker(root: &Path) -> ignore::WalkBuilder {
+    let mut builder = ignore::WalkBuilder::new(root);
+    builder
+        .standard_filters(true)
+        .hidden(false)
+        .require_git(false)
+        .sort_by_file_path(|left, right| left.cmp(right))
+        .filter_entry(|entry| {
+            if entry.depth() == 0 {
+                return true;
+            }
+            if let Some(name) = entry.file_name().to_str() {
+                if entry.file_type().is_some_and(|kind| kind.is_dir()) {
+                    return !IGNORED_DIRS.contains(&name);
+                }
+                return !IGNORED_FILES.contains(&name);
+            }
+            true
+        });
+    builder
+}
+
 /// Typed parameters for [`FindFilesTool`].
 #[derive(Debug, Clone, Deserialize, ToolSchema)]
 pub struct FindFilesArgs {
     #[tool(desc = "Directory to search (default '.')")]
     pub path: Option<String>,
-    #[tool(desc = "Path globs to match files (e.g. ['*.rs'], ['src/**'])")]
-    pub patterns: Vec<String>,
+    #[serde(default, alias = "name", alias = "glob", alias = "query")]
+    #[tool(
+        desc = "Glob pattern or filename to search for (e.g. '*.rs', 'Cargo.toml', 'src/**'). If omitted or empty, matches all files."
+    )]
+    pub pattern: Option<String>,
+    #[serde(default, alias = "globs", alias = "includes")]
+    #[tool(desc = "Optional list of glob patterns to match files")]
+    pub patterns: Option<Vec<String>>,
     #[tool(desc = "Maximum results cap (default 200)")]
     pub limit: Option<usize>,
 }
@@ -706,7 +769,7 @@ impl Tool for FindFilesTool {
     }
 
     fn description(&self) -> &str {
-        "Find files recursively by path glob patterns. Globs match file paths relative to path. Project ignore rules apply."
+        "Find files recursively by glob pattern or filename (e.g. '*.rs', 'Cargo.toml'). If pattern is omitted, lists all files. Respects .gitignore and project ignore rules."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -722,6 +785,14 @@ impl Tool for FindFilesTool {
     }
 
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
+        let mut arguments = arguments;
+        if let Some(obj) = arguments.as_object_mut() {
+            if let Some(p) = obj.get("patterns").and_then(|v| v.as_str()) {
+                let p_str = p.to_string();
+                obj.insert("patterns".to_string(), serde_json::json!([p_str]));
+            }
+        }
+
         let args: FindFilesArgs = serde_json::from_value(arguments).map_err(|err| {
             ToolError::execution(self.name(), format!("invalid arguments: {err}"))
         })?;
@@ -737,19 +808,26 @@ impl Tool for FindFilesTool {
             ));
         }
 
+        let mut raw_patterns = args.patterns.unwrap_or_default();
+        if let Some(p) = args.pattern {
+            if !raw_patterns.contains(&p) {
+                raw_patterns.push(p);
+            }
+        }
+
         let mut compiled_globs = Vec::new();
-        for pat in &args.patterns {
+        for pat in &raw_patterns {
+            if pat.is_empty() || pat == "*" || pat == "**/*" || pat == "**" {
+                continue;
+            }
             let glob = glob::Pattern::new(pat).map_err(|err| {
                 ToolError::execution(self.name(), format!("invalid glob pattern `{pat}`: {err}"))
             })?;
-            compiled_globs.push(glob);
+            compiled_globs.push((pat.clone(), glob));
         }
 
         let mut matches = Vec::new();
-        let walker = ignore::WalkBuilder::new(&search_root)
-            .standard_filters(true)
-            .hidden(false)
-            .build();
+        let walker = build_workspace_walker(&search_root).build();
 
         for entry in walker.flatten() {
             if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
@@ -759,8 +837,14 @@ impl Tool for FindFilesTool {
             let path = entry.path();
             let relative = display_match_path(path, &search_root, &self.ctx.workspace_root);
 
-            let matched =
-                compiled_globs.is_empty() || compiled_globs.iter().any(|g| g.matches(&relative));
+            let matched = if compiled_globs.is_empty() {
+                true
+            } else {
+                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                compiled_globs.iter().any(|(pat_str, g)| {
+                    g.matches(&relative) || (!pat_str.contains('/') && g.matches(file_name))
+                })
+            };
 
             if matched {
                 matches.push(relative.to_string());
@@ -775,11 +859,7 @@ impl Tool for FindFilesTool {
                 "No matching files found under `{raw_path}`."
             )))
         } else {
-            Ok(ToolOutput::success(format!(
-                "Found {} matching files:\n{}",
-                matches.len(),
-                matches.join("\n")
-            )))
+            Ok(ToolOutput::success(matches.join("\n")))
         }
     }
 }
@@ -856,10 +936,7 @@ impl Tool for SearchTextTool {
         };
 
         let mut matches = Vec::new();
-        let walker = ignore::WalkBuilder::new(&search_root)
-            .standard_filters(true)
-            .hidden(false)
-            .build();
+        let walker = build_workspace_walker(&search_root).build();
 
         for entry in walker.flatten() {
             if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
@@ -1241,5 +1318,172 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("trailing whitespace"));
+    }
+
+    #[tokio::test]
+    async fn find_files_ignores_git_dir_and_gitignore_and_ignored_dirs() {
+        let dir = tempdir().unwrap();
+        let ctx = Arc::new(SystemToolContext::new(dir.path()));
+        let t_ctx = ToolContext::default();
+
+        // 1. .git internal files must be pruned
+        let git_hooks = dir.path().join(".git").join("hooks");
+        fs::create_dir_all(&git_hooks).unwrap();
+        fs::write(git_hooks.join("applypatch-msg.samp"), "sample hook").unwrap();
+
+        // 2. .gitignore entries must be pruned
+        fs::write(
+            dir.path().join(".gitignore"),
+            "secret.txt\nbuild_out/\n*.log\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("secret.txt"), "api_key").unwrap();
+        let build_out = dir.path().join("build_out");
+        fs::create_dir_all(&build_out).unwrap();
+        fs::write(build_out.join("artifact.bin"), "bin").unwrap();
+        fs::write(dir.path().join("debug.log"), "debug").unwrap();
+
+        // 3. Known ignored directories like node_modules, target, etc. must be pruned
+        let node_modules = dir.path().join("node_modules").join("pkg");
+        fs::create_dir_all(&node_modules).unwrap();
+        fs::write(node_modules.join("index.js"), "module.exports = {}").unwrap();
+
+        let target_dir = dir.path().join("target").join("debug");
+        fs::create_dir_all(&target_dir).unwrap();
+        fs::write(target_dir.join("build.rs"), "fn main() {}").unwrap();
+
+        // 4. Legitimate project files
+        let src_dir = dir.path().join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+        let tool = FindFilesTool::new(ctx);
+        let res = tool.execute(&t_ctx, json!({"path": "."})).await.unwrap();
+
+        let content = res.content();
+        assert!(
+            content.contains("src/main.rs"),
+            "legitimate project file must be found; got:\n{content}"
+        );
+        assert!(
+            !content
+                .lines()
+                .any(|l| l == ".git" || l.starts_with(".git/")),
+            ".git directories/files must never be found; got:\n{content}"
+        );
+        assert!(
+            !content.contains("applypatch-msg.samp"),
+            ".git/hooks must not be found; got:\n{content}"
+        );
+        assert!(
+            !content.contains("secret.txt"),
+            ".gitignore files must be pruned; got:\n{content}"
+        );
+        assert!(
+            !content.contains("artifact.bin"),
+            ".gitignore directories must be pruned; got:\n{content}"
+        );
+        assert!(
+            !content.contains("debug.log"),
+            ".gitignore glob matches must be pruned; got:\n{content}"
+        );
+        assert!(
+            !content.contains("node_modules"),
+            "node_modules must be pruned; got:\n{content}"
+        );
+        assert!(
+            !content.contains("target"),
+            "target directory must be pruned; got:\n{content}"
+        );
+    }
+
+    #[tokio::test]
+    async fn find_files_accepts_pattern_variations_and_slashless_globs() {
+        let dir = tempdir().unwrap();
+        let ctx = Arc::new(SystemToolContext::new(dir.path()));
+        let t_ctx = ToolContext::default();
+
+        let nested = dir.path().join("crates").join("core").join("src");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("lib.rs"), "pub fn run() {}").unwrap();
+        fs::write(nested.join("readme.md"), "# Core").unwrap();
+
+        let tool = FindFilesTool::new(ctx);
+
+        // A. Singular "pattern" alias with slashless glob matching nested files
+        let res1 = tool
+            .execute(&t_ctx, json!({"pattern": "*.rs"}))
+            .await
+            .unwrap();
+        assert!(
+            res1.content().contains("crates/core/src/lib.rs"),
+            "slashless pattern must match nested file; got:\n{}",
+            res1.content()
+        );
+        assert!(!res1.content().contains("readme.md"));
+
+        // B. "patterns" as array
+        let res2 = tool
+            .execute(&t_ctx, json!({"patterns": ["*.md"]}))
+            .await
+            .unwrap();
+        assert!(res2.content().contains("crates/core/src/readme.md"));
+        assert!(!res2.content().contains("lib.rs"));
+
+        // C. "patterns" as single string (JSON normalization)
+        let res3 = tool
+            .execute(&t_ctx, json!({"patterns": "*.rs"}))
+            .await
+            .unwrap();
+        assert!(res3.content().contains("crates/core/src/lib.rs"));
+
+        // D. Omitted patterns -> all files
+        let res4 = tool
+            .execute(&t_ctx, json!({"path": "crates"}))
+            .await
+            .unwrap();
+        assert!(res4.content().contains("core/src/lib.rs"));
+        assert!(res4.content().contains("core/src/readme.md"));
+    }
+
+    #[tokio::test]
+    async fn search_text_ignores_git_dir_and_gitignore() {
+        let dir = tempdir().unwrap();
+        let ctx = Arc::new(SystemToolContext::new(dir.path()));
+        let t_ctx = ToolContext::default();
+
+        let git_dir = dir.path().join(".git");
+        fs::create_dir_all(&git_dir).unwrap();
+        fs::write(git_dir.join("config"), "target_marker_needle = 1").unwrap();
+
+        fs::write(dir.path().join(".gitignore"), "ignored.rs\n").unwrap();
+        fs::write(dir.path().join("ignored.rs"), "target_marker_needle = 2").unwrap();
+
+        let src_dir = dir.path().join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(src_dir.join("main.rs"), "target_marker_needle = 3").unwrap();
+
+        let tool = SearchTextTool::new(ctx);
+        let res = tool
+            .execute(
+                &t_ctx,
+                json!({"path": ".", "query": "target_marker_needle"}),
+            )
+            .await
+            .unwrap();
+
+        let content = res.content();
+        assert!(
+            content.contains("src/main.rs:1: target_marker_needle = 3"),
+            "legitimate file must be matched; got:\n{content}"
+        );
+        assert!(
+            !content.contains(".git"),
+            ".git must not be searched; got:\n{content}"
+        );
+        assert!(
+            !content.contains("ignored.rs"),
+            ".gitignore file must not be searched; got:\n{content}"
+        );
     }
 }

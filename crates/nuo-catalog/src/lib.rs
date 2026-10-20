@@ -1,6 +1,25 @@
 //! Materializes the runtime `Catalog` from the connection store, the preset
 //! registry, and the catalog cache — never from `config.toml`, which holds
 //! behavior only.
+//!
+//! # Why this is its own crate
+//!
+//! The catalog pipeline (ADR-0081: source → mapping → overwrite) is consumed by
+//! two peers that sit on *both sides* of a one-way dependency edge — the
+//! execution harness and the headless server — while `nuo-server` depends on
+//! `nuo-harness`. Neither crate's module tree can host a definition the other
+//! links, so the pipeline previously existed twice, as two byte-identical
+//! copies that drifted on every edit. It is a Layer-2 domain (ADR-0082), not a
+//! module of either consumer: dependents import it directly and no crate
+//! re-exports it as a path shim.
+//!
+//! This crate is deliberately free of both presentation crates and any one
+//! concrete provider: it reads provider *specs* through `nuo-provider` and
+//! never names a `providers/*` crate. Remote catalog fetching is dispatched
+//! through `nuo_provider::fetch_remote_catalog`, whose implementation the
+//! composition root supplies (`nuo-provider-catalog`); the pipeline only ever
+//! sees the `RemoteCatalogUpdate` that comes back and folds it into the cache
+//! that [`Stores`] loads.
 
 mod derive;
 mod picker;
@@ -20,13 +39,13 @@ pub use sync::{
     sync_remote_catalog_streaming,
 };
 
+use nuo_model_codec::catalog::ProviderEntry;
 use nuo_persistence::config::{Config, Credentials, RemoteCatalogCache};
 use nuo_persistence::connection_usage::ConnectionUsage;
 use nuo_persistence::connections::Connections;
 use nuo_persistence::model_providers::ModelProviders;
 use nuo_persistence::route_settings::RouteSettingsStore;
 use nuo_provider::CredentialHost;
-use nuo_wire::catalog::ProviderEntry;
 
 #[cfg(test)]
 mod tests;
@@ -37,7 +56,7 @@ mod tests;
 /// overrides, static credentials, the user's provider declarations, and the
 /// credential host dynamic sources read through. This struct is the catalog's
 /// single point of I/O — a derivation receives borrowed views of it and resolves
-/// nothing on its own (ADR-0300 §1).
+/// nothing on its own (ADR-0081 §1).
 pub struct Stores {
     pub connections: Connections,
     pub instances: Connections,
@@ -86,7 +105,7 @@ impl Stores {
 /// The catalog is application-plane policy (it resolves product state by design)
 /// and so is the only place here that names a path. `nuo-server` builds the
 /// same host for the server's own flows; the duplication collapses when the
-/// catalog moves to the application plane (ADR-0300 §5).
+/// catalog moves to the application plane (ADR-0081 §1).
 pub(crate) fn credential_host() -> CredentialHost {
     let paths = nuo_persistence::paths::get();
     CredentialHost::file_backed(paths.auth_file(), paths.state_dir.join("machine_id"))
@@ -137,12 +156,12 @@ pub fn build_provider_for_model(
         .find(|e| e.id == connection_id)?;
     let wanted = model_id.or(config.default_model.as_deref());
     let connection = stores.connections.get(connection_id);
-    // The single server-side availability gate (ADR-0273
+    // The single server-side availability gate (ADR-0068
     // `[INV-AVAIL-06]`). A route for a model the account may not run is never
     // built, so no client is the only refusal site: TUI, web, server protocol,
     // and session restore all inherit it. `effective_availability` applies the
     // user's sovereign override, so an injected model still resolves.
-    let usable = |channel: &&nuo_wire::catalog::Channel| {
+    let usable = |channel: &&nuo_model_codec::catalog::Channel| {
         let (availability, overridden) =
             connection.map_or((nuo_wire::Availability::usable(), false), |connection| {
                 derive::effective_availability(
@@ -175,7 +194,9 @@ pub fn build_provider_for_model(
             .find(usable)
             .or_else(|| entry.default_channel()),
     };
-    channel.and_then(|channel| nuo_provider::build_provider_for_channel(channel, &entry.id, session_id))
+    channel.and_then(|channel| {
+        nuo_provider::build_provider_for_channel(channel, &entry.id, session_id)
+    })
 }
 
 pub fn resolved_model_name(config: &Config, id: &str) -> Option<String> {

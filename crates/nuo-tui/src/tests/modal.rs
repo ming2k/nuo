@@ -3303,17 +3303,36 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
             .dlg::<crate::surfaces::ModelsDialog>()
             .info_detail
     );
+
+    // 2. Open model editor sheet via `e` from detail view (clean separation: inspector is read-only)
+    crate::event_loop::actions::handle_open_model_editor(&mut app);
+    assert!(
+        app.surfaces
+            .contains_sheet(crate::surfaces::SheetKind::ModelEditor)
+    );
     assert_eq!(app.editor_effort, "medium");
     assert!(app.editor_thinking);
 
-    // 2. Adjust effort live via cycle action
+    // Adjust effort live inside the editor
     let levels: &[String] = &app.editor_effort_levels;
     let cur = levels.iter().position(|l| l == &app.editor_effort).unwrap() as isize;
     let next = ((cur + 1).rem_euclid(levels.len() as isize)) as usize;
     app.editor_effort = levels[next].clone();
     assert_eq!(app.editor_effort, "high");
 
-    // 3. Esc pops sublayer back to Level 1
+    // Pop the editor sheet; returns cleanly to the underlying detail sub-view
+    app.pop_transient_surface();
+    assert!(
+        !app.surfaces
+            .contains_sheet(crate::surfaces::SheetKind::ModelEditor)
+    );
+    assert!(
+        app.surfaces
+            .dlg::<crate::surfaces::ModelsDialog>()
+            .info_detail
+    );
+
+    // 3. Esc pops detail sublayer back to Level 1 list
     assert!(app.pop_sublayer());
     assert!(
         !app.surfaces
@@ -3333,7 +3352,6 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
             .dlg::<crate::surfaces::ModelsDialog>()
             .info_detail
     );
-    assert_eq!(app.editor_model, "m2");
 
     // Pop back to list
     assert!(app.pop_sublayer());

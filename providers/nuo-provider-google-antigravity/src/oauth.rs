@@ -534,7 +534,7 @@ mod tests {
     }
 
     /// OAuth wire-fact freeze (binary-extracted 2026-10-14, see
-    /// `docs/reference/antigravity.yml`): the authorize endpoint is the
+    /// `docs/reference/openapi/antigravity.yml`): the authorize endpoint is the
     /// non-versioned `/o/oauth2/auth`, the scope set carries no `openid`,
     /// `include_granted_scopes` is never sent, and no preferred loopback
     /// port exists (51121 was a nuo invention).

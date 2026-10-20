@@ -10,11 +10,54 @@ the project adheres to the federated SemVer model described in
 
 ### Added
 
+- **Time-Varying Rate Cards and Pure Cost Rating ([ADR-0080](docs/adr/0080-time-varying-rate-cards-and-off-peak-rating.md))**:
+  `ModelPricing` now supports scheduled rate cards (`RateSchedule`, `OffPeakPricing`)
+  with pure `(TokenUsage, RatingInstant)` evaluation (`[INV-PRICING-04]`). DeepSeek
+  V4.1 Flash and Pro rate cards reflect official 50% off-peak pricing across Beijing
+  off-peak hours and Chinese statutory holidays.
+- **On-Demand Modal Pricing Disclosure**: Both the flat model details modal
+  (`/models` -> `i`) and connection details modal (`/connections` -> `Enter` or
+  `@connection`) now feature structured rate cards and off-peak schedules
+  co-located with account balance, rejecting bottom-bar clutter.
+- **DeepSeek Canonical Model Identity ([ADR-0083](docs/adr/0083-deepseek-model-identity-reasoning-toggle-and-responses-dialect-purity.md))**:
+  `nuo-provider-deepseek` now seeds exactly the ids `api.deepseek.com` serves —
+  `deepseek-flash` (DeepSeek-V4.1-Flash-1017, multimodal, 1M context) and
+  `deepseek-v4-pro`. The retired names `deepseek-v4-flash` and
+  `deepseek-v4-flash-vision-exp` stay registered (never seeded) with the serving
+  model's capabilities; `deepseek-v4.1-flash` was a Novita/OpenRouter *relay* id,
+  never a platform id, and is no longer registered. Plan-included `-free` models
+  resolve to zero-cost cards.
+- **DeepSeek Reasoning Toggle and Alias Tiers**: `effort_ladders::DEEPSEEK_NATIVE`
+  declares the platform's full accepted vocabulary, so `none` (thinking off) is
+  reachable and is no longer clamped up to `low`, and `medium`/`xhigh` no longer
+  clamp down to `low`. A live `/models` `effort.supported_levels` advertisement is
+  expanded to the same set, so a catalog sync cannot change the menu.
+- **DeepSeek Responses Dialect Purity**: the Responses builder emits
+  `reasoning.summary` / `include: ["reasoning.encrypted_content"]` only where the
+  dialect declares them (never for DeepSeek); `response.incomplete` and
+  `response.failed` are handled as terminal events (truncated turns keep their
+  output, replay artifact and usage); Chat Completions replays an assistant
+  turn's `reasoning_content` on the DeepSeek dialect, where the vendor requires it.
 - **RAII Test Path Sandbox (`paths::TestDirsGuard`)**: a single guard that holds
   the process-wide override lock and restores the default roots on drop,
   including while unwinding. Every test sandbox now uses it.
 
 ### Changed
+
+- **DeepSeek Effort Ladder Correction**: the OpenCode Go/Zen DeepSeek rows now
+  carry the platform's accepted reasoning vocabulary (shared ids must agree
+  across provider tables), and the retired Flash generation is declared
+  multimodal there too, matching the model that serves it upstream.
+- **Baseline Fidelity Proof Amendments**: capability rows deliberately changed
+  after the registry migration are listed explicitly in
+  `POST_MIGRATION_AMENDMENTS` instead of being folded into the historical
+  pre-migration snapshot.
+- **Dispatch-Anchored Request Rating (`[INV-PRICING-05]`)**: `BeginRequestParams`
+  and `RequestUsageRecord` carry the provider dispatch epoch timestamp (`started_at_ms`)
+  as the definitive temporal anchor for both durable ledger persistence and cost rating.
+- **Session Pre-flight Spend Accumulation**: The local spend circuit breaker reads
+  monotonically accumulated turn spend rather than re-evaluating historical tokens
+  against current time-varying rates.
 
 - **Netune Sourced by Git Tag**: `netune` / `netune-trace` now resolve from
   `https://github.com/ming2k/netune.git` tag `v0.0.1` instead of crates.io, whose

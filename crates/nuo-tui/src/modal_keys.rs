@@ -297,11 +297,6 @@ pub(crate) fn resolve_modal_key(
         KeyCode::Left => {
             if let Some(overlay) = overlay {
                 match overlay {
-                    OverlaySurface::Dialog(DialogKind::Models)
-                        if keys.model_info_detail =>
-                    {
-                        return Some(InputAction::ModelEditorEffortCycle { delta: -1 });
-                    }
                     OverlaySurface::Sheet(SheetKind::ModelEditor)
                         if keys.editor_field == Some(1) =>
                     {
@@ -323,11 +318,6 @@ pub(crate) fn resolve_modal_key(
         KeyCode::Right => {
             if let Some(overlay) = overlay {
                 match overlay {
-                    OverlaySurface::Dialog(DialogKind::Models)
-                        if keys.model_info_detail =>
-                    {
-                        return Some(InputAction::ModelEditorEffortCycle { delta: 1 });
-                    }
                     OverlaySurface::Sheet(SheetKind::ModelEditor)
                         if keys.editor_field == Some(1) =>
                     {
@@ -456,16 +446,12 @@ pub(crate) fn resolve_modal_key(
                 't' | 'T' => Some(InputAction::SessionStatsOpenTrace),
                 _ => None,
             },
-            OverlaySurface::Dialog(DialogKind::Models) if keys.model_info_detail => {
-                match c {
-                    ' ' => Some(InputAction::ModelEditorThinkingToggle),
-                    '1'..='7' => {
-                        let index = (c as u8 - b'1') as usize;
-                        Some(InputAction::ModelEditorEffortJump { index })
-                    }
-                    _ => None,
-                }
-            }
+            OverlaySurface::Dialog(DialogKind::Models) if keys.model_info_detail => match c {
+                'e' => Some(InputAction::OpenModelEditor),
+                'r' | 'R' => Some(InputAction::RefreshProviderModels),
+                '*' => Some(InputAction::ProviderPickerToggleFavorite),
+                _ => None,
+            },
             OverlaySurface::Dialog(DialogKind::Models) => resolve_picker_key(c, true, keys),
             OverlaySurface::Dialog(DialogKind::Connections) if keys.connection_info_detail => {
                 match c {
@@ -890,6 +876,38 @@ mod tests {
         assert_eq!(
             resolve_dialog(DialogKind::Connections, crate::keymap::Key::ENTER, &c),
             Some(InputAction::BrowseConnectionModels)
+        );
+    }
+
+    #[test]
+    fn models_detail_keys_open_editor_refresh_favorite_and_activate() {
+        let c = keys(|k| k.model_info_detail = true);
+        assert_eq!(
+            resolve_dialog(DialogKind::Models, key('e'), &c),
+            Some(InputAction::OpenModelEditor)
+        );
+        assert_eq!(
+            resolve_dialog(DialogKind::Models, key('r'), &c),
+            Some(InputAction::RefreshProviderModels)
+        );
+        assert_eq!(
+            resolve_dialog(DialogKind::Models, key('*'), &c),
+            Some(InputAction::ProviderPickerToggleFavorite)
+        );
+        assert_eq!(
+            resolve_dialog(DialogKind::Models, crate::keymap::Key::ENTER, &c),
+            Some(InputAction::ProviderPickerActivate)
+        );
+        // Space, digits, and horizontal arrows are non-mutating in read-only info view
+        assert_eq!(resolve_dialog(DialogKind::Models, key(' '), &c), None);
+        assert_eq!(resolve_dialog(DialogKind::Models, key('1'), &c), None);
+        assert_eq!(
+            resolve_dialog(DialogKind::Models, crate::keymap::Key::LEFT, &c),
+            None
+        );
+        assert_eq!(
+            resolve_dialog(DialogKind::Models, crate::keymap::Key::RIGHT, &c),
+            None
         );
     }
 

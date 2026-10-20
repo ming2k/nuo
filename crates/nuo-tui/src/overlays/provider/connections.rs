@@ -157,9 +157,7 @@ pub fn draw_connections_modal(
                     )),
                 ]
             }
-            Some(detail) => {
-                connection_detail_body(detail, spinner_phase, theme)
-            }
+            Some(detail) => connection_detail_body(detail, spinner_phase, theme),
         };
         render_selectable_body(
             frame,
@@ -715,6 +713,90 @@ pub(crate) fn connection_detail_body(
                 ])
                 .with_prefix(RowSegment::styled("  ", muted)),
             );
+        }
+    }
+
+    // Active Model Pricing & Rates (if recognized)
+    if let Some(active) = &detail.active_model
+        && let Some(pricing) = nuo_wire::pricing::resolve_model_pricing(&detail.provider, active)
+    {
+        rows.push(SelectableRow::empty());
+        rows.push(SelectableRow::styled("Model Pricing & Rates", header_style));
+        if pricing
+            .tiers
+            .iter()
+            .all(|t| t.input_standard_nano_per_m == 0 && t.output_standard_nano_per_m == 0)
+        {
+            rows.push(kv(
+                "Billing",
+                &format!("{active} is plan-included (zero token surcharge)"),
+            ));
+        } else {
+            let base_tier = &pricing.tiers[0];
+            let in_str =
+                nuo_wire::pricing::NanoUsd(base_tier.input_standard_nano_per_m).format_rate();
+            let out_str =
+                nuo_wire::pricing::NanoUsd(base_tier.output_standard_nano_per_m).format_rate();
+            let rate_desc = if pricing.tiers.len() > 1 {
+                format!("{active}: {in_str} in · {out_str} out (per 1M, tiered)")
+            } else {
+                format!("{active}: {in_str} in · {out_str} out (per 1M)")
+            };
+            rows.push(kv("Standard Rates", &rate_desc));
+
+            if base_tier.cache_read_nano_per_m > 0 {
+                let hit_str =
+                    nuo_wire::pricing::NanoUsd(base_tier.cache_read_nano_per_m).format_rate();
+                let discount_pct = if base_tier.input_standard_nano_per_m > 0 {
+                    let saved = base_tier
+                        .input_standard_nano_per_m
+                        .saturating_sub(base_tier.cache_read_nano_per_m);
+                    (saved as f64 / base_tier.input_standard_nano_per_m as f64 * 100.0).round()
+                        as u32
+                } else {
+                    0
+                };
+                let hit_val = if discount_pct > 0 {
+                    format!("{hit_str} / 1M ({discount_pct}% discount)")
+                } else {
+                    format!("{hit_str} / 1M")
+                };
+                rows.push(kv("Cache Hit", &hit_val));
+            }
+
+            if let Some(off_peak) = &pricing.off_peak {
+                let op_tier = &off_peak.tiers[0];
+                let op_in =
+                    nuo_wire::pricing::NanoUsd(op_tier.input_standard_nano_per_m).format_rate();
+                let op_out =
+                    nuo_wire::pricing::NanoUsd(op_tier.output_standard_nano_per_m).format_rate();
+                rows.push(kv(
+                    "Off-Peak Rates",
+                    &format!("50% off ({op_in} in · {op_out} out)"),
+                ));
+                rows.push(kv(
+                    "Off-Peak Window",
+                    "Mon–Fri outside 09:00–12:00, 14:00–18:00 (UTC+8); weekends & holidays",
+                ));
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                let window = off_peak
+                    .schedule
+                    .window_at(nuo_wire::pricing::RatingInstant::from_epoch_ms(now_ms));
+                let (win_label, win_style) = if window.is_off_peak() {
+                    (
+                        "Off-Peak (Active)",
+                        Style::default().fg(theme.ok()).add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    ("Peak", Style::default().fg(theme.dim()))
+                };
+                rows.push(SelectableRow::styled(win_label, win_style).with_prefix(
+                    RowSegment::styled(format!("{:<16}", "Current Status"), label),
+                ));
+            }
         }
     }
 

@@ -659,6 +659,8 @@ pub enum NamedFilterPolicy {
     Baseline,
     /// Admit all models delivered by the remote catalog source.
     All,
+    /// Admit all models delivered by the remote catalog source except promotional/preview relay noise (ADR-0081).
+    Curated,
 }
 
 impl Default for ConnectionFilterPolicy {
@@ -673,6 +675,9 @@ impl ConnectionFilterPolicy {
         match self {
             Self::Named(NamedFilterPolicy::Baseline) => is_in_baseline,
             Self::Named(NamedFilterPolicy::All) => true,
+            Self::Named(NamedFilterPolicy::Curated) => {
+                !crate::catalog::is_relay_promotional_noise(model_id)
+            }
             Self::Glob(patterns) => patterns
                 .iter()
                 .any(|pattern| simple_glob_matches(pattern, model_id)),

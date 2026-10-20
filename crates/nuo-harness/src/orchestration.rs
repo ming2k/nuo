@@ -2026,7 +2026,7 @@ pub fn relay_agent_event(
             let config = nuo_persistence::config::Config::load();
             let usage = nuo_persistence::connection_usage::ConnectionUsage::load();
             let _ = tx.send(AgentResponse::ProviderPicker(
-                crate::catalog::build_picker_state(&config, &usage),
+                nuo_catalog::build_picker_state(&config, &usage),
             ));
             return;
         }

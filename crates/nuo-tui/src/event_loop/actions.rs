@@ -404,9 +404,6 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         if !row.usable {
                             return ActionFlow::Handled;
                         }
-                        if app.editor_target.is_some() && app.editor_model_settings_only {
-                            modals::handle_submit_model_editor(app);
-                        }
                         app.surfaces
                             .dlg_mut::<crate::surfaces::ModelsDialog>()
                             .info_detail = false;
