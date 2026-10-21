@@ -6,6 +6,56 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.45] - 2026-10-22
+
+### Added
+
+- **`nuo-egress`: One Outbound Egress Substrate for the Whole Process**
+  ([ADR-0085](docs/adr/0085-universal-outbound-egress-substrate-and-provider-decoupling.md)).
+  The crate that carried model providers' network traffic used to know about
+  prompts, images, cache routing keys and vendor error dialects — so anything
+  wanting a socket had to link the AI cognitive stack. It is now a Layer-0 leaf
+  holding network I/O only: pooled `Client`, the `Egress` transport seam,
+  bounded control-plane `Http`/`Request`/`Reply`, byte-exact SSE reassembly, and
+  domain-free `EgressError` / `EgressTelemetry`. `nuo-inference-wire::WireClient`,
+  `nuo-oauth`, `nuo-server`, `nuo-provider` and every provider crate converge on
+  `nuo_egress::shared_client()`, so one platform TLS configuration and one
+  connection cache serve the process instead of a cache per instance — an OAuth
+  refresh and an inference stream now share warm sockets.
+- **`nuo-decision`: System One Decision Engine**. TypeSafe Jev questions,
+  answers, calibrated probability responses, endpoints and driver clients move
+  into their own crate. It shares the generative lane's transport vocabulary
+  (`WireClient`, `WireError`, credential sources) and re-exports it rather than
+  redefining it, so the decision face and the generative face cannot drift into
+  two wire dialects.
+
+### Changed
+
+- **`nuo-model-codec` Is Now `nuo-inference-wire`**
+  ([ADR-0084](docs/adr/0084-model-aperture-shrink-to-pure-codec-and-rename-to-nuo-inference-wire.md)).
+  The name says what the crate does: encode an inference request for a vendor
+  dialect and demux the answer. The coarse `protocol::{anthropic, openai,
+  google}` grouping is split into explicit per-dialect modules
+  (`anthropic_messages`, `openai_chat_completions`, `openai_responses`,
+  `google_generate_content`, `google_interactions`), because "the OpenAI
+  protocol" was never one thing and the Responses and Chat Completions
+  dialects disagree on precisely the fields a shared module made easy to
+  conflate.
+- **Provider Cognition Returns to `nuo-provider`**. Endpoint bindings, envelope
+  reshaping, prompt-cache resolution and vision projection are evicted from the
+  substrate to the crate that owns provider semantics, and a new `response.rs`
+  holds HTTP error classification and context-overflow recognition. Provider
+  authors find `Endpoint`, `PromptCacheConfig` and `project_images_for_route`
+  where the rest of the provider contract already lives.
+
+### Removed
+
+- **`crates/nuo-code` Retired**. Its AST query and syntax guard surfaces were a
+  deterministic infrastructure engine with no consumers outside the Agent-facing
+  AST tool, and they now live in `tools/nuo-tool-ast` (`src/syntax/`) — the
+  crate that is already the tool projection. ADR-0013 and ADR-0055 are amended
+  where they named the crate.
+
 ## [0.0.44] - 2026-10-20
 
 ### Added
