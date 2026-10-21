@@ -1,4 +1,5 @@
 pub(super) mod composer_hints;
+pub mod detail;
 pub mod dropdown;
 pub(super) mod footer;
 pub mod inline_layout;

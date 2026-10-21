@@ -17,7 +17,9 @@
 //! - `response.completed` / `response.incomplete` → terminal usage and exact
 //!   replay artifacts (a truncated turn still carries its output and its bill)
 //! - `response.failed` → terminal in-band upstream failure
-use nuo_model_codec::{Message, ProviderStreamEvent, Role, TokenUsage, ToolCall};
+use nuo_provider::capability::ProviderStreamEvent;
+use nuo_tool::ToolCall;
+use nuo_tool::{Message, Role, TokenUsage};
 use serde_json::Value;
 
 /// Parse a Responses `usage` object (`input_tokens` / `output_tokens` /
@@ -38,7 +40,7 @@ pub fn usage(usage: &Value) -> Option<TokenUsage> {
     // Route cache-read accounting through the shared helper so the cache
     // policy is enforced in one place. The Responses API hides the
     // discount in `input_tokens_details.cached_tokens`, which the helper reads.
-    let cache = nuo_model_codec::read_prompt_cache_usage(usage);
+    let cache = nuo_inference_wire::read_prompt_cache_usage(usage);
     match (prompt, completion, total) {
         (Some(p), Some(c), _) => Some(TokenUsage {
             prompt_tokens: p,
@@ -368,18 +370,18 @@ impl ResponsesStream {
         }
         let mut artifacts = serde_json::Map::new();
         artifacts.insert(
-            nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
+            nuo_inference_wire::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
             Value::Array(output),
         );
         if let Some(id) = response["id"].as_str() {
             artifacts.insert(
-                nuo_model_codec::OPENAI_RESPONSE_ID_ARTIFACT_KEY.to_string(),
+                nuo_inference_wire::OPENAI_RESPONSE_ID_ARTIFACT_KEY.to_string(),
                 serde_json::Value::String(id.to_string()),
             );
         }
         self.terminal_seen = true;
         Ok(vec![ProviderStreamEvent::Completed(
-            nuo_model_codec::ProviderCompletionMeta {
+            nuo_inference_wire::ProviderCompletionMeta {
                 usage: usage(&response["usage"]),
                 artifacts: Some(artifacts),
                 continuation: None,
@@ -431,7 +433,7 @@ mod tests {
             .artifacts
             .as_ref()
             .and_then(|artifacts| {
-                artifacts.get(nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
+                artifacts.get(nuo_inference_wire::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
             })
             .and_then(Value::as_array)
             .expect("the truncated turn stays replayable");
@@ -740,7 +742,7 @@ mod tests {
             .artifacts
             .as_ref()
             .and_then(|artifacts| {
-                artifacts.get(nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
+                artifacts.get(nuo_inference_wire::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
             })
             .and_then(Value::as_array)
             .unwrap();

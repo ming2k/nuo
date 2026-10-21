@@ -515,7 +515,7 @@ mod tests {
             thinking: crate::reasoning::ReasoningSupport::None,
             tool_call: true,
             vision: true,
-            protocol: crate::WireProtocol::ChatCompletions,
+            protocol: crate::WireProtocol::OpenAiChatCompletions,
             model_guidance: "",
             effort_levels: &[],
             wire_entities: None,

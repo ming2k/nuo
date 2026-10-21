@@ -4,24 +4,27 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "AST structural query and syntax tools for Nuo cognitive agents"
+description = "AST structural query and code intelligence tool for Nuo cognitive agents"
 
 [dependencies]
 async-trait = { workspace = true }
-glob = { workspace = true }
 ignore = { workspace = true }
 inventory = { workspace = true }
-nuo-code = { workspace = true }
 nuo-tool = { workspace = true }
 nuo-wire = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["sync", "time", "macros", "rt", "fs"] }
-toml = { workspace = true }
-tracing = { workspace = true }
-walkdir = { workspace = true }
-fastrand = { workspace = true }
 sha2 = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "macros", "rt", "fs"] }
+tracing = { workspace = true }
+
+tree-sitter = { workspace = true }
+tree-sitter-rust = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+tree-sitter-python = { workspace = true }
+tree-sitter-c = { workspace = true }
+tree-sitter-cpp = { workspace = true }
+tree-sitter-go = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

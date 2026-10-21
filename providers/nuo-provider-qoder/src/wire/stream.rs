@@ -1,9 +1,7 @@
 //! Qoder's SSE stream frame decoder and HTTP envelope unwrapper.
 
-use nuo_model_codec::ProviderError;
-use nuo_provider_transport::pipeline::{
-    ProviderFault, StreamMetrics, StreamTransformer, TransformedFrame,
-};
+use nuo_inference_wire::ProviderError;
+use nuo_provider::pipeline::{ProviderFault, StreamMetrics, StreamTransformer, TransformedFrame};
 use serde_json::Value;
 
 /// An unwrapped Qoder SSE event envelope.

@@ -4,7 +4,7 @@
 
 use super::derive::derive_entries;
 use super::{Stores, effective_default_connection_id};
-use nuo_model_codec::catalog::{Channel, ProviderEntry, Transport};
+use nuo_inference_wire::catalog::{Channel, ProviderEntry, Transport};
 use nuo_persistence::config::Config;
 use nuo_persistence::connection_usage::ConnectionUsage;
 use nuo_wire::{
@@ -237,22 +237,32 @@ pub fn prune_stale_models_on_disk() -> bool {
 
 pub(super) fn channel_protocol_and_base_url(channel: &Channel) -> (String, String) {
     match &channel.transport {
-        Transport::OpenAi { base_url, .. } => (
-            nuo_wire::WireProtocol::ChatCompletions.as_str().to_string(),
+        Transport::OpenAiChatCompletions { base_url, .. } => (
+            nuo_wire::WireProtocol::OpenAiChatCompletions
+                .as_str()
+                .to_string(),
             base_url.clone(),
         ),
         Transport::OpenAiResponses { base_url, .. } => (
-            nuo_wire::WireProtocol::Responses.as_str().to_string(),
+            nuo_wire::WireProtocol::OpenAiResponses.as_str().to_string(),
             base_url.clone(),
         ),
-        Transport::Anthropic { base_url, .. } => (
+        Transport::AnthropicMessages { base_url, .. } => (
             nuo_wire::WireProtocol::AnthropicMessages
                 .as_str()
                 .to_string(),
             base_url.clone(),
         ),
-        Transport::Google { base_url, .. } => (
-            nuo_wire::WireProtocol::GoogleGemini.as_str().to_string(),
+        Transport::GoogleGenerateContent { base_url, .. } => (
+            nuo_wire::WireProtocol::GoogleGenerateContent
+                .as_str()
+                .to_string(),
+            base_url.clone(),
+        ),
+        Transport::GoogleInteractions { base_url, .. } => (
+            nuo_wire::WireProtocol::GoogleInteractions
+                .as_str()
+                .to_string(),
             base_url.clone(),
         ),
     }
@@ -303,13 +313,9 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
     // API-supported model may be deliberately unlisted (Codex `visibility`).
     let advertised = channel.remote.as_ref().and_then(|remote| remote.advertised);
     match &channel.transport {
-        Transport::Anthropic {
+        Transport::AnthropicMessages {
             effort, thinking, ..
         } => {
-            // ADR-0046: reasoning is opt-in. A channel's effective thinking
-            // state is off unless it has an explicit on override. The info
-            // surfaces both knobs so the picker can show a model's effort only
-            // when it is actually opted in to reasoning (thinking on).
             let thinking_on = matches!(thinking, Some(ReasoningMode::Adaptive));
             ProviderModelInfo {
                 model: channel.model.clone(),
@@ -331,17 +337,15 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
                 availability_stale: false,
             }
         }
-        Transport::OpenAi { effort, .. } => {
-            // Fallback when the channel has no explicit effort override is
-            // `Effort::channel_default` — the SAME rule the provider factory
-            // stamps onto the wire, so the picker can never promise a tier
-            // the request does not send.
+        Transport::OpenAiChatCompletions { effort, .. } => {
             let effective = Effort::channel_default(&caps.family, &known_efforts)
                 .map(|default| (*effort).unwrap_or(default).as_str().to_string());
             ProviderModelInfo {
                 model: channel.model.clone(),
                 name,
-                protocol: nuo_wire::WireProtocol::ChatCompletions.as_str().to_string(),
+                protocol: nuo_wire::WireProtocol::OpenAiChatCompletions
+                    .as_str()
+                    .to_string(),
                 effort: effective,
                 thinking: None,
                 effort_levels,
@@ -357,13 +361,12 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
             }
         }
         Transport::OpenAiResponses { effort, .. } => {
-            // Same shared default rule as the chat-completions arm.
             let effective = Effort::channel_default(&caps.family, &known_efforts)
                 .map(|default| (*effort).unwrap_or(default).as_str().to_string());
             ProviderModelInfo {
                 model: channel.model.clone(),
                 name,
-                protocol: nuo_wire::WireProtocol::Responses.as_str().to_string(),
+                protocol: nuo_wire::WireProtocol::OpenAiResponses.as_str().to_string(),
                 effort: effective,
                 thinking: None,
                 effort_levels,
@@ -378,19 +381,38 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
                 availability_stale: false,
             }
         }
-        Transport::Google { effort, .. } => {
-            // Same contract as the OpenAI arms: a model that advertises an
-            // effort ladder is configurable; one with an empty ladder (a
-            // non-reasoning Gemini, or an id no baseline knows) stays inert.
-            // The channel's explicit override wins; otherwise the shared
-            // `Effort::channel_default` rule (`high` clamped to the ladder —
-            // Gemini is never a `gpt` family) applies.
+        Transport::GoogleGenerateContent { effort, .. } => {
             let effective = Effort::channel_default(&caps.family, &known_efforts)
                 .map(|default| (*effort).unwrap_or(default).as_str().to_string());
             ProviderModelInfo {
                 model: channel.model.clone(),
                 name,
-                protocol: nuo_wire::WireProtocol::GoogleGemini.as_str().to_string(),
+                protocol: nuo_wire::WireProtocol::GoogleGenerateContent
+                    .as_str()
+                    .to_string(),
+                effort: effective,
+                thinking: None,
+                effort_levels,
+                favorite: false,
+                last_used_ms: None,
+                vision,
+                context_window,
+                max_output_tokens,
+                availability: availability.clone(),
+                availability_overridden: false,
+                advertised,
+                availability_stale: false,
+            }
+        }
+        Transport::GoogleInteractions { effort, .. } => {
+            let effective = Effort::channel_default(&caps.family, &known_efforts)
+                .map(|default| (*effort).unwrap_or(default).as_str().to_string());
+            ProviderModelInfo {
+                model: channel.model.clone(),
+                name,
+                protocol: nuo_wire::WireProtocol::GoogleInteractions
+                    .as_str()
+                    .to_string(),
                 effort: effective,
                 thinking: None,
                 effort_levels,
@@ -417,7 +439,7 @@ mod tests {
     fn openai_channel(model: &str, remote: Option<nuo_wire::RemoteModelMetadata>) -> Channel {
         Channel {
             id: "default".to_string(),
-            transport: Transport::OpenAi {
+            transport: Transport::OpenAiChatCompletions {
                 base_url: "https://example.test/v1/chat/completions".to_string(),
                 client_profile: nuo_wire::ClientProfile::Native,
                 effort: Some(nuo_wire::effort::Effort::High),
@@ -570,7 +592,7 @@ mod tests {
             ..Default::default()
         };
         let mut channel = openai_channel("gpt-6-astra", Some(remote));
-        if let Transport::OpenAi { effort, .. } = &mut channel.transport {
+        if let Transport::OpenAiChatCompletions { effort, .. } = &mut channel.transport {
             *effort = None;
         }
         let info = channel_model_info(&channel);

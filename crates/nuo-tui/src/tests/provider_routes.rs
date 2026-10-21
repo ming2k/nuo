@@ -319,7 +319,7 @@ fn custom_provider_editor_opens_empty_on_name_field() {
         "Name field borrows an empty input line"
     );
     // The template seeds the protocol and OpenAI model list.
-    assert_eq!(app.custom_protocol_wire, "chat-completions");
+    assert_eq!(app.custom_protocol_wire, "openai-chat-completions");
     assert!(app.custom_models.iter().any(|m| m == "gpt-5.5"));
     assert!(!app.custom_fields.contains(&crate::CustomField::Model));
 }
@@ -340,7 +340,7 @@ fn anthropic_template_seeds_the_claude_family_without_a_model_field() {
 fn antigravity_template_prefills_url_and_seeds_relay_models() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_custom_provider_editor(antigravity_template());
-    assert_eq!(app.custom_protocol_wire, "google-gemini");
+    assert_eq!(app.custom_protocol_wire, "google-generate-content");
     assert_eq!(
         app.custom_base_url,
         "https://daily-cloudcode-pa.googleapis.com"
@@ -407,7 +407,7 @@ fn custom_provider_cycles_protocol_and_request_identity() {
         Some(crate::CustomField::Protocol)
     );
     app.cycle_custom_choice(true);
-    assert_eq!(app.custom_protocol_wire, "responses");
+    assert_eq!(app.custom_protocol_wire, "openai-responses");
 
     app.custom_field = 5;
     assert_eq!(
@@ -488,7 +488,7 @@ fn custom_connection_submits_with_the_typed_model_and_url() {
     });
     assert_eq!(payload["models"][0], "GLM-5.2");
     assert_eq!(payload["provider"], "custom");
-    assert_eq!(payload["protocol"], "chat-completions");
+    assert_eq!(payload["protocol"], "openai-chat-completions");
     assert_eq!(
         payload["base_url"],
         "https://chatapi.weixin.qq.com/openai/v1/chat/completions"
@@ -818,7 +818,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
         models: vec!["glm-5.2".to_string()],
         model_info: Vec::new(),
         builtin: false,
-        protocol: "chat-completions".to_string(),
+        protocol: "openai-chat-completions".to_string(),
         base_url: "https://relay.example.com/v1".to_string(),
         key_ready: true,
         provider: "custom".to_string(),
@@ -829,7 +829,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
     app.open_edit_provider_editor(
         "my-relay".to_string(),
         "My Relay".to_string(),
-        "chat-completions".to_string(),
+        "openai-chat-completions".to_string(),
         "https://relay.example.com/v1".to_string(),
         nuo_wire::ConnectionAuth::ApiKey,
         false,

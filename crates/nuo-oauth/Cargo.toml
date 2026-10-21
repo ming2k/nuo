@@ -10,9 +10,9 @@ description = "OAuth2 for Nuo: RFC primitives (PKCE, device flow, loopback, toke
 # Credential ports & durable store (CredentialHost/Store/TokenSet, DeviceIdentity).
 nuo-provider = { workspace = true }
 # RFC 7636/8628 primitives + HTTP egress + TokenResponse (the OAuth standard).
-nuo-provider-transport = { workspace = true }
+nuo-egress = { workspace = true }
 # Generic OAuth client types (OAuthConfig, DeviceFlowMode, LoginMethod, ResolvedAuth).
-nuo-model-codec = { workspace = true }
+nuo-inference-wire = { workspace = true }
 nuo-host = { workspace = true }
 
 async-trait = { workspace = true }

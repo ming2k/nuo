@@ -5,8 +5,12 @@ use nuotc::{
 
 use super::super::common::truncate_ellipsis;
 use super::common::{
-    draw_picker_search_row, match_set, place_picker_search_cursor, search_empty_body,
-    split_search_body,
+    draw_picker_search_row, match_set, place_picker_search_cursor, render_pricing_detail_rows,
+    search_empty_body, split_search_body,
+};
+use crate::components::detail::{
+    detail_kv_row, detail_kv_row_indented, detail_kv_row_segments, detail_section_row,
+    format_detail_label,
 };
 use crate::components::options::{ChoiceTone, choice_style};
 use crate::components::row::{GUTTER, ListRow, RowGroup, RowStyledAtom};
@@ -439,10 +443,7 @@ pub(crate) fn connection_detail_body(
     let highlight = Style::default().fg(theme.primary);
     let warning = Style::default().fg(theme.warning);
 
-    let kv = |k: &str, v: &str| {
-        SelectableRow::styled(v.to_string(), value)
-            .with_prefix(RowSegment::styled(format!("{k:<16}"), label))
-    };
+    let kv = |k: &str, v: &str| detail_kv_row(k, v, value, theme);
 
     let provider_display = if !detail.provider_label.is_empty() {
         detail.provider_label.as_str()
@@ -451,7 +452,7 @@ pub(crate) fn connection_detail_body(
     };
 
     let mut rows: Vec<SelectableRow> = vec![
-        SelectableRow::styled("Configuration", header_style),
+        detail_section_row("Configuration", theme),
         kv("Name", &detail.name),
         kv("Provider", provider_display),
         kv("Protocol", &detail.protocol),
@@ -464,22 +465,18 @@ pub(crate) fn connection_detail_body(
         }
         nuo_wire::ConnectionBudget::Local { limit, period, .. } => {
             let budget_str = format!("Local ({}, {} cap)", limit.format_usd(), period.label());
-            rows.push(
-                SelectableRow::styled(budget_str, warning).with_prefix(RowSegment::styled(
-                    format!("{:<16}", "Budget Policy"),
-                    label,
-                )),
-            );
+            rows.push(detail_kv_row("Budget Policy", &budget_str, warning, theme));
         }
     }
     if let Some(masked) = &detail.api_key_masked {
-        rows.push(
-            SelectableRow::from_segments(vec![
+        rows.push(detail_kv_row_segments(
+            "API Key",
+            vec![
                 RowSegment::styled(masked.clone(), value),
                 RowSegment::styled(format!(" ({})", detail.api_key_source), muted),
-            ])
-            .with_prefix(RowSegment::styled(format!("{:<16}", "API Key"), label)),
-        );
+            ],
+            theme,
+        ));
     } else {
         rows.push(kv("Credential", &detail.api_key_source));
     }
@@ -493,23 +490,18 @@ pub(crate) fn connection_detail_body(
         } else if detail.active_model_thinking == Some(true) {
             segments.push(RowSegment::styled("  ·  thinking: enabled", muted));
         }
-        rows.push(
-            SelectableRow::from_segments(segments).with_prefix(RowSegment::styled(
-                format!("{:<16}", "Default Active"),
-                label,
-            )),
-        );
+        rows.push(detail_kv_row_segments("Default Active", segments, theme));
     }
 
     // Client Profile
     rows.push(SelectableRow::empty());
-    rows.push(SelectableRow::styled("Client Profile", header_style));
+    rows.push(detail_section_row("Client Profile", theme));
     rows.push(kv("Preset", detail.client_identity.label()));
     rows.push(kv("User-Agent", &detail.user_agent));
     let client_headers = detail.client_identity.headers();
     if !client_headers.is_empty() {
         rows.push(SelectableRow::styled(
-            format!("{:<16}", "Client Headers"),
+            format_detail_label("Client Headers"),
             label,
         ));
         for (k, v) in client_headers {
@@ -550,14 +542,14 @@ pub(crate) fn connection_detail_body(
                 ),
                 value,
             )
-            .with_prefix(RowSegment::styled(format!("{:<16}", "Catalog"), label)),
+            .with_prefix(RowSegment::styled(format_detail_label("Catalog"), label)),
         );
         rows.push(
             SelectableRow::from_segments(vec![
                 RowSegment::styled("[ m ] ", highlight.add_modifier(Modifier::BOLD)),
                 RowSegment::styled("Browse & filter in /models", muted),
             ])
-            .with_prefix(RowSegment::styled(format!("{:<16}", "Action"), label)),
+            .with_prefix(RowSegment::styled(format_detail_label("Action"), label)),
         );
     }
 
@@ -641,7 +633,7 @@ pub(crate) fn connection_detail_body(
                         for rl in rate_limits {
                             quota_lines.push(Line::from(vec![
                                 Span::raw("  "),
-                                Span::styled(format!("{:<16}", "Rate Limit"), label),
+                                Span::styled(format_detail_label("Rate Limit"), label),
                                 Span::styled(
                                     format!("{} req / {}", rl.requests, rl.interval),
                                     value,
@@ -655,25 +647,20 @@ pub(crate) fn connection_detail_body(
 
             if !rendered_quota {
                 if let Some(bal) = &usage.primary_balance {
-                    rows.push(
-                        SelectableRow::styled(bal.clone(), highlight.add_modifier(Modifier::BOLD))
-                            .with_prefix(RowSegment::styled(
-                                format!("  {:<16}", "Primary Balance"),
-                                label,
-                            )),
-                    );
+                    rows.push(detail_kv_row_indented(
+                        2,
+                        "Primary Balance",
+                        bal,
+                        highlight.add_modifier(Modifier::BOLD),
+                        theme,
+                    ));
                 }
                 for metric in &usage.metrics {
                     let val = match &metric.unit {
                         Some(u) => format!("{} {}", metric.value, u),
                         None => metric.value.clone(),
                     };
-                    rows.push(
-                        SelectableRow::styled(val, value).with_prefix(RowSegment::styled(
-                            format!("  {:<16}", metric.label),
-                            label,
-                        )),
-                    );
+                    rows.push(detail_kv_row_indented(2, &metric.label, &val, value, theme));
                 }
             }
 
@@ -717,86 +704,15 @@ pub(crate) fn connection_detail_body(
 
     // Active Model Pricing & Rates (if recognized)
     if let Some(active) = &detail.active_model
-        && let Some(pricing) = nuo_wire::pricing::resolve_model_pricing(&detail.provider, active)
+        && let Some(pricing_rows) = render_pricing_detail_rows(
+            &detail.provider,
+            active,
+            Some(active.as_str()),
+            "Model Pricing & Rates",
+            theme,
+        )
     {
-        rows.push(SelectableRow::empty());
-        rows.push(SelectableRow::styled("Model Pricing & Rates", header_style));
-        if pricing
-            .tiers
-            .iter()
-            .all(|t| t.input_standard_nano_per_m == 0 && t.output_standard_nano_per_m == 0)
-        {
-            rows.push(kv(
-                "Billing",
-                &format!("{active} is plan-included (zero token surcharge)"),
-            ));
-        } else {
-            let base_tier = &pricing.tiers[0];
-            let in_str =
-                nuo_wire::pricing::NanoUsd(base_tier.input_standard_nano_per_m).format_rate();
-            let out_str =
-                nuo_wire::pricing::NanoUsd(base_tier.output_standard_nano_per_m).format_rate();
-            let rate_desc = if pricing.tiers.len() > 1 {
-                format!("{active}: {in_str} in · {out_str} out (per 1M, tiered)")
-            } else {
-                format!("{active}: {in_str} in · {out_str} out (per 1M)")
-            };
-            rows.push(kv("Standard Rates", &rate_desc));
-
-            if base_tier.cache_read_nano_per_m > 0 {
-                let hit_str =
-                    nuo_wire::pricing::NanoUsd(base_tier.cache_read_nano_per_m).format_rate();
-                let discount_pct = if base_tier.input_standard_nano_per_m > 0 {
-                    let saved = base_tier
-                        .input_standard_nano_per_m
-                        .saturating_sub(base_tier.cache_read_nano_per_m);
-                    (saved as f64 / base_tier.input_standard_nano_per_m as f64 * 100.0).round()
-                        as u32
-                } else {
-                    0
-                };
-                let hit_val = if discount_pct > 0 {
-                    format!("{hit_str} / 1M ({discount_pct}% discount)")
-                } else {
-                    format!("{hit_str} / 1M")
-                };
-                rows.push(kv("Cache Hit", &hit_val));
-            }
-
-            if let Some(off_peak) = &pricing.off_peak {
-                let op_tier = &off_peak.tiers[0];
-                let op_in =
-                    nuo_wire::pricing::NanoUsd(op_tier.input_standard_nano_per_m).format_rate();
-                let op_out =
-                    nuo_wire::pricing::NanoUsd(op_tier.output_standard_nano_per_m).format_rate();
-                rows.push(kv(
-                    "Off-Peak Rates",
-                    &format!("50% off ({op_in} in · {op_out} out)"),
-                ));
-                rows.push(kv(
-                    "Off-Peak Window",
-                    "Mon–Fri outside 09:00–12:00, 14:00–18:00 (UTC+8); weekends & holidays",
-                ));
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0);
-                let window = off_peak
-                    .schedule
-                    .window_at(nuo_wire::pricing::RatingInstant::from_epoch_ms(now_ms));
-                let (win_label, win_style) = if window.is_off_peak() {
-                    (
-                        "Off-Peak (Active)",
-                        Style::default().fg(theme.ok()).add_modifier(Modifier::BOLD),
-                    )
-                } else {
-                    ("Peak", Style::default().fg(theme.dim()))
-                };
-                rows.push(SelectableRow::styled(win_label, win_style).with_prefix(
-                    RowSegment::styled(format!("{:<16}", "Current Status"), label),
-                ));
-            }
-        }
+        rows.extend(pricing_rows);
     }
 
     rows
@@ -846,13 +762,13 @@ pub(crate) fn render_balance_quota_block(
         };
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(format!("{:<16}", "Total Balance"), label),
+            Span::styled(format_detail_label("Total Balance"), label),
             Span::styled(total_str, highlight.add_modifier(Modifier::BOLD)),
         ]));
     } else if let Some(prim) = &balance.display_primary {
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(format!("{:<16}", "Balance"), label),
+            Span::styled(format_detail_label("Balance"), label),
             Span::styled(prim.clone(), highlight.add_modifier(Modifier::BOLD)),
         ]));
     }

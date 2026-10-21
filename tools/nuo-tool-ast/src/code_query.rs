@@ -36,7 +36,7 @@ use crate::helpers::{
     WorkspaceBase, content_version, env_from_root, execution_environment, resolve_workspace_path,
     workspace_base,
 };
-use nuo_code::syntax;
+use crate::syntax;
 
 /// Maximum entries (symbols, matches, or returned declarations) per result.
 const DEFAULT_LIMIT: usize = 200;

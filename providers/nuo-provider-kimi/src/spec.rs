@@ -1,8 +1,8 @@
 //! The `kimi-code` provider template and its legacy registry preset:
 //! Moonshot AI's Kimi Code coding platform (`api.kimi.com/coding/v1`).
 
-use nuo_model_codec::reasoning::ReasoningSupport;
-use nuo_model_codec::{Model, WireProtocol};
+use nuo_inference_wire::reasoning::ReasoningSupport;
+use nuo_inference_wire::{Model, WireProtocol};
 
 use nuo_provider::*;
 
@@ -10,7 +10,7 @@ use nuo_provider::*;
 /// order — the first entry is the initial active channel. `k3` is the
 /// platform's current flagship; `kimi-k2.7-code` remains as the previous
 /// pinned alias.
-pub use nuo_model_codec::model_providers::KIMI_CODE_MODELS;
+pub use nuo_inference_wire::model_providers::KIMI_CODE_MODELS;
 
 // Kimi Code — Moonshot AI's coding platform (api.kimi.com/coding/v1).
 // The platform pins the model id to the fixed `k3` alias (Kimi K3, 1M
@@ -24,8 +24,8 @@ pub use nuo_model_codec::model_providers::KIMI_CODE_MODELS;
 // recognized default stays as the zero-risk choice.
 
 /// Baseline capability metadata for the models this provider serves,
-/// submitted to `nuo_model_codec`'s registry at link time (see
-/// [`nuo_model_codec::model::BaselineModels`]).
+/// submitted to `nuo_inference_wire`'s registry at link time (see
+/// [`nuo_inference_wire::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // Kimi (Moonshot / opencode-go)
     Model {
@@ -44,7 +44,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
         wire_entities: None,
@@ -56,7 +56,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -68,7 +68,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -80,19 +80,19 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
+inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
 
-fn prompt_cache_for_model(_: &str) -> nuo_model_codec::PromptCacheSpec {
-    nuo_model_codec::PromptCacheSpec {
-        modes: &[nuo_model_codec::PromptCacheMode::Implicit],
-        default_mode: Some(nuo_model_codec::PromptCacheMode::Implicit),
+fn prompt_cache_for_model(_: &str) -> nuo_inference_wire::PromptCacheSpec {
+    nuo_inference_wire::PromptCacheSpec {
+        modes: &[nuo_inference_wire::PromptCacheMode::Implicit],
+        default_mode: Some(nuo_inference_wire::PromptCacheMode::Implicit),
         supported_retentions: &[],
         default_retention: None,
         disable_supported: false,
@@ -106,7 +106,7 @@ fn prompt_cache_for_model(_: &str) -> nuo_model_codec::PromptCacheSpec {
 }
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_model_codec::ProviderDialect::Standard,
+    dialect: nuo_inference_wire::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
@@ -114,13 +114,13 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://api.kimi.com/coding/v1"),
     user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_provider_transport::OPENCODE_USER_AGENT,
+        nuo_provider::OPENCODE_USER_AGENT,
     )),
-    protocol: WireProtocol::ChatCompletions,
+    protocol: WireProtocol::OpenAiChatCompletions,
     // The Kimi Code platform exposes a live /models endpoint, so instances
     // created from this preset track the platform's actual model list.
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_model_codec::ClientPreset::Native,
+    default_client_profile: nuo_inference_wire::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: Some(nuo_provider::QuotaPort::KimiBalance),
     display_policy: nuo_provider::DisplayPolicy::Native,

@@ -9,17 +9,17 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;
-use nuo_model_codec::LoginMethod;
-use nuo_model_codec::ResolvedAuth;
-use nuo_model_codec::SecretString;
-use nuo_model_codec::provider_auth::{
+use nuo_egress::http::Http;
+use nuo_inference_wire::LoginMethod;
+use nuo_inference_wire::ResolvedAuth;
+use nuo_inference_wire::SecretString;
+use nuo_inference_wire::provider_auth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
 };
 use nuo_oauth::oauth::AuthError;
 use nuo_oauth::oauth::token::TokenResponse;
 use nuo_oauth::{DeviceLogin, OAuthLoginPrompt, OAuthProvider, OAuthTokenEnricher, TokenSet};
 use nuo_provider::credentials::CredentialSession;
-use nuo_provider_transport::http::Http;
 
 use crate::identity::QoderStoredIdentity;
 

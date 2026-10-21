@@ -1,6 +1,6 @@
 //! Builder for Qoder's complete phased transport pipeline.
 
-use nuo_provider_transport::pipeline::TransportPipeline;
+use nuo_provider::TransportPipeline;
 
 use super::wire::{
     CosyTransportSigner, QoderAgentEnvelope, QoderBodyCodec, QoderStreamTransformer,

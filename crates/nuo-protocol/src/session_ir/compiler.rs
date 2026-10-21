@@ -360,14 +360,15 @@ fn pass4_target_lowering(
     target_protocol: Option<crate::WireProtocol>,
     target_dialect: Option<&str>,
 ) -> Vec<Message> {
-    let is_google = target_protocol == Some(crate::WireProtocol::GoogleGemini)
-        || target_dialect.is_some_and(|dialect| {
-            dialect.eq_ignore_ascii_case("google")
-                || dialect.eq_ignore_ascii_case("google-gemini")
-                || dialect.eq_ignore_ascii_case("gemini")
-                || dialect.contains("gemini")
-                || dialect.contains("google")
-        });
+    let is_google = matches!(
+        target_protocol,
+        Some(crate::WireProtocol::GoogleGenerateContent | crate::WireProtocol::GoogleInteractions)
+    ) || target_dialect.is_some_and(|dialect| {
+        dialect.eq_ignore_ascii_case("google")
+            || dialect.eq_ignore_ascii_case("google-generate-content")
+            || dialect.eq_ignore_ascii_case("google-interactions")
+            || dialect.contains("google")
+    });
 
     if is_google {
         lower_messages_for_google(messages)
@@ -376,8 +377,12 @@ fn pass4_target_lowering(
     }
 }
 
-/// Transform messages for Google Gemini, ensuring that any unsigned / cross-provider tool calls
-/// are safely degraded to objective dialogue facts rather than emitting bare functionCalls (ADR-0046).
+/// Transform messages for Google Gemini, ensuring that any incomplete / malformed tool calls
+/// are safely degraded to objective dialogue facts rather than leaking broken syntax into the model.
+///
+/// Valid cross-provider tool calls are preserved natively: Google Gemini natively accepts
+/// `thoughtSignature: "skip_thought_signature_validator"` for historical tool calls migrated
+/// across providers without requiring degradation to artificial text markers.
 fn lower_messages_for_google(messages: Vec<Message>) -> Vec<Message> {
     let mut lowered = Vec::with_capacity(messages.len());
     let mut degraded_call_names: std::collections::HashMap<String, String> =
@@ -387,39 +392,29 @@ fn lower_messages_for_google(messages: Vec<Message>) -> Vec<Message> {
         match message.role {
             Role::Assistant => {
                 if let Some(calls) = message.tool_calls.take() {
-                    let mut retained_signed_calls = Vec::new();
+                    let mut retained_calls = Vec::new();
                     let mut degraded_call_prose = Vec::new();
 
                     for call in calls {
-                        if message.has_gemini_thought_signature_for(&call) {
-                            retained_signed_calls.push(call);
+                        let parsed = if call.arguments.trim().is_empty() {
+                            Some(serde_json::json!({}))
                         } else {
-                            // ADR-0046: Unsigned / cross-provider tool call.
-                            // Google Gemini strictly requires thought_signature on every functionCall part.
-                            // Convert this unsigned call into an objective dialogue fact.
-                            let parsed = if call.arguments.trim().is_empty() {
-                                Some(serde_json::json!({}))
-                            } else {
-                                serde_json::from_str::<serde_json::Value>(call.arguments.trim())
-                                    .ok()
-                            };
+                            serde_json::from_str::<serde_json::Value>(call.arguments.trim()).ok()
+                        };
 
+                        if parsed.is_some() {
+                            // Valid tool calls (whether carrying Gemini thought signatures or
+                            // migrated from other providers via skip_thought_signature_validator)
+                            // are preserved as native tool calls.
+                            retained_calls.push(call);
+                        } else {
+                            // Truncated / malformed JSON from an interrupted stream cannot be
+                            // serialized as a valid functionCall. Lower to an aborted fact.
                             degraded_call_names.insert(call.id.clone(), call.name.clone());
-                            if let Some(valid_json) = parsed {
-                                let canonical_args = serde_json::to_string(&valid_json)
-                                    .unwrap_or_else(|_| "{}".to_string());
-                                degraded_call_prose.push(format!(
-                                    "[Executed tool \"{}\" with arguments: {}]",
-                                    call.name, canonical_args
-                                ));
-                            } else {
-                                // Incomplete or malformed JSON arguments:
-                                // A truncated stream must never leak unparsed syntax into dialogue facts (ADR-0026, ADR-0046).
-                                degraded_call_prose.push(format!(
-                                    "[Aborted tool \"{}\" (incomplete arguments)]",
-                                    call.name
-                                ));
-                            }
+                            degraded_call_prose.push(format!(
+                                "[Aborted tool \"{}\" (incomplete arguments)]",
+                                call.name
+                            ));
                         }
                     }
 
@@ -432,8 +427,8 @@ fn lower_messages_for_google(messages: Vec<Message>) -> Vec<Message> {
                         }
                     }
 
-                    if !retained_signed_calls.is_empty() {
-                        message.tool_calls = Some(retained_signed_calls);
+                    if !retained_calls.is_empty() {
+                        message.tool_calls = Some(retained_calls);
                     }
                 }
                 lowered.push(message);
@@ -441,8 +436,6 @@ fn lower_messages_for_google(messages: Vec<Message>) -> Vec<Message> {
             Role::Tool => {
                 let call_id = message.tool_call_id.as_deref().unwrap_or_default();
                 if let Some(name) = degraded_call_names.get(call_id) {
-                    // ADR-0046: The corresponding assistant tool call was degraded to dialogue facts.
-                    // Lower this tool result into an objective user-role dialogue fact.
                     message.role = Role::User;
                     message.tool_call_id = None;
                     message.content = format!("[Tool result for \"{name}\"]:\n{}", message.content);
@@ -595,32 +588,26 @@ mod tests {
         let gemini_tool = Message::tool_result(&gemini_call, "file1.txt");
         ir.append_message("t2", 1_004_000, gemini_tool);
 
-        // Compile targeting WireProtocol::GoogleGemini directly
+        // Compile targeting WireProtocol::GoogleGenerateContent directly
         let options = CompilerOptions {
-            target_protocol: Some(crate::WireProtocol::GoogleGemini),
+            target_protocol: Some(crate::WireProtocol::GoogleGenerateContent),
             ..Default::default()
         };
         let artifact = compile_session_request(&ir, options).expect("compilation should succeed");
         let messages = &artifact.request.messages;
 
-        // Foreign assistant message: tool_calls stripped and converted to dialogue fact
+        // Foreign assistant message: valid tool_calls are preserved natively without degradation
         assert_eq!(messages[1].role, Role::Assistant);
-        assert!(messages[1].tool_calls.is_none());
-        assert!(messages[1].content.contains("Running command"));
-        assert!(messages[1].content.contains(
-            r#"[Executed tool "default_api:execute_command" with arguments: {"command":"ls"}]"#
-        ));
+        assert!(messages[1].tool_calls.is_some());
+        assert_eq!(messages[1].tool_calls.as_ref().unwrap()[0].id, "call_run_1");
+        assert_eq!(messages[1].content, "Running command");
 
-        // Foreign tool message: lowered to User role dialogue fact
-        assert_eq!(messages[2].role, Role::User);
-        assert!(messages[2].tool_call_id.is_none());
-        assert!(
-            messages[2]
-                .content
-                .contains(r#"[Tool result for "default_api:execute_command"]:"#)
-        );
+        // Foreign tool message: preserved natively as Tool role
+        assert_eq!(messages[2].role, Role::Tool);
+        assert_eq!(messages[2].tool_call_id.as_deref(), Some("call_run_1"));
+        assert_eq!(messages[2].content, "file1.txt\nfile2.txt");
 
-        // Gemini assistant message: retains native tool_calls because it has valid thought signature
+        // Gemini assistant message: retains native tool_calls
         assert_eq!(messages[3].role, Role::Assistant);
         assert!(messages[3].tool_calls.is_some());
         assert_eq!(
@@ -651,7 +638,7 @@ mod tests {
         ir.append_message("a1", 1_001_000, broken_msg);
 
         let options = CompilerOptions {
-            target_protocol: Some(crate::WireProtocol::GoogleGemini),
+            target_protocol: Some(crate::WireProtocol::GoogleGenerateContent),
             ..Default::default()
         };
         let artifact = compile_session_request(&ir, options).expect("compilation should succeed");

@@ -9,10 +9,10 @@
 pub use acp;
 pub use acp as comm;
 pub use acp as protocol;
+#[cfg(feature = "wire")]
+pub use nuo_inference_wire as wire;
 #[cfg(feature = "mcp")]
 pub use nuo_mcp as mcp;
-#[cfg(feature = "wire")]
-pub use nuo_model_codec as wire;
 pub use nuo_tool as tool;
 
 pub mod agent;

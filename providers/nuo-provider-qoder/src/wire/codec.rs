@@ -1,8 +1,8 @@
 //! QoderEncoding body codec: base64 alphabet substitution + outer-thirds swap.
 
 use base64::Engine as _;
-use nuo_model_codec::ProviderError;
-use nuo_provider_transport::pipeline::BodyCodecPhase;
+use nuo_inference_wire::ProviderError;
+use nuo_provider::BodyCodecPhase;
 
 const QODER_ALPHABET: &[u8; 64] =
     b"_doRTgHZBKcGVjlvpC,@aFSx#DPuNJme&i*MzLOEn)sUrthbf%Y^w.(kIQyXqWA!";

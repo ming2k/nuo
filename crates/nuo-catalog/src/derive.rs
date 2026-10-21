@@ -20,7 +20,7 @@
 //! be exercised with hand-built inputs and cannot observe a change between two
 //! reads of the same input.
 
-use nuo_model_codec::catalog::{Channel, ProviderEntry, Transport};
+use nuo_inference_wire::catalog::{Channel, ProviderEntry, Transport};
 use nuo_persistence::config::{Credentials, RemoteCatalogCache};
 use nuo_persistence::connections::Connection;
 use nuo_persistence::connections::Connections;
@@ -224,7 +224,7 @@ pub fn derive_channel(
         .map(|spec| spec.resolve_display_label(advertised, model))
         .unwrap_or_else(|| {
             advertised
-                .map(nuo_model_codec::catalog::clean_model_display_name)
+                .map(nuo_inference_wire::catalog::clean_model_display_name)
                 .filter(|label| !label.is_empty() && label != model)
         });
     if label.is_some() {
@@ -266,26 +266,32 @@ pub fn derive_channel(
     })?;
 
     let transport = match protocol {
-        WireProtocol::GoogleGemini => Transport::Google {
+        WireProtocol::GoogleGenerateContent => Transport::GoogleGenerateContent {
             base_url,
             client_profile,
             effort,
             dialect: dialect.google(),
         },
-        WireProtocol::AnthropicMessages => Transport::Anthropic {
+        WireProtocol::GoogleInteractions => Transport::GoogleInteractions {
+            base_url,
+            client_profile,
+            effort,
+            dialect: dialect.google_interactions(),
+        },
+        WireProtocol::AnthropicMessages => Transport::AnthropicMessages {
             base_url,
             client_profile,
             effort,
             thinking,
             dialect: dialect.anthropic(),
         },
-        WireProtocol::Responses => Transport::OpenAiResponses {
+        WireProtocol::OpenAiResponses => Transport::OpenAiResponses {
             base_url,
             client_profile,
             effort,
             dialect: dialect.openai_responses(),
         },
-        WireProtocol::ChatCompletions => Transport::OpenAi {
+        WireProtocol::OpenAiChatCompletions => Transport::OpenAiChatCompletions {
             base_url,
             client_profile,
             effort,

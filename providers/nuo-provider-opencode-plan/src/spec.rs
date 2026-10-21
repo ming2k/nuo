@@ -2,13 +2,13 @@
 //! (`opencode.ai/zen/go/v1`), authenticated via OpenCode Go API key
 //! (`OPENCODE_API_KEY`).
 
-use nuo_model_codec::reasoning::ReasoningSupport;
-use nuo_model_codec::{Model, WireProtocol};
+use nuo_inference_wire::reasoning::ReasoningSupport;
+use nuo_inference_wire::{Model, WireProtocol};
 
 use nuo_provider::*;
 
 /// Curated seed models offered by the OpenCode Plan channel.
-pub use nuo_model_codec::model_providers::OPENCODE_PLAN_MODELS;
+pub use nuo_inference_wire::model_providers::OPENCODE_PLAN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves.
 ///
@@ -35,7 +35,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
@@ -53,7 +53,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
@@ -65,7 +65,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
@@ -77,7 +77,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -89,7 +89,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -115,7 +115,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -128,7 +128,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         wire_entities: None,
@@ -140,7 +140,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         wire_entities: None,
@@ -152,7 +152,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         wire_entities: None,
@@ -164,7 +164,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
         wire_entities: None,
@@ -176,7 +176,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -188,7 +188,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -200,7 +200,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -212,7 +212,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -224,7 +224,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -236,7 +236,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -248,7 +248,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -260,7 +260,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -273,7 +273,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -285,7 +285,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -359,7 +359,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
         wire_entities: None,
@@ -371,7 +371,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
         wire_entities: None,
@@ -383,7 +383,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
         wire_entities: None,
@@ -395,7 +395,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
         wire_entities: None,
@@ -413,7 +413,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
@@ -425,24 +425,24 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
+inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_model_codec::ProviderDialect::Standard,
+    dialect: nuo_inference_wire::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[
         (
             WireProtocol::AnthropicMessages,
             std::borrow::Cow::Borrowed("https://opencode.ai/inference/go/anthropic/v1"),
         ),
         (
-            WireProtocol::GoogleGemini,
+            WireProtocol::GoogleGenerateContent,
             std::borrow::Cow::Borrowed("https://opencode.ai/inference/go/google/v1beta"),
         ),
     ]),
@@ -454,12 +454,12 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // instance-level default is the OpenAI chat-completions surface.
     root_url: std::borrow::Cow::Borrowed("https://opencode.ai/zen/go/v1"),
     user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_model_codec::client_identity::OPENCODE_USER_AGENT,
+        nuo_inference_wire::client_identity::OPENCODE_USER_AGENT,
     )),
-    protocol: WireProtocol::ChatCompletions,
+    protocol: WireProtocol::OpenAiChatCompletions,
     // Served models come from the live /zen/go/v1/models endpoint.
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_model_codec::ClientPreset::Native,
+    default_client_profile: nuo_inference_wire::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Structural,
@@ -469,11 +469,11 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 #[cfg(test)]
 mod tests {
     use super::{MODELS, OPENCODE_PLAN_MODELS};
-    use nuo_model_codec::model::{BaselineModels, resolve};
+    use nuo_inference_wire::model::{BaselineModels, resolve};
     use nuo_provider::effort_ladders;
 
     /// A discovered id with no baseline entry falls back to the 128k/no-effort
-    /// conservative default (`nuo_model_codec::model::fallback_model`), which
+    /// conservative default (`nuo_inference_wire::model::fallback_model`), which
     /// silently strips the effort control and under-reports the context window
     /// in the pickers (the `/zen/go/v1/models` payload carries ids only, so the
     /// compiled baseline is the only capability source — see

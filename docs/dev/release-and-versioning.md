@@ -44,10 +44,10 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 │  • nuo-client (SDK), nuo-host (host environment)       │
 │  • nuo-agent (cognitive loop), nuo-wire (domain & wire) │
 │  • nuo-tool, nuo-tool-derive (tool specifications)     │
-│  • nuo-model-codec (dialect translation & streaming)   │
+│  • nuo-inference-wire (dialect translation & streaming)   │
 │  • nuo-harness (orchestrator), nuo-persistence (store) │
 │  • nuo-providers (catalog & auth), nuo-mcp (MCP)       │
-│  • nuo-code (code intelligence), tools/* (tools)       │
+│  • tools/* (decoupled tool implementations)            │
 │  ➜ Versioning: Unified Lockstep                        │
 │  ➜ Manifest: Declares `version.workspace = true`       │
 └────────────────────────────────────────────────────────┘
@@ -68,13 +68,12 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 | **`nuo-host`** | **Cluster C** | Host environment, sandboxing & native tools | `version.workspace = true` | crates.io package |
 | **`nuo-tool`** | **Cluster C** | Zero-agent-runtime tool specification & schemas | `version.workspace = true` | crates.io package |
 | **`nuo-tool-derive`** | **Cluster C** | Compile-time JSON schema derive macro | Direct path companion to `nuo-tool` | crates.io package |
-| **`nuo-model-codec`**| **Cluster C** | LLM dialect translation & SSE streaming codec | `version.workspace = true` | crates.io package |
+| **`nuo-inference-wire`**| **Cluster C** | LLM dialect translation & SSE streaming codec | `version.workspace = true` | crates.io package |
 | **`nuo-persistence`**| **Cluster C** | SQLite session store, migrations & memory | `version.workspace = true` | crates.io package |
 | **`nuo-harness`** | **Cluster C** | Host execution harness, approvals & policy | `version.workspace = true` | crates.io package |
 | **`nuo-catalog`** | **Cluster C** | Single model-catalog pipeline (derive, picker, sync) shared by server & harness ([ADR-0082](../adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md)) | `version.workspace = true` | crates.io package |
 | **`nuo-providers`** | **Cluster C** | Multi-vendor model catalog & OAuth engine | `version.workspace = true` | crates.io package |
 | **`nuo-mcp`** | **Cluster C** | Model Context Protocol client & server transport | `version.workspace = true` | crates.io package |
-| **`nuo-code`** | **Cluster C** | Code query, syntax analysis & AST operations | `version.workspace = true` | crates.io package |
 | **`nuo-tool-*`** | **Cluster C** | Decoupled tool capability crates (`fs`, `exec`, `web`, `ast`)| `version.workspace = true` | crates.io package |
 
 ---
@@ -93,7 +92,7 @@ nuotc = { version = "0.0.3" }
 nuo-client = { version = "0.0.44", path = "crates/nuo-client" }
 nuo-host = { version = "0.0.44", path = "crates/nuo-host" }
 nuo-tool = { version = "0.0.44", path = "crates/nuo-tool" }
-nuo-model-codec = { version = "0.0.44", path = "crates/nuo-model-codec" }
+nuo-inference-wire = { version = "0.0.44", path = "crates/nuo-inference-wire" }
 nuo-persistence = { version = "0.0.44", path = "crates/nuo-persistence" }
 nuo-harness = { version = "0.0.44", path = "crates/nuo-harness" }
 nuo-catalog = { version = "0.0.44", path = "crates/nuo-catalog" }
@@ -193,7 +192,7 @@ When releasing a new version of the Nuo product and server/terminal suite:
    ```
 4. **CI Distribution**:
    - The CI runner matching `v*` builds pre-compiled release binary for `nuo` across Linux, macOS, and Windows.
-   - Publishes library crates in dependency order (`nuo-tool`, `nuo-host`, `nuo-model-codec`, `nuo-persistence`, `nuo-catalog`, `nuo-client`, etc.).
+   - Publishes library crates in dependency order (`nuo-tool`, `nuo-host`, `nuo-inference-wire`, `nuo-persistence`, `nuo-catalog`, `nuo-client`, etc.).
 
 ---
 

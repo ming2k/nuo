@@ -16,7 +16,7 @@
 //! nuo's traffic. Anything that fails syncs degrades to the pinned
 //! `MODEL_PROVIDER_SPEC.root_url` (failure never diminishes a
 //! connection).
-use nuo_provider_transport::http::{Http, Request};
+use nuo_egress::http::{Http, Request};
 use serde::Deserialize;
 
 /// The center surface's election endpoint (international line; v5 is the

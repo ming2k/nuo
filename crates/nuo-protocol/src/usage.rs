@@ -1,3 +1,3 @@
-//! Re-exports token usage telemetry from `nuo-model-codec::usage`.
+//! Re-exports token usage telemetry from `nuo-inference-wire::usage`.
 
-pub use nuo_model_codec::usage::*;
+pub use nuo_tool::usage::*;

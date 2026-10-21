@@ -1,3 +1,3 @@
-//! Re-exports reasoning effort types from `nuo-model-codec::effort`.
+//! Re-exports reasoning effort types from `nuo-inference-wire::effort`.
 
-pub use nuo_model_codec::effort::*;
+pub use nuo_inference_wire::effort::*;

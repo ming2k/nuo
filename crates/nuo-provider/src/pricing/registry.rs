@@ -16,8 +16,16 @@ use super::{
 /// The lookup key is the wire id without any relay vendor prefix
 /// (`deepseek/deepseek-v4-flash` → `deepseek-v4-flash`), lowercased. Ids carrying
 /// a `-free` suffix are plan-included lanes and resolve to a zero card.
+///
+/// Pricing is strictly scoped to the authoritative model provider scheme:
+/// - Subscription / quota plan surfaces (`google-antigravity`, `chatgpt-plan`,
+///   `github-copilot`, `qoder`) are not token-billed and carry no per-token rate card.
+/// - Commercial token-billed surfaces (`google` / Google AI Studio, `deepseek`,
+///   `anthropic`, `openai`) resolve rate cards for their recognized models.
+/// - Relays with vendor-namespaced models (e.g. `deepseek/...`) delegate to the
+///   explicit upstream vendor's rate card.
 pub fn resolve_model_pricing(provider: &str, model: &str) -> Option<ModelPricing> {
-    let id = lookup_id(model);
+    let (vendor_prefix, id) = split_vendor_and_id(model);
     if id.is_empty() {
         return None;
     }
@@ -26,34 +34,92 @@ pub fn resolve_model_pricing(provider: &str, model: &str) -> Option<ModelPricing
     if id.ends_with("-free") {
         return Some(ModelPricing::zero());
     }
-    if is_deepseek(provider, &id) {
-        return deepseek(&id);
+
+    let canonical_provider = nuo_inference_wire::model_providers::canonical_provider_id(provider)
+        .or_else(|| {
+            let lower = provider.trim().to_ascii_lowercase();
+            nuo_inference_wire::model_providers::canonical_provider_id(&lower)
+        });
+
+    // Explicit subscription / quota plan providers do not have per-token API pricing.
+    if let Some(canonical) = canonical_provider.as_deref() {
+        if is_subscription_plan(canonical) {
+            return None;
+        }
     }
 
-    let p = provider.to_ascii_lowercase();
-    if p.contains("google") || p.contains("gemini") || id.contains("gemini") {
-        return gemini(&id);
+    // Determine the effective vendor scheme for pricing:
+    // 1. Authoritative canonical provider (e.g. "google", "deepseek", "anthropic", "openai").
+    // 2. Or, for relays / proxy surfaces, the model's explicit vendor namespace prefix (e.g. "deepseek/...").
+    let effective_vendor = resolve_effective_vendor(
+        canonical_provider.as_deref(),
+        provider,
+        vendor_prefix.as_deref(),
+    );
+
+    match effective_vendor.as_deref() {
+        Some("deepseek") => deepseek(&id),
+        Some("google") => gemini(&id),
+        Some("anthropic") => anthropic(&id),
+        Some("openai") => openai(&id),
+        _ => None,
     }
-    if p.contains("anthropic") || p.contains("claude") || id.contains("claude") {
-        return anthropic(&id);
-    }
-    if p.contains("openai") || id.contains("gpt") {
-        return openai(&id);
-    }
-    None
 }
 
-/// Lowercase the wire id and drop a relay's `vendor/` namespace.
-fn lookup_id(model: &str) -> String {
+fn resolve_effective_vendor(
+    canonical_provider: Option<&str>,
+    provider: &str,
+    vendor_prefix: Option<&str>,
+) -> Option<String> {
+    match canonical_provider {
+        Some("deepseek") => Some("deepseek".to_string()),
+        Some("google") => Some("google".to_string()),
+        Some("anthropic") => Some("anthropic".to_string()),
+        Some("openai") => Some("openai".to_string()),
+        _ => {
+            let p = provider.trim().to_ascii_lowercase();
+            if p == "deepseek" {
+                Some("deepseek".to_string())
+            } else if p == "google" || p == "google-ai-studio" || p == "gemini" {
+                Some("google".to_string())
+            } else if p == "anthropic" || p == "claude" {
+                Some("anthropic".to_string())
+            } else if p == "openai" {
+                Some("openai".to_string())
+            } else if let Some(v) = vendor_prefix {
+                let v_canon = nuo_inference_wire::model_providers::canonical_provider_id(v)
+                    .unwrap_or_else(|| v.to_ascii_lowercase());
+                if matches!(
+                    v_canon.as_str(),
+                    "deepseek" | "google" | "anthropic" | "openai"
+                ) {
+                    Some(v_canon)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn is_subscription_plan(canonical: &str) -> bool {
+    matches!(
+        canonical,
+        "google-antigravity" | "chatgpt-plan" | "github-copilot" | "qoder"
+    )
+}
+
+/// Lowercase the wire id and split a relay's `vendor/` namespace.
+fn split_vendor_and_id(model: &str) -> (Option<String>, String) {
     let lower = model.trim().to_ascii_lowercase();
     match lower.rsplit_once('/') {
-        Some((_, tail)) if !tail.is_empty() => tail.to_string(),
-        _ => lower,
+        Some((vendor, tail)) if !vendor.is_empty() && !tail.is_empty() => {
+            (Some(vendor.to_string()), tail.to_string())
+        }
+        _ => (None, lower),
     }
-}
-
-fn is_deepseek(provider: &str, id: &str) -> bool {
-    provider.to_ascii_lowercase().contains("deepseek") || id.contains("deepseek")
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +321,10 @@ fn gemini(id: &str) -> Option<ModelPricing> {
     if id.contains("pro") {
         return Some(gemini_2_5_pro());
     }
-    Some(gemini_2_0_flash())
+    if id.contains("2.0") || id.contains("1.5-flash") || id == "gemini-flash" {
+        return Some(gemini_2_0_flash());
+    }
+    None
 }
 
 /// Gemini 4 Argon baseline pricing (`gemini-4-argon`, Google Frontier flagship):
@@ -434,7 +503,7 @@ pub fn gpt_4o_mini() -> ModelPricing {
 mod tests {
     use super::*;
     use crate::pricing::{NanoUsd, RateWindow, RatingInstant};
-    use nuo_model_codec::TokenUsage;
+    use nuo_tool::TokenUsage;
 
     /// 2026-10-19 (Monday) at `hour:minute` UTC.
     fn utc_monday(hour: u64, minute: u64) -> RatingInstant {
@@ -672,5 +741,39 @@ mod tests {
         assert_eq!(cost.cache_read_cost.0, 11_250_000);
         assert_eq!(cost.output_cost.0, 7_500_000);
         assert_eq!(cost.amount.0, 56_250_000);
+    }
+
+    #[test]
+    fn subscription_plans_do_not_resolve_to_token_rate_cards() {
+        // Google Antigravity is a subscription quota plan (ADR-0036), not an API-billed provider.
+        // It must never resolve to Google AI Studio's commercial rate card.
+        assert!(resolve_model_pricing("google-antigravity", "gemini-3.8-flash").is_none());
+        assert!(resolve_model_pricing("google-antigravity", "gemini-4-argon").is_none());
+        assert!(resolve_model_pricing("google-antigravity", "claude-sonnet-4-6").is_none());
+        assert!(resolve_model_pricing("antigravity-oauth", "gemini-3.8-flash").is_none());
+
+        // ChatGPT Plan (OAuth subscription) must not resolve to OpenAI Platform API rates.
+        assert!(resolve_model_pricing("chatgpt-plan", "gpt-4o").is_none());
+        assert!(resolve_model_pricing("chatgpt", "gpt-4o").is_none());
+
+        // GitHub Copilot must not resolve to third-party commercial rate cards.
+        assert!(resolve_model_pricing("github-copilot", "claude-sonnet-4-6").is_none());
+        assert!(resolve_model_pricing("copilot", "gpt-4o").is_none());
+    }
+
+    #[test]
+    fn google_ai_studio_only_prices_recognized_gemini_models() {
+        assert!(resolve_model_pricing("google", "gemini-3.8-flash").is_some());
+        assert!(resolve_model_pricing("google-ai-studio", "gemini-4-argon").is_some());
+        assert!(resolve_model_pricing("google", "unknown-gemini-xyz").is_none());
+        assert!(resolve_model_pricing("google", "claude-sonnet-4-6").is_none());
+    }
+
+    #[test]
+    fn relays_with_explicit_vendor_namespaces_resolve_to_vendor_cards() {
+        assert!(resolve_model_pricing("commandcode", "deepseek/deepseek-v4-flash").is_some());
+        assert!(resolve_model_pricing("openrouter", "deepseek/deepseek-v4-flash").is_some());
+        assert!(resolve_model_pricing("openrouter", "google/gemini-3.8-flash").is_some());
+        assert!(resolve_model_pricing("openrouter", "google/mystery-model").is_none());
     }
 }

@@ -247,7 +247,7 @@ impl CognitiveLoop {
             let mut usage = crate::provider::TokenUsage::default();
 
             #[cfg(feature = "wire")]
-            let mut stream_guard = nuo_model_codec::StreamLoopDetector::new(1024);
+            let mut stream_guard = nuo_inference_wire::StreamLoopDetector::new(1024);
 
             while let Some(delta_res) = stream.next().await {
                 let delta = delta_res?;
@@ -255,7 +255,7 @@ impl CognitiveLoop {
                     #[cfg(feature = "wire")]
                     if let Some(pattern) = stream_guard.push_and_check(&content) {
                         tracing::warn!(pattern = %pattern.description(), "Runaway token loop intercepted in cognitive stream");
-                        content_acc = nuo_model_codec::StreamLoopDetector::trim_suffix(
+                        content_acc = nuo_inference_wire::StreamLoopDetector::trim_suffix(
                             &content_acc,
                             &pattern,
                         );
@@ -287,7 +287,7 @@ impl CognitiveLoop {
                     #[cfg(feature = "wire")]
                     if let Some(pattern) = stream_guard.push_and_check(&thinking) {
                         tracing::warn!(pattern = %pattern.description(), "Runaway thinking loop intercepted in cognitive stream");
-                        thinking_acc = nuo_model_codec::StreamLoopDetector::trim_suffix(
+                        thinking_acc = nuo_inference_wire::StreamLoopDetector::trim_suffix(
                             &thinking_acc,
                             &pattern,
                         );

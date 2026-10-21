@@ -1,3 +1,3 @@
-//! Re-exports BPE tokenizer from `nuo-model-codec::tokenizer`.
+//! Re-exports BPE tokenizer from `nuo-inference-wire::tokenizer`.
 
-pub use nuo_model_codec::tokenizer::*;
+pub use nuo_tool::tokenizer::*;

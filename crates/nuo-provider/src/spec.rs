@@ -1,8 +1,8 @@
 //! Provider static specifications, route resolutions, and prompt-cache policies (ADR-0015).
 
-pub use nuo_model_codec::RemoteCatalogSource;
-pub use nuo_model_codec::provider_surface::ProviderPromptCache;
-use nuo_model_codec::{
+pub use nuo_inference_wire::RemoteCatalogSource;
+pub use nuo_inference_wire::provider_surface::ProviderPromptCache;
+use nuo_inference_wire::{
     ApiRoot, ClientPreset, Model, PromptCacheCapabilities, PromptCacheSpec, ProviderDialect,
     WireProtocol,
 };
@@ -107,10 +107,11 @@ impl ModelProviderSpec {
     pub fn resolve_display_label(&self, advertised: Option<&str>, model: &str) -> Option<String> {
         match self.display_policy {
             DisplayPolicy::Native => advertised
-                .map(nuo_model_codec::catalog::clean_model_display_name)
+                .map(nuo_inference_wire::catalog::clean_model_display_name)
                 .filter(|label| !label.is_empty() && label != model),
             DisplayPolicy::Structural => {
-                let label = nuo_model_codec::catalog::format_model_display_name(advertised, model);
+                let label =
+                    nuo_inference_wire::catalog::format_model_display_name(advertised, model);
                 (label != model).then_some(label)
             }
         }
@@ -166,9 +167,12 @@ impl ModelProviderSpec {
 /// Suffix algebra resolving an API root to the transport endpoint.
 pub fn endpoint_for(dialect: ProviderDialect, root: &ApiRoot, protocol: WireProtocol) -> String {
     match (protocol, dialect) {
-        (WireProtocol::GoogleGemini, _) | (_, ProviderDialect::Qoder) => root.as_str().to_string(),
-        (WireProtocol::ChatCompletions, _) => root.append("chat/completions"),
-        (WireProtocol::Responses, _) => root.append("responses"),
+        (WireProtocol::GoogleGenerateContent, _) | (_, ProviderDialect::Qoder) => {
+            root.as_str().to_string()
+        }
+        (WireProtocol::GoogleInteractions, _) => root.append("interactions"),
+        (WireProtocol::OpenAiChatCompletions, _) => root.append("chat/completions"),
+        (WireProtocol::OpenAiResponses, _) => root.append("responses"),
         (WireProtocol::AnthropicMessages, _) => root.append("messages"),
     }
 }
@@ -195,7 +199,7 @@ pub fn register_provider_specs(specs: impl IntoIterator<Item = ModelProviderSpec
 
 /// Look up a provider specification by its stable id.
 pub fn model_provider_spec(id: &str) -> Option<Arc<ModelProviderSpec>> {
-    let canonical = nuo_model_codec::model_providers::canonical_provider_id(id)
+    let canonical = nuo_inference_wire::model_providers::canonical_provider_id(id)
         .unwrap_or_else(|| id.to_string());
     let map = SPECS.read().unwrap_or_else(|e| e.into_inner());
     map.get(id).or_else(|| map.get(&canonical)).cloned()
@@ -218,7 +222,10 @@ pub fn route_for_model(
 /// Synchronize user-declared provider definitions into the provider specifications registry.
 pub fn sync_user_declared_providers(
     declared: &impl AsRef<
-        std::collections::BTreeMap<String, nuo_model_codec::model_providers::UserDeclaredProvider>,
+        std::collections::BTreeMap<
+            String,
+            nuo_inference_wire::model_providers::UserDeclaredProvider,
+        >,
     >,
 ) -> Result<(), String> {
     let mut next = std::collections::BTreeMap::new();
@@ -226,15 +233,17 @@ pub fn sync_user_declared_providers(
         provider.validate(id)?;
         let wire = provider
             .default_protocol
-            .unwrap_or(nuo_model_codec::WireProtocol::ChatCompletions);
+            .unwrap_or(nuo_inference_wire::WireProtocol::OpenAiChatCompletions);
         let dialect = provider.dialect.unwrap_or_default();
         let catalog_source = provider.catalog.unwrap_or_else(|| {
             RemoteCatalogSource::Endpoint(match dialect {
-                nuo_model_codec::ProviderDialect::Antigravity => {
-                    nuo_model_codec::CatalogShape::GoogleCloudCode
+                nuo_inference_wire::ProviderDialect::Antigravity => {
+                    nuo_inference_wire::CatalogShape::GoogleCloudCode
                 }
-                nuo_model_codec::ProviderDialect::ChatGpt => nuo_model_codec::CatalogShape::Codex,
-                _ => nuo_model_codec::CatalogShape::from_wire_protocol(wire),
+                nuo_inference_wire::ProviderDialect::ChatGpt => {
+                    nuo_inference_wire::CatalogShape::Codex
+                }
+                _ => nuo_inference_wire::CatalogShape::from_wire_protocol(wire),
             })
         });
         let spec = ModelProviderSpec {
@@ -256,7 +265,7 @@ pub fn sync_user_declared_providers(
             catalog_source,
             default_client_profile: provider
                 .client_profile
-                .unwrap_or(nuo_model_codec::ClientPreset::Native),
+                .unwrap_or(nuo_inference_wire::ClientPreset::Native),
             client_profile_sensitive: provider.client_profile_sensitive,
             prompt_cache: PromptCachePolicy::Declared(
                 provider.prompt_cache.clone().unwrap_or_default(),

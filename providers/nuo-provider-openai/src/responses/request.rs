@@ -10,7 +10,8 @@
 //! - Auth: `Authorization: Bearer <oauth access_token>` plus the optional
 //!   `ChatGPT-Account-Id` header (applied by the provider, not here).
 //! - Body: `{model, instructions?, input, tools?, reasoning?, tool_choice?, stream}`.
-use nuo_model_codec::{Effort, Message, Role};
+use nuo_inference_wire::Effort;
+use nuo_tool::{Message, Role};
 use serde_json::{Value, json};
 
 use super::tool_trace::{self, InputItem};
@@ -47,16 +48,16 @@ pub struct BodyInput<'a> {
     pub model: &'a str,
     pub stream: bool,
     /// Structured instructions from the instruction manifest.
-    pub instructions: Option<&'a nuo_model_codec::InstructionBundle>,
+    pub instructions: Option<&'a nuo_inference_wire::InstructionBundle>,
     /// OpenAI-shaped tool specs (`{type:"function", function:{...}}`), if any.
-    pub tool_specs: Option<&'a [nuo_model_codec::ToolSpec]>,
+    pub tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
     pub reasoning_effort: Option<Effort>,
-    pub delivery: &'a nuo_model_codec::RequestDelivery,
+    pub delivery: &'a nuo_inference_wire::RequestDelivery,
     pub store: bool,
     /// Provider-specific behavior layered on the shared Responses wire. The
     /// builder never emits a field this dialect does not define (ADR-0083).
-    pub dialect: nuo_model_codec::OpenAiResponsesDialect,
-    pub cache_plan: &'a nuo_model_codec::ResolvedCachePolicy,
+    pub dialect: nuo_inference_wire::OpenAiResponsesDialect,
+    pub cache_plan: &'a nuo_inference_wire::ResolvedCachePolicy,
 }
 
 /// Build the Responses request body.
@@ -67,7 +68,7 @@ pub struct BodyInput<'a> {
 /// `function_call_output` references a preceding `function_call`, and every
 /// `function_call` has its output (mirrors the chat-completions builder).
 pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Result<Value, RequestBuildError> {
-    let capabilities = nuo_model_codec::ModelCapabilities::for_channel(input.model, None);
+    let capabilities = nuo_inference_wire::ModelCapabilities::for_channel(input.model, None);
     body_with_capabilities(messages, input, &capabilities)
 }
 
@@ -77,7 +78,7 @@ pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Result<Value, Reque
 pub fn body_with_capabilities(
     messages: Vec<Message>,
     input: BodyInput<'_>,
-    capabilities: &nuo_model_codec::ModelCapabilities,
+    capabilities: &nuo_inference_wire::ModelCapabilities,
 ) -> Result<Value, RequestBuildError> {
     let BodyInput {
         model: model_id,
@@ -103,7 +104,7 @@ pub fn body_with_capabilities(
     // shared with every other transport (`crate::vision`): only a
     // route that *declared* no image input loses its attachments.
     let (messages, _dropped_images) =
-        nuo_provider_transport::vision::project_images_for_route(model_id, messages, capabilities);
+        nuo_provider::project_images_for_route(model_id, messages, capabilities);
     let (mut instructions, ephemeral_instructions) = if let Some(bundle) = input_instructions {
         (
             bundle.render_system_instructions(),
@@ -123,8 +124,9 @@ pub fn body_with_capabilities(
                 instructions.push_str(&m.content);
             }
             _ => {
-                if let nuo_model_codec::RequestDelivery::RemoteContinuation { input_start, .. } =
-                    delivery
+                if let nuo_inference_wire::RequestDelivery::RemoteContinuation {
+                    input_start, ..
+                } = delivery
                     && index < *input_start
                 {
                     continue;
@@ -152,9 +154,9 @@ pub fn body_with_capabilities(
                 input_items.push(InputItem::plain(message_item("user", &m, "input_text")));
             }
             Role::Assistant => {
-                if matches!(delivery, nuo_model_codec::RequestDelivery::OpaqueReplay) {
+                if matches!(delivery, nuo_inference_wire::RequestDelivery::OpaqueReplay) {
                     match m.provider_meta.as_ref().and_then(|meta| {
-                        meta.get(nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
+                        meta.get(nuo_inference_wire::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
                     }) {
                         Some(Value::Array(items)) if items.is_empty() => {
                             return Err(RequestBuildError::EmptyReplayArtifact);
@@ -230,12 +232,11 @@ pub fn body_with_capabilities(
         // `reasoning` items (DeepSeek) neither define this grant nor need it.
         body["include"] = json!(["reasoning.encrypted_content"]);
     }
-    if let nuo_model_codec::RequestDelivery::RemoteContinuation {
-        previous_response_id,
-        ..
+    if let nuo_inference_wire::RequestDelivery::RemoteContinuation {
+        continuation_id, ..
     } = delivery
     {
-        body["previous_response_id"] = json!(previous_response_id);
+        body["previous_response_id"] = json!(continuation_id);
     }
     if !instructions.is_empty() {
         body["instructions"] = json!(instructions);
@@ -281,9 +282,10 @@ pub fn body_with_capabilities(
 /// calls; older calls are already settled inside the remote chain.
 fn remote_parent_call_ids(
     messages: &[Message],
-    delivery: &nuo_model_codec::RequestDelivery,
+    delivery: &nuo_inference_wire::RequestDelivery,
 ) -> Vec<String> {
-    let nuo_model_codec::RequestDelivery::RemoteContinuation { input_start, .. } = delivery else {
+    let nuo_inference_wire::RequestDelivery::RemoteContinuation { input_start, .. } = delivery
+    else {
         return Vec::new();
     };
     let Some(anchor_index) = input_start.checked_sub(1) else {
@@ -309,7 +311,7 @@ fn valid_message(message: &Message) -> bool {
                 .map(|calls| calls.is_empty())
                 .unwrap_or(true)
             && !message.provider_meta.as_ref().is_some_and(|meta| {
-                meta.contains_key(nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
+                meta.contains_key(nuo_inference_wire::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
             });
         return !empty;
     }
@@ -338,7 +340,7 @@ fn message_item(role: &str, m: &Message, text_part: &str) -> Value {
 /// Flatten the OpenAI function-spec tool shape (`{type:"function",
 /// Translate provider-neutral [`ToolSpec`]s into the OpenAI Responses tool
 /// shape (`{type:"function", name, description, parameters, strict:false}`).
-fn flatten_tools(tool_specs: Option<&[nuo_model_codec::ToolSpec]>) -> Option<Value> {
+fn flatten_tools(tool_specs: Option<&[nuo_provider::capability::ToolSpec]>) -> Option<Value> {
     let specs = tool_specs?;
     let out: Vec<Value> = specs
         .iter()
@@ -384,7 +386,7 @@ pub fn headers(
 ) -> Vec<(&'static str, String)> {
     let mut h = vec![("Authorization", format!("Bearer {access_token}"))];
     if copilot {
-        for (name, value) in nuo_provider_transport::COPILOT_CLIENT_HEADERS {
+        for (name, value) in nuo_provider::COPILOT_CLIENT_HEADERS {
             h.push((*name, value.to_string()));
         }
         h.push(("x-initiator", "user".to_string()));
@@ -426,21 +428,21 @@ pub fn has_input_image(body: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_model_codec::ToolCall;
+    use nuo_tool::ToolCall;
 
-    static DEFAULT_DELIVERY: nuo_model_codec::RequestDelivery =
-        nuo_model_codec::RequestDelivery::FullReplay;
-    static DEFAULT_CACHE_PLAN: nuo_model_codec::ResolvedCachePolicy =
-        nuo_model_codec::ResolvedCachePolicy::Unsupported;
+    static DEFAULT_DELIVERY: nuo_inference_wire::RequestDelivery =
+        nuo_inference_wire::RequestDelivery::FullReplay;
+    static DEFAULT_CACHE_PLAN: nuo_inference_wire::ResolvedCachePolicy =
+        nuo_inference_wire::ResolvedCachePolicy::Unsupported;
 
     fn test_body_input<'a>(
         model: &'a str,
         stream: bool,
-        tool_specs: Option<&'a [nuo_model_codec::ToolSpec]>,
+        tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
         reasoning_effort: Option<Effort>,
-        delivery: &'a nuo_model_codec::RequestDelivery,
+        delivery: &'a nuo_inference_wire::RequestDelivery,
         store: bool,
-        cache_plan: &'a nuo_model_codec::ResolvedCachePolicy,
+        cache_plan: &'a nuo_inference_wire::ResolvedCachePolicy,
     ) -> BodyInput<'a> {
         BodyInput {
             model,
@@ -450,7 +452,7 @@ mod tests {
             reasoning_effort,
             delivery,
             store,
-            dialect: nuo_model_codec::OpenAiResponsesDialect::Standard,
+            dialect: nuo_inference_wire::OpenAiResponsesDialect::Standard,
             cache_plan,
         }
     }
@@ -464,12 +466,12 @@ mod tests {
 
     /// Capability view for a DeepSeek Responses route: reasoning via plaintext
     /// `reasoning` output items, the full native effort ladder (ADR-0083).
-    fn deepseek_capabilities() -> nuo_model_codec::ModelCapabilities {
-        nuo_model_codec::ModelCapabilities {
+    fn deepseek_capabilities() -> nuo_inference_wire::ModelCapabilities {
+        nuo_inference_wire::ModelCapabilities {
             family: "deepseek".into(),
             context_window: 1_000_000,
             max_output_tokens: None,
-            thinking: nuo_model_codec::ReasoningSupport::ReasoningContent,
+            thinking: nuo_inference_wire::ReasoningSupport::ReasoningContent,
             tool_call: true,
             vision: Some(true),
             effort_levels: Effort::ORDER.iter().copied().map(Into::into).collect(),
@@ -480,7 +482,7 @@ mod tests {
     fn deepseek_body_input<'a>(
         reasoning_effort: Option<Effort>,
         store: bool,
-        cache_plan: &'a nuo_model_codec::ResolvedCachePolicy,
+        cache_plan: &'a nuo_inference_wire::ResolvedCachePolicy,
     ) -> BodyInput<'a> {
         BodyInput {
             model: "deepseek-flash",
@@ -490,7 +492,7 @@ mod tests {
             reasoning_effort,
             delivery: &DEFAULT_DELIVERY,
             store,
-            dialect: nuo_model_codec::OpenAiResponsesDialect::DeepSeek,
+            dialect: nuo_inference_wire::OpenAiResponsesDialect::DeepSeek,
             cache_plan,
         }
     }
@@ -545,7 +547,7 @@ mod tests {
         // A route with no effort ladder and no override must not send `{}`:
         // the documented default (thinking on, server-chosen effort) applies
         // only when the field is absent.
-        let capabilities = nuo_model_codec::ModelCapabilities {
+        let capabilities = nuo_inference_wire::ModelCapabilities {
             effort_levels: Vec::new(),
             ..deepseek_capabilities()
         };
@@ -646,7 +648,7 @@ mod tests {
                 true,
                 None,
                 None,
-                &nuo_model_codec::RequestDelivery::OpaqueReplay,
+                &nuo_inference_wire::RequestDelivery::OpaqueReplay,
                 false,
                 &DEFAULT_CACHE_PLAN,
             ),
@@ -675,7 +677,7 @@ mod tests {
         fn opaque_assistant(call: ToolCall, item_id: &str) -> Message {
             let mut provider_meta = serde_json::Map::new();
             provider_meta.insert(
-                nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
+                nuo_inference_wire::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
                 serde_json::json!([{
                     "id": item_id,
                     "type": "function_call",
@@ -714,7 +716,7 @@ mod tests {
                 true,
                 None,
                 None,
-                &nuo_model_codec::RequestDelivery::OpaqueReplay,
+                &nuo_inference_wire::RequestDelivery::OpaqueReplay,
                 false,
                 &DEFAULT_CACHE_PLAN,
             ),
@@ -739,8 +741,8 @@ mod tests {
             name: "lookup".into(),
             arguments: "{}".into(),
         };
-        let delivery = nuo_model_codec::RequestDelivery::RemoteContinuation {
-            previous_response_id: "resp_1".into(),
+        let delivery = nuo_inference_wire::RequestDelivery::RemoteContinuation {
+            continuation_id: "resp_1".into(),
             input_start: 2,
         };
         let body = body(
@@ -826,17 +828,17 @@ mod tests {
             test_body_input(
                 "gpt-5.6-sol",
                 true,
-                Some(&[nuo_model_codec::ToolSpec {
+                Some(&[nuo_provider::capability::ToolSpec {
                     name: "lookup".to_string(),
                     description: "lookup".to_string(),
                     parameters: serde_json::json!({"type": "object"}),
                 }]),
                 None,
-                &nuo_model_codec::RequestDelivery::OpaqueReplay,
+                &nuo_inference_wire::RequestDelivery::OpaqueReplay,
                 false,
-                &nuo_model_codec::ResolvedCachePolicy::Unsupported,
+                &nuo_inference_wire::ResolvedCachePolicy::Unsupported,
             ),
-            &nuo_model_codec::ModelCapabilities::for_channel("gpt-5.6-sol", None),
+            &nuo_inference_wire::ModelCapabilities::for_channel("gpt-5.6-sol", None),
         )
         .unwrap();
         assert_eq!(
@@ -914,16 +916,16 @@ mod tests {
     #[test]
     fn user_message_with_image_serializes_as_input_image_string_url() {
         let mut msg = Message::new(Role::User, "look at this");
-        msg.images = Some(vec![nuo_model_codec::message::ImagePart {
+        msg.images = Some(vec![nuo_tool::message::ImagePart {
             mime: "image/png".to_string(),
             data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=".to_string(),
         }]);
 
-        let remote = nuo_model_codec::RemoteModelMetadata {
+        let remote = nuo_inference_wire::RemoteModelMetadata {
             vision: Some(true),
             ..Default::default()
         };
-        let caps = nuo_model_codec::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
+        let caps = nuo_inference_wire::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
 
         let payload = body_with_capabilities(
             vec![msg],
@@ -961,16 +963,16 @@ mod tests {
         // for a route that declared no image input — the Responses API 400s on
         // `input_image` outright.
         let mut msg = Message::new(Role::User, "look at this");
-        msg.images = Some(vec![nuo_model_codec::message::ImagePart {
+        msg.images = Some(vec![nuo_tool::message::ImagePart {
             mime: "image/png".to_string(),
             data: "aGk=".to_string(),
         }]);
 
-        let remote = nuo_model_codec::RemoteModelMetadata {
+        let remote = nuo_inference_wire::RemoteModelMetadata {
             vision: Some(false),
             ..Default::default()
         };
-        let caps = nuo_model_codec::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
+        let caps = nuo_inference_wire::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
 
         let payload = body_with_capabilities(
             vec![msg],
@@ -998,7 +1000,7 @@ mod tests {
     fn empty_opaque_replay_artifact_fails_closed() {
         let mut provider_meta = serde_json::Map::new();
         provider_meta.insert(
-            nuo_model_codec::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
+            nuo_inference_wire::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
             serde_json::json!([]),
         );
         let assistant = Message {
@@ -1012,7 +1014,7 @@ mod tests {
                 true,
                 None,
                 None,
-                &nuo_model_codec::RequestDelivery::OpaqueReplay,
+                &nuo_inference_wire::RequestDelivery::OpaqueReplay,
                 false,
                 &DEFAULT_CACHE_PLAN,
             ),

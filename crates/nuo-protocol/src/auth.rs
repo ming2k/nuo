@@ -1,3 +1,3 @@
-//! Re-exports provider authentication metadata types from `nuo-model-codec::auth`.
+//! Re-exports provider authentication metadata types from `nuo-inference-wire::auth`.
 
-pub use nuo_model_codec::auth::*;
+pub use nuo_inference_wire::auth::*;

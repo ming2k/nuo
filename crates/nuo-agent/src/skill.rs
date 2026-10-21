@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[cfg(feature = "wire")]
-pub use nuo_model_codec::CacheControl;
+pub use nuo_inference_wire::CacheControl;
 
 #[cfg(not(feature = "wire"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

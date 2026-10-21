@@ -16,16 +16,16 @@ pub use crate::oauth::{AuthError, browser, device, pkce};
 
 use crate::oauth::token::TokenResponse;
 use futures::future::BoxFuture;
-use nuo_model_codec::provider_auth::{DeviceFlowMode, OAuthConfig};
+use nuo_egress::http::Http;
+use nuo_inference_wire::provider_auth::{DeviceFlowMode, OAuthConfig};
 use nuo_provider::credentials::{CredentialHost, CredentialStore, TokenSet};
-use nuo_provider_transport::http::Http;
 
 use crate::enricher::{OAuthTokenEnricher, StandardOAuthEnricher, build_token_set_with_enricher};
 use crate::manual::parse_authorization_response;
 use crate::provider::{OAuthProvider, oauth_provider};
 
 use nuo_host::SecretString;
-pub use nuo_model_codec::LoginMethod;
+pub use nuo_inference_wire::LoginMethod;
 use std::sync::{Arc, Mutex};
 
 const OAUTH_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -47,7 +47,7 @@ pub struct OAuthLoginPrompt {
 /// blocks on a localhost callback or device-token poll.
 pub struct OAuthLoginSession {
     prompt: OAuthLoginPrompt,
-    client: nuo_provider_transport::http::Http,
+    client: Http,
     flow: OAuthLoginFlow,
 }
 
@@ -211,7 +211,7 @@ impl OAuth {
     }
 
     /// Borrow the HTTP client.
-    pub fn client(&self) -> &nuo_provider_transport::http::Http {
+    pub fn client(&self) -> &Http {
         &self.client
     }
 
@@ -470,10 +470,7 @@ impl BrowserLogin {
     }
 
     /// Wait for the callback (or manual input) and exchange the authorization code for tokens.
-    pub async fn complete(
-        self,
-        client: &nuo_provider_transport::http::Http,
-    ) -> Result<TokenResponse, AuthError> {
+    pub async fn complete(self, client: &Http) -> Result<TokenResponse, AuthError> {
         let outcome = tokio::time::timeout(std::time::Duration::from_secs(5 * 60), self.rx)
             .await
             .map_err(|_| AuthError::Timeout)?

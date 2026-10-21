@@ -161,6 +161,19 @@ impl SelectableRow {
         }
     }
 
+    /// Convert a row back into an engine `Line`.
+    #[allow(dead_code)]
+    pub(crate) fn to_line(&self) -> nuotc::Line<'static> {
+        let mut spans = Vec::new();
+        if let Some(prefix) = &self.prefix {
+            spans.push(nuotc::Span::styled(prefix.text.clone(), prefix.style));
+        }
+        for seg in &self.segments {
+            spans.push(nuotc::Span::styled(seg.text.clone(), seg.style));
+        }
+        nuotc::Line::from(spans)
+    }
+
     /// The row's document text (content segments only — the decoration
     /// prefix is not part of the document).
     pub(crate) fn text(&self) -> String {

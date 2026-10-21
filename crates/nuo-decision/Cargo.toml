@@ -1,0 +1,27 @@
+[package]
+name = "nuo-decision"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "System One decision engine: typed calibrated probabilistic decision protocols (TypeSafe Jev) over the shared model wire transport"
+
+[dependencies]
+nuo-inference-wire = { workspace = true }
+netune = { workspace = true, optional = true }
+netune-trace = { workspace = true, optional = true }
+bytes = { workspace = true }
+http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[features]
+default = ["netune"]
+netune = ["dep:netune", "dep:netune-trace", "nuo-inference-wire/netune"]
+reqwest-oracle = ["nuo-inference-wire/reqwest-oracle"]
+
+[lints]
+workspace = true

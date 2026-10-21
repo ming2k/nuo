@@ -73,7 +73,7 @@ impl CommandCodeUsageFetcher {
 
     pub async fn fetch_usage(
         &self,
-        client: &nuo_provider_transport::http::Http,
+        client: &nuo_egress::http::Http,
         _base_url: &str,
         api_key: &str,
     ) -> Result<ProviderUsage, String> {
@@ -85,7 +85,7 @@ impl CommandCodeUsageFetcher {
                 &[
                     ("authorization", auth.as_str()),
                     ("accept", "application/json"),
-                    ("user-agent", nuo_provider_transport::NUO_USER_AGENT),
+                    ("user-agent", nuo_provider::NUO_USER_AGENT),
                 ],
             )
             .await

@@ -10,7 +10,11 @@
 
 use async_trait::async_trait;
 use nuo_host::SecretString;
-use nuo_model_codec::{Effort, Message, Provider as _, ProviderStreamEvent, Role, Tool};
+use nuo_inference_wire::Effort;
+use nuo_provider::Provider;
+use nuo_provider::capability::ProviderStreamEvent;
+use nuo_tool::Tool;
+use nuo_tool::{Message, Role};
 
 struct WeatherTool;
 
@@ -52,7 +56,7 @@ async fn main() {
     let model = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "qwen3.8-flash".to_string());
-    let baseline = nuo_model_codec::model::resolve(&model);
+    let baseline = nuo_inference_wire::model::resolve(&model);
     let spec = nuo_server::provider_registry::model_provider_spec("qianwen")
         .unwrap_or_else(|| panic!("built-in qianwen spec is registered"));
     let url = format!("{}/chat/completions", spec.root_url.trim_end_matches('/'));
@@ -72,7 +76,7 @@ async fn main() {
         &url,
     )
     .with_id("qianwen-smoke".to_string())
-    .with_model_capabilities(nuo_model_codec::ModelCapabilities::for_channel(
+    .with_model_capabilities(nuo_inference_wire::ModelCapabilities::for_channel(
         baseline.id,
         None,
     ));
@@ -145,7 +149,7 @@ async fn main() {
     );
 
     // Round 3: native tool calls — the harness requires them.
-    let request = nuo_model_codec::ModelRequest::with_tools(
+    let request = nuo_provider::capability::ModelRequest::with_tools(
         vec![Message::new(
             Role::User,
             "What is the weather in Beijing? Use the tool.",

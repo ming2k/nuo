@@ -225,11 +225,8 @@ pub use skills::{
     discover_all_with_trust_state, discoverable_skill_directories, format_skill_injection,
     format_skill_list, list_skill_files, project_skills_present, resolve_mentions,
 };
-pub(crate) mod sync;
-pub mod syntax {
-    pub use nuo_code::syntax::*;
-}
 pub mod execution;
+pub(crate) mod sync;
 pub mod tools;
 
 #[cfg(test)]

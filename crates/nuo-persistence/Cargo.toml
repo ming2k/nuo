@@ -9,7 +9,7 @@ license.workspace = true
 async-trait = { workspace = true }
 nuo-wire = { workspace = true }
 nuo-host = { workspace = true }
-nuo-model-codec = { workspace = true }
+nuo-inference-wire = { workspace = true }
 nuo-tool = { workspace = true }
 tokio = { workspace = true, features = ["fs", "macros", "rt", "rt-multi-thread", "sync", "time"] }
 futures = { workspace = true }

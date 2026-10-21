@@ -51,45 +51,9 @@ pub(super) async fn handle_selection_start(
             return;
         }
         Some(UiKey::TabBarItem(index)) => {
-            if let Some(target_tab) = app.surfaces.tabs().get(index).cloned() {
-                match &target_tab.kind {
-                    crate::surfaces::TabKind::Thread(id) => {
-                        if id != viewed_session_id {
-                            app.switch_to_target = Some(id.clone());
-                            app.should_quit
-                                .store(true, std::sync::atomic::Ordering::SeqCst);
-                            app.drag.cancel();
-                            app.ui.runtime.release_pointer();
-                        } else {
-                            let was_in_thread =
-                                app.current_scene() == crate::surfaces::SceneKind::Thread;
-                            if !was_in_thread {
-                                super::enter_scene(
-                                    app,
-                                    crate::surfaces::SceneKind::Thread,
-                                    runtime,
-                                );
-                            }
-                            app.surfaces.select_tab(index);
-                            app.transcript_focused = was_in_thread;
-                            app.focused_target = None;
-                            app.selection = SelectionState::None;
-                            app.drag.cancel();
-                            app.ui.runtime.release_pointer();
-                        }
-                    }
-                    crate::surfaces::TabKind::Dashboard => {
-                        super::enter_scene(app, crate::surfaces::SceneKind::Dashboard, runtime);
-                        app.drag.cancel();
-                        app.ui.runtime.release_pointer();
-                    }
-                    crate::surfaces::TabKind::Settings => {
-                        super::enter_scene(app, crate::surfaces::SceneKind::Settings, runtime);
-                        app.drag.cancel();
-                        app.ui.runtime.release_pointer();
-                    }
-                }
-            }
+            super::activate_tab_at_index(app, index, runtime, viewed_session_id);
+            app.drag.cancel();
+            app.ui.runtime.release_pointer();
             return;
         }
         Some(UiKey::ProviderDelete) if !app.ui.contains(UiKey::ProviderDelete, x, y) => {

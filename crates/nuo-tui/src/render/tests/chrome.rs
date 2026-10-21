@@ -152,6 +152,7 @@ fn redesigned_components_render_without_panicking() {
         );
         draw_models_modal(
             f,
+            &mut LayoutMap::new(),
             crate::overlays::provider::models::ModelsModalProps {
                 models: &[],
                 current_provider: "mock",
@@ -169,6 +170,7 @@ fn redesigned_components_render_without_panicking() {
                 info_scroll: &mut 0,
             },
             &theme,
+            &crate::model::selection::SelectionState::None,
         );
         let history_roster: Vec<nuo_wire::HistoryEntry> =
             [nuo_wire::HistoryEntry::new("a".to_string(), None, None, 0)]

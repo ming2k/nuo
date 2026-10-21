@@ -8,7 +8,7 @@ description = "OpenCode Zen relay provider channel for Nuo (ADR-0015, ADR-0079)"
 
 [dependencies]
 nuo-provider = { workspace = true }
-nuo-model-codec = { workspace = true }
+nuo-inference-wire = { workspace = true }
 inventory = { workspace = true }
 
 [lints]

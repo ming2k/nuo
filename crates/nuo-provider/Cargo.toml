@@ -8,7 +8,10 @@ description = "Canonical model provider contracts, orthogonal capabilities, and 
 
 [dependencies]
 nuo-host = { workspace = true }
-nuo-model-codec = { workspace = true }
+nuo-egress = { workspace = true }
+nuo-inference-wire = { workspace = true }
+nuo-tool = { workspace = true }
+http = "1.4"
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }

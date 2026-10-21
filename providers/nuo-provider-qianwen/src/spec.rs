@@ -35,19 +35,19 @@
 //! DeepSeek ids therefore ride their home platform's vocabulary — the narrower
 //! `DEEPSEEK_V4_PLAN` floor on this surface is documented, not enforceable
 //! here, exactly like GLM-5.3's `xhigh` rejection above.
-use nuo_model_codec::reasoning::ReasoningSupport;
-use nuo_model_codec::{Model, WireProtocol};
+use nuo_inference_wire::reasoning::ReasoningSupport;
+use nuo_inference_wire::{Model, WireProtocol};
 
 use nuo_provider::*;
 
 /// The model ids the built-in `qianwen` provider seeds (the plan's
 /// Qwen-native models; the live catalog serves the rest). Each id exists in
 /// the model registry and floats with the upstream latest.
-pub use nuo_model_codec::model_providers::QIANWEN_BUILTIN_MODELS;
+pub use nuo_inference_wire::model_providers::QIANWEN_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the Qwen-native models this provider
-/// serves, submitted to `nuo_model_codec`'s registry at link time (see
-/// [`nuo_model_codec::model::BaselineModels`]).
+/// serves, submitted to `nuo_inference_wire`'s registry at link time (see
+/// [`nuo_inference_wire::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // Qwen hybrid models — thinking on by default, gated only by
     // `reasoning_effort`; the `none` rung is the documented off switch.
@@ -58,7 +58,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
         wire_entities: None,
@@ -70,7 +70,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
         wire_entities: None,
@@ -82,7 +82,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
         wire_entities: None,
@@ -103,10 +103,10 @@ pub const MODELS: &[Model] = &[
     // and `none` requests on the Qwen-only ids are the explicit off switch.
 ];
 
-inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
+inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_model_codec::ProviderDialect::Standard,
+    dialect: nuo_inference_wire::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
@@ -116,10 +116,10 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
         "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1",
     ),
     user_agent: None,
-    protocol: WireProtocol::ChatCompletions,
+    protocol: WireProtocol::OpenAiChatCompletions,
     models: QIANWEN_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_model_codec::ClientPreset::Native,
+    default_client_profile: nuo_inference_wire::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
@@ -128,8 +128,8 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_model_codec::effort::Effort;
-    use nuo_model_codec::model::resolve;
+    use nuo_inference_wire::effort::Effort;
+    use nuo_inference_wire::model::resolve;
     use nuo_provider::effort_ladders::{DEEPSEEK_V4_PLAN, QWEN_MIXED};
 
     /// Every seeded id is registered (the same invariant
@@ -149,7 +149,7 @@ mod tests {
             assert!(model.tool_call, "{id}: the agent harness requires tools");
             assert_eq!(
                 MODEL_PROVIDER_SPEC.model_protocol(id),
-                WireProtocol::ChatCompletions,
+                WireProtocol::OpenAiChatCompletions,
                 "{id}: the compatible-mode surface speaks Chat Completions"
             );
         }

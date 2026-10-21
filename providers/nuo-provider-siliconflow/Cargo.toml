@@ -8,7 +8,7 @@ description = "SiliconFlow (硅基流动) balance/quota fetcher for Nuo provider
 
 [dependencies]
 nuo-wire = { workspace = true }
-nuo-provider-transport = { workspace = true }
+nuo-egress = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

@@ -23,7 +23,7 @@ use serde::Deserialize;
 use sha2::Digest;
 
 use crate::identity::{QoderRequestIdentity, QoderStoredIdentity};
-use nuo_model_codec::{ResolvedAuth, SecretString};
+use nuo_inference_wire::{ResolvedAuth, SecretString};
 use nuo_oauth::oauth::{AuthError, TokenResponse};
 use nuo_provider::{CredentialHost, CredentialStore, TokenSet};
 
@@ -174,7 +174,7 @@ const JOB_TOKEN_EXCHANGE_URL: &str = "https://openapi.qoder.sh/api/v1/jobToken/e
 
 /// Poll the deviceToken endpoint until approval or deadline. `404` = pending.
 pub async fn poll_device_token(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     session: &QoderDeviceSession,
 ) -> Result<QoderDeviceToken, crate::oauth::AuthError> {
     poll_device_token_at(
@@ -189,7 +189,7 @@ pub async fn poll_device_token(
 
 /// Test-injectable variant: explicit endpoint, sleep, and clock.
 pub async fn poll_device_token_at<S, Fut>(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     endpoint: &str,
     session: &QoderDeviceSession,
     sleep: S,
@@ -211,7 +211,7 @@ where
             percent(&session.nonce),
             percent(&session.verifier)
         );
-        let request = nuo_provider_transport::http::Request::new(netune::Method::GET, &url)
+        let request = nuo_egress::http::Request::new(netune::Method::GET, &url)
             .header("accept", "application/json");
         let response = client
             .send(request)
@@ -249,7 +249,7 @@ where
 
 /// Production polling loop with the CLI's 300s deadline.
 pub async fn poll_device_token_with<S, Fut>(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     session: &QoderDeviceSession,
     sleep: S,
 ) -> Result<QoderDeviceToken, crate::oauth::AuthError>
@@ -272,7 +272,7 @@ where
 /// device token directly (its credential's `refreshStrategy` is
 /// `"device-token"`); the inference token is *not* exchanged at login.
 pub async fn device_login(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     session: &QoderDeviceSession,
 ) -> Result<TokenResponse, crate::oauth::AuthError> {
     let device = poll_device_token(client, session).await?;
@@ -295,7 +295,7 @@ pub async fn device_login(
 
 /// Exchange a Qoder credential (a `pt-` personal-access token) for the
 pub async fn exchange_inference_token(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     credential: &str,
 ) -> Result<TokenResponse, crate::oauth::AuthError> {
     exchange_inference_token_at(client, JOB_TOKEN_EXCHANGE_URL, credential).await
@@ -303,11 +303,11 @@ pub async fn exchange_inference_token(
 
 /// Test-injectable variant with an explicit endpoint.
 pub async fn exchange_inference_token_at(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     endpoint: &str,
     credential: &str,
 ) -> Result<TokenResponse, crate::oauth::AuthError> {
-    let request = nuo_provider_transport::http::Request::new(netune::Method::POST, endpoint)
+    let request = nuo_egress::http::Request::new(netune::Method::POST, endpoint)
         .header("content-type", "application/json")
         .header("accept", "application/json")
         .json(&serde_json::json!({ "personal_token": credential }));
@@ -341,7 +341,7 @@ const USERINFO_URL: &str = "https://openapi.qoder.sh/api/v1/userinfo";
 /// `DeviceRefreshTokenRequired`, a wrong prefix yields
 /// `DeviceRefreshTokenPrefixInvalid`).
 pub async fn refresh_device_token(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     refresh_token: &str,
 ) -> Result<TokenResponse, crate::oauth::AuthError> {
     refresh_device_token_at(client, DEVICE_TOKEN_REFRESH_URL, refresh_token).await
@@ -356,7 +356,7 @@ pub async fn refresh_device_token(
 /// no such response, so the uid is fetched here with a plain bearer — no COSY
 /// signature, per the OpenAPI surface.
 pub async fn fetch_uid(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     bearer: &str,
 ) -> Result<String, crate::oauth::AuthError> {
     fetch_uid_at(client, USERINFO_URL, bearer).await
@@ -364,11 +364,11 @@ pub async fn fetch_uid(
 
 /// Test-injectable variant with an explicit endpoint.
 pub async fn fetch_uid_at(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     endpoint: &str,
     bearer: &str,
 ) -> Result<String, crate::oauth::AuthError> {
-    let request = nuo_provider_transport::http::Request::new(netune::Method::GET, endpoint)
+    let request = nuo_egress::http::Request::new(netune::Method::GET, endpoint)
         .header("accept", "application/json")
         .header("authorization", format!("Bearer {bearer}"));
     let response = client
@@ -393,11 +393,11 @@ pub async fn fetch_uid_at(
 
 /// Test-injectable variant with an explicit endpoint.
 pub async fn refresh_device_token_at(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     endpoint: &str,
     refresh_token: &str,
 ) -> Result<TokenResponse, crate::oauth::AuthError> {
-    let request = nuo_provider_transport::http::Request::new(netune::Method::POST, endpoint)
+    let request = nuo_egress::http::Request::new(netune::Method::POST, endpoint)
         .header("content-type", "application/json")
         .header("accept", "application/json")
         .json(&serde_json::json!({ "refresh_token": refresh_token }));
@@ -609,7 +609,7 @@ impl QoderApiKeyCredentialSource {
         if identity.infer_endpoint.is_some() {
             return identity.infer_endpoint.clone();
         }
-        let Ok(client) = nuo_provider_transport::http::Http::control_plane() else {
+        let Ok(client) = nuo_egress::http::Http::control_plane() else {
             return None;
         };
         let elected = crate::elect_infer_endpoint(&client, self.token.expose_secret())
@@ -636,7 +636,7 @@ impl QoderApiKeyCredentialSource {
     /// Callers that need the uid for a signed catalog get an explicit failure
     /// from the catalog fetch instead.
     async fn resolve_uid(&self) -> Result<String, String> {
-        let client = nuo_provider_transport::http::Http::control_plane()
+        let client = nuo_egress::http::Http::control_plane()
             .map_err(|error| format!("could not build the userinfo client: {error}"))?;
         match fetch_uid(&client, self.token.expose_secret()).await {
             Ok(uid) => Ok(uid),
@@ -683,7 +683,7 @@ impl QoderApiKeyCredentialSource {
         uid
     }
 }
-impl nuo_model_codec::CredentialSource for QoderApiKeyCredentialSource {
+impl nuo_inference_wire::CredentialSource for QoderApiKeyCredentialSource {
     fn resolve_auth<'a>(&'a self) -> futures::future::BoxFuture<'a, Result<ResolvedAuth, String>> {
         Box::pin(async move {
             let identity = self.load_or_create_identity().await?;
@@ -719,7 +719,7 @@ mod tests {
             r#"{"id":"9bdb6daa-be3f-45d6-8eee-a1f74dd18553","name":"Ming"}"#.to_string(),
         )])
         .await;
-        let client = nuo_provider_transport::http::Http::control_plane().unwrap();
+        let client = nuo_egress::http::Http::control_plane().unwrap();
         let url = format!("http://{addr}/api/v1/userinfo");
         let uid = fetch_uid_at(&client, &url, "dt-token")
             .await
@@ -734,7 +734,7 @@ mod tests {
         // error rather than a request that will fail upstream.
         let (addr, _hits, _keep) =
             spawn_scripted_server(vec![(200, r#"{"name":"Ming"}"#.to_string())]).await;
-        let client = nuo_provider_transport::http::Http::control_plane().unwrap();
+        let client = nuo_egress::http::Http::control_plane().unwrap();
         let url = format!("http://{addr}/api/v1/userinfo");
         assert!(fetch_uid_at(&client, &url, "dt-token").await.is_err());
     }
@@ -793,7 +793,7 @@ mod tests {
         // raw TCP server and hand its URL to the injectable endpoint.
         let (addr, hits, _keep) = spawn_scripted_server(vec![(500, "boom".to_string())]).await;
         let session = QoderDeviceSession::new("m", "c");
-        let client = nuo_provider_transport::http::Http::control_plane().unwrap();
+        let client = nuo_egress::http::Http::control_plane().unwrap();
         let url = format!("http://{addr}/api/v1/deviceToken/poll");
         let result = poll_device_token_at(&client, &url, &session, |_| async {}, 5_000).await;
         assert!(matches!(
@@ -814,7 +814,7 @@ mod tests {
         ])
         .await;
         let session = QoderDeviceSession::new("m", "c");
-        let client = nuo_provider_transport::http::Http::control_plane().unwrap();
+        let client = nuo_egress::http::Http::control_plane().unwrap();
         let url = format!("http://{addr}/api/v1/deviceToken/poll");
         let result = poll_device_token_at(&client, &url, &session, |_| async {}, 5_000).await;
         let token = result.unwrap();
@@ -840,7 +840,7 @@ mod tests {
         ])
         .await;
         let session = QoderDeviceSession::new("m", "c");
-        let client = nuo_provider_transport::http::Http::control_plane().unwrap();
+        let client = nuo_egress::http::Http::control_plane().unwrap();
         let url = format!("http://{addr}/api/v1/deviceToken/poll");
         let result = poll_device_token_at(&client, &url, &session, |_| async {}, 60_000).await;
         let token = result.unwrap();
@@ -875,7 +875,7 @@ mod tests {
         )])
         .await;
         let session = QoderDeviceSession::new("m", "c");
-        let client = nuo_provider_transport::http::Http::control_plane().unwrap();
+        let client = nuo_egress::http::Http::control_plane().unwrap();
         let url = format!("http://{addr}/api/v1/deviceToken/poll");
         let mut session = session;
         session.authorize_url = url.replace("/api/v1/deviceToken/poll", "/device/selectAccounts");
@@ -918,7 +918,7 @@ mod tests {
                 .to_string(),
         )])
         .await;
-        let client = nuo_provider_transport::http::Http::control_plane().unwrap();
+        let client = nuo_egress::http::Http::control_plane().unwrap();
         let url = format!("http://{addr}/api/v1/deviceToken/refresh");
         let token = refresh_device_token_at(&client, &url, "drt-old")
             .await
@@ -965,7 +965,7 @@ mod tests {
             r#"{"access_token":"jt-infer","refresh_token":"jrt-refresh","expires_in":86400,"token_type":"Bearer"}"#,
         )
         .await;
-        let client = nuo_provider_transport::http::Http::control_plane().unwrap();
+        let client = nuo_egress::http::Http::control_plane().unwrap();
         let url = format!("http://{addr}/api/v1/jobToken/exchange");
         let result = exchange_inference_token_at(&client, &url, "pt-user-token").await;
         let token = result.unwrap();

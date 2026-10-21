@@ -6,6 +6,8 @@ use nuotc::{
 use unicode_width::UnicodeWidthStr;
 
 use super::super::common::{caret_column, field_viewport};
+use crate::components::detail::{detail_kv_row, detail_section_row};
+use crate::components::selectable_body::SelectableRow;
 use crate::render::Theme;
 
 pub(crate) const PICKER_SEARCH_PREFIX: &str = " Search  › ";
@@ -117,4 +119,123 @@ pub(crate) fn search_empty_body(theme: &Theme) -> Vec<Line<'static>> {
 pub(crate) fn match_set(m: Option<&crate::fuzzy::FuzzyMatch>) -> std::collections::HashSet<usize> {
     m.map(|fm| fm.positions.iter().copied().collect())
         .unwrap_or_default()
+}
+
+/// Renders standard model pricing and rates section for inspector/detail sub-views.
+///
+/// Shared SSOT between Connection Details (for active model pricing) and Model Info Details.
+pub(crate) fn render_pricing_detail_rows(
+    provider_id: &str,
+    model: &str,
+    model_prefix: Option<&str>,
+    section_title: &str,
+    theme: &Theme,
+) -> Option<Vec<SelectableRow>> {
+    let pricing = nuo_wire::pricing::resolve_model_pricing(provider_id, model)?;
+    let mut rows = Vec::new();
+    rows.push(SelectableRow::empty());
+    rows.push(detail_section_row(section_title, theme));
+
+    if pricing
+        .tiers
+        .iter()
+        .all(|t| t.input_standard_nano_per_m == 0 && t.output_standard_nano_per_m == 0)
+    {
+        let msg = match model_prefix {
+            Some(prefix) => format!("{prefix} is plan-included (zero token surcharge)"),
+            None => "Plan included (zero token surcharge)".to_string(),
+        };
+        rows.push(detail_kv_row(
+            if model_prefix.is_some() {
+                "Billing"
+            } else {
+                "Rate"
+            },
+            &msg,
+            Style::default().fg(theme.fg()).add_modifier(Modifier::BOLD),
+            theme,
+        ));
+    } else {
+        let base_tier = &pricing.tiers[0];
+        let in_str = nuo_wire::pricing::NanoUsd(base_tier.input_standard_nano_per_m).format_rate();
+        let out_str =
+            nuo_wire::pricing::NanoUsd(base_tier.output_standard_nano_per_m).format_rate();
+        let tiered_suffix = if pricing.tiers.len() > 1 {
+            ", tiered"
+        } else {
+            ""
+        };
+        let base_desc = match model_prefix {
+            Some(prefix) => {
+                format!("{prefix}: {in_str} in · {out_str} out (per 1M tokens{tiered_suffix})")
+            }
+            None => format!("{in_str} in · {out_str} out (per 1M tokens{tiered_suffix})"),
+        };
+        rows.push(detail_kv_row(
+            "Standard Rates",
+            &base_desc,
+            Style::default().fg(theme.fg()).add_modifier(Modifier::BOLD),
+            theme,
+        ));
+
+        if base_tier.cache_read_nano_per_m > 0 {
+            let hit_str = nuo_wire::pricing::NanoUsd(base_tier.cache_read_nano_per_m).format_rate();
+            let discount_pct = if base_tier.input_standard_nano_per_m > 0 {
+                let saved = base_tier
+                    .input_standard_nano_per_m
+                    .saturating_sub(base_tier.cache_read_nano_per_m);
+                (saved as f64 / base_tier.input_standard_nano_per_m as f64 * 100.0).round() as u32
+            } else {
+                0
+            };
+            let hit_val = if discount_pct > 0 {
+                format!("{hit_str} / 1M ({discount_pct}% discount)")
+            } else {
+                format!("{hit_str} / 1M")
+            };
+            rows.push(detail_kv_row(
+                "Prompt Cache Hit",
+                &hit_val,
+                Style::default().fg(theme.fg()),
+                theme,
+            ));
+        }
+
+        if let Some(off_peak) = &pricing.off_peak {
+            let op_tier = &off_peak.tiers[0];
+            let op_in = nuo_wire::pricing::NanoUsd(op_tier.input_standard_nano_per_m).format_rate();
+            let op_out =
+                nuo_wire::pricing::NanoUsd(op_tier.output_standard_nano_per_m).format_rate();
+            rows.push(detail_kv_row(
+                "Off-Peak Rates",
+                &format!("50% off ({op_in} in · {op_out} out)"),
+                Style::default().fg(theme.ok()).add_modifier(Modifier::BOLD),
+                theme,
+            ));
+            rows.push(detail_kv_row(
+                "Off-Peak Window",
+                "Mon–Fri outside 09:00–12:00, 14:00–18:00 (UTC+8); weekends & holidays all day",
+                Style::default().fg(theme.muted()),
+                theme,
+            ));
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let window = off_peak
+                .schedule
+                .window_at(nuo_wire::pricing::RatingInstant::from_epoch_ms(now_ms));
+            let (win_label, win_style) = if window.is_off_peak() {
+                (
+                    "Off-Peak (Active)",
+                    Style::default().fg(theme.ok()).add_modifier(Modifier::BOLD),
+                )
+            } else {
+                ("Peak", Style::default().fg(theme.dim()))
+            };
+            rows.push(detail_kv_row("Current State", win_label, win_style, theme));
+        }
+    }
+
+    Some(rows)
 }

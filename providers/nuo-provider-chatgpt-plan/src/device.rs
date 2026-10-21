@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use nuo_host::SecretString;
 
-use nuo_model_codec::provider_auth::OAuthConfig;
+use nuo_inference_wire::provider_auth::OAuthConfig;
 use nuo_oauth::oauth::TokenResponse;
 
 /// Response from the `deviceauth/usercode` endpoint.
@@ -50,22 +50,20 @@ impl ChatGptDeviceCode {
 
 /// Request a device code from OpenAI's `deviceauth/usercode` endpoint.
 pub async fn request_device_code(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     cfg: &OAuthConfig,
 ) -> Result<ChatGptDeviceCode, nuo_oauth::oauth::AuthError> {
-    let request = nuo_provider_transport::http::Request::new(
-        netune::Method::POST,
-        cfg.device_authorization_url.as_ref(),
-    )
-    .header("content-type", "application/json")
-    .header("accept", "application/json")
-    .header(
-        "user-agent",
-        cfg.user_agent
-            .as_deref()
-            .unwrap_or(nuo_provider_transport::NUO_USER_AGENT),
-    )
-    .json(&serde_json::json!({ "client_id": cfg.client_id }));
+    let request =
+        nuo_egress::http::Request::new(netune::Method::POST, cfg.device_authorization_url.as_ref())
+            .header("content-type", "application/json")
+            .header("accept", "application/json")
+            .header(
+                "user-agent",
+                cfg.user_agent
+                    .as_deref()
+                    .unwrap_or(nuo_provider::NUO_USER_AGENT),
+            )
+            .json(&serde_json::json!({ "client_id": cfg.client_id }));
     let response = client.send(request).await.map_err(|e| {
         nuo_oauth::oauth::AuthError::Transport(format!("device code request failed: {e}"))
     })?;
@@ -100,7 +98,7 @@ pub struct ChatGptDeviceToken {
 /// `code_verifier` to exchange at the token endpoint. While pending, OpenAI
 /// answers `403`/`404`; any other non-2xx is a terminal failure.
 pub async fn poll_device_code(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     cfg: &OAuthConfig,
     device: &ChatGptDeviceCode,
 ) -> Result<ChatGptDeviceToken, nuo_oauth::oauth::AuthError> {
@@ -114,7 +112,7 @@ pub async fn poll_device_code(
 
 /// Test-injectable variant of [`poll_device_code`].
 pub async fn poll_device_code_with<S, Fut>(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     cfg: &OAuthConfig,
     device: &ChatGptDeviceCode,
     sleep: S,
@@ -125,22 +123,20 @@ where
 {
     let interval_ms = device.interval_ms();
     loop {
-        let request = nuo_provider_transport::http::Request::new(
-            netune::Method::POST,
-            cfg.device_token_url.as_ref(),
-        )
-        .header("content-type", "application/json")
-        .header("accept", "application/json")
-        .header(
-            "user-agent",
-            cfg.user_agent
-                .as_deref()
-                .unwrap_or(nuo_provider_transport::NUO_USER_AGENT),
-        )
-        .json(&serde_json::json!({
-            "device_auth_id": device.device_auth_id.expose_secret(),
-            "user_code": device.user_code,
-        }));
+        let request =
+            nuo_egress::http::Request::new(netune::Method::POST, cfg.device_token_url.as_ref())
+                .header("content-type", "application/json")
+                .header("accept", "application/json")
+                .header(
+                    "user-agent",
+                    cfg.user_agent
+                        .as_deref()
+                        .unwrap_or(nuo_provider::NUO_USER_AGENT),
+                )
+                .json(&serde_json::json!({
+                    "device_auth_id": device.device_auth_id.expose_secret(),
+                    "user_code": device.user_code,
+                }));
         let response = client.send(request).await.map_err(|e| {
             nuo_oauth::oauth::AuthError::Transport(format!("device token poll failed: {e}"))
         })?;
@@ -165,7 +161,7 @@ where
 
 /// Exchange a device `authorization_code` for a token set.
 pub async fn exchange_device_code(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     cfg: &OAuthConfig,
     token: &ChatGptDeviceToken,
 ) -> Result<TokenResponse, nuo_oauth::oauth::AuthError> {

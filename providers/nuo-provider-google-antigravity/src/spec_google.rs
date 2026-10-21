@@ -1,7 +1,7 @@
 //! The built-in `google` provider preset: the native Google API, one key.
 
-use nuo_model_codec::reasoning::ReasoningSupport;
-use nuo_model_codec::{Model, WireProtocol};
+use nuo_inference_wire::reasoning::ReasoningSupport;
+use nuo_inference_wire::{Model, WireProtocol};
 
 use nuo_provider::*;
 
@@ -10,11 +10,11 @@ use nuo_provider::*;
 /// canonical text-generation family that Google plus common relays/中转站
 /// advertise — image/embedding/video/audio-only models are excluded since an
 /// agent only consumes the `generateContent` text surface.
-pub use nuo_model_codec::model_providers::GOOGLE_BUILTIN_MODELS;
+pub use nuo_inference_wire::model_providers::GOOGLE_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
-/// submitted to `nuo_model_codec`'s registry at link time (see
-/// [`nuo_model_codec::model::BaselineModels`]).
+/// submitted to `nuo_inference_wire`'s registry at link time (see
+/// [`nuo_inference_wire::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // Google (native)
     // Native Google REST surface (`generateContent`/`streamGenerateContent`).
@@ -29,7 +29,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
         wire_entities: None,
@@ -41,7 +41,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
         wire_entities: None,
@@ -53,7 +53,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
         wire_entities: None,
@@ -65,7 +65,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
         wire_entities: None,
@@ -77,7 +77,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
         wire_entities: None,
@@ -89,7 +89,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
         wire_entities: None,
@@ -101,7 +101,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
         wire_entities: None,
@@ -114,7 +114,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
         wire_entities: None,
@@ -126,7 +126,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
         wire_entities: None,
@@ -138,7 +138,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_BUDGET,
         wire_entities: None,
@@ -150,7 +150,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_BUDGET,
         wire_entities: None,
@@ -162,7 +162,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::None,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -174,19 +174,19 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::None,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
+inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
 
-fn prompt_cache_for_model(_: &str) -> nuo_model_codec::PromptCacheSpec {
-    nuo_model_codec::PromptCacheSpec {
-        modes: &[nuo_model_codec::PromptCacheMode::Implicit],
-        default_mode: Some(nuo_model_codec::PromptCacheMode::Implicit),
+fn prompt_cache_for_model(_: &str) -> nuo_inference_wire::PromptCacheSpec {
+    nuo_inference_wire::PromptCacheSpec {
+        modes: &[nuo_inference_wire::PromptCacheMode::Implicit],
+        default_mode: Some(nuo_inference_wire::PromptCacheMode::Implicit),
         supported_retentions: &[],
         default_retention: None,
         disable_supported: false,
@@ -200,21 +200,27 @@ fn prompt_cache_for_model(_: &str) -> nuo_model_codec::PromptCacheSpec {
 }
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_model_codec::ProviderDialect::Standard,
-    protocol_roots: std::borrow::Cow::Borrowed(&[(
-        WireProtocol::ChatCompletions,
-        std::borrow::Cow::Borrowed("https://generativelanguage.googleapis.com/v1beta/openai"),
-    )]),
+    dialect: nuo_inference_wire::ProviderDialect::Standard,
+    protocol_roots: std::borrow::Cow::Borrowed(&[
+        (
+            WireProtocol::OpenAiChatCompletions,
+            std::borrow::Cow::Borrowed("https://generativelanguage.googleapis.com/v1beta/openai"),
+        ),
+        (
+            WireProtocol::GoogleInteractions,
+            std::borrow::Cow::Borrowed("https://generativelanguage.googleapis.com/v1beta"),
+        ),
+    ]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
     id: std::borrow::Cow::Borrowed("google"),
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://generativelanguage.googleapis.com/v1beta"),
     user_agent: None,
-    protocol: WireProtocol::GoogleGemini,
+    protocol: WireProtocol::GoogleGenerateContent,
     models: GOOGLE_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::Google),
-    default_client_profile: nuo_model_codec::ClientPreset::Native,
+    default_client_profile: nuo_inference_wire::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
@@ -229,29 +235,35 @@ mod tests {
         assert!(MODEL_PROVIDER_SPEC.validate().is_ok());
         assert_eq!(
             MODEL_PROVIDER_SPEC
-                .endpoint(WireProtocol::GoogleGemini)
+                .endpoint(WireProtocol::GoogleGenerateContent)
                 .unwrap(),
             "https://generativelanguage.googleapis.com/v1beta"
         );
         assert_eq!(
             MODEL_PROVIDER_SPEC
-                .endpoint(WireProtocol::ChatCompletions)
+                .endpoint(WireProtocol::OpenAiChatCompletions)
                 .unwrap(),
             "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC
+                .endpoint(WireProtocol::GoogleInteractions)
+                .unwrap(),
+            "https://generativelanguage.googleapis.com/v1beta/interactions"
+        );
 
-        let argon = nuo_model_codec::model::resolve("gemini-4-argon");
+        let argon = nuo_inference_wire::model::resolve("gemini-4-argon");
         assert_eq!(argon.id, "gemini-4-argon");
         assert_eq!(argon.context_window, 1_000_000);
-        assert_eq!(argon.protocol, WireProtocol::GoogleGemini);
+        assert_eq!(argon.protocol, WireProtocol::GoogleGenerateContent);
         assert!(argon.tool_call);
         assert!(argon.thinking.reasons());
         assert_eq!(argon.effort_levels, effort_ladders::GEMINI_LEVEL);
 
-        let flash38 = nuo_model_codec::model::resolve("gemini-3.8-flash");
+        let flash38 = nuo_inference_wire::model::resolve("gemini-3.8-flash");
         assert_eq!(flash38.id, "gemini-3.8-flash");
         assert_eq!(flash38.context_window, 1_000_000);
-        assert_eq!(flash38.protocol, WireProtocol::GoogleGemini);
+        assert_eq!(flash38.protocol, WireProtocol::GoogleGenerateContent);
         assert!(flash38.tool_call);
         assert!(flash38.thinking.reasons());
     }

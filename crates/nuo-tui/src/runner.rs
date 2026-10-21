@@ -362,6 +362,7 @@ pub async fn run_attached(
     let mut pick_pending = session_id.is_none() && !fresh;
     let mut startup_overlay_pending = initial_overlay;
     let mut preserved_tabs: Option<Vec<crate::surfaces::ClientTab>> = None;
+    let mut preserved_tab_history: Option<Vec<crate::surfaces::TabKind>> = None;
     let init_options = nuo_client::SessionInitOptions::new(unattended_at_start, confined_at_start)
         .with_role(role.clone())
         .with_resume(resume);
@@ -506,10 +507,12 @@ pub async fn run_attached(
                 token_ledger: None,
                 startup_overlay,
                 initial_tabs: preserved_tabs.take(),
+                initial_tab_history: preserved_tab_history.take(),
             },
         )
         .await?;
         preserved_tabs = outcome.tabs;
+        preserved_tab_history = outcome.tab_history;
         if let Err(error) = exit_tx.send(nuo_wire::AgentRequest::RecordInputHistory {
             entries: outcome.history,
             dedup: base_config.input_history.dedup,

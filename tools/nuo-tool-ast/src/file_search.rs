@@ -85,28 +85,8 @@ pub(crate) fn build_include_matcher(
         .map_err(|error| format!("Invalid file glob: {error}"))
 }
 
-/// Does `path` (relative to the walker root) pass the include/exclude globs?
-pub(crate) fn include_allows(
-    matcher: &Option<OverrideMatcher>,
-    has_includes: bool,
-    root: &Path,
-    path: &Path,
-) -> bool {
-    match matcher {
-        None => true,
-        Some(matcher) => {
-            let matched = matcher.matched(path.strip_prefix(root).unwrap_or(path), path.is_dir());
-            matched.is_whitelist() || (!has_includes && !matched.is_ignore())
-        }
-    }
-}
-
 /// Build a ripgrep-style walker that applies project ignore rules
-/// (`.gitignore`, `.ignore`, `IGNORED_DIRS`) as the *first* filter. Include /
-/// exclude globs are evaluated separately by the caller against each yielded
-/// entry (see [`build_include_matcher`] / [`include_allows`]) so that a
-/// whitelisting include glob cannot resurrect an ignored file — the walker
-/// prunes it before the include pattern ever runs.
+/// (`.gitignore`, `.ignore`, `IGNORED_DIRS`) as the *first* filter.
 pub(crate) fn build_file_walker(
     root: &Path,
     exclude: &[String],
@@ -193,23 +173,5 @@ mod tests {
         assert!(build_include_matcher(Path::new("."), &["[broken".into()], &[]).is_err());
         assert!(build_include_matcher(Path::new("."), &["!*.rs".into()], &[]).is_err());
         assert!(build_include_matcher(Path::new("."), &["../*.rs".into()], &[]).is_err());
-    }
-
-    #[test]
-    fn exclude_only_matcher_allows_unmatched_files() {
-        let root = Path::new("/workspace");
-        let matcher = build_include_matcher(root, &[], &["*.log".into()]).unwrap();
-        assert!(include_allows(
-            &matcher,
-            false,
-            root,
-            Path::new("/workspace/src/main.rs")
-        ));
-        assert!(!include_allows(
-            &matcher,
-            false,
-            root,
-            Path::new("/workspace/debug.log")
-        ));
     }
 }

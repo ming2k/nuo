@@ -11,10 +11,10 @@ use crate::oauth::AuthError;
 use crate::oauth::token::TokenResponse;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
-use nuo_model_codec::ResolvedAuth;
-use nuo_model_codec::provider_auth::OAuthConfig;
+use nuo_egress::http::Http;
+use nuo_inference_wire::ResolvedAuth;
+use nuo_inference_wire::provider_auth::OAuthConfig;
 use nuo_provider::credentials::{CredentialSession, TokenSet};
-use nuo_provider_transport::http::Http;
 
 use crate::enricher::{OAuthTokenEnricher, StandardOAuthEnricher};
 use crate::session::OAuthLoginPrompt;
@@ -47,7 +47,7 @@ pub trait OAuthProvider: Send + Sync {
     }
 
     /// Vendor-specific device grant, used when the configuration declares
-    /// [`DeviceFlowMode::Custom`](nuo_model_codec::provider_auth::DeviceFlowMode::Custom).
+    /// [`DeviceFlowMode::Custom`](nuo_inference_wire::provider_auth::DeviceFlowMode::Custom).
     /// `None` means the generic RFC 8628 flow applies.
     fn begin_device_login(
         &self,

@@ -5,9 +5,9 @@
 //! (Abolition of Legacy Version Blacklists), and [INV-CATALOG-04] (Provider-Owned
 //! Dialect Ingestion) per ADR-0068.
 
-use nuo_model_codec::Availability;
-use nuo_model_codec::catalog::DiscoveredModel;
-use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_inference_wire::Availability;
+use nuo_inference_wire::catalog::DiscoveredModel;
+use nuo_inference_wire::reasoning::ReasoningSupport;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -131,7 +131,7 @@ fn clean_display_name(raw_name: &str) -> String {
             break;
         }
     }
-    nuo_model_codec::catalog::clean_model_display_name(name)
+    nuo_inference_wire::catalog::clean_model_display_name(name)
 }
 
 fn is_internal_helper(id: &str) -> bool {
@@ -318,7 +318,7 @@ impl ModelFoldAccumulator {
             id: model_id.clone(),
             availability,
             advertised: None,
-            protocol: Some(nuo_model_codec::WireProtocol::GoogleGemini),
+            protocol: Some(nuo_inference_wire::WireProtocol::GoogleGenerateContent),
             endpoint: None,
             family: if model_id.starts_with("claude-") {
                 Some("claude".to_string())
@@ -785,30 +785,31 @@ mod tests {
             legacy.wire_entities.as_deref(),
             Some(&["claude-sonnet-4-6".to_string()][..])
         );
-        let caps = nuo_model_codec::ModelCapabilities::for_channel(
+        let caps = nuo_inference_wire::ModelCapabilities::for_channel(
             "claude-sonnet-4-6",
             Some(&legacy.remote_metadata()),
         );
         assert!(matches!(
             caps.wire_entity_resolution("claude-sonnet-4-6"),
-            nuo_model_codec::WireEntityResolution::Verbatim
+            nuo_inference_wire::WireEntityResolution::Verbatim
         ));
 
         // Merge path: remote metadata → caps, verbatim for the bare-lead case.
         let meta = pick("gemini-3.8-flash").remote_metadata();
-        let caps = nuo_model_codec::ModelCapabilities::for_channel("gemini-3.8-flash", Some(&meta));
+        let caps =
+            nuo_inference_wire::ModelCapabilities::for_channel("gemini-3.8-flash", Some(&meta));
         assert!(caps.effort_entities.is_empty() || caps.effort_entities[0] == "gemini-3.8-flash");
         let argon_meta = pick("gemini-4-argon").remote_metadata();
         let argon_caps =
-            nuo_model_codec::ModelCapabilities::for_channel("gemini-4-argon", Some(&argon_meta));
+            nuo_inference_wire::ModelCapabilities::for_channel("gemini-4-argon", Some(&argon_meta));
         assert_eq!(argon_caps.effort_entities.len(), 3);
         assert!(matches!(
             argon_caps.wire_entity_resolution("gemini-4-argon"),
-            nuo_model_codec::WireEntityResolution::PerLevel { .. }
+            nuo_inference_wire::WireEntityResolution::PerLevel { .. }
         ));
         assert!(matches!(
             argon_caps.wire_entity_resolution("gemini-4-argon-high"),
-            nuo_model_codec::WireEntityResolution::Verbatim
+            nuo_inference_wire::WireEntityResolution::Verbatim
         ));
     }
 

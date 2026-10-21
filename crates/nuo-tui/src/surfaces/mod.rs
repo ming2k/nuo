@@ -548,6 +548,8 @@ pub struct SurfaceRouter {
     tabs: Vec<ClientTab>,
     /// Active tab index within `tabs`.
     active_tab: usize,
+    /// MRU history of activated tabs (most recently active at the end).
+    tab_mru_history: Vec<TabKind>,
     /// Retained state for every dialog that is not currently open.
     pub dialogs: Dialogs,
 }
@@ -559,6 +561,7 @@ impl Default for SurfaceRouter {
             overlay_stack: Vec::new(),
             tabs: Vec::new(),
             active_tab: 0,
+            tab_mru_history: Vec::new(),
             dialogs: Dialogs::default(),
         }
     }
@@ -578,6 +581,7 @@ impl SurfaceRouter {
             overlay_stack: vec![StackEntry::dialog(id, view)],
             tabs: Vec::new(),
             active_tab: 0,
+            tab_mru_history: Vec::new(),
             dialogs,
         }
     }
@@ -589,12 +593,17 @@ impl SurfaceRouter {
             SceneKind::Settings => Some(ClientTab::settings()),
             _ => None,
         };
+        let tab_mru_history = tab
+            .as_ref()
+            .map(|t| vec![t.kind.clone()])
+            .unwrap_or_default();
         let tabs = tab.into_iter().collect();
         Self {
             scene,
             overlay_stack: Vec::new(),
             tabs,
             active_tab: 0,
+            tab_mru_history,
             dialogs: Dialogs::default(),
         }
     }
@@ -619,11 +628,34 @@ impl SurfaceRouter {
         self.tabs.get_mut(self.active_tab)
     }
 
+    /// View the MRU history of activated tabs (most recently active at the end).
+    pub fn tab_mru_history(&self) -> &[TabKind] {
+        &self.tab_mru_history
+    }
+
+    /// Set or restore the MRU history of activated tabs.
+    pub fn set_tab_mru_history(&mut self, history: Vec<TabKind>) {
+        self.tab_mru_history = history;
+    }
+
+    fn record_active_tab(&mut self) {
+        if let Some(tab) = self.tabs.get(self.active_tab) {
+            let kind = tab.kind.clone();
+            self.tab_mru_history.retain(|k| k != &kind);
+            self.tab_mru_history.push(kind);
+        }
+    }
+
     /// Replace the tab at `index` with `tab`. Returns true if replaced.
     pub fn replace_tab(&mut self, index: usize, tab: ClientTab) -> bool {
         if let Some(slot) = self.tabs.get_mut(index) {
+            let old_kind = slot.kind.clone();
+            self.tab_mru_history.retain(|k| k != &old_kind);
             *slot = tab;
-            self.sync_scene_to_active_tab();
+            if index == self.active_tab {
+                self.sync_scene_to_active_tab();
+                self.record_active_tab();
+            }
             true
         } else {
             false
@@ -640,12 +672,14 @@ impl SurfaceRouter {
         }) {
             self.active_tab = pos;
             self.sync_scene_to_active_tab();
+            self.record_active_tab();
             return pos;
         }
 
         self.tabs.push(tab);
         self.active_tab = self.tabs.len().saturating_sub(1);
         self.sync_scene_to_active_tab();
+        self.record_active_tab();
         self.active_tab
     }
 
@@ -654,11 +688,40 @@ impl SurfaceRouter {
         if index >= self.tabs.len() {
             return None;
         }
+        let was_active = index == self.active_tab;
         let closed = self.tabs.remove(index);
+        self.tab_mru_history.retain(|k| k != &closed.kind);
+
         if self.tabs.is_empty() {
             self.active_tab = 0;
-        } else if self.active_tab >= self.tabs.len() {
-            self.active_tab = self.tabs.len() - 1;
+            self.tab_mru_history.clear();
+        } else if was_active {
+            // Find the most recently active tab from tab_mru_history that still exists in self.tabs
+            let mut resolved = None;
+            while let Some(last_kind) = self.tab_mru_history.last() {
+                if let Some(pos) = self.tabs.iter().position(|t| &t.kind == last_kind) {
+                    resolved = Some(pos);
+                    break;
+                } else {
+                    self.tab_mru_history.pop();
+                }
+            }
+            if let Some(pos) = resolved {
+                self.active_tab = pos;
+            } else {
+                // Fallback: previous adjacent tab or clamped index
+                if index >= self.tabs.len() {
+                    self.active_tab = self.tabs.len() - 1;
+                } else {
+                    self.active_tab = index;
+                }
+                self.record_active_tab();
+            }
+        } else {
+            // Closing an inactive tab: maintain current active tab's identity
+            if index < self.active_tab {
+                self.active_tab = self.active_tab.saturating_sub(1);
+            }
         }
         self.sync_scene_to_active_tab();
         Some(closed)
@@ -690,6 +753,7 @@ impl SurfaceRouter {
         if index < self.tabs.len() {
             self.active_tab = index;
             self.sync_scene_to_active_tab();
+            self.record_active_tab();
             true
         } else {
             false
@@ -701,6 +765,7 @@ impl SurfaceRouter {
         if !self.tabs.is_empty() {
             self.active_tab = (self.active_tab + 1) % self.tabs.len();
             self.sync_scene_to_active_tab();
+            self.record_active_tab();
         }
     }
 
@@ -713,6 +778,7 @@ impl SurfaceRouter {
                 self.active_tab -= 1;
             }
             self.sync_scene_to_active_tab();
+            self.record_active_tab();
         }
     }
 
@@ -1617,5 +1683,46 @@ mod tests {
         assert_eq!(router.active_scene(), SceneKind::Subagent);
         assert_eq!(router.back_scene(), SceneKind::Thread);
         assert_eq!(router.active_scene(), SceneKind::Thread);
+    }
+
+    #[test]
+    fn test_tab_mru_history_lifecycle_and_fallback() {
+        let mut router = SurfaceRouter::new();
+        // 1. Open 3 tabs: Tab 0 (Thread A), Tab 1 (Thread B), Tab 2 (Dashboard)
+        router.open_tab(ClientTab::thread("conv-a", Some("Thread A")));
+        router.open_tab(ClientTab::thread("conv-b", Some("Thread B")));
+        router.open_tab(ClientTab::dashboard());
+        assert_eq!(router.tabs().len(), 3);
+        assert_eq!(router.active_tab_index(), 2);
+
+        // 2. Visit Tab 0 (Thread A), then Tab 1 (Thread B)
+        router.select_tab(0);
+        assert_eq!(router.active_tab_index(), 0);
+        router.select_tab(1);
+        assert_eq!(router.active_tab_index(), 1);
+
+        // History order: Dashboard -> Thread A -> Thread B
+        // 3. Close active Tab 1 (Thread B) -> should jump back to Thread A (Tab 0)
+        let closed = router.close_tab(1);
+        assert_eq!(closed.unwrap().kind, TabKind::Thread("conv-b".to_string()));
+        assert_eq!(router.tabs().len(), 2);
+        assert_eq!(router.active_tab_index(), 0);
+        assert_eq!(
+            router.active_tab().unwrap().kind,
+            TabKind::Thread("conv-a".to_string())
+        );
+
+        // 4. Now active is Thread A. Close active Tab 0 (Thread A) -> should jump to Dashboard
+        let closed = router.close_tab(0);
+        assert_eq!(closed.unwrap().kind, TabKind::Thread("conv-a".to_string()));
+        assert_eq!(router.tabs().len(), 1);
+        assert_eq!(router.active_tab_index(), 0);
+        assert_eq!(router.active_tab().unwrap().kind, TabKind::Dashboard);
+
+        // 5. Close remaining Dashboard tab -> empty
+        let closed = router.close_tab(0);
+        assert_eq!(closed.unwrap().kind, TabKind::Dashboard);
+        assert!(router.tabs().is_empty());
+        assert_eq!(router.active_tab_index(), 0);
     }
 }

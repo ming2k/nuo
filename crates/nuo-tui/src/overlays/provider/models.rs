@@ -7,11 +7,15 @@ use unicode_width::UnicodeWidthStr;
 
 use super::super::common::truncate_ellipsis;
 use super::common::{
-    draw_picker_search_row, match_set, place_picker_search_cursor, search_empty_body,
-    split_search_bottom,
+    draw_picker_search_row, match_set, place_picker_search_cursor, render_pricing_detail_rows,
+    search_empty_body, split_search_bottom,
 };
+use crate::components::detail::{detail_kv_row, detail_section_row};
 use crate::components::options::{ChoiceTone, choice_style};
 use crate::components::row::{ListRow, RowGroup};
+use crate::components::selectable_body::{SelectableRow, render_selectable_body};
+use crate::model::layout::LayoutMap;
+use crate::model::selection::SelectionState;
 use crate::primitives::{
     BodyRenderOptions, FixedModalSpec, FooterHint, FooterHintWithBand, SCROLL_EDGE_MARGIN,
     keyvocab, modal_area, modal_frame, modal_header, render_body, render_centered_body,
@@ -55,8 +59,10 @@ pub struct ModelsModalProps<'a> {
 /// Draw the **Models** flat model picker modal (`/models`).
 pub fn draw_models_modal(
     frame: &mut Frame,
+    layout_map: &mut LayoutMap,
     props: ModelsModalProps<'_>,
     theme: &Theme,
+    selection: &SelectionState,
 ) -> nuotc::Rect {
     let ModelsModalProps {
         models,
@@ -84,7 +90,7 @@ pub fn draw_models_modal(
         let breadcrumbs = crate::primitives::breadcrumb_parts("Models", display);
         crate::elevation::modal_header_parts(frame, header_rect, &breadcrumbs, theme);
 
-        let lines = model_detail_body(rm, f.body.width as usize, theme);
+        let rows = model_detail_body(rm, f.body.width as usize, theme);
 
         let refresh_label = if refreshing {
             "refreshing…"
@@ -102,17 +108,15 @@ pub fn draw_models_modal(
         detail_hints.push(FooterHint::secondary("r", refresh_label));
         detail_hints.push(FooterHint::key_always(crate::keymap::Key::ESC, "list"));
 
-        render_body(
+        render_selectable_body(
             frame,
             f.body,
-            lines,
+            &rows,
             info_scroll,
-            BodyRenderOptions {
-                follow: None,
-                edge_margin: 0,
-                wrap: true,
-            },
+            None,
             theme,
+            selection,
+            layout_map,
         );
 
         if let Some(fo) = f.footer {
@@ -537,49 +541,40 @@ pub(crate) fn models_empty_body(theme: &Theme) -> Vec<Line<'static>> {
     ]
 }
 
-/// The model detail sub-view body: renders identity, capabilities, and live configuration or availability reason.
+/// The model detail sub-view body: renders identity, capabilities, pricing, and live configuration or availability reason.
 pub(crate) fn model_detail_body(
     rm: &RankedModel,
     _body_width: usize,
     theme: &Theme,
-) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    let label_style = Style::default().fg(theme.dim());
+) -> Vec<SelectableRow> {
+    let mut rows = Vec::new();
     let value_style = Style::default().fg(theme.fg()).add_modifier(Modifier::BOLD);
-    let section_style = Style::default()
-        .fg(theme.brand())
-        .add_modifier(Modifier::BOLD);
 
-    let kv = |label: &str, val: &str, val_style: Style| {
-        Line::from(vec![
-            Span::styled(format!("{:<16}", label), label_style),
-            Span::styled(val.to_string(), val_style),
-        ])
-    };
+    let kv = |label: &str, val: &str, val_style: Style| detail_kv_row(label, val, val_style, theme);
 
     // 1. Identity section
-    lines.push(Line::from(Span::styled("Identity", section_style)));
+    rows.push(detail_section_row("Identity", theme));
     if let Some(name) = &rm.name {
-        lines.push(kv("Display Name", name, value_style));
+        rows.push(kv("Display Name", name, value_style));
     }
-    lines.push(kv("Wire ID", &rm.model, value_style));
-    lines.push(kv(
+    rows.push(kv("Wire ID", &rm.model, value_style));
+    rows.push(kv(
         "Connection",
         &format!("{} ({})", rm.provider_label, rm.provider_id),
         Style::default().fg(theme.fg()),
     ));
 
-    lines.push(Line::from(""));
+    rows.push(SelectableRow::empty());
 
     // 2. Capabilities section
-    lines.push(Line::from(Span::styled("Capabilities", section_style)));
-    lines.push(kv(
+    rows.push(detail_section_row("Capabilities", theme));
+    rows.push(kv(
         "Context Window",
         &format!("{} tokens", rm.context_window),
         Style::default().fg(theme.fg()),
     ));
     if !rm.effort_levels.is_empty() {
-        lines.push(kv(
+        rows.push(kv(
             "Reasoning Tiers",
             &rm.effort_levels.join(" · "),
             Style::default().fg(theme.fg()),
@@ -587,100 +582,20 @@ pub(crate) fn model_detail_body(
     }
 
     // 3. Pricing section (if declared or recognized)
-    if let Some(pricing) = nuo_wire::pricing::resolve_model_pricing(&rm.provider_id, &rm.model) {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("Pricing", section_style)));
-        if pricing
-            .tiers
-            .iter()
-            .all(|t| t.input_standard_nano_per_m == 0 && t.output_standard_nano_per_m == 0)
-        {
-            lines.push(kv(
-                "Rate",
-                "Plan included (zero token surcharge)",
-                value_style,
-            ));
-        } else {
-            let base_tier = &pricing.tiers[0];
-            let in_str =
-                nuo_wire::pricing::NanoUsd(base_tier.input_standard_nano_per_m).format_rate();
-            let out_str =
-                nuo_wire::pricing::NanoUsd(base_tier.output_standard_nano_per_m).format_rate();
-            let base_desc = if pricing.tiers.len() > 1 {
-                format!("{in_str} in · {out_str} out (per 1M tokens, tiered)")
-            } else {
-                format!("{in_str} in · {out_str} out (per 1M tokens)")
-            };
-            lines.push(kv("Standard Rates", &base_desc, value_style));
-
-            if base_tier.cache_read_nano_per_m > 0 {
-                let hit_str =
-                    nuo_wire::pricing::NanoUsd(base_tier.cache_read_nano_per_m).format_rate();
-                let discount_pct = if base_tier.input_standard_nano_per_m > 0 {
-                    let saved = base_tier
-                        .input_standard_nano_per_m
-                        .saturating_sub(base_tier.cache_read_nano_per_m);
-                    (saved as f64 / base_tier.input_standard_nano_per_m as f64 * 100.0).round()
-                        as u32
-                } else {
-                    0
-                };
-                let hit_val = if discount_pct > 0 {
-                    format!("{hit_str} / 1M ({discount_pct}% discount)")
-                } else {
-                    format!("{hit_str} / 1M")
-                };
-                lines.push(kv(
-                    "Prompt Cache Hit",
-                    &hit_val,
-                    Style::default().fg(theme.fg()),
-                ));
-            }
-
-            if let Some(off_peak) = &pricing.off_peak {
-                let op_tier = &off_peak.tiers[0];
-                let op_in =
-                    nuo_wire::pricing::NanoUsd(op_tier.input_standard_nano_per_m).format_rate();
-                let op_out =
-                    nuo_wire::pricing::NanoUsd(op_tier.output_standard_nano_per_m).format_rate();
-                lines.push(kv(
-                    "Off-Peak Rates",
-                    &format!("50% off ({op_in} in · {op_out} out)"),
-                    Style::default().fg(theme.ok()).add_modifier(Modifier::BOLD),
-                ));
-                lines.push(kv(
-                    "Off-Peak Hours",
-                    "Mon–Fri outside 09:00–12:00, 14:00–18:00 (UTC+8); weekends & holidays all day",
-                    Style::default().fg(theme.muted()),
-                ));
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0);
-                let window = off_peak
-                    .schedule
-                    .window_at(nuo_wire::pricing::RatingInstant::from_epoch_ms(now_ms));
-                let (win_label, win_style) = if window.is_off_peak() {
-                    (
-                        "Off-Peak (Active)",
-                        Style::default().fg(theme.ok()).add_modifier(Modifier::BOLD),
-                    )
-                } else {
-                    ("Peak", Style::default().fg(theme.dim()))
-                };
-                lines.push(kv("Current State", win_label, win_style));
-            }
-        }
+    if let Some(pricing_rows) =
+        render_pricing_detail_rows(&rm.provider_id, &rm.model, None, "Pricing", theme)
+    {
+        rows.extend(pricing_rows);
     }
 
-    lines.push(Line::from(""));
+    rows.push(SelectableRow::empty());
 
     // 4. Status or Configuration section
     if rm.usable {
-        lines.push(Line::from(Span::styled("Configuration", section_style)));
+        rows.push(detail_section_row("Configuration", theme));
         if !rm.effort_levels.is_empty() || rm.effort.is_some() {
             let current_effort = rm.effort.as_deref().unwrap_or("medium");
-            lines.push(kv("Reasoning Effort", current_effort, value_style));
+            rows.push(kv("Reasoning Effort", current_effort, value_style));
         }
         if let Some(thinking) = rm.thinking {
             let check = if thinking { "on" } else { "off" };
@@ -689,14 +604,14 @@ pub(crate) fn model_detail_body(
             } else {
                 Style::default().fg(theme.dim())
             };
-            lines.push(kv("Thinking", check, style));
+            rows.push(kv("Thinking", check, style));
         }
         if rm.effort_levels.is_empty() && rm.effort.is_none() && rm.thinking.is_none() {
-            lines.push(kv("Mode", "Standard", Style::default().fg(theme.fg())));
+            rows.push(kv("Mode", "Standard", Style::default().fg(theme.fg())));
         }
     } else {
-        lines.push(Line::from(Span::styled("Availability", section_style)));
-        lines.push(kv(
+        rows.push(detail_section_row("Availability", theme));
+        rows.push(kv(
             "Status",
             "Locked",
             Style::default()
@@ -707,19 +622,20 @@ pub(crate) fn model_detail_body(
             .locked_reason
             .as_deref()
             .unwrap_or("Model requires subscription or account entitlement.");
-        lines.push(Line::from(vec![
-            Span::styled(format!("{:<16}", "Reason"), label_style),
-            Span::styled(reason_text.to_string(), Style::default().fg(theme.muted())),
-        ]));
+        rows.push(kv(
+            "Reason",
+            reason_text,
+            Style::default().fg(theme.muted()),
+        ));
         if rm.availability_overridden {
-            lines.push(kv(
+            rows.push(kv(
                 "Scope Override",
                 "Allowed by user scope",
                 Style::default().fg(theme.ok()),
             ));
         }
         if rm.availability_stale {
-            lines.push(kv(
+            rows.push(kv(
                 "Notice",
                 "Verdict observed before catalog refresh failure; may be stale upstream.",
                 Style::default().fg(theme.dim()),
@@ -727,5 +643,5 @@ pub(crate) fn model_detail_body(
         }
     }
 
-    lines
+    rows
 }

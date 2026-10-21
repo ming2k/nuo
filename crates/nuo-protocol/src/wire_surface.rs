@@ -1,3 +1,3 @@
-//! Re-exports wire surface types from `nuo-model-codec::wire_surface`.
+//! Re-exports wire surface types from `nuo-inference-wire::wire_surface`.
 
-pub use nuo_model_codec::wire_surface::*;
+pub use nuo_inference_wire::wire_surface::*;

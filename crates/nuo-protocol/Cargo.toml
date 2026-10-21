@@ -15,7 +15,8 @@ tokio-util = { workspace = true, features = ["codec"] }
 nuo-host = { workspace = true }
 nuo-mcp = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-nuo-model-codec = { workspace = true }
+nuo-inference-wire = { workspace = true }
+nuo-decision = { workspace = true }
 nuo-provider = { workspace = true }
 nuo-tool = { workspace = true }
 url = "2"

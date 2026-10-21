@@ -1,8 +1,8 @@
 //! The `zai-code` provider template and its legacy registry preset: Z.AI /
 //! Zhipu BigModel coding-plan platform (`open.bigmodel.cn/api/coding/paas/v4`).
 
-use nuo_model_codec::reasoning::ReasoningSupport;
-use nuo_model_codec::{Model, WireProtocol};
+use nuo_inference_wire::reasoning::ReasoningSupport;
+use nuo_inference_wire::{Model, WireProtocol};
 
 use nuo_provider::*;
 
@@ -10,7 +10,7 @@ use nuo_provider::*;
 /// order — the first entry is the initial active channel. `glm-5.3-flash`
 /// joined the plan alongside the flagship (native multimodal, 1M context,
 /// ~1/3 the credit burn), so it is offered ahead of the older flagships.
-pub use nuo_model_codec::model_providers::ZAI_CODE_MODELS;
+pub use nuo_inference_wire::model_providers::ZAI_CODE_MODELS;
 
 // ZAI Code (CN) — Zhipu BigModel / Z.AI coding-plan platform
 // (open.bigmodel.cn/api/coding/paas/v4). A coding-agent membership endpoint
@@ -20,8 +20,8 @@ pub use nuo_model_codec::model_providers::ZAI_CODE_MODELS;
 // Zhipu ecosystem, while ZAI_API_KEY is the preferred alias.
 
 /// Baseline capability metadata for the models this provider serves,
-/// submitted to `nuo_model_codec`'s registry at link time (see
-/// [`nuo_model_codec::model::BaselineModels`]).
+/// submitted to `nuo_inference_wire`'s registry at link time (see
+/// [`nuo_inference_wire::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // GLM family (Zhipu / Z.AI / opencode-go)
     Model {
@@ -31,7 +31,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         wire_entities: None,
@@ -49,7 +49,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         wire_entities: None,
@@ -61,7 +61,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         wire_entities: None,
@@ -73,7 +73,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -85,7 +85,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -97,7 +97,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -109,7 +109,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -121,27 +121,25 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
+inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_model_codec::ProviderDialect::Standard,
+    dialect: nuo_inference_wire::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
     id: std::borrow::Cow::Borrowed("glm-cn"),
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://open.bigmodel.cn/api/coding/paas/v4"),
-    user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_provider_transport::ZCODE_USER_AGENT,
-    )),
-    protocol: WireProtocol::ChatCompletions,
+    user_agent: Some(std::borrow::Cow::Borrowed(nuo_provider::ZCODE_USER_AGENT)),
+    protocol: WireProtocol::OpenAiChatCompletions,
     // Live-verified (2026-08): the coding endpoint serves GET /models and
     // returns the plan's current model ids (OpenAI list shape, ids only — no
     // capability metadata). The first-party list stays authoritative for what
@@ -150,7 +148,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // the picker. Baselines stay the single source of capability truth either
     // way (capability overlay is unavailable here).
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_model_codec::ClientPreset::ZCode,
+    default_client_profile: nuo_inference_wire::ClientPreset::ZCode,
     client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,

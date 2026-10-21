@@ -7,7 +7,7 @@
 //! thresholds (`[INV-PRICING-03]`), and — for upstreams that publish them —
 //! time-of-day rate cards.
 //!
-//! Depends downward on `nuo_model_codec::TokenBreakdown` via Dependency
+//! Depends downward on `nuo_tool::TokenBreakdown` via Dependency
 //! Inversion (`[INV-DIP-01]`).
 //!
 //! # Rating is a pure function of `(usage, instant)`
@@ -27,8 +27,8 @@ pub use schedule::{
     Weekday, WeekdayMask,
 };
 
-use nuo_model_codec::TokenUsage;
-use nuo_model_codec::token_classification::TokenBreakdown;
+use nuo_inference_wire::token_classification::TokenBreakdown;
+use nuo_tool::TokenUsage;
 use serde::{Deserialize, Serialize};
 
 /// Fixed-point nanodollar amount (1 USD = 1,000,000,000 nano-USD).

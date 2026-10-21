@@ -26,7 +26,7 @@ Nuo organizes its Cargo workspace into four concentric layers. Dependencies flow
 ├──────────────────────────────────────────────────────────────┤
 │  Layer 1: Pure Contracts & Codecs                            │
 │  - East-West IPC: `crates/nuo-protocol`                      │
-│  - North-South Model Codec: `crates/nuo-model-codec`         │
+│  - North-South Model Codec: `crates/nuo-inference-wire`         │
 │  - Provider Abstraction: `crates/nuo-provider`               │
 │  - Tool Interface: `crates/nuo-tool`                         │
 └──────────────────────────────────────────────────────────────┘
@@ -46,7 +46,7 @@ Nuo organizes its Cargo workspace into four concentric layers. Dependencies flow
 
 ### 2.3 IPC Protocol vs. Model Codec Orthogonality
 - **`nuo-protocol` (East-West IPC)**: Governs local inter-process communication between client and server, task dispatch, session snapshots, and event telemetry.
-- **`nuo-model-codec` (North-South Transport)**: Governs wire serialization to external model endpoints (HTTP SSE, JSON streaming). It carries only objective physical telemetry facts (`TokenClass`, `TokenBreakdown`) with zero financial accounting or local IPC logic.
+- **`nuo-inference-wire` (North-South Transport)**: Governs wire serialization to external model endpoints (HTTP SSE, JSON streaming). It carries only objective physical telemetry facts (`TokenClass`, `TokenBreakdown`) with zero financial accounting or local IPC logic.
 - **Passthrough Prohibition**: Subsystems must not use intermediate crates as passthrough re-export conduits.
 
 ### 2.4 Non-Destructive Detach Lifecycle

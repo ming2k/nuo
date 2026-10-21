@@ -21,15 +21,14 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::BoxStream;
-use nuo_model_codec::{
-    ModelRequest, Provider, ProviderError, ProviderErrorKind, ProviderPromptHints,
-    ProviderStreamEvent,
-};
+use nuo_inference_wire::{ProviderError, ProviderErrorKind};
+use nuo_provider::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
 use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
 
-use nuo_provider_transport::transport::{decode_response_json, ensure_success};
-use nuo_provider_transport::{Client, ClientProfile, Endpoint};
+use nuo_egress::{Client, HttpResponse, RequestBuilder};
+use nuo_provider::transport::{decode_response_json, ensure_success};
+use nuo_provider::{ClientProfile, Endpoint, NUO_USER_AGENT, PromptCacheConfig};
 
 pub mod catalog;
 pub mod request;
@@ -49,14 +48,14 @@ pub const GOOGLE_DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis
 
 fn google_completion(
     response_json: &Value,
-) -> Result<nuo_model_codec::ProviderCompletion, nuo_model_codec::ProviderError> {
+) -> Result<nuo_inference_wire::ProviderCompletion, nuo_inference_wire::ProviderError> {
     let root = response_json.get("response").unwrap_or(response_json);
     let mut message =
         response::message(response_json).map_err(|e| ProviderError::protocol("Google", e))?;
     let artifacts = message.provider_meta.take();
-    Ok(nuo_model_codec::ProviderCompletion {
+    Ok(nuo_inference_wire::ProviderCompletion {
         message,
-        meta: nuo_model_codec::ProviderCompletionMeta {
+        meta: nuo_inference_wire::ProviderCompletionMeta {
             usage: response::usage(&root["usageMetadata"]),
             artifacts,
             continuation: None,
@@ -75,12 +74,12 @@ pub struct GoogleProvider {
     pub client: Client,
     /// Channel-scoped capability view. A trusted remote catalogue overrides the
     /// static baseline only for this provider/model route.
-    pub capabilities: nuo_model_codec::ModelCapabilities,
+    pub capabilities: nuo_inference_wire::ModelCapabilities,
     /// Channel-scoped reasoning-effort override. `None` leaves the model's
     /// server-default thinking level in place; `Some(e)` pins it, translated
     /// onto `thinkingConfig` (`thinkingLevel` for Gemini 3.x, a
     /// `thinkingBudget` bucket for Gemini 2.5) at request-build time.
-    pub reasoning_effort: Option<nuo_model_codec::Effort>,
+    pub reasoning_effort: Option<nuo_inference_wire::Effort>,
     /// Antigravity Google Cloud companion project ID (`cloudaicompanionProject`).
     /// When set, the provider routes requests in `v1internal` envelope shape with
     /// `Authorization: Bearer` authentication to the Antigravity backend.
@@ -88,7 +87,7 @@ pub struct GoogleProvider {
     /// Route-scoped prompt-cache capabilities and defaults. The public Google
     /// route currently advertises only implicit caching, so resolution
     /// validates user intent without inventing resource-cache lifecycle.
-    pub prompt_cache: nuo_provider_transport::PromptCacheConfig,
+    pub prompt_cache: PromptCacheConfig,
     /// Sticky, channel-scoped flag: this upstream has refused our
     /// `thinkingConfig` at least once (INVALID_ARGUMENT naming the field), so
     /// the thinking-disclosure surface is unavailable on this route. Reasoning
@@ -96,7 +95,7 @@ pub struct GoogleProvider {
     /// cannot be disclosed and requests stop asking for it. See
     /// [`Self::note_thinking_rejected`].
     thinking_rejected: Arc<Mutex<bool>>,
-    pub dialect: nuo_model_codec::GoogleGenerateContentDialect,
+    pub dialect: nuo_inference_wire::GoogleGenerateContentDialect,
 }
 
 /// Canonical alias for the Google Gemini protocol provider.
@@ -111,12 +110,7 @@ impl GoogleProvider {
     /// Google-format relay). A trailing slash on `base_url` is tolerated
     /// (stripped).
     pub fn with_base_url(api_key: String, model: String, base_url: &str) -> Self {
-        Self::with_base_url_and_user_agent(
-            api_key,
-            model,
-            base_url,
-            nuo_provider_transport::NUO_USER_AGENT,
-        )
+        Self::with_base_url_and_user_agent(api_key, model, base_url, NUO_USER_AGENT)
     }
 
     /// Build a provider targeting a custom versioned base URL with an explicit
@@ -127,7 +121,7 @@ impl GoogleProvider {
         base_url: &str,
         user_agent: &str,
     ) -> Self {
-        let capabilities = nuo_model_codec::ModelCapabilities::for_channel(&model, None);
+        let capabilities = nuo_inference_wire::ModelCapabilities::for_channel(&model, None);
         Self {
             endpoint: Endpoint::from_static_key(
                 api_key,
@@ -140,20 +134,20 @@ impl GoogleProvider {
             capabilities,
             reasoning_effort: None,
             project_id: None,
-            prompt_cache: nuo_provider_transport::PromptCacheConfig::default(),
+            prompt_cache: PromptCacheConfig::default(),
             thinking_rejected: Arc::new(Mutex::new(false)),
-            dialect: nuo_model_codec::GoogleGenerateContentDialect::GenerativeLanguage,
+            dialect: nuo_inference_wire::GoogleGenerateContentDialect::GenerativeLanguage,
         }
     }
 
     /// Build a provider with dynamic credentials.
     pub fn with_credentials(
-        credentials: std::sync::Arc<dyn nuo_model_codec::CredentialSource>,
+        credentials: std::sync::Arc<dyn nuo_inference_wire::CredentialSource>,
         model: String,
         base_url: &str,
         client_profile: impl Into<ClientProfile>,
     ) -> Self {
-        let capabilities = nuo_model_codec::ModelCapabilities::for_channel(&model, None);
+        let capabilities = nuo_inference_wire::ModelCapabilities::for_channel(&model, None);
         Self {
             endpoint: Endpoint::with_credentials(
                 credentials,
@@ -166,9 +160,9 @@ impl GoogleProvider {
             capabilities,
             reasoning_effort: None,
             project_id: None,
-            prompt_cache: nuo_provider_transport::PromptCacheConfig::default(),
+            prompt_cache: PromptCacheConfig::default(),
             thinking_rejected: Arc::new(Mutex::new(false)),
-            dialect: nuo_model_codec::GoogleGenerateContentDialect::GenerativeLanguage,
+            dialect: nuo_inference_wire::GoogleGenerateContentDialect::GenerativeLanguage,
         }
     }
 
@@ -182,7 +176,7 @@ impl GoogleProvider {
     /// Attach the effective provider-channel capability view.
     pub fn with_model_capabilities(
         mut self,
-        capabilities: nuo_model_codec::ModelCapabilities,
+        capabilities: nuo_inference_wire::ModelCapabilities,
     ) -> Self {
         self.capabilities = capabilities;
         self
@@ -193,15 +187,12 @@ impl GoogleProvider {
     /// `effort_levels` at request-build time, then translated onto Google's
     /// `thinkingConfig` (`thinkingLevel` for Gemini 3.x, a `thinkingBudget`
     /// bucket for Gemini 2.5).
-    pub fn with_reasoning_effort(mut self, effort: Option<nuo_model_codec::Effort>) -> Self {
+    pub fn with_reasoning_effort(mut self, effort: Option<nuo_inference_wire::Effort>) -> Self {
         self.reasoning_effort = effort;
         self
     }
 
-    pub fn with_prompt_cache(
-        mut self,
-        prompt_cache: nuo_provider_transport::PromptCacheConfig,
-    ) -> Self {
+    pub fn with_prompt_cache(mut self, prompt_cache: PromptCacheConfig) -> Self {
         self.prompt_cache = prompt_cache;
         self
     }
@@ -211,7 +202,10 @@ impl GoogleProvider {
         self
     }
 
-    pub fn with_dialect(mut self, dialect: nuo_model_codec::GoogleGenerateContentDialect) -> Self {
+    pub fn with_dialect(
+        mut self,
+        dialect: nuo_inference_wire::GoogleGenerateContentDialect,
+    ) -> Self {
         self.dialect = dialect;
         self
     }
@@ -224,7 +218,7 @@ impl GoogleProvider {
 
     /// Whether this provider is configured for Google Antigravity `v1internal` protocol.
     pub fn is_antigravity(&self) -> bool {
-        self.dialect == nuo_model_codec::GoogleGenerateContentDialect::Antigravity
+        self.dialect == nuo_inference_wire::GoogleGenerateContentDialect::Antigravity
     }
 
     /// Build the thinkingless streaming request for a channel whose upstream
@@ -235,8 +229,8 @@ impl GoogleProvider {
         &self,
         request: ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_model_codec::ProviderError>>,
-        nuo_model_codec::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_inference_wire::ProviderError>>,
+        nuo_inference_wire::ProviderError,
     > {
         let response = self.send_google_request(&request, true, true, None).await?;
         let response = ensure_success(response, "Google", Some(&self.endpoint.model))
@@ -253,16 +247,11 @@ impl GoogleProvider {
         is_stream: bool,
         omit_thinking: bool,
         timeout: Option<std::time::Duration>,
-    ) -> Result<nuo_provider_transport::HttpResponse, ProviderError> {
+    ) -> Result<HttpResponse, ProviderError> {
         let _cache_plan = self
             .prompt_cache
             .resolve(request)
             .map_err(|e| ProviderError::invalid_request("Google", e))?;
-        // Prewarm races auth resolution: both are async, neither needs the
-        // other, and the pool hit (or a fresh connection) is ready by the
-        // time the request dispatches. A prewarm failure is advisory — the
-        // dispatch below reports the real error — so it is logged, not
-        // propagated.
         let prewarm = self.client.prewarm(self.endpoint.base_url(), "Google");
         let auth_fut = self.endpoint.resolve_auth();
         let (prewarm_outcome, auth_result) = tokio::join!(prewarm, auth_fut);
@@ -273,11 +262,10 @@ impl GoogleProvider {
         let (url, headers, body) =
             self.prepare_request_for_auth(request.clone(), is_stream, omit_thinking, &auth);
 
-        let mut req_builder =
-            nuo_provider_transport::request::RequestBuilder::new(http::Method::POST, &url)
-                .headers(headers.clone())
-                .json(&body)
-                .with_telemetry(request.transport_telemetry.clone());
+        let mut req_builder = RequestBuilder::new(http::Method::POST, &url)
+            .headers(headers.clone())
+            .json(&body)
+            .with_telemetry(request.transport_telemetry.clone());
         if let Some(t) = timeout {
             req_builder = req_builder.timeout(t);
         }
@@ -299,17 +287,14 @@ impl GoogleProvider {
                 omit_thinking,
                 &refreshed_auth,
             );
-            let mut retry_builder = nuo_provider_transport::request::RequestBuilder::new(
-                http::Method::POST,
-                &retry_url,
-            )
-            .headers(retry_headers)
-            .json(&retry_body)
-            .with_telemetry(request.transport_telemetry.clone());
+            let mut retry_builder = RequestBuilder::new(http::Method::POST, &retry_url)
+                .headers(retry_headers)
+                .json(&retry_body)
+                .with_telemetry(request.transport_telemetry.clone());
             if let Some(t) = timeout {
                 retry_builder = retry_builder.timeout(t);
             }
-            return self.client.send_raw(retry_builder, "Google").await;
+            return Ok(self.client.send_raw(retry_builder, "Google").await?);
         }
 
         Ok(response)
@@ -317,14 +302,14 @@ impl GoogleProvider {
 
     fn wrap_event_stream(
         &self,
-        response: nuo_provider_transport::HttpResponse,
+        response: HttpResponse,
     ) -> BoxStream<'static, Result<ProviderStreamEvent, ProviderError>> {
         let next_tool_index = std::sync::Arc::new(std::sync::Mutex::new(0usize));
         let thought_signatures = Arc::new(Mutex::new(Map::new()));
         let text_thought_signature = Arc::new(Mutex::new(None::<String>));
         let terminal_signatures = thought_signatures.clone();
         let terminal_text_signature = text_thought_signature.clone();
-        let stream = nuo_provider_transport::sse::data_payloads(response, "Google").flat_map({
+        let stream = nuo_egress::sse::data_payloads(response, "Google").flat_map({
             let next_tool_index = next_tool_index.clone();
             move |item| {
                 let events: Vec<Result<ProviderStreamEvent, ProviderError>> = match item {
@@ -420,7 +405,7 @@ impl GoogleProvider {
                             }
                         }
                     }
-                    Err(error) => vec![Err(error)],
+                    Err(error) => vec![Err(ProviderError::from(error))],
                 };
                 futures::stream::iter(events)
             }
@@ -449,7 +434,7 @@ impl GoogleProvider {
                 );
             }
             Ok(ProviderStreamEvent::Completed(
-                nuo_model_codec::ProviderCompletionMeta {
+                nuo_inference_wire::ProviderCompletionMeta {
                     artifacts: (!artifacts.is_empty()).then_some(artifacts),
                     ..Default::default()
                 },
@@ -495,7 +480,7 @@ impl GoogleProvider {
     async fn chat_without_thinking(
         &self,
         request: ModelRequest,
-    ) -> Result<nuo_model_codec::ProviderCompletion, nuo_model_codec::ProviderError> {
+    ) -> Result<nuo_inference_wire::ProviderCompletion, nuo_inference_wire::ProviderError> {
         tracing::warn!(
             model = %self.endpoint.model,
             "upstream rejected thinkingConfig; retrying without disclosed thinking (chain withheld by upstream)"
@@ -535,7 +520,7 @@ impl GoogleProvider {
         is_stream: bool,
         omit_thinking: bool,
     ) -> (String, http::header::HeaderMap, serde_json::Value) {
-        let auth = nuo_model_codec::ResolvedAuth::default();
+        let auth = nuo_inference_wire::ResolvedAuth::default();
         self.prepare_request_for_auth(request, is_stream, omit_thinking, &auth)
     }
 
@@ -544,7 +529,7 @@ impl GoogleProvider {
         request: ModelRequest,
         is_stream: bool,
         omit_thinking: bool,
-        auth: &nuo_model_codec::ResolvedAuth,
+        auth: &nuo_inference_wire::ResolvedAuth,
     ) -> (String, http::header::HeaderMap, serde_json::Value) {
         let key = auth.token.expose_secret();
         let is_claude = self.endpoint.model.starts_with("claude-");
@@ -633,7 +618,7 @@ impl GoogleProvider {
             // Cloud Code calls — the four-header set above is the whole story.
 
             let project = auth
-                .extension::<nuo_model_codec::GoogleAuthMetadata>()
+                .extension::<nuo_inference_wire::GoogleAuthMetadata>()
                 .map(|m| m.project_id.as_str())
                 .or(self.project_id.as_deref())
                 .map(str::trim)
@@ -697,8 +682,8 @@ impl Provider for GoogleProvider {
         self.endpoint.model.clone()
     }
 
-    fn wire_protocol(&self) -> Option<nuo_model_codec::WireProtocol> {
-        Some(nuo_model_codec::WireProtocol::GoogleGemini)
+    fn wire_protocol(&self) -> Option<nuo_inference_wire::WireProtocol> {
+        Some(nuo_inference_wire::WireProtocol::GoogleGenerateContent)
     }
 
     // `effort()` keeps its default (`None`): the Gemini `thinkingLevel` /
@@ -706,7 +691,7 @@ impl Provider for GoogleProvider {
     // matches the shared `Effort` tiers one-to-one, so the transcript stays
     // quiet rather than showing a translated label that could mislead.
 
-    fn model_capabilities(&self) -> nuo_model_codec::ModelCapabilities {
+    fn model_capabilities(&self) -> nuo_inference_wire::ModelCapabilities {
         self.capabilities.clone()
     }
     fn prompt_hints(&self) -> ProviderPromptHints {
@@ -726,7 +711,7 @@ impl Provider for GoogleProvider {
     async fn chat(
         &self,
         request: ModelRequest,
-    ) -> Result<nuo_model_codec::ProviderCompletion, nuo_model_codec::ProviderError> {
+    ) -> Result<nuo_inference_wire::ProviderCompletion, nuo_inference_wire::ProviderError> {
         let omit = self.thinking_was_rejected();
         let response = self
             .send_google_request(&request, false, omit, Some(self.client.request_timeout()))
@@ -768,8 +753,8 @@ impl Provider for GoogleProvider {
         &self,
         request: ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<String, nuo_model_codec::ProviderError>>,
-        nuo_model_codec::ProviderError,
+        BoxStream<'static, Result<String, nuo_inference_wire::ProviderError>>,
+        nuo_inference_wire::ProviderError,
     > {
         let omit = self.thinking_was_rejected();
         let response = self.send_google_request(&request, true, omit, None).await?;
@@ -795,8 +780,10 @@ impl Provider for GoogleProvider {
         // SSE byte reassembly (incl. multi-byte UTF-8 split across chunks) is
         // handled by `sse::data_payloads`; here we only map each payload to the
         // Google `streamGenerateContent` text shape.
-        let stream = nuo_provider_transport::sse::data_payloads(response, "Google")
-            .map(|item| item.map(|payload| response::stream_text(&payload)));
+        let stream = nuo_egress::sse::data_payloads(response, "Google").map(|item| {
+            item.map_err(ProviderError::from)
+                .map(|payload| response::stream_text(&payload))
+        });
 
         Ok(stream.boxed())
     }
@@ -805,8 +792,8 @@ impl Provider for GoogleProvider {
         &self,
         request: ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_model_codec::ProviderError>>,
-        nuo_model_codec::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_inference_wire::ProviderError>>,
+        nuo_inference_wire::ProviderError,
     > {
         let omit = self.thinking_was_rejected();
         let response = self.send_google_request(&request, true, omit, None).await?;
@@ -841,7 +828,7 @@ impl Provider for GoogleProvider {
 /// `fetchAvailableModels` snapshot may never have covered (offline session,
 /// seed-only connection). The live catalog is authoritative when it ran: its
 /// observed `wire_entities` ride `ModelCapabilities.effort_entities` and are
-/// consumed by [`nuo_model_codec::ModelCapabilities::wire_entity_resolution`]
+/// consumed by [`nuo_inference_wire::ModelCapabilities::wire_entity_resolution`]
 /// directly, with zero family-prefix matching. This table exists only so the
 /// offline floor behaves identically to the live surface; its rows cite their
 /// provenance and it is *data*, not inference.
@@ -930,16 +917,16 @@ static BASELINE_WIRE_FAMILIES: &[BaselineWireFamily] = &[
 /// Priority (ADR-0074, evidence over inference):
 /// 1. **Live observation** — `capabilities.effort_entities`, the account's
 ///    real `fetchAvailableModels` surface, via the typed
-///    [`nuo_model_codec::WireEntityResolution`] decision.
+///    [`nuo_inference_wire::WireEntityResolution`] decision.
 /// 2. **Compiled baseline** — `BASELINE_WIRE_ENTITIES`, matching the exact
 ///    family base id only (never a substring scan).
 /// 3. **Structural remaps / verbatim** — single named entities and pass-through.
 fn effective_antigravity_wire_model(
-    capabilities: &nuo_model_codec::ModelCapabilities,
+    capabilities: &nuo_inference_wire::ModelCapabilities,
     model: &str,
-    effort: Option<nuo_model_codec::Effort>,
+    effort: Option<nuo_inference_wire::Effort>,
 ) -> String {
-    use nuo_model_codec::WireEntityResolution;
+    use nuo_inference_wire::WireEntityResolution;
 
     // 1. Live observation first: the account's real wired surface. The
     //    account-default row is FIRST in the observed order the parser
@@ -985,8 +972,8 @@ mod tests {
     /// Baseline capability view for tests that need to stamp an effort ladder:
     /// `GoogleProvider::new` derives capabilities from the registry, which the
     /// llm-client crate's tests see as the fallback (`effort_levels == []`).
-    fn p_caps(model: &str) -> nuo_model_codec::ModelCapabilities {
-        nuo_model_codec::ModelCapabilities::for_channel(model, None)
+    fn p_caps(model: &str) -> nuo_inference_wire::ModelCapabilities {
+        nuo_inference_wire::ModelCapabilities::for_channel(model, None)
     }
 
     #[test]
@@ -998,10 +985,7 @@ mod tests {
             p.endpoint.base_url(),
             "https://generativelanguage.googleapis.com/v1beta"
         );
-        assert_eq!(
-            p.endpoint.user_agent(),
-            nuo_provider_transport::NUO_USER_AGENT
-        );
+        assert_eq!(p.endpoint.user_agent(), NUO_USER_AGENT);
     }
 
     #[test]
@@ -1061,7 +1045,7 @@ mod tests {
                 "https://daily-cloudcode-pa.googleapis.com",
                 "ua",
             )
-            .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+            .with_dialect(nuo_inference_wire::GoogleGenerateContentDialect::Antigravity)
             .with_project_id("proj-1");
             let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
             assert_eq!(
@@ -1072,11 +1056,11 @@ mod tests {
 
         // Test wire mapping when reasoning effort is selected on Gemini 3.8 Flash
         for effort in [
-            nuo_model_codec::Effort::Minimal,
-            nuo_model_codec::Effort::Low,
-            nuo_model_codec::Effort::Medium,
-            nuo_model_codec::Effort::High,
-            nuo_model_codec::Effort::Max,
+            nuo_inference_wire::Effort::Minimal,
+            nuo_inference_wire::Effort::Low,
+            nuo_inference_wire::Effort::Medium,
+            nuo_inference_wire::Effort::High,
+            nuo_inference_wire::Effort::Max,
         ] {
             let mut p = GoogleProvider::with_base_url_and_user_agent(
                 "k".to_string(),
@@ -1084,7 +1068,7 @@ mod tests {
                 "https://daily-cloudcode-pa.googleapis.com",
                 "ua",
             )
-            .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+            .with_dialect(nuo_inference_wire::GoogleGenerateContentDialect::Antigravity)
             .with_project_id("proj-1");
             p.reasoning_effort = Some(effort);
             let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
@@ -1099,7 +1083,7 @@ mod tests {
             "https://daily-cloudcode-pa.googleapis.com",
             "ua",
         )
-        .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+        .with_dialect(nuo_inference_wire::GoogleGenerateContentDialect::Antigravity)
         .with_project_id("proj-1");
         let (_, _, body_claude) =
             p_claude.prepare_request(ModelRequest::new(Vec::new()), false, false);
@@ -1113,11 +1097,11 @@ mod tests {
     #[test]
     fn antigravity_argon_routes_effort_to_registered_per_level_entity() {
         for (effort, expected) in [
-            (nuo_model_codec::Effort::Minimal, "gemini-4-argon-low"),
-            (nuo_model_codec::Effort::Low, "gemini-4-argon-low"),
-            (nuo_model_codec::Effort::Medium, "gemini-4-argon-medium"),
-            (nuo_model_codec::Effort::High, "gemini-4-argon-high"),
-            (nuo_model_codec::Effort::Max, "gemini-4-argon-high"),
+            (nuo_inference_wire::Effort::Minimal, "gemini-4-argon-low"),
+            (nuo_inference_wire::Effort::Low, "gemini-4-argon-low"),
+            (nuo_inference_wire::Effort::Medium, "gemini-4-argon-medium"),
+            (nuo_inference_wire::Effort::High, "gemini-4-argon-high"),
+            (nuo_inference_wire::Effort::Max, "gemini-4-argon-high"),
         ] {
             let mut p = GoogleProvider::with_base_url_and_user_agent(
                 "k".to_string(),
@@ -1125,7 +1109,7 @@ mod tests {
                 "https://daily-cloudcode-pa.googleapis.com",
                 "ua",
             )
-            .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+            .with_dialect(nuo_inference_wire::GoogleGenerateContentDialect::Antigravity)
             .with_project_id("proj-1");
             p.reasoning_effort = Some(effort);
             let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
@@ -1142,7 +1126,7 @@ mod tests {
             "https://daily-cloudcode-pa.googleapis.com",
             "ua",
         )
-        .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+        .with_dialect(nuo_inference_wire::GoogleGenerateContentDialect::Antigravity)
         .with_project_id("proj-1");
         let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
         assert_eq!(body["model"], "gemini-4-argon-medium");
@@ -1165,13 +1149,16 @@ mod tests {
         .map(|s| s.to_string())
         .collect();
         for (effort, expected) in [
-            (Some(nuo_model_codec::Effort::Low), "claude-opus-5-5-low"),
+            (Some(nuo_inference_wire::Effort::Low), "claude-opus-5-5-low"),
             (
-                Some(nuo_model_codec::Effort::Medium),
+                Some(nuo_inference_wire::Effort::Medium),
                 "claude-opus-5-5-medium",
             ),
-            (Some(nuo_model_codec::Effort::High), "claude-opus-5-5-high"),
-            (Some(nuo_model_codec::Effort::Max), "claude-opus-5-5-max"),
+            (
+                Some(nuo_inference_wire::Effort::High),
+                "claude-opus-5-5-high",
+            ),
+            (Some(nuo_inference_wire::Effort::Max), "claude-opus-5-5-max"),
         ] {
             let mut p = GoogleProvider::with_base_url_and_user_agent(
                 "k".to_string(),
@@ -1179,7 +1166,7 @@ mod tests {
                 "https://daily-cloudcode-pa.googleapis.com",
                 "ua",
             )
-            .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+            .with_dialect(nuo_inference_wire::GoogleGenerateContentDialect::Antigravity)
             .with_project_id("proj-1");
             p.capabilities.effort_entities = observed.clone();
             p.reasoning_effort = effort;
@@ -1199,12 +1186,12 @@ mod tests {
         for (model, effort, expected) in [
             (
                 "claude-opus-5-5",
-                Some(nuo_model_codec::Effort::High),
+                Some(nuo_inference_wire::Effort::High),
                 "claude-opus-5-5-high",
             ),
             (
                 "claude-sonnet-5-5",
-                Some(nuo_model_codec::Effort::Max),
+                Some(nuo_inference_wire::Effort::Max),
                 "claude-sonnet-5-5-max",
             ),
             ("gemini-4-argon", None, "gemini-4-argon-medium"),
@@ -1212,7 +1199,7 @@ mod tests {
             ("claude-opus-4-6", None, "claude-opus-4-6-thinking"),
             (
                 "claude-opus-4-6",
-                Some(nuo_model_codec::Effort::High),
+                Some(nuo_inference_wire::Effort::High),
                 "claude-opus-4-6-thinking",
             ),
         ] {
@@ -1222,7 +1209,7 @@ mod tests {
                 "https://daily-cloudcode-pa.googleapis.com",
                 "ua",
             )
-            .with_dialect(nuo_model_codec::GoogleGenerateContentDialect::Antigravity)
+            .with_dialect(nuo_inference_wire::GoogleGenerateContentDialect::Antigravity)
             .with_project_id("proj-1");
             assert!(p.capabilities.effort_entities.is_empty());
             p.reasoning_effort = effort;
@@ -1257,19 +1244,19 @@ mod tests {
         // re-sending either would fail the retry identically.
         let capabilities = {
             let mut caps = p_caps("gemini-3.7-flash");
-            caps.thinking = nuo_model_codec::reasoning::ReasoningSupport::ReasoningContent;
+            caps.thinking = nuo_inference_wire::reasoning::ReasoningSupport::ReasoningContent;
             let levels = [
-                nuo_model_codec::Effort::Minimal,
-                nuo_model_codec::Effort::Low,
-                nuo_model_codec::Effort::Medium,
-                nuo_model_codec::Effort::High,
+                nuo_inference_wire::Effort::Minimal,
+                nuo_inference_wire::Effort::Low,
+                nuo_inference_wire::Effort::Medium,
+                nuo_inference_wire::Effort::High,
             ];
             caps.effort_levels = levels.iter().copied().map(Into::into).collect();
             caps
         };
         let p = GoogleProvider::new("k".to_string(), "gemini-3.7-flash".to_string())
             .with_model_capabilities(capabilities)
-            .with_reasoning_effort(Some(nuo_model_codec::Effort::High));
+            .with_reasoning_effort(Some(nuo_inference_wire::Effort::High));
         let (_, _, with) = p.prepare_request(ModelRequest::new(Vec::new()), true, false);
         assert_eq!(
             with["generationConfig"]["thinkingConfig"]["includeThoughts"],
@@ -1293,20 +1280,20 @@ mod tests {
         // body; the downgrade applies there identically.
         let capabilities = {
             let mut caps = p_caps("gemini-2.5-pro");
-            caps.thinking = nuo_model_codec::reasoning::ReasoningSupport::ReasoningContent;
+            caps.thinking = nuo_inference_wire::reasoning::ReasoningSupport::ReasoningContent;
             let budget_levels = [
-                nuo_model_codec::Effort::Minimal,
-                nuo_model_codec::Effort::Low,
-                nuo_model_codec::Effort::Medium,
-                nuo_model_codec::Effort::High,
-                nuo_model_codec::Effort::Max,
+                nuo_inference_wire::Effort::Minimal,
+                nuo_inference_wire::Effort::Low,
+                nuo_inference_wire::Effort::Medium,
+                nuo_inference_wire::Effort::High,
+                nuo_inference_wire::Effort::Max,
             ];
             caps.effort_levels = budget_levels.iter().copied().map(Into::into).collect();
             caps
         };
         let p = GoogleProvider::new("k".to_string(), "gemini-2.5-pro".to_string())
             .with_model_capabilities(capabilities)
-            .with_reasoning_effort(Some(nuo_model_codec::Effort::High));
+            .with_reasoning_effort(Some(nuo_inference_wire::Effort::High));
         let (_, _, with) = p.prepare_request(ModelRequest::new(Vec::new()), true, false);
         assert_eq!(
             with["generationConfig"]["thinkingConfig"]["thinkingBudget"],
@@ -1323,7 +1310,7 @@ mod tests {
             "gemini-3-flash".to_string(),
             "https://generativelanguage.googleapis.com/v1beta",
         );
-        let auth = nuo_model_codec::ResolvedAuth::new("AIza-key");
+        let auth = nuo_inference_wire::ResolvedAuth::new("AIza-key");
         let (url, headers, _) =
             p.prepare_request_for_auth(ModelRequest::new(Vec::new()), false, true, &auth);
         assert!(url.ends_with(":generateContent"), "{url}");

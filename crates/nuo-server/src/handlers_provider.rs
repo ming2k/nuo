@@ -1033,16 +1033,17 @@ pub(crate) async fn edit_model(
     let mut routes = RouteSettingsStore::load();
     let entry = routes.settings_for_mut(&connection, &model);
     match transport {
-        nuo_model_codec::catalog::Transport::Anthropic { .. } => {
+        nuo_inference_wire::catalog::Transport::AnthropicMessages { .. } => {
             entry.effort = valid_effort;
             entry.thinking = thinking;
         }
-        nuo_model_codec::catalog::Transport::OpenAi { .. }
-        | nuo_model_codec::catalog::Transport::OpenAiResponses { .. } => {
+        nuo_inference_wire::catalog::Transport::OpenAiChatCompletions { .. }
+        | nuo_inference_wire::catalog::Transport::OpenAiResponses { .. } => {
             entry.effort = valid_effort;
             entry.thinking = None;
         }
-        nuo_model_codec::catalog::Transport::Google { .. } => {}
+        nuo_inference_wire::catalog::Transport::GoogleGenerateContent { .. }
+        | nuo_inference_wire::catalog::Transport::GoogleInteractions { .. } => {}
     }
     // Capability overrides (layer 1): `None` keeps the stored
     // record untouched; `Some(record)` replaces it wholesale (empty clears).
@@ -1795,17 +1796,20 @@ pub(crate) async fn query_connection_detail(
     let (protocol, base_url) = entry
         .default_channel()
         .map(|c| match &c.transport {
-            nuo_harness::Transport::OpenAi { base_url, .. } => {
+            nuo_harness::Transport::OpenAiChatCompletions { base_url, .. } => {
                 ("openai".to_string(), base_url.clone())
             }
             nuo_harness::Transport::OpenAiResponses { base_url, .. } => {
                 ("openai_responses".to_string(), base_url.clone())
             }
-            nuo_harness::Transport::Anthropic { base_url, .. } => {
+            nuo_harness::Transport::AnthropicMessages { base_url, .. } => {
                 ("anthropic".to_string(), base_url.clone())
             }
-            nuo_harness::Transport::Google { base_url, .. } => {
+            nuo_harness::Transport::GoogleGenerateContent { base_url, .. } => {
                 ("google".to_string(), base_url.clone())
+            }
+            nuo_harness::Transport::GoogleInteractions { base_url, .. } => {
+                ("google_interactions".to_string(), base_url.clone())
             }
         })
         .unwrap_or_else(|| {
@@ -1813,7 +1817,7 @@ pub(crate) async fn query_connection_detail(
             let p = spec
                 .as_ref()
                 .map(|s| s.protocol)
-                .unwrap_or(WireProtocol::ChatCompletions);
+                .unwrap_or(WireProtocol::OpenAiChatCompletions);
             let url = spec.map(|s| s.root_url.to_string()).unwrap_or_default();
             (p.to_string(), url)
         });
@@ -1948,7 +1952,7 @@ pub(crate) async fn fetch_usage_for_connection(
         match nuo_wire::CredentialSource::resolve_auth(&source).await {
             Ok(auth) => {
                 let project = auth
-                    .extension::<nuo_model_codec::GoogleAuthMetadata>()
+                    .extension::<nuo_inference_wire::GoogleAuthMetadata>()
                     .map(|m| m.project_id.clone());
                 let account_id = auth.user_email.clone().or_else(|| project.clone());
                 (
@@ -1988,7 +1992,7 @@ pub(crate) async fn fetch_usage_for_connection(
             nuo_wire::CredentialSource::force_refresh_after_rejection(&source, &rejected).await
         {
             let refreshed_project = refreshed
-                .extension::<nuo_model_codec::GoogleAuthMetadata>()
+                .extension::<nuo_inference_wire::GoogleAuthMetadata>()
                 .map(|m| m.project_id.as_str())
                 .or(project.as_deref());
             usage = crate::provider_registry::fetch_provider_usage_ext(
@@ -2278,17 +2282,24 @@ mod tests {
             Ok(WireProtocol::AnthropicMessages)
         );
         assert_eq!(
-            "responses".parse::<WireProtocol>(),
-            Ok(WireProtocol::Responses)
-        );
-        assert_eq!(
             "openai-responses".parse::<WireProtocol>(),
-            Ok(WireProtocol::Responses)
+            Ok(WireProtocol::OpenAiResponses)
         );
         assert_eq!(
-            "chat-completions".parse::<WireProtocol>(),
-            Ok(WireProtocol::ChatCompletions)
+            "openai-chat-completions".parse::<WireProtocol>(),
+            Ok(WireProtocol::OpenAiChatCompletions)
         );
+        assert_eq!(
+            "google-generate-content".parse::<WireProtocol>(),
+            Ok(WireProtocol::GoogleGenerateContent)
+        );
+        assert_eq!(
+            "google-interactions".parse::<WireProtocol>(),
+            Ok(WireProtocol::GoogleInteractions)
+        );
+        assert!("responses".parse::<WireProtocol>().is_err());
+        assert!("chat-completions".parse::<WireProtocol>().is_err());
+        assert!("google-gemini".parse::<WireProtocol>().is_err());
         assert!("openai".parse::<WireProtocol>().is_err());
         assert!("future".parse::<WireProtocol>().is_err());
     }
@@ -2409,7 +2420,7 @@ mod tests {
             nuo_persistence::model_providers::UserDeclaredProvider {
                 label: Some("Test Relay".to_string()),
                 root_url: "https://example.com".to_string(),
-                default_protocol: Some(WireProtocol::ChatCompletions),
+                default_protocol: Some(WireProtocol::OpenAiChatCompletions),
                 client_profile: None,
                 user_agent: None,
                 catalog: None,

@@ -80,6 +80,14 @@ pub struct SceneKeys {
     pub focused_subagent_running: bool,
 }
 
+impl SceneKeys {
+    /// Whether the composer currently has keyboard focus on the chat surface.
+    /// When a transcript step or transcript browse is focused, the composer is inactive.
+    pub fn is_composer_active(&self) -> bool {
+        !self.focused_target && !self.transcript_focused
+    }
+}
+
 /// Run states the composer hint row advertises. (HistorySearch is a modal and
 /// stays out of the chat scheme until that modal owns its own.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,21 +163,23 @@ pub(crate) fn resolve_chat_surface_key(
 ) -> Option<InputAction> {
     use crate::keymap::SurfaceVerb;
     let ov = &keys.surface_overrides;
-    if ov.matches(key, SurfaceVerb::OpenHistory) {
-        return Some(InputAction::OpenHistory);
-    }
-    if ov.matches(key, SurfaceVerb::HistoryPrev) {
-        return Some(InputAction::HistoryPrev);
-    }
-    if ov.matches(key, SurfaceVerb::HistoryNext) {
-        return Some(InputAction::HistoryNext);
-    }
-    if ov.matches(key, SurfaceVerb::ToggleSendMode)
-        && keys.is_responding
-        && (keys.completion_kind == crate::completion::CompletionKind::None
-            || keys.completion_dismissed)
-    {
-        return Some(InputAction::ToggleSendMode);
+    if keys.is_composer_active() {
+        if ov.matches(key, SurfaceVerb::OpenHistory) {
+            return Some(InputAction::OpenHistory);
+        }
+        if ov.matches(key, SurfaceVerb::HistoryPrev) {
+            return Some(InputAction::HistoryPrev);
+        }
+        if ov.matches(key, SurfaceVerb::HistoryNext) {
+            return Some(InputAction::HistoryNext);
+        }
+        if ov.matches(key, SurfaceVerb::ToggleSendMode)
+            && keys.is_responding
+            && (keys.completion_kind == crate::completion::CompletionKind::None
+                || keys.completion_dismissed)
+        {
+            return Some(InputAction::ToggleSendMode);
+        }
     }
     if ov.matches(key, SurfaceVerb::FocusPrevTarget) {
         return Some(InputAction::FocusPrevTarget);
@@ -392,6 +402,9 @@ fn resolve_enter(
 /// Tab on the chat surface: commit a live completion, re-open a dismissed
 /// menu, or toggle between steer and follow-up queue mode while running.
 fn resolve_tab(keys: &SceneKeys) -> Option<InputAction> {
+    if !keys.is_composer_active() {
+        return None;
+    }
     if keys.completion_kind != crate::completion::CompletionKind::None
         && keys.suggestion_count > 0
         && !keys.has_exact_suggestion

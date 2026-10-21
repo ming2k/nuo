@@ -267,51 +267,11 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             return ActionFlow::Exit;
         }
         input::InputAction::SelectTab(idx) => {
-            if let Some(target_tab) = app.surfaces.tabs().get(idx).cloned() {
-                match &target_tab.kind {
-                    crate::surfaces::TabKind::Thread(id) => {
-                        if id != viewed_session_id {
-                            app.switch_to_target = Some(id.clone());
-                            app.should_quit.store(true, Ordering::SeqCst);
-                        } else {
-                            if app.current_scene() != crate::surfaces::SceneKind::Thread {
-                                enter_scene(app, crate::surfaces::SceneKind::Thread, runtime);
-                            }
-                            app.surfaces.select_tab(idx);
-                        }
-                    }
-                    crate::surfaces::TabKind::Dashboard => {
-                        enter_scene(app, crate::surfaces::SceneKind::Dashboard, runtime);
-                    }
-                    crate::surfaces::TabKind::Settings => {
-                        enter_scene(app, crate::surfaces::SceneKind::Settings, runtime);
-                    }
-                }
-            }
+            return activate_tab_at_index(app, idx, runtime, viewed_session_id);
         }
         input::InputAction::NextTab => {
             let next_idx = (app.surfaces.active_tab_index() + 1) % app.surfaces.tabs().len().max(1);
-            if let Some(target_tab) = app.surfaces.tabs().get(next_idx).cloned() {
-                match &target_tab.kind {
-                    crate::surfaces::TabKind::Thread(id) => {
-                        if id != viewed_session_id {
-                            app.switch_to_target = Some(id.clone());
-                            app.should_quit.store(true, Ordering::SeqCst);
-                        } else {
-                            if app.current_scene() != crate::surfaces::SceneKind::Thread {
-                                enter_scene(app, crate::surfaces::SceneKind::Thread, runtime);
-                            }
-                            app.surfaces.select_tab(next_idx);
-                        }
-                    }
-                    crate::surfaces::TabKind::Dashboard => {
-                        enter_scene(app, crate::surfaces::SceneKind::Dashboard, runtime);
-                    }
-                    crate::surfaces::TabKind::Settings => {
-                        enter_scene(app, crate::surfaces::SceneKind::Settings, runtime);
-                    }
-                }
-            }
+            return activate_tab_at_index(app, next_idx, runtime, viewed_session_id);
         }
         input::InputAction::PrevTab => {
             let total = app.surfaces.tabs().len().max(1);
@@ -320,38 +280,13 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             } else {
                 app.surfaces.active_tab_index() - 1
             };
-            if let Some(target_tab) = app.surfaces.tabs().get(prev_idx).cloned() {
-                match &target_tab.kind {
-                    crate::surfaces::TabKind::Thread(id) => {
-                        if id != viewed_session_id {
-                            app.switch_to_target = Some(id.clone());
-                            app.should_quit.store(true, Ordering::SeqCst);
-                        } else {
-                            if app.current_scene() != crate::surfaces::SceneKind::Thread {
-                                enter_scene(app, crate::surfaces::SceneKind::Thread, runtime);
-                            }
-                            app.surfaces.select_tab(prev_idx);
-                        }
-                    }
-                    crate::surfaces::TabKind::Dashboard => {
-                        enter_scene(app, crate::surfaces::SceneKind::Dashboard, runtime);
-                    }
-                    crate::surfaces::TabKind::Settings => {
-                        enter_scene(app, crate::surfaces::SceneKind::Settings, runtime);
-                    }
-                }
-            }
+            return activate_tab_at_index(app, prev_idx, runtime, viewed_session_id);
         }
         input::InputAction::CloseTab => {
             if app.active_dialog().is_some() {
                 app.dismiss_surface();
             } else if !modals::quit_standalone_scene_at_startup(app) {
-                let active_idx = app.surfaces.active_tab_index();
-                app.close_tab(active_idx);
-                if app.surfaces.tabs().is_empty() {
-                    tracing::info!(reason = "close_last_tab", "client detaching");
-                    return ActionFlow::Exit;
-                }
+                return handle_close_tab(app, runtime, viewed_session_id);
             }
         }
         input::InputAction::TabHistoryBack => {
@@ -870,6 +805,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::OpenHistory => {
+            if !app.is_composer_focused() {
+                return ActionFlow::Handled;
+            }
             enter_panel(
                 app,
                 crate::surfaces::DialogKind::HistorySearch,
@@ -2616,6 +2554,93 @@ pub(super) fn enter_panel(
     first
 }
 
+/// Activate a tab at `index`: updates the surfaces selection and MRU history,
+/// entering the appropriate scene or arming a cross-session switch.
+pub(super) fn activate_tab_at_index(
+    app: &mut App,
+    index: usize,
+    runtime: &UiRuntime,
+    viewed_session_id: &str,
+) -> ActionFlow {
+    if let Some(target_tab) = app.surfaces.tabs().get(index).cloned() {
+        let is_same_tab = index == app.surfaces.active_tab_index();
+        let was_in_thread = app.current_scene() == crate::surfaces::SceneKind::Thread;
+        app.surfaces.select_tab(index);
+        match &target_tab.kind {
+            crate::surfaces::TabKind::Thread(id) => {
+                if id != viewed_session_id {
+                    app.switch_to_target = Some(id.clone());
+                    app.should_quit.store(true, Ordering::SeqCst);
+                    return ActionFlow::Exit;
+                } else {
+                    if !was_in_thread {
+                        enter_scene(app, crate::surfaces::SceneKind::Thread, runtime);
+                        app.transcript_focused = false;
+                    } else {
+                        app.transcript_focused = is_same_tab;
+                    }
+                    app.focused_target = None;
+                    app.selection = SelectionState::None;
+                }
+            }
+            crate::surfaces::TabKind::Dashboard => {
+                enter_scene(app, crate::surfaces::SceneKind::Dashboard, runtime);
+            }
+            crate::surfaces::TabKind::Settings => {
+                enter_scene(app, crate::surfaces::SceneKind::Settings, runtime);
+            }
+        }
+    }
+
+    runtime.dirty.store(true, Ordering::SeqCst);
+    runtime.dirty_notify.notify_waiters();
+
+    ActionFlow::Handled
+}
+
+/// Close active tab and automatically activate the next tab according to MRU history,
+/// re-attaching or refreshing the focused scene.
+pub(super) fn handle_close_tab(
+    app: &mut App,
+    runtime: &UiRuntime,
+    viewed_session_id: &str,
+) -> ActionFlow {
+    let active_idx = app.surfaces.active_tab_index();
+    app.close_tab(active_idx);
+    if app.surfaces.tabs().is_empty() {
+        tracing::info!(reason = "close_last_tab", "client detaching");
+        return ActionFlow::Exit;
+    }
+
+    if let Some(target_tab) = app.surfaces.active_tab().cloned() {
+        match &target_tab.kind {
+            crate::surfaces::TabKind::Thread(id) => {
+                if id != viewed_session_id {
+                    app.switch_to_target = Some(id.clone());
+                    app.should_quit.store(true, Ordering::SeqCst);
+                    return ActionFlow::Exit;
+                } else {
+                    enter_scene(app, crate::surfaces::SceneKind::Thread, runtime);
+                    app.transcript_focused = false;
+                    app.focused_target = None;
+                    app.selection = SelectionState::None;
+                }
+            }
+            crate::surfaces::TabKind::Dashboard => {
+                enter_scene(app, crate::surfaces::SceneKind::Dashboard, runtime);
+            }
+            crate::surfaces::TabKind::Settings => {
+                enter_scene(app, crate::surfaces::SceneKind::Settings, runtime);
+            }
+        }
+    }
+
+    runtime.dirty.store(true, Ordering::SeqCst);
+    runtime.dirty_notify.notify_waiters();
+
+    ActionFlow::Handled
+}
+
 /// Enter a full-screen scene: navigate the router, run the scene's
 /// every-show UI refresh, and fire its data-refresh request.
 pub(super) fn enter_scene(
@@ -3689,12 +3714,7 @@ async fn execute_command_by_id(
             return ActionFlow::Exit;
         }
         CommandId::CloseTab => {
-            let active_idx = app.surfaces.active_tab_index();
-            app.close_tab(active_idx);
-            if app.surfaces.tabs().is_empty() {
-                tracing::info!(reason = "close_last_tab", "client detaching");
-                return ActionFlow::Exit;
-            }
+            return handle_close_tab(app, runtime, viewed_session_id);
         }
         CommandId::KillThread => {
             // ADR-0038: Explicit kill terminates the thread on the server.
@@ -3734,6 +3754,9 @@ async fn execute_command_by_id(
             };
         }
         CommandId::HistorySearch => {
+            if !app.is_composer_focused() {
+                return ActionFlow::Handled;
+            }
             enter_panel(
                 app,
                 crate::surfaces::DialogKind::HistorySearch,

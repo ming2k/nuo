@@ -1,7 +1,7 @@
 //! Provider and credential construction factory ports (ADR-0015).
 
-use nuo_model_codec::catalog::Channel;
-use nuo_model_codec::{ConnectionAuth, CredentialSource, ProviderDialect, SecretString};
+use nuo_inference_wire::catalog::Channel;
+use nuo_inference_wire::{ConnectionAuth, CredentialSource, ProviderDialect, SecretString};
 use std::sync::Arc;
 
 use crate::capability::Provider;
@@ -69,6 +69,6 @@ pub fn build_credential_source(
     } else if auth.is_oauth() {
         None
     } else {
-        Some(nuo_model_codec::static_credential(api_key))
+        Some(nuo_inference_wire::static_credential(api_key))
     }
 }

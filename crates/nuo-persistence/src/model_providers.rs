@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use crate::fsutil;
 use crate::paths;
 
-pub use nuo_model_codec::model_providers::UserDeclaredProvider;
+pub use nuo_inference_wire::model_providers::UserDeclaredProvider;
 
 /// Root map of user-configured model providers in `model_providers.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -197,7 +197,7 @@ mod tests {
                 r#"
                 root_url = "https://relay.example/team"
                 dialect = "{name}"
-                protocol_roots = [["responses", "https://relay.example/team/responses"]]
+                protocol_roots = [["openai-responses", "https://relay.example/team/responses"]]
             "#
             );
             let provider: UserDeclaredProvider = toml::from_str(&config).unwrap();
@@ -245,7 +245,7 @@ mod tests {
             UserDeclaredProvider {
                 label: Some("Corporate Relay".to_string()),
                 root_url: "https://relay.corp.example/v1".to_string(),
-                default_protocol: Some(nuo_wire::WireProtocol::ChatCompletions),
+                default_protocol: Some(nuo_wire::WireProtocol::OpenAiChatCompletions),
                 client_profile: Some(nuo_wire::ClientPreset::Cursor),
                 user_agent: None,
                 catalog: Some(nuo_wire::RemoteCatalogSource::Endpoint(
@@ -270,7 +270,7 @@ mod tests {
         assert_eq!(prov.root_url, "https://relay.corp.example/v1");
         assert_eq!(
             prov.default_protocol,
-            Some(nuo_wire::WireProtocol::ChatCompletions)
+            Some(nuo_wire::WireProtocol::OpenAiChatCompletions)
         );
         assert_eq!(prov.client_profile, Some(nuo_wire::ClientPreset::Cursor));
         assert_eq!(prov.dialect, Some(nuo_wire::ProviderDialect::DeepSeek));

@@ -44,7 +44,7 @@ pub use sync::{
     sync_remote_catalog_streaming,
 };
 
-use nuo_model_codec::catalog::ProviderEntry;
+use nuo_inference_wire::catalog::ProviderEntry;
 use nuo_persistence::config::{Config, Credentials, RemoteCatalogCache};
 use nuo_persistence::connection_usage::ConnectionUsage;
 use nuo_persistence::connections::Connections;
@@ -166,7 +166,7 @@ pub fn build_provider_for_model(
     // built, so no client is the only refusal site: TUI, web, server protocol,
     // and session restore all inherit it. `effective_availability` applies the
     // user's sovereign override, so an injected model still resolves.
-    let usable = |channel: &&nuo_model_codec::catalog::Channel| {
+    let usable = |channel: &&nuo_inference_wire::catalog::Channel| {
         let (availability, overridden) =
             connection.map_or((nuo_wire::Availability::usable(), false), |connection| {
                 derive::effective_availability(

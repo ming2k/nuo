@@ -19,6 +19,9 @@ impl App {
 
     /// Whether `id` may be opened in the current environment.
     pub(crate) fn dialog_available(&self, id: DialogKind) -> bool {
+        if id == DialogKind::HistorySearch && !self.is_composer_focused() {
+            return false;
+        }
         id.is_available(self.current_scene(), self.has_session())
     }
 

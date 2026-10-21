@@ -1,3 +1,3 @@
-//! Re-exports canonical model registry from `nuo-model-codec::model`.
+//! Re-exports canonical model registry from `nuo-inference-wire::model`.
 
-pub use nuo_model_codec::model::*;
+pub use nuo_inference_wire::model::*;

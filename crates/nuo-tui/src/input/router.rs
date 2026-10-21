@@ -537,7 +537,9 @@ pub fn route_event(
                 // box supports multi-line drafting. Plain Enter sends the
                 // message, so these are the only multi-line entry paths.
                 KeyCode::Enter if key.modifiers.contains(KeyModifiers::ALT) => {
-                    insert_newline(input, cursor_position, dispatch.overlay.is_none());
+                    if edits_input_field(&dispatch, modal_keys) {
+                        insert_newline(input, cursor_position, dispatch.overlay.is_none());
+                    }
                     InputAction::None
                 }
                 KeyCode::Enter => {
@@ -568,7 +570,9 @@ pub fn route_event(
                 }
                 // Ctrl+J: alias for Alt+Enter — insert a literal newline.
                 KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    insert_newline(input, cursor_position, dispatch.overlay.is_none());
+                    if edits_input_field(&dispatch, modal_keys) {
+                        insert_newline(input, cursor_position, dispatch.overlay.is_none());
+                    }
                     InputAction::None
                 }
                 // Ctrl+V: paste from the system clipboard. Active on the

@@ -8,9 +8,10 @@
 
 use futures::StreamExt as _;
 use nuo_host::SecretString;
-use nuo_model_codec::{Message, Provider, ProviderStreamEvent, Role};
+use nuo_provider::capability::{Provider, ProviderStreamEvent};
 use nuo_provider_catalog::{CatalogShape, RemoteCatalogRequest, list_models};
 use nuo_provider_commandcode_plan::CommandCodeUsageFetcher;
+use nuo_tool::{Message, Role};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -53,7 +54,7 @@ async fn main() {
     )
     .with_id("cmd-smoke-chat".to_string());
 
-    let req_chat = nuo_model_codec::ModelRequest::new(vec![Message::new(
+    let req_chat = nuo_provider::capability::ModelRequest::new(vec![Message::new(
         Role::User,
         "Please reply with 'Hello from Command Code OpenAI!' and nothing else.",
     )]);
@@ -78,8 +79,8 @@ async fn main() {
     }
 
     println!("\n=== 3. Anthropic Messages Streaming (claude-sonnet-5-5) ===");
-    let cred_source: Arc<dyn nuo_model_codec::CredentialSource> = Arc::new(
-        nuo_model_codec::auth::StaticCredentialSource::new(secret.clone()),
+    let cred_source: Arc<dyn nuo_inference_wire::CredentialSource> = Arc::new(
+        nuo_inference_wire::auth::StaticCredentialSource::new(secret.clone()),
     );
     let provider_anthropic = nuo_provider_anthropic::AnthropicMessagesProvider::with_credentials(
         cred_source,
@@ -89,7 +90,7 @@ async fn main() {
     )
     .with_id("cmd-smoke-anthropic".to_string());
 
-    let req_anthropic = nuo_model_codec::ModelRequest::new(vec![Message::new(
+    let req_anthropic = nuo_provider::capability::ModelRequest::new(vec![Message::new(
         Role::User,
         "Please reply with 'Hello from Command Code Anthropic!' and nothing else.",
     )]);
@@ -114,7 +115,7 @@ async fn main() {
     }
 
     println!("\n=== 4. Provider Usage / Credits ===");
-    let http = nuo_provider_transport::http::Http::control_plane().unwrap();
+    let http = nuo_egress::http::Http::control_plane().unwrap();
     match CommandCodeUsageFetcher
         .fetch_usage(&http, "https://api.commandcode.ai/provider/v1", &key)
         .await

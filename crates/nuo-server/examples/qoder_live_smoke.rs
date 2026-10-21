@@ -6,9 +6,11 @@
 // Failing loudly on a broken pre-condition is the point of a smoke run.
 #![allow(clippy::expect_used, clippy::panic)]
 
-use nuo_model_codec::{ClientPreset, Message, ResolvedAuth, Role, SecretString};
+use nuo_inference_wire::{ClientPreset, ResolvedAuth, SecretString};
+use nuo_provider::Provider;
 use nuo_provider_openai::OpenAiChatCompletionsProvider;
 use nuo_provider_qoder::{QoderRequestIdentity, build_qoder_pipeline};
+use nuo_tool::{Message, Role};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -17,7 +19,7 @@ struct StoreSource {
     identity: QoderRequestIdentity,
 }
 
-impl nuo_model_codec::CredentialSource for StoreSource {
+impl nuo_inference_wire::CredentialSource for StoreSource {
     fn resolve_auth(&self) -> futures::future::BoxFuture<'_, Result<ResolvedAuth, String>> {
         let token = self.token.clone();
         let identity = self.identity.clone();
@@ -75,10 +77,9 @@ async fn main() {
         "https://api3.qoder.sh",
         ClientPreset::Native,
     )
-    .with_dialect(nuo_model_codec::OpenAiChatDialect::Qoder)
+    .with_dialect(nuo_inference_wire::OpenAiChatDialect::Qoder)
     .with_pipeline(build_qoder_pipeline());
 
-    use nuo_model_codec::Provider as _;
     let stream = provider
         .stream_chat_events(vec![Message::new(Role::User, "Reply with exactly: OK")].into())
         .await
@@ -90,11 +91,11 @@ async fn main() {
         let mut stream = stream;
         while let Some(event) = stream.next().await {
             match event {
-                Ok(nuo_model_codec::ProviderStreamEvent::TextDelta(d)) => {
+                Ok(nuo_provider::capability::ProviderStreamEvent::TextDelta(d)) => {
                     text.push_str(&d);
                     count += 1;
                 }
-                Ok(nuo_model_codec::ProviderStreamEvent::ReasoningDelta(d)) => {
+                Ok(nuo_provider::capability::ProviderStreamEvent::ReasoningDelta(d)) => {
                     count += 1;
                     let _ = d;
                 }

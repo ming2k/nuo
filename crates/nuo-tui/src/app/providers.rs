@@ -236,10 +236,11 @@ impl App {
         match self.current_custom_field() {
             Some(CustomField::Protocol) => {
                 const PROTOCOLS: &[nuo_wire::WireProtocol] = &[
-                    nuo_wire::WireProtocol::ChatCompletions,
-                    nuo_wire::WireProtocol::Responses,
+                    nuo_wire::WireProtocol::OpenAiChatCompletions,
+                    nuo_wire::WireProtocol::OpenAiResponses,
                     nuo_wire::WireProtocol::AnthropicMessages,
-                    nuo_wire::WireProtocol::GoogleGemini,
+                    nuo_wire::WireProtocol::GoogleGenerateContent,
+                    nuo_wire::WireProtocol::GoogleInteractions,
                 ];
                 let current = self
                     .custom_protocol_wire

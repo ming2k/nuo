@@ -1,0 +1,395 @@
+//! The egress seam: one request, one transport, one trace.
+//!
+//! Replaces third-party HTTP clients with an owned transport substrate.
+//! The seam is drawn at "given a fully formed request, give me a response":
+//! [`Egress`] is implemented by [`NuoNetEgress`].
+//!
+//! [`HttpResponse`] is deliberately small — status, headers, and a byte stream —
+//! because that is all callers may depend on. Everything richer (retry
+//! classification, JSON diagnostics) is layered on top.
+use std::time::Duration;
+
+use bytes::Bytes;
+use futures::StreamExt;
+use futures::stream::BoxStream;
+use http::{HeaderMap, Method, StatusCode};
+
+use crate::error::EgressError;
+use crate::telemetry::EgressTelemetry;
+
+/// A request in transport-neutral form.
+#[derive(Debug, Clone)]
+pub struct RequestParts {
+    /// Provider label used for error attribution and retry classification.
+    pub label: &'static str,
+    pub method: Method,
+    /// Absolute URL.
+    pub url: String,
+    pub headers: HeaderMap,
+    pub body: Option<Bytes>,
+    /// Whole-request timeout, applied only to non-streaming requests by the
+    /// caller (a streaming request must never carry one).
+    pub timeout: Option<Duration>,
+    /// Where this attempt's transport telemetry goes.
+    pub telemetry: EgressTelemetry,
+}
+
+/// A response: status, headers, and a body that has not been read yet.
+pub struct HttpResponse {
+    pub status: StatusCode,
+    pub headers: HeaderMap,
+    pub body: BoxStream<'static, Result<Bytes, EgressError>>,
+}
+
+impl HttpResponse {
+    /// The body as a byte stream.
+    pub fn into_byte_stream(self) -> BoxStream<'static, Result<Bytes, EgressError>> {
+        self.body
+    }
+
+    /// Read the whole body.
+    pub async fn into_bytes(self) -> Result<Bytes, EgressError> {
+        let mut stream = self.into_byte_stream();
+        let mut out = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            out.extend_from_slice(&chunk?);
+        }
+        Ok(Bytes::from(out))
+    }
+
+    /// Read the whole body as text (lossy for non-UTF-8, as diagnostics expect).
+    pub async fn into_text(self) -> Result<String, EgressError> {
+        let bytes = self.into_bytes().await?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+}
+
+impl std::fmt::Debug for HttpResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "HttpResponse({})", self.status)
+    }
+}
+
+/// The transport that executes a request.
+#[async_trait::async_trait]
+pub trait Egress: Send + Sync {
+    async fn send(&self, parts: RequestParts) -> Result<HttpResponse, EgressError>;
+
+    /// Optional pre-warm: prime a connection to `url` into the idle pool in advance.
+    async fn prewarm(&self, _url: &str) -> Result<bool, EgressError> {
+        Ok(false)
+    }
+}
+
+pub use owned::{NuoNetEgress, TraceSink};
+
+/// Map an owned-transport failure onto EgressError.
+fn net_error(label: &'static str, error: netune::NetError) -> EgressError {
+    let retryable = error.is_retryable();
+    EgressError::Transport {
+        label,
+        message: error.to_string(),
+        retryable,
+    }
+}
+
+/// A retryable overall-timeout error.
+fn timeout_error(label: &'static str) -> EgressError {
+    EgressError::Timeout { label }
+}
+
+mod owned {
+    use std::sync::{Arc, Mutex};
+
+    use bytes::Bytes;
+    use futures::StreamExt;
+    use futures::stream::BoxStream;
+    use netune::{Connector, TcpConnector, TlsConnector};
+    use netune_trace::{
+        AttemptRef, ConnectionInfo, EndpointRef, EventKind, Fidelity, Recorder, RequestTrace,
+        TraceId, derive,
+    };
+
+    use crate::error::EgressError;
+    use crate::telemetry::{EgressObservation, EgressTelemetry, EgressTimings};
+
+    use super::{Egress, HttpResponse, RequestParts, net_error, timeout_error};
+
+    /// Capacity of one request's trace ring on the owned path.
+    const TRACE_CAPACITY: usize = 16_384;
+
+    struct TimingsWriter {
+        telemetry: EgressTelemetry,
+        recorder: Arc<Mutex<Recorder>>,
+        dispatch_at: std::time::Instant,
+        endpoint: EndpointRef,
+        sealed: bool,
+    }
+
+    impl TimingsWriter {
+        fn seal(&mut self) {
+            if self.sealed {
+                return;
+            }
+            self.sealed = true;
+            let log = self
+                .recorder
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .log()
+                .clone();
+            let trace = RequestTrace {
+                id: TraceId::new("egress"),
+                attempt: AttemptRef {
+                    round: 0,
+                    turn: 0,
+                    attempt: 0,
+                },
+                endpoint: self.endpoint.clone(),
+                connection: ConnectionInfo::default(),
+                fidelity: Fidelity::l1(),
+                log,
+            };
+            let derived = derive(&trace);
+
+            let measured = |reading: netune_trace::Reading<u64>| reading.value();
+            let phases = measured(derived.dns_us).is_some()
+                || measured(derived.tcp_us).is_some()
+                || measured(derived.tls_us).is_some();
+            let reuse_recorded = trace.log.first_of(EventKind::ConnectReused).is_some();
+            let observation = if phases {
+                EgressObservation::ColdConnection
+            } else if reuse_recorded {
+                EgressObservation::PooledConnection
+            } else {
+                EgressObservation::Unreported
+            };
+
+            let connected_ns = trace
+                .log
+                .first_of(EventKind::TlsEnd)
+                .or_else(|| trace.log.first_of(EventKind::TcpEnd))
+                .or_else(|| trace.log.first_of(EventKind::ConnectReused))
+                .map(|event| event.at_ns);
+            let connected_us = connected_ns
+                .filter(|_| observation != EgressObservation::Unreported)
+                .map(|ns| ns / 1_000);
+
+            let timings = EgressTimings {
+                dns_us: measured(derived.dns_us),
+                tcp_us: measured(derived.tcp_us),
+                tls_us: measured(derived.tls_us),
+                connected_us,
+                request_sent_us: measured(derived.request_sent_us),
+                stream_ready_us: measured(derived.ttfb_us),
+                rtt_us: measured(derived.rtt_us),
+                retransmits: derived.retransmits.value().unwrap_or(0) as u32,
+                observation,
+                dispatch_at: Some(self.dispatch_at),
+            };
+
+            self.telemetry.publish(timings);
+        }
+    }
+
+    impl Drop for TimingsWriter {
+        fn drop(&mut self) {
+            self.seal();
+        }
+    }
+
+    /// Called once per completed request with its trace.
+    pub type TraceSink = Arc<dyn Fn(RequestTrace) + Send + Sync>;
+
+    /// The owned transport.
+    pub struct NuoNetEgress<C: Connector = TlsConnector<TcpConnector>> {
+        client: std::sync::Arc<netune::Client<C>>,
+        sink: Option<TraceSink>,
+    }
+
+    impl NuoNetEgress<TlsConnector<TcpConnector>> {
+        /// The production configuration: platform trust store, direct,
+        /// riding the process's shared netune client.
+        pub fn new() -> Result<Self, String> {
+            Ok(Self {
+                client: std::sync::Arc::clone(crate::network::shared_client()),
+                sink: None,
+            })
+        }
+
+        pub fn from_shared_client(
+            client: std::sync::Arc<netune::Client<TlsConnector<TcpConnector>>>,
+        ) -> Self {
+            Self { client, sink: None }
+        }
+    }
+
+    impl NuoNetEgress<TcpConnector> {
+        /// Plaintext, no proxy: tests and local servers only.
+        pub fn plain() -> Self {
+            Self::from_connector(TcpConnector::new())
+        }
+    }
+
+    impl<C: Connector> NuoNetEgress<C> {
+        pub fn from_connector(connector: C) -> Self {
+            Self {
+                client: std::sync::Arc::new(netune::Client::new(
+                    connector,
+                    netune::Pool::default(),
+                    netune::ClientConfig::default(),
+                )),
+                sink: None,
+            }
+        }
+
+        /// Install a sink for completed traces.
+        pub fn with_trace_sink(mut self, sink: TraceSink) -> Self {
+            self.sink = Some(sink);
+            self
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl<C: Connector> Egress for NuoNetEgress<C> {
+        async fn send(&self, parts: RequestParts) -> Result<HttpResponse, EgressError> {
+            let (target, path) = netune::Target::from_url(&parts.url).map_err(|error| {
+                EgressError::InvalidRequest {
+                    label: parts.label,
+                    message: format!("invalid url: {error}"),
+                }
+            })?;
+            let authority = target.authority.clone();
+
+            let mut head = netune::RequestHead::new(parts.method.clone(), path);
+            for (name, value) in parts.headers.iter() {
+                if let Ok(value) = value.to_str() {
+                    head = head.with_header(name.as_str(), value);
+                }
+            }
+
+            let deadline = parts
+                .timeout
+                .map(|timeout| tokio::time::Instant::now() + timeout);
+            let dispatch_at = std::time::Instant::now();
+            let recorder = Arc::new(Mutex::new(Recorder::start(TRACE_CAPACITY)));
+            let endpoint = EndpointRef {
+                provider: parts.label.to_string(),
+                model: String::new(),
+                authority,
+            };
+            let writer = TimingsWriter {
+                telemetry: parts.telemetry.clone(),
+                recorder: Arc::clone(&recorder),
+                dispatch_at,
+                endpoint: endpoint.clone(),
+                sealed: false,
+            };
+            let send = self
+                .client
+                .send(&target, Arc::clone(&recorder), head, parts.body.clone());
+            let response = match deadline {
+                Some(deadline) => tokio::time::timeout_at(deadline, send)
+                    .await
+                    .map_err(|_| timeout_error(parts.label))?
+                    .map_err(|error| net_error(parts.label, error))?,
+                None => send.await.map_err(|error| net_error(parts.label, error))?,
+            };
+            let status = response.head.status;
+            let headers = response.head.headers.clone();
+
+            let sink = self.sink.clone();
+            let label = parts.label;
+            let body: BoxStream<'static, Result<Bytes, EgressError>> = futures::stream::unfold(
+                (
+                    response.body,
+                    recorder,
+                    sink,
+                    endpoint,
+                    deadline,
+                    label,
+                    writer,
+                    false,
+                ),
+                |(
+                    mut body,
+                    recorder,
+                    sink,
+                    endpoint,
+                    deadline,
+                    label,
+                    mut writer,
+                    failed,
+                )| async move {
+                    if failed {
+                        return None;
+                    }
+                    let chunk = match deadline {
+                        Some(deadline) => {
+                            match tokio::time::timeout_at(deadline, body.next_chunk()).await {
+                                Ok(result) => result,
+                                Err(_) => Err(netune::NetError::Io(std::io::Error::new(
+                                    std::io::ErrorKind::TimedOut,
+                                    "request timed out while reading the body",
+                                ))),
+                            }
+                        }
+                        None => body.next_chunk().await,
+                    };
+                    match chunk {
+                        Ok(Some(chunk)) => Some((
+                            Ok(chunk),
+                            (body, recorder, sink, endpoint, deadline, label, writer, false),
+                        )),
+                        Ok(None) => {
+                            if let Some(sink) = sink {
+                                let log = recorder
+                                    .lock()
+                                    .unwrap_or_else(|error| error.into_inner())
+                                    .log()
+                                    .clone();
+                                sink(RequestTrace {
+                                    id: TraceId::new("egress"),
+                                    attempt: AttemptRef {
+                                        round: 0,
+                                        turn: 0,
+                                        attempt: 0,
+                                    },
+                                    endpoint,
+                                    connection: ConnectionInfo::default(),
+                                    fidelity: Fidelity::l1(),
+                                    log,
+                                });
+                            }
+                            writer.seal();
+                            None
+                        }
+                        Err(error) => Some((
+                            Err(net_error(label, error)),
+                            (body, recorder, sink, endpoint, deadline, label, writer, true),
+                        )),
+                    }
+                },
+            )
+            .boxed();
+
+            Ok(HttpResponse {
+                status,
+                headers,
+                body,
+            })
+        }
+
+        async fn prewarm(&self, url: &str) -> Result<bool, EgressError> {
+            let (target, _) =
+                netune::Target::from_url(url).map_err(|error| EgressError::InvalidRequest {
+                    label: "netune",
+                    message: format!("invalid prewarm url: {error}"),
+                })?;
+            self.client
+                .prewarm(&target)
+                .await
+                .map_err(|error| net_error("netune", error))
+        }
+    }
+}

@@ -6,16 +6,16 @@
 use super::request::{self, BodyInput};
 use super::response;
 use super::*;
-use nuo_model_codec::{
-    Effort, Message, PromptCacheMode, ReasoningMode, ResolvedCachePolicy, Role, Tool,
-};
+use nuo_inference_wire::{Effort, PromptCacheMode, ReasoningMode, ResolvedCachePolicy};
+use nuo_tool::Tool;
+use nuo_tool::{Message, Role};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
 static DEFAULT_UNSUPPORTED_CACHE_PLAN: ResolvedCachePolicy = ResolvedCachePolicy::Unsupported;
 static DEFAULT_EXPLICIT_CACHE_PLAN: ResolvedCachePolicy = ResolvedCachePolicy::Enabled {
     mode: PromptCacheMode::Explicit,
-    retention: Some(nuo_model_codec::CacheRetention::FiveMinutes),
+    retention: Some(nuo_inference_wire::CacheRetention::FiveMinutes),
     routing_key: None,
     max_breakpoints: Some(4),
 };
@@ -35,12 +35,12 @@ fn body_input<'a>(provider: &'a AnthropicMessagesProvider, stream: bool) -> Body
 }
 
 /// Route capabilities with only the vision declaration varied.
-fn caps_with_vision(vision: Option<bool>) -> nuo_model_codec::ModelCapabilities {
-    nuo_model_codec::ModelCapabilities {
+fn caps_with_vision(vision: Option<bool>) -> nuo_inference_wire::ModelCapabilities {
+    nuo_inference_wire::ModelCapabilities {
         family: "claude".into(),
         context_window: 200_000,
         max_output_tokens: None,
-        thinking: nuo_model_codec::ReasoningSupport::None,
+        thinking: nuo_inference_wire::ReasoningSupport::None,
         tool_call: true,
         vision,
         effort_levels: Vec::new(),
@@ -49,7 +49,7 @@ fn caps_with_vision(vision: Option<bool>) -> nuo_model_codec::ModelCapabilities 
 }
 
 fn image_message(text: &str) -> Message {
-    Message::new(Role::User, text).with_images(vec![nuo_model_codec::ImagePart {
+    Message::new(Role::User, text).with_images(vec![nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "aGk=".to_string(),
     }])
@@ -116,7 +116,7 @@ fn request_body_serializes_tool_result_as_user_block() {
             Message {
                 role: Role::Assistant,
                 content: String::new(),
-                tool_calls: Some(vec![nuo_model_codec::ToolCall {
+                tool_calls: Some(vec![nuo_tool::ToolCall {
                     id: "toolu_1".to_string(),
                     name: "bash".to_string(),
                     arguments: "{}".to_string(),
@@ -186,8 +186,10 @@ fn request_body_includes_tools_in_anthropic_shape() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
     let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(DummyTool)];
-    let request =
-        nuo_model_codec::ModelRequest::with_tools(vec![Message::new(Role::User, "hi")], &tools);
+    let request = nuo_provider::capability::ModelRequest::with_tools(
+        vec![Message::new(Role::User, "hi")],
+        &tools,
+    );
     let (messages, tool_specs) = request.into_parts();
     let body = request::body(
         messages,
@@ -243,7 +245,7 @@ fn cache_breakpoints_use_all_four_slots() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
     let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(DummyTool)];
-    let request = nuo_model_codec::ModelRequest::with_tools(
+    let request = nuo_provider::capability::ModelRequest::with_tools(
         vec![
             Message::new(Role::System, "you are a coding agent"),
             Message::new(Role::User, "do task A"),
@@ -284,7 +286,7 @@ fn disabled_cache_plan_omits_cache_breakpoints() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
     let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(DummyTool)];
-    let request = nuo_model_codec::ModelRequest::with_tools(
+    let request = nuo_provider::capability::ModelRequest::with_tools(
         vec![
             Message::new(Role::System, "you are a coding agent"),
             Message::new(Role::User, "compact context summary"),
@@ -301,7 +303,7 @@ fn disabled_cache_plan_omits_cache_breakpoints() {
             tool_specs: Some(&tool_specs),
             max_tokens: provider.max_tokens,
             thinking: provider.thinking,
-            cache_plan: &nuo_model_codec::ResolvedCachePolicy::Disabled,
+            cache_plan: &nuo_inference_wire::ResolvedCachePolicy::Disabled,
         },
     );
     assert_eq!(count_cache_breakpoints(&body), 0);
@@ -320,7 +322,7 @@ fn cache_breakpoints_never_exceed_four_cap() {
             ]
         })
         .collect();
-    let request = nuo_model_codec::ModelRequest::with_tools(history, &tools);
+    let request = nuo_provider::capability::ModelRequest::with_tools(history, &tools);
     let (messages, tool_specs) = request.into_parts();
     let body = request::body(
         messages,
@@ -575,7 +577,7 @@ fn non_default_effort_is_stamped_into_output_config() {
 #[test]
 fn effort_clamps_to_model_support_levels() {
     let cfg = ThinkingConfig::default().with_effort(Effort::Xhigh);
-    let common: Vec<nuo_model_codec::EffortLevel> = nuo_model_codec::COMMON_LADDER
+    let common: Vec<nuo_inference_wire::EffortLevel> = nuo_inference_wire::COMMON_LADDER
         .iter()
         .copied()
         .map(Into::into)
@@ -593,7 +595,7 @@ fn effort_clamps_to_model_support_levels() {
         Effort::Xhigh,
         Effort::Max,
     ];
-    let claude: Vec<nuo_model_codec::EffortLevel> =
+    let claude: Vec<nuo_inference_wire::EffortLevel> =
         claude_levels.iter().copied().map(Into::into).collect();
     let resolved_claude = cfg.resolve_for(&claude);
     assert_eq!(resolved_claude.effort, Some(Effort::Xhigh));

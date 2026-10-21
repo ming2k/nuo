@@ -171,30 +171,30 @@ async fn test_streaming_tool_call_aggregation_and_execution_end_to_end() {
 struct CodecMockProvider;
 
 #[async_trait::async_trait]
-impl nuo_model_codec::capability::Provider for CodecMockProvider {
+impl nuo_wire::Provider for CodecMockProvider {
     async fn chat(
         &self,
-        _request: nuo_model_codec::capability::ModelRequest,
-    ) -> Result<nuo_model_codec::ProviderCompletion, nuo_wire::ProviderError> {
+        _request: nuo_wire::ModelRequest,
+    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
         unimplemented!()
     }
     async fn stream_chat(
         &self,
-        _request: nuo_model_codec::capability::ModelRequest,
-    ) -> Result<nuo_model_codec::capability::ProviderTextStream, nuo_wire::ProviderError> {
+        _request: nuo_wire::ModelRequest,
+    ) -> Result<nuo_wire::ProviderTextStream, nuo_wire::ProviderError> {
         unimplemented!()
     }
     async fn stream_chat_events(
         &self,
-        _request: nuo_model_codec::capability::ModelRequest,
-    ) -> Result<nuo_model_codec::capability::ProviderEventStream, nuo_wire::ProviderError> {
+        _request: nuo_wire::ModelRequest,
+    ) -> Result<nuo_wire::ProviderEventStream, nuo_wire::ProviderError> {
         use futures::StreamExt;
         let events = vec![
-            Ok(nuo_model_codec::capability::ProviderStreamEvent::TextDelta(
+            Ok(nuo_wire::ProviderStreamEvent::TextDelta(
                 "Hello from codec!".into(),
             )),
-            Ok(nuo_model_codec::capability::ProviderStreamEvent::Completed(
-                nuo_model_codec::ProviderCompletionMeta::default(),
+            Ok(nuo_wire::ProviderStreamEvent::Completed(
+                nuo_wire::ProviderCompletionMeta::default(),
             )),
         ];
         Ok(futures::stream::iter(events).boxed())

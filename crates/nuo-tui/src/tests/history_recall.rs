@@ -2321,3 +2321,68 @@ async fn test_history_search_up_down_arrow_navigation_through_event_loop() {
         "Draft capsule must be cleared on successful history insertion"
     );
 }
+
+#[tokio::test]
+async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
+    use crate::model::layout::InteractiveTarget;
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "session-test".to_string();
+    app.record_input_history("existing entry".to_string(), Vec::new(), Vec::new());
+
+    // Initially, composer is focused and active
+    assert!(app.is_composer_focused());
+    assert!(app.dialog_available(crate::surfaces::DialogKind::HistorySearch));
+
+    // 1. Simulate step focus: composer becomes inactive
+    app.focused_target = Some(InteractiveTarget::tool_step(0));
+    assert!(!app.is_composer_focused());
+    assert!(!app.dialog_available(crate::surfaces::DialogKind::HistorySearch));
+    assert!(!app.open_dialog(crate::surfaces::DialogKind::HistorySearch));
+    assert_eq!(app.active_dialog(), None);
+
+    // Pressing Ctrl-R while step-focused must NOT open HistorySearch
+    let ctrl_r = Event::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+    crate::event_loop::process_event_for_test(&mut app, &ctrl_r, "session-test").await;
+    assert_eq!(
+        app.active_dialog(),
+        None,
+        "Ctrl-r must not open history search when step is focused"
+    );
+
+    // 2. Press Esc to clear step focus -> composer becomes active again
+    let esc = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    crate::event_loop::process_event_for_test(&mut app, &esc, "session-test").await;
+    assert!(app.focused_target.is_none());
+    assert!(app.is_composer_focused());
+    assert!(app.dialog_available(crate::surfaces::DialogKind::HistorySearch));
+
+    // 3. Simulate transcript browse focus: composer becomes inactive
+    app.transcript_focused = true;
+    assert!(!app.is_composer_focused());
+    assert!(!app.dialog_available(crate::surfaces::DialogKind::HistorySearch));
+    assert!(!app.open_dialog(crate::surfaces::DialogKind::HistorySearch));
+    assert_eq!(app.active_dialog(), None);
+
+    // Pressing Ctrl-R while transcript-focused must NOT open HistorySearch
+    crate::event_loop::process_event_for_test(&mut app, &ctrl_r, "session-test").await;
+    assert_eq!(
+        app.active_dialog(),
+        None,
+        "Ctrl-r must not open history search when transcript is focused"
+    );
+
+    // 4. Press Esc to clear transcript browse focus -> composer becomes active again
+    crate::event_loop::process_event_for_test(&mut app, &esc, "session-test").await;
+    assert!(!app.transcript_focused);
+    assert!(app.is_composer_focused());
+
+    // 5. With composer active, Ctrl-R opens HistorySearch
+    crate::event_loop::process_event_for_test(&mut app, &ctrl_r, "session-test").await;
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::HistorySearch),
+        "Ctrl-r must open history search when composer is active"
+    );
+}

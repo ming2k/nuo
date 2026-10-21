@@ -523,6 +523,7 @@ fn render_dialog(
             }
             Some(crate::overlays::draw_models_modal(
                 frame,
+                ctx.layout_map,
                 crate::overlays::provider::models::ModelsModalProps {
                     models: &models,
                     current_provider: &app.current_provider,
@@ -540,6 +541,7 @@ fn render_dialog(
                     info_scroll: &mut d.info_scroll,
                 },
                 ctx.theme,
+                ctx.selection,
             ))
         }
         DialogKind::HistorySearch => {

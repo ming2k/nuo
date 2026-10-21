@@ -219,7 +219,7 @@ pub use capability::{
     ToolInvocation, ToolSpec, VariantSelection, empty_variant_selection,
 };
 pub use catalog::{
-    AnthropicMessagesDialect, Channel, GoogleGeminiDialect, GoogleGenerateContentDialect,
+    AnthropicMessagesDialect, Channel, GoogleGenerateContentDialect, GoogleInteractionsDialect,
     OpenAiChatDialect, OpenAiResponsesDialect, ProviderDialect, ProviderEntry, Transport,
 };
 pub use connection_auth::{ConnectionAuth, LoginMethod};

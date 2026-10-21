@@ -31,7 +31,7 @@ fn model_provider_spec_resolves_each_known_id() {
 fn user_declared_provider_can_be_registered_and_resolved() {
     let test_id = "test-corp-relay";
     let custom_spec = ModelProviderSpec {
-        dialect: nuo_model_codec::ProviderDialect::Standard,
+        dialect: nuo_inference_wire::ProviderDialect::Standard,
         protocol_roots: Cow::Borrowed(&[]),
         catalog_root_url: None,
         prompt_cache: PromptCachePolicy::Compiled(unsupported_prompt_cache),
@@ -39,10 +39,10 @@ fn user_declared_provider_can_be_registered_and_resolved() {
         baselines: &[],
         root_url: Cow::Borrowed("https://relay.example.com/v1"),
         user_agent: None,
-        protocol: nuo_model_codec::WireProtocol::ChatCompletions,
+        protocol: nuo_inference_wire::WireProtocol::OpenAiChatCompletions,
         models: &[],
         catalog_source: RemoteCatalogSource::None,
-        default_client_profile: nuo_model_codec::ClientPreset::Cursor,
+        default_client_profile: nuo_inference_wire::ClientPreset::Cursor,
         client_profile_sensitive: false,
         quota: None,
         display_policy: nuo_provider::DisplayPolicy::Native,
@@ -53,7 +53,7 @@ fn user_declared_provider_can_be_registered_and_resolved() {
     assert_eq!(resolved.root_url, "https://relay.example.com/v1");
     assert_eq!(
         resolved.default_client_profile,
-        nuo_model_codec::ClientPreset::Cursor
+        nuo_inference_wire::ClientPreset::Cursor
     );
 }
 
@@ -63,7 +63,7 @@ fn registry_covers_the_contract_provider_id_vocabulary() {
         .iter()
         .map(|spec| spec.id.as_ref())
         .collect();
-    let mut contract: Vec<&str> = nuo_model_codec::model_providers::MODEL_PROVIDER_IDS.to_vec();
+    let mut contract: Vec<&str> = nuo_inference_wire::model_providers::MODEL_PROVIDER_IDS.to_vec();
     registry.sort_unstable();
     contract.sort_unstable();
     assert_eq!(registry, contract);
@@ -72,7 +72,7 @@ fn registry_covers_the_contract_provider_id_vocabulary() {
 #[test]
 fn exactly_one_spec_per_contract_provider_id() {
     // `[INV-PROV-06]`: each provider id has exactly one authoritative spec.
-    for id in nuo_model_codec::model_providers::MODEL_PROVIDER_IDS {
+    for id in nuo_inference_wire::model_providers::MODEL_PROVIDER_IDS {
         let count = MODEL_PROVIDER_SPECS
             .iter()
             .filter(|spec| spec.id == *id)
@@ -85,7 +85,7 @@ fn exactly_one_spec_per_contract_provider_id() {
 fn shared_baseline_ids_are_identical_across_provider_tables() {
     use std::collections::HashMap;
 
-    fn signature(m: &nuo_model_codec::Model) -> String {
+    fn signature(m: &nuo_inference_wire::Model) -> String {
         format!(
             "{:?}|{:?}|{}|{}|{:?}|{:?}",
             m.context_window, m.thinking, m.tool_call, m.vision, m.model_guidance, m.effort_levels,
@@ -130,7 +130,7 @@ fn provider_dialect_protocol_baselines_are_service_scoped() {
     let google = model_provider_spec("google-antigravity").unwrap();
     assert_eq!(
         google.model_protocol("claude-sonnet-4-6"),
-        nuo_model_codec::WireProtocol::GoogleGemini
+        nuo_inference_wire::WireProtocol::GoogleGenerateContent
     );
     for (id, model) in [
         ("deepseek", "deepseek-v4-pro"),
@@ -139,7 +139,7 @@ fn provider_dialect_protocol_baselines_are_service_scoped() {
         let spec = model_provider_spec(id).unwrap();
         assert_eq!(
             spec.model_protocol(model),
-            nuo_model_codec::WireProtocol::Responses
+            nuo_inference_wire::WireProtocol::OpenAiResponses
         );
     }
     for spec in MODEL_PROVIDER_SPECS {
@@ -159,19 +159,22 @@ fn provider_dialect_protocol_baselines_are_service_scoped() {
 fn opencode_go_baselines_route_by_inference_go_surface() {
     for provider_id in ["opencode-plan", "opencode-go"] {
         let (wire, endpoint, _) = route_for_model(provider_id, "minimax-m3").unwrap();
-        assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
+        assert_eq!(wire, nuo_inference_wire::WireProtocol::AnthropicMessages);
         assert_eq!(
             endpoint,
             "https://opencode.ai/inference/go/anthropic/v1/messages"
         );
         let (wire, endpoint, _) = route_for_model(provider_id, "qwen3.6-plus").unwrap();
-        assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
+        assert_eq!(wire, nuo_inference_wire::WireProtocol::AnthropicMessages);
         assert_eq!(
             endpoint,
             "https://opencode.ai/inference/go/anthropic/v1/messages"
         );
         let (wire, endpoint, _) = route_for_model(provider_id, "glm-5.2").unwrap();
-        assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
+        assert_eq!(
+            wire,
+            nuo_inference_wire::WireProtocol::OpenAiChatCompletions
+        );
         assert_eq!(endpoint, "https://opencode.ai/zen/go/v1/chat/completions");
     }
 }
@@ -179,10 +182,13 @@ fn opencode_go_baselines_route_by_inference_go_surface() {
 #[test]
 fn commandcode_baselines_route_by_surface() {
     let (wire, endpoint, _) = route_for_model("commandcode", "claude-sonnet-5-5").unwrap();
-    assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
+    assert_eq!(wire, nuo_inference_wire::WireProtocol::AnthropicMessages);
     assert_eq!(endpoint, "https://api.commandcode.ai/provider/v1/messages");
     let (wire, endpoint, _) = route_for_model("commandcode", "deepseek/deepseek-v4-flash").unwrap();
-    assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
+    assert_eq!(
+        wire,
+        nuo_inference_wire::WireProtocol::OpenAiChatCompletions
+    );
     assert_eq!(
         endpoint,
         "https://api.commandcode.ai/provider/v1/chat/completions"
@@ -196,7 +202,7 @@ fn commandcode_deepseek_siblings_have_baselines_and_effort_ladders() {
         "deepseek/deepseek-v4.1-flash",
         "deepseek/deepseek-v4-pro",
     ] {
-        let baseline = nuo_model_codec::model::model_by_id(id)
+        let baseline = nuo_inference_wire::model::model_by_id(id)
             .unwrap_or_else(|| panic!("{id} is not a registered baseline"));
         assert_eq!(
             baseline.family, "deepseek",
@@ -209,7 +215,10 @@ fn commandcode_deepseek_siblings_have_baselines_and_effort_ladders() {
         );
         let (wire, endpoint, _) =
             route_for_model("commandcode-plan", id).unwrap_or_else(|| panic!("{id} routes"));
-        assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
+        assert_eq!(
+            wire,
+            nuo_inference_wire::WireProtocol::OpenAiChatCompletions
+        );
         assert_eq!(
             endpoint,
             "https://api.commandcode.ai/provider/v1/chat/completions"
@@ -220,19 +229,22 @@ fn commandcode_deepseek_siblings_have_baselines_and_effort_ladders() {
 #[test]
 fn opencode_zen_baselines_route_by_inference_surface() {
     let (wire, endpoint, _) = route_for_model("opencode-zen", "claude-sonnet-4-6").unwrap();
-    assert_eq!(wire, nuo_model_codec::WireProtocol::AnthropicMessages);
+    assert_eq!(wire, nuo_inference_wire::WireProtocol::AnthropicMessages);
     assert_eq!(
         endpoint,
         "https://opencode.ai/inference/anthropic/v1/messages"
     );
     let (wire, endpoint, _) = route_for_model("opencode-zen", "glm-5.2").unwrap();
-    assert_eq!(wire, nuo_model_codec::WireProtocol::ChatCompletions);
+    assert_eq!(
+        wire,
+        nuo_inference_wire::WireProtocol::OpenAiChatCompletions
+    );
     assert_eq!(endpoint, "https://opencode.ai/zen/v1/chat/completions");
 }
 
 #[test]
 fn endpoint_for_applies_root_algebra_per_protocol() {
-    use nuo_model_codec::{ApiRoot, ProviderDialect, WireProtocol};
+    use nuo_inference_wire::{ApiRoot, ProviderDialect, WireProtocol};
     let root = ApiRoot::parse("https://opencode.ai/inference/anthropic/v1").unwrap();
     assert_eq!(
         endpoint_for(
@@ -247,7 +259,7 @@ fn endpoint_for_applies_root_algebra_per_protocol() {
         endpoint_for(
             ProviderDialect::Standard,
             &google_root,
-            WireProtocol::GoogleGemini
+            WireProtocol::GoogleGenerateContent
         ),
         "https://opencode.ai/inference/google/v1beta"
     );
@@ -291,18 +303,18 @@ fn every_declared_quota_port_is_reachable_from_the_dispatch() {
 fn build_provider_stamps_entry_id_on_openai_compat() {
     let channel = Channel {
         id: "default".to_string(),
-        transport: Transport::OpenAi {
+        transport: Transport::OpenAiChatCompletions {
             base_url: "https://api.openai.com/v1/chat/completions".to_string(),
-            client_profile: nuo_model_codec::ClientProfile::from("agent"),
+            client_profile: nuo_inference_wire::ClientProfile::from("agent"),
             effort: None,
             dialect: Default::default(),
         },
-        credentials: nuo_model_codec::static_credential("k"),
+        credentials: nuo_inference_wire::static_credential("k"),
         model: "gpt-4o".to_string(),
         remote: None,
         user_overrides: None,
-        prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
-        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
     };
     let provider = build_provider_for_channel(&channel, "openai", None);
     assert_eq!(provider.provider_id(), "openai");
@@ -313,46 +325,46 @@ fn build_provider_stamps_entry_id_on_openai_compat() {
 fn openai_channel_without_override_defaults_effort_on_the_wire() {
     let channel = Channel {
         id: "default".to_string(),
-        transport: Transport::OpenAi {
+        transport: Transport::OpenAiChatCompletions {
             base_url: "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions".to_string(),
-            client_profile: nuo_model_codec::ClientProfile::from("agent"),
+            client_profile: nuo_inference_wire::ClientProfile::from("agent"),
             effort: None,
             dialect: Default::default(),
         },
-        credentials: nuo_model_codec::static_credential("k"),
+        credentials: nuo_inference_wire::static_credential("k"),
         model: "glm-5.3".to_string(),
         remote: None,
         user_overrides: None,
-        prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
-        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
     };
     let provider = build_provider_for_channel(&channel, "zai-code", None);
-    assert_eq!(provider.effort(), Some(nuo_model_codec::Effort::High));
+    assert_eq!(provider.effort(), Some(nuo_inference_wire::Effort::High));
 
     let mut pinned = channel;
-    if let Transport::OpenAi { effort, .. } = &mut pinned.transport {
-        *effort = Some(nuo_model_codec::Effort::Low);
+    if let Transport::OpenAiChatCompletions { effort, .. } = &mut pinned.transport {
+        *effort = Some(nuo_inference_wire::Effort::Low);
     }
     let provider = build_provider_for_channel(&pinned, "zai-code", None);
-    assert_eq!(provider.effort(), Some(nuo_model_codec::Effort::Low));
+    assert_eq!(provider.effort(), Some(nuo_inference_wire::Effort::Low));
 }
 
 #[test]
 fn ladderless_model_keeps_absent_effort_on_the_wire() {
     let channel = Channel {
         id: "default".to_string(),
-        transport: Transport::OpenAi {
+        transport: Transport::OpenAiChatCompletions {
             base_url: "https://api.openai.com/v1/chat/completions".to_string(),
-            client_profile: nuo_model_codec::ClientProfile::from("agent"),
+            client_profile: nuo_inference_wire::ClientProfile::from("agent"),
             effort: None,
             dialect: Default::default(),
         },
-        credentials: nuo_model_codec::static_credential("k"),
+        credentials: nuo_inference_wire::static_credential("k"),
         model: "gpt-4o".to_string(),
         remote: None,
         user_overrides: None,
-        prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
-        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
     };
     let provider = build_provider_for_channel(&channel, "openai", None);
     assert_eq!(provider.effort(), None);
@@ -362,19 +374,19 @@ fn ladderless_model_keeps_absent_effort_on_the_wire() {
 fn build_provider_dispatches_anthropic_transport() {
     let channel = Channel {
         id: "qwen3.6-plus".to_string(),
-        transport: Transport::Anthropic {
+        transport: Transport::AnthropicMessages {
             base_url: "https://opencode.ai/inference/anthropic/v1/messages".to_string(),
-            client_profile: nuo_model_codec::ClientProfile::from("agent"),
+            client_profile: nuo_inference_wire::ClientProfile::from("agent"),
             effort: None,
             thinking: None,
             dialect: Default::default(),
         },
-        credentials: nuo_model_codec::static_credential("go-key"),
+        credentials: nuo_inference_wire::static_credential("go-key"),
         model: "qwen3.6-plus".to_string(),
         remote: None,
         user_overrides: None,
-        prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
-        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
     };
     let provider = build_provider_for_channel(&channel, "opencode-go", None);
     assert_eq!(provider.provider_id(), "opencode-go");
@@ -383,73 +395,73 @@ fn build_provider_dispatches_anthropic_transport() {
 
 #[test]
 fn builtin_provider_models_resolve_with_expected_wire_formats() {
-    use nuo_model_codec::WireProtocol;
+    use nuo_inference_wire::WireProtocol;
     let cases: &[(&str, &[&str], WireProtocol)] = &[
         (
             "anthropic",
-            nuo_model_codec::model_providers::ANTHROPIC_BUILTIN_MODELS,
+            nuo_inference_wire::model_providers::ANTHROPIC_BUILTIN_MODELS,
             WireProtocol::AnthropicMessages,
         ),
         (
             "google",
-            nuo_model_codec::model_providers::GOOGLE_BUILTIN_MODELS,
-            WireProtocol::GoogleGemini,
+            nuo_inference_wire::model_providers::GOOGLE_BUILTIN_MODELS,
+            WireProtocol::GoogleGenerateContent,
         ),
         (
             "deepseek",
-            nuo_model_codec::model_providers::DEEPSEEK_BUILTIN_MODELS,
-            WireProtocol::Responses,
+            nuo_inference_wire::model_providers::DEEPSEEK_BUILTIN_MODELS,
+            WireProtocol::OpenAiResponses,
         ),
         (
             "openai",
-            nuo_model_codec::model_providers::OPENAI_BUILTIN_MODELS,
-            WireProtocol::ChatCompletions,
+            nuo_inference_wire::model_providers::OPENAI_BUILTIN_MODELS,
+            WireProtocol::OpenAiChatCompletions,
         ),
         (
             "openrouter",
-            nuo_model_codec::model_providers::OPENROUTER_BUILTIN_MODELS,
-            WireProtocol::ChatCompletions,
+            nuo_inference_wire::model_providers::OPENROUTER_BUILTIN_MODELS,
+            WireProtocol::OpenAiChatCompletions,
         ),
         (
             "xai",
-            nuo_model_codec::model_providers::XAI_BUILTIN_MODELS,
-            WireProtocol::ChatCompletions,
+            nuo_inference_wire::model_providers::XAI_BUILTIN_MODELS,
+            WireProtocol::OpenAiChatCompletions,
         ),
         (
             "openai-subscription",
-            nuo_model_codec::model_providers::CHATGPT_BUILTIN_MODELS,
-            WireProtocol::Responses,
+            nuo_inference_wire::model_providers::CHATGPT_BUILTIN_MODELS,
+            WireProtocol::OpenAiResponses,
         ),
         (
             "github-copilot",
-            nuo_model_codec::model_providers::COPILOT_SEED_MODELS,
-            WireProtocol::ChatCompletions,
+            nuo_inference_wire::model_providers::COPILOT_SEED_MODELS,
+            WireProtocol::OpenAiChatCompletions,
         ),
         (
             "kimi-code",
-            nuo_model_codec::model_providers::KIMI_CODE_MODELS,
-            WireProtocol::ChatCompletions,
+            nuo_inference_wire::model_providers::KIMI_CODE_MODELS,
+            WireProtocol::OpenAiChatCompletions,
         ),
         (
             "glm-cn",
-            nuo_model_codec::model_providers::ZAI_CODE_MODELS,
-            WireProtocol::ChatCompletions,
+            nuo_inference_wire::model_providers::ZAI_CODE_MODELS,
+            WireProtocol::OpenAiChatCompletions,
         ),
         (
             "opencode-plan",
-            nuo_model_codec::model_providers::OPENCODE_PLAN_MODELS,
-            WireProtocol::ChatCompletions,
+            nuo_inference_wire::model_providers::OPENCODE_PLAN_MODELS,
+            WireProtocol::OpenAiChatCompletions,
         ),
         (
             "google-antigravity",
-            nuo_model_codec::model_providers::ANTIGRAVITY_OAUTH_MODELS,
-            WireProtocol::GoogleGemini,
+            nuo_inference_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS,
+            WireProtocol::GoogleGenerateContent,
         ),
     ];
     for (provider_id, ids, expected) in cases {
         let spec = model_provider_spec(provider_id).expect("provider resolves");
         for id in ids.iter() {
-            let model = nuo_model_codec::model::resolve(id);
+            let model = nuo_inference_wire::model::resolve(id);
             assert_eq!(model.id, *id, "model {id} must be registered");
             assert_eq!(
                 spec.model_protocol(id),
@@ -461,13 +473,13 @@ fn builtin_provider_models_resolve_with_expected_wire_formats() {
 
     // OpenCode Zen is multi-protocol: Claude routes over Anthropic, others over ChatCompletions
     let zen_spec = model_provider_spec("opencode-zen").expect("opencode-zen resolves");
-    for id in nuo_model_codec::model_providers::OPENCODE_ZEN_MODELS {
-        let model = nuo_model_codec::model::resolve(id);
+    for id in nuo_inference_wire::model_providers::OPENCODE_ZEN_MODELS {
+        let model = nuo_inference_wire::model::resolve(id);
         assert_eq!(model.id, *id, "model {id} must be registered");
         let expected = if *id == "claude-sonnet-4-6" {
             WireProtocol::AnthropicMessages
         } else {
-            WireProtocol::ChatCompletions
+            WireProtocol::OpenAiChatCompletions
         };
         assert_eq!(
             zen_spec.model_protocol(id),

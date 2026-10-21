@@ -1,3 +1,3 @@
-//! Re-exports OAuth provider configuration from `nuo-model-codec::provider_auth`.
+//! Re-exports OAuth provider configuration from `nuo-inference-wire::provider_auth`.
 
-pub use nuo_model_codec::provider_auth::*;
+pub use nuo_inference_wire::provider_auth::*;

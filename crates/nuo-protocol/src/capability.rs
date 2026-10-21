@@ -7,7 +7,7 @@ use std::collections::HashMap;
 /// Transient provider-owned state shared by requests in one user round.
 /// Each provider namespaces its slots by route. Never serialized or included
 /// in prompt fingerprints; dropping the round releases its routing tokens.
-pub use nuo_model_codec::capability::ProviderTurnContext;
+pub use nuo_provider::capability::ProviderTurnContext;
 
 /// Per-model (and per-subagent-profile) variant selection: a map from a
 /// capability name (a [`Tool::name`]) to the [`Tool::variant`] id chosen for
@@ -29,8 +29,9 @@ pub type VariantSelection = HashMap<String, String>;
 /// The provider owns protocol facts (for example, how tool results or
 /// thinking replay are represented on its wire surface), while the agent owns
 /// whether and where those facts are inserted into model context. Empty by
-pub use nuo_model_codec::capability::ProviderPromptHints;
+pub use nuo_provider::capability::ProviderPromptHints;
 
+pub use nuo_provider::capability::ModelRequest;
 /// One immutable, provider-agnostic model request.
 ///
 /// A provider-neutral tool declaration. This is the canonical, vendor-agnostic
@@ -41,8 +42,7 @@ pub use nuo_model_codec::capability::ProviderPromptHints;
 /// Replacing the previous OpenAI-shape `serde_json::Value` canonical form
 /// removes the coupling where every adapter had to reverse-engineer the OpenAI
 /// nesting (`spec["function"]["name"]`) — adapters now read typed fields.
-pub use nuo_model_codec::ToolSpec;
-pub use nuo_model_codec::capability::ModelRequest;
+pub use nuo_provider::capability::ToolSpec;
 
 /// A shared empty [`VariantSelection`] map, handy as a default borrow target so
 /// callers can always hand out `&VariantSelection` without an `Option`.
@@ -52,7 +52,7 @@ pub fn empty_variant_selection() -> &'static VariantSelection {
     &EMPTY
 }
 
-pub use nuo_model_codec::capability::{
+pub use nuo_provider::capability::{
     Provider, ProviderEventStream, ProviderStreamEvent, ProviderTextStream,
 };
 

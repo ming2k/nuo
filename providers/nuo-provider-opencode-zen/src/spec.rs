@@ -2,13 +2,13 @@
 //! (`opencode.ai/zen/v1`), authenticated via an OpenCode API key
 //! (`OPENCODE_API_KEY`) or public keyless bearer.
 
-use nuo_model_codec::reasoning::ReasoningSupport;
-use nuo_model_codec::{Model, WireProtocol};
+use nuo_inference_wire::reasoning::ReasoningSupport;
+use nuo_inference_wire::{Model, WireProtocol};
 
 use nuo_provider::*;
 
 /// Curated seed models offered by the OpenCode Zen preset.
-pub use nuo_model_codec::model_providers::OPENCODE_ZEN_MODELS;
+pub use nuo_inference_wire::model_providers::OPENCODE_ZEN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves.
 pub const MODELS: &[Model] = &[
@@ -35,7 +35,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
@@ -47,7 +47,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         wire_entities: None,
@@ -59,7 +59,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         wire_entities: None,
@@ -71,7 +71,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
@@ -89,7 +89,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         wire_entities: None,
@@ -101,24 +101,24 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
+inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_model_codec::ProviderDialect::Standard,
+    dialect: nuo_inference_wire::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[
         (
             WireProtocol::AnthropicMessages,
             std::borrow::Cow::Borrowed("https://opencode.ai/inference/anthropic/v1"),
         ),
         (
-            WireProtocol::GoogleGemini,
+            WireProtocol::GoogleGenerateContent,
             std::borrow::Cow::Borrowed("https://opencode.ai/inference/google/v1beta"),
         ),
     ]),
@@ -130,12 +130,12 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // instance-level default is the OpenAI chat-completions surface.
     root_url: std::borrow::Cow::Borrowed("https://opencode.ai/zen/v1"),
     user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_model_codec::client_identity::OPENCODE_USER_AGENT,
+        nuo_inference_wire::client_identity::OPENCODE_USER_AGENT,
     )),
-    protocol: WireProtocol::ChatCompletions,
+    protocol: WireProtocol::OpenAiChatCompletions,
     // Served models come from the live /zen/v1/models endpoint.
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_model_codec::ClientPreset::Native,
+    default_client_profile: nuo_inference_wire::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Structural,
@@ -145,7 +145,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_model_codec::model::{BaselineModels, resolve};
+    use nuo_inference_wire::model::{BaselineModels, resolve};
 
     #[test]
     fn baseline_ids_are_unique() {

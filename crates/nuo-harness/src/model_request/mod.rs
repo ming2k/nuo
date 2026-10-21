@@ -66,7 +66,9 @@ impl ModelRequestAssembler {
         let instructions = self.system_prompt_registry.build_bundle(context);
         let tool_specs = tools
             .iter()
-            .map(|t| nuo_model_codec::ToolSpec::new(t.name(), t.description(), t.parameters()))
+            .map(|t| {
+                nuo_provider::capability::ToolSpec::new(t.name(), t.description(), t.parameters())
+            })
             .collect();
         nuo_wire::ModelRequest::with_instructions_and_tool_specs(instructions, messages, tool_specs)
             .with_temporary_context(temporary_context)
@@ -84,7 +86,9 @@ impl ModelRequestAssembler {
     ) -> Result<nuo_wire::CompilationArtifact, nuo_wire::CompilerError> {
         let tool_specs = tools
             .iter()
-            .map(|t| nuo_model_codec::ToolSpec::new(t.name(), t.description(), t.parameters()))
+            .map(|t| {
+                nuo_provider::capability::ToolSpec::new(t.name(), t.description(), t.parameters())
+            })
             .collect();
         let options = nuo_wire::CompilerOptions {
             tool_specs,

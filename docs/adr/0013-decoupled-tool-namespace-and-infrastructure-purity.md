@@ -97,7 +97,7 @@ A dedicated workspace directory `tools/` is established for all official Agent t
 ## Invariants & Behavioral Boundaries
 
 - **`[INV-TOOL-14] Dedicated Tool Namespace`**: Official native Agent tool plugin crates MUST reside in `tools/nuo-tool-*`. Root directory crates are reserved for core subsystems, protocols, and infrastructure libraries.
-- **`[INV-INFRA-01] Infrastructure Purity`**: Low-level infrastructure crates (`nuo-host`, `nuo-code`) MUST NOT depend on `nuo-tool` or implement `nuo_tool::Tool`. They must contain zero model-facing JSON schemas, prompt descriptions, or LLM output formatters.
+- **`[INV-INFRA-01] Infrastructure Purity`**: Low-level infrastructure crates (`nuo-host`) MUST NOT depend on `nuo-tool` or implement `nuo_tool::Tool`. They must contain zero model-facing JSON schemas, prompt descriptions, or LLM output formatters.
 - **`[INV-TOOL-15] Semantic Tool Nomenclature`**: Tool crates must be named according to their functional capability: `nuo-tool-fs`, `nuo-tool-exec`, `nuo-tool-web`, and `nuo-tool-ast`. Generic names such as `nuo-tool-host` or ambiguous names like `nuo-search` are prohibited.
 
 ---

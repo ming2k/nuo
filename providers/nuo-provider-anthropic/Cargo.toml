@@ -8,8 +8,8 @@ description = "Anthropic Claude Messages provider, Extended Thinking, and Prompt
 
 [dependencies]
 nuo-provider = { workspace = true }
-nuo-provider-transport = { workspace = true }
-nuo-model-codec = { workspace = true }
+nuo-egress = { workspace = true }
+nuo-inference-wire = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }

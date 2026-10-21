@@ -48,10 +48,10 @@
 //! has a bare API root can pass it directly.
 use std::collections::HashSet;
 
-use nuo_model_codec::{Availability, ReasoningSupport, WireProtocol};
+use nuo_inference_wire::{Availability, ReasoningSupport, WireProtocol};
 use serde_json::Value;
 
-pub use nuo_model_codec::CatalogShape;
+pub use nuo_inference_wire::CatalogShape;
 
 /// Everything a live catalog request needs, borrowed from the instance's
 /// first channel. Fields mirror what a chat request would use so the auth
@@ -69,9 +69,9 @@ fn append_query(url: &str, params: &[(&str, &str)]) -> String {
         if index > 0 {
             out.push('&');
         }
-        out.push_str(&nuo_provider_transport::http::encode_component(name));
+        out.push_str(&nuo_egress::http::encode_component(name));
         out.push('=');
-        out.push_str(&nuo_provider_transport::http::encode_component(value));
+        out.push_str(&nuo_egress::http::encode_component(value));
     }
     out
 }
@@ -88,7 +88,7 @@ pub fn models_endpoint_for(
     protocol: CatalogShape,
     base_url: &str,
 ) -> Result<String, ModelListError> {
-    let root = nuo_model_codec::ApiRoot::parse(base_url).map_err(ModelListError::BadEndpoint)?;
+    let root = nuo_inference_wire::ApiRoot::parse(base_url).map_err(ModelListError::BadEndpoint)?;
     Ok(root.append(protocol.path()))
 }
 
@@ -118,12 +118,9 @@ pub async fn fetch_remote_catalog(
     options: RemoteCatalogOptions<'_>,
 ) -> Result<RemoteCatalogUpdate, ModelListError> {
     let endpoint = models_endpoint_for(req.protocol, req.base_url)?;
-    let user_agent = req
-        .user_agent
-        .unwrap_or(nuo_provider_transport::NUO_USER_AGENT);
+    let user_agent = req.user_agent.unwrap_or(nuo_provider::NUO_USER_AGENT);
 
-    let client =
-        nuo_provider_transport::http::Http::control_plane().map_err(ModelListError::Http)?;
+    let client = nuo_egress::http::Http::control_plane().map_err(ModelListError::Http)?;
 
     let response = match req.protocol {
         CatalogShape::SceneMap => {
@@ -140,7 +137,7 @@ pub async fn fetch_remote_catalog(
             })?;
             let url = append_query(&endpoint, req.protocol.query());
             let signed = signing.sign(signed_path).map_err(ModelListError::Parse)?;
-            let mut request = nuo_provider_transport::http::Request::new(netune::Method::GET, &url)
+            let mut request = nuo_egress::http::Request::new(netune::Method::GET, &url)
                 .header("user-agent", user_agent)
                 .header("authorization", signed.authorization)
                 .header("cosy-date", signed.date)
@@ -154,7 +151,7 @@ pub async fn fetch_remote_catalog(
             for (name, value) in req.extra_headers {
                 request = request.header(name, *value);
             }
-            nuo_provider_transport::http::Http::control_plane()
+            nuo_egress::http::Http::control_plane()
                 .map_err(ModelListError::Http)?
                 .send(request)
                 .await
@@ -163,9 +160,8 @@ pub async fn fetch_remote_catalog(
         CatalogShape::OpenAi => {
             // OpenAI auth: a bearer when a key is set, NO header when keyless
             // (some relays reject a malformed bearer). Mirrors the chat path.
-            let mut request =
-                nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
-                    .header("user-agent", user_agent);
+            let mut request = nuo_egress::http::Request::new(netune::Method::GET, &endpoint)
+                .header("user-agent", user_agent);
             if !req.api_key.expose_secret().trim().is_empty() {
                 request = request.header(
                     "authorization",
@@ -187,13 +183,12 @@ pub async fn fetch_remote_catalog(
                 &endpoint,
                 &[(
                     "client_version",
-                    nuo_model_codec::client_identity::CODEX_VERSION,
+                    nuo_inference_wire::client_identity::CODEX_VERSION,
                 )],
             );
-            let mut request =
-                nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
-                    .header("user-agent", user_agent)
-                    .header("originator", "codex_cli_rs");
+            let mut request = nuo_egress::http::Request::new(netune::Method::GET, &endpoint)
+                .header("user-agent", user_agent)
+                .header("originator", "codex_cli_rs");
             if !req.api_key.expose_secret().trim().is_empty() {
                 request = request.header(
                     "authorization",
@@ -215,11 +210,10 @@ pub async fn fetch_remote_catalog(
             // Anthropic auth: x-api-key + the pinned API version. The version
             // header is mandatory on every Anthropic request including the
             // models list endpoint.
-            let mut request =
-                nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
-                    .header("user-agent", user_agent)
-                    .header("x-api-key", req.api_key.expose_secret())
-                    .header("anthropic-version", anthropic_version());
+            let mut request = nuo_egress::http::Request::new(netune::Method::GET, &endpoint)
+                .header("user-agent", user_agent)
+                .header("x-api-key", req.api_key.expose_secret())
+                .header("anthropic-version", anthropic_version());
             if req.api_key.expose_secret().trim().is_empty() {
                 // A keyless request still sends the headers (harmless) but
                 // most Anthropic relays require a key; the snapshot fallback
@@ -241,10 +235,9 @@ pub async fn fetch_remote_catalog(
                 .account_id
                 .filter(|id| !id.trim().is_empty())
                 .unwrap_or("aicode-consumers");
-            let mut request =
-                nuo_provider_transport::http::Request::new(netune::Method::POST, &endpoint)
-                    .header("user-agent", user_agent)
-                    .json(&serde_json::json!({ "project": project }));
+            let mut request = nuo_egress::http::Request::new(netune::Method::POST, &endpoint)
+                .header("user-agent", user_agent)
+                .json(&serde_json::json!({ "project": project }));
             if !req.api_key.expose_secret().trim().is_empty() {
                 request = request.header(
                     "authorization",
@@ -260,9 +253,8 @@ pub async fn fetch_remote_catalog(
             // Google AI Studio auth: x-goog-api-key header is the official standard.
             // OAuth/IAM bearer tokens use Authorization: Bearer.
             // Avoid leaking credentials in URL query parameters.
-            let mut request =
-                nuo_provider_transport::http::Request::new(netune::Method::GET, &endpoint)
-                    .header("user-agent", user_agent);
+            let mut request = nuo_egress::http::Request::new(netune::Method::GET, &endpoint)
+                .header("user-agent", user_agent);
             let secret = req.api_key.expose_secret().trim();
             if !secret.is_empty() {
                 if secret.starts_with("ya29.") || secret.starts_with("Bearer ") {
@@ -289,7 +281,7 @@ pub async fn fetch_remote_catalog(
         .get("etag")
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    if status == nuo_provider_transport::StatusCode::NOT_MODIFIED {
+    if status == nuo_egress::StatusCode::NOT_MODIFIED {
         return Ok(RemoteCatalogUpdate::NotModified {
             etag: response_etag.or_else(|| options.etag.map(str::to_string)),
         });
@@ -338,7 +330,7 @@ pub trait CatalogParser: Send + Sync {
 /// must remain strictly separated per ADR-0068 [INV-CATALOG-02]. Suffixes like
 /// `(Thinking)` inside model names are redundant with orthogonal reasoning capabilities.
 fn clean_display_label(raw: &str) -> String {
-    nuo_model_codec::catalog::clean_model_display_name(raw)
+    nuo_inference_wire::catalog::clean_model_display_name(raw)
 }
 
 pub struct OpenAiCatalogParser;
@@ -544,7 +536,7 @@ fn parse_codex_models(json: &Value) -> Vec<DiscoveredModel> {
                     id,
                     availability,
                     advertised,
-                    protocol: Some(WireProtocol::Responses),
+                    protocol: Some(WireProtocol::OpenAiResponses),
                     endpoint: None,
                     family: None,
                     name: entry
@@ -655,7 +647,7 @@ fn discovered_model_from_entry(entry: &Value) -> Option<DiscoveredModel> {
             if has_messages && !has_chat {
                 Some(WireProtocol::AnthropicMessages)
             } else if has_chat {
-                Some(WireProtocol::ChatCompletions)
+                Some(WireProtocol::OpenAiChatCompletions)
             } else {
                 None
             }
@@ -861,9 +853,9 @@ fn copilot_protocol(value: Option<&Value>) -> Option<WireProtocol> {
     if has("/v1/messages") {
         Some(WireProtocol::AnthropicMessages)
     } else if has("/responses") {
-        Some(WireProtocol::Responses)
+        Some(WireProtocol::OpenAiResponses)
     } else if has("/chat/completions") {
-        Some(WireProtocol::ChatCompletions)
+        Some(WireProtocol::OpenAiChatCompletions)
     } else {
         None
     }
@@ -970,7 +962,7 @@ fn deepseek_accepted_efforts(advertised: &[String]) -> Vec<String> {
         }
     }
     accepted.sort_by_key(|level| {
-        nuo_model_codec::Effort::ORDER
+        nuo_inference_wire::Effort::ORDER
             .iter()
             .position(|rung| rung.as_str() == level)
             .unwrap_or(usize::MAX)
@@ -1277,7 +1269,7 @@ mod tests {
         assert_eq!(models[1].id, "gpt-codex");
         assert_eq!(models[1].advertised, Some(true));
         assert_eq!(models[1].availability, Some(Availability::usable()));
-        assert_eq!(models[1].protocol, Some(WireProtocol::Responses));
+        assert_eq!(models[1].protocol, Some(WireProtocol::OpenAiResponses));
         assert_eq!(models[1].context_window, Some(272_000));
         assert_eq!(models[1].thinking, Some(ReasoningSupport::ReasoningSummary));
         assert_eq!(models[1].vision, Some(true));
@@ -1662,9 +1654,9 @@ mod tests {
         assert_eq!(
             remote.effort_levels,
             Some(vec![
-                nuo_model_codec::EffortLevel::Known(nuo_model_codec::Effort::Low),
-                nuo_model_codec::EffortLevel::Known(nuo_model_codec::Effort::Medium),
-                nuo_model_codec::EffortLevel::Known(nuo_model_codec::Effort::High)
+                nuo_inference_wire::EffortLevel::Known(nuo_inference_wire::Effort::Low),
+                nuo_inference_wire::EffortLevel::Known(nuo_inference_wire::Effort::Medium),
+                nuo_inference_wire::EffortLevel::Known(nuo_inference_wire::Effort::High)
             ])
         );
         assert_eq!(remote.thinking, Some(ReasoningSupport::AnthropicAdaptive));
@@ -1683,7 +1675,7 @@ mod tests {
                 "requires Copilot Business".to_string()
             )))
         );
-        assert_eq!(internal.protocol, Some(WireProtocol::Responses));
+        assert_eq!(internal.protocol, Some(WireProtocol::OpenAiResponses));
     }
 
     #[test]
@@ -1898,15 +1890,19 @@ mod tests {
             CatalogShape::Anthropic
         );
         assert_eq!(
-            CatalogShape::from_wire_protocol(WireProtocol::GoogleGemini),
+            CatalogShape::from_wire_protocol(WireProtocol::GoogleGenerateContent),
             CatalogShape::Google
         );
         assert_eq!(
-            CatalogShape::from_wire_protocol(WireProtocol::ChatCompletions),
+            CatalogShape::from_wire_protocol(WireProtocol::GoogleInteractions),
+            CatalogShape::Google
+        );
+        assert_eq!(
+            CatalogShape::from_wire_protocol(WireProtocol::OpenAiChatCompletions),
             CatalogShape::OpenAi
         );
         assert_eq!(
-            CatalogShape::from_wire_protocol(WireProtocol::Responses),
+            CatalogShape::from_wire_protocol(WireProtocol::OpenAiResponses),
             CatalogShape::OpenAi
         );
     }

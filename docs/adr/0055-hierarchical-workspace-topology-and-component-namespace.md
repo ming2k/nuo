@@ -68,7 +68,6 @@ nuo-repo/
 │   ├── nuo-model-codec/         # Multi-vendor dialect serialization
 │   ├── nuo-mcp/                 # Model Context Protocol stdio/JSON-RPC engine
 │   ├── nuo-persistence/         # SQLite transactional store & state memory
-│   ├── nuo-code/                # AST syntax and code analysis engine
 │   └── nuo-harness/             # Policy governor, human checkpoints & sandboxing
 │
 ├── providers/                   # [INV-TOPO-03] Model provider channel adapters

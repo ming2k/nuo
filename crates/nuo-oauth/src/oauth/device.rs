@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use nuo_host::SecretString;
 
 use crate::oauth::token::TokenResponse;
-use nuo_model_codec::provider_auth::OAuthConfig;
+use nuo_inference_wire::provider_auth::OAuthConfig;
 
 /// Response from the device-authorization endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,7 +50,7 @@ const OAUTH_POLLING_SAFETY_MARGIN_MS: i64 = 3_000;
 /// Request a device code (RFC 8628). Prints nothing; the caller surfaces the
 /// `user_code` + `verification_uri` to the operator.
 pub async fn request_device_code(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     cfg: &OAuthConfig,
 ) -> Result<DeviceCodeResponse, crate::oauth::AuthError> {
     request_device_code_at(client, cfg, cfg.device_authorization_url.as_ref()).await
@@ -58,7 +58,7 @@ pub async fn request_device_code(
 
 /// Same as [`request_device_code`] but with an explicit endpoint (tests).
 pub async fn request_device_code_at(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     cfg: &OAuthConfig,
     endpoint: &str,
 ) -> Result<DeviceCodeResponse, crate::oauth::AuthError> {
@@ -67,7 +67,7 @@ pub async fn request_device_code_at(
         cfg.client_id,
         crate::oauth::token::percent_encode_form_value(cfg.scope.as_ref())
     );
-    let request = nuo_provider_transport::http::Request::new(netune::Method::POST, endpoint)
+    let request = nuo_egress::http::Request::new(netune::Method::POST, endpoint)
         .header("content-type", "application/x-www-form-urlencoded")
         .header("accept", "application/json")
         .raw_body(body);
@@ -98,7 +98,7 @@ pub async fn request_device_code_at(
 /// expires, or a terminal error arrives. Honors RFC 8628 §3.5:
 /// `authorization_pending` → keep polling; `slow_down` → bump the interval.
 pub async fn poll_device_code(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     cfg: &OAuthConfig,
     device: &DeviceCodeResponse,
 ) -> Result<TokenResponse, crate::oauth::AuthError> {
@@ -108,7 +108,7 @@ pub async fn poll_device_code(
 /// Test-injectable variant of [`poll_device_code`] so unit tests can drive the
 /// `authorization_pending` / `slow_down` branches without real waits.
 pub async fn poll_device_code_with<S, Fut>(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     cfg: &OAuthConfig,
     device: &DeviceCodeResponse,
     sleep: S,
@@ -137,13 +137,11 @@ where
             cfg.client_id,
             crate::oauth::token::percent_encode_form_value(device.device_code.expose_secret())
         );
-        let request = nuo_provider_transport::http::Request::new(
-            netune::Method::POST,
-            cfg.device_token_url.as_ref(),
-        )
-        .header("content-type", "application/x-www-form-urlencoded")
-        .header("accept", "application/json")
-        .raw_body(body);
+        let request =
+            nuo_egress::http::Request::new(netune::Method::POST, cfg.device_token_url.as_ref())
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("accept", "application/json")
+                .raw_body(body);
         let response = client.send(request).await.map_err(|e| {
             crate::oauth::AuthError::Transport(format!("device token poll failed: {e}"))
         })?;

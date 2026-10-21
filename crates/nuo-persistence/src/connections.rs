@@ -235,9 +235,9 @@ impl RawConnection {
                 ConnectionAuth::ApiKey => nuo_wire::ProviderDialect::Standard,
             };
             let protocol = self.protocol.unwrap_or(match dialect {
-                nuo_wire::ProviderDialect::Antigravity => WireProtocol::GoogleGemini,
-                nuo_wire::ProviderDialect::ChatGpt => WireProtocol::Responses,
-                _ => WireProtocol::ChatCompletions,
+                nuo_wire::ProviderDialect::Antigravity => WireProtocol::GoogleGenerateContent,
+                nuo_wire::ProviderDialect::ChatGpt => WireProtocol::OpenAiResponses,
+                _ => WireProtocol::OpenAiChatCompletions,
             });
             let root = self
                 .base_url

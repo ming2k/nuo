@@ -8,7 +8,7 @@ description = "Cognitive agent runtime, ReAct loop, session lifecycle, token com
 
 [dependencies]
 acp = { workspace = true }
-nuo-model-codec = { workspace = true, optional = true }
+nuo-inference-wire = { workspace = true, optional = true }
 nuo-tool = { workspace = true }
 nuo-provider = { workspace = true }
 nuo-wire = { workspace = true }
@@ -26,7 +26,7 @@ tracing = { workspace = true }
 
 [features]
 default = ["wire", "mcp"]
-wire = ["dep:nuo-model-codec"]
+wire = ["dep:nuo-inference-wire"]
 mcp = ["dep:nuo-mcp"]
 
 [dev-dependencies]

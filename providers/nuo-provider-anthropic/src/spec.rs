@@ -3,10 +3,10 @@
 //! plus the per-model `max_tokens` table every Anthropic-format build
 //! consults.
 
-use nuo_model_codec::reasoning::ReasoningSupport;
-use nuo_model_codec::{Model, WireProtocol};
+use nuo_inference_wire::reasoning::ReasoningSupport;
+use nuo_inference_wire::{Model, WireProtocol};
 
-use nuo_model_codec::{CatalogShape, RemoteCatalogSource};
+use nuo_inference_wire::{CatalogShape, RemoteCatalogSource};
 use nuo_provider::effort_ladders;
 use nuo_provider::spec::{ModelProviderSpec, PromptCachePolicy};
 
@@ -50,11 +50,11 @@ pub fn anthropic_model_max_tokens(model_id: &str) -> Option<u32> {
 /// so the same preset serves the official API or any Anthropic-compatible relay.
 /// Each id exists in the model registry, so its metadata (context window, output
 /// limit, capabilities) resolves there.
-pub use nuo_model_codec::model_providers::ANTHROPIC_BUILTIN_MODELS;
+pub use nuo_inference_wire::model_providers::ANTHROPIC_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
-/// submitted to `nuo_model_codec`'s registry at link time (see
-/// [`nuo_model_codec::model::BaselineModels`]).
+/// submitted to `nuo_inference_wire`'s registry at link time (see
+/// [`nuo_inference_wire::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // Claude (Anthropic, via Anthropic-compatible relays)
     // Served over the Anthropic Messages wire format. Relays forward to
@@ -140,20 +140,20 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
+inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
 
-pub fn prompt_cache_for_model(_: &str) -> nuo_model_codec::PromptCacheSpec {
-    nuo_model_codec::PromptCacheSpec {
+pub fn prompt_cache_for_model(_: &str) -> nuo_inference_wire::PromptCacheSpec {
+    nuo_inference_wire::PromptCacheSpec {
         modes: &[
-            nuo_model_codec::PromptCacheMode::Automatic,
-            nuo_model_codec::PromptCacheMode::Explicit,
+            nuo_inference_wire::PromptCacheMode::Automatic,
+            nuo_inference_wire::PromptCacheMode::Explicit,
         ],
-        default_mode: Some(nuo_model_codec::PromptCacheMode::Automatic),
+        default_mode: Some(nuo_inference_wire::PromptCacheMode::Automatic),
         supported_retentions: &[
-            nuo_model_codec::CacheRetention::FiveMinutes,
-            nuo_model_codec::CacheRetention::OneHour,
+            nuo_inference_wire::CacheRetention::FiveMinutes,
+            nuo_inference_wire::CacheRetention::OneHour,
         ],
-        default_retention: Some(nuo_model_codec::CacheRetention::FiveMinutes),
+        default_retention: Some(nuo_inference_wire::CacheRetention::FiveMinutes),
         disable_supported: true,
         routing_key_supported: false,
         max_breakpoints: Some(4),
@@ -165,7 +165,7 @@ pub fn prompt_cache_for_model(_: &str) -> nuo_model_codec::PromptCacheSpec {
 }
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_model_codec::ProviderDialect::Standard,
+    dialect: nuo_inference_wire::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: PromptCachePolicy::Compiled(prompt_cache_for_model),
@@ -176,7 +176,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol: WireProtocol::AnthropicMessages,
     models: ANTHROPIC_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::Anthropic),
-    default_client_profile: nuo_model_codec::ClientPreset::Native,
+    default_client_profile: nuo_inference_wire::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,

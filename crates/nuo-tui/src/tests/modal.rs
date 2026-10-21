@@ -2686,6 +2686,7 @@ async fn test_close_tab_accurately_closes_tab_on_thread_and_subagent() {
     assert_eq!(app.surfaces.tabs().len(), 1);
     assert_eq!(app.surfaces.active_tab_index(), 0);
     assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
+    assert_eq!(app.switch_to_target, Some("conv-1".to_string()));
 
     // Close remaining Tab 0
     let flow = crate::event_loop::actions::dispatch_action_for_test(
@@ -2698,6 +2699,92 @@ async fn test_close_tab_accurately_closes_tab_on_thread_and_subagent() {
 
     assert_eq!(flow, crate::event_loop::actions::ActionFlow::Exit);
     assert!(app.surfaces.tabs().is_empty());
+}
+
+#[tokio::test]
+async fn test_close_tab_switches_to_mru_thread_and_arms_reconnect() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    app.current_session_id = "conv-1".to_string();
+    app.open_tab(crate::surfaces::ClientTab::thread(
+        "conv-1",
+        Some("Thread 1"),
+    ));
+    app.open_tab(crate::surfaces::ClientTab::thread(
+        "conv-2",
+        Some("Thread 2"),
+    ));
+    app.open_tab(crate::surfaces::ClientTab::thread(
+        "conv-3",
+        Some("Thread 3"),
+    ));
+    assert_eq!(app.surfaces.tabs().len(), 3);
+    assert_eq!(app.surfaces.active_tab_index(), 2);
+
+    // Visit conv-1, then conv-2
+    app.surfaces.select_tab(0);
+    app.surfaces.select_tab(1);
+    assert_eq!(app.surfaces.active_tab_index(), 1);
+
+    // Close Tab 1 (conv-2). MRU history: conv-3 -> conv-1 -> conv-2.
+    // Closing conv-2 must jump back to conv-1, NOT conv-3!
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::CloseTab,
+        "conv-2",
+    )
+    .await;
+
+    assert_eq!(app.surfaces.tabs().len(), 2);
+    assert_eq!(app.surfaces.active_tab_index(), 0);
+    assert_eq!(app.surfaces.tabs()[0].thread_id(), Some("conv-1"));
+    assert_eq!(app.switch_to_target, Some("conv-1".to_string()));
+    assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn test_close_tab_from_dashboard_and_settings_updates_scene_and_renders() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::event_loop::UiRuntime::minimal_for_test();
+    app.current_session_id = "s1".to_string();
+    app.open_tab(crate::surfaces::ClientTab::thread("s1", Some("Thread 1")));
+    app.open_tab(crate::surfaces::ClientTab::settings());
+    app.open_tab(crate::surfaces::ClientTab::dashboard());
+
+    assert_eq!(app.surfaces.tabs().len(), 3);
+    assert_eq!(app.surfaces.active_tab_index(), 2);
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Dashboard);
+
+    // Close active Tab 2 (Dashboard). MRU previous is Settings (Tab 1).
+    let flow = crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::CloseTab,
+        "s1",
+    )
+    .await;
+
+    assert_eq!(flow, crate::event_loop::actions::ActionFlow::Handled);
+    assert_eq!(app.surfaces.tabs().len(), 2);
+    assert_eq!(app.surfaces.active_tab_index(), 1);
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Settings);
+    assert_eq!(app.config_focus, crate::overlays::ConfigFocus::Categories);
+
+    // Close active Tab 1 (Settings). MRU previous is Thread 1 (Tab 0).
+    let flow = crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::CloseTab,
+        "s1",
+    )
+    .await;
+
+    assert_eq!(flow, crate::event_loop::actions::ActionFlow::Handled);
+    assert_eq!(app.surfaces.tabs().len(), 1);
+    assert_eq!(app.surfaces.active_tab_index(), 0);
+    assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
+    assert!(!app.transcript_focused);
 }
 
 #[tokio::test]

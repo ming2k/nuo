@@ -7,7 +7,7 @@
 //! JSON. Provider-native framing remains in the protocol SDKs.
 
 use crate::{Message, Role, ToolCall};
-use nuo_model_codec::find_balanced_object;
+use nuo_inference_wire::find_balanced_object;
 
 /// Parse a tool call from assistant response text.
 ///
@@ -20,10 +20,20 @@ use nuo_model_codec::find_balanced_object;
 /// identifier.
 ///
 /// Past executed tool facts (`[Executed tool ...]` or `[Aborted tool ...]`)
-/// represent historical context rather than live invocation intent and are
-/// strictly ignored.
+/// emitted by models attempting to invoke tools in historical conversational format
+/// are parsed and dispatched as live tool calls.
 pub(crate) fn parse_text_tool_call(text: &str) -> Option<ToolCall> {
-    let sanitized = strip_executed_tool_facts(text);
+    // 1. First priority: Check structured bracketed invocations ([Called tool ...], [Executed tool ...]).
+    // Models transitioning between providers or mirroring historical session facts frequently
+    // emit bracketed invocations. Checking these first avoids misidentifying internal argument
+    // keys (such as `{"name": "...", "path": "..."}`) as live tool names.
+    if let Some(call) = parse_called_tool_fallback(text) {
+        return Some(call);
+    }
+
+    // 2. Second priority: Pure JSON objects embedded in prose or code fences.
+    // Incomplete/aborted markers are stripped so aborted syntax never leaks internal keys.
+    let sanitized = strip_aborted_tool_facts(text);
     let text = &sanitized;
     let mut start = 0;
     while let Some(offset) = text[start..].find('{') {
@@ -58,57 +68,42 @@ pub(crate) fn parse_text_tool_call(text: &str) -> Option<ToolCall> {
             start = brace_at + 1;
         }
     }
-    parse_called_tool_fallback(text)
+    None
 }
 
-/// Strip historical execution facts (`[Executed tool ...]` and `[Aborted tool ...]`)
-/// from assistant prose so that past transcript facts are never misinterpreted
-/// as live tool invocations.
-fn strip_executed_tool_facts(text: &str) -> String {
-    let markers = ["[Executed tool ", "[Aborted tool "];
-    if !markers.iter().any(|m| text.contains(m)) {
+/// Strip aborted execution facts (`[Aborted tool ...]`) from assistant prose so that
+/// aborted fragments from interrupted streams are never misinterpreted as live tool calls.
+fn strip_aborted_tool_facts(text: &str) -> String {
+    let marker = "[Aborted tool ";
+    if !text.contains(marker) {
         return text.to_string();
     }
     let mut result = text.to_string();
-    for marker in markers {
-        while let Some(start) = result.find(marker) {
-            let after_marker = &result[start + marker.len()..];
-            let args_marker = "with arguments:";
-            if let Some(args_rel) = after_marker.find(args_marker) {
-                let after_args = &after_marker[args_rel + args_marker.len()..];
-                let after_args_trimmed = after_args.trim_start();
-                let leading = after_args.len() - after_args_trimmed.len();
-                if let Some(brace_rel) = after_args_trimmed.find('{') {
-                    let brace_pos =
-                        start + marker.len() + args_rel + args_marker.len() + leading + brace_rel;
-                    if let Some(end_brace) = find_balanced_object(&result, brace_pos) {
-                        let after_brace = &result[end_brace + 1..];
-                        let trimmed_after = after_brace.trim_start();
-                        if trimmed_after.starts_with(']') {
-                            let offset = after_brace.len() - trimmed_after.len();
-                            let end = end_brace + 1 + offset;
-                            result.replace_range(start..=end, " ");
-                            continue;
-                        }
-                    }
-                }
-            } else if let Some(end_bracket) = after_marker.find(']') {
-                let end = start + marker.len() + end_bracket;
-                result.replace_range(start..=end, " ");
-                continue;
-            }
-            break;
+    while let Some(start) = result.find(marker) {
+        let after_marker = &result[start + marker.len()..];
+        if let Some(end_bracket) = after_marker.find(']') {
+            let end = start + marker.len() + end_bracket;
+            result.replace_range(start..=end, " ");
+            continue;
         }
+        break;
     }
     result
 }
 
 /// Parse fallback text formatted as `[Called tool <name> with arguments: <json>]`,
-/// `[Called tool "<name>" with arguments: <json>]`, or `[Called tool `name` with arguments: <json>]`.
+/// `[Executed tool <name> with arguments: <json>]`, or quoted variants.
 fn parse_called_tool_fallback(text: &str) -> Option<ToolCall> {
-    let prefix = "[Called tool ";
-    let idx = text.find(prefix)?;
-    let rest = &text[idx + prefix.len()..];
+    let prefixes = ["[Called tool ", "[Executed tool "];
+    let mut found = None;
+    for prefix in prefixes {
+        if let Some(idx) = text.find(prefix) {
+            found = Some((idx, prefix.len()));
+            break;
+        }
+    }
+    let (idx, prefix_len) = found?;
+    let rest = &text[idx + prefix_len..];
     let rest = rest.trim_start();
     let (tool_name, rest) = if let Some(stripped) = rest.strip_prefix('`') {
         let end_backtick = stripped.find('`')?;
@@ -140,6 +135,52 @@ fn parse_called_tool_fallback(text: &str) -> Option<ToolCall> {
     }
 }
 
+/// Strip fallback tool invocation markup (`[Called tool ...]` or `[Executed tool ...]`)
+/// from assistant message content when promoted to a native `ToolCall`.
+pub(crate) fn strip_fallback_invocation_markup(text: &str) -> String {
+    let prefixes = ["[Called tool ", "[Executed tool "];
+    let mut result = text.to_string();
+    for prefix in prefixes {
+        while let Some(start) = result.find(prefix) {
+            let after_prefix = &result[start + prefix.len()..];
+            let args_marker = "with arguments:";
+            if let Some(args_rel) = after_prefix.find(args_marker) {
+                let after_args = &after_prefix[args_rel + args_marker.len()..];
+                let after_args_trimmed = after_args.trim_start();
+                let leading = after_args.len() - after_args_trimmed.len();
+                if let Some(brace_rel) = after_args_trimmed.find('{') {
+                    let brace_pos =
+                        start + prefix.len() + args_rel + args_marker.len() + leading + brace_rel;
+                    if let Some(end_brace) = find_balanced_object(&result, brace_pos) {
+                        let after_brace = &result[end_brace + 1..];
+                        let trimmed_after = after_brace.trim_start();
+                        if trimmed_after.starts_with(']') {
+                            let offset = after_brace.len() - trimmed_after.len();
+                            let end = end_brace + 1 + offset;
+                            result.replace_range(start..=end, "");
+                            continue;
+                        }
+                    }
+                }
+            } else if let Some(end_bracket) = after_prefix.find(']') {
+                let end = start + prefix.len() + end_bracket;
+                result.replace_range(start..=end, "");
+                continue;
+            }
+            break;
+        }
+    }
+    let trimmed = result.trim();
+    if trimmed.starts_with('{') && trimmed.ends_with('}') {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if json.get("tool").or_else(|| json.get("name")).is_some() {
+                return String::new();
+            }
+        }
+    }
+    result.trim().to_string()
+}
+
 /// Promote a text-based (fallback) tool call onto the preceding assistant
 /// message as a native `tool_calls` entry. This keeps the tool_call /
 /// tool_call_id pairing valid for OpenAI-compatible providers (which require
@@ -152,6 +193,7 @@ pub(crate) fn attach_fallback_tool_call(messages: &mut [Message], call: &ToolCal
         && last.tool_calls.is_none()
     {
         last.tool_calls = Some(vec![call.clone()]);
+        last.content = strip_fallback_invocation_markup(&last.content);
     }
 }
 
@@ -311,22 +353,62 @@ mod tests {
             r#"{"limit": 120, "path": "docs/adr/0046.md"}"#
         );
 
-        // Past executed tool facts must NEVER be dispatched as live executable tool calls (clean break from legacy conflation)
+        // Executed tool calls emitted by models mimicking conversational history must be parsed
         let text4 = r#"[Executed tool "read_text" with arguments: {"limit": 120, "path": "docs/adr/0046.md"}]"#;
-        assert!(
-            parse_text_tool_call(text4).is_none(),
-            "past executed tool facts must never be dispatched as executable tool calls"
+        let call4 =
+            parse_text_tool_call(text4).expect("executed tool should be parsed as live tool call");
+        assert_eq!(call4.name, "read_text");
+        assert_eq!(
+            call4.arguments,
+            r#"{"limit": 120, "path": "docs/adr/0046.md"}"#
         );
 
-        // Even with arguments containing an internal 'name' or 'tool' key, executed facts must be ignored
+        // Even with arguments containing an internal 'name' or 'tool' key, executed tool calls must parse the correct tool name
         let text5 = r#"[Executed tool "write_file" with arguments: {"name": "shadow", "path": "test.txt"}]"#;
-        assert!(
-            parse_text_tool_call(text5).is_none(),
-            "executed tool fact arguments must not leak internal keys as live tool calls"
-        );
+        let call5 =
+            parse_text_tool_call(text5).expect("executed tool with internal key should parse");
+        assert_eq!(call5.name, "write_file");
+        assert_eq!(call5.arguments, r#"{"name": "shadow", "path": "test.txt"}"#);
+
+        // Exact Gemini cross-model transition command call must be parsed as a live tool call
+        let gemini_mimic = r#"[Executed tool "execute_command" with arguments: {"command":"cd /data/projects/tessera-dev && grep -rn \"Fullscreen\" crates/tessera-desktop/src/keybind.rs; grep -rn \"fullscreen\" crates/tessera-config/src/lib.rs; grep -rn \"Super\" crates/tessera-config/src/lib.rs | head -20"}]"#;
+        let gemini_call = parse_text_tool_call(gemini_mimic)
+            .expect("Gemini mimicked executed tool must be parsed");
+        assert_eq!(gemini_call.name, "execute_command");
+        assert!(gemini_call.arguments.contains("tessera-desktop"));
 
         // Incomplete / truncated arguments must NOT parse as a fallback tool call
         let text6 = r#"[Executed tool "read_text" with arguments: {"limit":120,"offset":1,"path": "docs/adr/018"#;
         assert!(parse_text_tool_call(text6).is_none());
+    }
+
+    #[test]
+    fn attach_fallback_tool_call_promotes_call_and_cleans_markup() {
+        let mut messages = vec![Message::new(
+            Role::Assistant,
+            r#"[Executed tool "execute_command" with arguments: {"command":"ls"}]"#,
+        )];
+        let call = ToolCall::new("c1", "execute_command", r#"{"command":"ls"}"#);
+        attach_fallback_tool_call(&mut messages, &call);
+
+        assert_eq!(messages[0].tool_calls.as_ref().unwrap().len(), 1);
+        assert_eq!(
+            messages[0].tool_calls.as_ref().unwrap()[0].name,
+            "execute_command"
+        );
+        assert_eq!(messages[0].content, "");
+    }
+
+    #[test]
+    fn attach_fallback_tool_call_preserves_preceding_prose() {
+        let mut messages = vec![Message::new(
+            Role::Assistant,
+            "Searching directory now:\n[Executed tool \"execute_command\" with arguments: {\"command\":\"ls\"}]",
+        )];
+        let call = ToolCall::new("c1", "execute_command", r#"{"command":"ls"}"#);
+        attach_fallback_tool_call(&mut messages, &call);
+
+        assert_eq!(messages[0].tool_calls.as_ref().unwrap().len(), 1);
+        assert_eq!(messages[0].content, "Searching directory now:");
     }
 }

@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::oauth::pkce::PkceCodes;
 use nuo_host::SecretString;
-use nuo_model_codec::provider_auth::{ClientAuthMethod, OAuthConfig, PkceMode, TokenRequestFormat};
+use nuo_inference_wire::provider_auth::{
+    ClientAuthMethod, OAuthConfig, PkceMode, TokenRequestFormat,
+};
 
 /// Refresh the access token ahead of expiry so long-running calls don't hit a 401.
 pub const ACCESS_TOKEN_REFRESH_SKEW_MS: i64 = 120_000;
@@ -30,7 +32,7 @@ pub struct TokenResponse {
     pub scope: Option<String>,
     /// Qoder's device-token/device-exchange responses carry the account's
     /// uid; every other issuer leaves this absent. Consumed by the runtime
-    /// to assemble the connection's typed [`nuo_model_codec::QoderRequestIdentity`]
+    /// to assemble the connection's typed [`nuo_inference_wire::QoderRequestIdentity`]
     /// at login time.
     #[serde(default, alias = "uid", alias = "userId")]
     pub qoder_uid: Option<String>,
@@ -89,7 +91,7 @@ pub fn build_authorize_url(
 
 /// Exchange an authorization code for a token set (browser / manual flow).
 pub async fn exchange_code(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     cfg: &OAuthConfig,
     code: &str,
     pkce: &PkceCodes,
@@ -136,7 +138,7 @@ pub async fn exchange_code(
 
 /// Refresh a rotated access token from a refresh_token.
 pub async fn refresh_access_token(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     cfg: &OAuthConfig,
     refresh_token: &str,
 ) -> Result<TokenResponse, crate::oauth::AuthError> {
@@ -174,7 +176,7 @@ pub async fn refresh_access_token(
 }
 
 async fn execute_token_request(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     cfg: &OAuthConfig,
     params: &[(&str, &str)],
     basic_auth: Option<&str>,
@@ -182,13 +184,11 @@ async fn execute_token_request(
     match cfg.token_format {
         TokenRequestFormat::FormUrlEncoded => {
             let body = serde_urlencoded(params);
-            let mut req = nuo_provider_transport::http::Request::new(
-                netune::Method::POST,
-                cfg.token_url.as_ref(),
-            )
-            .header("content-type", "application/x-www-form-urlencoded")
-            .header("accept", "application/json")
-            .raw_body(body);
+            let mut req =
+                nuo_egress::http::Request::new(netune::Method::POST, cfg.token_url.as_ref())
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .header("accept", "application/json")
+                    .raw_body(body);
 
             if let Some(ua) = &cfg.user_agent {
                 req = req.header("user-agent", ua.as_ref());
@@ -221,13 +221,11 @@ async fn execute_token_request(
             for (k, v) in params {
                 map.insert(k.to_string(), serde_json::Value::String(v.to_string()));
             }
-            let mut req = nuo_provider_transport::http::Request::new(
-                netune::Method::POST,
-                cfg.token_url.as_ref(),
-            )
-            .header("content-type", "application/json")
-            .header("accept", "application/json")
-            .json(&serde_json::Value::Object(map));
+            let mut req =
+                nuo_egress::http::Request::new(netune::Method::POST, cfg.token_url.as_ref())
+                    .header("content-type", "application/json")
+                    .header("accept", "application/json")
+                    .json(&serde_json::Value::Object(map));
 
             if let Some(ua) = &cfg.user_agent {
                 req = req.header("user-agent", ua.as_ref());
@@ -302,11 +300,11 @@ pub fn percent_encode_form_pairs(pairs: &[(&str, &str)]) -> String {
 }
 
 pub async fn post_form(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     url: &str,
     body: &str,
 ) -> Result<TokenResponse, crate::oauth::AuthError> {
-    let request = nuo_provider_transport::http::Request::new(netune::Method::POST, url)
+    let request = nuo_egress::http::Request::new(netune::Method::POST, url)
         .header("content-type", "application/x-www-form-urlencoded")
         .header("accept", "application/json")
         .raw_body(body.to_string());

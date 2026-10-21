@@ -29,7 +29,7 @@ here per that brief's §9).
   endpoint, JWT helpers) **and** the vendor-agnostic engine (stateful login sessions, the
   per-connection `OAuthCredentialSource`, the `OAuthTokenEnricher` port, and the
   `OAuthProvider` port + registry). It links only `nuo-provider` (credential contract),
-  `nuo-model-codec`, and `nuo-provider-transport` (HTTP) — **no vendor crate**. It sits at
+  `nuo-inference-wire`, and `nuo-provider-transport` (HTTP) — **no vendor crate**. It sits at
   the root because OAuth is a cross-cutting authentication concern, not a provider
   definition.
 - Each vendor crate owns its OAuth surface and implements `OAuthProvider`:
@@ -75,7 +75,7 @@ here per that brief's §9).
   device grants, enrichers, refresh, and repair live in the owning provider crates and
   register through `OAuthProvider`. There is no `token` wrapper module and **no
   engine→vendor edge**; `cargo tree -p nuo-oauth` shows only `nuo-provider`,
-  `nuo-provider-transport`, and `nuo-model-codec`.
+  `nuo-provider-transport`, and `nuo-inference-wire`.
 - `retrieve_antigravity_quota_summary` went to its owning provider crate, not the engine.
 - Adapter tests/examples were re-homed as follows (the composition root is the one crate
   that can reach every owner at once):
@@ -152,7 +152,7 @@ delete them rather than moving them.
 Do **not** move these into `nuo-oauth` — that would make the engine own two vendors'
 device flows and re-create the coupling this migration removes.
 
-`Cargo.toml` deps: `nuo-provider`, `nuo-provider-transport`, `nuo-model-codec`, `nuo-host`,
+`Cargo.toml` deps: `nuo-provider`, `nuo-provider-transport`, `nuo-inference-wire`, `nuo-host`,
 `nuo-wire`, `async-trait`, `serde`, `serde_json`.
 
 > **Circular-dependency guard — the one real edge (verified 2026-10-08).**
@@ -293,8 +293,8 @@ cargo build --workspace        # must still be clean
 
 These are comments/docs, not compile errors, but they become **false statements**:
 
-- `nuo-model-codec/src/catalog.rs:12,244`; `nuo-model-codec/src/effort.rs:44,50,413`;
-  `nuo-model-codec/src/model.rs:736`
+- `nuo-inference-wire/src/catalog.rs:12,244`; `nuo-inference-wire/src/effort.rs:44,50,413`;
+  `nuo-inference-wire/src/model.rs:736`
 - `nuo-provider/src/factory.rs:46` (**a panic message that names the retired crate**)
 - `nuo-provider/README.md:14`, `nuo-server/src/lib.rs:46`, `nuo-server/src/credentials_host.rs:4`
 - `nuo-tui/src/providers.rs:57`

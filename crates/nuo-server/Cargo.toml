@@ -13,8 +13,8 @@ nuo-wire = { workspace = true }
 nuo-persistence = { workspace = true }
 nuo-host = { workspace = true }
 nuo-provider = { workspace = true }
-nuo-model-codec = { workspace = true, features = ["netune"] }
-nuo-provider-transport = { workspace = true }
+nuo-inference-wire = { workspace = true, features = ["netune"] }
+nuo-egress = { workspace = true }
 nuo-oauth = { workspace = true }
 nuo-provider-catalog = { workspace = true }
 nuo-provider-anthropic = { workspace = true }

@@ -1,3 +1,3 @@
-//! Re-exports client identity from `nuo-model-codec::client_identity`.
+//! Re-exports client identity from `nuo-inference-wire::client_identity`.
 
-pub use nuo_model_codec::client_identity::*;
+pub use nuo_inference_wire::client_identity::*;

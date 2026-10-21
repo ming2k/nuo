@@ -14,9 +14,11 @@
 //! echo suppression over a real stream — is covered.
 use futures::StreamExt;
 use mockito::{Matcher, Server};
-use nuo_model_codec::{Message, Provider, ProviderStreamEvent, Role, SecretString};
+use nuo_inference_wire::SecretString;
+use nuo_provider::capability::{Provider, ProviderStreamEvent};
 use nuo_provider_anthropic::AnthropicMessagesProvider;
 use nuo_provider_openai::{OpenAiChatCompletionsProvider, OpenAiResponsesProvider};
+use nuo_tool::{Message, Role};
 use serde_json::{Value, json};
 
 /// Join SSE `data:` events into a single response body. Each event becomes one
@@ -33,7 +35,7 @@ fn sse_body(events: &[&str]) -> String {
 async fn collect_events(
     stream: futures::stream::BoxStream<
         'static,
-        Result<ProviderStreamEvent, nuo_model_codec::ProviderError>,
+        Result<ProviderStreamEvent, nuo_inference_wire::ProviderError>,
     >,
 ) -> Vec<ProviderStreamEvent> {
     let mut out = Vec::new();
@@ -94,19 +96,19 @@ async fn openai_chat_completions_parses_content_reasoning_tool_calls_and_headers
 
 #[derive(Debug)]
 struct MockOAuthSource {
-    auth: nuo_model_codec::ResolvedAuth,
+    auth: nuo_inference_wire::ResolvedAuth,
 }
 
-impl nuo_model_codec::CredentialSource for MockOAuthSource {
+impl nuo_inference_wire::CredentialSource for MockOAuthSource {
     fn resolve_auth<'a>(
         &'a self,
-    ) -> futures::future::BoxFuture<'a, Result<nuo_model_codec::ResolvedAuth, String>> {
+    ) -> futures::future::BoxFuture<'a, Result<nuo_inference_wire::ResolvedAuth, String>> {
         Box::pin(futures::future::ready(Ok(self.auth.clone())))
     }
 
     fn force_refresh<'a>(
         &'a self,
-    ) -> futures::future::BoxFuture<'a, Result<nuo_model_codec::ResolvedAuth, String>> {
+    ) -> futures::future::BoxFuture<'a, Result<nuo_inference_wire::ResolvedAuth, String>> {
         Box::pin(futures::future::ready(Ok(self.auth.clone())))
     }
 
@@ -140,8 +142,8 @@ async fn chatgpt_responses_chat_uses_streaming_transport_and_dynamic_credentials
         .create_async()
         .await;
 
-    let auth = nuo_model_codec::ResolvedAuth::new("live-oauth-token").with_extension(
-        nuo_model_codec::ChatGptAuthMetadata {
+    let auth = nuo_inference_wire::ResolvedAuth::new("live-oauth-token").with_extension(
+        nuo_inference_wire::ChatGptAuthMetadata {
             account_id: "acct-test".to_string(),
         },
     );
@@ -150,7 +152,7 @@ async fn chatgpt_responses_chat_uses_streaming_transport_and_dynamic_credentials
         "gpt-5.6-sol".to_string(),
         &url,
     )
-    .with_dialect(nuo_model_codec::OpenAiResponsesDialect::ChatGpt);
+    .with_dialect(nuo_inference_wire::OpenAiResponsesDialect::ChatGpt);
     let message = provider
         .chat(vec![Message::new(Role::User, "hi")].into())
         .await
@@ -218,7 +220,7 @@ async fn openai_chat_completions_classifies_server_error_as_retryable() {
     assert!(
         matches!(
             error.retry_disposition(),
-            nuo_model_codec::RetryDisposition::Retry { .. }
+            nuo_inference_wire::RetryDisposition::Retry { .. }
         ),
         "5xx must be classified retryable: {error}"
     );
@@ -364,19 +366,19 @@ async fn openrouter_stream_uses_gateway_dialect_and_returns_replay_artifacts() {
         .create_async()
         .await;
 
-    let capabilities = nuo_model_codec::ModelCapabilities {
+    let capabilities = nuo_inference_wire::ModelCapabilities {
         family: "nex".into(),
         context_window: 262_144,
         max_output_tokens: Some(235_929),
-        thinking: nuo_model_codec::ReasoningSupport::ReasoningContent,
+        thinking: nuo_inference_wire::ReasoningSupport::ReasoningContent,
         tool_call: true,
         // `vision` is three-valued; this fixture declares support
         // explicitly rather than leaving it undeclared.
         vision: Some(true),
         effort_levels: vec![
-            nuo_model_codec::Effort::None.into(),
-            nuo_model_codec::Effort::Medium.into(),
-            nuo_model_codec::Effort::High.into(),
+            nuo_inference_wire::Effort::None.into(),
+            nuo_inference_wire::Effort::Medium.into(),
+            nuo_inference_wire::Effort::High.into(),
         ],
         effort_entities: Vec::new(),
     };
@@ -385,8 +387,8 @@ async fn openrouter_stream_uses_gateway_dialect_and_returns_replay_artifacts() {
         "nex-agi/nex-n2.5-pro:free".into(),
         &url,
     )
-    .with_dialect(nuo_model_codec::OpenAiChatDialect::OpenRouter)
-    .with_reasoning_effort(Some(nuo_model_codec::Effort::High))
+    .with_dialect(nuo_inference_wire::OpenAiChatDialect::OpenRouter)
+    .with_reasoning_effort(Some(nuo_inference_wire::Effort::High))
     .with_model_capabilities(capabilities);
 
     let events = collect_events(
@@ -602,15 +604,15 @@ async fn anthropic_stream_surfaces_in_band_error_event() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// End-to-end through the production factory: Transport::Anthropic{effort,thinking}
+// End-to-end through the production factory: Transport::AnthropicMessages{effort,thinking}
 // → build_provider_for_channel → request_body → HTTP. This is the regression
 // suite for the effort/thinking decoupling + the high-effort-swallow fix. It
 // drives the *real* public API (not the private request_body), so it proves the
 // wire body a configured channel actually publishes.
 // ═════════════════════════════════════════════════════════════════════════════
 
-use nuo_model_codec::catalog::{Channel, Transport};
-use nuo_model_codec::{Effort, ReasoningMode};
+use nuo_inference_wire::catalog::{Channel, Transport};
+use nuo_inference_wire::{Effort, ReasoningMode};
 use nuo_server::provider_registry::build_provider_for_channel;
 
 /// Build a channel → factory provider, send one turn to a mockito server that
@@ -620,7 +622,7 @@ async fn assert_factory_body(mut channel: Channel, expected: Value) {
     let mut server = Server::new_async().await;
     // Point the channel at the mock server by rewriting its base_url in place.
     let url = format!("{}/v1/messages", server.url());
-    if let Transport::Anthropic { base_url, .. } = &mut channel.transport {
+    if let Transport::AnthropicMessages { base_url, .. } = &mut channel.transport {
         *base_url = url;
     }
     let _mock = server
@@ -654,16 +656,16 @@ async fn deepseek_factory_body_carries_only_its_own_reasoning_surface() {
         id: "deepseek-flash".into(),
         transport: Transport::OpenAiResponses {
             base_url: format!("{}/v1/responses", server.url()),
-            client_profile: nuo_model_codec::ClientProfile::from("ua"),
+            client_profile: nuo_inference_wire::ClientProfile::from("ua"),
             effort: Some(Effort::None),
-            dialect: nuo_model_codec::OpenAiResponsesDialect::DeepSeek,
+            dialect: nuo_inference_wire::OpenAiResponsesDialect::DeepSeek,
         },
-        credentials: nuo_model_codec::static_credential("k"),
+        credentials: nuo_inference_wire::static_credential("k"),
         model: "deepseek-flash".into(),
         remote: None,
         user_overrides: None,
-        prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
-        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
     };
     let expected = json!({
         "model": "deepseek-flash",
@@ -712,19 +714,19 @@ async fn deepseek_factory_body_carries_only_its_own_reasoning_surface() {
 async fn factory_publishes_explicit_high_effort() {
     let channel = Channel {
         id: "claude-opus-4-8".into(),
-        transport: Transport::Anthropic {
+        transport: Transport::AnthropicMessages {
             base_url: String::new(), // rewritten by the harness
-            client_profile: nuo_model_codec::ClientProfile::from("ua"),
+            client_profile: nuo_inference_wire::ClientProfile::from("ua"),
             effort: Some(Effort::High),
             thinking: None,
             dialect: Default::default(),
         },
-        credentials: nuo_model_codec::static_credential("k"),
+        credentials: nuo_inference_wire::static_credential("k"),
         model: "claude-opus-4-8".into(),
         remote: None,
         user_overrides: None,
-        prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
-        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
     };
     assert_factory_body(channel, json!({ "output_config": { "effort": "high" } })).await;
 }
@@ -740,19 +742,19 @@ async fn factory_publishes_explicit_high_effort() {
 async fn factory_keeps_effort_decoupled_from_thinking_off() {
     let channel = Channel {
         id: "claude-opus-4-8".into(),
-        transport: Transport::Anthropic {
+        transport: Transport::AnthropicMessages {
             base_url: String::new(),
-            client_profile: nuo_model_codec::ClientProfile::from("ua"),
+            client_profile: nuo_inference_wire::ClientProfile::from("ua"),
             effort: Some(Effort::Medium),
             thinking: Some(ReasoningMode::Off),
             dialect: Default::default(),
         },
-        credentials: nuo_model_codec::static_credential("k"),
+        credentials: nuo_inference_wire::static_credential("k"),
         model: "claude-opus-4-8".into(),
         remote: None,
         user_overrides: None,
-        prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
-        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
     };
     // The request publishes the effort override; the absence of a `thinking`
     // field is verified by the companion unit test.
@@ -765,19 +767,19 @@ async fn factory_keeps_effort_decoupled_from_thinking_off() {
 async fn factory_publishes_thinking_without_output_config() {
     let channel = Channel {
         id: "claude-opus-4-8".into(),
-        transport: Transport::Anthropic {
+        transport: Transport::AnthropicMessages {
             base_url: String::new(),
-            client_profile: nuo_model_codec::ClientProfile::from("ua"),
+            client_profile: nuo_inference_wire::ClientProfile::from("ua"),
             effort: None,
             thinking: Some(ReasoningMode::Adaptive),
             dialect: Default::default(),
         },
-        credentials: nuo_model_codec::static_credential("k"),
+        credentials: nuo_inference_wire::static_credential("k"),
         model: "claude-opus-4-8".into(),
         remote: None,
         user_overrides: None,
-        prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
-        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
     };
     assert_factory_body(
         channel,
@@ -795,19 +797,19 @@ async fn factory_publishes_thinking_without_output_config() {
 async fn sonnet5_opt_out_emits_explicit_disabled() {
     let channel = Channel {
         id: "claude-sonnet-5".into(),
-        transport: Transport::Anthropic {
+        transport: Transport::AnthropicMessages {
             base_url: String::new(),
-            client_profile: nuo_model_codec::ClientProfile::from("ua"),
+            client_profile: nuo_inference_wire::ClientProfile::from("ua"),
             effort: Some(Effort::High),
             thinking: Some(ReasoningMode::Off),
             dialect: Default::default(),
         },
-        credentials: nuo_model_codec::static_credential("k"),
+        credentials: nuo_inference_wire::static_credential("k"),
         model: "claude-sonnet-5".into(),
         remote: None,
         user_overrides: None,
-        prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
-        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
     };
     assert_factory_body(
         channel,
@@ -825,19 +827,19 @@ async fn sonnet5_opt_out_emits_explicit_disabled() {
 async fn sonnet5_opt_in_publishes_adaptive_and_full_effort_range() {
     let channel = Channel {
         id: "claude-sonnet-5".into(),
-        transport: Transport::Anthropic {
+        transport: Transport::AnthropicMessages {
             base_url: String::new(),
-            client_profile: nuo_model_codec::ClientProfile::from("ua"),
+            client_profile: nuo_inference_wire::ClientProfile::from("ua"),
             effort: Some(Effort::Xhigh),
             thinking: Some(ReasoningMode::Adaptive),
             dialect: Default::default(),
         },
-        credentials: nuo_model_codec::static_credential("k"),
+        credentials: nuo_inference_wire::static_credential("k"),
         model: "claude-sonnet-5".into(),
         remote: None,
         user_overrides: None,
-        prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
-        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
     };
     assert_factory_body(
         channel,
@@ -856,19 +858,19 @@ async fn sonnet5_opt_in_publishes_adaptive_and_full_effort_range() {
 async fn fable5_always_on_thinking_ignores_off_override() {
     let channel = Channel {
         id: "claude-fable-5".into(),
-        transport: Transport::Anthropic {
+        transport: Transport::AnthropicMessages {
             base_url: String::new(),
-            client_profile: nuo_model_codec::ClientProfile::from("ua"),
+            client_profile: nuo_inference_wire::ClientProfile::from("ua"),
             effort: None,
             thinking: Some(ReasoningMode::Off),
             dialect: Default::default(),
         },
-        credentials: nuo_model_codec::static_credential("k"),
+        credentials: nuo_inference_wire::static_credential("k"),
         model: "claude-fable-5".into(),
         remote: None,
         user_overrides: None,
-        prompt_cache_preference: nuo_model_codec::PromptCachePreference::default(),
-        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
     };
     assert_factory_body(
         channel,
@@ -967,7 +969,7 @@ async fn codex_list_models_sends_subscription_headers_and_preserves_priority() {
         .mock("GET", "/backend-api/codex/models")
         .match_query(Matcher::UrlEncoded(
             "client_version".to_string(),
-            nuo_model_codec::client_identity::CODEX_VERSION.to_string(),
+            nuo_inference_wire::client_identity::CODEX_VERSION.to_string(),
         ))
         .match_header("authorization", "Bearer chatgpt-access")
         .match_header("originator", "codex_cli_rs")
@@ -1018,7 +1020,7 @@ async fn codex_list_models_supports_etag_revalidation() {
         .mock("GET", "/backend-api/codex/models")
         .match_query(Matcher::UrlEncoded(
             "client_version".to_string(),
-            nuo_model_codec::client_identity::CODEX_VERSION.to_string(),
+            nuo_inference_wire::client_identity::CODEX_VERSION.to_string(),
         ))
         .match_header("if-none-match", "\"catalog-v2\"")
         .with_status(304)
@@ -1209,7 +1211,7 @@ async fn oauth_token_endpoint_with_empty_access_token_fails() {
         .build();
 
     // The owned transport, matching what the OAuth flows now use.
-    let client = nuo_provider_transport::http::Http::control_plane().expect("http client");
+    let client = nuo_egress::http::Http::control_plane().expect("http client");
     let pkce = nuo_oauth::PkceCodes::generate();
     let res = nuo_oauth::exchange_code(
         &client,
@@ -1231,7 +1233,7 @@ async fn oauth_browser_login_validates_oidc_nonce() {
     use base64::Engine;
     let mut server = Server::new_async().await;
     // The owned transport, matching what the OAuth flows now use.
-    let client = nuo_provider_transport::http::Http::control_plane().expect("http client");
+    let client = nuo_egress::http::Http::control_plane().expect("http client");
 
     // 1. Correct nonce succeeds
     let cfg_good = nuo_oauth::OAuthConfig::builder("test_oidc_good")
@@ -1319,7 +1321,7 @@ async fn opencode_plan_wire_request_carries_session_and_client_headers() {
         .match_header("x-opencode-client", "cli")
         .match_header(
             "user-agent",
-            nuo_model_codec::client_identity::OPENCODE_USER_AGENT,
+            nuo_inference_wire::client_identity::OPENCODE_USER_AGENT,
         )
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -1329,17 +1331,17 @@ async fn opencode_plan_wire_request_carries_session_and_client_headers() {
 
     let channel = Channel {
         id: "glm-5.2".into(),
-        transport: Transport::OpenAi {
+        transport: Transport::OpenAiChatCompletions {
             base_url: url,
-            client_profile: nuo_model_codec::ClientProfile::OpenCode,
+            client_profile: nuo_inference_wire::ClientProfile::OpenCode,
             effort: None,
             dialect: Default::default(),
         },
-        credentials: nuo_model_codec::static_credential("opencode-token"),
+        credentials: nuo_inference_wire::static_credential("opencode-token"),
         model: "glm-5.2".into(),
         remote: None,
         user_overrides: None,
-        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
         prompt_cache_preference: Default::default(),
     };
 
@@ -1364,7 +1366,7 @@ async fn opencode_plan_anthropic_wire_request_carries_session_headers() {
         .match_header("x-opencode-client", "cli")
         .match_header(
             "user-agent",
-            nuo_model_codec::client_identity::OPENCODE_USER_AGENT,
+            nuo_inference_wire::client_identity::OPENCODE_USER_AGENT,
         )
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -1374,18 +1376,18 @@ async fn opencode_plan_anthropic_wire_request_carries_session_headers() {
 
     let channel = Channel {
         id: "qwen3.6-plus".into(),
-        transport: Transport::Anthropic {
+        transport: Transport::AnthropicMessages {
             base_url: url,
-            client_profile: nuo_model_codec::ClientProfile::OpenCode,
+            client_profile: nuo_inference_wire::ClientProfile::OpenCode,
             effort: None,
             thinking: None,
             dialect: Default::default(),
         },
-        credentials: nuo_model_codec::static_credential("opencode-token"),
+        credentials: nuo_inference_wire::static_credential("opencode-token"),
         model: "qwen3.6-plus".into(),
         remote: None,
         user_overrides: None,
-        prompt_cache: nuo_model_codec::PromptCacheCapabilities::unsupported(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
         prompt_cache_preference: Default::default(),
     };
 

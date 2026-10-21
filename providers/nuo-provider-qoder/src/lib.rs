@@ -21,16 +21,16 @@ pub use region::{REGION_ENDPOINTS_URL, elect_infer_endpoint};
 pub use usage::*;
 pub use wire::*;
 
-use nuo_model_codec::WireProtocol;
-use nuo_model_codec::model::Model;
-use nuo_model_codec::reasoning::ReasoningSupport;
+use nuo_inference_wire::WireProtocol;
+use nuo_inference_wire::model::Model;
+use nuo_inference_wire::reasoning::ReasoningSupport;
 use nuo_provider::spec::{ModelProviderSpec, RemoteCatalogSource};
 use serde_json::Value;
 
-/// The offline seed ids, owned by `nuo_model_codec` so the TUI template and the
+/// The offline seed ids, owned by `nuo_inference_wire` so the TUI template and the
 /// registry cannot disagree about them (the convention every other curated
 /// provider follows).
-pub use nuo_model_codec::model_providers::QODER_MODELS;
+pub use nuo_inference_wire::model_providers::QODER_MODELS;
 
 /// Baseline capability metadata for the seeded models.
 ///
@@ -46,7 +46,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
@@ -58,17 +58,17 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
+inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_model_codec::ProviderDialect::Qoder,
+    dialect: nuo_inference_wire::ProviderDialect::Qoder,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
@@ -76,11 +76,11 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://api3.qoder.sh"),
     user_agent: None,
-    protocol: WireProtocol::ChatCompletions,
+    protocol: WireProtocol::OpenAiChatCompletions,
     catalog_source: RemoteCatalogSource::Endpoint(
-        nuo_model_codec::provider_surface::CatalogShape::SceneMap,
+        nuo_inference_wire::provider_surface::CatalogShape::SceneMap,
     ),
-    default_client_profile: nuo_model_codec::ClientPreset::Native,
+    default_client_profile: nuo_inference_wire::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: Some(nuo_provider::QuotaPort::Qoder),
     display_policy: nuo_provider::DisplayPolicy::Native,
@@ -263,13 +263,13 @@ fn discovered_from_scene_entry(
     // `None` otherwise — no surface may invent one.
     let reason = disabled_reason(entry);
     let availability = match entry.get("enable") {
-        Some(Value::Bool(true)) => Some(nuo_model_codec::Availability::usable()),
-        Some(Value::Bool(false)) => Some(nuo_model_codec::Availability::locked(reason)),
+        Some(Value::Bool(true)) => Some(nuo_inference_wire::Availability::usable()),
+        Some(Value::Bool(false)) => Some(nuo_inference_wire::Availability::locked(reason)),
         Some(Value::Number(number)) => {
             if number.as_i64().unwrap_or(0) != 0 {
-                Some(nuo_model_codec::Availability::usable())
+                Some(nuo_inference_wire::Availability::usable())
             } else {
-                Some(nuo_model_codec::Availability::locked(reason))
+                Some(nuo_inference_wire::Availability::locked(reason))
             }
         }
         _ => None,
@@ -305,7 +305,7 @@ fn discovered_from_scene_entry(
         name: entry
             .get("display_name")
             .and_then(Value::as_str)
-            .map(nuo_model_codec::catalog::clean_model_display_name),
+            .map(nuo_inference_wire::catalog::clean_model_display_name),
         context_window,
         max_output_tokens: None,
         reasoning: entry.get("is_reasoning").and_then(Value::as_bool),
@@ -336,13 +336,13 @@ fn discovered_from_scene_entry(
 mod tests {
     use super::MODEL_PROVIDER_SPEC as SPEC;
     use super::{MODELS, QODER_MODELS, parse_scene_catalog};
-    use nuo_model_codec::WireProtocol;
+    use nuo_inference_wire::WireProtocol;
     use serde_json::json;
 
     #[test]
     fn spec_resolves_and_serves_the_chat_wire() {
         assert_eq!(SPEC.id, "qoder");
-        assert_eq!(SPEC.protocol, WireProtocol::ChatCompletions);
+        assert_eq!(SPEC.protocol, WireProtocol::OpenAiChatCompletions);
         assert_eq!(SPEC.baselines.len(), 2);
     }
 
@@ -400,20 +400,20 @@ mod tests {
         };
         assert_eq!(
             by_id("qmodel_38max").availability,
-            Some(nuo_model_codec::Availability::usable())
+            Some(nuo_inference_wire::Availability::usable())
         );
         // A locked entry the payload gives no reason for stays reasonless: no
         // surface may invent one.
         assert_eq!(
             by_id("gmodel").availability,
-            Some(nuo_model_codec::Availability::locked(None))
+            Some(nuo_inference_wire::Availability::locked(None))
         );
         // A locked entry the payload *does* explain carries the provider's own
         // key verbatim — never resolved against the vendor's text table
         // (`[INV-AVAIL-03]`).
         assert_eq!(
             by_id("kmodel").availability,
-            Some(nuo_model_codec::Availability::locked(Some(
+            Some(nuo_inference_wire::Availability::locked(Some(
                 "codeSafeModelReason".to_string()
             )))
         );

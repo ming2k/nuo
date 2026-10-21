@@ -39,8 +39,8 @@ impl TokenUsage {
 }
 
 #[cfg(feature = "wire")]
-impl From<nuo_model_codec::WireUsage> for TokenUsage {
-    fn from(u: nuo_model_codec::WireUsage) -> Self {
+impl From<nuo_inference_wire::WireUsage> for TokenUsage {
+    fn from(u: nuo_inference_wire::WireUsage) -> Self {
         Self {
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
@@ -51,7 +51,7 @@ impl From<nuo_model_codec::WireUsage> for TokenUsage {
 }
 
 #[cfg(feature = "wire")]
-impl From<TokenUsage> for nuo_model_codec::WireUsage {
+impl From<TokenUsage> for nuo_inference_wire::WireUsage {
     fn from(u: TokenUsage) -> Self {
         Self {
             prompt_tokens: u.prompt_tokens,

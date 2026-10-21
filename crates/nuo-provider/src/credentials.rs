@@ -2,7 +2,7 @@
 
 use futures::future::BoxFuture;
 use nuo_host::fsutil::FileLock;
-use nuo_model_codec::SecretString;
+use nuo_inference_wire::SecretString;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

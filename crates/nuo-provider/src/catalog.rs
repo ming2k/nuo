@@ -1,9 +1,9 @@
 //! Model catalog discovery interfaces, query types, and update envelopes (ADR-0015).
 
 use async_trait::async_trait;
-use nuo_model_codec::{CatalogShape, SecretString};
+use nuo_inference_wire::{CatalogShape, SecretString};
 
-pub use nuo_model_codec::catalog::{DiscoveredModel, ModelListError};
+pub use nuo_inference_wire::catalog::{DiscoveredModel, ModelListError};
 
 /// Everything a live catalog request needs.
 #[derive(Clone)]

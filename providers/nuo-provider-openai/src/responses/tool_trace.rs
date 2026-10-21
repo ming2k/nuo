@@ -5,7 +5,7 @@
 //! are paired by occurrence, orphaned halves are removed, and locally replayed
 //! calls receive request-unique ids without changing the transcript.
 
-use nuo_model_codec::ToolCall;
+use nuo_tool::ToolCall;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 

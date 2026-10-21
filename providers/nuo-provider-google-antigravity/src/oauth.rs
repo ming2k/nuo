@@ -7,16 +7,16 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_model_codec::LoginMethod;
-use nuo_model_codec::ResolvedAuth;
-use nuo_model_codec::provider_auth::{
+use nuo_egress::http::{Http, Reply, Request};
+use nuo_inference_wire::LoginMethod;
+use nuo_inference_wire::ResolvedAuth;
+use nuo_inference_wire::provider_auth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
 };
 use nuo_oauth::oauth::AuthError;
 use nuo_oauth::oauth::token::TokenResponse;
 use nuo_oauth::{OAuthProvider, OAuthTokenEnricher};
 use nuo_provider::credentials::TokenSet;
-use nuo_provider_transport::http::Http;
 
 pub const ANTIGRAVITY_LOAD_CODE_ASSIST_URL: &str =
     "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
@@ -47,13 +47,12 @@ pub struct GoogleUserInfo {
 
 /// Fetch Google UserInfo (email, name, sub, picture) using an access token.
 pub async fn fetch_google_userinfo(
-    client: &nuo_provider_transport::http::Http,
+    client: &Http,
     access_token: &str,
 ) -> Result<GoogleUserInfo, AuthError> {
-    let request =
-        nuo_provider_transport::http::Request::new(netune::Method::GET, GOOGLE_USERINFO_URL)
-            .header("authorization", format!("Bearer {access_token}"))
-            .header("accept", "application/json");
+    let request = Request::new(netune::Method::GET, GOOGLE_USERINFO_URL)
+        .header("authorization", format!("Bearer {access_token}"))
+        .header("accept", "application/json");
     let resp = client
         .send(request)
         .await
@@ -73,17 +72,17 @@ pub async fn fetch_google_userinfo(
 /// POST a JSON body with the Antigravity identity (User-Agent only — the real
 /// `agy` sends no client-identity headers beyond it, live 2026-10-14).
 async fn antigravity_post(
-    client: &nuo_provider_transport::http::Http,
+    client: &Http,
     url: &str,
     access_token: &str,
     body: &serde_json::Value,
     what: &str,
-) -> Result<nuo_provider_transport::http::Reply, AuthError> {
-    let request = nuo_provider_transport::http::Request::new(netune::Method::POST, url)
+) -> Result<Reply, AuthError> {
+    let request = Request::new(netune::Method::POST, url)
         .header("authorization", format!("Bearer {access_token}"))
         .header(
             "user-agent",
-            nuo_model_codec::client_identity::ANTIGRAVITY_USER_AGENT,
+            nuo_inference_wire::client_identity::ANTIGRAVITY_USER_AGENT,
         )
         .json(body);
     client
@@ -94,7 +93,7 @@ async fn antigravity_post(
 
 /// Discover or onboard the user's Antigravity `cloudaicompanionProject`.
 pub async fn resolve_antigravity_project(
-    client: &nuo_provider_transport::http::Http,
+    client: &Http,
     access_token: &str,
 ) -> Result<String, AuthError> {
     // Wire truth (live capture of `agy` 1.3.5 / 1.3.6): the shipped
@@ -328,7 +327,7 @@ pub fn antigravity_preset() -> OAuthConfig {
         extra_refresh_params: Vec::new(),
         extra_headers: Vec::new(),
         user_agent: Some(Cow::Borrowed(
-            nuo_model_codec::client_identity::ANTIGRAVITY_USER_AGENT,
+            nuo_inference_wire::client_identity::ANTIGRAVITY_USER_AGENT,
         )),
         browser_login: true,
         default_login_method: LoginMethod::Browser,
@@ -431,7 +430,7 @@ impl OAuthTokenEnricher for AntigravityOAuthEnricher {
 
 fn project_metadata(tokens: &TokenSet, mut auth: ResolvedAuth) -> ResolvedAuth {
     if let Some(project) = tokens.get_attr("project_id") {
-        auth = auth.with_extension(nuo_model_codec::GoogleAuthMetadata {
+        auth = auth.with_extension(nuo_inference_wire::GoogleAuthMetadata {
             project_id: project.to_string(),
         });
     }
@@ -519,7 +518,10 @@ mod tests {
             .user_agent
             .expect("antigravity preset declares a User-Agent");
         assert!(ua.starts_with("antigravity/cli/"));
-        assert_eq!(ua, nuo_model_codec::client_identity::ANTIGRAVITY_USER_AGENT);
+        assert_eq!(
+            ua,
+            nuo_inference_wire::client_identity::ANTIGRAVITY_USER_AGENT
+        );
     }
 
     #[test]

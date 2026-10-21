@@ -14,16 +14,44 @@ pub mod capability;
 pub mod catalog;
 pub mod credentials;
 pub mod effort_ladders;
+pub mod endpoint;
 pub mod factory;
+pub mod pipeline;
 pub mod pricing;
+pub mod prompt_cache;
+pub mod response;
 pub mod spec;
+pub mod vision;
+
+pub mod transport {
+    pub use crate::response::{decode_response_json, ensure_success};
+}
+
+pub use endpoint::*;
+pub use pipeline::{
+    BodyCodecPhase, EnvelopePhase, OutboundPlan, PassThroughHeaders, PassThroughStreamTransformer,
+    ProviderFault, ProviderPipeline, ProviderPipelineBuilder, RequestSignerPhase, ReshapedEnvelope,
+    StreamMetrics, StreamTransformer, TransformedFrame, TransportPipeline,
+    TransportPipelineBuilder,
+};
+pub use prompt_cache::PromptCacheConfig;
+pub use response::{
+    classify_http_error, decode_response_json, ensure_success, is_context_overflow_payload,
+};
+pub use vision::project_images_for_route;
 
 pub mod oauth {
     pub use crate::credentials::*;
 }
 
-// Capability & Core Traits
-pub use capability::{Provider, QuotaTracker};
+// Capability & Core Traits — the contract crate owns the `Provider` cognitive
+// contract per ADR-0084 (`nuo-inference-wire` split); it is no longer sourced
+// from the wire crate.
+pub use capability::{
+    ModelRequest, Provider, ProviderEventStream, ProviderPromptHints, ProviderStreamEvent,
+    ProviderTextStream, ProviderTurnContext, QuotaTracker, ToolSpec, VariantSelection,
+    empty_variant_selection,
+};
 pub use catalog::{
     CatalogDiscovery, CatalogSignature, CatalogSigning, DiscoveredModel, ModelListError,
     RemoteCatalogOptions, RemoteCatalogRequest, RemoteCatalogUpdate, build_catalog_signer,
@@ -48,9 +76,9 @@ pub use spec::{
 };
 
 // Re-export canonical domain vocabulary
-pub use nuo_model_codec::model_providers::*;
-pub use nuo_model_codec::{
-    CatalogShape, ConnectionAuth, CredentialSource, ModelRequest, ProviderCompletion,
-    ProviderCompletionMeta, ProviderDialect, ProviderError, ProviderErrorKind, ProviderEventStream,
-    ProviderStreamEvent, ProviderTextStream, RemoteCatalogSource, TokenUsage, WireProtocol,
+pub use nuo_inference_wire::model_providers::*;
+pub use nuo_inference_wire::{
+    CatalogShape, ConnectionAuth, CredentialSource, ProviderCompletion, ProviderCompletionMeta,
+    ProviderDialect, ProviderError, ProviderErrorKind, RemoteCatalogSource, WireProtocol,
 };
+pub use nuo_tool::usage::TokenUsage;

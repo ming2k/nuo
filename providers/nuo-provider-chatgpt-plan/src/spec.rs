@@ -1,9 +1,9 @@
 //! The `chatgpt-oauth` provider preset: GPT-5.x over the ChatGPT
 //! Subscription backend (the Codex Responses API).
-use nuo_model_codec::reasoning::ReasoningSupport;
-use nuo_model_codec::{Model, WireProtocol};
+use nuo_inference_wire::reasoning::ReasoningSupport;
+use nuo_inference_wire::{Model, WireProtocol};
 
-use nuo_model_codec::{CatalogShape, RemoteCatalogSource};
+use nuo_inference_wire::{CatalogShape, RemoteCatalogSource};
 use nuo_provider::effort_ladders;
 use nuo_provider::spec::ModelProviderSpec;
 
@@ -14,11 +14,11 @@ use nuo_provider::spec::ModelProviderSpec;
 /// of truth, and the picker is intentionally empty until that first fetch
 /// completes. Baseline capability metadata for ids the catalog returns still
 /// resolves through the model registry (`MODELS` below).
-pub use nuo_model_codec::model_providers::CHATGPT_BUILTIN_MODELS;
+pub use nuo_inference_wire::model_providers::CHATGPT_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
-/// submitted to `nuo_model_codec`'s registry at link time (see
-/// [`nuo_model_codec::model::BaselineModels`]).
+/// submitted to `nuo_inference_wire`'s registry at link time (see
+/// [`nuo_inference_wire::model::BaselineModels`]).
 ///
 /// These entries record the subscription's Responses protocol per model
 /// (protocol is provider-scoped). The global baseline registry is a
@@ -33,7 +33,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningSummary,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::Responses,
+        protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_6,
         wire_entities: None,
@@ -45,7 +45,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningSummary,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::Responses,
+        protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
         wire_entities: None,
@@ -57,7 +57,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningSummary,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::Responses,
+        protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
         wire_entities: None,
@@ -69,7 +69,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningSummary,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::Responses,
+        protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
         wire_entities: None,
@@ -83,7 +83,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningSummary,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::Responses,
+        protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
         wire_entities: None,
@@ -95,40 +95,41 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningSummary,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::Responses,
+        protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_model_codec::model::BaselineModels(MODELS));
+inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
 
 // The ChatGPT subscription endpoint is Responses-shaped, but it is not the
 // public OpenAI Responses API. It accepts Codex's stable `prompt_cache_key`
 // while rejecting the GPT-5.6 platform-only `prompt_cache_options` control.
 // Keep this route implicit and retention-neutral so the shared encoder emits
 // only the affinity key.
-const CHATGPT_IMPLICIT_CACHE: nuo_model_codec::PromptCacheSpec = nuo_model_codec::PromptCacheSpec {
-    modes: &[nuo_model_codec::PromptCacheMode::Implicit],
-    default_mode: Some(nuo_model_codec::PromptCacheMode::Implicit),
-    supported_retentions: &[],
-    default_retention: None,
-    disable_supported: false,
-    routing_key_supported: true,
-    max_breakpoints: None,
-    min_cacheable_tokens: None,
-    reports_reads: true,
-    reports_writes: true,
-    reports_misses: false,
-};
+const CHATGPT_IMPLICIT_CACHE: nuo_inference_wire::PromptCacheSpec =
+    nuo_inference_wire::PromptCacheSpec {
+        modes: &[nuo_inference_wire::PromptCacheMode::Implicit],
+        default_mode: Some(nuo_inference_wire::PromptCacheMode::Implicit),
+        supported_retentions: &[],
+        default_retention: None,
+        disable_supported: false,
+        routing_key_supported: true,
+        max_breakpoints: None,
+        min_cacheable_tokens: None,
+        reports_reads: true,
+        reports_writes: true,
+        reports_misses: false,
+    };
 
-const fn prompt_cache_for_model(_: &str) -> nuo_model_codec::PromptCacheSpec {
+const fn prompt_cache_for_model(_: &str) -> nuo_inference_wire::PromptCacheSpec {
     CHATGPT_IMPLICIT_CACHE
 }
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_model_codec::ProviderDialect::ChatGpt,
+    dialect: nuo_inference_wire::ProviderDialect::ChatGpt,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
@@ -136,16 +137,16 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://chatgpt.com/backend-api/codex"),
     user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_model_codec::client_identity::CODEX_USER_AGENT,
+        nuo_inference_wire::client_identity::CODEX_USER_AGENT,
     )),
     // The Responses transport is the OpenAI wire family. Catalog fetch uses the
     // subscription-only `/backend-api/codex/models` catalog rather than the
     // public OpenAI `{data:[...]}` shape; the remote catalog is authoritative
     // for each account and its capability metadata is trusted.
-    protocol: WireProtocol::Responses,
+    protocol: WireProtocol::OpenAiResponses,
     models: CHATGPT_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::Codex),
-    default_client_profile: nuo_model_codec::ClientPreset::Codex,
+    default_client_profile: nuo_inference_wire::ClientPreset::Codex,
     client_profile_sensitive: true,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
@@ -154,7 +155,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_model_codec::PromptCacheMode;
+    use nuo_inference_wire::PromptCacheMode;
 
     #[test]
     fn seed_is_empty_and_uses_responses() {
@@ -162,7 +163,7 @@ mod tests {
         // (the entitlement-aware endpoint) is authoritative, so nothing is
         // hardcoded — see the module doc for why.
         assert_eq!(CHATGPT_BUILTIN_MODELS, &[] as &[&str]);
-        assert_eq!(MODEL_PROVIDER_SPEC.protocol, WireProtocol::Responses);
+        assert_eq!(MODEL_PROVIDER_SPEC.protocol, WireProtocol::OpenAiResponses);
     }
 
     #[test]

@@ -8,7 +8,7 @@ use nuo_wire::{
 };
 use serde::{Deserialize, Serialize};
 
-use nuo_model_codec::client_identity::ANTIGRAVITY_USER_AGENT;
+use nuo_inference_wire::client_identity::ANTIGRAVITY_USER_AGENT;
 
 use crate::oauth::ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL;
 
@@ -64,7 +64,7 @@ impl AntigravityUsageFetcher {
 
     pub async fn fetch_usage(
         &self,
-        client: &nuo_provider_transport::http::Http,
+        client: &nuo_egress::http::Http,
         base_url: &str,
         api_key: &str,
     ) -> Result<ProviderUsage, String> {
@@ -74,7 +74,7 @@ impl AntigravityUsageFetcher {
 
     pub async fn fetch_usage_with_project(
         &self,
-        client: &nuo_provider_transport::http::Http,
+        client: &nuo_egress::http::Http,
         base_url: &str,
         api_key: &str,
         project: Option<&str>,
@@ -95,7 +95,7 @@ impl AntigravityUsageFetcher {
             "project": effective_project
         });
 
-        let request = nuo_provider_transport::http::Request::new(netune::Method::POST, &endpoint)
+        let request = nuo_egress::http::Request::new(netune::Method::POST, &endpoint)
             .header("authorization", format!("Bearer {api_key}"))
             .header("user-agent", ANTIGRAVITY_USER_AGENT)
             .json(&req_body);
@@ -120,7 +120,7 @@ impl AntigravityUsageFetcher {
 /// Relocated verbatim (ADR-0027 §4) from `nuo-provider-adapters`' OAuth token
 /// module, where it was an orphan with no counterpart in the `providers/` tree.
 pub async fn retrieve_antigravity_quota_summary(
-    client: &nuo_provider_transport::http::Http,
+    client: &nuo_egress::http::Http,
     access_token: &str,
     project: Option<&str>,
 ) -> Result<AntigravityQuotaSummaryResponse, nuo_oauth::oauth::AuthError> {
@@ -132,7 +132,7 @@ pub async fn retrieve_antigravity_quota_summary(
         "project": effective_project
     });
 
-    let request = nuo_provider_transport::http::Request::new(
+    let request = nuo_egress::http::Request::new(
         netune::Method::POST,
         ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL,
     )

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! AST structural query tools for Nuo cognitive agents.
 
 // Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
@@ -9,8 +8,13 @@
 pub mod code_query;
 pub mod file_search;
 pub mod helpers;
+pub mod syntax;
 
 pub use code_query::CodeQueryTool;
+pub use syntax::{
+    DECLARATION_KINDS, Declaration, SupportedLanguage, SyntaxPattern, extract_declarations,
+    matches_name, parse_syntax_pattern,
+};
 
 /// Creates code AST query tools for an agent.
 pub fn create_ast_tools(

@@ -28,10 +28,9 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 │   crates/nuo-host              crates/nuo-persistence                  │
 │   crates/nuo-harness           crates/nuo-mcp                          │
 │   crates/nuo-oauth             crates/nuo-provider                     │
-│   crates/nuo-provider-transport crates/nuo-model-codec                 │
+│   crates/nuo-egress            crates/nuo-inference-wire                 │
 │   crates/nuo-catalog                                                   │
 │   crates/nuo-tool              crates/nuo-tool-derive                  │
-│   crates/nuo-code                                                      │
 └───────────────────┬────────────────────────────────┬───────────────────┘
                     │                                │
          ┌──────────┴──────────┐          ┌──────────┴──────────┐
@@ -54,9 +53,9 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 - **`nuo-agent`**: Implements the autonomous cognitive loop (think → act → observe), session turns, channel notification policies, two-tier context hygiene, and token compaction.
 - **`nuo-tool` & **`nuo-tool-derive`**: Zero-runtime tool contracts defining schema, hazard risk profiles (`RiskProfile`), execution scopes (`ToolScope`), cancellation tokens, and the zero-dependency class-based token estimator ([ADR-0056](../adr/0056-zero-dependency-class-based-token-estimator.md)). `nuo-tool-derive` provides compile-time derive macros for JSON schemas.
 - **`nuo-provider`**: Canonical leaf model provider specification defining core inference (`Provider`), catalog discovery (`CatalogDiscovery`), quota tracking (`QuotaTracker`), and pluggable `ProviderRegistry` (ADR-0015). Zero runtime and zero heavy persistence dependencies.
-- **`nuo-model-codec`**: Multi-vendor wire protocol serialization (OpenAI, Anthropic, Google Gemini, DeepSeek) and SSE stream demuxing. Completely decoupled from agent cognitive loops.
+- **`nuo-inference-wire`** (formerly `nuo-model-codec`, ADR-0084): Multi-vendor wire protocol serialization (OpenAI, Anthropic, Google Gemini, DeepSeek) and SSE stream demuxing. Completely decoupled from agent cognitive loops.
 - **`nuo-oauth`**: Canonical RFC 7636 (PKCE), RFC 8628 (Device Authorization), token refresh, and OAuth engine for model provider credentials (ADR-0027).
-- **`nuo-provider-transport`**: Shared HTTP egress, SSE stream demuxing, retry policies, client presets, prompt caching, and request pipeline substrate consumed by concrete provider packages and OAuth authentication flows.
+- **`nuo-egress`** (formerly `nuo-provider-transport`, ADR-0085): Universal outbound HTTP egress, connection pooling, platform TLS verification, SSE stream reassembly, and physical network telemetry. Zero AI cognitive concepts.
 - **`nuo-mcp`**: Native Model Context Protocol client and server transport over stdio and JSON-RPC 2.0.
 - **`nuotc`**: Retained-mode 2D terminal canvas, differential rendering pipeline, and Flexbox layout solver. Free of AI domain vocabulary.
 
@@ -132,7 +131,7 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 - **`[INV-HOST-01]` Sandbox & Containment**: All local command execution and file mutations must pass through `nuo-host` sandbox and containment boundaries.
 - **`[INV-TOOL-01]` Decentralized Capability Tools**: Tools are natively owned and implemented by their capability crates (`acp`, `nuo-host`, `nuo-persistence`) using the zero-runtime `nuo-tool` standard, rather than concentrated in a monolithic harness.
 - **`[INV-VER-01]` Federated Cluster SemVer**: Autonomous substrates (`nuotc`, `acp`) maintain independent versions; the host suite (`nuo`, `nuox`, `nuo-*`) evolves in unified lockstep.
-- **`[INV-MOD-01]` Zero Domain Leakage**: Terminal graphics substrates (`nuotc`) and wire codecs (`nuo-model-codec`) must remain completely free of application-level agent concepts.
+- **`[INV-MOD-01]` Zero Domain Leakage**: Terminal graphics substrates (`nuotc`) and wire codecs (`nuo-inference-wire`, renaming to `nuo-inference-wire` per ADR-0084) must remain completely free of application-level agent concepts. Mechanism (ADR-0084 S1): the `Provider` cognitive contract lives in `nuo-provider::capability`; the codec's dependency pruning in S3 removes `tokio`/`async-trait`, structurally forbidding cognitive hosting. `[INV-AP-01]`/`[INV-AP-02]` refine this for the split crate.
 - **`[INV-MOD-02]` Ghost-Free CJK Cells**: Wide-character trailing cells are populated by the writer with matching background attributes; diff never emits unowned padding spaces.
 - **`[INV-MOD-03]` Authoritative Retained Grid**: The retained `Grid` is the single source of truth for desired visual state; dirty line tracking eliminates redundant full-frame rasterization.
 - **`[INV-AUTH-04]` Dialect-Carried Transport (ADR-0014)**: Wire protocol and client-identity profile derive from `ProviderDialect` and `ClientPreset`, never from the auth lane or the connection name; request builders never branch on auth mode to pick a wire shape.
@@ -155,11 +154,11 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 
 | ADR | Title | Decision Summary | Primary Impact |
 | :--- | :--- | :--- | :--- |
-| **ADR-0001** | Flat Workspace Topology and Microkernel Capability Architecture | Abolish nested dirs for flat workspace, enforce microkernel harness role, decentralize capability tools, and eliminate catch-all contracts | Workspace topology, `nuo-harness`, `nuo-host`, `nuo-model-codec` |
+| **ADR-0001** | Flat Workspace Topology and Microkernel Capability Architecture | Abolish nested dirs for flat workspace, enforce microkernel harness role, decentralize capability tools, and eliminate catch-all contracts | Workspace topology, `nuo-harness`, `nuo-host`, `nuo-inference-wire` |
 | **ADR-0002** | Canonical Agent Coordination Protocol (ACP) Standard | Establish ACP specification with URI addressing, HMAC envelopes, fabric channels, and native collaboration tools | `acp`, inter-agent collaboration |
 | **ADR-0003** | Autonomous Retained-Mode Terminal Canvas Engine (Nuotc) | Retained-mode 2D terminal canvas with differential double-buffered rendering strictly decoupled from AI domain concepts | `nuotc`, `nuox` |
 | **ADR-0004** | Federated Cluster SemVer and Release Topology | Partition workspace into 4 SemVer clusters with dual-resolving version and path dependencies | Release engineering, manifests, versioning |
-| **ADR-0014** | Model Provider Invocation Schemes: Local Direct, and the Subscription Server-Proxy Lane | Ratify three-lane dispatch (`ConnectionAuth::{ApiKey, Subscription}` over trait-object credential sources + verified SSPL `/alpha/generate` server-proxy DialectSurface); entitlement authority belongs to the credential-holding lane, never to client UI gating | `nuo-providers`, `nuo-model-codec`, `nuo-persistence/connections`, `nuo-server` |
+| **ADR-0014** | Model Provider Invocation Schemes: Local Direct, and the Subscription Server-Proxy Lane | Ratify three-lane dispatch (`ConnectionAuth::{ApiKey, Subscription}` over trait-object credential sources + verified SSPL `/alpha/generate` server-proxy DialectSurface); entitlement authority belongs to the credential-holding lane, never to client UI gating | `nuo-providers`, `nuo-inference-wire`, `nuo-persistence/connections`, `nuo-server` |
 | **ADR-0015** | Canonical Model Provider Contract Crate (nuo-provider) and Dedicated Providers Namespace Architecture | Establish canonical leaf contract crate `nuo-provider`, dedicate `providers/nuo-provider-*` namespace matching `tools/`, extract `nuo-provider-transport`, and sandbox cryptographic dialects | `nuo-provider`, `providers/nuo-provider-*`, `nuo-harness`, `nuo-server` |
 | **ADR-0026** | Streamed Tool-Input Progress: Announce the Tool Call Before Its Arguments Finish | Emit `ToolCallStarted` (name known, arguments still streaming) plus a count-only `ToolInputProgress` tick; the full argument object still gates execution, so a running step and the tool phase appear before arguments finish | `nuo-harness`, `nuo-wire`, `nuo-tui` |
 | **ADR-0027** (Accepted) | Provider Definition Single Source: Retire nuo-provider-adapters and Relocate Its Residual Engines | Make `providers/nuo-provider-*` the single authoritative definition per provider and retire the duplicated `nuo-provider-adapters` (OAuth engine, catalog parsers, and composition root relocated to dedicated crates / `nuo-server`); establishes one-definition, no-orphan-contract, no-string-sniffing, and linked-provider invariants | `nuo-provider-adapters` (removed), `providers/nuo-provider-*`, `nuo-server`, `nuo-provider` |

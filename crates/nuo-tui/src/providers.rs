@@ -163,7 +163,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "chatgpt-plan",
         label: "ChatGPT Plan",
         description: "Uses your ChatGPT Plus or Pro subscription for Codex and flagship GPT models; authorizes in the browser, no API key.",
-        protocol: WireProtocol::Responses,
+        protocol: WireProtocol::OpenAiResponses,
         models: nuo_wire::model_providers::CHATGPT_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://chatgpt.com/backend-api/codex/responses",
@@ -176,7 +176,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "commandcode-plan",
         label: "CommandCode Plan",
         description: "Command Code Provider API serving Claude, GPT, DeepSeek, and top open models; sign in with your Command Code key.",
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         models: nuo_wire::model_providers::COMMANDCODE_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://api.commandcode.ai/provider/v1/chat/completions",
@@ -189,7 +189,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "deepseek",
         label: "DeepSeek",
         description: "DeepSeek's platform API with high-performance reasoning and coding models; sign in with a DeepSeek API key.",
-        protocol: WireProtocol::Responses,
+        protocol: WireProtocol::OpenAiResponses,
         models: nuo_wire::model_providers::DEEPSEEK_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://api.deepseek.com/v1/responses",
@@ -202,7 +202,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "github-copilot",
         label: "GitHub Copilot",
         description: "Your GitHub Copilot subscription, serving multi-vendor coding and reasoning models; authorizes on the device via GitHub.",
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         models: nuo_wire::model_providers::COPILOT_SEED_MODELS,
         needs_url: false,
         url_hint: "https://api.githubcopilot.com/chat/completions",
@@ -215,7 +215,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "google",
         label: "Google AI Studio",
         description: "Google AI Studio / developer API covering the full Gemini range; sign in with a Google API key.",
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         models: nuo_wire::model_providers::GOOGLE_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://generativelanguage.googleapis.com/v1beta",
@@ -228,7 +228,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "google-antigravity",
         label: "Google Antigravity",
         description: "Your Google One AI Premium subscription for flagship Gemini plus companion Claude models; authorizes in the browser.",
-        protocol: WireProtocol::GoogleGemini,
+        protocol: WireProtocol::GoogleGenerateContent,
         models: nuo_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS,
         needs_url: false,
         url_hint: "https://daily-cloudcode-pa.googleapis.com",
@@ -241,7 +241,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "kimi-code",
         label: "Kimi Code",
         description: "Moonshot's Kimi Coding Plan with long-context coding and reasoning models; sign in with a plan API key.",
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         models: nuo_wire::model_providers::KIMI_CODE_MODELS,
         needs_url: false,
         url_hint: "https://api.kimi.com/coding/v1/chat/completions",
@@ -254,7 +254,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "openai",
         label: "OpenAI Platform",
         description: "OpenAI's platform API for official flagship GPT and frontier reasoning models; sign in with an OpenAI API key.",
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         models: nuo_wire::model_providers::OPENAI_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://api.openai.com/v1/chat/completions",
@@ -267,7 +267,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "opencode-plan",
         label: "OpenCode Plan",
         description: "OpenCode Plan subscription for open coding models; sign in with your OpenCode Plan API key.",
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         models: nuo_wire::model_providers::OPENCODE_PLAN_MODELS,
         needs_url: false,
         url_hint: "https://opencode.ai/zen/go/v1/chat/completions",
@@ -280,7 +280,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "opencode-zen",
         label: "OpenCode Zen",
         description: "OpenCode Zen relay with pay-as-you-go billing for frontier coding models; sign in with your OpenCode API key.",
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         models: nuo_wire::model_providers::OPENCODE_ZEN_MODELS,
         needs_url: false,
         url_hint: "https://opencode.ai/zen/v1/chat/completions",
@@ -293,7 +293,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "openrouter",
         label: "OpenRouter",
         description: "OpenRouter's unified gateway for Nex and hundreds of other models; sign in with an OpenRouter API key.",
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         models: nuo_wire::model_providers::OPENROUTER_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://openrouter.ai/api/v1/chat/completions",
@@ -306,7 +306,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "qianwen",
         label: "QianwenAI Token Plan",
         description: "Alibaba's QianwenAI Platform Token Plan serving Qwen, DeepSeek, GLM, and Kimi over one Credits-billed key; sign in with your plan API key (sk-sp-…).",
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         models: nuo_wire::model_providers::QIANWEN_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1/chat/completions",
@@ -321,7 +321,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "qoder",
         label: "Qoder",
         description: "Alibaba's Qoder subscription for Qoder3 and Qwen coding models with COSY-signed inference; paste a personal access token (pt-…) or authorize via device flow.",
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         models: nuo_wire::model_providers::QODER_MODELS,
         needs_url: false,
         url_hint: "https://api3.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation",
@@ -334,7 +334,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "glm-cn",
         label: "ZAI Code (CN)",
         description: "Zhipu's Z.AI Coding Plan with flagship GLM and code-enhanced models; sign in with a plan API key.",
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         models: nuo_wire::model_providers::ZAI_CODE_MODELS,
         needs_url: false,
         url_hint: "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
@@ -347,7 +347,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         id: "xai",
         label: "xAI",
         description: "Your SuperGrok or X Premium subscription for flagship Grok reasoning models; authorizes in the browser.",
-        protocol: WireProtocol::ChatCompletions,
+        protocol: WireProtocol::OpenAiChatCompletions,
         models: nuo_wire::model_providers::XAI_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://api.x.ai/v1/chat/completions",
@@ -371,7 +371,7 @@ pub const CUSTOM_TEMPLATE: ConnectionTemplate = ConnectionTemplate {
     id: "custom",
     label: "Custom connection",
     description: "Any endpoint you bring — a custom gateway, local runtime, or relay; you set the base URL, protocol, and key.",
-    protocol: WireProtocol::ChatCompletions,
+    protocol: WireProtocol::OpenAiChatCompletions,
     models: &[],
     needs_url: true,
     url_hint: "https://relay.example.com/v1/chat/completions",
@@ -449,7 +449,7 @@ pub fn edit_fields(curated: bool, auth: ConnectionAuth) -> Vec<CustomField> {
 /// arbitrary id is almost certainly a typo or hallucination, not a real model.
 #[cfg(test)]
 pub fn protocol_model_set_closed(protocol_wire: &str) -> bool {
-    protocol_wire == WireProtocol::GoogleGemini.as_str()
+    protocol_wire == WireProtocol::GoogleGenerateContent.as_str()
 }
 
 /// The registry model ids matching a wire protocol. Kept as a test helper for
@@ -1266,7 +1266,7 @@ mod tests {
 
     #[test]
     fn protocol_candidates_filter_by_wire_format() {
-        let openai = protocol_model_candidates(WireProtocol::ChatCompletions.as_str());
+        let openai = protocol_model_candidates(WireProtocol::OpenAiChatCompletions.as_str());
         assert!(openai.contains(&"gpt-4o"));
         // Anthropic-format models are excluded from the OpenAI candidate list.
         assert!(!openai.contains(&"claude-opus-4-8"));
@@ -1281,7 +1281,7 @@ mod tests {
         // relays/中转站 serve — so a Custom Google provider offers real models,
         // not hallucinated preview ids. Image/embedding/video-only models are
         // excluded (an agent only consumes the text generateContent surface).
-        let google = protocol_model_candidates(WireProtocol::GoogleGemini.as_str());
+        let google = protocol_model_candidates(WireProtocol::GoogleGenerateContent.as_str());
         for id in [
             "gemini-4-argon",
             "gemini-3.8-flash",
@@ -1309,7 +1309,7 @@ mod tests {
         // The Antigravity (sub2api) relay ids are registered as native-Google
         // baselines, so the add-model overlay for a Google provider offers
         // them (the closed-set policy has real candidates to pick from).
-        let google = protocol_model_candidates(WireProtocol::GoogleGemini.as_str());
+        let google = protocol_model_candidates(WireProtocol::GoogleGenerateContent.as_str());
         for id in [
             "gemini-3.1-pro-high",
             "gemini-3.1-pro-low",
@@ -1329,7 +1329,7 @@ mod tests {
             .find(|t| t.id == "google-antigravity")
             .expect("antigravity template offered in the chooser");
         assert_eq!(tmpl.label, "Google Antigravity");
-        assert_eq!(tmpl.protocol, WireProtocol::GoogleGemini);
+        assert_eq!(tmpl.protocol, WireProtocol::GoogleGenerateContent);
         assert_eq!(
             tmpl.models,
             nuo_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS
@@ -1352,7 +1352,7 @@ mod tests {
             .iter()
             .find(|t| t.id == "openai")
             .expect("openai template offered in the chooser");
-        assert_eq!(tmpl.protocol, WireProtocol::ChatCompletions);
+        assert_eq!(tmpl.protocol, WireProtocol::OpenAiChatCompletions);
         assert_eq!(
             tmpl.models,
             nuo_wire::model_providers::OPENAI_BUILTIN_MODELS
@@ -1368,7 +1368,8 @@ mod tests {
         assert_eq!(tmpl.fields(), vec![CustomField::Name, CustomField::Token]);
         for id in ["gpt-5.5", "gpt-5.4", "gpt-5.6-sol"] {
             assert!(
-                protocol_model_candidates(WireProtocol::ChatCompletions.as_str()).contains(&id),
+                protocol_model_candidates(WireProtocol::OpenAiChatCompletions.as_str())
+                    .contains(&id),
                 "OpenAI candidate set missing {id}"
             );
         }
@@ -1415,7 +1416,7 @@ mod tests {
             .find(|t| t.id == "opencode-zen")
             .expect("opencode-zen template offered in the chooser");
         assert_eq!(tmpl.label, "OpenCode Zen");
-        assert_eq!(tmpl.protocol, WireProtocol::ChatCompletions);
+        assert_eq!(tmpl.protocol, WireProtocol::OpenAiChatCompletions);
         assert_eq!(tmpl.models, nuo_wire::model_providers::OPENCODE_ZEN_MODELS);
         assert_eq!(
             tmpl.default_url,
@@ -1436,11 +1437,11 @@ mod tests {
         // typo. OpenAI/Anthropic relays serve an open, evolving set, so typing
         // an unlisted id stays legitimate there.
         assert!(
-            protocol_model_set_closed(WireProtocol::GoogleGemini.as_str()),
+            protocol_model_set_closed(WireProtocol::GoogleGenerateContent.as_str()),
             "native Google must be a closed model set"
         );
         assert!(
-            !protocol_model_set_closed(WireProtocol::ChatCompletions.as_str()),
+            !protocol_model_set_closed(WireProtocol::OpenAiChatCompletions.as_str()),
             "OpenAI relays keep an open model set"
         );
         assert!(
@@ -1716,8 +1717,8 @@ mod tests {
             .iter()
             .find(|t| t.id == "chatgpt-plan")
             .unwrap();
-        assert_eq!(openai.protocol, WireProtocol::ChatCompletions);
-        assert_eq!(chatgpt.protocol, WireProtocol::Responses);
+        assert_eq!(openai.protocol, WireProtocol::OpenAiChatCompletions);
+        assert_eq!(chatgpt.protocol, WireProtocol::OpenAiResponses);
         assert!(
             chatgpt.models.is_empty(),
             "the subscription template must not hardcode a seed — Codex /backend-api/codex/models is authoritative"
@@ -1731,7 +1732,7 @@ mod tests {
             .find(|template| template.id == "commandcode-plan")
             .unwrap();
         assert_eq!(cmd.label, "CommandCode Plan");
-        assert_eq!(cmd.protocol, WireProtocol::ChatCompletions);
+        assert_eq!(cmd.protocol, WireProtocol::OpenAiChatCompletions);
         assert_eq!(
             cmd.default_url,
             Some("https://api.commandcode.ai/provider/v1/chat/completions")
@@ -1749,7 +1750,7 @@ mod tests {
             .find(|template| template.id == "openrouter")
             .unwrap();
         assert_eq!(openrouter.label, "OpenRouter");
-        assert_eq!(openrouter.protocol, WireProtocol::ChatCompletions);
+        assert_eq!(openrouter.protocol, WireProtocol::OpenAiChatCompletions);
         assert_eq!(
             openrouter.default_url,
             Some("https://openrouter.ai/api/v1/chat/completions")

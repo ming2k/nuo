@@ -8,8 +8,8 @@ description = "OpenAI Platform API provider (Chat Completions & Responses) for N
 
 [dependencies]
 nuo-provider = { workspace = true }
-nuo-provider-transport = { workspace = true }
-nuo-model-codec = { workspace = true }
+nuo-egress = { workspace = true }
+nuo-inference-wire = { workspace = true }
 nuo-tool = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }

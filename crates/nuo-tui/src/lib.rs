@@ -282,6 +282,7 @@ pub struct TuiLaunchConfig {
     pub token_ledger: Option<Arc<nuo_wire::TokenSourceLedger>>,
     pub startup_overlay: StartupOverlay,
     pub initial_tabs: Option<Vec<crate::surfaces::ClientTab>>,
+    pub initial_tab_history: Option<Vec<crate::surfaces::TabKind>>,
 }
 
 /// Install the panic hook so abnormal main-thread termination restores the terminal.
@@ -340,6 +341,7 @@ pub async fn run_tui_with_terminal(
         token_ledger,
         startup_overlay,
         initial_tabs,
+        initial_tab_history,
     } = config;
     let profile = nuotc::TerminalProfile::detect();
     let tui_config = Arc::new(tui_config);
@@ -2204,6 +2206,9 @@ pub async fn run_tui_with_terminal(
         for tab in tabs {
             app.surfaces.open_tab(tab);
         }
+        if let Some(history) = initial_tab_history {
+            app.surfaces.set_tab_mru_history(history);
+        }
         if let Some(pos) = app
             .surfaces
             .tabs()
@@ -2268,12 +2273,14 @@ pub async fn run_tui_with_terminal(
     let switch_to_new = app.switch_to_new;
     let switch_to_new_prompt = app.switch_to_new_prompt.take();
     let tabs = Some(app.surfaces.tabs().to_vec());
+    let tab_history = Some(app.surfaces.tab_mru_history().to_vec());
     Ok(TuiOutcome {
         history: app.input_history,
         switch_to: switch,
         switch_to_new,
         switch_to_new_prompt,
         tabs,
+        tab_history,
     })
 }
 
@@ -2286,6 +2293,7 @@ pub struct TuiOutcome {
     pub switch_to_new: bool,
     pub switch_to_new_prompt: Option<String>,
     pub tabs: Option<Vec<crate::surfaces::ClientTab>>,
+    pub tab_history: Option<Vec<crate::surfaces::TabKind>>,
 }
 
 pub async fn start_tui(

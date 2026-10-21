@@ -663,8 +663,11 @@ fn render_models_modal(modal_index: usize, query: &str, search: bool) -> String 
     let mut terminal = nuotc::TestTerminal::new(72, 28);
     terminal.draw(|f| {
         let mut scroll = 0;
+        let mut lm = crate::model::layout::LayoutMap::new();
+        let selection = crate::model::selection::SelectionState::None;
         draw_models_modal(
             f,
+            &mut lm,
             crate::overlays::provider::models::ModelsModalProps {
                 models: &ranked,
                 current_provider: "openai",
@@ -682,6 +685,7 @@ fn render_models_modal(modal_index: usize, query: &str, search: bool) -> String 
                 info_scroll: &mut 0,
             },
             &theme,
+            &selection,
         );
     });
     buffer_text(&terminal)
@@ -764,8 +768,11 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
     let mut terminal = nuotc::TestTerminal::new(72, 28);
     terminal.draw(|f| {
         let mut scroll = 0;
+        let mut lm = crate::model::layout::LayoutMap::new();
+        let selection = crate::model::selection::SelectionState::None;
         draw_models_modal(
             f,
+            &mut lm,
             crate::overlays::provider::models::ModelsModalProps {
                 models: &ranked,
                 current_provider: "openai",
@@ -786,6 +793,7 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
                 info_scroll: &mut 0,
             },
             &theme,
+            &selection,
         );
     });
     let text = buffer_text(&terminal);
@@ -878,8 +886,11 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
     let mut terminal = nuotc::TestTerminal::new(96, 28);
     terminal.draw(|f| {
         let mut scroll = 0;
+        let mut lm = crate::model::layout::LayoutMap::new();
+        let selection = crate::model::selection::SelectionState::None;
         draw_models_modal(
             f,
+            &mut lm,
             crate::overlays::provider::models::ModelsModalProps {
                 models: &ranked,
                 current_provider: "openai",
@@ -897,6 +908,7 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
                 info_scroll: &mut 0,
             },
             &theme,
+            &selection,
         );
     });
     let text = buffer_text(&terminal);
@@ -914,8 +926,11 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
     terminal.draw(|f| {
         let mut scroll = 0;
         let mut info_scroll = 0;
+        let mut lm = crate::model::layout::LayoutMap::new();
+        let selection = crate::model::selection::SelectionState::None;
         draw_models_modal(
             f,
+            &mut lm,
             crate::overlays::provider::models::ModelsModalProps {
                 models: &ranked,
                 current_provider: "openai",
@@ -933,6 +948,7 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
                 info_scroll: &mut info_scroll,
             },
             &theme,
+            &selection,
         );
     });
     let detail_text = buffer_text(&terminal);
@@ -1033,8 +1049,11 @@ fn render_labelled_models_modal(width: u16) -> String {
     let mut terminal = nuotc::TestTerminal::new(width, 40);
     terminal.draw(|f| {
         let mut scroll = 0;
+        let mut lm = crate::model::layout::LayoutMap::new();
+        let selection = crate::model::selection::SelectionState::None;
         draw_models_modal(
             f,
+            &mut lm,
             crate::overlays::provider::models::ModelsModalProps {
                 models: &ranked,
                 current_provider: "openai",
@@ -1052,6 +1071,7 @@ fn render_labelled_models_modal(width: u16) -> String {
                 info_scroll: &mut 0,
             },
             &theme,
+            &selection,
         );
     });
     buffer_text(&terminal)
@@ -1121,8 +1141,11 @@ fn render_qoder_models_modal(width: u16, query: &str) -> String {
     let mut terminal = nuotc::TestTerminal::new(width, 20);
     terminal.draw(|f| {
         let mut scroll = 0;
+        let mut lm = crate::model::layout::LayoutMap::new();
+        let selection = crate::model::selection::SelectionState::None;
         draw_models_modal(
             f,
+            &mut lm,
             crate::overlays::provider::models::ModelsModalProps {
                 models: &ranked,
                 current_provider: "qoder",
@@ -1140,6 +1163,7 @@ fn render_qoder_models_modal(width: u16, query: &str) -> String {
                 info_scroll: &mut 0,
             },
             &theme,
+            &selection,
         );
     });
     buffer_text(&terminal)
@@ -1321,8 +1345,11 @@ fn models_modal_empty_state_centered_copy_and_footer() {
     let mut terminal = nuotc::TestTerminal::new(72, 24);
     terminal.draw(|f| {
         let mut scroll = 0;
+        let mut lm = crate::model::layout::LayoutMap::new();
+        let selection = crate::model::selection::SelectionState::None;
         draw_models_modal(
             f,
+            &mut lm,
             crate::overlays::provider::models::ModelsModalProps {
                 models: &[],
                 current_provider: "",
@@ -1340,6 +1367,7 @@ fn models_modal_empty_state_centered_copy_and_footer() {
                 info_scroll: &mut 0,
             },
             &theme,
+            &selection,
         );
     });
     let text = buffer_text(&terminal);
@@ -1356,8 +1384,11 @@ fn models_modal_refreshing_state_renders_spinner_and_indicator() {
     let mut terminal = nuotc::TestTerminal::new(72, 24);
     terminal.draw(|f| {
         let mut scroll = 0;
+        let mut lm = crate::model::layout::LayoutMap::new();
+        let selection = crate::model::selection::SelectionState::None;
         draw_models_modal(
             f,
+            &mut lm,
             crate::overlays::provider::models::ModelsModalProps {
                 models: &[],
                 current_provider: "",
@@ -1375,6 +1406,7 @@ fn models_modal_refreshing_state_renders_spinner_and_indicator() {
                 info_scroll: &mut 0,
             },
             &theme,
+            &selection,
         );
     });
     let text = buffer_text(&terminal);
@@ -1389,8 +1421,11 @@ fn models_modal_search_empty_state() {
     let mut terminal = nuotc::TestTerminal::new(72, 24);
     terminal.draw(|f| {
         let mut scroll = 0;
+        let mut lm = crate::model::layout::LayoutMap::new();
+        let selection = crate::model::selection::SelectionState::None;
         draw_models_modal(
             f,
+            &mut lm,
             crate::overlays::provider::models::ModelsModalProps {
                 models: &[],
                 current_provider: "",
@@ -1408,6 +1443,7 @@ fn models_modal_search_empty_state() {
                 info_scroll: &mut 0,
             },
             &theme,
+            &selection,
         );
     });
     let text = buffer_text(&terminal);
@@ -2325,7 +2361,7 @@ fn connections_modal_detail_served_models_collapsed_by_default_and_expands() {
     assert!(text.contains("Browse & filter in /models"));
     assert!(text.contains("browse models"));
     // Configuration has Provider and no redundant Provider ID
-    assert!(text.contains("Provider        Google Antigravity"));
+    assert!(text.contains("Provider          Google Antigravity"));
     assert!(!text.contains("Provider ID"));
 }
 
@@ -2482,15 +2518,18 @@ fn model_detail_renders_pricing_and_off_peak_schedule_for_deepseek() {
         match_name: None,
         match_connection: None,
     };
-    let lines = crate::overlays::provider::models::model_detail_body(&rm, 80, &theme);
-    let rendered = lines
+    let rows = crate::overlays::provider::models::model_detail_body(&rm, 80, &theme);
+    let rendered = rows
         .into_iter()
-        .map(|l| {
-            l.spans
-                .into_iter()
-                .map(|s| s.content.to_string())
-                .collect::<Vec<_>>()
-                .join("")
+        .map(|r| {
+            let mut s = String::new();
+            if let Some(p) = r.prefix {
+                s.push_str(&p.text);
+            }
+            for seg in r.segments {
+                s.push_str(&seg.text);
+            }
+            s
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -2509,12 +2548,21 @@ fn model_detail_renders_pricing_and_off_peak_schedule_for_deepseek() {
         "must render off-peak rates: {rendered}"
     );
     assert!(
-        rendered.contains("Off-Peak Hours") && rendered.contains("UTC+8"),
+        rendered.contains("Off-Peak Window") && rendered.contains("UTC+8"),
         "must explain off-peak schedule: {rendered}"
     );
     assert!(
         rendered.contains("Current State"),
         "must report live rate window state: {rendered}"
+    );
+    // Verify minimum gap between label and value (never zero spaces!)
+    assert!(
+        rendered.contains("Prompt Cache Hit  $0.006 / 1M"),
+        "Prompt Cache Hit must have at least two spaces of separation before rate: {rendered}"
+    );
+    assert!(
+        rendered.contains("Reasoning Effort  high"),
+        "Reasoning Effort must have at least two spaces of separation before effort level: {rendered}"
     );
 }
 
@@ -2593,5 +2641,72 @@ fn connection_detail_renders_active_model_pricing_and_rates() {
     assert!(
         rendered.contains("Total Balance") && rendered.contains("¥100.50 CNY"),
         "must keep total balance rendered alongside pricing: {rendered}"
+    );
+}
+
+#[test]
+fn connection_detail_omits_pricing_for_subscription_plans() {
+    let theme = Theme::default();
+    let detail = nuo_wire::ConnectionDetail {
+        name: "antigravity-main".to_string(),
+        provider: "google-antigravity".to_string(),
+        provider_label: "Google Antigravity".to_string(),
+        protocol: "google".to_string(),
+        base_url: "https://daily-cloudcode-pa.googleapis.com".to_string(),
+        auth_type: "OAuth".to_string(),
+        active_model: Some("gemini-3.8-flash".to_string()),
+        models: vec!["gemini-3.8-flash".to_string()],
+        usage: nuo_wire::ConnectionUsageState::Available(Box::new(nuo_wire::ProviderUsage {
+            plan: Some("Antigravity Plan".to_string()),
+            quota: Some(nuo_wire::ProviderQuotaData::Periodic(
+                nuo_wire::PeriodicQuota {
+                    buckets: vec![nuo_wire::QuotaWindowBucket {
+                        window: Some(nuo_wire::QuotaWindowKind::Daily),
+                        label: "gemini-3.8-flash".to_string(),
+                        group: None,
+                        used_fraction: 0.15,
+                        used_amount: None,
+                        total_limit: None,
+                        unit: None,
+                        reset_at_ms: None,
+                        reset_time_str: None,
+                    }],
+                },
+            )),
+            primary_balance: None,
+            metrics: Vec::new(),
+            description: None,
+            updated_at_ms: None,
+        })),
+        ..Default::default()
+    };
+
+    let rows = crate::overlays::provider::connections::connection_detail_body(&detail, 0, &theme);
+    let rendered = rows
+        .into_iter()
+        .map(|r| {
+            let mut s = String::new();
+            if let Some(p) = r.prefix {
+                s.push_str(&p.text);
+            }
+            for seg in r.segments {
+                s.push_str(&seg.text);
+            }
+            s
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        !rendered.contains("Model Pricing & Rates"),
+        "subscription plan must never render commercial API model pricing: {rendered}"
+    );
+    assert!(
+        rendered.contains("Provider Usage & Quota"),
+        "must render upstream periodic quota section: {rendered}"
+    );
+    assert!(
+        rendered.contains("gemini-3.8-flash"),
+        "must render periodic bucket: {rendered}"
     );
 }

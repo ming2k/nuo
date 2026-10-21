@@ -41,8 +41,8 @@ work: it stops the next reader from rebuilding what is present.
 
 | Proposed dimension | Status | Where it already lives |
 | :--- | :--- | :--- |
-| **Provider health / recovery semantics** | **Already implemented** | `ProviderErrorKind` (11 variants, `#[non_exhaustive]`) + `RetryDisposition::{Never, Retry{retry_after_ms}}` in `nuo-model-codec/src/provider_error.rs`; `ProviderError::retryable`, `with_status`, `is_context_overflow`; classified in `nuo-provider-transport/src/transport.rs` (`retry_after_ms`), consumed by the harness retry loop. **Nothing to add.** |
-| **Quota / balance / credit %** | **Data model done; dispatch is not** | `ProviderQuotaData::{Periodic, Balance, Composite}`, `QuotaWindowBucket.used_fraction`, `BalanceQuota.{credit_limit, consumed_amount, display_primary}` (`nuo-model-codec/src/connection_detail.rs`). The gap is *dispatch*, not shape — fixed by ADR-0027 step 4 (`[INV-PROV-08]` typed port). **Do not add a new quota schema.** |
+| **Provider health / recovery semantics** | **Already implemented** | `ProviderErrorKind` (11 variants, `#[non_exhaustive]`) + `RetryDisposition::{Never, Retry{retry_after_ms}}` in `nuo-inference-wire/src/provider_error.rs`; `ProviderError::retryable`, `with_status`, `is_context_overflow`; classified in `nuo-provider-transport/src/transport.rs` (`retry_after_ms`), consumed by the harness retry loop. **Nothing to add.** |
+| **Quota / balance / credit %** | **Data model done; dispatch is not** | `ProviderQuotaData::{Periodic, Balance, Composite}`, `QuotaWindowBucket.used_fraction`, `BalanceQuota.{credit_limit, consumed_amount, display_primary}` (`nuo-inference-wire/src/connection_detail.rs`). The gap is *dispatch*, not shape — fixed by ADR-0027 step 4 (`[INV-PROV-08]` typed port). **Do not add a new quota schema.** |
 | **Account / tenant selection** | **Deferred, with a condition** | Values already ride `ResolvedAuth`'s typed extensions (`OpencodeAuthMetadata.org_id`, `GoogleAuthMetadata.project_id`, `ChatGptAuthMetadata.account_id`). See §5. |
 | **`ecosystem` label** | **Rejected** | ADR-0027 §Rejected Alternatives. |
 | **`trust` level** | **Rejected** | ADR-0027 §Rejected Alternatives (the gate is the baseline-precedence rule, `nuo-catalog/src/sync.rs:501`). |
@@ -96,7 +96,7 @@ selector. Absent one, this stays unbuilt.
 
 ## 4. Addition B — Model capability matrix (too narrow)
 
-`Model` (`nuo-model-codec/src/model.rs:24`) carries 8 fields. Resolution of what is genuinely needed:
+`Model` (`nuo-inference-wire/src/model.rs:24`) carries 8 fields. Resolution of what is genuinely needed:
 
 **Add (each has a clear consumer):**
 

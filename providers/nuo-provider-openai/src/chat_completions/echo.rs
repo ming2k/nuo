@@ -10,7 +10,7 @@
 //! and resolves them at the end against whether native tool calls arrived. It
 //! performs no I/O.
 
-use nuo_model_codec::ProviderStreamEvent;
+use nuo_provider::capability::ProviderStreamEvent;
 use serde_json::Value;
 
 /// Sentinel tokens that wrap a tool call when a model mirrors it as text
@@ -213,7 +213,7 @@ impl ToolCallEchoFilter {
     /// classify it; otherwise keep buffering (or flush if it has grown too
     /// large to plausibly be a tool call).
     fn classify_json_prefix(&mut self, brace: usize) -> String {
-        match nuo_provider_transport::json::find_balanced_object(&self.pending, brace) {
+        match nuo_inference_wire::find_balanced_object(&self.pending, brace) {
             Some(end) => {
                 let candidate = &self.pending[brace..=end];
                 let is_tool_call = serde_json::from_str::<Value>(candidate)

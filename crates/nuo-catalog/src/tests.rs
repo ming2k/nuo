@@ -11,7 +11,7 @@ use super::{
     build_catalog, build_picker_state, refresh_connection_models_for_etag, sync_connection_catalog,
     sync_fitted_model_registry, sync_remote_catalog,
 };
-use nuo_model_codec::catalog::Transport;
+use nuo_inference_wire::catalog::Transport;
 use nuo_persistence::config::{
     Config, Credentials, FittedModelInfo, ModelListCacheState, RemoteCatalogCache,
 };
@@ -200,7 +200,7 @@ fn provider_dialect_is_inherited_independently_of_auth_and_remote_protocol() {
         ConnectionAuth::ApiKey,
         ConnectionAuth::subscription("google-antigravity"),
     ] {
-        for remote_protocol in [None, Some(WireProtocol::GoogleGemini)] {
+        for remote_protocol in [None, Some(WireProtocol::GoogleGenerateContent)] {
             let mut conn = instance("dialect-inheritance", Some("google-antigravity"));
             conn.auth = auth.clone();
             // An unknown generation must inherit without a baseline entry.
@@ -229,7 +229,7 @@ fn provider_dialect_is_inherited_independently_of_auth_and_remote_protocol() {
             .unwrap();
             assert!(matches!(
                 channel.transport,
-                Transport::Google {
+                Transport::GoogleGenerateContent {
                     dialect: GoogleGenerateContentDialect::Antigravity,
                     ..
                 }
@@ -252,7 +252,7 @@ fn provider_dialect_is_inherited_independently_of_auth_and_remote_protocol() {
     .unwrap();
     assert!(matches!(
         channel.transport,
-        Transport::Google {
+        Transport::GoogleGenerateContent {
             dialect: GoogleGenerateContentDialect::GenerativeLanguage,
             ..
         }
@@ -269,13 +269,25 @@ fn provider_dialect_is_inherited_independently_of_auth_and_remote_protocol() {
 fn provider_dialect_follows_model_protocol_across_service_families() {
     let _sandbox = sandboxed_paths();
     for (provider, wire, expected) in [
-        ("github-copilot", WireProtocol::Responses, "Copilot"),
+        ("github-copilot", WireProtocol::OpenAiResponses, "Copilot"),
         ("github-copilot", WireProtocol::AnthropicMessages, "Copilot"),
-        ("github-copilot", WireProtocol::ChatCompletions, "Copilot"),
-        ("openai-subscription", WireProtocol::Responses, "ChatGpt"),
-        ("qoder", WireProtocol::ChatCompletions, "Qoder"),
-        ("deepseek", WireProtocol::Responses, "DeepSeek"),
-        ("openrouter", WireProtocol::ChatCompletions, "OpenRouter"),
+        (
+            "github-copilot",
+            WireProtocol::OpenAiChatCompletions,
+            "Copilot",
+        ),
+        (
+            "openai-subscription",
+            WireProtocol::OpenAiResponses,
+            "ChatGpt",
+        ),
+        ("qoder", WireProtocol::OpenAiChatCompletions, "Qoder"),
+        ("deepseek", WireProtocol::OpenAiResponses, "DeepSeek"),
+        (
+            "openrouter",
+            WireProtocol::OpenAiChatCompletions,
+            "OpenRouter",
+        ),
     ] {
         // Deliberately use API-key auth to prove dialect is service-owned.
         let conn = instance("dialect-family", Some(provider));
@@ -302,13 +314,13 @@ fn provider_dialect_follows_model_protocol_across_service_families() {
         )
         .unwrap();
         let (dialect, endpoint) = match channel.transport {
-            Transport::OpenAi {
+            Transport::OpenAiChatCompletions {
                 dialect, base_url, ..
             } => (format!("{dialect:?}"), base_url),
             Transport::OpenAiResponses {
                 dialect, base_url, ..
             } => (format!("{dialect:?}"), base_url),
-            Transport::Anthropic {
+            Transport::AnthropicMessages {
                 dialect, base_url, ..
             } => (format!("{dialect:?}"), base_url),
             other => panic!("unexpected transport {other:?}"),
@@ -316,7 +328,7 @@ fn provider_dialect_follows_model_protocol_across_service_families() {
         assert_eq!(dialect, expected, "{provider}/{wire:?}");
         if provider == "github-copilot" {
             let suffix = match wire {
-                WireProtocol::Responses => "/responses",
+                WireProtocol::OpenAiResponses => "/responses",
                 WireProtocol::AnthropicMessages => "/v1/messages",
                 _ => "/chat/completions",
             };
@@ -339,7 +351,7 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
         nuo_persistence::model_providers::UserDeclaredProvider {
             label: None,
             root_url: format!("{}/proxy/team", server.url()),
-            default_protocol: Some(WireProtocol::GoogleGemini),
+            default_protocol: Some(WireProtocol::GoogleGenerateContent),
             dialect: Some(ProviderDialect::Antigravity),
             client_profile: None,
             user_agent: None,
@@ -459,7 +471,7 @@ fn openrouter_connection_derives_gateway_dialect_and_nex_seed() {
     .unwrap();
     assert!(matches!(
         channel.transport,
-        Transport::OpenAi {
+        Transport::OpenAiChatCompletions {
             dialect: nuo_wire::OpenAiChatDialect::OpenRouter,
             ref base_url,
             ..
@@ -482,7 +494,7 @@ fn commandcode_connection_derives_routes() {
     .unwrap();
     assert!(matches!(
         channel.transport,
-        Transport::Anthropic {
+        Transport::AnthropicMessages {
             ref base_url,
             ..
         } if base_url == "https://api.commandcode.ai/provider/v1/messages"
@@ -500,7 +512,7 @@ fn commandcode_connection_derives_routes() {
     .unwrap();
     assert!(matches!(
         channel_chat.transport,
-        Transport::OpenAi {
+        Transport::OpenAiChatCompletions {
             ref base_url,
             ..
         } if base_url == "https://api.commandcode.ai/provider/v1/chat/completions"
@@ -617,7 +629,7 @@ fn custom_instance_serves_its_declared_models() {
     register_mock_provider(
         "test-relay-declared",
         "https://relay.example.com/v1",
-        WireProtocol::ChatCompletions,
+        WireProtocol::OpenAiChatCompletions,
         &[],
         nuo_provider::CatalogShape::OpenAi,
     );
@@ -652,7 +664,7 @@ fn custom_instance_serves_its_declared_models() {
     assert_eq!(entry.channels.len(), 2);
     assert!(matches!(
         entry.channels[0].transport,
-        Transport::OpenAi { .. }
+        Transport::OpenAiChatCompletions { .. }
     ));
 }
 
@@ -795,7 +807,7 @@ fn opencode_plan_routes_models_by_wire_format() {
     )
     .unwrap();
     assert!(
-        matches!(&glm.transport, Transport::OpenAi { base_url, client_profile, .. } if base_url == "https://opencode.ai/zen/go/v1/chat/completions" && *client_profile == nuo_wire::ClientProfile::OpenCode),
+        matches!(&glm.transport, Transport::OpenAiChatCompletions { base_url, client_profile, .. } if base_url == "https://opencode.ai/zen/go/v1/chat/completions" && *client_profile == nuo_wire::ClientProfile::OpenCode),
         "glm-5.2 must route to OpenAI chat-completions on zen/go relay with OpenCode client profile"
     );
     let minimax = derive_channel(
@@ -809,7 +821,7 @@ fn opencode_plan_routes_models_by_wire_format() {
     )
     .unwrap();
     assert!(
-        matches!(&minimax.transport, Transport::Anthropic { base_url, .. } if base_url == "https://opencode.ai/inference/go/anthropic/v1/messages"),
+        matches!(&minimax.transport, Transport::AnthropicMessages { base_url, .. } if base_url == "https://opencode.ai/inference/go/anthropic/v1/messages"),
         "minimax-m3 must route to the Anthropic inference/go surface"
     );
     let qwen = derive_channel(
@@ -823,7 +835,7 @@ fn opencode_plan_routes_models_by_wire_format() {
     )
     .unwrap();
     assert!(
-        matches!(&qwen.transport, Transport::Anthropic { base_url, .. } if base_url == "https://opencode.ai/inference/go/anthropic/v1/messages"),
+        matches!(&qwen.transport, Transport::AnthropicMessages { base_url, .. } if base_url == "https://opencode.ai/inference/go/anthropic/v1/messages"),
         "qwen3.6-plus must route to the Anthropic /messages surface on zen/go relay"
     );
     assert_eq!(
@@ -843,7 +855,7 @@ fn openai_route_uses_official_api_not_opencode_go_relay() {
     // the opencode.ai relay endpoint.
     let (protocol, base_url, _) =
         route_for_model("openai", "gpt-4o").expect("openai gpt-4o route must exist");
-    assert_eq!(protocol, WireProtocol::ChatCompletions);
+    assert_eq!(protocol, WireProtocol::OpenAiChatCompletions);
     assert_eq!(base_url, "https://api.openai.com/v1/chat/completions");
 
     let openai_conn = instance("openai-main", Some("openai"));
@@ -858,7 +870,7 @@ fn openai_route_uses_official_api_not_opencode_go_relay() {
     )
     .unwrap();
     match &channel.transport {
-        Transport::OpenAi { base_url, .. } => {
+        Transport::OpenAiChatCompletions { base_url, .. } => {
             assert_eq!(base_url, "https://api.openai.com/v1/chat/completions");
         }
         other => panic!("expected OpenAi transport, got {other:?}"),
@@ -879,7 +891,7 @@ fn connection_uses_provider_transport_endpoint() {
     )
     .unwrap();
     match &channel.transport {
-        Transport::OpenAi { base_url, .. } => {
+        Transport::OpenAiChatCompletions { base_url, .. } => {
             assert_eq!(base_url, "https://api.openai.com/v1/chat/completions");
         }
         other => panic!("expected OpenAi transport, got {other:?}"),
@@ -964,7 +976,7 @@ fn reasoning_route_settings_apply_to_anthropic_routes() {
     )
     .unwrap();
     match &channel.transport {
-        Transport::Anthropic {
+        Transport::AnthropicMessages {
             effort, thinking, ..
         } => {
             assert_eq!(*effort, Some(Effort::Max));
@@ -980,7 +992,7 @@ fn reasoning_route_settings_apply_to_anthropic_routes() {
     )
     .unwrap();
     match &sonnet.transport {
-        Transport::Anthropic {
+        Transport::AnthropicMessages {
             effort, thinking, ..
         } => {
             assert!(effort.is_none());
@@ -998,7 +1010,7 @@ fn copilot_route_uses_remote_endpoint_metadata() {
         m.insert(
             "gpt-5".to_string(),
             nuo_wire::RemoteModelMetadata {
-                protocol: Some(WireProtocol::Responses),
+                protocol: Some(WireProtocol::OpenAiResponses),
                 ..Default::default()
             },
         );
@@ -1051,7 +1063,7 @@ fn model_level_protocol_cascade_resolution() {
     register_mock_provider(
         "corp-relay-test-prov",
         "https://relay.example.com/v1",
-        WireProtocol::ChatCompletions,
+        WireProtocol::OpenAiChatCompletions,
         &[],
         nuo_provider::CatalogShape::OpenAi,
     );
@@ -1073,8 +1085,8 @@ fn model_level_protocol_cascade_resolution() {
     assert!(
         matches!(
             &channel.transport,
-            Transport::Anthropic {
-                dialect: nuo_model_codec::catalog::AnthropicMessagesDialect::Standard,
+            Transport::AnthropicMessages {
+                dialect: nuo_inference_wire::catalog::AnthropicMessagesDialect::Standard,
                 ..
             }
         ),
@@ -1115,9 +1127,9 @@ fn build_picker_state_reflects_instances() {
 fn channel_model_info_effort_ladders_survive() {
     // A Gemini model advertises an effort ladder, so its picker row exposes an
     // effort defaulting to `high` (the ladder's top rung) when unset.
-    let gemini37 = nuo_model_codec::catalog::Channel {
+    let gemini37 = nuo_inference_wire::catalog::Channel {
         id: "default".to_string(),
-        transport: Transport::Google {
+        transport: Transport::GoogleGenerateContent {
             base_url: "https://cloudcode-pa.googleapis.com".to_string(),
             client_profile: nuo_wire::ClientProfile::Antigravity,
             effort: None,
@@ -1131,7 +1143,7 @@ fn channel_model_info_effort_ladders_survive() {
         prompt_cache: nuo_wire::PromptCacheCapabilities::unsupported(),
     };
     let info = channel_model_info(&gemini37);
-    assert_eq!(info.protocol, WireProtocol::GoogleGemini.as_str());
+    assert_eq!(info.protocol, WireProtocol::GoogleGenerateContent.as_str());
     assert_eq!(info.effort.as_deref(), Some("high"));
     assert_eq!(info.thinking, None);
 }
@@ -1156,7 +1168,7 @@ async fn live_catalog_sync_writes_the_per_instance_cache() {
     register_mock_provider(
         provider_id,
         &format!("{}/v1", server.url()),
-        WireProtocol::Responses,
+        WireProtocol::OpenAiResponses,
         &["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-lite"],
         nuo_provider::CatalogShape::OpenAi,
     );
@@ -1240,7 +1252,7 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
     register_mock_provider(
         provider_id,
         &server.url().to_string(),
-        WireProtocol::GoogleGemini,
+        WireProtocol::GoogleGenerateContent,
         &[],
         nuo_provider::CatalogShape::GoogleCloudCode,
     );
@@ -1329,7 +1341,7 @@ async fn single_source_endpoint_failure_records_failure_and_preserves_determinis
     register_mock_provider(
         provider_id,
         &server.url(),
-        WireProtocol::ChatCompletions,
+        WireProtocol::OpenAiChatCompletions,
         &["glm-4-plus"],
         nuo_provider::CatalogShape::OpenAi,
     );
@@ -1385,14 +1397,14 @@ async fn connection_catalog_sync_never_touches_unrelated_connections() {
     register_mock_provider(
         sel_id,
         &format!("{}/v1", selected_server.url()),
-        WireProtocol::Responses,
+        WireProtocol::OpenAiResponses,
         &["deepseek-v4-flash"],
         nuo_provider::CatalogShape::OpenAi,
     );
     register_mock_provider(
         unrel_id,
         &format!("{}/v1", unrelated_server.url()),
-        WireProtocol::Responses,
+        WireProtocol::OpenAiResponses,
         &["deepseek-v4-pro"],
         nuo_provider::CatalogShape::OpenAi,
     );
@@ -1454,7 +1466,7 @@ async fn catalog_sync_failure_keeps_the_previous_subset_and_reports() {
     register_mock_provider(
         provider_id,
         &format!("{}/v1", server.url()),
-        WireProtocol::Responses,
+        WireProtocol::OpenAiResponses,
         &["deepseek-v4-flash"],
         nuo_provider::CatalogShape::OpenAi,
     );
@@ -1492,7 +1504,7 @@ async fn successful_empty_remote_catalog_clears_previous_models() {
     register_mock_provider(
         provider_id,
         &format!("{}/v1", server.url()),
-        WireProtocol::Responses,
+        WireProtocol::OpenAiResponses,
         &["deepseek-v4-flash"],
         nuo_provider::CatalogShape::OpenAi,
     );
@@ -1722,7 +1734,7 @@ fn model_recency_isolation_across_same_preset_connections() {
     register_mock_provider(
         "test-open-relay-recency",
         "https://relay.example.com",
-        WireProtocol::ChatCompletions,
+        WireProtocol::OpenAiChatCompletions,
         &[],
         nuo_provider::CatalogShape::OpenAi,
     );
@@ -1896,10 +1908,10 @@ fn adr0199_preset_scope_and_instance_scope_cascade() {
 fn provider_dialect_rejects_incompatible_remote_protocol_without_panicking() {
     let _sandbox = sandboxed_paths();
     for (provider, protocol) in [
-        ("google-antigravity", WireProtocol::ChatCompletions),
-        ("github-copilot", WireProtocol::GoogleGemini),
-        ("openai-subscription", WireProtocol::ChatCompletions),
-        ("qoder", WireProtocol::Responses),
+        ("google-antigravity", WireProtocol::OpenAiChatCompletions),
+        ("github-copilot", WireProtocol::GoogleGenerateContent),
+        ("openai-subscription", WireProtocol::OpenAiChatCompletions),
+        ("qoder", WireProtocol::OpenAiResponses),
     ] {
         let conn = instance("invalid-wire", Some(provider));
         let mut cache = RemoteCatalogCache::default();
@@ -1939,7 +1951,7 @@ fn provider_dialect_selects_endpoint_after_remote_protocol_override() {
         nuo_provider::model_provider_spec("opencode-zen")
             .unwrap()
             .model_protocol("glm-5.2"),
-        WireProtocol::ChatCompletions
+        WireProtocol::OpenAiChatCompletions
     );
     let conn = instance("endpoint-order", Some("opencode-zen"));
     let mut cache = RemoteCatalogCache::default();
@@ -1965,7 +1977,7 @@ fn provider_dialect_selects_endpoint_after_remote_protocol_override() {
     )
     .unwrap();
     assert!(
-        matches!(channel.transport, Transport::Anthropic { ref base_url, .. }
+        matches!(channel.transport, Transport::AnthropicMessages { ref base_url, .. }
         if base_url == "https://opencode.ai/inference/anthropic/v1/messages")
     );
 }
@@ -1984,7 +1996,7 @@ fn catalog_advertised_root_replaces_the_compiled_spec_route() {
         .insert(
             "glm-5.3".into(),
             nuo_wire::RemoteModelMetadata {
-                protocol: Some(WireProtocol::GoogleGemini),
+                protocol: Some(WireProtocol::GoogleGenerateContent),
                 endpoint: Some("https://opencode.ai/inference/google/v1beta".to_string()),
                 ..Default::default()
             },
@@ -2001,7 +2013,7 @@ fn catalog_advertised_root_replaces_the_compiled_spec_route() {
     .unwrap();
     // The Google protocol carries no suffix: the advertised root is verbatim.
     assert!(
-        matches!(channel.transport, Transport::Google { ref base_url, .. }
+        matches!(channel.transport, Transport::GoogleGenerateContent { ref base_url, .. }
         if base_url == "https://opencode.ai/inference/google/v1beta"),
         "advertised root must ride the shared suffix algebra, got {:?}",
         channel.transport

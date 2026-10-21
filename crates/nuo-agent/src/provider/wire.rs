@@ -6,7 +6,7 @@ use super::{ModelRequest, ModelResponse, Provider, TokenUsage};
 use crate::error::{AgentError, Result};
 use crate::message::{Role, ToolCall};
 use async_trait::async_trait;
-use nuo_model_codec::{
+use nuo_inference_wire::{
     ContentBlock, Endpoint, WireClient, WireMessage, WireRequest, WireRole, WireTool,
 };
 
@@ -105,7 +105,7 @@ impl WireProvider {
                 // Automatically mark system messages with ephemeral cache control for prompt caching
                 if idx == 0 && m.role == Role::System {
                     wire_msg =
-                        wire_msg.with_cache_control(nuo_model_codec::CacheControl::Ephemeral);
+                        wire_msg.with_cache_control(nuo_inference_wire::CacheControl::Ephemeral);
                 }
 
                 wire_msg
@@ -234,14 +234,14 @@ impl Provider for WireProvider {
     }
 }
 
-/// An adapter allowing any `Arc<dyn nuo_model_codec::capability::Provider>` to be used as a `nuo_agent::Provider`.
+/// An adapter allowing any `Arc<dyn nuo_provider::capability::Provider>` to be used as a `nuo_agent::Provider`.
 #[derive(Clone)]
 pub struct ModelCodecAdapter {
-    inner: std::sync::Arc<dyn nuo_model_codec::capability::Provider>,
+    inner: std::sync::Arc<dyn nuo_provider::capability::Provider>,
 }
 
 impl ModelCodecAdapter {
-    pub fn new(inner: std::sync::Arc<dyn nuo_model_codec::capability::Provider>) -> Self {
+    pub fn new(inner: std::sync::Arc<dyn nuo_provider::capability::Provider>) -> Self {
         Self { inner }
     }
 }
@@ -257,7 +257,7 @@ impl Provider for ModelCodecAdapter {
 
         let wire_messages: Vec<nuo_tool::Message> =
             request.messages.into_iter().map(Into::into).collect();
-        let wire_tools: Vec<nuo_model_codec::ToolSpec> = request
+        let wire_tools: Vec<nuo_provider::capability::ToolSpec> = request
             .tools
             .iter()
             .filter_map(|t| {
@@ -271,7 +271,7 @@ impl Provider for ModelCodecAdapter {
                     .get("parameters")
                     .cloned()
                     .unwrap_or(serde_json::Value::Null);
-                Some(nuo_model_codec::ToolSpec::from_parts(
+                Some(nuo_provider::capability::ToolSpec::from_parts(
                     name,
                     description,
                     parameters,
@@ -279,7 +279,7 @@ impl Provider for ModelCodecAdapter {
             })
             .collect();
 
-        let mut model_req = nuo_model_codec::capability::ModelRequest::new(wire_messages);
+        let mut model_req = nuo_provider::capability::ModelRequest::new(wire_messages);
         model_req.tool_specs = wire_tools;
 
         let inner = self.inner.clone();
@@ -288,14 +288,14 @@ impl Provider for ModelCodecAdapter {
                 Ok(mut event_stream) => {
                     while let Some(event_res) = event_stream.next().await {
                         match event_res {
-                            Ok(nuo_model_codec::capability::ProviderStreamEvent::TextDelta(t)) => {
+                            Ok(nuo_provider::capability::ProviderStreamEvent::TextDelta(t)) => {
                                 if tx.send(Ok(super::ProviderDelta::content(t))).await.is_err() {
                                     return;
                                 }
                             }
-                            Ok(
-                                nuo_model_codec::capability::ProviderStreamEvent::ReasoningDelta(r),
-                            ) => {
+                            Ok(nuo_provider::capability::ProviderStreamEvent::ReasoningDelta(
+                                r,
+                            )) => {
                                 if tx
                                     .send(Ok(super::ProviderDelta::thinking(r)))
                                     .await
@@ -304,14 +304,12 @@ impl Provider for ModelCodecAdapter {
                                     return;
                                 }
                             }
-                            Ok(
-                                nuo_model_codec::capability::ProviderStreamEvent::ToolCallDelta {
-                                    index,
-                                    id,
-                                    name,
-                                    arguments,
-                                },
-                            ) => {
+                            Ok(nuo_provider::capability::ProviderStreamEvent::ToolCallDelta {
+                                index,
+                                id,
+                                name,
+                                arguments,
+                            }) => {
                                 let delta = super::ProviderDelta::tool_call_chunk(
                                     index,
                                     id,
@@ -322,7 +320,7 @@ impl Provider for ModelCodecAdapter {
                                     return;
                                 }
                             }
-                            Ok(nuo_model_codec::capability::ProviderStreamEvent::Usage(u)) => {
+                            Ok(nuo_provider::capability::ProviderStreamEvent::Usage(u)) => {
                                 let delta = super::ProviderDelta {
                                     usage: Some(super::TokenUsage {
                                         prompt_tokens: u.prompt_tokens.max(0) as usize,
@@ -336,9 +334,7 @@ impl Provider for ModelCodecAdapter {
                                     return;
                                 }
                             }
-                            Ok(nuo_model_codec::capability::ProviderStreamEvent::Completed(
-                                meta,
-                            )) => {
+                            Ok(nuo_provider::capability::ProviderStreamEvent::Completed(meta)) => {
                                 let mut delta = super::ProviderDelta::default();
                                 if let Some(u) = meta.usage {
                                     delta.usage = Some(super::TokenUsage {
@@ -353,9 +349,7 @@ impl Provider for ModelCodecAdapter {
                                 return;
                             }
                             Ok(
-                                nuo_model_codec::capability::ProviderStreamEvent::ModelCatalogEtag(
-                                    _,
-                                ),
+                                nuo_provider::capability::ProviderStreamEvent::ModelCatalogEtag(_),
                             ) => {}
                             Err(e) => {
                                 let _ = tx.send(Err(AgentError::Provider(e.to_string()))).await;

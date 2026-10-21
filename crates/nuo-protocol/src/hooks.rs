@@ -27,7 +27,7 @@ pub enum SessionSource {
 /// Which lifecycle point a hook fires on — the routing key only. The payload
 /// travels in [`HookContext`]; matcher evaluation lives in the registry
 /// (`nuo_agent::hooks`), not here, so core stays free of the `regex` crate.
-pub use nuo_model_codec::message::HookEventKind;
+pub use nuo_tool::message::HookEventKind;
 
 /// Owned snapshot of the moment a hook fires. Serialized to JSON and piped to
 /// command handlers on stdin. Owned (not borrowed) so it crosses the async

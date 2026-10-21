@@ -12,8 +12,8 @@ description = "Live remote model-catalog discovery (CatalogDiscovery / CatalogPa
 # The CatalogDiscovery port, RemoteCatalog* envelopes, CatalogShape, DiscoveredModel.
 nuo-provider = { workspace = true }
 # Http transport, NUO_USER_AGENT, Request builder, netune Method.
-nuo-provider-transport = { workspace = true }
-nuo-model-codec = { workspace = true }
+nuo-egress = { workspace = true }
+nuo-inference-wire = { workspace = true }
 
 # list_models.rs:330 — `crate::protocol::anthropic::request::ANTHROPIC_VERSION`.
 # NOT optional: the Anthropic catalog parser stamps this version header.

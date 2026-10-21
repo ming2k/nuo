@@ -8,7 +8,7 @@
 use crate::provider::oauth_config;
 use crate::session::{ACCESS_TOKEN_REFRESH_SKEW_MS, OAuth, access_token_is_expiring};
 use futures::future::BoxFuture;
-use nuo_model_codec::{ConnectionAuth, CredentialSource, ResolvedAuth, SecretString};
+use nuo_inference_wire::{ConnectionAuth, CredentialSource, ResolvedAuth, SecretString};
 use nuo_provider::credentials::CredentialHost;
 use nuo_provider::credentials::{CredentialSession, CredentialStore, TokenSet};
 use std::collections::HashMap;
@@ -283,7 +283,7 @@ impl fmt::Debug for OAuthCredentialSource {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use nuo_model_codec::provider_auth::OAuthConfig;
+    use nuo_inference_wire::provider_auth::OAuthConfig;
 
     fn tokens(access: &str) -> TokenSet {
         TokenSet {
@@ -313,7 +313,7 @@ mod tests {
             config
         }
         fn project_metadata(&self, _tokens: &TokenSet, mut auth: ResolvedAuth) -> ResolvedAuth {
-            auth = auth.with_extension(nuo_model_codec::GoogleAuthMetadata {
+            auth = auth.with_extension(nuo_inference_wire::GoogleAuthMetadata {
                 project_id: "proj-1".to_string(),
             });
             auth
@@ -346,7 +346,7 @@ mod tests {
         let resolved = source.resolved(&tokens("access"));
         assert_eq!(
             resolved
-                .extension::<nuo_model_codec::GoogleAuthMetadata>()
+                .extension::<nuo_inference_wire::GoogleAuthMetadata>()
                 .map(|m| m.project_id.as_str()),
             Some("proj-1"),
             "the engine must invoke the provider's projection hook"

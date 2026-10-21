@@ -38,7 +38,7 @@ impl SiliconFlowUsageFetcher {
 
     pub async fn fetch_usage(
         &self,
-        client: &nuo_provider_transport::http::Http,
+        client: &nuo_egress::http::Http,
         base_url: &str,
         api_key: &str,
     ) -> Result<ProviderUsage, String> {

@@ -37,8 +37,8 @@ pub use provider::{
 };
 pub use session::*;
 
-pub use nuo_model_codec::LoginMethod;
-pub use nuo_model_codec::provider_auth::{
+pub use nuo_inference_wire::LoginMethod;
+pub use nuo_inference_wire::provider_auth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, OAuthConfigBuilder, PkceMode, PortMode,
     TokenRequestFormat,
 };

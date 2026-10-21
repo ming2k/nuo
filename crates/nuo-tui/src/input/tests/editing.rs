@@ -995,6 +995,169 @@ fn ctrl_r_opens_history_modal_when_no_modal_is_open() {
 }
 
 #[test]
+fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+
+    // 1. When a transcript step is focused: Ctrl-r must NOT open history
+    let action = route_event(
+        Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('r'),
+            KeyModifiers::CONTROL,
+        )),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            focused_target: true,
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys {
+            focused_target: true,
+            ..Default::default()
+        },
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::None);
+
+    // 2. When transcript is focused: Ctrl-r must NOT open history
+    let action = route_event(
+        Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('r'),
+            KeyModifiers::CONTROL,
+        )),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            transcript_focused: true,
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys {
+            transcript_focused: true,
+            ..Default::default()
+        },
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::None);
+
+    // 3. HistoryPrev (Alt-P) and HistoryNext (Alt-N) must be inert when step or transcript is focused
+    let action = route_event(
+        Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('p'),
+            KeyModifiers::ALT,
+        )),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            focused_target: true,
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys {
+            focused_target: true,
+            ..Default::default()
+        },
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::None);
+
+    let action = route_event(
+        Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('n'),
+            KeyModifiers::ALT,
+        )),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            transcript_focused: true,
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys {
+            transcript_focused: true,
+            ..Default::default()
+        },
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::None);
+
+    // 4. Tab must NOT toggle send mode when transcript is focused
+    let action = route_event(
+        Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Tab,
+            KeyModifiers::NONE,
+        )),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            transcript_focused: true,
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys {
+            transcript_focused: true,
+            is_responding: true,
+            ..Default::default()
+        },
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::None);
+
+    // 5. Alt+Enter and Ctrl+J must NOT insert newlines when composer is inactive
+    let before = input.clone();
+    let action = route_event(
+        Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::ALT,
+        )),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            focused_target: true,
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys {
+            focused_target: true,
+            ..Default::default()
+        },
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::None);
+    assert_eq!(input, before);
+
+    let action = route_event(
+        Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('j'),
+            KeyModifiers::CONTROL,
+        )),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            transcript_focused: true,
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys {
+            transcript_focused: true,
+            ..Default::default()
+        },
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::None);
+    assert_eq!(input, before);
+}
+
+#[test]
 fn ctrl_v_returns_paste_in_free_text_modals() {
     // Ctrl+V routes to InputAction::Paste on the main prompt and in
     // every free-text modal (provider editor, provider picker filter,
