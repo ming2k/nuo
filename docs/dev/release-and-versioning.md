@@ -85,17 +85,17 @@ All internal inter-crate dependencies declared in the root `Cargo.toml` under `[
 ```toml
 [workspace.dependencies]
 # Autonomous protocol and substrate crates
-acp = { version = "0.0.45", package = "nuo-acp", path = "crates/nuo-acp" }
+acp = { version = "0.0.46", package = "nuo-acp", path = "crates/nuo-acp" }
 nuotc = { version = "0.0.3" }
 
 # Component libraries
-nuo-client = { version = "0.0.45", path = "crates/nuo-client" }
-nuo-host = { version = "0.0.45", path = "crates/nuo-host" }
-nuo-tool = { version = "0.0.45", path = "crates/nuo-tool" }
-nuo-inference-wire = { version = "0.0.45", path = "crates/nuo-inference-wire" }
-nuo-persistence = { version = "0.0.45", path = "crates/nuo-persistence" }
-nuo-harness = { version = "0.0.45", path = "crates/nuo-harness" }
-nuo-catalog = { version = "0.0.45", path = "crates/nuo-catalog" }
+nuo-client = { version = "0.0.46", path = "crates/nuo-client" }
+nuo-host = { version = "0.0.46", path = "crates/nuo-host" }
+nuo-tool = { version = "0.0.46", path = "crates/nuo-tool" }
+nuo-inference-wire = { version = "0.0.46", path = "crates/nuo-inference-wire" }
+nuo-persistence = { version = "0.0.46", path = "crates/nuo-persistence" }
+nuo-harness = { version = "0.0.46", path = "crates/nuo-harness" }
+nuo-catalog = { version = "0.0.46", path = "crates/nuo-catalog" }
 ```
 
 ### Why Both Fields Are Non-Negotiable:

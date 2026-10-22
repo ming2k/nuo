@@ -6,6 +6,44 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.46] - 2026-10-22
+
+### Added
+
+- **Dual-Lane Inference Wire Topology (`generative` and `discriminative`)**
+  ([ADR-0086](docs/adr/0086-dual-lane-inference-wire-topology-and-nuo-decision-retirement.md)).
+  `crates/nuo-inference-wire` models both generative (chat completions,
+  streaming, messages, thinking) and discriminative (probabilistic classification,
+  ordinal rubric scoring) inference modalities within a single crate via
+  non-intersecting module lanes (`generative` and `discriminative`). Both modalities
+  share the pooled transport substrate (`WireClient`, credential sources, endpoint
+  telemetry, connection caching) without crate fragmentation (`[INV-WIRE-01]`).
+- **Structured Tool Argument Extraction in `nuo-tool` and `nuo-tool-derive`**.
+  Extracted tool argument parsing helper (`args.rs`) and derive macros for robust,
+  type-safe argument handling across tool capability crates.
+- **Google Antigravity Interactions Protocol**. Added interaction channel protocol
+  support in `providers/nuo-provider-google-antigravity`.
+
+### Changed
+
+- **Discriminative Domain Nomenclature Migration**.
+  Migrated decision types to unambiguous domain nomenclature: `DiscriminativeRequest`,
+  `DiscriminativeResponse`, `Question`, `Answer`, `DiscriminativeEndpoint`, and
+  `DiscriminativeProtocol`, resolving nomenclature collisions with user permission
+  decisions and agent cognitive loops.
+- **TUI Overlays and Diagnostics Polish**. Refined modal arbitration, keymap routing,
+  connection and model overlays, and multi-segment detail row components in `nuo-tui`.
+
+### Removed
+
+- **`crates/nuo-decision` Retired**
+  ([ADR-0086](docs/adr/0086-dual-lane-inference-wire-topology-and-nuo-decision-retirement.md)).
+  Excised the standalone `nuo-decision` crate, folding discriminative inference directly
+  into `nuo-inference-wire`.
+- **Decision IPC Passthrough in `nuo-protocol` Purged** (`[INV-WIRE-02]`).
+  Removed intermediate decision re-export module and North-South HTTP client dependency
+  from the East-West IPC contract (`crates/nuo-protocol`).
+
 ## [0.0.45] - 2026-10-22
 
 ### Added
