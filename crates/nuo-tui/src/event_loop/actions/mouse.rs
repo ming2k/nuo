@@ -238,7 +238,7 @@ pub(super) async fn handle_selection_start(
         Some(UiKey::Context) => {
             super::enter_panel(
                 app,
-                crate::surfaces::DialogKind::SessionStats,
+                crate::surfaces::DialogKind::ThreadStats,
                 runtime,
                 viewed_session_id,
             );
@@ -283,7 +283,10 @@ pub(super) async fn handle_selection_start(
     }
     app.selection = SelectionState::None;
     app.focused_target = None;
-    if app.current_scene() == crate::surfaces::SceneKind::Thread {
+    if app.current_scene() == crate::surfaces::SceneKind::Thread
+        && app.surfaces.active_overlay().is_none()
+        && app.active_sheet().is_none()
+    {
         app.transcript_focused = true;
     }
     app.drag.cancel();
@@ -436,7 +439,10 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // becomes inactive.
                 app.selection = SelectionState::None;
                 app.focused_target = None;
-                if app.current_scene() == crate::surfaces::SceneKind::Thread {
+                if app.current_scene() == crate::surfaces::SceneKind::Thread
+                    && app.surfaces.active_overlay().is_none()
+                    && app.active_sheet().is_none()
+                {
                     app.transcript_focused = true;
                 }
                 app.drag.cancel();

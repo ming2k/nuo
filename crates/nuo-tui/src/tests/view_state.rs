@@ -543,9 +543,9 @@ fn session_change_isolates_session_scoped_dialogs() {
         .scroll = 5;
     app.set_active_index(1);
     app.surfaces
-        .present_dialog(crate::surfaces::DialogKind::SessionStats);
+        .present_dialog(crate::surfaces::DialogKind::ThreadStats);
     app.surfaces
-        .dlg_mut::<crate::surfaces::SessionStatsDialog>()
+        .dlg_mut::<crate::surfaces::ThreadStatsDialog>()
         .scroll = 8;
 
     app.on_viewed_session_changed();
@@ -559,14 +559,14 @@ fn session_change_isolates_session_scoped_dialogs() {
     );
     assert_eq!(
         app.surfaces
-            .dlg_mut::<crate::surfaces::SessionStatsDialog>()
+            .dlg_mut::<crate::surfaces::ThreadStatsDialog>()
             .scroll,
         0,
-        "session stats is reset"
+        "thread stats is reset"
     );
     assert!(
         !app.surfaces
-            .contains_dialog(crate::surfaces::DialogKind::SessionStats),
+            .contains_dialog(crate::surfaces::DialogKind::ThreadStats),
         "session dialog unwound"
     );
     assert!(

@@ -95,8 +95,18 @@ impl App {
         self.oauth_pending_user_code.clear();
         self.oauth_pending_error = None;
         self.oauth_scroll = 0;
-        self.surfaces
-            .present_sheet(crate::surfaces::SheetKind::OAuthPending);
+        self.selection = SelectionState::None;
+        self.drag.cancel();
+        self.focused_target = None;
+        self.transcript_focused = false;
+        self.ui.runtime.release_pointer();
+        if !self
+            .surfaces
+            .contains_sheet(crate::surfaces::SheetKind::OAuthPending)
+        {
+            self.surfaces
+                .present_sheet(crate::surfaces::SheetKind::OAuthPending);
+        }
         self.input.clear();
         self.set_cursor(0);
     }
@@ -111,8 +121,25 @@ impl App {
         self.oauth_pending_message.clear();
         self.oauth_pending_error = None;
         self.oauth_scroll = 0;
+
+        // Dismiss OAuthPending from the stack so it does not linger as a zombie layer
         self.surfaces
-            .present_sheet(crate::surfaces::SheetKind::CustomProvider);
+            .dismiss_sheet_kind(crate::surfaces::SheetKind::OAuthPending);
+
+        // Reset all mouse selection, drag, and focus states so the user can immediately type!
+        self.selection = SelectionState::None;
+        self.drag.cancel();
+        self.focused_target = None;
+        self.transcript_focused = false;
+        self.ui.runtime.release_pointer();
+
+        if !self
+            .surfaces
+            .contains_sheet(crate::surfaces::SheetKind::CustomProvider)
+        {
+            self.surfaces
+                .present_sheet(crate::surfaces::SheetKind::CustomProvider);
+        }
         self.custom_fields = vec![CustomField::Name];
         self.custom_field = 0;
         self.custom_edit_id = None;
@@ -137,6 +164,75 @@ impl App {
             crate::input::OauthCopyTarget::UserCode
         } else {
             crate::input::OauthCopyTarget::Url
+        }
+    }
+
+    /// Cancel in-flight OAuth authorization and unwind the OAuth sheet.
+    pub fn cancel_oauth_pending(&mut self) {
+        if self
+            .surfaces
+            .contains_sheet(crate::surfaces::SheetKind::OAuthPending)
+        {
+            self.send_intent(nuo_wire::AgentRequest::CancelAuthorizeOAuth);
+            self.awaiting_oauth_add = false;
+            self.oauth_pending_url.clear();
+            self.oauth_pending_user_code.clear();
+            self.oauth_pending_message.clear();
+            self.oauth_pending_error = None;
+            self.selection = SelectionState::None;
+            self.drag.cancel();
+            self.focused_target = None;
+            self.transcript_focused = false;
+            self.ui.runtime.release_pointer();
+            self.surfaces
+                .dismiss_sheet_kind(crate::surfaces::SheetKind::OAuthPending);
+            if !self
+                .surfaces
+                .contains_sheet(crate::surfaces::SheetKind::ProviderPreset)
+                && self.active_dialog() != Some(crate::surfaces::DialogKind::Connections)
+            {
+                self.open_preset_chooser();
+            }
+        }
+    }
+
+    /// Cancel preset chooser and restore underlying surface.
+    pub fn cancel_preset_chooser(&mut self) {
+        if self
+            .surfaces
+            .contains_sheet(crate::surfaces::SheetKind::ProviderPreset)
+        {
+            self.input.clear();
+            self.set_cursor(0);
+            self.selection = SelectionState::None;
+            self.drag.cancel();
+            self.focused_target = None;
+            self.transcript_focused = false;
+            self.ui.runtime.release_pointer();
+            self.pop_transient_surface();
+            self.set_picker_search(false);
+            self.reset_picker_nav();
+        }
+    }
+
+    /// Cancel custom provider editor and restore underlying surface.
+    pub fn cancel_custom_provider(&mut self) {
+        if self
+            .surfaces
+            .contains_sheet(crate::surfaces::SheetKind::CustomProvider)
+        {
+            self.input.clear();
+            self.set_cursor(0);
+            self.custom_field = 0;
+            self.custom_edit_id = None;
+            self.selection = SelectionState::None;
+            self.drag.cancel();
+            self.focused_target = None;
+            self.transcript_focused = false;
+            self.ui.runtime.release_pointer();
+            self.pop_transient_surface();
+            self.set_picker_search(false);
+            self.reset_picker_nav();
         }
     }
 

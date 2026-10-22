@@ -341,7 +341,7 @@ fn ctrl_arrows_page_scroll_modal_body() {
     let scrollable = [
         SurfaceFixture::UsageStats,
         SurfaceFixture::Config,
-        SurfaceFixture::SessionStats,
+        SurfaceFixture::ThreadStats,
         SurfaceFixture::SessionTrace,
         SurfaceFixture::Sessions,
         SurfaceFixture::Queue,
@@ -1381,7 +1381,7 @@ fn text_modal_commands_resolve_and_consume_composer() {
         ("/tools", InputAction::OpenTools),
         ("/mcp", InputAction::OpenMcp),
         ("/skills", InputAction::OpenSkills),
-        ("/stats", InputAction::OpenSessionStats),
+        ("/stats", InputAction::OpenThreadStats),
         ("/trace", InputAction::OpenSessionTrace),
     ] {
         let mut input = cmd.to_string();

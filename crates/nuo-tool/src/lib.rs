@@ -9,8 +9,11 @@
 // so the shipped graph stays under the workspace `deny` for these lints.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+extern crate self as nuo_tool;
+
 pub mod access;
 pub mod approval;
+pub mod args;
 pub mod builtin;
 pub mod command;
 pub mod completion;
@@ -76,7 +79,8 @@ pub use vfs::{
     vfs_canonical_path, vfs_root_dir, vfs_short_hash,
 };
 
-pub use nuo_tool_derive::ToolSchema;
+pub use args::ToolArgs;
+pub use nuo_tool_derive::{ToolArgs, ToolSchema};
 
 use async_trait::async_trait;
 

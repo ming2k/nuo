@@ -23,7 +23,7 @@ pub use nuo_provider::spec::{
 
 // Concrete provider selectors (the composition root's reason to exist).
 use nuo_provider_anthropic::{AnthropicMessagesProvider, ThinkingConfig};
-use nuo_provider_google_antigravity::GoogleProvider;
+use nuo_provider_google_antigravity::{GoogleInteractionsProvider, GoogleProvider};
 use nuo_provider_openai::{OpenAiChatCompletionsProvider, OpenAiResponsesProvider};
 use nuo_provider_qoder as qoder;
 
@@ -225,12 +225,12 @@ pub fn build_provider_for_channel(
         } => {
             let capabilities = channel.capabilities();
             let effective_effort = effective_channel_effort(*effort, &capabilities);
-            let mut provider = GoogleProvider::with_credentials(
+            let mut provider = GoogleInteractionsProvider::with_credentials(
                 credentials,
                 channel.model.clone(),
                 base_url,
-                client_profile.clone(),
             )
+            .with_client_profile(client_profile.clone())
             .with_reasoning_effort(effective_effort)
             .with_model_capabilities(capabilities)
             .with_prompt_cache(prompt_cache)

@@ -51,7 +51,7 @@ fn esc_over_modal_never_rejects_the_permission_beneath() {
         SurfaceFixture::Models,
         SurfaceFixture::Tools,
         SurfaceFixture::Queue,
-        SurfaceFixture::SessionStats,
+        SurfaceFixture::ThreadStats,
         SurfaceFixture::SessionTrace,
         SurfaceFixture::Sessions,
     ] {

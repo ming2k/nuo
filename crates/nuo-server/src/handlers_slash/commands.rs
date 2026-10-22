@@ -675,7 +675,7 @@ pub(crate) async fn stats(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&
         session,
         name,
         args,
-        "Session stats are shown by the TUI overlay — run /stats in the terminal app.",
+        "Thread stats are shown by the TUI overlay — run /stats in the terminal app.",
     )
     .await;
 }

@@ -564,8 +564,13 @@ fn apply_oauth(app: &mut App, signal: crate::app::OauthAddSignal) {
                 app.oauth_pending_user_code = user_code;
                 app.oauth_pending_message = message;
                 app.oauth_pending_error = None;
-                app.surfaces
-                    .present_sheet(crate::surfaces::SheetKind::OAuthPending);
+                if !app
+                    .surfaces
+                    .contains_sheet(crate::surfaces::SheetKind::OAuthPending)
+                {
+                    app.surfaces
+                        .present_sheet(crate::surfaces::SheetKind::OAuthPending);
+                }
             }
         }
         Signal::Done => {
@@ -576,8 +581,13 @@ fn apply_oauth(app: &mut App, signal: crate::app::OauthAddSignal) {
         Signal::Failed { message } => {
             if app.awaiting_oauth_add {
                 app.oauth_pending_error = Some(message);
-                app.surfaces
-                    .present_sheet(crate::surfaces::SheetKind::OAuthPending);
+                if !app
+                    .surfaces
+                    .contains_sheet(crate::surfaces::SheetKind::OAuthPending)
+                {
+                    app.surfaces
+                        .present_sheet(crate::surfaces::SheetKind::OAuthPending);
+                }
             }
         }
     }

@@ -233,8 +233,8 @@ impl ContentModalSpec {
     pub const TOOLS: Self = Self::new(64, 11, 84);
     pub const MCP: Self = Self::new(64, 9, 84);
     pub const QUEUE: Self = Self::new(66, 9, 84);
-    /// Session Stats inspector (context window utilization, token accounting).
-    pub const SESSION_STATS: Self = Self::new(72, 11, 80);
+    /// Thread Stats inspector (context window utilization, token accounting).
+    pub const THREAD_STATS: Self = Self::new(76, 11, 80);
     /// Session Trace inspector (hierarchical rounds -> turns -> attempt waterfall).
     pub const SESSION_TRACE: Self = Self::new(80, 11, 92);
     /// The usage-statistics overlay (`/usage`): three stacked sections

@@ -30,8 +30,8 @@ mod dialogs;
 pub use dialogs::{
     ConnectionsDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs, HistorySearchDialog,
     McpDialog, ModelsDialog, PermissionsDialog, PortShareDialog, QueueDialog, QuotasDialog,
-    SessionStatsDialog, SessionTraceDialog, SessionTreeDialog, SessionsDialog, SkillsDialog,
-    SwitcherDialog, ThreadsDialog, ToolsDialog, UsageStatsDialog,
+    SessionTraceDialog, SessionTreeDialog, SessionsDialog, SkillsDialog, SwitcherDialog,
+    ThreadStatsDialog, ThreadsDialog, ToolsDialog, UsageStatsDialog,
 };
 
 /// Root full-screen scene identifier (closed set of destinations).
@@ -94,7 +94,7 @@ pub enum DialogKind {
     Permissions,
     UsageStats,
     Quotas,
-    SessionStats,
+    ThreadStats,
     SessionTrace,
     Models,
     Connections,
@@ -119,7 +119,7 @@ impl DialogKind {
         DialogKind::Permissions,
         DialogKind::UsageStats,
         DialogKind::Quotas,
-        DialogKind::SessionStats,
+        DialogKind::ThreadStats,
         DialogKind::SessionTrace,
         DialogKind::Models,
         DialogKind::Connections,
@@ -139,7 +139,7 @@ impl DialogKind {
             DialogKind::Permissions => "Permissions",
             DialogKind::UsageStats => "Usage stats",
             DialogKind::Quotas => "Provider quotas",
-            DialogKind::SessionStats => "Session stats",
+            DialogKind::ThreadStats => "Thread stats",
             DialogKind::SessionTrace => "Session trace",
             DialogKind::Models => "Switch model",
             DialogKind::Connections => "Connections",
@@ -161,7 +161,7 @@ impl DialogKind {
             DialogKind::Permissions => "/permissions",
             DialogKind::UsageStats => "/usage",
             DialogKind::Quotas => "/quotas",
-            DialogKind::SessionStats => "/stats",
+            DialogKind::ThreadStats => "/stats",
             DialogKind::SessionTrace => "/trace",
             DialogKind::Models => "/models",
             DialogKind::Connections => "/connections",
@@ -188,7 +188,7 @@ impl DialogKind {
             | DialogKind::UsageStats
             | DialogKind::Quotas => DialogScope::Global,
             // Session: bound to the ambient session; unwound on session change.
-            DialogKind::SessionStats
+            DialogKind::ThreadStats
             | DialogKind::SessionTrace
             | DialogKind::SessionTree
             | DialogKind::Tools
@@ -1187,6 +1187,18 @@ impl SurfaceRouter {
         sheets
     }
 
+    /// Remove any occurrences of a specific sheet from the overlay stack.
+    pub fn dismiss_sheet_kind(&mut self, sheet: SheetKind) {
+        let mut idx = self.overlay_stack.len();
+        while idx > 0 {
+            idx -= 1;
+            if self.overlay_stack[idx].overlay == OverlaySurface::Sheet(sheet) {
+                let entry = self.overlay_stack.remove(idx);
+                self.retire(entry);
+            }
+        }
+    }
+
     /// Check if a specific dialog is anywhere in the overlay stack.
     pub fn contains_dialog(&self, id: DialogKind) -> bool {
         self.overlay_stack
@@ -1312,7 +1324,7 @@ mod tests {
             assert_eq!(id.scope(), DialogScope::Global, "{id:?}");
         }
         for id in [
-            DialogKind::SessionStats,
+            DialogKind::ThreadStats,
             DialogKind::SessionTrace,
             DialogKind::SessionTree,
             DialogKind::Tools,
@@ -1347,7 +1359,7 @@ mod tests {
             RetentionPolicy::Retained
         );
         assert_eq!(
-            DialogKind::SessionStats.retention_policy(),
+            DialogKind::ThreadStats.retention_policy(),
             RetentionPolicy::SessionScoped
         );
         assert_eq!(
@@ -1380,9 +1392,9 @@ mod tests {
     fn unwind_session_removes_session_dialogs_and_preserves_global() {
         let mut router = SurfaceRouter::new();
         router.present_dialog(DialogKind::Models);
-        router.present_dialog(DialogKind::SessionStats);
+        router.present_dialog(DialogKind::ThreadStats);
         router.unwind_session();
-        assert!(!router.contains_dialog(DialogKind::SessionStats));
+        assert!(!router.contains_dialog(DialogKind::ThreadStats));
         assert!(router.contains_dialog(DialogKind::Models));
     }
 
@@ -1461,16 +1473,16 @@ mod tests {
         // and reinstated on return; global state is never touched.
         let mut d = Dialogs::default();
         d.switch_session("a");
-        d.session_stats.scroll = 11;
+        d.thread_stats.scroll = 11;
         d.models.scroll = 3;
         d.switch_session("b");
-        assert_eq!(d.session_stats.scroll, 0, "fresh session starts clean");
+        assert_eq!(d.thread_stats.scroll, 0, "fresh session starts clean");
         assert_eq!(d.models.scroll, 3, "global state untouched");
-        d.session_stats.scroll = 22;
+        d.thread_stats.scroll = 22;
         d.switch_session("a");
-        assert_eq!(d.session_stats.scroll, 11, "session A reinstated");
+        assert_eq!(d.thread_stats.scroll, 11, "session A reinstated");
         d.switch_session("b");
-        assert_eq!(d.session_stats.scroll, 22, "session B reinstated");
+        assert_eq!(d.thread_stats.scroll, 22, "session B reinstated");
     }
 
     #[test]

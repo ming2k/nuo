@@ -327,12 +327,12 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
         ),
         (
             "/stats",
-            "View context token accounting and session stats",
+            "View context token accounting and thread stats",
             &[
                 "stats",
                 "tokens",
                 "context",
-                "session-stats",
+                "thread-stats",
                 "tps",
                 "streaming-rate",
             ],

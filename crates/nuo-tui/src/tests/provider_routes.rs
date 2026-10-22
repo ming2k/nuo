@@ -1189,3 +1189,226 @@ fn test_tui_connection_editor_cycles_budget_and_renders_detail() {
         "Budget Policy row must be rendered in detail body"
     );
 }
+
+#[test]
+fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_editor() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let antigravity = crate::PROVIDER_PRESETS
+        .iter()
+        .find(|p| p.id == "google-antigravity")
+        .expect("antigravity preset exists");
+
+    app.open_preset_chooser();
+    app.begin_oauth_add(antigravity, nuo_wire::LoginMethod::Browser);
+    assert_eq!(
+        app.surfaces.active_sheet(),
+        Some(crate::surfaces::SheetKind::OAuthPending)
+    );
+
+    // Simulate mouse interaction during verification:
+    // 1. User sets an active selection range (e.g. dragging over verification URL or code)
+    app.selection = crate::model::selection::SelectionState::Range {
+        anchor: crate::model::layout::SemanticCursor::new(
+            crate::model::layout::MODAL_DOC_MSG_IDX,
+            0,
+            5,
+        ),
+        head: crate::model::layout::SemanticCursor::new(
+            crate::model::layout::MODAL_DOC_MSG_IDX,
+            0,
+            15,
+        ),
+    };
+    // 2. Transcript focus might have been falsely set by mouse click
+    app.transcript_focused = true;
+
+    // Now OAuth succeeds, server sends Done signal
+    app.open_oauth_instance_name_editor();
+
+    // Invariants that MUST hold:
+    assert_eq!(
+        app.surfaces.active_sheet(),
+        Some(crate::surfaces::SheetKind::CustomProvider),
+        "CustomProvider name editor must be active"
+    );
+    assert!(
+        !app.surfaces
+            .contains_sheet(crate::surfaces::SheetKind::OAuthPending),
+        "OAuthPending must be pruned from the overlay stack"
+    );
+    assert_eq!(
+        app.selection,
+        crate::model::selection::SelectionState::None,
+        "Selection must be cleared on transition to name editor"
+    );
+    assert!(
+        !app.transcript_focused,
+        "Transcript focus must be false when entering name editor"
+    );
+    assert!(app.caret_visible(), "Caret must be visible in name editor");
+    assert_eq!(
+        app.caret_owner(),
+        crate::CaretOwner::Overlay,
+        "CustomProvider name editor owns the overlay caret"
+    );
+
+    // Typing must work!
+    let mut input = app.input.clone();
+    let mut cursor = app.cursor_position;
+    let action = crate::input::route_event(
+        crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('!'),
+            crossterm::event::KeyModifiers::NONE,
+        )),
+        &mut input,
+        &mut cursor,
+        crate::input::Dispatch {
+            overlay: app.surfaces.active_overlay(),
+            sheet: None,
+            pre_attach: false,
+            scene: app.current_scene(),
+            key_overrides: Default::default(),
+            focused_target: false,
+            transcript_focused: app.transcript_focused,
+            scene_blocked: false,
+            scene_namespace_armed: false,
+        },
+        &crate::modal_keys::ModalKeys {
+            custom_provider_field: Some(app.custom_field),
+            ..Default::default()
+        },
+        &crate::sheet::SheetKeys::default(),
+        &crate::session::SceneKeys::default(),
+        &mut app.drag,
+    );
+
+    assert_eq!(action, crate::input::InputAction::InsertChar('!'));
+    assert!(
+        input.ends_with('!'),
+        "Character must be appended to the input buffer"
+    );
+}
+
+#[test]
+fn oauth_cancel_pops_cleanly_without_bouncing_loop() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let antigravity = crate::PROVIDER_PRESETS
+        .iter()
+        .find(|p| p.id == "google-antigravity")
+        .expect("antigravity preset exists");
+
+    // 1. Open Connections dialog
+    app.open_dialog(crate::surfaces::DialogKind::Connections);
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::Connections)
+    );
+
+    // 2. Open preset chooser
+    app.open_preset_chooser();
+    assert_eq!(
+        app.surfaces.active_sheet(),
+        Some(crate::surfaces::SheetKind::ProviderPreset)
+    );
+
+    // 3. Begin OAuth
+    app.begin_oauth_add(antigravity, nuo_wire::LoginMethod::Browser);
+    assert_eq!(
+        app.surfaces.active_sheet(),
+        Some(crate::surfaces::SheetKind::OAuthPending)
+    );
+
+    // Stack should have: [Dialog(Connections), Sheet(ProviderPreset), Sheet(OAuthPending)]
+    assert_eq!(app.surfaces.overlay_stack().len(), 3);
+
+    // 4. Cancel OAuth (Esc on OAuthPending)
+    app.cancel_oauth_pending();
+
+    // OAuthPending must be dismissed, revealing ProviderPreset underneath!
+    assert_eq!(
+        app.surfaces.active_sheet(),
+        Some(crate::surfaces::SheetKind::ProviderPreset),
+        "Cancelling OAuthPending must reveal the underlying ProviderPreset"
+    );
+    assert!(
+        !app.surfaces
+            .contains_sheet(crate::surfaces::SheetKind::OAuthPending),
+        "No OAuthPending left on stack"
+    );
+
+    // 5. Cancel Preset Chooser (Esc on ProviderPreset)
+    app.cancel_preset_chooser();
+
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::Connections),
+        "Cancelling ProviderPreset must reveal the underlying Connections dialog"
+    );
+    assert!(
+        !app.surfaces
+            .contains_sheet(crate::surfaces::SheetKind::ProviderPreset),
+        "No ProviderPreset left on stack"
+    );
+    assert!(
+        !app.surfaces
+            .contains_sheet(crate::surfaces::SheetKind::OAuthPending),
+        "No OAuthPending left on stack"
+    );
+
+    // 6. Dismiss Connections dialog -> cleanly returns to main scene
+    assert!(app.dismiss_surface());
+    assert!(app.surfaces.active_overlay().is_none());
+}
+
+#[test]
+fn oauth_success_name_editor_cancel_pops_cleanly() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let antigravity = crate::PROVIDER_PRESETS
+        .iter()
+        .find(|p| p.id == "google-antigravity")
+        .expect("antigravity preset exists");
+
+    app.open_dialog(crate::surfaces::DialogKind::Connections);
+    app.open_preset_chooser();
+    app.begin_oauth_add(antigravity, nuo_wire::LoginMethod::Browser);
+
+    // Simulate OAuth Done signal -> opens name editor
+    app.open_oauth_instance_name_editor();
+    assert_eq!(
+        app.surfaces.active_sheet(),
+        Some(crate::surfaces::SheetKind::CustomProvider)
+    );
+    assert!(
+        !app.surfaces
+            .contains_sheet(crate::surfaces::SheetKind::OAuthPending),
+        "OAuthPending must be pruned on success"
+    );
+
+    // Cancel in Name editor (Esc)
+    app.cancel_custom_provider();
+
+    // Must NOT reveal OAuthPending!
+    assert_ne!(
+        app.surfaces.active_sheet(),
+        Some(crate::surfaces::SheetKind::OAuthPending),
+        "Cancelling name editor must NEVER reveal OAuthPending"
+    );
+    assert!(
+        !app.surfaces
+            .contains_sheet(crate::surfaces::SheetKind::OAuthPending),
+        "Overlay stack must remain free of zombie OAuthPending"
+    );
+
+    // Should reveal ProviderPreset (the parent that opened it)
+    assert_eq!(
+        app.surfaces.active_sheet(),
+        Some(crate::surfaces::SheetKind::ProviderPreset)
+    );
+
+    // Esc from ProviderPreset reveals Connections
+    app.cancel_preset_chooser();
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::Connections)
+    );
+}

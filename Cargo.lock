@@ -1877,22 +1877,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nuo-decision"
-version = "0.0.45"
-dependencies = [
- "async-trait",
- "bytes",
- "http",
- "netune",
- "netune-trace",
- "nuo-inference-wire",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tracing",
-]
-
-[[package]]
 name = "nuo-egress"
 version = "0.0.45"
 dependencies = [
@@ -2088,7 +2072,6 @@ dependencies = [
  "futures",
  "hex",
  "inventory",
- "nuo-decision",
  "nuo-host",
  "nuo-inference-wire",
  "nuo-mcp",

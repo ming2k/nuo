@@ -58,8 +58,8 @@ fn dialog_keys_area(frame: &Frame, parent: DialogKind, desired_content_rows: u16
             let desired = desired_content_rows + modal_chrome_rows(spec.modal_spec());
             content_modal_area(frame, spec, desired)
         }
-        DialogKind::SessionStats => {
-            let spec = ContentModalSpec::SESSION_STATS;
+        DialogKind::ThreadStats => {
+            let spec = ContentModalSpec::THREAD_STATS;
             let desired = desired_content_rows + modal_chrome_rows(spec.modal_spec());
             content_modal_area(frame, spec, desired)
         }

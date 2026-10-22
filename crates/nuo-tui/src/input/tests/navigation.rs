@@ -293,7 +293,7 @@ fn page_keys_scroll_every_scrollable_modal_body() {
         SurfaceFixture::UsageStats,
         SurfaceFixture::Permissions,
         SurfaceFixture::Config,
-        SurfaceFixture::SessionStats,
+        SurfaceFixture::ThreadStats,
         SurfaceFixture::SessionTrace,
         SurfaceFixture::OauthPending,
         SurfaceFixture::ProviderPreset,

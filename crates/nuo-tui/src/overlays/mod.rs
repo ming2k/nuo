@@ -66,7 +66,7 @@ pub use quotas::draw_quotas_modal;
 pub use session::draw_sessions_modal;
 pub use skills::draw_skills_modal;
 pub use telemetry::{
-    ContextUsageProps, draw_session_stats_modal, draw_session_trace_modal, telemetry_attempt_count,
+    ContextUsageProps, draw_session_trace_modal, draw_thread_stats_modal, telemetry_attempt_count,
     telemetry_attempt_key, telemetry_round_count,
 };
 pub use toast::{draw_armed_toast, draw_copy_toast, draw_notice_toast};

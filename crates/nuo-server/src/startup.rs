@@ -333,10 +333,10 @@ define_builtin_commands! {
         category: Session,
     },
     Stats = "/stats" : {
-        summary: "View context token accounting and session stats",
+        summary: "View context token accounting and thread stats",
         usage: ["/stats"],
-        examples: [("/stats", "Open session stats overlay")],
-        intent_keywords: ["stats", "tokens", "context", "session-stats", "tps", "streaming-rate"],
+        examples: [("/stats", "Open thread stats overlay")],
+        intent_keywords: ["stats", "tokens", "context", "thread-stats", "tps", "streaming-rate"],
         category: Session,
     },
     Trace = "/trace" : {

@@ -10,7 +10,7 @@ use super::common::{
     draw_picker_search_row, match_set, place_picker_search_cursor, render_pricing_detail_rows,
     search_empty_body, split_search_bottom,
 };
-use crate::components::detail::{detail_kv_row, detail_section_row};
+use crate::components::detail::DetailLayout;
 use crate::components::options::{ChoiceTone, choice_style};
 use crate::components::row::{ListRow, RowGroup};
 use crate::components::selectable_body::{SelectableRow, render_selectable_body};
@@ -547,55 +547,40 @@ pub(crate) fn model_detail_body(
     _body_width: usize,
     theme: &Theme,
 ) -> Vec<SelectableRow> {
-    let mut rows = Vec::new();
+    let mut layout = DetailLayout::new(theme);
     let value_style = Style::default().fg(theme.fg()).add_modifier(Modifier::BOLD);
 
-    let kv = |label: &str, val: &str, val_style: Style| detail_kv_row(label, val, val_style, theme);
-
     // 1. Identity section
-    rows.push(detail_section_row("Identity", theme));
+    layout = layout.section("Identity");
     if let Some(name) = &rm.name {
-        rows.push(kv("Display Name", name, value_style));
+        layout = layout.kv_styled("Display Name", name, value_style);
     }
-    rows.push(kv("Wire ID", &rm.model, value_style));
-    rows.push(kv(
+    layout = layout.kv_styled("Wire ID", &rm.model, value_style);
+    layout = layout.kv(
         "Connection",
         &format!("{} ({})", rm.provider_label, rm.provider_id),
-        Style::default().fg(theme.fg()),
-    ));
-
-    rows.push(SelectableRow::empty());
+    );
 
     // 2. Capabilities section
-    rows.push(detail_section_row("Capabilities", theme));
-    rows.push(kv(
-        "Context Window",
-        &format!("{} tokens", rm.context_window),
-        Style::default().fg(theme.fg()),
-    ));
+    layout = layout.section("Capabilities");
+    layout = layout.kv("Context Window", &format!("{} tokens", rm.context_window));
     if !rm.effort_levels.is_empty() {
-        rows.push(kv(
-            "Reasoning Tiers",
-            &rm.effort_levels.join(" · "),
-            Style::default().fg(theme.fg()),
-        ));
+        layout = layout.kv("Reasoning Tiers", &rm.effort_levels.join(" · "));
     }
 
     // 3. Pricing section (if declared or recognized)
     if let Some(pricing_rows) =
         render_pricing_detail_rows(&rm.provider_id, &rm.model, None, "Pricing", theme)
     {
-        rows.extend(pricing_rows);
+        layout = layout.raw_rows(pricing_rows);
     }
-
-    rows.push(SelectableRow::empty());
 
     // 4. Status or Configuration section
     if rm.usable {
-        rows.push(detail_section_row("Configuration", theme));
+        layout = layout.section("Configuration");
         if !rm.effort_levels.is_empty() || rm.effort.is_some() {
             let current_effort = rm.effort.as_deref().unwrap_or("medium");
-            rows.push(kv("Reasoning Effort", current_effort, value_style));
+            layout = layout.kv_styled("Reasoning Effort", current_effort, value_style);
         }
         if let Some(thinking) = rm.thinking {
             let check = if thinking { "on" } else { "off" };
@@ -604,44 +589,40 @@ pub(crate) fn model_detail_body(
             } else {
                 Style::default().fg(theme.dim())
             };
-            rows.push(kv("Thinking", check, style));
+            layout = layout.kv_styled("Thinking", check, style);
         }
         if rm.effort_levels.is_empty() && rm.effort.is_none() && rm.thinking.is_none() {
-            rows.push(kv("Mode", "Standard", Style::default().fg(theme.fg())));
+            layout = layout.kv("Mode", "Standard");
         }
     } else {
-        rows.push(detail_section_row("Availability", theme));
-        rows.push(kv(
+        layout = layout.section("Availability");
+        layout = layout.kv_styled(
             "Status",
             "Locked",
             Style::default()
                 .fg(theme.warn())
                 .add_modifier(Modifier::BOLD),
-        ));
+        );
         let reason_text = rm
             .locked_reason
             .as_deref()
             .unwrap_or("Model requires subscription or account entitlement.");
-        rows.push(kv(
-            "Reason",
-            reason_text,
-            Style::default().fg(theme.muted()),
-        ));
+        layout = layout.kv_muted("Reason", reason_text);
         if rm.availability_overridden {
-            rows.push(kv(
+            layout = layout.kv_styled(
                 "Scope Override",
                 "Allowed by user scope",
                 Style::default().fg(theme.ok()),
-            ));
+            );
         }
         if rm.availability_stale {
-            rows.push(kv(
+            layout = layout.kv_styled(
                 "Notice",
                 "Verdict observed before catalog refresh failure; may be stale upstream.",
                 Style::default().fg(theme.dim()),
-            ));
+            );
         }
     }
 
-    rows
+    layout.build()
 }

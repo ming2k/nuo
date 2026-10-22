@@ -394,6 +394,32 @@ fn build_provider_dispatches_anthropic_transport() {
 }
 
 #[test]
+fn build_provider_dispatches_google_interactions_transport() {
+    let channel = Channel {
+        id: "gemini-3.8-flash".to_string(),
+        transport: Transport::GoogleInteractions {
+            base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
+            client_profile: nuo_inference_wire::ClientProfile::Native,
+            effort: None,
+            dialect: Default::default(),
+        },
+        credentials: nuo_inference_wire::static_credential("goog-key"),
+        model: "gemini-3.8-flash".to_string(),
+        remote: None,
+        user_overrides: None,
+        prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+        prompt_cache: nuo_inference_wire::PromptCacheCapabilities::unsupported(),
+    };
+    let provider = build_provider_for_channel(&channel, "google", None);
+    assert_eq!(provider.provider_id(), "google");
+    assert_eq!(provider.model(), "gemini-3.8-flash");
+    assert_eq!(
+        provider.wire_protocol(),
+        Some(nuo_inference_wire::WireProtocol::GoogleInteractions)
+    );
+}
+
+#[test]
 fn builtin_provider_models_resolve_with_expected_wire_formats() {
     use nuo_inference_wire::WireProtocol;
     let cases: &[(&str, &[&str], WireProtocol)] = &[

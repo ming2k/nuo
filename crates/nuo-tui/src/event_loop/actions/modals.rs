@@ -520,13 +520,11 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
             app.set_active_follow(true);
             app.pop_transient_surface();
         } else if app.surfaces.contains_sheet(SheetKind::CustomProvider) {
-            app.input.clear();
-            app.set_cursor(0);
-            app.custom_field = 0;
-            app.set_picker_search(false);
-            app.set_active_follow(true);
-            app.set_active_index(0);
-            app.pop_transient_surface();
+            app.cancel_custom_provider();
+        } else if app.surfaces.contains_sheet(SheetKind::OAuthPending) {
+            app.cancel_oauth_pending();
+        } else if app.surfaces.contains_sheet(SheetKind::ProviderPreset) {
+            app.cancel_preset_chooser();
         }
         // Nothing left to dismiss: the gesture is spent. The Scene beneath is
         // deliberately left exactly as it was — a dismiss never navigates

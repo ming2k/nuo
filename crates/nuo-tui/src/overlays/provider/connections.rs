@@ -8,10 +8,7 @@ use super::common::{
     draw_picker_search_row, match_set, place_picker_search_cursor, render_pricing_detail_rows,
     search_empty_body, split_search_body,
 };
-use crate::components::detail::{
-    detail_kv_row, detail_kv_row_indented, detail_kv_row_segments, detail_section_row,
-    format_detail_label,
-};
+use crate::components::detail::{DetailLayout, format_detail_label, render_progress_bar_spans};
 use crate::components::options::{ChoiceTone, choice_style};
 use crate::components::row::{GUTTER, ListRow, RowGroup, RowStyledAtom};
 use crate::components::selectable_body::{RowSegment, SelectableRow, render_selectable_body};
@@ -399,35 +396,6 @@ pub(crate) fn format_reset_countdown(
     None
 }
 
-/// Render a terminal progress bar (e.g. `[████████░░░░░░]`).
-pub(crate) fn render_progress_bar_spans(
-    used_fraction: f32,
-    bar_width: usize,
-    theme: &Theme,
-) -> Vec<Span<'static>> {
-    let clamped = used_fraction.clamp(0.0, 1.0);
-    let filled_count = (clamped * bar_width as f32).round() as usize;
-    let empty_count = bar_width.saturating_sub(filled_count);
-
-    let color = if clamped >= 0.90 {
-        theme.err()
-    } else if clamped >= 0.70 {
-        theme.warn()
-    } else {
-        theme.ok()
-    };
-
-    let filled_str = "█".repeat(filled_count);
-    let empty_str = "░".repeat(empty_count);
-
-    vec![
-        Span::styled("[", Style::default().fg(theme.dim())),
-        Span::styled(filled_str, Style::default().fg(color)),
-        Span::styled(empty_str, Style::default().fg(theme.dim())),
-        Span::styled("]", Style::default().fg(theme.dim())),
-    ]
-}
-
 /// Render the detail body rows for one connection (configuration + caller identity + models + provider usage).
 pub(crate) fn connection_detail_body(
     detail: &nuo_wire::ConnectionDetail,
@@ -443,42 +411,39 @@ pub(crate) fn connection_detail_body(
     let highlight = Style::default().fg(theme.primary);
     let warning = Style::default().fg(theme.warning);
 
-    let kv = |k: &str, v: &str| detail_kv_row(k, v, value, theme);
-
     let provider_display = if !detail.provider_label.is_empty() {
         detail.provider_label.as_str()
     } else {
         nuo_wire::model_providers::model_provider_label(&detail.provider)
     };
 
-    let mut rows: Vec<SelectableRow> = vec![
-        detail_section_row("Configuration", theme),
-        kv("Name", &detail.name),
-        kv("Provider", provider_display),
-        kv("Protocol", &detail.protocol),
-        kv("Base URL", &detail.base_url),
-        kv("Auth Type", &detail.auth_type),
-    ];
+    let mut layout = DetailLayout::new(theme)
+        .section("Configuration")
+        .kv("Name", &detail.name)
+        .kv("Provider", provider_display)
+        .kv("Protocol", &detail.protocol)
+        .kv("Base URL", &detail.base_url)
+        .kv("Auth Type", &detail.auth_type);
+
     match &detail.budget {
         nuo_wire::ConnectionBudget::Remote => {
-            rows.push(kv("Budget Policy", "Remote (Upstream Managed)"));
+            layout = layout.kv("Budget Policy", "Remote (Upstream Managed)");
         }
         nuo_wire::ConnectionBudget::Local { limit, period, .. } => {
             let budget_str = format!("Local ({}, {} cap)", limit.format_usd(), period.label());
-            rows.push(detail_kv_row("Budget Policy", &budget_str, warning, theme));
+            layout = layout.kv_styled("Budget Policy", &budget_str, warning);
         }
     }
     if let Some(masked) = &detail.api_key_masked {
-        rows.push(detail_kv_row_segments(
+        layout = layout.kv_segments(
             "API Key",
             vec![
                 RowSegment::styled(masked.clone(), value),
                 RowSegment::styled(format!(" ({})", detail.api_key_source), muted),
             ],
-            theme,
-        ));
+        );
     } else {
-        rows.push(kv("Credential", &detail.api_key_source));
+        layout = layout.kv("Credential", &detail.api_key_source);
     }
     if let Some(active) = &detail.active_model {
         let mut segments = vec![RowSegment::styled(active.clone(), value)];
@@ -490,22 +455,22 @@ pub(crate) fn connection_detail_body(
         } else if detail.active_model_thinking == Some(true) {
             segments.push(RowSegment::styled("  ·  thinking: enabled", muted));
         }
-        rows.push(detail_kv_row_segments("Default Active", segments, theme));
+        layout = layout.kv_segments("Default Active", segments);
     }
 
     // Client Profile
-    rows.push(SelectableRow::empty());
-    rows.push(detail_section_row("Client Profile", theme));
-    rows.push(kv("Preset", detail.client_identity.label()));
-    rows.push(kv("User-Agent", &detail.user_agent));
+    layout = layout
+        .section("Client Profile")
+        .kv("Preset", detail.client_identity.label())
+        .kv("User-Agent", &detail.user_agent);
     let client_headers = detail.client_identity.headers();
     if !client_headers.is_empty() {
-        rows.push(SelectableRow::styled(
+        layout = layout.raw_row(SelectableRow::styled(
             format_detail_label("Client Headers"),
             label,
         ));
         for (k, v) in client_headers {
-            rows.push(
+            layout = layout.raw_row(
                 SelectableRow::from_segments(vec![
                     RowSegment::styled(format!("{k}: "), label),
                     RowSegment::styled(v.to_string(), value),
@@ -516,15 +481,14 @@ pub(crate) fn connection_detail_body(
     }
 
     // Served Models
-    rows.push(SelectableRow::empty());
     let models_title = if detail.models.is_empty() {
         "Served Models".to_string()
     } else {
         format!("Served Models ({})", detail.models.len())
     };
-    rows.push(SelectableRow::styled(models_title, header_style));
+    layout = layout.section(&models_title);
     if detail.models.is_empty() {
-        rows.push(
+        layout = layout.raw_row(
             SelectableRow::styled("(no models configured)", muted)
                 .with_prefix(RowSegment::styled("  ", muted)),
         );
@@ -533,28 +497,29 @@ pub(crate) fn connection_detail_body(
             .active_model
             .as_deref()
             .unwrap_or("(none configured)");
-        rows.push(
-            SelectableRow::styled(
-                format!(
-                    "{} discovered  ·  default: {}",
-                    detail.models.len(),
-                    active_desc
-                ),
-                value,
+        layout = layout
+            .raw_row(
+                SelectableRow::styled(
+                    format!(
+                        "{} discovered  ·  default: {}",
+                        detail.models.len(),
+                        active_desc
+                    ),
+                    value,
+                )
+                .with_prefix(RowSegment::styled(format_detail_label("Catalog"), label)),
             )
-            .with_prefix(RowSegment::styled(format_detail_label("Catalog"), label)),
-        );
-        rows.push(
-            SelectableRow::from_segments(vec![
-                RowSegment::styled("[ m ] ", highlight.add_modifier(Modifier::BOLD)),
-                RowSegment::styled("Browse & filter in /models", muted),
-            ])
-            .with_prefix(RowSegment::styled(format_detail_label("Action"), label)),
-        );
+            .raw_row(
+                SelectableRow::from_segments(vec![
+                    RowSegment::styled("[ m ] ", highlight.add_modifier(Modifier::BOLD)),
+                    RowSegment::styled("Browse & filter in /models", muted),
+                ])
+                .with_prefix(RowSegment::styled(format_detail_label("Action"), label)),
+            );
     }
 
     // Provider Usage & Quota
-    rows.push(SelectableRow::empty());
+    layout = layout.empty_row();
     let mut quota_header_segments =
         vec![RowSegment::styled("Provider Usage & Quota", header_style)];
     if let nuo_wire::ConnectionUsageState::Available(usage) = &detail.usage
@@ -571,7 +536,7 @@ pub(crate) fn connection_detail_body(
                 .add_modifier(Modifier::BOLD),
         ));
     }
-    rows.push(SelectableRow::from_segments(quota_header_segments));
+    layout = layout.raw_row(SelectableRow::from_segments(quota_header_segments));
 
     match &detail.usage {
         nuo_wire::ConnectionUsageState::Available(usage) => {
@@ -642,38 +607,36 @@ pub(crate) fn connection_detail_body(
                         }
                     }
                 }
-                rows.extend(quota_lines.into_iter().map(SelectableRow::from_line));
+                layout = layout.raw_rows(quota_lines.into_iter().map(SelectableRow::from_line));
             }
 
             if !rendered_quota {
                 if let Some(bal) = &usage.primary_balance {
-                    rows.push(detail_kv_row_indented(
+                    layout = layout.kv_indented(
                         2,
                         "Primary Balance",
                         bal,
                         highlight.add_modifier(Modifier::BOLD),
-                        theme,
-                    ));
+                    );
                 }
                 for metric in &usage.metrics {
                     let val = match &metric.unit {
                         Some(u) => format!("{} {}", metric.value, u),
                         None => metric.value.clone(),
                     };
-                    rows.push(detail_kv_row_indented(2, &metric.label, &val, value, theme));
+                    layout = layout.kv_indented(2, &metric.label, &val, value);
                 }
             }
 
             if let Some(desc) = &usage.description {
-                rows.push(SelectableRow::empty());
-                rows.push(
+                layout = layout.empty_row().raw_row(
                     SelectableRow::styled(desc.clone(), muted)
                         .with_prefix(RowSegment::styled("  ", muted)),
                 );
             }
         }
         nuo_wire::ConnectionUsageState::Unsupported => {
-            rows.push(
+            layout = layout.raw_row(
                 SelectableRow::styled(
                     "Usage and quota query is not supported for this provider endpoint.",
                     muted,
@@ -682,7 +645,7 @@ pub(crate) fn connection_detail_body(
             );
         }
         nuo_wire::ConnectionUsageState::Error(err) => {
-            rows.push(
+            layout = layout.raw_row(
                 SelectableRow::from_segments(vec![
                     RowSegment::styled("⚠ Usage query failed: ", warning),
                     RowSegment::styled(err.clone(), value),
@@ -692,7 +655,7 @@ pub(crate) fn connection_detail_body(
         }
         nuo_wire::ConnectionUsageState::Fetching => {
             let spin = theme.glyphs.spinner_frame(spinner_phase);
-            rows.push(
+            layout = layout.raw_row(
                 SelectableRow::from_segments(vec![
                     RowSegment::styled(format!("{spin} "), Style::default().fg(theme.primary)),
                     RowSegment::styled("Querying upstream provider quota & balance…", muted),
@@ -701,6 +664,8 @@ pub(crate) fn connection_detail_body(
             );
         }
     }
+
+    let mut rows = layout.build();
 
     // Active Model Pricing & Rates (if recognized)
     if let Some(active) = &detail.active_model

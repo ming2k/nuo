@@ -1,18 +1,18 @@
-//! Endpoint definition for System One decision models.
+//! Endpoint configuration for System One discriminative models.
 
-use crate::decision::protocol::DecisionProtocol;
-use nuo_inference_wire::credentials::{CredentialsProvider, StaticApiKey};
-use nuo_inference_wire::error::Result;
+use crate::credentials::{CredentialsProvider, StaticApiKey};
+use crate::discriminative::protocol::DiscriminativeProtocol;
+use crate::error::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Endpoint configuration for System One decision models (e.g. TypeSafe Jev).
+/// Endpoint configuration for System One discriminative models (e.g. TypeSafe Jev).
 #[derive(Clone)]
-pub struct DecisionEndpoint {
-    pub protocol: DecisionProtocol,
+pub struct DiscriminativeEndpoint {
+    pub protocol: DiscriminativeProtocol,
     pub base_url: String,
     pub credentials: Arc<dyn CredentialsProvider>,
     pub model: String,
@@ -20,9 +20,9 @@ pub struct DecisionEndpoint {
     pub custom_headers: HashMap<String, String>,
 }
 
-impl std::fmt::Debug for DecisionEndpoint {
+impl std::fmt::Debug for DiscriminativeEndpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DecisionEndpoint")
+        f.debug_struct("DiscriminativeEndpoint")
             .field("protocol", &self.protocol)
             .field("base_url", &self.base_url)
             .field("model", &self.model)
@@ -32,9 +32,9 @@ impl std::fmt::Debug for DecisionEndpoint {
     }
 }
 
-impl DecisionEndpoint {
+impl DiscriminativeEndpoint {
     pub fn new(
-        protocol: DecisionProtocol,
+        protocol: DiscriminativeProtocol,
         base_url: impl Into<String>,
         api_key: impl Into<String>,
         model: impl Into<String>,
@@ -56,7 +56,7 @@ impl DecisionEndpoint {
     /// Creates an endpoint pre-configured for TypeSafe AI / Jev.
     pub fn typesafe(api_key: impl Into<String>, model: impl Into<String>) -> Self {
         Self::new(
-            DecisionProtocol::TypeSafeSystemOne,
+            DiscriminativeProtocol::TypeSafeSystemOne,
             "https://api.typesafe.ai/v1",
             api_key,
             model,

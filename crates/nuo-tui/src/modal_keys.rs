@@ -241,7 +241,7 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Sheet(SheetKind::CustomProvider) => {
                         InputAction::ScrollCustomProvider { forward: false }
                     }
-                    OverlaySurface::Dialog(DialogKind::UsageStats | DialogKind::SessionStats) => {
+                    OverlaySurface::Dialog(DialogKind::UsageStats | DialogKind::ThreadStats) => {
                         InputAction::ScrollUp
                     }
                     _ => return None,
@@ -281,7 +281,7 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Sheet(SheetKind::CustomProvider) => {
                         InputAction::ScrollCustomProvider { forward: true }
                     }
-                    OverlaySurface::Dialog(DialogKind::UsageStats | DialogKind::SessionStats) => {
+                    OverlaySurface::Dialog(DialogKind::UsageStats | DialogKind::ThreadStats) => {
                         InputAction::ScrollDown
                     }
                     _ => return None,
@@ -441,8 +441,8 @@ pub(crate) fn resolve_modal_key(
                 'r' | 'R' => Some(InputAction::RefreshQuotas),
                 _ => None,
             },
-            OverlaySurface::Dialog(DialogKind::SessionStats) => match c {
-                't' | 'T' => Some(InputAction::SessionStatsOpenTrace),
+            OverlaySurface::Dialog(DialogKind::ThreadStats) => match c {
+                't' | 'T' => Some(InputAction::ThreadStatsOpenTrace),
                 _ => None,
             },
             OverlaySurface::Dialog(DialogKind::Models) if keys.model_info_detail => match c {

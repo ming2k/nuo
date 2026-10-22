@@ -110,7 +110,6 @@ nuo-provider-zai = { version = "0.0.45", path = "providers/nuo-provider-zai" }
 nuo-provider-siliconflow = { version = "0.0.45", path = "providers/nuo-provider-siliconflow" }
 nuo-mcp = { version = "0.0.45", path = "crates/nuo-mcp" }
 nuo-inference-wire = { version = "0.0.45", path = "crates/nuo-inference-wire", default-features = false }
-nuo-decision = { version = "0.0.45", path = "crates/nuo-decision", default-features = false }
 
 # Terminal Substrate (Nuotc)
 nuotc = "0.0.3"

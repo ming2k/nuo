@@ -394,15 +394,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             select_connection_preset(app, Some(method));
         }
         input::InputAction::CancelOauthPending => {
-            if app.surfaces.contains_sheet(SheetKind::OAuthPending) {
-                app.send_intent(AgentRequest::CancelAuthorizeOAuth);
-                app.awaiting_oauth_add = false;
-                app.oauth_pending_url.clear();
-                app.oauth_pending_user_code.clear();
-                app.oauth_pending_message.clear();
-                app.oauth_pending_error = None;
-                app.open_preset_chooser();
-            }
+            app.cancel_oauth_pending();
         }
         input::InputAction::CycleOauthSelection => {
             if app.surfaces.contains_sheet(SheetKind::OAuthPending) {
@@ -450,15 +442,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::CancelPresetChooser => {
-            // Return to the Connections list the chooser was opened
-            // from; the chat draft stays parked in stashed_input.
-            if app.surfaces.contains_sheet(SheetKind::ProviderPreset) {
-                app.input.clear();
-                app.set_cursor(0);
-                app.pop_transient_surface();
-                app.set_picker_search(false);
-                app.reset_picker_nav();
-            }
+            app.cancel_preset_chooser();
         }
         input::InputAction::DeleteProvider => {
             // Connections `Shift+D`: stage the highlighted custom
@@ -485,17 +469,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             app.cancel_provider_delete();
         }
         input::InputAction::CancelCustomProvider => {
-            // Return to the Connections list the editor was opened
-            // from; the chat draft stays parked in stashed_input.
-            if app.surfaces.contains_sheet(SheetKind::CustomProvider) {
-                app.input.clear();
-                app.set_cursor(0);
-                app.custom_field = 0;
-                app.custom_edit_id = None;
-                app.pop_transient_surface();
-                app.set_picker_search(false);
-                app.reset_picker_nav();
-            }
+            app.cancel_custom_provider();
         }
         input::InputAction::SubmitCustomProvider => {
             modals::handle_submit_custom_provider(app);
@@ -1516,7 +1490,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 }
             }
         }
-        input::InputAction::SessionStatsOpenTrace => {
+        input::InputAction::ThreadStatsOpenTrace => {
             enter_panel(
                 app,
                 crate::surfaces::DialogKind::SessionTrace,
@@ -1706,10 +1680,10 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 viewed_session_id,
             );
         }
-        input::InputAction::OpenSessionStats => {
+        input::InputAction::OpenThreadStats => {
             enter_panel(
                 app,
-                crate::surfaces::DialogKind::SessionStats,
+                crate::surfaces::DialogKind::ThreadStats,
                 runtime,
                 viewed_session_id,
             );
@@ -2526,7 +2500,7 @@ pub(super) fn enter_panel(
                 force_refresh: false,
             })
         }
-        DialogKind::SessionStats | DialogKind::SessionTrace if app.token_ledger.is_none() => {
+        DialogKind::ThreadStats | DialogKind::SessionTrace if app.token_ledger.is_none() => {
             if app.token_report.is_none() {
                 Some(AgentRequest::QueryTokenUsage {
                     session_id: viewed_session_id.to_string(),
@@ -3546,6 +3520,38 @@ mod transcript_scroll_tests {
             "dialog dismissed on backdrop click"
         );
     }
+
+    #[tokio::test]
+    async fn mouse_click_on_overlay_modal_does_not_set_transcript_focused() {
+        let mut app = scrollable_app();
+        let runtime = UiRuntime::minimal_for_test();
+        let antigravity = crate::PROVIDER_PRESETS
+            .iter()
+            .find(|p| p.id == "google-antigravity")
+            .expect("antigravity preset exists");
+
+        app.open_preset_chooser();
+        app.begin_oauth_add(antigravity, nuo_wire::LoginMethod::Browser);
+        assert!(!app.transcript_focused);
+
+        // Mount the OAuth overlay area in UI so pointer target falls within overlay
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui.mount(
+            crate::ui::UiKey::Overlay(crate::surfaces::OverlaySurface::Sheet(
+                crate::surfaces::SheetKind::OAuthPending,
+            )),
+            nuotc::Rect::new(10, 5, 60, 14),
+        );
+        app.ui.commit();
+
+        // Mouse click at an arbitrary coordinate inside the overlay where no text cursor exists
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 12, 6).await;
+
+        assert!(
+            !app.transcript_focused,
+            "Click on overlay modal must NOT set transcript_focused to true"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -3781,10 +3787,10 @@ async fn execute_command_by_id(
                 viewed_session_id,
             );
         }
-        CommandId::OpenSessionStats => {
+        CommandId::OpenThreadStats => {
             enter_panel(
                 app,
-                crate::surfaces::DialogKind::SessionStats,
+                crate::surfaces::DialogKind::ThreadStats,
                 runtime,
                 viewed_session_id,
             );
@@ -3797,7 +3803,7 @@ async fn execute_command_by_id(
                 viewed_session_id,
             );
         }
-        CommandId::SessionStatsOpenTrace => {
+        CommandId::ThreadStatsOpenTrace => {
             enter_panel(
                 app,
                 crate::surfaces::DialogKind::SessionTrace,

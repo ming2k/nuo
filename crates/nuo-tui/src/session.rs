@@ -376,7 +376,7 @@ fn resolve_enter(
             "/tools" => InputAction::OpenTools,
             "/usage" => InputAction::OpenUsage,
             "/quota" | "/quotas" => InputAction::OpenQuotas,
-            "/stats" => InputAction::OpenSessionStats,
+            "/stats" => InputAction::OpenThreadStats,
             "/trace" => InputAction::OpenSessionTrace,
             "/mcp" => InputAction::OpenMcp,
             "/skills" => InputAction::OpenSkills,

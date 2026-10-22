@@ -1,4 +1,4 @@
-//! System One typed decision primitives, questions, answers, and payload representations.
+//! Typed discriminative primitives, questions, answers, and payload representations (System One).
 //!
 //! Designed for non-generative, calibrated probability models such as TypeSafe Jev.
 
@@ -65,16 +65,16 @@ impl ScoreQuestion {
     }
 }
 
-/// Strongly typed question primitive for System One models.
+/// Strongly typed question primitive for System One discriminative models.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum DecisionQuestion {
+pub enum Question {
     Noul(NoulQuestion),
     Choice(ChoiceQuestion),
     Score(ScoreQuestion),
 }
 
-impl DecisionQuestion {
+impl Question {
     pub fn noul(instructions: impl Into<String>) -> Self {
         Self::Noul(NoulQuestion::new(instructions))
     }
@@ -171,15 +171,15 @@ impl ScoreAnswer {
     }
 }
 
-/// Typed decision answer.
+/// Typed discriminative answer.
 #[derive(Debug, Clone, PartialEq)]
-pub enum DecisionAnswer {
+pub enum Answer {
     Noul(NoulAnswer),
     Choice(ChoiceAnswer),
     Score(ScoreAnswer),
 }
 
-impl Serialize for DecisionAnswer {
+impl Serialize for Answer {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -200,7 +200,7 @@ impl Serialize for DecisionAnswer {
     }
 }
 
-impl<'de> Deserialize<'de> for DecisionAnswer {
+impl<'de> Deserialize<'de> for Answer {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -254,7 +254,7 @@ impl<'de> Deserialize<'de> for DecisionAnswer {
     }
 }
 
-impl DecisionAnswer {
+impl Answer {
     pub fn as_noul(&self) -> Option<&NoulAnswer> {
         match self {
             Self::Noul(n) => Some(n),
@@ -277,25 +277,25 @@ impl DecisionAnswer {
     }
 }
 
-/// Token usage statistics for a decision request.
+/// Token usage statistics for a discriminative request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct DecisionUsage {
+pub struct DiscriminativeUsage {
     pub input_tokens: usize,
     pub output_tokens: usize,
 }
 
-/// Request payload sent to a System One decision endpoint (such as Jev).
+/// Request payload sent to a System One discriminative endpoint (such as Jev).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DecisionRequest {
+pub struct DiscriminativeRequest {
     /// Model name or alias (e.g. "jev-latest", "jev-1.13.0").
     pub model: String,
     /// Contextual state evaluated by the model (text string, JSON object, or array).
     pub state: serde_json::Value,
     /// Map of caller-chosen question identifiers to question specifications.
-    pub questions: BTreeMap<String, DecisionQuestion>,
+    pub questions: BTreeMap<String, Question>,
 }
 
-impl DecisionRequest {
+impl DiscriminativeRequest {
     pub fn new(model: impl Into<String>, state: serde_json::Value) -> Self {
         Self {
             model: model.into(),
@@ -317,13 +317,13 @@ impl DecisionRequest {
         Ok(Self::new(model, state))
     }
 
-    pub fn add_question(mut self, id: impl Into<String>, question: DecisionQuestion) -> Self {
+    pub fn add_question(mut self, id: impl Into<String>, question: Question) -> Self {
         self.questions.insert(id.into(), question);
         self
     }
 
     pub fn add_noul(self, id: impl Into<String>, instructions: impl Into<String>) -> Self {
-        self.add_question(id, DecisionQuestion::noul(instructions))
+        self.add_question(id, Question::noul(instructions))
     }
 
     pub fn add_choice(
@@ -332,7 +332,7 @@ impl DecisionRequest {
         instructions: impl Into<String>,
         criteria: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     ) -> Self {
-        self.add_question(id, DecisionQuestion::choice(instructions, criteria))
+        self.add_question(id, Question::choice(instructions, criteria))
     }
 
     pub fn add_score(
@@ -341,55 +341,36 @@ impl DecisionRequest {
         instructions: impl Into<String>,
         criteria: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
-        self.add_question(id, DecisionQuestion::score(instructions, criteria))
+        self.add_question(id, Question::score(instructions, criteria))
     }
 }
 
-/// Response returned by a System One decision endpoint.
+/// Response returned by a System One discriminative endpoint.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DecisionResponse {
+pub struct DiscriminativeResponse {
     /// The resolved model name utilized by the server.
     pub model: String,
     /// Answer map keyed by the caller's question identifiers.
-    pub answers: BTreeMap<String, DecisionAnswer>,
+    pub answers: BTreeMap<String, Answer>,
     /// Optional token consumption metadata.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub usage: Option<DecisionUsage>,
+    pub usage: Option<DiscriminativeUsage>,
 }
 
-impl DecisionResponse {
-    /// Retrieves a generic answer by question identifier.
-    pub fn answer(&self, id: &str) -> Option<&DecisionAnswer> {
+impl DiscriminativeResponse {
+    pub fn get(&self, id: &str) -> Option<&Answer> {
         self.answers.get(id)
     }
 
-    /// Retrieves a Noul answer by question identifier.
     pub fn noul(&self, id: &str) -> Option<&NoulAnswer> {
-        self.answer(id).and_then(DecisionAnswer::as_noul)
+        self.get(id).and_then(Answer::as_noul)
     }
 
-    /// Convenience helper returning the Noul probability directly.
-    pub fn noul_prob(&self, id: &str) -> Option<f64> {
-        self.noul(id).map(|a| a.noul)
-    }
-
-    /// Retrieves a Choice answer by question identifier.
     pub fn choice(&self, id: &str) -> Option<&ChoiceAnswer> {
-        self.answer(id).and_then(DecisionAnswer::as_choice)
+        self.get(id).and_then(Answer::as_choice)
     }
 
-    /// Convenience helper returning the selected choice key string directly.
-    pub fn choice_value<'a>(&'a self, id: &str) -> Option<&'a str> {
-        self.choice(id).map(|a| a.choice.as_str())
-    }
-
-    /// Retrieves a Score answer by question identifier.
     pub fn score(&self, id: &str) -> Option<&ScoreAnswer> {
-        self.answer(id).and_then(DecisionAnswer::as_score)
-    }
-
-    /// Convenience helper returning the calculated expected score directly.
-    pub fn score_val(&self, id: &str) -> Option<f64> {
-        self.score(id).map(|a| a.score)
+        self.get(id).and_then(Answer::as_score)
     }
 }

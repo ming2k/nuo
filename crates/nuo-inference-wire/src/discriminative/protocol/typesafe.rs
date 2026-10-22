@@ -1,15 +1,15 @@
 //! TypeSafe System One (Jev) wire protocol implementation.
 
-use crate::decision::endpoint::DecisionEndpoint;
-use crate::decision::types::{DecisionRequest, DecisionResponse};
+use crate::discriminative::endpoint::DiscriminativeEndpoint;
+use crate::discriminative::types::{Answer, DiscriminativeRequest, DiscriminativeResponse};
+use crate::error::{Result, WireError};
 use http::HeaderMap;
-use nuo_inference_wire::error::{Result, WireError};
 
 /// Builds HTTP URL, headers, and JSON body for TypeSafe System One evaluation endpoint.
 pub fn build_request(
-    endpoint: &DecisionEndpoint,
+    endpoint: &DiscriminativeEndpoint,
     token: &str,
-    request: &DecisionRequest,
+    request: &DiscriminativeRequest,
 ) -> (String, HeaderMap, serde_json::Value) {
     let mut url = endpoint.base_url.clone();
     if !url.ends_with("/systemone") && !url.ends_with("/decide") {
@@ -24,12 +24,10 @@ pub fn build_request(
         http::header::CONTENT_TYPE,
         http::HeaderValue::from_static("application/json"),
     );
-    // Track the crate version from one place; a static literal here would drift
-    // on every version bump.
     const USER_AGENT: &str = concat!(
-        "nuo-decision/",
+        "nuo-inference-wire/",
         env!("CARGO_PKG_VERSION"),
-        " (SystemOne; Jev)"
+        " (Discriminative; Jev)"
     );
     headers.insert(
         http::header::USER_AGENT,
@@ -57,8 +55,8 @@ pub fn build_request(
     (url, headers, body)
 }
 
-/// Parses vendor response into canonical [`DecisionResponse`].
-pub fn parse_response(json_val: &serde_json::Value) -> Result<DecisionResponse> {
+/// Parses vendor response into canonical [`DiscriminativeResponse`].
+pub fn parse_response(json_val: &serde_json::Value) -> Result<DiscriminativeResponse> {
     if let Some(err_obj) = json_val.get("error") {
         let message = err_obj
             .get("message")
@@ -70,14 +68,16 @@ pub fn parse_response(json_val: &serde_json::Value) -> Result<DecisionResponse> 
         });
     }
 
-    let resp: DecisionResponse = serde_json::from_value(json_val.clone()).map_err(|err| {
-        WireError::Protocol(format!("failed to deserialize DecisionResponse: {err}"))
+    let resp: DiscriminativeResponse = serde_json::from_value(json_val.clone()).map_err(|err| {
+        WireError::Protocol(format!(
+            "failed to deserialize DiscriminativeResponse: {err}"
+        ))
     })?;
 
     // Quality assertion on probabilities and bounds
     for (id, answer) in &resp.answers {
         match answer {
-            crate::decision::types::DecisionAnswer::Noul(n) => {
+            Answer::Noul(n) => {
                 if !(0.0..=1.0001).contains(&n.noul) {
                     return Err(WireError::Protocol(format!(
                         "Noul probability for question `{id}` out of [0, 1] range: {}",
@@ -85,7 +85,7 @@ pub fn parse_response(json_val: &serde_json::Value) -> Result<DecisionResponse> 
                     )));
                 }
             }
-            crate::decision::types::DecisionAnswer::Choice(c) => {
+            Answer::Choice(c) => {
                 if !(0.0..=1.0001).contains(&c.confidence) {
                     return Err(WireError::Protocol(format!(
                         "Choice confidence for question `{id}` out of [0, 1] range: {}",
@@ -93,7 +93,7 @@ pub fn parse_response(json_val: &serde_json::Value) -> Result<DecisionResponse> 
                     )));
                 }
             }
-            crate::decision::types::DecisionAnswer::Score(s) => {
+            Answer::Score(s) => {
                 if !(0.0..=1.0001).contains(&s.confidence) {
                     return Err(WireError::Protocol(format!(
                         "Score confidence for question `{id}` out of [0, 1] range: {}",

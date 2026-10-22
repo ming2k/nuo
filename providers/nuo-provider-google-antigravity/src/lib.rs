@@ -31,12 +31,14 @@ use nuo_provider::transport::{decode_response_json, ensure_success};
 use nuo_provider::{ClientProfile, Endpoint, NUO_USER_AGENT, PromptCacheConfig};
 
 pub mod catalog;
+pub mod interactions;
 pub mod request;
 pub mod response;
 pub mod spec_antigravity;
 pub mod spec_google;
 pub mod usage;
 
+pub use interactions::GoogleInteractionsProvider;
 pub use spec_antigravity::MODEL_PROVIDER_SPEC as ANTIGRAVITY_MODEL_PROVIDER_SPEC;
 pub use spec_google::MODEL_PROVIDER_SPEC as GOOGLE_MODEL_PROVIDER_SPEC;
 pub use usage::*;

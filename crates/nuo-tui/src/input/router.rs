@@ -159,6 +159,13 @@ fn foreground_scrolls_own_body(dispatch: &Dispatch) -> bool {
 
 /// Whether the composer line is being edited on the foreground surface.
 fn edits_input_field(dispatch: &Dispatch, modal_keys: &crate::modal_keys::ModalKeys) -> bool {
+    if dispatch.overlay.is_some() {
+        return crate::modal_keys::modal_claims_composer_line(
+            dispatch.overlay,
+            dispatch.scene,
+            modal_keys,
+        );
+    }
     if dispatch.focused_target || dispatch.transcript_focused {
         return false;
     }
@@ -324,11 +331,11 @@ pub fn route_event(
                         // another modal too.
                         return InputAction::ViewSwitcherToggle;
                     }
-                    crate::keymap::CommandId::OpenSessionStats if dispatch.overlay.is_none() => {
-                        // Open session stats (/stats). Top level only:
+                    crate::keymap::CommandId::OpenThreadStats if dispatch.overlay.is_none() => {
+                        // Open thread stats (/stats). Top level only:
                         // the model bar is session chrome, never visible
                         // behind a modal.
-                        return InputAction::OpenSessionStats;
+                        return InputAction::OpenThreadStats;
                     }
                     crate::keymap::CommandId::OpenSessionTrace if dispatch.overlay.is_none() => {
                         return InputAction::OpenSessionTrace;

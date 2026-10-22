@@ -192,6 +192,34 @@ impl WireClient {
         Ok(accumulator.finish())
     }
 
+    /// Evaluates a [`DiscriminativeRequest`](crate::discriminative::DiscriminativeRequest)
+    /// against `endpoint` using the shared connection pool.
+    pub async fn execute_discriminative(
+        &self,
+        endpoint: &crate::discriminative::DiscriminativeEndpoint,
+        request: &crate::discriminative::DiscriminativeRequest,
+    ) -> Result<crate::discriminative::DiscriminativeResponse> {
+        crate::discriminative::execute(self, endpoint, request).await
+    }
+
+    /// Explicit alias for [`execute`](Self::execute) targeting the generative lane.
+    pub async fn execute_generative(
+        &self,
+        endpoint: &Endpoint,
+        request: &WireRequest,
+    ) -> Result<WireResponse> {
+        self.execute(endpoint, request).await
+    }
+
+    /// Explicit alias for [`execute_stream`](Self::execute_stream) targeting the generative lane.
+    pub async fn execute_generative_stream(
+        &self,
+        endpoint: &Endpoint,
+        request: &WireRequest,
+    ) -> Result<WireStream> {
+        self.execute_stream(endpoint, request).await
+    }
+
     /// Executes a streaming request, returning a [`WireStream`] yielding [`WireChunk`] tokens.
     pub async fn execute_stream(
         &self,

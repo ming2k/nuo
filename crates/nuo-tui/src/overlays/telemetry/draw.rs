@@ -1,7 +1,7 @@
-//! Telemetry overlays: Session Stats and Session Trace modal orchestrators.
+//! Telemetry overlays: Thread Stats and Session Trace modal orchestrators.
 //!
 //! Separated into two distinct surfaces (ADR-0037):
-//! - `draw_session_stats_modal` — Session Stats (/stats)
+//! - `draw_thread_stats_modal` — Thread Stats (/stats)
 //! - `draw_session_trace_modal` — Session Trace (/trace) with hierarchical drill-in (L1/L2/L3)
 
 use nuo_wire::TokenSourceReport;
@@ -23,9 +23,9 @@ use crate::primitives::{
 };
 use crate::render::Theme;
 
-/// Draw the Session Stats modal (context window utilization, token accounting).
+/// Draw the Thread Stats modal (context window utilization, token accounting).
 #[allow(clippy::too_many_arguments)]
-pub fn draw_session_stats_modal(
+pub fn draw_thread_stats_modal(
     frame: &mut Frame,
     report: &TokenSourceReport,
     context: ContextUsageProps,
@@ -35,7 +35,7 @@ pub fn draw_session_stats_modal(
     selection: &SelectionState,
     layout_map: &mut LayoutMap,
 ) -> Rect {
-    let geometry = ContentModalSpec::SESSION_STATS;
+    let geometry = ContentModalSpec::THREAD_STATS;
     let probe = content_modal_probe(frame, geometry);
     let body_width = (probe.width as usize)
         .saturating_sub(2 * MODAL_INNER_H_PADDING as usize)
@@ -47,11 +47,11 @@ pub fn draw_session_stats_modal(
         modal_header_parts(
             frame,
             modal.header,
-            &[HeaderPart::title("Session Stats")],
+            &[HeaderPart::title("Thread Stats")],
             theme,
         );
         let body = vec![placeholder(
-            "Loading session stats from server…",
+            "Loading thread stats from server…",
             true,
             theme.muted(),
         )];
@@ -75,20 +75,19 @@ pub fn draw_session_stats_modal(
     }
 
     let rounds = extract_telemetry_rounds(report);
-    let header = vec![HeaderPart::title("Session Stats")];
-    let overview = build_overview_body(report, &rounds, context, body_width, theme);
+    let header = vec![HeaderPart::title("Thread Stats")];
+    let rows = build_overview_body(report, &rounds, context, body_width, theme);
     let footer = [
         FooterHint::always(keyvocab::ARROWS_UD, "scroll"),
         FooterHint::key_always(crate::keymap::Key::plain('t'), "trace"),
         FooterHint::key_always(crate::keymap::Key::ESC, "close"),
     ];
 
-    let desired = overview.len() as u16 + modal_chrome_rows(geometry.modal_spec());
+    let desired = rows.len() as u16 + modal_chrome_rows(geometry.modal_spec());
     let area = content_modal_area(frame, geometry, desired);
     let modal = modal_frame(frame, area, theme, true, true);
     modal_header_parts(frame, modal.header, &header, theme);
 
-    let rows: Vec<SelectableRow> = overview.into_iter().map(SelectableRow::from_line).collect();
     render_selectable_body(
         frame, modal.body, &rows, scroll, None, theme, selection, layout_map,
     );

@@ -81,7 +81,7 @@ fn enter_with_slash_command_dispatches_recognized_commands() {
         ("/quotas", InputAction::OpenQuotas),
         ("/mcp", InputAction::OpenMcp),
         ("/skills", InputAction::OpenSkills),
-        ("/stats", InputAction::OpenSessionStats),
+        ("/stats", InputAction::OpenThreadStats),
         ("/trace", InputAction::OpenSessionTrace),
         ("/exit", InputAction::Quit),
     ] {

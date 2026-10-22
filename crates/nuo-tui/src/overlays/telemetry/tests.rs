@@ -423,26 +423,29 @@ fn test_build_overview_and_sticky_table_headers() {
     );
     let ov_text: String = overview
         .iter()
-        .map(|l| {
-            l.spans
-                .iter()
-                .map(|s| s.content.as_ref())
-                .collect::<Vec<_>>()
-                .join("")
+        .map(|r| {
+            let mut parts = Vec::new();
+            if let Some(p) = &r.prefix {
+                parts.push(p.text.as_str());
+            }
+            for s in &r.segments {
+                parts.push(s.text.as_str());
+            }
+            parts.join("")
         })
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(ov_text.contains("Context window"));
+    assert!(ov_text.contains("Context Window"));
     assert!(ov_text.contains("Used Tokens"));
     assert!(ov_text.contains("24,500 tokens (12.2%)"));
     assert!(ov_text.contains("Capacity"));
     assert!(ov_text.contains("200,000 tokens"));
-    assert!(ov_text.contains("Session token totals"));
+    assert!(ov_text.contains("Thread Token Totals"));
     assert!(ov_text.contains("Grand Total"));
     assert!(ov_text.contains("4.3k (4,300)"));
     assert!(ov_text.contains("75.0% hit rate"));
-    assert!(ov_text.contains("Streaming performance"));
+    assert!(ov_text.contains("Streaming Performance"));
     assert!(ov_text.contains("Streaming Rate"));
     assert!(ov_text.contains("TTFT (median)"));
 
@@ -536,7 +539,16 @@ fn test_telemetry_burst_arrival_defensible_tps_fallback() {
     let overview = build_overview_body(&report, &rounds, ContextUsageProps::default(), 80, &theme);
     let ov_text = overview
         .iter()
-        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .map(|r| {
+            let mut parts = Vec::new();
+            if let Some(p) = &r.prefix {
+                parts.push(p.text.as_str());
+            }
+            for s in &r.segments {
+                parts.push(s.text.as_str());
+            }
+            parts.join("")
+        })
         .collect::<Vec<_>>()
         .join(" ");
     assert!(

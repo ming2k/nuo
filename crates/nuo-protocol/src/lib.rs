@@ -106,8 +106,6 @@ pub mod catalog;
 pub mod client_identity;
 pub mod connection_auth;
 pub mod connection_detail;
-pub mod decision;
-pub use decision::*;
 pub mod model_providers;
 pub mod provider_auth;
 pub mod provider_state;

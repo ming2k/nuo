@@ -2211,23 +2211,23 @@ fn modal_arrows_route_through_the_dialog_entity() {
     // the active dialog entity's `DialogView::handle_input`, mutating only that
     // entity's own state.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.open_dialog(crate::surfaces::DialogKind::SessionStats);
+    app.open_dialog(crate::surfaces::DialogKind::ThreadStats);
     app.surfaces
-        .dlg_mut::<crate::surfaces::SessionStatsDialog>()
+        .dlg_mut::<crate::surfaces::ThreadStatsDialog>()
         .scroll = 5;
 
     crate::event_loop::actions::handle_modal_up(&mut app, "test-session");
     assert_eq!(
         app.surfaces
-            .dlg_mut::<crate::surfaces::SessionStatsDialog>()
+            .dlg_mut::<crate::surfaces::ThreadStatsDialog>()
             .scroll,
         4,
-        "arrow handled by the session stats entity"
+        "arrow handled by the thread stats entity"
     );
     crate::event_loop::actions::handle_modal_down(&mut app, "test-session");
     assert_eq!(
         app.surfaces
-            .dlg_mut::<crate::surfaces::SessionStatsDialog>()
+            .dlg_mut::<crate::surfaces::ThreadStatsDialog>()
             .scroll,
         5
     );
@@ -2259,7 +2259,7 @@ fn dialog_reads_see_the_entity_while_it_is_rendered() {
 }
 
 #[tokio::test]
-async fn session_stats_slash_open_and_unbound_ctrl_o() {
+async fn thread_stats_slash_open_and_unbound_ctrl_o() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
 
@@ -2267,18 +2267,18 @@ async fn session_stats_slash_open_and_unbound_ctrl_o() {
     crate::event_loop::actions::dispatch_action_for_test(
         &mut app,
         &runtime,
-        crate::input::InputAction::OpenSessionStats,
+        crate::input::InputAction::OpenThreadStats,
         "test-session",
     )
     .await;
 
     assert_eq!(
         app.active_dialog(),
-        Some(crate::surfaces::DialogKind::SessionStats),
-        "OpenSessionStats (/stats) opens SessionStats dialog"
+        Some(crate::surfaces::DialogKind::ThreadStats),
+        "OpenThreadStats (/stats) opens ThreadStats dialog"
     );
 
-    // Ctrl+O is no longer bound canonically to OpenSessionStats
+    // Ctrl+O is no longer bound canonically to OpenThreadStats
     assert_eq!(
         crate::keymap::resolve_global_key(crate::keymap::Key::CTRL_O),
         None
@@ -2286,22 +2286,21 @@ async fn session_stats_slash_open_and_unbound_ctrl_o() {
 }
 
 #[tokio::test]
-async fn session_stats_t_affordance_transitions_to_session_trace() {
-    // `[INV-STATS-01]` + `[INV-AFFORDANCE-01]` / ADR-0037:
-    // SessionStats modal binds `t` to transition directly to SessionTrace.
+async fn thread_stats_t_affordance_transitions_to_session_trace() {
+    // ThreadStats modal binds `t` to transition directly to SessionTrace.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
-    app.open_dialog(crate::surfaces::DialogKind::SessionStats);
+    app.open_dialog(crate::surfaces::DialogKind::ThreadStats);
     assert_eq!(
         app.active_dialog(),
-        Some(crate::surfaces::DialogKind::SessionStats)
+        Some(crate::surfaces::DialogKind::ThreadStats)
     );
 
     let runtime = crate::event_loop::runtime::UiRuntime::minimal_for_test();
     crate::event_loop::actions::dispatch_action_for_test(
         &mut app,
         &runtime,
-        crate::input::InputAction::SessionStatsOpenTrace,
+        crate::input::InputAction::ThreadStatsOpenTrace,
         "test-session",
     )
     .await;
@@ -2309,7 +2308,111 @@ async fn session_stats_t_affordance_transitions_to_session_trace() {
     assert_eq!(
         app.active_dialog(),
         Some(crate::surfaces::DialogKind::SessionTrace),
-        "`t` affordance in SessionStats opens SessionTrace"
+        "`t` affordance in ThreadStats opens SessionTrace"
+    );
+}
+
+#[tokio::test]
+async fn thread_stats_modal_lifecycle_and_gestalt_layout() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "test-session".to_string();
+
+    // 1. OpenThreadStats action opens DialogKind::ThreadStats
+    let runtime = crate::event_loop::runtime::UiRuntime::minimal_for_test();
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::OpenThreadStats,
+        "test-session",
+    )
+    .await;
+
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::ThreadStats),
+        "OpenThreadStats opens ThreadStats dialog"
+    );
+    assert_eq!(
+        crate::surfaces::DialogKind::ThreadStats.label(),
+        "Thread stats",
+        "DialogKind::ThreadStats label must be 'Thread stats'"
+    );
+
+    // 2. ThreadStats transitions to SessionTrace via 't' chord (ThreadStatsOpenTrace)
+    crate::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::input::InputAction::ThreadStatsOpenTrace,
+        "test-session",
+    )
+    .await;
+
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::SessionTrace),
+        "ThreadStatsOpenTrace affordance opens SessionTrace"
+    );
+
+    // 3. Thread Stats overview body utilizes standardized DetailLayout components
+    let theme = app.theme.clone();
+    let rows = crate::overlays::telemetry::overview::build_overview_body(
+        &nuo_wire::TokenSourceReport::default(),
+        &[],
+        crate::render::ContextUsageProps {
+            snapshot: None,
+            window_tokens: Some(128_000),
+            draft_content_tokens: 0,
+            draft_tokens: 0,
+        },
+        80,
+        &theme,
+    );
+
+    // Section 1: Context Window
+    assert_eq!(rows[0].text(), "Context Window");
+    assert_eq!(
+        rows[1].prefix.as_ref().map(|p| p.text.as_str()),
+        Some("Used Tokens       ")
+    );
+    assert_eq!(
+        rows[2].prefix.as_ref().map(|p| p.text.as_str()),
+        Some("Capacity          ")
+    );
+    assert_eq!(
+        rows[3].prefix.as_ref().map(|p| p.text.as_str()),
+        Some("Utilization       ")
+    );
+    // Utilization progress bar segment exists
+    assert!(
+        rows[3]
+            .to_line()
+            .spans
+            .iter()
+            .any(|s| s.content.contains('['))
+    );
+    assert!(
+        rows[3]
+            .to_line()
+            .spans
+            .iter()
+            .any(|s| s.content.contains(']'))
+    );
+
+    // Blank separator row before Section 2
+    assert_eq!(rows[4].text(), "");
+
+    // Section 2: Thread Token Totals
+    assert_eq!(rows[5].text(), "Thread Token Totals");
+    assert_eq!(
+        rows[6].prefix.as_ref().map(|p| p.text.as_str()),
+        Some("Grand Total       ")
+    );
+
+    // Section 3: Streaming Performance
+    let perf_section = rows.iter().find(|r| r.text() == "Streaming Performance");
+    assert!(
+        perf_section.is_some(),
+        "Streaming Performance section must exist"
     );
 }
 

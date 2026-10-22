@@ -10,7 +10,7 @@ This page is cited directly by `crates/nuo-tui/src/overlays/provider/models.rs` 
 
 The overlay vocabulary is declared in `crates/nuo-tui/src/surfaces/mod.rs`:
 
-- **`DialogKind`** — the full-page dialog set (tools, MCP, skills, permissions, usage stats, quotas, session stats, session trace, models, connections, history search, queue, threads, session tree, switcher, port share).
+- **`DialogKind`** — the full-page dialog set (tools, MCP, skills, permissions, usage stats, quotas, thread stats, session trace, models, connections, history search, queue, threads, session tree, switcher, port share).
 - **`SheetKind`** — lightweight interaction sheets (permission, question, input injection, model editor, provider preset, OAuth pending, custom provider, provider delete confirm).
 - **`OverlaySurface`** / **`Surface`** — the dispatch enum the render loop matches on.
 
@@ -34,7 +34,7 @@ Content-sized modals (`ContentModalSpec(width_percent, min_rows, max_viewport_pe
 | `TOOLS` | 64 | 11 | 84 |
 | `MCP` | 64 | 9 | 84 |
 | `QUEUE` | 66 | 9 | 84 |
-| `SESSION_STATS` | 72 | 11 | 80 |
+| `THREAD_STATS` | 76 | 11 | 80 |
 | `SESSION_TRACE` | 80 | 11 | 92 |
 | `USAGE_STATS` | 76 | 12 | 86 |
 | `MODEL_EDITOR` | 66 | 6 | 60 |

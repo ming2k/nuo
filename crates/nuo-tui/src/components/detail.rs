@@ -23,7 +23,7 @@
 //!    hit-testing, and clipboard copy support across all detail surfaces. When line-oriented
 //!    rendering is needed, [`SelectableRow::to_line`] losslessly projects back to `Line`.
 
-use nuotc::{Modifier, Style};
+use nuotc::{Modifier, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use super::selectable_body::{RowSegment, SelectableRow};
@@ -92,6 +92,223 @@ pub fn detail_kv_row_segments(
         format_detail_label(label),
         Style::default().fg(theme.dim()),
     ))
+}
+
+/// Render a stylized text progress bar: `[████░░░░]`.
+///
+/// Progress colors:
+/// - `>= 0.90`: `theme.err()`
+/// - `>= 0.70`: `theme.warn()`
+/// - `< 0.70`: `theme.ok()`
+pub fn render_progress_bar_spans(frac: f32, bar_width: usize, theme: &Theme) -> Vec<Span<'static>> {
+    let clamped = frac.clamp(0.0, 1.0);
+    let filled_count = ((clamped * bar_width as f32).round() as usize).min(bar_width);
+    let empty_count = bar_width.saturating_sub(filled_count);
+
+    let color = if clamped >= 0.90 {
+        theme.err()
+    } else if clamped >= 0.70 {
+        theme.warn()
+    } else {
+        theme.ok()
+    };
+
+    let filled_str = "█".repeat(filled_count);
+    let empty_str = "░".repeat(empty_count);
+
+    vec![
+        Span::styled("[", Style::default().fg(theme.dim())),
+        Span::styled(filled_str, Style::default().fg(color)),
+        Span::styled(empty_str, Style::default().fg(theme.dim())),
+        Span::styled("]", Style::default().fg(theme.dim())),
+    ]
+}
+
+/// Canonical layout builder for structured key-value detail / inspector views.
+///
+/// Encapsulates Gestalt layout invariants:
+/// 1. Section separation with automatic blank row padding
+/// 2. Standardized field label padding ([`DETAIL_LABEL_WIDTH`]) and minimum whitespace gap ([`DETAIL_MIN_GAP`])
+/// 3. Consistent semantic styling (headers in bold primary accent, labels in dim, values in foreground / semantic colors)
+/// 4. Document-model row semantics with [`SelectableRow`] for mouse selection and clipboard copy
+/// 5. Integrated progress meters for resource/capacity utilization
+#[derive(Clone)]
+pub struct DetailLayout<'a> {
+    theme: &'a Theme,
+    rows: Vec<SelectableRow>,
+}
+
+#[allow(dead_code)]
+impl<'a> DetailLayout<'a> {
+    /// Create a new detail layout builder.
+    pub fn new(theme: &'a Theme) -> Self {
+        Self {
+            theme,
+            rows: Vec::new(),
+        }
+    }
+
+    /// Add a section header row.
+    ///
+    /// If there are already rows in the layout, an empty spacing row is automatically
+    /// prepended before the section header.
+    pub fn section(mut self, title: impl AsRef<str>) -> Self {
+        if !self.rows.is_empty() {
+            self.rows.push(SelectableRow::empty());
+        }
+        self.rows
+            .push(detail_section_row(title.as_ref(), self.theme));
+        self
+    }
+
+    /// Add a key-value row with standard value styling (`theme.fg()`).
+    pub fn kv(mut self, label: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+        self.rows.push(detail_kv_row(
+            label.as_ref(),
+            value.as_ref(),
+            Style::default().fg(self.theme.fg()),
+            self.theme,
+        ));
+        self
+    }
+
+    /// Add a key-value row with explicit value styling.
+    pub fn kv_styled(
+        mut self,
+        label: impl AsRef<str>,
+        value: impl AsRef<str>,
+        value_style: Style,
+    ) -> Self {
+        self.rows.push(detail_kv_row(
+            label.as_ref(),
+            value.as_ref(),
+            value_style,
+            self.theme,
+        ));
+        self
+    }
+
+    /// Add a key-value row with muted value styling (`theme.muted()`).
+    pub fn kv_muted(mut self, label: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+        self.rows.push(detail_kv_row(
+            label.as_ref(),
+            value.as_ref(),
+            Style::default().fg(self.theme.muted()),
+            self.theme,
+        ));
+        self
+    }
+
+    /// Add a key-value row with highlighted/primary value styling (`theme.primary`).
+    pub fn kv_highlight(mut self, label: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+        self.rows.push(detail_kv_row(
+            label.as_ref(),
+            value.as_ref(),
+            Style::default().fg(self.theme.primary),
+            self.theme,
+        ));
+        self
+    }
+
+    /// Add a key-value row with bold primary foreground value styling.
+    pub fn kv_bold(mut self, label: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+        self.rows.push(detail_kv_row(
+            label.as_ref(),
+            value.as_ref(),
+            Style::default()
+                .fg(self.theme.fg())
+                .add_modifier(Modifier::BOLD),
+            self.theme,
+        ));
+        self
+    }
+
+    /// Add a key-value row with indented label.
+    pub fn kv_indented(
+        mut self,
+        indent: usize,
+        label: impl AsRef<str>,
+        value: impl AsRef<str>,
+        value_style: Style,
+    ) -> Self {
+        self.rows.push(detail_kv_row_indented(
+            indent,
+            label.as_ref(),
+            value.as_ref(),
+            value_style,
+            self.theme,
+        ));
+        self
+    }
+
+    /// Add a key-value row with multi-segment value.
+    pub fn kv_segments(mut self, label: impl AsRef<str>, segments: Vec<RowSegment>) -> Self {
+        self.rows
+            .push(detail_kv_row_segments(label.as_ref(), segments, self.theme));
+        self
+    }
+
+    /// Add a key-value row featuring a progress bar meter and optional trailing text.
+    pub fn kv_progress(
+        mut self,
+        label: impl AsRef<str>,
+        frac: f32,
+        bar_width: usize,
+        trailing_text: Option<impl AsRef<str>>,
+    ) -> Self {
+        let spans = render_progress_bar_spans(frac, bar_width, self.theme);
+        let mut segments = spans
+            .into_iter()
+            .map(|s| RowSegment::styled(s.content.into_owned(), s.style))
+            .collect::<Vec<_>>();
+        if let Some(extra) = trailing_text {
+            segments.push(RowSegment::styled(
+                format!("  {}", extra.as_ref()),
+                Style::default().fg(self.theme.fg()),
+            ));
+        }
+        self.rows
+            .push(detail_kv_row_segments(label.as_ref(), segments, self.theme));
+        self
+    }
+
+    /// Add an empty spacer row.
+    pub fn empty_row(mut self) -> Self {
+        self.rows.push(SelectableRow::empty());
+        self
+    }
+
+    /// Append an arbitrary raw [`SelectableRow`].
+    pub fn raw_row(mut self, row: SelectableRow) -> Self {
+        self.rows.push(row);
+        self
+    }
+
+    /// Append multiple raw [`SelectableRow`]s.
+    pub fn raw_rows(mut self, rows: impl IntoIterator<Item = SelectableRow>) -> Self {
+        self.rows.extend(rows);
+        self
+    }
+
+    /// Return the active theme.
+    pub fn theme(&self) -> &'a Theme {
+        self.theme
+    }
+
+    /// Return a slice of the rows built so far.
+    pub fn rows(&self) -> &[SelectableRow] {
+        &self.rows
+    }
+
+    /// Consume the builder and return the vector of selectable rows.
+    pub fn build(self) -> Vec<SelectableRow> {
+        self.rows
+    }
+
+    /// Consume the builder and return the vector of selectable rows (alias of `build`).
+    pub fn into_rows(self) -> Vec<SelectableRow> {
+        self.rows
+    }
 }
 
 #[cfg(test)]
@@ -163,5 +380,54 @@ mod tests {
         assert_eq!(line.spans.len(), 2);
         assert_eq!(line.spans[0].content, "Reasoning Effort  ");
         assert_eq!(line.spans[1].content, "high");
+    }
+
+    #[test]
+    fn detail_layout_builder_and_spacing() {
+        let theme = Theme::default();
+        let rows = DetailLayout::new(&theme)
+            .section("Identity")
+            .kv("Name", "GPT-4")
+            .kv("Provider", "OpenAI")
+            .section("Capabilities")
+            .kv("Context Window", "128,000 tokens")
+            .kv_progress("Utilization", 0.5, 10, Some("50.0%"))
+            .build();
+
+        // Section 1 header + 2 kv rows + 1 empty spacer + Section 2 header + 1 kv row + 1 progress row = 7 rows
+        assert_eq!(rows.len(), 7);
+        assert_eq!(rows[0].text(), "Identity");
+        assert_eq!(rows[1].prefix.as_ref().unwrap().text, "Name              ");
+        assert_eq!(rows[1].text(), "GPT-4");
+        assert_eq!(rows[2].prefix.as_ref().unwrap().text, "Provider          ");
+        assert_eq!(rows[2].text(), "OpenAI");
+        // Spacer before section 2
+        assert_eq!(rows[3].text(), "");
+        assert!(rows[3].segments.is_empty());
+        // Section 2
+        assert_eq!(rows[4].text(), "Capabilities");
+        assert_eq!(rows[5].text(), "128,000 tokens");
+        assert_eq!(rows[6].prefix.as_ref().unwrap().text, "Utilization       ");
+        assert!(
+            rows[6]
+                .to_line()
+                .spans
+                .iter()
+                .any(|s| s.content.contains("50.0%"))
+        );
+    }
+
+    #[test]
+    fn detail_progress_bar_spans_color_tiers() {
+        let theme = Theme::default();
+        let normal = render_progress_bar_spans(0.5, 10, &theme);
+        assert_eq!(normal.len(), 4); // [, filled, empty, ]
+        assert_eq!(normal[1].style.fg, theme.ok());
+
+        let warn = render_progress_bar_spans(0.75, 10, &theme);
+        assert_eq!(warn[1].style.fg, theme.warn());
+
+        let err = render_progress_bar_spans(0.95, 10, &theme);
+        assert_eq!(err[1].style.fg, theme.err());
     }
 }

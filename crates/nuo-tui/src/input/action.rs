@@ -282,8 +282,8 @@ pub enum InputAction {
     HostPromptSubmit,
     /// Drill into the selected round or turn in the Session Trace modal. Bound to `Enter`.
     TraceInspectDetail,
-    /// Open the Session Trace modal from Session Stats. Bound to `t`.
-    SessionStatsOpenTrace,
+    /// Open the Session Trace modal from Thread Stats. Bound to `t`.
+    ThreadStatsOpenTrace,
     /// Delete the currently-selected session in the sessions picker.
     DeleteSelectedSession,
     /// Create a brand new session from the sessions picker ('n' / 'N').
@@ -321,8 +321,8 @@ pub enum InputAction {
     /// Plain Ctrl+C: copy selection, clear input, or arm quit. It never
     /// interrupts a running turn — only double-Esc does.
     CtrlC,
-    /// Open the session stats report (`/stats`).
-    OpenSessionStats,
+    /// Open the thread stats report (`/stats`).
+    OpenThreadStats,
     /// Open the session execution trace report (`/trace`).
     OpenSessionTrace,
     /// Move keyboard focus to the next activatable target. When no target is
@@ -604,7 +604,7 @@ impl InputAction {
                 | InputAction::OpenMcp
                 | InputAction::OpenSkills
                 | InputAction::OpenConfig
-                | InputAction::OpenSessionStats
+                | InputAction::OpenThreadStats
                 | InputAction::OpenSessionTrace
         )
     }

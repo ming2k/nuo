@@ -192,7 +192,7 @@ pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
         DialogKind::Tools | DialogKind::SessionTree => ContentModalSpec::TOOLS.modal_spec(),
         DialogKind::Mcp => ContentModalSpec::MCP.modal_spec(),
         DialogKind::Queue => ContentModalSpec::QUEUE.modal_spec(),
-        DialogKind::SessionStats => ContentModalSpec::SESSION_STATS.modal_spec(),
+        DialogKind::ThreadStats => ContentModalSpec::THREAD_STATS.modal_spec(),
         DialogKind::SessionTrace => ContentModalSpec::SESSION_TRACE.modal_spec(),
         DialogKind::UsageStats | DialogKind::Quotas => ContentModalSpec::USAGE_STATS.modal_spec(),
         DialogKind::Permissions => ContentModalSpec::PERMISSIONS.modal_spec(),
@@ -345,15 +345,15 @@ fn render_dialog(
                 ctx.layout_map,
             ))
         }
-        DialogKind::SessionStats => {
+        DialogKind::ThreadStats => {
             let d = view
                 .as_any_mut()
-                .downcast_mut::<SessionStatsDialog>()
+                .downcast_mut::<ThreadStatsDialog>()
                 .expect("kind");
             let report = app.token_source_report(ctx.viewed_session_id);
             let loading = app.token_ledger.is_none() && report.is_none();
             let report = report.unwrap_or_default();
-            Some(crate::overlays::draw_session_stats_modal(
+            Some(crate::overlays::draw_thread_stats_modal(
                 frame,
                 &report,
                 crate::render::ContextUsageProps {
@@ -795,10 +795,10 @@ fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> Dialog
             apply_delta(&mut e.scroll, delta);
             DialogOutcome::Consumed
         }
-        DialogKind::SessionStats => {
+        DialogKind::ThreadStats => {
             let e = view
                 .as_any_mut()
-                .downcast_mut::<SessionStatsDialog>()
+                .downcast_mut::<ThreadStatsDialog>()
                 .expect("kind");
             apply_delta(&mut e.scroll, delta);
             DialogOutcome::Consumed
@@ -1358,10 +1358,10 @@ fn input_dialog(
             e.follow = true;
             DialogOutcome::Consumed
         }
-        DialogKind::SessionStats => {
+        DialogKind::ThreadStats => {
             let e = view
                 .as_any_mut()
-                .downcast_mut::<SessionStatsDialog>()
+                .downcast_mut::<ThreadStatsDialog>()
                 .expect("kind");
             if forward {
                 e.scroll = e.scroll.saturating_add(1);
@@ -1660,7 +1660,7 @@ dialog_entity!(QuotasDialog, Quotas, {
     expanded: Option<usize> = None,
 });
 
-dialog_entity!(SessionStatsDialog, SessionStats, {});
+dialog_entity!(ThreadStatsDialog, ThreadStats, {});
 
 dialog_entity!(SessionTraceDialog, SessionTrace, {
     /// `true` when drilled into one round's turns (L2).
@@ -1759,7 +1759,7 @@ pub struct SessionSnapshot {
     pub mcp: McpDialog,
     pub skills: SkillsDialog,
     pub permissions: PermissionsDialog,
-    pub session_stats: SessionStatsDialog,
+    pub thread_stats: ThreadStatsDialog,
     pub session_trace: SessionTraceDialog,
     pub queue: QueueDialog,
     pub session_tree: SessionTreeDialog,
@@ -1778,7 +1778,7 @@ pub struct Dialogs {
     pub permissions: PermissionsDialog,
     pub usage_stats: UsageStatsDialog,
     pub quotas: QuotasDialog,
-    pub session_stats: SessionStatsDialog,
+    pub thread_stats: ThreadStatsDialog,
     pub session_trace: SessionTraceDialog,
     pub models: ModelsDialog,
     pub connections: ConnectionsDialog,
@@ -1835,7 +1835,7 @@ impl Dialogs {
             mcp: self.mcp.clone(),
             skills: self.skills.clone(),
             permissions: self.permissions.clone(),
-            session_stats: self.session_stats.clone(),
+            thread_stats: self.thread_stats.clone(),
             session_trace: self.session_trace.clone(),
             queue: self.queue.clone(),
             session_tree: self.session_tree.clone(),
@@ -1847,7 +1847,7 @@ impl Dialogs {
         self.mcp = snapshot.mcp;
         self.skills = snapshot.skills;
         self.permissions = snapshot.permissions;
-        self.session_stats = snapshot.session_stats;
+        self.thread_stats = snapshot.thread_stats;
         self.session_trace = snapshot.session_trace;
         self.queue = snapshot.queue;
         self.session_tree = snapshot.session_tree;
@@ -1864,7 +1864,7 @@ impl Dialogs {
             DialogKind::Permissions => &self.permissions,
             DialogKind::UsageStats => &self.usage_stats,
             DialogKind::Quotas => &self.quotas,
-            DialogKind::SessionStats => &self.session_stats,
+            DialogKind::ThreadStats => &self.thread_stats,
             DialogKind::SessionTrace => &self.session_trace,
             DialogKind::Models => &self.models,
             DialogKind::Connections => &self.connections,
@@ -1886,7 +1886,7 @@ impl Dialogs {
             DialogKind::Permissions => &mut self.permissions,
             DialogKind::UsageStats => &mut self.usage_stats,
             DialogKind::Quotas => &mut self.quotas,
-            DialogKind::SessionStats => &mut self.session_stats,
+            DialogKind::ThreadStats => &mut self.thread_stats,
             DialogKind::SessionTrace => &mut self.session_trace,
             DialogKind::Models => &mut self.models,
             DialogKind::Connections => &mut self.connections,
@@ -1915,7 +1915,7 @@ impl Dialogs {
             DialogKind::Permissions => Box::new(std::mem::take(&mut self.permissions)),
             DialogKind::UsageStats => Box::new(std::mem::take(&mut self.usage_stats)),
             DialogKind::Quotas => Box::new(std::mem::take(&mut self.quotas)),
-            DialogKind::SessionStats => Box::new(std::mem::take(&mut self.session_stats)),
+            DialogKind::ThreadStats => Box::new(std::mem::take(&mut self.thread_stats)),
             DialogKind::SessionTrace => Box::new(std::mem::take(&mut self.session_trace)),
             DialogKind::Models => Box::new(std::mem::take(&mut self.models)),
             DialogKind::Connections => Box::new(std::mem::take(&mut self.connections)),
@@ -1954,10 +1954,10 @@ impl Dialogs {
             DialogKind::Quotas => {
                 self.quotas = *view.into_any().downcast::<QuotasDialog>().expect("kind")
             }
-            DialogKind::SessionStats => {
-                self.session_stats = *view
+            DialogKind::ThreadStats => {
+                self.thread_stats = *view
                     .into_any()
-                    .downcast::<SessionStatsDialog>()
+                    .downcast::<ThreadStatsDialog>()
                     .expect("kind")
             }
             DialogKind::SessionTrace => {
@@ -2011,7 +2011,7 @@ impl Dialogs {
             DialogKind::Permissions => self.permissions.index,
             DialogKind::UsageStats => self.usage_stats.index,
             DialogKind::Quotas => self.quotas.index,
-            DialogKind::SessionStats => self.session_stats.index,
+            DialogKind::ThreadStats => self.thread_stats.index,
             DialogKind::SessionTrace => self.session_trace.index,
             DialogKind::Models => self.models.index,
             DialogKind::Connections => self.connections.index,
@@ -2033,7 +2033,7 @@ impl Dialogs {
             DialogKind::Permissions => self.permissions.index = value,
             DialogKind::UsageStats => self.usage_stats.index = value,
             DialogKind::Quotas => self.quotas.index = value,
-            DialogKind::SessionStats => self.session_stats.index = value,
+            DialogKind::ThreadStats => self.thread_stats.index = value,
             DialogKind::SessionTrace => self.session_trace.index = value,
             DialogKind::Models => self.models.index = value,
             DialogKind::Connections => self.connections.index = value,
@@ -2055,7 +2055,7 @@ impl Dialogs {
             DialogKind::Permissions => self.permissions.follow,
             DialogKind::UsageStats => self.usage_stats.follow,
             DialogKind::Quotas => self.quotas.follow,
-            DialogKind::SessionStats => self.session_stats.follow,
+            DialogKind::ThreadStats => self.thread_stats.follow,
             DialogKind::SessionTrace => self.session_trace.follow,
             DialogKind::Models => self.models.follow,
             DialogKind::Connections => self.connections.follow,
@@ -2077,7 +2077,7 @@ impl Dialogs {
             DialogKind::Permissions => self.permissions.keys_open,
             DialogKind::UsageStats => self.usage_stats.keys_open,
             DialogKind::Quotas => self.quotas.keys_open,
-            DialogKind::SessionStats => self.session_stats.keys_open,
+            DialogKind::ThreadStats => self.thread_stats.keys_open,
             DialogKind::SessionTrace => self.session_trace.keys_open,
             DialogKind::Models => self.models.keys_open,
             DialogKind::Connections => self.connections.keys_open,
@@ -2100,7 +2100,7 @@ impl Dialogs {
             DialogKind::Permissions => self.permissions.keys_open = open,
             DialogKind::UsageStats => self.usage_stats.keys_open = open,
             DialogKind::Quotas => self.quotas.keys_open = open,
-            DialogKind::SessionStats => self.session_stats.keys_open = open,
+            DialogKind::ThreadStats => self.thread_stats.keys_open = open,
             DialogKind::SessionTrace => self.session_trace.keys_open = open,
             DialogKind::Models => self.models.keys_open = open,
             DialogKind::Connections => self.connections.keys_open = open,
@@ -2125,7 +2125,7 @@ impl Dialogs {
             DialogKind::Permissions => &mut self.permissions.keys_scroll,
             DialogKind::UsageStats => &mut self.usage_stats.keys_scroll,
             DialogKind::Quotas => &mut self.quotas.keys_scroll,
-            DialogKind::SessionStats => &mut self.session_stats.keys_scroll,
+            DialogKind::ThreadStats => &mut self.thread_stats.keys_scroll,
             DialogKind::SessionTrace => &mut self.session_trace.keys_scroll,
             DialogKind::Models => &mut self.models.keys_scroll,
             DialogKind::Connections => &mut self.connections.keys_scroll,

@@ -643,7 +643,7 @@ pub enum CommandId {
     NavigateDashboard,
     NavigateSettings,
     OpenQueue,
-    OpenSessionStats,
+    OpenThreadStats,
     OpenSessionTrace,
     OpenModels,
     OpenConnections,
@@ -702,8 +702,8 @@ pub enum CommandId {
     QueueMoveItemUp,
     QueueMoveItemDown,
 
-    // Dialog Actions: Session Stats
-    SessionStatsOpenTrace,
+    // Dialog Actions: Thread Stats
+    ThreadStatsOpenTrace,
 
     // Dialog Actions: Session Trace
     TraceInspectDetail,
@@ -1097,8 +1097,8 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         description: "Inspect and manage pending message outbox",
     },
     CommandSpec {
-        id: CommandId::OpenSessionStats,
-        label: "Session Stats",
+        id: CommandId::OpenThreadStats,
+        label: "Thread Stats",
         hint: "/stats",
         category: CommandCategory::Navigate,
         scope: Scope::Global,
@@ -1107,7 +1107,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         availability: avail_session,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "View context token accounting and session stats",
+        description: "View context token accounting and thread stats",
     },
     CommandSpec {
         id: CommandId::OpenSessionTrace,
@@ -1675,19 +1675,19 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         danger: DangerLevel::Safe,
         description: "Move highlighted message later in dispatch order",
     },
-    // Dialog Actions: Session Stats
+    // Dialog Actions: Thread Stats
     CommandSpec {
-        id: CommandId::SessionStatsOpenTrace,
+        id: CommandId::ThreadStatsOpenTrace,
         label: "Open Trace",
         hint: "t",
         category: CommandCategory::Actions,
-        scope: Scope::Dialog(DialogKind::SessionStats),
+        scope: Scope::Dialog(DialogKind::ThreadStats),
         bindings: &[Key::plain('t')],
         slash: None,
         availability: avail_always,
         disclosure: DisclosurePriority::L0Footer,
         danger: DangerLevel::Safe,
-        description: "Open session execution trace from session stats",
+        description: "Open session execution trace from thread stats",
     },
     // Dialog Actions: Session Trace
     CommandSpec {
@@ -2006,7 +2006,7 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
         CommandId::CloseTab => Some(Key::ALT_W),
         CommandId::KillThread => None,
         CommandId::CopySelection => Some(Key::CTRL_SHIFT_C),
-        CommandId::OpenSessionStats => None,
+        CommandId::OpenThreadStats => None,
         CommandId::OpenSessionTrace => None,
         CommandId::OpenActiveConnectionDetail => None,
         // `Esc` is a real chord, not a placeholder: it is the registry's
@@ -2055,8 +2055,10 @@ pub fn command_id_from_name(name: &str) -> Option<CommandId> {
             CommandId::KillThread
         }
         "copy" | "copy_selection" | "copy-selection" => CommandId::CopySelection,
-        "stats" | "session_stats" | "session-stats" | "open_session_stats"
-        | "open-session-stats" => CommandId::OpenSessionStats,
+        "stats" | "thread_stats" | "thread-stats" | "open_thread_stats" | "open-thread-stats" => {
+            CommandId::OpenThreadStats
+        }
+        "thread_stats_open_trace" => CommandId::ThreadStatsOpenTrace,
         "trace" | "session_trace" | "session-trace" | "open_session_trace"
         | "open-session-trace" | "telemetry" | "open_telemetry" | "open-telemetry" => {
             CommandId::OpenSessionTrace

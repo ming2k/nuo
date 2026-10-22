@@ -26,7 +26,7 @@ Type these at the composer to open the corresponding surface or perform the acti
 | `/tree` | Visual DAG thread tree and branch navigation |
 | `/diff` | View workspace modifications made in this thread |
 | `/undo` | Undo the last thread turn and file changes |
-| `/stats` | View context token accounting and session stats |
+| `/stats` | View context token accounting and thread stats |
 | `/trace` | Inspect session execution trace and latency waterfall |
 | `/usage` | Cross-session token usage statistics overlay |
 | `/quotas` | Provider quota pool and allowance dashboard |

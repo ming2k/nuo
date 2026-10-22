@@ -221,7 +221,7 @@ impl App {
                 DialogKind::Permissions
                 | DialogKind::UsageStats
                 | DialogKind::Quotas
-                | DialogKind::SessionStats
+                | DialogKind::ThreadStats
                 | DialogKind::SessionTrace
                 | DialogKind::PortShare
                 | DialogKind::Switcher => {}

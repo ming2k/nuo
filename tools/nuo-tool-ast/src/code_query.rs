@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_tool::{BuiltinTool, ToolSchema};
+use nuo_tool::{BuiltinTool, ToolArgs};
 use nuo_wire::{ExecutionEnvironment, Tool, ToolAccesses, ToolOutput};
 use serde::Deserialize;
 
@@ -74,12 +74,9 @@ impl Mode {
     /// Every mode, in the order the schema advertises them.
     ///
     /// This is the single source of truth for both the advertised `enum` and
-    /// the accepted input ([`Mode::parse`]), because the `ToolSchema` derive
-    /// cannot see an enum's variants: for an enum-typed field it emits
-    /// `"type": "object"`, which would tell the model to send an object where a
-    /// string is required. The field is therefore declared as a string and the
-    /// enum is injected from here, so the published contract and the enforced
-    /// one cannot drift (invariant 6).
+    /// the accepted input ([`Mode::parse`]). The schema derives the string enum
+    /// choices directly at compile time via `#[tool(choices = [...])]`, ensuring the
+    /// published contract and the enforced parser cannot drift.
     const ALL: [Mode; 3] = [Mode::Outline, Mode::Symbol, Mode::Find];
 
     fn as_str(self) -> &'static str {
@@ -109,11 +106,12 @@ impl Mode {
     }
 }
 
-#[derive(ToolSchema, Deserialize)]
+#[derive(ToolArgs, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CodeQueryArgs {
     #[tool(
-        desc = "Query mode: 'outline' lists one file's declarations, 'symbol' returns a declaration's source by name, 'find' locates declarations matching a kind/name pattern in a scope."
+        desc = "Query mode: 'outline' lists one file's declarations, 'symbol' returns a declaration's source by name, 'find' locates declarations matching a kind/name pattern in a scope.",
+        choices = ["outline", "symbol", "find"]
     )]
     mode: String,
     #[tool(
@@ -294,13 +292,7 @@ impl Tool for CodeQueryTool {
     }
 
     fn parameters(&self) -> serde_json::Value {
-        let mut schema = CodeQueryArgs::parameters_schema();
-        // The derive cannot name an enum's variants, so the mode enum is
-        // injected from `Mode::ALL` — the same const the parser accepts against.
-        if let Some(mode) = schema.pointer_mut("/properties/mode") {
-            mode["enum"] = serde_json::json!(Mode::ALL.map(Mode::as_str));
-        }
-        schema
+        CodeQueryArgs::parameters_schema()
     }
 
     fn accesses(&self, arguments: &str) -> ToolAccesses {
