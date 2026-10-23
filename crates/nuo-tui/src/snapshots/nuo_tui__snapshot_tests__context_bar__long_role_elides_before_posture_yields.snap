@@ -1,0 +1,5 @@
+---
+source: crates/nuo-tui/src/snapshot_tests.rs
+expression: row
+---
+  [SECURITY-AU…]  auto  open

@@ -199,6 +199,19 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
+        id: "glm-cn",
+        label: "GLM Coding Plan CN",
+        description: "Zhipu's GLM Coding Plan on the domestic BigModel platform, serving the flagship GLM-5 family; sign in with a plan API key.",
+        protocol: WireProtocol::OpenAiChatCompletions,
+        models: nuo_wire::model_providers::GLM_CN_MODELS,
+        needs_url: false,
+        url_hint: "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
+        needs_model: false,
+        default_url: Some("https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"),
+        user_agent: Some(nuo_wire::client_identity::ZCODE_USER_AGENT),
+        auth: nuo_wire::ConnectionAuth::ApiKey,
+    },
+    ConnectionTemplate {
         id: "github-copilot",
         label: "GitHub Copilot",
         description: "Your GitHub Copilot subscription, serving multi-vendor coding and reasoning models; authorizes on the device via GitHub.",
@@ -331,16 +344,16 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         auth: nuo_wire::ConnectionAuth::subscription_const("qoder"),
     },
     ConnectionTemplate {
-        id: "glm-cn",
-        label: "ZAI Code (CN)",
-        description: "Zhipu's Z.AI Coding Plan with flagship GLM and code-enhanced models; sign in with a plan API key.",
+        id: "codebuddy",
+        label: "Tencent CodeBuddy",
+        description: "Tencent AI CodeBuddy coding assistant with Hunyuan, DeepSeek, Kimi, and GLM models; sign in with CodeBuddy CLI or an API key.",
         protocol: WireProtocol::OpenAiChatCompletions,
-        models: nuo_wire::model_providers::ZAI_CODE_MODELS,
+        models: nuo_wire::model_providers::CODEBUDDY_BUILTIN_MODELS,
         needs_url: false,
-        url_hint: "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
+        url_hint: "https://copilot.tencent.com/v2/chat/completions",
         needs_model: false,
-        default_url: Some("https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"),
-        user_agent: Some(nuo_wire::client_identity::ZCODE_USER_AGENT),
+        default_url: Some("https://copilot.tencent.com/v2/chat/completions"),
+        user_agent: Some(nuo_wire::client_identity::CODEBUDDY_USER_AGENT),
         auth: nuo_wire::ConnectionAuth::ApiKey,
     },
     ConnectionTemplate {
@@ -1388,13 +1401,14 @@ mod tests {
             "GitHub Copilot",
             "Google Antigravity",
             "Kimi Code",
-            "ZAI Code (CN)",
+            "GLM Coding Plan CN",
             "OpenCode",
             "OpenCode Plan",
             "OpenCode Zen",
             "OpenRouter",
             "QianwenAI Token Plan",
             "Qoder",
+            "Tencent CodeBuddy",
         ];
         for t in PROVIDER_PRESETS {
             if builtin_labels.contains(&t.label) {
@@ -1673,13 +1687,14 @@ mod tests {
                 }
                 "google-antigravity" => Some(nuo_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS),
                 "kimi-code" => Some(nuo_wire::model_providers::KIMI_CODE_MODELS),
+                "codebuddy" => Some(nuo_wire::model_providers::CODEBUDDY_BUILTIN_MODELS),
                 "openai" => Some(nuo_wire::model_providers::OPENAI_BUILTIN_MODELS),
                 "openrouter" => Some(nuo_wire::model_providers::OPENROUTER_BUILTIN_MODELS),
                 "opencode-plan" | "opencode-go" => {
                     Some(nuo_wire::model_providers::OPENCODE_PLAN_MODELS)
                 }
                 "opencode-zen" => Some(nuo_wire::model_providers::OPENCODE_ZEN_MODELS),
-                "glm-cn" => Some(nuo_wire::model_providers::ZAI_CODE_MODELS),
+                "glm-cn" => Some(nuo_wire::model_providers::GLM_CN_MODELS),
                 "xai" => Some(nuo_wire::model_providers::XAI_BUILTIN_MODELS),
                 _ => None,
             };

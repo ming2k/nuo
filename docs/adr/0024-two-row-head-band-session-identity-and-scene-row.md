@@ -27,7 +27,7 @@ namespace legend on row 2", but in practice each scene read its rows
 differently:
 
 - The **Conversation** head put `SESSION` + id-tail + `[ROLE]` badge + workspace
-  on row 1, with the run-mode flags (`UNATTENDED` / `UNCONFINED`) right-aligned
+  on row 1, with the safety posture tokens (`auto` / `open`) right-aligned
   on the same row, and the `C-x menu` pair on row 2.
 - The **`/btw` aside** and **Subagent** heads replaced row 1 with their own
   identities (`/btw Side conversation`, `SUBAGENT [role] label (i/n)`) and used a
@@ -65,8 +65,8 @@ records the rejected alternatives.
   plain language, on every scene.
 - **Session continuity**: the ambient session facts (id tail, role, workspace)
   must stay visible regardless of the scene the user navigates into.
-- **Run-mode honesty**: the persistent safety flags (`UNATTENDED`,
-  `UNCONFINED`) must sit in one predictable place, not migrate with the scene.
+- **Run-mode honesty**: the persistent safety posture tokens (`auto`,
+  `open`) must sit in one predictable place, not migrate with the scene.
 - **Title discoverability**: the thread's chat title should be visible in
   the head, not only in the sessions picker.
 - **Namespace discoverability**: the `C-x menu` pair stays a standing row-2
@@ -124,10 +124,10 @@ width pressure):
 
 ### 3. The run-mode flags and namespace pair ride the right edge
 
-Row 2's right edge carries the session's persistent run-mode flags —
-`UNATTENDED` (warning tone) when `--unattended` / `/unattended on`, and
-`UNCONFINED` (warning tone) when `/confinement off` — followed by the standing
-`C-x menu` namespace pair ([ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md) `[INV-HINT-01]`). The flags are session
+Row 2's right edge carries the session's persistent safety posture tokens —
+`auto` (warning tone) when `--unattended` / `/unattended on`, and
+`open` (warning tone) when `/confinement off` — followed by the standing
+`C-x menu` namespace pair ([ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md) `[INV-HINT-01]`). The tokens are session
 facts the user must never lose sight of, so they sit beside the namespace pair
 that is present on every scene.
 
@@ -138,9 +138,13 @@ that is present on every scene.
   row. Row 2 always leads with the scene's plain lowercase name and always
   carries the `C-x menu` namespace pair; chrome never advertises a chord the
   dispatcher does not honour ([ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md) `[INV-HINT-01]`).
-- **INV-HINT-03**: The session's run-mode flags (`UNATTENDED`, `UNCONFINED`)
+- **INV-HINT-03** (superseded in form by [ADR-0062](0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md) `[INV-HEAD-07]`): The session's safety posture tokens (`auto`, `open`)
   render on **row 2's right edge** on every scene that shows them — never on
-  row 1 — so their location never migrates with the scene.
+  row 1 — so their location never migrates with the scene. The *governing
+  intent* stands (one predictable location that never migrates with the
+  scene), but the tokens themselves are now the `auto` / `open` posture tokens
+  on the ThreadContextBar's left edge, and the workspace path took the right
+  edge because it is the only element permitted to shrink.
 - **INV-HINT-04**: A scene name is drawn from the closed
   [`ViewKind::scene_label`] set (`thread` / `dashboard` / `settings` /
   `subagent` / `aside`); a scene never invents a name inline.

@@ -1314,11 +1314,14 @@ pub struct HarnessSnapshot {
     #[serde(default)]
     pub round_counter: u64,
     /// Whether the agent runs in unattended execution mode
-    /// (`--unattended` / `/unattended on`). The TUI mirrors this into an `UNATTENDED` badge.
+    /// (`--unattended` / `/unattended on`). The TUI surfaces this as the `auto`
+    /// posture token (ADR-0062 `[INV-HEAD-07]`); frontends may present it however
+    /// their own vocabulary dictates.
     #[serde(default)]
     pub unattended: bool,
     /// Whether workspace filesystem confinement is enforced this session (default true).
-    /// (`--no-confinement` / `/confinement off`). The TUI mirrors false into an `UNCONFINED` badge.
+    /// (`--no-confinement` / `/confinement off`). The TUI surfaces `false` as the
+    /// `open` posture token (ADR-0062 `[INV-HEAD-07]`).
     #[serde(default = "default_confined")]
     pub confined: bool,
     /// Workspace authority is independent from the attended/unattended posture.

@@ -1,0 +1,5 @@
+---
+source: crates/nuo-tui/src/snapshot_tests.rs
+expression: "render_bar(72, &h)"
+---
+  [DEVELOPER]                                           ~/projects/nuo

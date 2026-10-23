@@ -22,7 +22,7 @@ use nuo_harness::{Agent, AgentIdentity, AgentRoleProfile, RoundLifecycle, Subage
 use nuo_wire::{
     AgentNotice, AgentRequest, AgentResponse, Message, NoticeKind, NoticeSeverity, NoticeSource,
     NoticeSurface, Provider, RoundEvent, SubAgentProfile, ToolContextBuilder, ToolSet,
-    WorkspaceTrustState, collect_toolset,
+    collect_toolset,
 };
 
 use crate::mcp::{McpCatalog, McpRuntime};
@@ -601,35 +601,6 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
                 Err(error) => tracing::warn!(%error, "trusted project rules could not be loaded"),
             }
         }
-    }
-    let gated = [
-        ("mcp", security_snapshot.mcp),
-        ("skills", security_snapshot.skills),
-        ("hooks", security_snapshot.hooks),
-        ("instructions", security_snapshot.instructions),
-        ("ex-workspace", security_snapshot.ex_workspace),
-    ]
-    .into_iter()
-    .filter_map(|(domain, state)| {
-        matches!(
-            state,
-            WorkspaceTrustState::Quarantined | WorkspaceTrustState::Changed
-        )
-        .then_some(format!("{domain} ({})", state.as_str()))
-    })
-    .collect::<Vec<_>>();
-    if !gated.is_empty() {
-        let _ = resp_tx.send(round_response(
-            &session.id().await,
-            RoundEvent::Notice(
-                AgentNotice::trust_changed("Project assets are quarantined")
-                    .with_surface(NoticeSurface::Banner)
-                    .with_body(format!(
-                        "Quarantined domains: {}. Inspect them, then run `/trust` or `/trust <domain>` (e.g. `/trust instructions`).",
-                        gated.join(", ")
-                    )),
-            ),
-        ));
     }
     if !resolved_additional.skipped.is_empty() {
         let details = resolved_additional

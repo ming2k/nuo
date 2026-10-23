@@ -220,31 +220,28 @@ fn workspace_trust_notice(
         event,
     };
     let changed = [
-        ("instructions (AGENTS.md / rules)", snapshot.instructions),
-        (
-            "ex-workspace (external workspace roots)",
-            snapshot.ex_workspace,
-        ),
-        ("mcp (MCP servers)", snapshot.mcp),
-        ("skills (custom skills)", snapshot.skills),
-        ("hooks (lifecycle hooks)", snapshot.hooks),
+        ("AGENTS.md", snapshot.instructions),
+        (".nuo/config.toml", snapshot.ex_workspace),
+        (".nuo/mcp.json", snapshot.mcp),
+        (".nuo/skills/", snapshot.skills),
+        (".nuo/hooks/", snapshot.hooks),
     ]
     .into_iter()
     .filter_map(|(name, state)| (state == nuo_wire::WorkspaceTrustState::Changed).then_some(name))
     .collect::<Vec<_>>();
 
     let changed_desc = if changed.is_empty() {
-        "configurations".to_string()
+        "workspace files".to_string()
     } else {
         changed.join(", ")
     };
 
     round(nuo_wire::RoundEvent::Notice(
-        nuo_wire::AgentNotice::trust_changed("Workspace configurations changed")
+        nuo_wire::AgentNotice::trust_changed("Workspace configuration changed")
             .with_surface(nuo_wire::NoticeSurface::Banner)
             .with_body(format!(
-                "Changed on disk: {changed_desc} — quarantined pending review.\n\n\
-                 /trust re-trusts all; /trust <domain> (e.g. /trust instructions) re-trusts one.",
+                "Changed on disk: {changed_desc}.\n\
+                 Run `/trust` to approve and reload, or `/untrust` to ignore.",
             )),
     ))
 }

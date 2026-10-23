@@ -300,20 +300,26 @@ impl App {
 
     /// Open or focus a client tab, running each dropped sheet's teardown (ADR-0041 [INV-TAB-07]).
     pub(crate) fn open_tab(&mut self, tab: crate::surfaces::ClientTab) -> usize {
+        self.checkpoint_active_tab_context();
         let sheets = self.surfaces.take_sheets();
         let idx = self.surfaces.open_tab(tab);
         for s in sheets {
             self.on_sheet_dismissed(s);
         }
+        self.restore_active_tab_context();
         idx
     }
 
     /// Replace a client tab at index, running each dropped sheet's teardown.
     pub(crate) fn replace_tab(&mut self, index: usize, tab: crate::surfaces::ClientTab) -> bool {
+        let is_active = index == self.surfaces.active_tab_index();
         let sheets = self.surfaces.take_sheets();
         let ok = self.surfaces.replace_tab(index, tab);
         for s in sheets {
             self.on_sheet_dismissed(s);
+        }
+        if is_active && ok {
+            self.restore_active_tab_context();
         }
         ok
     }
@@ -326,6 +332,34 @@ impl App {
             .active_tab()
             .is_some_and(|t| matches!(t.kind, crate::surfaces::TabKind::Thread(_)));
         is_thread_tab && self.messages.is_empty() && self.round_count == 0
+    }
+
+    /// Checkpoint the active tab's intra-scene interaction context (ADR-0091 [INV-TAB-12]).
+    pub(crate) fn checkpoint_active_tab_context(&mut self) {
+        if let Some(active_tab) = self.surfaces.active_tab_mut() {
+            if matches!(active_tab.kind, crate::surfaces::TabKind::Thread(_)) {
+                active_tab.context.transcript_focused = self.transcript_focused;
+                active_tab.context.focused_target = self.focused_target;
+                active_tab.context.scroll = self.scroll;
+                active_tab.context.input = self.input.clone();
+                active_tab.context.cursor_position = self.cursor_position;
+                active_tab.context.input_scroll = self.input_scroll;
+            }
+        }
+    }
+
+    /// Restore the active tab's intra-scene interaction context (ADR-0091 [INV-TAB-12]).
+    pub(crate) fn restore_active_tab_context(&mut self) {
+        if let Some(tab) = self.surfaces.active_tab() {
+            if matches!(tab.kind, crate::surfaces::TabKind::Thread(_)) {
+                self.transcript_focused = tab.context.transcript_focused;
+                self.focused_target = tab.context.focused_target;
+                self.scroll = tab.context.scroll;
+                self.input = tab.context.input.clone();
+                self.cursor_position = tab.context.cursor_position;
+                self.input_scroll = tab.context.input_scroll;
+            }
+        }
     }
 
     /// Dynamically update the authentic title of a thread tab (ADR-0050 [INV-TAB-08]).
@@ -1009,5 +1043,58 @@ impl App {
             chrome.set_phase(None);
             chrome.round_started_at = None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::surfaces::ClientTab;
+
+    #[test]
+    fn open_tab_checkpoints_departing_context_and_restores_target_context() {
+        let mut app = crate::tests::new_app_for_relay_tests();
+        app.surfaces
+            .open_tab(ClientTab::thread("s1", Some("Thread 1")));
+        app.surfaces.select_tab(0);
+
+        // Mutate Tab 0 context
+        app.transcript_focused = true;
+        app.scroll = 15;
+        app.input = "draft for thread 1".to_string();
+        app.cursor_position = 4;
+        app.input_scroll = 2;
+
+        // Open/switch to Tab 1 (Thread 2)
+        let idx = app.open_tab(ClientTab::thread("s2", Some("Thread 2")));
+        assert_eq!(idx, 1);
+        assert_eq!(app.surfaces.active_tab_index(), 1);
+
+        // Tab 1 starts with default context
+        assert!(!app.transcript_focused);
+        assert_eq!(app.scroll, 0);
+        assert_eq!(app.input, "");
+        assert_eq!(app.cursor_position, 0);
+
+        // Mutate Tab 1 context
+        app.input = "draft for thread 2".to_string();
+        app.cursor_position = 8;
+
+        // Open/focus back to existing Tab 0 (Thread 1)
+        let idx0 = app.open_tab(ClientTab::thread("s1", Some("Thread 1")));
+        assert_eq!(idx0, 0);
+        assert_eq!(app.surfaces.active_tab_index(), 0);
+
+        // Tab 0 context is completely restored
+        assert!(app.transcript_focused);
+        assert_eq!(app.scroll, 15);
+        assert_eq!(app.input, "draft for thread 1");
+        assert_eq!(app.cursor_position, 4);
+        assert_eq!(app.input_scroll, 2);
+
+        // Open/focus back to Tab 1 (Thread 2)
+        let idx1 = app.open_tab(ClientTab::thread("s2", Some("Thread 2")));
+        assert_eq!(idx1, 1);
+        assert_eq!(app.input, "draft for thread 2");
+        assert_eq!(app.cursor_position, 8);
     }
 }

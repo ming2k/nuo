@@ -6,6 +6,109 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [Unreleased]
+
+### Added
+
+- **Tencent AI CodeBuddy Provider Channel (`nuo-provider-codebuddy`).**
+  New provider channel for Tencent AI CodeBuddy (`copilot.tencent.com/v2`),
+  authenticated via Bearer token or CodeBuddy CLI credentials. Supports Hunyuan 4
+  Thinking (`hy4-preview`), Hunyuan 3 (`hy3`), DeepSeek V4 Flash / Pro, Kimi K3.1,
+  GLM 5.3 Flash, and MiniMax M2.5 models with streaming thinking deltas
+  (`reasoning_content`) and multimodal vision. Authoritative OpenAPI specification
+  added to `docs/reference/openapi/codebuddy.yml`.
+
+### Changed
+
+- **The CN Plan Channel Presents Itself Under Its Official Product Name:
+  `GLM Coding Plan CN`, and Legacy ZAI Artifacts Are Retired.** The `glm-cn`
+  provider's label was `ZAI Code (CN)`, which was wrong in three independent ways:
+  it named the Zhipu **international** brand (`Z.AI`) after an endpoint that lives on
+  `open.bigmodel.cn`; it invented `Code` when the product Zhipu publishes — on
+  *both* `bigmodel.cn/glm-coding` and `z.ai/subscribe` — is the **GLM Coding
+  Plan**; and it spent parentheses on a region, while
+  `docs/reference/tui/visual-language.md` reserves `(...)` for a measure
+  qualifying a value (e.g. `4.2k (7%)`) and `ConnectionTemplate::display_title`
+  states that any suffix is part of the label.
+  - **Label & Description**: The label is now `GLM Coding Plan CN`: the official product name,
+    with `CN` kept as a plain site-disambiguating token. The chooser description and module
+    documentation reflect the domestic BigModel endpoint serving the flagship GLM-5 family.
+  - **Channel Crate & Constant Purified**: Renamed `providers/nuo-provider-zai` to
+    `providers/nuo-provider-glm-cn` (`nuo-provider-glm-cn`). Renamed `ZAI_CODE_MODELS` to
+    `GLM_CN_MODELS` across `nuo-provider`, `nuo-tui`, and `nuo-server`.
+  - **Zero Backward Compatibility / Zero Historical Baggage**: The legacy `zai-code` alias in
+    `canonical_provider_id` was retired outright; unrecognized provider IDs fail loudly rather
+    than silently canonicalizing. Leftover `zai-code` strings in `nuo-server` provider registry
+    tests and `nuo-provider` dialects documentation were updated to `glm-cn`.
+  - `PROVIDER_PRESETS` stays sorted by title, so the entry moved ahead of `GitHub Copilot`
+    (byte-wise `GLM` < `GitH`); at 18 columns the title clears the narrowest chooser budget
+    (53 columns at an 80-column viewport).
+- **A Stale Key-Variable Claim Left the ZAI Spec.** The channel's module
+  documentation asserted that the plan key resolves through a `ZHIPU_API_KEY`
+  legacy name with `ZAI_API_KEY` as the preferred alias. No such built-in
+  variable exists: `api_key_env` is a free-form per-connection field
+  (`ConnectionSpec`), and grep finds no declared Zhipu/GLM environment name
+  anywhere in the tree. The doc now says what the code does.
+- **Sovereign Tab Context Isolation and TabBar Boundary Purity ([ADR-0091](docs/adr/0091-sovereign-tab-context-isolation-and-tabbar-boundary-purity.md), `[INV-TAB-11]`, `[INV-TAB-12]`).**
+  - **TabBar Container Purity (`[INV-TAB-11]`)**: Tier 1 TabBar chrome (`UiKey::TabBar` and `UiKey::TabBarItem`) operates strictly as a container affordance. Background clicks and already-active tab clicks are inert, idempotent container gestures: they cancel drags and release pointer capture, but never leak cross-layer side effects (such as blurring the composer, mutating transcript focus, or clearing selection) into the active scene.
+  - **Sovereign Tab Context Preservation (`[INV-TAB-12]`)**: `ClientTab` now maintains autonomous `TabContextState` tracking focus mode (`transcript_focused`), focused interactive step targets, reading scroll offset, uncommitted composer input drafts, caret positions, and input viewport scroll. Lateral workspace transitions checkpoint departing tab context and restore arriving tab context without operating habit loss.
+  - Replaced legacy "click tabbar background to blur composer" defect with strict container boundary isolation. Single-click switching on inactive tabs remains instantaneous, and clicking the active tab or empty TabBar area preserves the active context.
+
+- **The ThreadContextBar Speaks Tokens, and the Workspace Moved Right**
+  ([ADR-0062](docs/adr/0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md)
+  §2a, `[INV-HEAD-07]`). Tier 3 of the head band no longer spends 22 columns on
+  the sentence-flags `UNATTENDED` / `UNCONFINED`. Posture is now a closed
+  vocabulary of lowercase, unbracketed tokens — `auto` (tool calls are approved
+  without asking) and `open` (file tools may leave the workspace) — joined by
+  the peer-enumeration gap and drawn **only on deviation from the safe
+  default**, so a normally-behaving session shows nothing but `[ROLE]` and the
+  path. The workspace path moves to the row's right edge: it is the only
+  element permitted to shrink, so anchoring it there keeps the governance
+  cluster (`[ROLE]` + posture) at a fixed screen position — toggling
+  `/unattended` now grows the cluster into the inter-cluster gap instead of
+  re-truncating an unrelated element.
+- **The Workspace Path Shortens From the Ancestor End, or Not at All.** It now
+  goes through the shared `PathView` ladder (`Full` → `.../parent/leaf` → fish
+  → basename → middle-truncate) instead of a tail truncation, so a narrow row
+  keeps the leaf that names the project (`.../crates/nuo-tui`) rather than the
+  ancestors the user already knows (`~/projects…`). `CONTEXT_BAR_WORKSPACE_MIN_COLS`
+  is pinned to that ladder's own last stop — the bare leaf, four columns, which
+  still names the project — so the path is present whenever honest information
+  remains. Below it the path is dropped outright: the bar either names the
+  workspace or stays silent about it, never drawing a fragment that still
+  claims to be the path. (A first cut set the floor at 8, which silently
+  discarded widths 4..=7 the ladder serves correctly; the constant is now
+  asserted against the ladder itself rather than against a guessed number.)
+- **`[INV-HEAD-07]` Ratified**: `[INV-HINT-03]` of ADR-0024 is superseded *in
+  form* (its "one predictable location that never migrates with the scene"
+  intent survives), and `docs/reference/tui/visual-language.md` gained the
+  state-token grammar the change follows.
+- **`[INV-HEAD-08]` Ratified — Posture Outranks Identity.** The posture block is
+  budgeted before the role badge and is never truncated: a clipped `open`
+  reading `op` would still paint in the warning tone, asserting a safety state
+  the session may not hold. A long custom role therefore elides inside intact
+  brackets (`[SECURITY-AU…]`) and disappears below a legible floor instead of
+  degrading to `[D…]`. Truncation markers come from `theme.glyphs.ellipsis`, so
+  a non-Unicode terminal gets `...` rather than `…`.
+  Regression coverage: `view_header::tests::row3_*` (including
+  `row3_posture_outranks_a_long_role_badge`,
+  `row3_never_emits_a_truncated_posture_token`,
+  `row3_workspace_floor_matches_the_ladder_capability`, and the two
+  `row3_degrades_*_under_ascii_glyphs` cases, each verified to fail without
+  its fix), plus five golden baselines under
+  `snapshot_tests::context_bar` that lock the painted row at the widths where
+  each degradation rung engages.
+- **Zero Backward Compatibility / Zero Historical Baggage: Retired `ThreadHead` Outright.**
+  The monolithic `ThreadHead` struct — a legacy coupling from ADR-0060 that bundled Tier 1
+  client tabs (`tabs`, `active_tab`) with Tier 3 thread execution governance (`role`,
+  `workspace`, `unattended`, `confined`) — has been deleted.
+  - Tier 1 Client TabBar is now purely projected via `TabBarProps` (Client domain only).
+  - Tier 3 ContextBar is now purely governed via `ThreadContext` (Thread domain only).
+  - Purged fake `ThreadHead` constructions from `DashboardProps` and `SettingsProps`; non-thread
+    scenes now cleanly take `Option<TabBarProps>` with zero thread governance leakage.
+  - Purged all legacy `UNATTENDED` / `UNCONFINED` strings from ADR-0024, ADR-0050, and ADR-0060,
+    aligning historical documentation directly with current invariant specifications.
+
 ## [0.0.47] - 2026-10-23
 
 ### Added

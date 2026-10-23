@@ -45,11 +45,13 @@ fn parse_responses_stream_error(
     label: &'static str,
 ) -> ProviderError {
     let code = error_val.get("code").and_then(serde_json::Value::as_str);
-    let message = error_val
-        .get("message")
-        .and_then(serde_json::Value::as_str)
-        .filter(|m| !m.trim().is_empty())
-        .map(str::to_string)
+    let message = nuo_provider::transport::extract_error_message(error_val)
+        .or_else(|| {
+            error_val
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
         .unwrap_or_else(|| {
             if let Some(code) = code {
                 format!("Responses stream error: {code}")
@@ -559,10 +561,12 @@ impl Provider for OpenAiResponsesProvider {
             .await?;
         let value: serde_json::Value = decode_response_json(resp, label).await?;
         if let Some(err) = value.get("error") {
+            let msg = nuo_provider::transport::extract_error_summary(err)
+                .unwrap_or_else(|| err.to_string());
             return Err(ProviderError::new(
                 label,
                 ProviderErrorKind::Protocol,
-                format!("{label} Error: {}", err),
+                format!("{label} Error: {msg}"),
             ));
         }
         let output = value

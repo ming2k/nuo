@@ -202,6 +202,7 @@ impl FixedModalSpec {
 
     // The preset chooser shares the provider list's footprint.
     pub const PROVIDER: Self = Self::new(76, 80);
+    pub const MODELS: Self = Self::new(84, 80);
     pub const SESSIONS: Self = Self::new(82, 78);
 }
 

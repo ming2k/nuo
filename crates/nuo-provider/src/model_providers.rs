@@ -107,7 +107,7 @@ pub const OPENCODE_ZEN_MODELS: &[&str] = &[
     "glm-5.3-flash-free",
 ];
 
-pub const ZAI_CODE_MODELS: &[&str] = &["glm-5.3", "glm-5.3-flash", "glm-5.2"];
+pub const GLM_CN_MODELS: &[&str] = &["glm-5.3", "glm-5.3-flash", "glm-5.2"];
 
 /// QianwenAI Platform Token Plan seeds, in activation order. The live
 /// `/models` endpoint is authoritative for what this account's plan may run
@@ -119,6 +119,17 @@ pub const ZAI_CODE_MODELS: &[&str] = &["glm-5.3", "glm-5.3-flash", "glm-5.2"];
 pub const QIANWEN_BUILTIN_MODELS: &[&str] = &["qwen3.8-max", "qwen3.8-flash", "qwen3.6-flash"];
 
 pub const XAI_BUILTIN_MODELS: &[&str] = &["grok-4.5", "grok-4.20", "grok-4.3", "grok-build-0.1"];
+
+/// Seed models for Tencent AI CodeBuddy, in activation order.
+pub const CODEBUDDY_BUILTIN_MODELS: &[&str] = &[
+    "hy4-preview",
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+    "kimi-k3-1",
+    "glm-5.3-flash",
+    "minimax-m2.5",
+    "default",
+];
 
 use serde::{Deserialize, Serialize};
 
@@ -232,6 +243,7 @@ pub const MODEL_PROVIDER_IDS: &[&str] = &[
     "qoder",
     "qianwen",
     "commandcode-plan",
+    "codebuddy",
 ];
 
 /// Whether `id` names a registered model provider.
@@ -242,13 +254,12 @@ pub fn is_known_model_provider(id: &str) -> bool {
 /// Map a provider id from any era to its canonical id, or `None` when the
 /// value names no provider at all.
 ///
-/// Legacy spellings appended `-oauth` to encode an authentication
-/// mode; `zai-code` named the CN endpoint with the international brand. These
+/// Legacy spellings appended `-oauth` to encode an authentication mode. These
 /// aliases exist **only** to migrate an existing `connections.toml` on load —
 /// nothing serializes them back.
 pub fn canonical_provider_id(id: &str) -> Option<String> {
-    // The OpenCode Console surface (`opencode`) was retired outright
-    // (ADR-0079): its id deliberately does not canonicalize, so a stale
+    // The OpenCode Console surface (`opencode`) and legacy `zai-code` were
+    // retired outright: their ids deliberately do not canonicalize, so a stale
     // `connections.toml` row fails loudly as an unknown provider.
     let canonical = match id {
         "chatgpt" | "chatgpt-oauth" | "openai-subscription" => "chatgpt-plan",
@@ -257,7 +268,6 @@ pub fn canonical_provider_id(id: &str) -> Option<String> {
         "antigravity-oauth" => "google-antigravity",
         "copilot-oauth" => "github-copilot",
         "xai-oauth" => "xai",
-        "zai-code" => "glm-cn",
         "kimi" => "kimi-code",
         "google-ai-studio" | "ai-studio" | "google-studio" | "gemini" => "google",
         other => other,
@@ -270,6 +280,7 @@ pub fn model_provider_label(id: &str) -> &'static str {
     match id {
         "anthropic" => "Anthropic",
         "chatgpt-plan" => "ChatGPT Plan",
+        "codebuddy" => "Tencent CodeBuddy",
         "commandcode-plan" => "CommandCode Plan",
         "deepseek" => "DeepSeek",
         "github-copilot" => "GitHub Copilot",
@@ -280,7 +291,7 @@ pub fn model_provider_label(id: &str) -> &'static str {
         "opencode-zen" => "OpenCode Zen",
         "opencode-plan" => "OpenCode Plan",
         "openrouter" => "OpenRouter",
-        "glm-cn" => "ZAI Code (CN)",
+        "glm-cn" => "GLM Coding Plan CN",
         "qoder" => "Qoder",
         "qianwen" => "QianwenAI Token Plan",
         "xai" => "xAI",
@@ -332,7 +343,8 @@ mod provider_id_tests {
             canonical_provider_id("deepseek").as_deref(),
             Some("deepseek")
         );
-        assert_eq!(canonical_provider_id("zai-code").as_deref(), Some("glm-cn"));
+        // Retired legacy ids must not resurrect.
+        assert!(canonical_provider_id("zai-code").is_none());
         assert_eq!(
             canonical_provider_id("google-ai-studio").as_deref(),
             Some("google")

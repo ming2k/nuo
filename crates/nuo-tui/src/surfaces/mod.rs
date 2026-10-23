@@ -372,7 +372,19 @@ impl StackEntry {
     }
 }
 
-/// Canonical client tab representation (ADR-0039 [INV-TAB-01], ADR-0040 [INV-HEAD-02]).
+/// Autonomous per-tab intra-scene interaction context (ADR-0091 [INV-TAB-12]).
+/// Tracks focus mode, scroll, input drafts, and cursor position across workspace switches.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TabContextState {
+    pub transcript_focused: bool,
+    pub focused_target: Option<crate::model::layout::InteractiveTarget>,
+    pub scroll: u16,
+    pub input: String,
+    pub cursor_position: usize,
+    pub input_scroll: usize,
+}
+
+/// Canonical client tab representation (ADR-0039 [INV-TAB-01], ADR-0040 [INV-HEAD-02], ADR-0091).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientTab {
     pub kind: TabKind,
@@ -382,6 +394,8 @@ pub struct ClientTab {
     pub history: Vec<SceneKind>,
     /// Pointer within `history` for Back/Forward navigation.
     pub cursor: usize,
+    /// Sovereign intra-tab interaction context (ADR-0091 [INV-TAB-12]).
+    pub context: TabContextState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -402,6 +416,7 @@ impl ClientTab {
                 .filter(|t| !t.is_empty()),
             history: vec![SceneKind::Thread],
             cursor: 0,
+            context: TabContextState::default(),
         }
     }
 
@@ -411,6 +426,7 @@ impl ClientTab {
             title: Some("Dashboard".to_string()),
             history: vec![SceneKind::Dashboard],
             cursor: 0,
+            context: TabContextState::default(),
         }
     }
 
@@ -420,6 +436,7 @@ impl ClientTab {
             title: Some("Settings".to_string()),
             history: vec![SceneKind::Settings],
             cursor: 0,
+            context: TabContextState::default(),
         }
     }
 

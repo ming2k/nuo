@@ -1031,6 +1031,96 @@ fn models_modal_drops_the_id_column_when_narrow_never_the_label() {
     assert!(wide.contains("gemini-3-pro"));
 }
 
+#[test]
+fn models_modal_long_label_preserves_connection_column_alignment_and_gap() {
+    let theme = Theme::default();
+    let row1 = crate::providers::RankedModel {
+        section: crate::providers::ModelSection::Recent,
+        provider_id: "cc-main".to_string(),
+        model: "deepseek-flash".to_string(),
+        name: Some("DeepSeek V4.1 Flash Fast (latest)".to_string()),
+        provider_label: "cc-main".to_string(),
+        effort: Some("high".to_string()),
+        thinking: None,
+        effort_levels: vec![],
+        favorite: false,
+        usable: true,
+        context_window: 128_000,
+        locked_reason: None,
+        availability_overridden: false,
+        availability_stale: false,
+        last_used_ms: None,
+        match_id: None,
+        match_name: None,
+        match_connection: None,
+    };
+    let row2 = crate::providers::RankedModel {
+        section: crate::providers::ModelSection::Recent,
+        provider_id: "ga-main".to_string(),
+        model: "gemini-3.8-flash".to_string(),
+        name: Some("Gemini 3.8 Flash".to_string()),
+        provider_label: "ga-main".to_string(),
+        effort: Some("high".to_string()),
+        thinking: None,
+        effort_levels: vec![],
+        favorite: false,
+        usable: true,
+        context_window: 128_000,
+        locked_reason: None,
+        availability_overridden: false,
+        availability_stale: false,
+        last_used_ms: None,
+        match_id: None,
+        match_name: None,
+        match_connection: None,
+    };
+    let ranked = vec![row1, row2];
+    // Test on body_width = 58 (typical 80-col terminal under FixedModalSpec::PROVIDER)
+    let (lines, _) = crate::overlays::provider::models::model_list_body(
+        &ranked,
+        "cc-main",
+        "deepseek-flash",
+        0,
+        &theme,
+        58,
+    );
+    let line1 = lines
+        .iter()
+        .find(|l| {
+            let text: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
+            text.contains("DeepSeek V4.1 Flash Fast (latest)")
+        })
+        .expect("row1 line rendered");
+    let line2 = lines
+        .iter()
+        .find(|l| {
+            let text: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
+            text.contains("Gemini 3.8 Flash")
+        })
+        .expect("row2 line rendered");
+
+    let text1: String = line1.spans.iter().map(|s| s.content.as_ref()).collect();
+    let text2: String = line2.spans.iter().map(|s| s.content.as_ref()).collect();
+
+    let cc_main_idx = text1.find("cc-main").expect("cc-main rendered");
+    let ga_main_idx = text2.find("ga-main").expect("ga-main rendered");
+
+    // 1. Connection column must be strictly aligned between rows
+    assert_eq!(
+        cc_main_idx, ga_main_idx,
+        "connection column must align across rows: line1={text1:?}, line2={text2:?}"
+    );
+
+    // 2. Separation between model label and connection column must be at least GROUP_GAP (2)
+    let label1_end = text1.find("DeepSeek V4.1 Flash Fast (latest)").unwrap()
+        + "DeepSeek V4.1 Flash Fast (latest)".len();
+    assert!(
+        cc_main_idx >= label1_end + crate::components::row::GROUP_GAP,
+        "label and connection column must have at least GROUP_GAP separation: gap = {}, text1={text1:?}",
+        cc_main_idx - label1_end
+    );
+}
+
 /// Render the Models modal with one provider-published model label at a given
 /// terminal width. Returns the buffer text.
 fn render_labelled_models_modal(width: u16) -> String {

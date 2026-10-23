@@ -77,7 +77,7 @@ providers/ (Layer 2: Dedicated Channel & Adapter Namespace)
   ├── nuo-provider-openrouter          # OpenRouter gateway & /auth/key quota
   ├── nuo-provider-xai                 # xAI Grok API
   ├── nuo-provider-qianwen             # Qianwen Token Plan
-  └── nuo-provider-zai                 # ZAI / GLM-CN Platform
+  └── nuo-provider-glm-cn              # GLM Coding Plan CN (Zhipu BigModel)
 ```
 
 ### 2. Elimination of Unused Subscription Channels and Renaming

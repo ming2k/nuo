@@ -1,6 +1,6 @@
 //! Provider/channel catalog: the two-layer abstraction over LLM backends.
 //!
-//! A [`ProviderEntry`] is a configured provider preset (e.g. `zai-code`,
+//! A [`ProviderEntry`] is a configured provider preset (e.g. `glm-cn`,
 //! `kimi-code`) that owns one or more [`Channel`]s — delivery paths
 //! distinguished by transport and endpoint. Each channel references a model by
 //! its wire id; intrinsic model metadata (context window, capabilities) is
@@ -42,6 +42,10 @@ pub enum OpenAiChatDialect {
     /// 2026-10). Dropping it silently shortens the model's reasoning context
     /// across every tool round trip (ADR-0083).
     DeepSeek,
+    /// Tencent AI CodeBuddy Chat Completions surface (`copilot.tencent.com/v2`).
+    /// Strictly requires streaming (`stream: true`), User-Agent validation,
+    /// and client identity headers (`X-Domain`, `X-Product`, `X-IDE-Type`).
+    CodeBuddy,
 }
 
 /// Provider-specific behavior layered on the OpenAI Responses protocol.
@@ -113,6 +117,8 @@ pub enum ProviderDialect {
     #[serde(rename = "openrouter")]
     OpenRouter,
     Qoder,
+    #[serde(rename = "codebuddy")]
+    CodeBuddy,
 }
 
 /// Errors produced during remote catalog discovery.
@@ -533,6 +539,10 @@ impl ProviderDialect {
             Self::Antigravity => protocol == WireProtocol::GoogleGenerateContent,
             Self::ChatGpt => protocol == WireProtocol::OpenAiResponses,
             Self::Qoder => protocol == WireProtocol::OpenAiChatCompletions,
+            Self::CodeBuddy => {
+                protocol == WireProtocol::OpenAiChatCompletions
+                    || protocol == WireProtocol::OpenAiResponses
+            }
             Self::Copilot => {
                 protocol != WireProtocol::GoogleGenerateContent
                     && protocol != WireProtocol::GoogleInteractions
@@ -562,6 +572,7 @@ impl ProviderDialect {
             Self::OpenRouter => OpenAiChatDialect::OpenRouter,
             Self::Qoder => OpenAiChatDialect::Qoder,
             Self::DeepSeek => OpenAiChatDialect::DeepSeek,
+            Self::CodeBuddy => OpenAiChatDialect::CodeBuddy,
             _ => OpenAiChatDialect::Standard,
         }
     }
@@ -814,9 +825,9 @@ impl Channel {
 #[derive(Debug, Clone)]
 pub struct ProviderEntry {
     /// Canonical stable identifier — the provider/preset id
-    /// (`"zai-code"`, `"kimi-code"`, ...).
+    /// (`"glm-cn"`, `"kimi-code"`, ...).
     pub id: String,
-    /// Display name (e.g. `"ZAI Code"`).
+    /// Display name (e.g. `"GLM Coding Plan CN"`).
     pub name: String,
     /// Short human-readable description.
     pub description: String,

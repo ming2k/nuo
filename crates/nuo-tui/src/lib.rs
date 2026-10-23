@@ -2218,6 +2218,7 @@ pub async fn run_tui_with_terminal(
             .position(|t| t.thread_id() == Some(live_session_init.as_str()))
         {
             app.surfaces.select_tab(pos);
+            app.restore_active_tab_context();
         } else {
             app.surfaces.open_tab(crate::surfaces::ClientTab::thread(
                 &live_session_init,

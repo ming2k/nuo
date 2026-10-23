@@ -28,7 +28,7 @@ use nuotc::{
 
 use crate::primitives::{ElevationContainer, SCROLL_EDGE_MARGIN, draw_scrollbar, resolve_scroll};
 use crate::render::Theme;
-use crate::view_header::{ThreadHead, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar};
+use crate::view_header::{TabBarProps, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar};
 /// Width of the left navigation pane (its outer rect, before inner padding).
 const NAV_WIDTH: u16 = 22;
 
@@ -197,9 +197,9 @@ pub struct SettingsProps<'a> {
     pub theme: &'a Theme,
     pub profile: &'a nuotc::TerminalProfile,
     pub tui_config: &'a crate::config::TuiConfig,
-    /// The thread identity for the head band's top row (ADR-0060): carries
-    /// client tabs, thread identity, and execution governance posture (unattended / confined).
-    pub(crate) thread_head: Option<ThreadHead<'a>>,
+    /// Client-global TabBar projection (ADR-0039, ADR-0060, ADR-0062).
+    /// Tier 1 of the head band, carrying open tabs and active tab selection.
+    pub(crate) tab_bar: Option<TabBarProps<'a>>,
 }
 
 /// Draw the full-screen Settings View.
@@ -231,8 +231,8 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
     let category = ConfigCategory::from_index(props.category_index);
 
     // 1. Tier 1: TabBar (ADR-0062)
-    let tab_rects = if let Some(head) = props.thread_head.as_ref() {
-        draw_tab_bar(frame, header_rect, head, props.theme)
+    let tab_rects = if let Some(bar) = props.tab_bar.as_ref() {
+        draw_tab_bar(frame, header_rect, bar, props.theme)
     } else {
         Vec::new()
     };

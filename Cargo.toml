@@ -110,7 +110,8 @@ nuo-provider-opencode-zen = { version = "0.0.47", path = "providers/nuo-provider
 nuo-provider-openrouter = { version = "0.0.47", path = "providers/nuo-provider-openrouter" }
 nuo-provider-xai = { version = "0.0.47", path = "providers/nuo-provider-xai" }
 nuo-provider-qianwen = { version = "0.0.47", path = "providers/nuo-provider-qianwen" }
-nuo-provider-zai = { version = "0.0.47", path = "providers/nuo-provider-zai" }
+nuo-provider-glm-cn = { version = "0.0.47", path = "providers/nuo-provider-glm-cn" }
+nuo-provider-codebuddy = { version = "0.0.47", path = "providers/nuo-provider-codebuddy" }
 nuo-provider-siliconflow = { version = "0.0.47", path = "providers/nuo-provider-siliconflow" }
 nuo-mcp = { version = "0.0.47", path = "crates/nuo-mcp" }
 nuo-inference-wire = { version = "0.0.47", path = "crates/nuo-inference-wire", default-features = false }

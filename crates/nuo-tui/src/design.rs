@@ -179,7 +179,7 @@ pub(crate) const JOIN_ENUMERATE_COLS: usize = 2;
 /// Container › member breadcrumb for inline hierarchy (`round 3 › turn 2`).
 #[allow(dead_code)]
 pub(crate) const JOIN_BREADCRUMB: &str = " › ";
-/// Cause that explains a state, joined with an em dash (`timed out — killed`).
+/// Cause that explains a state, joined with an em dash (`terminated — timed out`).
 /// This is the *only* form for a cause: parentheses mean a secondary measure
 /// (`4.2k (7%)`), so `state (cause)` would misdeclare the relationship. Spaced
 /// exactly as the docs table shows it, so call sites never re-invent the
@@ -196,6 +196,18 @@ pub(crate) const JOIN_CAUSE: &str = " — ";
 /// quiet, matching the todo bar above it.
 #[allow(dead_code)]
 pub(crate) const QUEUE_BAR_ROWS: u16 = 1;
+
+/// Minimum display columns the workspace path may claim before the bar stays
+/// silent about it.
+///
+/// The floor is measured, not guessed: the `PathView` ladder's last stop is the
+/// bare leaf (`adaptive_shorten("~/projects/nuo", 4) == "nuo"`), so four columns
+/// still name the project honestly. Below that the ladder has nothing faithful
+/// left to say, and a path fragment would assert a location it cannot show.
+/// Keeping the floor this low matters — an earlier value of 8 discarded widths
+/// 4..=7, which the ladder serves correctly, wasting usable columns on a row
+/// where the path is otherwise the only optional element.
+pub(crate) const CONTEXT_BAR_WORKSPACE_MIN_COLS: usize = 4;
 
 /// Blank rows inserted at the start of the transcript message stream
 /// (scroll padding top). When scrolled to the very top (`scroll = 0`),

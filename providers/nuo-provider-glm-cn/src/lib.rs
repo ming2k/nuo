@@ -1,4 +1,4 @@
-//! ZAI Code (CN) GLM provider channel for Nuo (ADR-0015).
+//! GLM Coding Plan CN provider channel for Nuo (ADR-0015).
 
 // Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
 // test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,

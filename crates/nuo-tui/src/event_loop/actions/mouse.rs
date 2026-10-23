@@ -41,11 +41,10 @@ pub(super) async fn handle_selection_start(
     }
     match target {
         Some(UiKey::TabBar) => {
-            app.selection = SelectionState::None;
-            app.focused_target = None;
-            if app.current_scene() == crate::surfaces::SceneKind::Thread {
-                app.transcript_focused = true;
-            }
+            // [INV-TAB-11] TabBar Container Purity: Clicks on container-level TabBar chrome
+            // (empty background, margins) are inert container gestures. They cancel drags
+            // and release pointer capture, but MUST NOT mutate intra-scene context (such as
+            // blurring the composer, altering transcript focus, or clearing selection).
             app.drag.cancel();
             app.ui.runtime.release_pointer();
             return;
@@ -283,12 +282,6 @@ pub(super) async fn handle_selection_start(
     }
     app.selection = SelectionState::None;
     app.focused_target = None;
-    if app.current_scene() == crate::surfaces::SceneKind::Thread
-        && app.surfaces.active_overlay().is_none()
-        && app.active_sheet().is_none()
-    {
-        app.transcript_focused = true;
-    }
     app.drag.cancel();
     app.ui.runtime.release_pointer();
 }

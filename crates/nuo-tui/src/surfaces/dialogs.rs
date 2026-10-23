@@ -187,7 +187,8 @@ pub trait DialogView: std::fmt::Debug + Send + 'static {
 /// The canonical [`ModalSpec`] geometry for a dialog kind.
 pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
     match kind {
-        DialogKind::Connections | DialogKind::Models => FixedModalSpec::PROVIDER.modal_spec(),
+        DialogKind::Connections => FixedModalSpec::PROVIDER.modal_spec(),
+        DialogKind::Models => FixedModalSpec::MODELS.modal_spec(),
         DialogKind::Threads => FixedModalSpec::SESSIONS.modal_spec(),
         DialogKind::Tools | DialogKind::SessionTree => ContentModalSpec::TOOLS.modal_spec(),
         DialogKind::Mcp => ContentModalSpec::MCP.modal_spec(),

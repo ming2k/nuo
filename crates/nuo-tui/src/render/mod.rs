@@ -18,10 +18,11 @@ pub(crate) use crate::design::{
     ACTIVITY_STRIP_ROWS, BASH_FOLD_HEAD_ROWS, BASH_FOLD_TAIL_ROWS, CODE_BAND_GUTTER_GAP,
     CODE_BAND_GUTTER_MIN_WIDTH, COMPOSER_MAX_HEIGHT_DIVISOR, COMPOSER_MIN_HEIGHT,
     COMPOSER_PROMPT_PREFIX_COLS, COMPOSER_RIGHT_PAD_COLS, COMPOSER_VERTICAL_CHROME_ROWS,
-    FOOTER_H_INSET, FOOTER_TOP_GAP_ROWS, MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS, MODEL_BAR_ROWS,
-    PAGE_HEADER_ROWS, REASONING_TRACE_BLOCK_GAP_ROWS, REASONING_TRACE_BODY_TOP_GAP_ROWS,
-    STEP_MIN_WIDTH, TOOL_STEP_BODY_INDENT_COLS, TOOL_STEP_BODY_TOP_GAP_ROWS,
-    TOOL_STEP_CHILDREN_GAP_ROWS, TRANSCRIPT_BODY_LEADING_INDENT, TRANSCRIPT_H_INSET,
+    CONTEXT_BAR_WORKSPACE_MIN_COLS, FOOTER_H_INSET, FOOTER_TOP_GAP_ROWS, JOIN_ENUMERATE_COLS,
+    MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS, MODEL_BAR_ROWS, PAGE_HEADER_ROWS,
+    REASONING_TRACE_BLOCK_GAP_ROWS, REASONING_TRACE_BODY_TOP_GAP_ROWS, STEP_MIN_WIDTH,
+    TOOL_STEP_BODY_INDENT_COLS, TOOL_STEP_BODY_TOP_GAP_ROWS, TOOL_STEP_CHILDREN_GAP_ROWS,
+    TRANSCRIPT_BODY_LEADING_INDENT, TRANSCRIPT_H_INSET,
 };
 use crate::disclosure::{StickyAnchor, draw_sticky_anchor_if_needed};
 /// Which guidance copy the empty-state hero shows beneath the logo (ADR-0057).
@@ -49,7 +50,8 @@ pub use crate::theme::{COLOR_SCHEMES, Theme};
 use crate::view_header;
 #[allow(unused_imports)]
 pub(crate) use crate::view_header::{
-    ThreadHead, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar, draw_thread_context_bar,
+    TabBarProps, ThreadContext, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar,
+    draw_thread_context_bar,
 };
 #[allow(unused_imports)]
 pub use crate::views::settings::*;
@@ -206,11 +208,14 @@ pub struct TranscriptProps<'a> {
     /// its context, and the session's run-mode flags + the `C-x menu` namespace
     /// pair. `None` suppresses the row entirely (non-app contexts).
     pub page_hints: Option<view_header::ViewHints<'a>>,
-    /// The head band's **thread-identity and governance row** (ADR-0043, ADR-0060), uniform across
-    /// scenes: `THREAD` plus the persistent-id tail, `[ROLE]` badge, and
-    /// tilde-shortened workspace on the left. `None` only in non-thread
-    /// contexts (tests/showcase) where no ambient thread exists.
-    pub thread_head: Option<ThreadHead<'a>>,
+    /// Client-global TabBar projection (ADR-0039, ADR-0060, ADR-0062).
+    /// Tier 1 of the head band, carrying open tabs and active tab selection.
+    pub tab_bar: Option<TabBarProps<'a>>,
+    /// Authentic thread persistent id for disambiguation on Tier 2 SceneBar.
+    pub thread_id: Option<&'a str>,
+    /// Sovereign thread execution governance context (ADR-0062 [INV-HEAD-05]).
+    /// Tier 3 of the head band, strictly rendered on thread-backed viewports.
+    pub thread_context: Option<ThreadContext<'a>>,
     /// Wall-clock instant the current round started, or `None` between rounds.
     /// Drives the muted `<elapsed>` segment in the activity bar.
     pub round_started_at: Option<std::time::Instant>,
@@ -707,7 +712,9 @@ pub fn draw_transcript(
         tasks_bar,
         subagent_bar,
         page_hints,
-        thread_head,
+        tab_bar,
+        thread_id,
+        thread_context,
         round_started_at,
         hovered_step,
         focused_target,
@@ -763,10 +770,10 @@ pub fn draw_transcript(
     // The band occupies the top rows of the terminal directly — it is a sibling
     // of the transcript, not content inside it, so it replaces the viewport's
     // top margin rather than nesting under it.
-    let tab_rows = u16::from(thread_head.is_some());
+    let tab_rows = u16::from(tab_bar.is_some());
     let scene_rows = u16::from(page_hints_view.is_some());
     let context_rows = u16::from(
-        thread_head.is_some()
+        thread_context.is_some()
             && page_hints_view
                 .as_ref()
                 .is_some_and(|h| h.kind == crate::surfaces::SceneKind::Thread),
@@ -900,17 +907,16 @@ pub fn draw_transcript(
     // 1. Head band — drawn at the very top of the terminal, before the
     // transcript (ADR-0062).
     // Row 1 carries the Client TabBar; row 2 the SceneBar; row 3 the sovereign ThreadContextBar.
-    let tab_rects = if let (Some(head), Some(rect)) = (thread_head.as_ref(), tab_rect) {
-        draw_tab_bar(frame, rect, head, theme)
+    let tab_rects = if let (Some(bar), Some(rect)) = (tab_bar.as_ref(), tab_rect) {
+        draw_tab_bar(frame, rect, bar, theme)
     } else {
         Vec::new()
     };
     if let (Some(hints), Some(rect)) = (page_hints_view.as_ref(), scene_rect) {
-        let thread_id = thread_head.as_ref().map(|h| h.thread_id);
         draw_scene_bar(frame, rect, thread_id, hints, theme);
     }
-    if let (Some(head), Some(rect)) = (thread_head.as_ref(), context_rect) {
-        draw_thread_context_bar(frame, rect, head, theme);
+    if let (Some(ctx), Some(rect)) = (thread_context.as_ref(), context_rect) {
+        draw_thread_context_bar(frame, rect, ctx, theme);
     }
 
     // 2. Transcript History — the transcript area is the whole `chunks[0]`
@@ -998,9 +1004,9 @@ pub fn draw_transcript(
         // every layout agrees on scroll semantics. The layout leaves
         // `content_lines` and `sticky_steps` populated for the
         // post-processing below.
-        let workspace_root = thread_head
+        let workspace_root = thread_context
             .as_ref()
-            .map(|h| h.workspace)
+            .map(|c| c.workspace)
             .filter(|w| !w.is_empty())
             .map(std::path::Path::new);
 

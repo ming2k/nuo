@@ -38,6 +38,8 @@ This is why the footer is a *list of rows* rather than a set of conditionally-po
 
 The chrome is deliberately restrained. Status is conveyed by glyphs, tone, and terse words (`exit 0`, `timed out after 60s`), never decorative emoji (`[INV-TUI-12]`, [ADR-0063](../adr/0063-bifurcated-shell-tool-presentation-out-of-band-status-and-clean-stream-topology.md)). The head band carries identity (which tab, which scene, what role and safety posture); the footer carries interaction (activity, input, model). Every pixel is load-bearing.
 
+Two consequences follow for state that is *persistent* rather than transient. First, a healthy default is silent: the `ThreadContextBar` draws no safety token at all until the session actually deviates from interactive confirmation or from workspace-confined file tools (`[INV-HEAD-07]`, [ADR-0062](../adr/0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md)). Second, the element that may shrink is the one anchored to the edge — the workspace path — so state changes and narrow terminals degrade the *path*, never the governance cluster beside `[ROLE]`. A path that can no longer be shortened honestly is omitted rather than drawn as an ambiguous fragment.
+
 ---
 
 ## Degrade, Don't Panic

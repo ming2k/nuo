@@ -855,7 +855,9 @@ fn render_transcript_frame(
                 tasks_bar: Default::default(),
                 subagent_bar: None,
                 page_hints: None,
-                thread_head: None,
+                tab_bar: None,
+                thread_id: None,
+                thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1804,7 +1806,7 @@ fn turn_header_with_model_effort_and_timestamp() {
         false,
     )
     .with_turn(13)
-    .with_attribution("zai", "glm-5.3")
+    .with_attribution("glm-cn", "glm-5.3")
     .with_effort(Some("xhigh"));
     // Set a known timestamp
     step.sent_at_ms = Some(1_700_000_000_000);
@@ -2372,4 +2374,93 @@ fn ask_user_expanded_cancelled_renders_no_answer() {
         true,
     );
     insta::assert_snapshot!(render_grid(&m, 80, 8));
+}
+
+/// Golden baselines for the Tier 3 `ThreadContextBar` (ADR-0062
+/// `[INV-HEAD-07]`, `[INV-HEAD-08]`).
+///
+/// These lock the *painted* row — which columns each element occupies — rather
+/// than the span list that produced it, so a refactor that keeps the spans but
+/// shifts the layout is still caught. The widths are chosen to straddle the
+/// degradation ladder: full path, elided ancestors, elided role, and dropped
+/// path.
+mod context_bar {
+    use super::*;
+    use crate::view_header::{ThreadContext, draw_thread_context_bar};
+
+    fn render_bar(width: u16, context: &ThreadContext<'_>) -> String {
+        let mut terminal = nuotc::TestTerminal::new(width, 1);
+        terminal.draw(|f| {
+            draw_thread_context_bar(f, f.area(), context, &Theme::default());
+        });
+        let row: String = terminal
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        row.trim_end().to_string()
+    }
+
+    fn head<'a>(
+        workspace: &'a str,
+        role: Option<&'a str>,
+        unattended: bool,
+        confined: bool,
+    ) -> ThreadContext<'a> {
+        ThreadContext {
+            workspace,
+            role,
+            unattended,
+            confined,
+        }
+    }
+
+    #[test]
+    fn default_posture_is_silent() {
+        let h = head("~/projects/nuo", Some("developer"), false, true);
+        insta::assert_snapshot!(render_bar(72, &h));
+    }
+
+    #[test]
+    fn full_deviation_with_full_path() {
+        let h = head("~/projects/nuo", Some("developer"), true, false);
+        insta::assert_snapshot!(render_bar(72, &h));
+    }
+
+    #[test]
+    fn path_elides_ancestors_before_posture_yields() {
+        let h = head(
+            "~/projects/nuo/crates/nuo-tui",
+            Some("developer"),
+            true,
+            false,
+        );
+        insta::assert_snapshot!(render_bar(50, &h));
+    }
+
+    /// Width 30 is the first width at which the role must yield: the badge
+    /// alone is 18 columns and the posture block 12, so 32 text columns cannot
+    /// hold both. Asserted structurally here too, because a snapshot happily
+    /// records a row whose name no longer matches its content.
+    #[test]
+    fn long_role_elides_before_posture_yields() {
+        let h = head("~/projects/nuo", Some("security-auditor"), true, false);
+        let row = render_bar(30, &h);
+        assert!(row.contains("auto  open"), "posture intact: {row:?}");
+        assert!(row.contains('…'), "role must actually elide: {row:?}");
+        assert!(!row.contains("~/"), "path yielded entirely: {row:?}");
+        insta::assert_snapshot!(row);
+    }
+
+    #[test]
+    fn narrow_row_drops_the_path_but_keeps_posture() {
+        let h = head(
+            "~/projects/nuo/crates/nuo-tui",
+            Some("developer"),
+            true,
+            false,
+        );
+        insta::assert_snapshot!(render_bar(28, &h));
+    }
 }

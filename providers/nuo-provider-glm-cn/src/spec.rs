@@ -1,5 +1,12 @@
-//! The `zai-code` provider template and its legacy registry preset: Z.AI /
-//! Zhipu BigModel coding-plan platform (`open.bigmodel.cn/api/coding/paas/v4`).
+//! The `glm-cn` provider channel: Zhipu's **GLM Coding Plan** on the domestic
+//! BigModel platform (`open.bigmodel.cn/api/coding/paas/v4`).
+//!
+//! The product is Zhipu's GLM Coding Plan; `CN` names the *site*, not the
+//! product — the international plan is the same product served from
+//! `api.z.ai/api/coding/paas/v4`. Keeping the region in the label is a
+//! transitional stand-in: region is a genuine account dimension that has no
+//! `ModelProviderSpec` counterpart yet (`docs/dev/provider-extension-design.md`
+//! §5), so folding it into the label is honest about what it is.
 
 use nuo_inference_wire::WireProtocol;
 use nuo_provider::Model;
@@ -7,18 +14,18 @@ use nuo_provider::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
 
-/// Models served by Z.AI's coding-plan endpoint, in display/activation
+/// Models served by the GLM Coding Plan endpoint, in display/activation
 /// order — the first entry is the initial active channel. `glm-5.3-flash`
 /// joined the plan alongside the flagship (native multimodal, 1M context,
 /// ~1/3 the credit burn), so it is offered ahead of the older flagships.
-pub use nuo_provider::model_providers::ZAI_CODE_MODELS;
+pub use nuo_provider::model_providers::GLM_CN_MODELS;
 
-// ZAI Code (CN) — Zhipu BigModel / Z.AI coding-plan platform
+// GLM Coding Plan, domestic site — Zhipu BigModel
 // (open.bigmodel.cn/api/coding/paas/v4). A coding-agent membership endpoint
 // that serves the GLM-5 family; glm-5.3 is the current flagship. Like the Kimi
-// Code platform, it expects a recognized coding-agent User-Agent. Shares
-// the ZHIPU_API_KEY legacy name for key compatibility with the broader
-// Zhipu ecosystem, while ZAI_API_KEY is the preferred alias.
+// Code platform, it expects a recognized coding-agent User-Agent. The plan key
+// is a per-connection `api_key_env` or a stored credential — the spec declares
+// no built-in environment variable name.
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
@@ -145,7 +152,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // returns the plan's current model ids (OpenAI list shape, ids only — no
     // capability metadata). The first-party list stays authoritative for what
     // the account's plan actually offers; if it is ever unreachable/empty, the
-    // models.dev entry for zai covers the gap so a plan refresh does not blank
+    // upstream models.dev entry (`zai`) covers the gap so a plan refresh does not blank
     // the picker. Baselines stay the single source of capability truth either
     // way (capability overlay is unavailable here).
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
@@ -153,5 +160,52 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
-    models: ZAI_CODE_MODELS,
+    models: GLM_CN_MODELS,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nuo_provider::model::resolve;
+
+    #[test]
+    fn baseline_ids_are_unique() {
+        let mut ids: Vec<_> = MODELS.iter().map(|m| m.id).collect();
+        let count = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), count, "duplicate baseline ids in glm-cn");
+    }
+
+    #[test]
+    fn the_seed_stays_registered() {
+        for id in GLM_CN_MODELS {
+            let model = resolve(id);
+            assert_eq!(model.id, *id, "seeded id {id} must be registered");
+            assert_eq!(model.context_window, 1_000_000, "{id}: 1M context");
+            assert!(model.tool_call, "{id}: tool calls supported");
+            assert_eq!(
+                MODEL_PROVIDER_SPEC.model_protocol(id),
+                WireProtocol::OpenAiChatCompletions,
+                "{id}: domestic BigModel coding endpoint speaks OpenAiChatCompletions"
+            );
+        }
+    }
+
+    #[test]
+    fn spec_conforms_to_domestic_bigmodel_endpoint() {
+        assert_eq!(MODEL_PROVIDER_SPEC.id, "glm-cn");
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.root_url,
+            "https://open.bigmodel.cn/api/coding/paas/v4"
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.protocol,
+            WireProtocol::OpenAiChatCompletions
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.default_client_profile,
+            nuo_provider::ClientPreset::ZCode
+        );
+    }
+}

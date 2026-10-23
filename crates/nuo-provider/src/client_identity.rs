@@ -259,6 +259,23 @@ pub const ANTIGRAVITY_REMOTE_CONTROL_TRANSPORT_HEADER: &str = "X-Jetski-Remote-C
 /// client does not send.
 pub const ANTIGRAVITY_CLIENT_HEADERS: &[(&str, &str)] = &[];
 
+/// Tencent AI CodeBuddy application version emulated by nuo.
+pub const CODEBUDDY_VERSION: &str = "2.172.1";
+
+/// User-Agent header value sent for Tencent AI CodeBuddy client profile.
+pub const CODEBUDDY_USER_AGENT: &str = "CLI/2.172.1 CodeBuddy/2.172.1";
+
+/// Client identity headers used for Tencent AI CodeBuddy requests.
+pub const CODEBUDDY_CLIENT_HEADERS: &[(&str, &str)] = &[
+    ("X-Domain", "copilot.tencent.com"),
+    ("X-Product", "SaaS"),
+    ("X-IDE-Type", "CLI"),
+    ("X-IDE-Name", "CodeBuddy"),
+    ("X-IDE-Version", "2.172.1"),
+    ("X-Agent-Intent", "craft"),
+    ("X-Agent-Runtime", "local-agent"),
+];
+
 /// Antigravity client environment and session metadata (emulating agy internal `exa.codeium_common_pb.Metadata`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AntigravityClientMetadata {
@@ -375,6 +392,8 @@ pub enum ClientPreset {
     Copilot,
     /// Google Antigravity / Cloud Code environment.
     Antigravity,
+    /// Tencent AI CodeBuddy client environment.
+    CodeBuddy,
 }
 
 impl ClientPreset {
@@ -526,6 +545,17 @@ impl ClientPreset {
                     has_client_headers: false,
                 },
             },
+            Self::CodeBuddy => ClientProfileSpec {
+                id: "codebuddy",
+                label: "Tencent CodeBuddy",
+                default_version: CODEBUDDY_VERSION,
+                user_agent: CODEBUDDY_USER_AGENT,
+                headers: CODEBUDDY_CLIENT_HEADERS,
+                capabilities: ClientCapabilities {
+                    coding_platform_compatible: true,
+                    has_client_headers: true,
+                },
+            },
         }
     }
 
@@ -544,6 +574,7 @@ impl ClientPreset {
         Self::ZCode,
         Self::Copilot,
         Self::Antigravity,
+        Self::CodeBuddy,
     ];
 
     /// Return all client presets as a slice.
@@ -607,6 +638,8 @@ pub enum ClientProfile {
     Copilot,
     /// Emulate Google Antigravity (`User-Agent: antigravity/...`).
     Antigravity,
+    /// Emulate Tencent AI CodeBuddy (`User-Agent: CLI/... CodeBuddy/...`).
+    CodeBuddy,
     /// Custom client identity with specific User-Agent and optional headers.
     Custom {
         user_agent: String,
@@ -633,6 +666,7 @@ impl ClientProfile {
         Self::ZCode,
         Self::Copilot,
         Self::Antigravity,
+        Self::CodeBuddy,
     ];
 
     /// Construct a custom profile with the given User-Agent and optional headers.
@@ -680,6 +714,7 @@ impl ClientProfile {
             Self::ZCode => Some(ClientPreset::ZCode),
             Self::Copilot => Some(ClientPreset::Copilot),
             Self::Antigravity => Some(ClientPreset::Antigravity),
+            Self::CodeBuddy => Some(ClientPreset::CodeBuddy),
             Self::Custom { .. } => None,
         }
     }
@@ -700,6 +735,7 @@ impl ClientProfile {
             Self::ZCode => "zcode",
             Self::Copilot => "copilot",
             Self::Antigravity => "antigravity",
+            Self::CodeBuddy => "codebuddy",
             Self::Custom { .. } => "custom",
         }
     }
@@ -769,6 +805,7 @@ impl ClientProfile {
             "aider" => Some(Self::Aider),
             "zcode" | "z-code" | "zai" => Some(Self::ZCode),
             "copilot" | "github-copilot" | "vscode" => Some(Self::Copilot),
+            "codebuddy" => Some(Self::CodeBuddy),
             "antigravity" | "agy" | "google-antigravity" | "jetski" | "jetski-cli"
             | "cloudcode" | "cloud-code" => Some(Self::Antigravity),
             _ => None,
@@ -802,6 +839,8 @@ impl ClientProfile {
             Self::ZCode
         } else if trimmed.contains("Copilot") || trimmed.contains("copilot") {
             Self::Copilot
+        } else if trimmed.contains("CodeBuddy") || trimmed.contains("codebuddy") {
+            Self::CodeBuddy
         } else if trimmed.starts_with("antigravity")
             || trimmed.starts_with("agy")
             || trimmed.starts_with("jetski")
@@ -850,6 +889,7 @@ impl From<ClientPreset> for ClientProfile {
             ClientPreset::ZCode => Self::ZCode,
             ClientPreset::Copilot => Self::Copilot,
             ClientPreset::Antigravity => Self::Antigravity,
+            ClientPreset::CodeBuddy => Self::CodeBuddy,
         }
     }
 }

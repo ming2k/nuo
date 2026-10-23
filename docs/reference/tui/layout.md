@@ -16,7 +16,7 @@ The full-frame entry point is `render::draw_transcript` (`crates/nuo-tui/src/ren
 ├────────────────────────────────────────────────────────────────────┤
 │THREAD b3c4  Fix retry logic in auth loop     ‹ thread › subagent(2)│   ◄ 2  SceneBar
 ├────────────────────────────────────────────────────────────────────┤
-│[DEVELOPER] ~/projects/nuo                    UNATTENDED  UNCONFINED│   ◄ 3  ThreadContextBar
+│[DEVELOPER]  auto  open                               ~/projects/nuo│   ◄ 3  ThreadContextBar
 ├────────────────────────────────────────────────────────────────────┤
 │                                                                    │
 │              ▾ tool:search_text "query" (12 matches)               │   ◄ 4  StickyAnchor
@@ -56,9 +56,19 @@ The head band carries three tiers (ADR-0060, ADR-0062). It is a sibling of the c
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **TabBar** | 1 | Client | `theme.tabbar_bg()` (~2.8% offset) | Project tabs with clean semantic titles (`Refactor DB`, `dashboard`), no ordinal prefix | `C-x menu` global client affordance |
 | **SceneBar** | 1 | Scene | `theme.scenebar_bg()` (~5.0% offset) | Scene identity + authentic task title (`THREAD <id_tail> <title>`) | Drill-in breadcrumb stack (`‹ thread › subagent #1 › diff`) |
-| **ThreadContextBar** | 1 on thread / 0 elsewhere | Thread | `theme.contextbar_bg()` (~4.0% offset) | `[ROLE]` badge + tilde-shortened workspace path | Safety posture flags (`UNATTENDED`, `UNCONFINED`) |
+| **ThreadContextBar** | 1 on thread / 0 elsewhere | Thread | `theme.contextbar_bg()` (~4.0% offset) | `[ROLE]` badge, then safety posture tokens (`auto`, `open`) — omitted entirely when the session sits in the safe default | Tilde-shortened workspace path, right-anchored and shrinkable |
 
 The TabBar is always present when a head exists; the SceneBar is universal across scene kinds; the ThreadContextBar renders **0 rows** on `Dashboard` and `Settings`, so non-thread viewports show a 2-row head. On Monochrome and ANSI-16 profiles, background fills converge safely onto `theme.element_bg`.
+
+The ThreadContextBar reads **who → how → where** left to right, and the workspace is right-anchored for a correctness reason rather than a compositional one: it is the only element that may shrink, so pinning it to the right edge keeps the governance cluster (role + posture) at a fixed screen position. Toggling `/unattended` therefore grows the left cluster into the gap instead of re-truncating the path, and a narrow terminal degrades by shortening the path rather than by stealing columns from safety.
+
+Posture is a **closed vocabulary of lowercase tokens**, not sentences, and only deviations from the safe default are drawn (interactive confirmation + workspace-confined file tools). `auto` means tool calls are approved without asking (`--unattended` / `/unattended on`); `open` means file tools may leave the workspace (`/confinement off`). Lowercase keeps the token from competing with the `[ROLE]` badge, and the bare (unbracketed) form keeps it from reading as a `[2 queued]`-style count. Each token is deliberately self-describing (`auto`, `open` name the state they assert), so the bar needs no tooltip layer; the authoritative long-form wording lives in the slash-command catalog (`BuiltinCmd::SPECS` in `nuo-server`), projected by `/unattended on|off` and `/confinement on|off`. Permanent chrome carries tokens only (`[INV-TUI-12]`: no decorative emoji, terse professional tokens).
+
+Path shortening uses the shared `PathView` ladder (`Full` → `.../parent/leaf` → fish → basename → middle-truncate), so the **leaf** survives and ancestors are elided — the opposite of tail truncation. `CONTEXT_BAR_WORKSPACE_MIN_COLS` (4) is the ladder's own last stop — the bare leaf, which still names the project — so the floor is set where honest information actually runs out rather than above it. Below that the path is dropped: the bar either names the workspace or stays silent about it.
+
+Priority on the row is **posture > role > workspace** (`[INV-HEAD-08]`). The posture block is budgeted first and is never truncated — a clipped `open` reading `op` would still be painted in the warning tone, asserting a safety state the session may not hold. The role badge takes the pressure instead: it elides inside intact brackets (`[SECURITY-AU…]`) and disappears below a legible floor rather than degrading to `[D…]`. The path absorbs whatever is left.
+
+Every truncation marker comes from `theme.glyphs.ellipsis` (`…` under Unicode, `...` under ASCII), so a non-Unicode terminal degrades with the rest of the chrome.
 
 ---
 
@@ -92,6 +102,7 @@ Sizes come from `crates/nuo-tui/src/design.rs` (non-color tokens). Values below 
 | `COMPOSER_VERTICAL_CHROME_ROWS` | 3 | Composer chrome around the text (pad + gap + meta row) |
 | `COMPOSER_MIN_HEIGHT` | 4 | Minimum composer height for a one-line draft |
 | `COMPOSER_MAX_HEIGHT_DIVISOR` | 2 | Composer grows to at most `terminal_height / 2` |
+| `CONTEXT_BAR_WORKSPACE_MIN_COLS` | 4 | Honesty floor for the ThreadContextBar's workspace path — the ladder's last stop (bare leaf). Below it the path is dropped rather than drawn as a fragment |
 
 ### Gap rows (flush-ness contract)
 

@@ -2062,6 +2062,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "nuo-provider-codebuddy"
+version = "0.0.47"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "nuo-host",
+ "nuo-inference-wire",
+ "nuo-provider",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "nuo-provider-commandcode-plan"
 version = "0.0.47"
 dependencies = [
@@ -2111,6 +2126,15 @@ dependencies = [
  "nuo-provider-openai",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "nuo-provider-glm-cn"
+version = "0.0.47"
+dependencies = [
+ "inventory",
+ "nuo-inference-wire",
+ "nuo-provider",
 ]
 
 [[package]]
@@ -2214,20 +2238,9 @@ dependencies = [
 name = "nuo-provider-qianwen"
 version = "0.0.47"
 dependencies = [
- "async-trait",
  "inventory",
- "nuo-egress",
- "nuo-host",
  "nuo-inference-wire",
- "nuo-protocol",
  "nuo-provider",
- "nuo-provider-deepseek",
- "nuo-provider-openai",
- "nuo-provider-zai",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -2293,24 +2306,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nuo-provider-zai"
-version = "0.0.47"
-dependencies = [
- "async-trait",
- "inventory",
- "nuo-egress",
- "nuo-host",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "nuo-provider-openai",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "nuo-server"
 version = "0.0.47"
 dependencies = [
@@ -2341,9 +2336,11 @@ dependencies = [
  "nuo-provider-anthropic",
  "nuo-provider-catalog",
  "nuo-provider-chatgpt-plan",
+ "nuo-provider-codebuddy",
  "nuo-provider-commandcode-plan",
  "nuo-provider-copilot",
  "nuo-provider-deepseek",
+ "nuo-provider-glm-cn",
  "nuo-provider-google-antigravity",
  "nuo-provider-kimi",
  "nuo-provider-openai",
@@ -2354,7 +2351,6 @@ dependencies = [
  "nuo-provider-qoder",
  "nuo-provider-siliconflow",
  "nuo-provider-xai",
- "nuo-provider-zai",
  "nuo-tool",
  "nuo-tool-ast",
  "nuo-tool-exec",

@@ -8,15 +8,10 @@ use super::*;
 
 /// A fixed thread head for the scene tests (ADR-0043, ADR-0060): the head band's row 2
 /// is now the uniform thread identity and governance band drawn by settings/dashboard views.
-fn test_thread_head() -> ThreadHead<'static> {
-    ThreadHead {
-        thread_id: "sess-01a2b3c4",
-        workspace: "~/workspace",
-        role: Some("developer"),
+fn test_tab_bar() -> TabBarProps<'static> {
+    TabBarProps {
         tabs: None,
         active_tab: 0,
-        unattended: false,
-        confined: true,
     }
 }
 
@@ -68,7 +63,9 @@ fn redesigned_components_render_without_panicking() {
                         tasks_bar: Default::default(),
                         subagent_bar: None,
                         page_hints: None,
-                        thread_head: None,
+                        tab_bar: None,
+                thread_id: None,
+                thread_context: None,
                         round_started_at: None,
                         hovered_step: None,
                         focused_target: None,
@@ -399,7 +396,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
-                thread_head: Some(test_thread_head()),
+                tab_bar: Some(test_tab_bar()),
             },
         );
     });
@@ -433,7 +430,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
-                thread_head: Some(test_thread_head()),
+                tab_bar: Some(test_tab_bar()),
             },
         );
     });
@@ -470,7 +467,7 @@ fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
-                thread_head: Some(test_thread_head()),
+                tab_bar: Some(test_tab_bar()),
             },
         );
     });
@@ -570,7 +567,7 @@ fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() 
                         theme: &theme,
                         profile: &nuotc::TerminalProfile::direct_color(),
                         tui_config: &tui_config,
-                        thread_head: Some(test_thread_head()),
+                        tab_bar: Some(test_tab_bar()),
                     },
                 );
             });
@@ -618,7 +615,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
                 theme: &theme_direct,
                 profile: &direct_profile,
                 tui_config: &tui_config,
-                thread_head: Some(test_thread_head()),
+                tab_bar: Some(test_tab_bar()),
             },
         );
     });
@@ -655,7 +652,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
                 theme: &theme_mono,
                 profile: &mono_profile,
                 tui_config: &tui_config,
-                thread_head: Some(test_thread_head()),
+                tab_bar: Some(test_tab_bar()),
             },
         );
     });
@@ -706,7 +703,7 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
                     theme,
                     profile: &nuotc::TerminalProfile::direct_color(),
                     tui_config,
-                    thread_head: Some(test_thread_head()),
+                    tab_bar: Some(test_tab_bar()),
                 },
             );
         });
@@ -802,7 +799,7 @@ fn components_rows_use_text_and_band_not_selection_dots_with_description_below()
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
-                thread_head: Some(test_thread_head()),
+                tab_bar: Some(test_tab_bar()),
             },
         );
     });
@@ -874,7 +871,7 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
                     theme: &theme,
                     profile: &nuotc::TerminalProfile::direct_color(),
                     tui_config: &tui_config,
-                    thread_head: Some(test_thread_head()),
+                    tab_bar: Some(test_tab_bar()),
                 },
             );
         });
@@ -918,7 +915,7 @@ fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
                 theme: &theme,
                 profile: &nuotc::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
-                thread_head: Some(test_thread_head()),
+                tab_bar: Some(test_tab_bar()),
             },
         );
         selected_rect = rects.selected_row_rect;
@@ -969,7 +966,9 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
                     tasks_bar: Default::default(),
                     subagent_bar: None,
                     page_hints: None,
-                    thread_head: None,
+                    tab_bar: None,
+                    thread_id: None,
+                    thread_context: None,
                     round_started_at: None,
                     hovered_step: None,
                     focused_target: None,
@@ -1036,7 +1035,9 @@ fn too_small_terminal_shows_notice_and_zeroed_render() {
                 tasks_bar: Default::default(),
                 subagent_bar: None,
                 page_hints: None,
-                thread_head: None,
+                tab_bar: None,
+                thread_id: None,
+                thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1131,7 +1132,9 @@ fn empty_session_renders_empty_state_with_nonzero_height() {
                 tasks_bar: Default::default(),
                 subagent_bar: None,
                 page_hints: None,
-                thread_head: None,
+                tab_bar: None,
+                thread_id: None,
+                thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1194,7 +1197,9 @@ fn nonempty_session_does_not_render_empty_state() {
                 tasks_bar: Default::default(),
                 subagent_bar: None,
                 page_hints: None,
-                thread_head: None,
+                tab_bar: None,
+                thread_id: None,
+                thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1262,7 +1267,9 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
                 tasks_bar: Default::default(),
                 subagent_bar: None,
                 page_hints: None,
-                thread_head: None,
+                tab_bar: None,
+                thread_id: None,
+                thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1331,19 +1338,18 @@ fn main_view_shows_the_thread_scene_row() {
     );
 }
 
-/// ADR-0062: the run-mode flags ride the thread context row's right edge.
+/// ADR-0062 [INV-HEAD-07]: posture tokens read as a closed lowercase
+/// vocabulary on the context row's left, while the workspace path is
+/// right-anchored because it is the only element permitted to shrink.
 #[test]
-fn main_view_thread_governance_row_carries_run_mode_flags() {
-    let head = ThreadHead {
-        thread_id: "sess-01a2b3c4",
+fn main_view_thread_governance_row_carries_posture_tokens() {
+    let context = ThreadContext {
         workspace: "~/projects/xx",
         role: Some("developer"),
-        tabs: None,
-        active_tab: 0,
         unattended: true,
         confined: false,
     };
-    let terminal = render_full_view_with_head(
+    let terminal = render_full_view_with_context(
         80,
         24,
         &[],
@@ -1355,7 +1361,7 @@ fn main_view_thread_governance_row_carries_run_mode_flags() {
             can_back: false,
             can_forward: false,
         }),
-        Some(head),
+        Some(context),
     );
     let row0 = grid_row(&terminal, 0);
     assert!(row0.contains("C-x menu"), "client menu on row 0: {row0:?}");
@@ -1370,16 +1376,20 @@ fn main_view_thread_governance_row_carries_run_mode_flags() {
         "role badge on context row 2: {row2:?}"
     );
     assert!(
-        row2.contains("~/projects/xx"),
-        "workspace on context row 2: {row2:?}"
+        row2.contains("auto"),
+        "unattended posture token on context row: {row2:?}"
     );
     assert!(
-        row2.contains("UNATTENDED"),
-        "unattended flag on context row: {row2:?}"
+        row2.contains("open"),
+        "unconfined posture token on context row: {row2:?}"
     );
     assert!(
-        row2.contains("UNCONFINED"),
-        "unconfined flag on context row: {row2:?}"
+        !row2.contains("UNATTENDED") && !row2.contains("UNCONFINED"),
+        "caps sentence-flags retired in favour of tokens: {row2:?}"
+    );
+    assert!(
+        row2.trim_end().ends_with("~/projects/xx"),
+        "workspace path is right-anchored: {row2:?}"
     );
     assert!(!row2.contains("Esc"), "no interrupt pair: {row2:?}");
     assert!(!row2.contains("F1"), "no global help pair: {row2:?}");
@@ -1417,7 +1427,9 @@ fn empty_state_tour_renders_the_current_carousel_page() {
                 tasks_bar: Default::default(),
                 subagent_bar: None,
                 page_hints: None,
-                thread_head: None,
+                tab_bar: None,
+                thread_id: None,
+                thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1486,7 +1498,9 @@ fn h1_underline_clamps_to_text_extent() {
                 tasks_bar: Default::default(),
                 subagent_bar: None,
                 page_hints: None,
-                thread_head: None,
+                tab_bar: None,
+                thread_id: None,
+                thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1573,7 +1587,9 @@ fn h1_underline_emits_wide_glyph_in_underlined_run() {
                 tasks_bar: Default::default(),
                 subagent_bar: None,
                 page_hints: None,
-                thread_head: None,
+                tab_bar: None,
+                thread_id: None,
+                thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,
@@ -1655,7 +1671,9 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
                 tasks_bar: Default::default(),
                 subagent_bar: None,
                 page_hints: None,
-                thread_head: None,
+                tab_bar: None,
+                thread_id: None,
+                thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,

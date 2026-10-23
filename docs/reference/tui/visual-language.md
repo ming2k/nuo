@@ -48,6 +48,20 @@ Numbers that qualify a primary value are parenthesized rather than dash-joined �
 
 A reason that explains a state follows an em dash, keeping the state word readable first (e.g. a locked model row leads with the provider's own verdict).
 
+### State tokens
+
+A persistent state is written as a **closed-vocabulary, lowercase, unbracketed token**, never as a sentence or a capitonym:
+
+| Property | Rule | Counter-example |
+| :--- | :--- | :--- |
+| Form | One word, lowercase, no brackets (`auto`, `open`) | `UNATTENDED`, `[AUTO]` |
+| Polarity | Say what *is* the case, not what is not (`open`, not `unconfined`) | `UNCONFINED` (double negative) |
+| Presence | Drawn **only** on deviation from the safe default; a healthy default costs no columns | Always-on flags that spend space precisely when nothing is wrong |
+| Priority | Safety state outranks identity: a long identity yields (elides) rather than crowding a state token into a misleading prefix | `open` clipped to `op`, still painted in the warning tone |
+| Meaning | Each token names the state it asserts, so it stands alone — no tooltip layer required | A token needing an out-of-band gloss ("something is permissive") |
+
+Caps and brackets are already spoken for elsewhere in the chrome: `[ROLE]` is the badge slot, and `[N queued]` means a *count* in the footer stack. A state token that borrows either form is misread as one of them. A well-chosen token needs no gloss at all — if it would require a tooltip to be understood, the token is wrong, not under-explained; the authoritative long-form wording belongs to the slash-command catalog, never to chrome that is always on screen (`[INV-TUI-12]`, ADR-0063). Worked example: the `ThreadContextBar`'s `auto` / `open` posture pair (ADR-0062 `[INV-HEAD-07]`).
+
 ---
 
 ## 4. Glyph Vocabulary

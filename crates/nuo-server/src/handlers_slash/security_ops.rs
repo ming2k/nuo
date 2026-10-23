@@ -191,17 +191,18 @@ pub(crate) fn deny_user_assets() -> Vec<String> {
 
 #[allow(dead_code)]
 pub(crate) fn parse_trust_domain(sub: &str) -> Result<TrustDomain, String> {
-    match sub {
-        "mcp" => Ok(TrustDomain::Mcp),
-        "skills" => Ok(TrustDomain::Skills),
-        "hooks" => Ok(TrustDomain::Hooks),
-        "instructions" | "agents" | "rules" => Ok(TrustDomain::Instructions),
-        "ex-workspace" | "ex-workspaces" | "externals" | "workspace" => {
+    let normalized = sub.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "mcp" | ".nuo/mcp.json" | "mcp.json" => Ok(TrustDomain::Mcp),
+        "skills" | ".nuo/skills" | ".nuo/skills/" => Ok(TrustDomain::Skills),
+        "hooks" | ".nuo/hooks" | ".nuo/hooks/" => Ok(TrustDomain::Hooks),
+        "instructions" | "agents" | "rules" | "agents.md" => Ok(TrustDomain::Instructions),
+        "ex-workspace" | "ex-workspaces" | "externals" | "workspace" | ".nuo/config.toml" => {
             Ok(TrustDomain::ExWorkspace)
         }
         "user-assets" | "user" | "user_assets" => Ok(TrustDomain::UserAssets),
         other => Err(format!(
-            "Unknown trust domain `{other}`. Valid domains: `instructions`, `ex-workspace`, `mcp`, `skills`, `hooks`, `user-assets`, or `all`."
+            "Unknown trust domain `{other}`. Valid domains: `instructions` (AGENTS.md), `ex-workspace`, `mcp`, `skills`, `hooks`, `user-assets`, or `all`."
         )),
     }
 }

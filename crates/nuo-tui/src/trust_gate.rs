@@ -57,9 +57,7 @@ pub fn quarantined_domains(snapshot: &WorkspaceSecuritySnapshot) -> Vec<TrustDom
     .filter(|(_, state)| {
         matches!(
             *state,
-            WorkspaceTrustState::Quarantined
-                | WorkspaceTrustState::Changed
-                | WorkspaceTrustState::Expired
+            WorkspaceTrustState::Quarantined | WorkspaceTrustState::Expired
         )
     })
     .map(|(domain, _)| domain)
@@ -106,11 +104,11 @@ pub fn gate_request(snapshot: &WorkspaceSecuritySnapshot) -> Option<UserQuestion
         id: TRUST_GATE_REQUEST_ID.to_string(),
         questions: vec![UserQuestion {
             header: None,
-            question: "Select unverified file assets to authorize:\n(Unselected assets will remain quarantined and invisible during this session)".to_string(),
+            question: "Authorize project assets for this workspace:\n(Unselected assets will remain untrusted and inactive for this session)".to_string(),
             options,
             multi_select: true,
         }],
-        origin: Some("file asset trust".to_string()),
+        origin: Some("workspace trust".to_string()),
     })
 }
 
@@ -209,6 +207,21 @@ mod tests {
                 WorkspaceTrustState::Trusted,
                 WorkspaceTrustState::Absent,
                 WorkspaceTrustState::Denied
+            ))
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn changed_domains_do_not_gate() {
+        // Previously trusted domains that mutated on disk are escalated via
+        // in-session banner notices, not a blocking pre-attach modal.
+        assert!(
+            gate_request(&snapshot(
+                WorkspaceTrustState::Changed,
+                WorkspaceTrustState::Changed,
+                WorkspaceTrustState::Absent,
+                WorkspaceTrustState::Changed
             ))
             .is_none()
         );

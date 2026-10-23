@@ -38,7 +38,7 @@ use crate::primitives::{
     ElevationContainer, LayoutTier, SCROLL_EDGE_MARGIN, resolve_scroll, viewport_rect,
 };
 use crate::render::Theme;
-use crate::view_header::ThreadHead;
+use crate::view_header::TabBarProps;
 
 /// Which zone of the dashboard currently owns the keyboard.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -173,9 +173,9 @@ pub struct DashboardProps<'a> {
     // The frame-level caret verdict: the inline prompt borrows the
     // composer buffer but owns the cursor through this scene's own footer band.
     pub show_caret: bool,
-    /// The thread identity for the head band's top row (ADR-0060): carries
-    /// client tabs, thread identity, and execution governance posture (unattended / confined).
-    pub thread_head: Option<ThreadHead<'a>>,
+    /// Client-global TabBar projection (ADR-0039, ADR-0060, ADR-0062).
+    /// Tier 1 of the head band, carrying open tabs and active tab selection.
+    pub tab_bar: Option<TabBarProps<'a>>,
 }
 
 /// Draw the full-screen dashboard view.
@@ -197,7 +197,7 @@ pub fn draw_dashboard(
         prompt_text,
         current_session_id,
         show_caret,
-        thread_head,
+        tab_bar,
     } = props;
     // A true full-screen surface: clear the whole frame and paint our own
     // backdrop.
@@ -290,8 +290,8 @@ pub fn draw_dashboard(
     // The head band, drawn by the shared renderer so the dashboard is
     // chrome-identical to every other scene (ADR-0062). Row 1 is
     // the client TabBar; row 2 is the Polymorphic SceneBar (`dashboard` + fleet summary).
-    let tab_rects = if let Some(head) = thread_head.as_ref() {
-        crate::render::draw_tab_bar(frame, header_rect, head, theme)
+    let tab_rects = if let Some(bar) = tab_bar.as_ref() {
+        crate::render::draw_tab_bar(frame, header_rect, bar, theme)
     } else {
         Vec::new()
     };
@@ -1412,15 +1412,6 @@ mod tests {
         let mut terminal = nuotc::TestTerminal::new(100, 24);
         let mut list_scroll = 0usize;
         let mut detail_scroll = 0usize;
-        let head = ThreadHead {
-            thread_id: "sess-01a2b3c4",
-            workspace: "~/work",
-            role: Some("developer"),
-            tabs: None,
-            active_tab: 0,
-            unattended: true,
-            confined: true,
-        };
         terminal.draw(|f| {
             draw_dashboard(
                 f,
@@ -1437,7 +1428,7 @@ mod tests {
                     prompt_text: "",
                     current_session_id: "a-1",
                     show_caret: false,
-                    thread_head: Some(head),
+                    tab_bar: Some(TabBarProps::default()),
                 },
                 &theme,
             );

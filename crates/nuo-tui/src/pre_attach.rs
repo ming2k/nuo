@@ -275,7 +275,7 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
 
     // Header (origin badge)
     lines.push(Line::from(vec![Span::styled(
-        "[file asset trust]",
+        "[workspace trust]",
         Style::default()
             .fg(theme.info())
             .add_modifier(Modifier::BOLD),
@@ -287,7 +287,7 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
             &mut lines,
             INDENT,
             INDENT,
-            "Attesting file assets...",
+            "Applying trust settings...",
             Style::default()
                 .fg(theme.info())
                 .add_modifier(Modifier::BOLD),
@@ -298,7 +298,7 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
             &mut lines,
             INDENT,
             INDENT,
-            "Granting 30-day lease and entering session...",
+            "Entering session...",
             Style::default().fg(theme.muted()),
             body_width,
         );
@@ -307,7 +307,7 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
             &mut lines,
             INDENT,
             INDENT,
-            "Press [Esc] to cancel and keep quarantined.",
+            "Press [Esc] to cancel and keep untrusted.",
             Style::default().fg(theme.muted()),
             body_width,
         );
@@ -347,7 +347,7 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
             &mut lines,
             INDENT,
             INDENT,
-            "Adjust the selection and press Enter to retry, or Esc to keep quarantined.",
+            "Adjust the selection and press Enter to retry, or Esc to keep untrusted.",
             Style::default().fg(theme.muted()),
             body_width,
         );
@@ -518,6 +518,18 @@ mod tests {
             user_assets: WorkspaceTrustState::Trusted,
         };
         assert!(PreAttachState::from_snapshot(&trusted).is_none());
+
+        // Changed domains escalate through in-session banner, not pre-attach gate
+        let changed = WorkspaceSecuritySnapshot {
+            root: "/tmp/proj".to_string(),
+            mcp: WorkspaceTrustState::Trusted,
+            skills: WorkspaceTrustState::Trusted,
+            hooks: WorkspaceTrustState::Trusted,
+            instructions: WorkspaceTrustState::Changed,
+            ex_workspace: WorkspaceTrustState::Trusted,
+            user_assets: WorkspaceTrustState::Trusted,
+        };
+        assert!(PreAttachState::from_snapshot(&changed).is_none());
     }
 
     #[test]

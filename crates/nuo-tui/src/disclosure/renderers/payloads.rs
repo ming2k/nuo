@@ -2159,8 +2159,9 @@ pub(crate) fn draw_matches_content(
 /// The vocabulary is deliberately plain (`output limit`, not `stream cap`) and
 /// free of subsystem names: the reader is a human debugging a command, not the
 /// component that named the budget (ADR-0063 §Concise, Professional Footers).
-/// Every non-`Exited` variant states `killed` explicitly, because "the harness
-/// stopped it" is the fact that cannot be recovered from the output stream.
+/// Every supervisor-interrupted variant states `terminated` explicitly in the
+/// `state — cause` join form, because harness termination is the authentic fact
+/// that cannot be recovered from the child output stream alone.
 fn termination_footer(
     term: nuo_wire::tool_output::ShellTermination,
     theme: &Theme,
@@ -2174,12 +2175,12 @@ fn termination_footer(
     let cause = |state: &str, why: &str| format!("{state}{JOIN_CAUSE}{why}");
     match term {
         T::Exited => None,
-        T::IdleBlocked => Some((cause("idle timeout", "killed"), warn_style)),
+        T::IdleBlocked => Some((cause("terminated", "idle timeout"), warn_style)),
         T::InteractiveBlocked => Some((cause("not started", "command asks for input"), warn_style)),
-        T::InputUnanswered => Some((cause("input prompt unanswered", "killed"), warn_style)),
-        T::Timeout => Some((cause("timed out", "killed"), warn_style)),
-        T::Cancelled => Some((cause("cancelled", "killed"), err_style)),
-        T::StreamGuard => Some((cause("output limit reached", "killed"), warn_style)),
+        T::InputUnanswered => Some((cause("terminated", "input prompt unanswered"), warn_style)),
+        T::Timeout => Some((cause("terminated", "timed out"), warn_style)),
+        T::Cancelled => Some((cause("terminated", "cancelled"), err_style)),
+        T::StreamGuard => Some((cause("terminated", "output limit reached"), warn_style)),
         T::Detached => Some((cause("moved to background", "still running"), warn_style)),
     }
 }
@@ -2415,12 +2416,17 @@ fn parse_unstructured_shell_content(
         }
 
         // 3. Strip verbose harness prose and extract termination enum
-        if trimmed_leading.starts_with("[killed by harness:")
+        if trimmed_leading.starts_with("[terminated by harness:")
+            || trimmed_leading.starts_with("[killed by harness:")
+            || trimmed_leading.starts_with("[process terminated]")
             || trimmed_leading.starts_with("[process killed]")
         {
             if trimmed_leading.contains("timeout") || trimmed_leading.contains("wall-clock") {
                 termination = ShellTermination::Timeout;
-            } else if trimmed_leading.contains("stream") || trimmed_leading.contains("budget") {
+            } else if trimmed_leading.contains("stream")
+                || trimmed_leading.contains("budget")
+                || trimmed_leading.contains("output limit")
+            {
                 termination = ShellTermination::StreamGuard;
             } else if trimmed_leading.contains("cancel") {
                 termination = ShellTermination::Cancelled;
@@ -2433,6 +2439,7 @@ fn parse_unstructured_shell_content(
         }
 
         if trimmed_leading.starts_with("[process blocked]")
+            || trimmed_leading.starts_with("[terminated by harness: interactive")
             || trimmed_leading.starts_with("[killed by harness: interactive")
         {
             termination = ShellTermination::InteractiveBlocked;
@@ -3578,9 +3585,38 @@ mod tests {
         );
         assert!(footer.is_some());
         let (text, style) = footer.unwrap();
-        assert_eq!(text, "output limit reached — killed");
+        assert_eq!(text, "terminated — output limit reached");
         assert_eq!(style.fg, theme.warn());
         assert_eq!(style.bg, theme.match_title_surface());
+    }
+
+    #[test]
+    fn termination_footer_renders_professional_supervisor_verdicts() {
+        let theme = crate::Theme::default();
+        let surface = theme.match_title_surface();
+
+        let timeout = termination_footer(ShellTermination::Timeout, &theme, surface).unwrap();
+        assert_eq!(timeout.0, "terminated — timed out");
+        assert_eq!(timeout.1.fg, theme.warn());
+
+        let cancelled = termination_footer(ShellTermination::Cancelled, &theme, surface).unwrap();
+        assert_eq!(cancelled.0, "terminated — cancelled");
+        assert_eq!(cancelled.1.fg, theme.err());
+
+        let idle = termination_footer(ShellTermination::IdleBlocked, &theme, surface).unwrap();
+        assert_eq!(idle.0, "terminated — idle timeout");
+
+        let input = termination_footer(ShellTermination::InputUnanswered, &theme, surface).unwrap();
+        assert_eq!(input.0, "terminated — input prompt unanswered");
+
+        let interactive =
+            termination_footer(ShellTermination::InteractiveBlocked, &theme, surface).unwrap();
+        assert_eq!(interactive.0, "not started — command asks for input");
+
+        let detached = termination_footer(ShellTermination::Detached, &theme, surface).unwrap();
+        assert_eq!(detached.0, "moved to background — still running");
+
+        assert!(termination_footer(ShellTermination::Exited, &theme, surface).is_none());
     }
 
     /// The legacy flat-string path (restored sessions, live seeds) carries the
@@ -3595,7 +3631,7 @@ mod tests {
         let body = "line 1\nline 2\nline 3\n\
                     [Output truncated: 5509 chars total; full raw log spilled to disk]\n\
                     \n\
-                    [killed by harness: stream budget reached]";
+                    [terminated by harness: output limit reached]";
         let (rows, exit, termination, truncated) = parse_unstructured_shell_content(body, base);
         assert_eq!(termination, ShellTermination::StreamGuard);
         assert_eq!(exit, None);
@@ -3613,7 +3649,7 @@ mod tests {
     fn parse_unstructured_shell_content_keeps_interior_blank_rows() {
         let theme = crate::Theme::default();
         let base = Style::default().fg(theme.code_text());
-        let body = "a\n\nb\n[process killed]\n";
+        let body = "a\n\nb\n[process terminated]\n";
         let (rows, _exit, termination, _truncated) = parse_unstructured_shell_content(body, base);
         assert_eq!(termination, ShellTermination::Timeout);
         assert_eq!(

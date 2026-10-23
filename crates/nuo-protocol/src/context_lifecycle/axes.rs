@@ -120,7 +120,7 @@ impl Deletion {
 pub enum Capture {
     /// The full stream was captured and durably published.
     Complete,
-    /// Capture stopped before the stream ended (process killed, cancelled).
+    /// Capture stopped before the stream ended (process terminated, cancelled).
     Interrupted {
         /// Why capture stopped.
         reason: String,

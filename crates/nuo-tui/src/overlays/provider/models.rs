@@ -12,7 +12,7 @@ use super::common::{
 };
 use crate::components::detail::DetailLayout;
 use crate::components::options::{ChoiceTone, choice_style};
-use crate::components::row::{ListRow, RowGroup};
+use crate::components::row::{GROUP_GAP, GUTTER, ListRow, RowGroup};
 use crate::components::selectable_body::{SelectableRow, render_selectable_body};
 use crate::model::layout::LayoutMap;
 use crate::model::selection::SelectionState;
@@ -80,7 +80,7 @@ pub fn draw_models_modal(
         info_detail,
         info_scroll,
     } = props;
-    let area = modal_area(frame, FixedModalSpec::PROVIDER);
+    let area = modal_area(frame, FixedModalSpec::MODELS);
     let f = modal_frame(frame, area, theme, true, true);
 
     let header_rect = f.header;
@@ -305,15 +305,72 @@ pub(crate) fn model_list_body(
     // column beside it, and that column drops for the whole list when the
     // region cannot fund a readable id (docs/reference/tui/modals.md:
     // name-first, id-fallback).
-    let identity_budget = (body_width * 3 / 5).max(1);
+    // Connection column positioning: allocate ~67% (2/3) to the primary
+    // identity region (label + wire id) so modern descriptive model names
+    // (25-35 columns) have ample room, while ensuring the right side funds
+    // the connection name and trailing status badge without overflowing.
+    let max_conn_len = models
+        .iter()
+        .map(|m| m.provider_label.width())
+        .max()
+        .unwrap_or(8);
+    let conn_width = max_conn_len.clamp(8, 24);
+
+    let max_tag_len = models
+        .iter()
+        .map(|rm| {
+            let tag = match (rm.thinking, rm.effort.as_deref()) {
+                (Some(true), Some(effort)) => format!("think on {effort}"),
+                (Some(true), None) => "think on".to_string(),
+                (None, Some(effort)) => effort.to_string(),
+                _ => String::new(),
+            };
+            let tag = if !rm.usable {
+                if tag.is_empty() {
+                    "locked".to_string()
+                } else {
+                    format!("locked · {tag}")
+                }
+            } else if rm.availability_overridden {
+                if tag.is_empty() {
+                    "overridden".to_string()
+                } else {
+                    format!("overridden · {tag}")
+                }
+            } else {
+                tag
+            };
+            tag.width()
+        })
+        .max()
+        .unwrap_or(0);
+
+    let tag_demand = if max_tag_len > 0 {
+        max_tag_len + GROUP_GAP
+    } else {
+        0
+    };
+    let right_demand = conn_width + tag_demand + GROUP_GAP;
+    let min_conn_col = (GUTTER + 18 + GROUP_GAP).min(body_width);
+    let max_conn_col = body_width.saturating_sub(right_demand);
+    let target_conn_col = (body_width * 2) / 3;
+    let conn_col = target_conn_col.clamp(min_conn_col, max_conn_col.max(min_conn_col));
+
+    // Usable width for the identity region (before conn_col, minus gutter and gap).
+    let usable_identity = conn_col.saturating_sub(GUTTER + GROUP_GAP);
     let label_width = |m: &RankedModel| m.name.as_deref().unwrap_or(m.model.as_str()).width();
     let max_label_len = models.iter().map(label_width).max().unwrap_or(20);
     // Never below 18 (so a short-label list still reads as a column) and never
-    // above the region (so `clamp` cannot invert its bounds on a tiny body).
-    let label_col_cap = identity_budget.max(18);
-    let label_col_width = max_label_len.clamp(18, label_col_cap);
-    let id_col = label_col_width + 2;
-    let id_budget = identity_budget.saturating_sub(id_col);
+    // above usable_identity (so the label cannot push or touch the connection column).
+    let label_col_width = if usable_identity < 18 {
+        usable_identity
+    } else {
+        max_label_len.clamp(18, usable_identity)
+    };
+
+    // Wire ID sits in the secondary column, anchored after the label column + gap.
+    let id_col = GUTTER + label_col_width + GROUP_GAP;
+    let id_budget = conn_col.saturating_sub(id_col + GROUP_GAP);
     let show_id_column = id_budget >= MIN_ID_COLUMN_WIDTH;
 
     for line in geometry {
@@ -459,10 +516,14 @@ pub(crate) fn model_list_body(
                     list_row = list_row.group(id_group);
                 }
 
-                // 3. Connection Name: Starts at ratio(3, 5), dimmed, with connection match highlighting.
-                let tag_len = if tag.is_empty() { 0 } else { tag.width() + 2 };
+                // 3. Connection Name: Starts at conn_col, dimmed, with connection match highlighting.
+                let tag_len = if tag.is_empty() {
+                    0
+                } else {
+                    tag.width() + GROUP_GAP
+                };
                 let conn_budget = body_width
-                    .saturating_sub((body_width * 3) / 5 + tag_len + 1)
+                    .saturating_sub(conn_col + tag_len + GROUP_GAP)
                     .max(1);
                 let conn_text = truncate_ellipsis(&rm.provider_label, conn_budget);
                 let conn_matched = match_set(rm.match_connection.as_ref());
@@ -479,7 +540,7 @@ pub(crate) fn model_list_body(
                 } else {
                     Modifier::BOLD
                 };
-                let conn_group = RowGroup::ratio(3, 5).matched_text(
+                let conn_group = RowGroup::column(conn_col).matched_text(
                     &conn_text,
                     Style::default().bg(style.bg).fg(conn_fg),
                     Style::default()

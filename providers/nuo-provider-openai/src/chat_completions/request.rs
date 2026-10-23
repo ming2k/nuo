@@ -54,6 +54,10 @@ pub fn headers(api_key: &str, dialect: OpenAiChatDialect) -> Vec<(&'static str, 
         // supplied by Endpoint; the title makes dashboard traffic readable
         // without inventing a project URL for HTTP-Referer.
         h.push(("X-OpenRouter-Title", "Nuo".to_string()));
+    } else if dialect == OpenAiChatDialect::CodeBuddy {
+        for (name, value) in nuo_provider::CODEBUDDY_CLIENT_HEADERS {
+            h.push((*name, value.to_string()));
+        }
     }
     // Qoder has no branch here on purpose. Its wire is built entirely by
     // `build_qoder_request` (the executor routes the Qoder dialect there and

@@ -35,7 +35,9 @@ pub mod vision;
 pub mod wire_surface;
 
 pub mod transport {
-    pub use crate::response::{decode_response_json, ensure_success};
+    pub use crate::response::{
+        decode_response_json, ensure_success, extract_error_message, extract_error_summary,
+    };
 }
 
 pub use endpoint::*;

@@ -295,6 +295,15 @@ mod trust_domain_tests {
         assert_eq!(parse_trust_domain("agents"), Ok(TrustDomain::Instructions));
         assert_eq!(parse_trust_domain("rules"), Ok(TrustDomain::Instructions));
         assert_eq!(
+            parse_trust_domain("AGENTS.md"),
+            Ok(TrustDomain::Instructions)
+        );
+        assert_eq!(
+            parse_trust_domain("agents.md"),
+            Ok(TrustDomain::Instructions)
+        );
+        assert_eq!(parse_trust_domain(".nuo/mcp.json"), Ok(TrustDomain::Mcp));
+        assert_eq!(
             parse_trust_domain("ex-workspace"),
             Ok(TrustDomain::ExWorkspace)
         );

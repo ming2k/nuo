@@ -42,9 +42,10 @@ pub const MODEL_PROVIDER_SPECS: &[ModelProviderSpec] = &[
     nuo_provider_chatgpt_plan::MODEL_PROVIDER_SPEC,
     nuo_provider_copilot::MODEL_PROVIDER_SPEC,
     nuo_provider_kimi::MODEL_PROVIDER_SPEC,
-    nuo_provider_zai::MODEL_PROVIDER_SPEC,
+    nuo_provider_glm_cn::MODEL_PROVIDER_SPEC,
     nuo_provider_qianwen::MODEL_PROVIDER_SPEC,
     nuo_provider_qoder::MODEL_PROVIDER_SPEC,
+    nuo_provider_codebuddy::MODEL_PROVIDER_SPEC,
     nuo_provider_opencode_plan::MODEL_PROVIDER_SPEC,
     nuo_provider_opencode_zen::MODEL_PROVIDER_SPEC,
     nuo_provider_google_antigravity::ANTIGRAVITY_MODEL_PROVIDER_SPEC,
@@ -397,6 +398,11 @@ pub fn build_credential_source(
     } else if dialect == nuo_provider::ProviderDialect::Qoder {
         std::sync::Arc::new(nuo_provider_qoder::QoderApiKeyCredentialSource::new(
             host,
+            connection_name,
+            api_key,
+        ))
+    } else if dialect == nuo_provider::ProviderDialect::CodeBuddy {
+        std::sync::Arc::new(nuo_provider_codebuddy::CodeBuddyCredentialSource::new(
             connection_name,
             api_key,
         ))

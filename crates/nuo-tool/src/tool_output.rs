@@ -502,8 +502,8 @@ impl ToolOutput {
     /// data is also available. `Shell` reproduces the exact format historically
     /// emitted by the command tool, so migrating command execution to
     /// [`ToolOutput::Shell`] is invisible to any consumer still reading text —
-    /// with one deliberate addition: a killed run (`IdleBlocked` / `Timeout` /
-    /// `Cancelled`) appends a `[killed …]` note, because the model is the one
+    /// with one deliberate addition: a terminated run (`IdleBlocked` / `Timeout` /
+    /// `Cancelled` / `StreamGuard`) appends a `[terminated …]` note, because the model is the one
     /// actor that can react to *why* the command died (retry non-interactively,
     /// raise `timeout`, or stop) and the bare `Exit -1` it historically saw
     /// carried none of that.
@@ -792,7 +792,7 @@ fn shell_body_to_text(
     }
 }
 
-/// The note appended to [`ToolOutput::to_text`] when a shell step was killed
+/// The note appended to [`ToolOutput::to_text`] when a shell step was terminated
 /// by the harness rather than exiting on its own. The model is the primary
 /// audience: it must know the command did not fail on its own merits but was
 /// interrupted, and what to change on retry. One line, fact first, remedy
@@ -800,14 +800,16 @@ fn shell_body_to_text(
 pub fn termination_model_note(termination: ShellTermination) -> Option<&'static str> {
     match termination {
         ShellTermination::Exited => None,
-        ShellTermination::IdleBlocked => Some("[killed by harness: idle timeout detected]"),
-        ShellTermination::InteractiveBlocked => {
-            Some("[killed by harness: interactive prompt detected in non-interactive environment]")
+        ShellTermination::IdleBlocked => Some("[terminated by harness: idle timeout detected]"),
+        ShellTermination::InteractiveBlocked => Some(
+            "[terminated by harness: interactive prompt detected in non-interactive environment]",
+        ),
+        ShellTermination::InputUnanswered => {
+            Some("[terminated by harness: unanswered input prompt]")
         }
-        ShellTermination::InputUnanswered => Some("[killed by harness: unanswered input prompt]"),
-        ShellTermination::Timeout => Some("[killed by harness: timeout reached]"),
-        ShellTermination::Cancelled => Some("[killed by harness: cancelled by operator]"),
-        ShellTermination::StreamGuard => Some("[killed by harness: stream budget reached]"),
+        ShellTermination::Timeout => Some("[terminated by harness: timeout reached]"),
+        ShellTermination::Cancelled => Some("[terminated by harness: cancelled by operator]"),
+        ShellTermination::StreamGuard => Some("[terminated by harness: output limit reached]"),
         ShellTermination::Detached => Some("[detached job: adopted by background runner]"),
     }
 }
@@ -1023,21 +1025,24 @@ mod tests {
         };
         assert_eq!(exited.to_text(), "hi\n");
 
-        // A harness kill states the fact and the remedy; the model must be
+        // A harness termination states the fact and the remedy; the model must be
         // able to distinguish it from a genuine process exit.
         for (term, needle) in [
             (
                 ShellTermination::IdleBlocked,
-                "[killed by harness: idle timeout",
+                "[terminated by harness: idle timeout",
             ),
             (
                 ShellTermination::Timeout,
-                "[killed by harness: timeout reached",
+                "[terminated by harness: timeout reached",
             ),
-            (ShellTermination::Cancelled, "[killed by harness: cancelled"),
+            (
+                ShellTermination::Cancelled,
+                "[terminated by harness: cancelled",
+            ),
             (
                 ShellTermination::StreamGuard,
-                "[killed by harness: stream budget reached",
+                "[terminated by harness: output limit reached",
             ),
         ] {
             let o = ToolOutput::Shell {
@@ -1056,7 +1061,7 @@ mod tests {
                 text.contains(needle),
                 "{term:?} note missing {needle:?}: {text}"
             );
-            assert!(o.is_error(), "{term:?} killed run is a failure");
+            assert!(o.is_error(), "{term:?} terminated run is a failure");
         }
     }
 

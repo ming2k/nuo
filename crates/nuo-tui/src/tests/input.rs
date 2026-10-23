@@ -898,7 +898,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     app.ui.commit();
 
-    // 5. Clicking on TabBar empty background (col 50, row 0) blurs the composer
+    // 5. Clicking on TabBar empty background (col 50, row 0) is an inert container gesture (ADR-0091 [INV-TAB-11])
     let click_tabbar_bg = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
         kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
         column: 50,
@@ -907,16 +907,16 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::event_loop::process_event_for_test(&mut app, &click_tabbar_bg, "s1").await;
     assert!(
-        app.transcript_focused,
-        "clicking tabbar background blurs composer"
+        !app.transcript_focused,
+        "clicking tabbar background must not blur composer"
     );
     assert_eq!(
         app.caret_owner(),
-        crate::CaretOwner::None,
-        "caret hidden when composer blurred"
+        crate::CaretOwner::Composer,
+        "composer retains caret on inert tabbar click"
     );
 
-    // 6. Clicking on active thread tab also blurs the composer
+    // 6. Clicking on active thread tab is idempotent and preserves focus (ADR-0091 [INV-TAB-11])
     let click_active_tab = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
         kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
         column: 5,
@@ -924,9 +924,30 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
         modifiers: crossterm::event::KeyModifiers::NONE,
     });
     crate::event_loop::process_event_for_test(&mut app, &click_active_tab, "s1").await;
-    assert!(app.transcript_focused, "clicking active tab blurs composer");
+    assert!(
+        !app.transcript_focused,
+        "clicking active tab is idempotent and preserves composer focus"
+    );
 
-    // 7. Clicking back on Composer input box restores composer focus
+    // 7. Clicking in Transcript dead/content zone parks attention on transcript (blurs composer)
+    let click_transcript = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        column: 10,
+        row: 5,
+        modifiers: crossterm::event::KeyModifiers::NONE,
+    });
+    crate::event_loop::process_event_for_test(&mut app, &click_transcript, "s1").await;
+    assert!(
+        app.transcript_focused,
+        "clicking transcript content blurs composer"
+    );
+    assert_eq!(
+        app.caret_owner(),
+        crate::CaretOwner::None,
+        "caret hidden when transcript clicked"
+    );
+
+    // 8. Clicking back on Composer input box restores composer focus
     let composer_bounds = app
         .ui
         .bounds(crate::ui::UiKey::Composer)

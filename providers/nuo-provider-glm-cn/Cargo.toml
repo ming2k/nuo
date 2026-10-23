@@ -1,0 +1,15 @@
+[package]
+name = "nuo-provider-glm-cn"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "GLM Coding Plan CN provider channel for Nuo (Zhipu BigModel)"
+
+[dependencies]
+nuo-provider = { workspace = true }
+nuo-inference-wire = { workspace = true }
+inventory = { workspace = true }
+
+[lints]
+workspace = true

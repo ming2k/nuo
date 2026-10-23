@@ -76,16 +76,16 @@ Adopt **Option 3**:
    - Eliminate verbose multi-space placeholders and emojis.
    - Standardize termination footers on the `state — cause` join form that
      `docs/reference/tui/visual-language.md` assigns to a cause explaining a
-     state: the state reads first (what the operator sees happen), the cause
+     state: the state reads first (the supervisor verdict: `terminated`), the cause
      follows after an em dash (why it happened). Subsystem nouns (`stream cap`,
      `budget`) are not carried into the operator's vocabulary, and every
-     non-`Exited` variant states `killed`, because "the harness stopped it" is
-     the one fact unrecoverable from the output stream.
-     - `ShellTermination::Timeout` $\rightarrow$ `timed out — killed`
-     - `ShellTermination::StreamGuard` $\rightarrow$ `output limit reached — killed`
-     - `ShellTermination::Cancelled` $\rightarrow$ `cancelled — killed`
-     - `ShellTermination::IdleBlocked` $\rightarrow$ `idle timeout — killed`
-     - `ShellTermination::InputUnanswered` $\rightarrow$ `input prompt unanswered — killed`
+     interrupted variant states `terminated` explicitly, because harness
+     termination is the authentic fact unrecoverable from the output stream.
+     - `ShellTermination::Timeout` $\rightarrow$ `terminated — timed out`
+     - `ShellTermination::StreamGuard` $\rightarrow$ `terminated — output limit reached`
+     - `ShellTermination::Cancelled` $\rightarrow$ `terminated — cancelled`
+     - `ShellTermination::IdleBlocked` $\rightarrow$ `terminated — idle timeout`
+     - `ShellTermination::InputUnanswered` $\rightarrow$ `terminated — input prompt unanswered`
      - `ShellTermination::InteractiveBlocked` $\rightarrow$ `not started — command asks for input`
      - `ShellTermination::Detached` $\rightarrow$ `moved to background — still running`
      - Output truncated without a termination cause $\rightarrow$ `output truncated — partial kept`

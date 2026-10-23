@@ -17,29 +17,30 @@ fn render_full_view(
     messages: &[TranscriptMessage],
     page_hints: Option<ViewHints<'_>>,
 ) -> nuotc::TestTerminal {
-    render_full_view_with_head(width, height, messages, page_hints, None)
+    render_full_view_with_context(width, height, messages, page_hints, None)
 }
 
-fn render_full_view_with_head(
+fn render_full_view_with_context(
     width: u16,
     height: u16,
     messages: &[TranscriptMessage],
     page_hints: Option<ViewHints<'_>>,
-    thread_head: Option<ThreadHead<'_>>,
+    thread_context: Option<ThreadContext<'_>>,
 ) -> nuotc::TestTerminal {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(width, height);
     let hints = page_hints;
-    let head = thread_head.or({
-        Some(ThreadHead {
-            thread_id: "sess-01a2b3c4",
-            workspace: "~/projects/xx",
+    let context = thread_context.or({
+        Some(ThreadContext {
             role: Some("developer"),
-            tabs: None,
-            active_tab: 0,
+            workspace: "~/projects/xx",
             unattended: false,
             confined: true,
         })
+    });
+    let tab_bar = Some(TabBarProps {
+        tabs: None,
+        active_tab: 0,
     });
     terminal.draw(|f| {
         let _ = draw_transcript(
@@ -66,7 +67,9 @@ fn render_full_view_with_head(
                 tasks_bar: Default::default(),
                 subagent_bar: None,
                 page_hints: hints,
-                thread_head: head,
+                tab_bar,
+                thread_id: Some("sess-01a2b3c4"),
+                thread_context: context,
                 round_started_at: None,
                 hovered_step: None,
                 focused_target: None,

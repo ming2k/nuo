@@ -394,12 +394,14 @@ fn compose_frame(
                 },
                 subagent_bar,
                 page_hints: Some(page_hints),
-                thread_head: Some(render::ThreadHead {
-                    thread_id: viewed_session_id,
-                    workspace: &app.current_workspace,
-                    role: app.current_role.as_deref(),
+                tab_bar: Some(render::TabBarProps {
                     tabs: Some(app.surfaces.tabs()),
                     active_tab: app.surfaces.active_tab_index(),
+                }),
+                thread_id: Some(viewed_session_id),
+                thread_context: Some(render::ThreadContext {
+                    role: app.current_role.as_deref(),
+                    workspace: &app.current_workspace,
                     unattended: app.unattended,
                     confined: app.confined,
                 }),
@@ -1094,14 +1096,9 @@ fn compose_frame(
                         prompt_text: &app.input,
                         current_session_id: viewed_session_id,
                         show_caret: scene_prompt_owns_caret,
-                        thread_head: Some(render::ThreadHead {
-                            thread_id: viewed_session_id,
-                            workspace: &app.current_workspace,
-                            role: app.current_role.as_deref(),
+                        tab_bar: Some(render::TabBarProps {
                             tabs: Some(app.surfaces.tabs()),
                             active_tab: app.surfaces.active_tab_index(),
-                            unattended: app.unattended,
-                            confined: app.confined,
                         }),
                     },
                     &app.theme,
@@ -1142,14 +1139,9 @@ fn compose_frame(
                         theme: &app.theme,
                         profile: &app.profile,
                         tui_config: &app.tui_config,
-                        thread_head: Some(render::ThreadHead {
-                            thread_id: viewed_session_id,
-                            workspace: &app.current_workspace,
-                            role: app.current_role.as_deref(),
+                        tab_bar: Some(render::TabBarProps {
                             tabs: Some(app.surfaces.tabs()),
                             active_tab: app.surfaces.active_tab_index(),
-                            unattended: app.unattended,
-                            confined: app.confined,
                         }),
                     },
                 );

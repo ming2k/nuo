@@ -396,7 +396,7 @@ fn parse_shell_output(output: &str) -> (String, Vec<String>) {
     // Check for optional harness interruption note at the tail
     let mut harness_interrupted = false;
     if let Some(last) = raw_lines.last() {
-        if last.starts_with("[killed by harness:") {
+        if last.starts_with("[terminated by harness:") || last.starts_with("[killed by harness:") {
             harness_interrupted = true;
             raw_lines.pop();
         }
@@ -429,7 +429,7 @@ fn parse_shell_output(output: &str) -> (String, Vec<String>) {
             .filter(|l| !l.is_empty())
             .map(|l| l.to_string())
             .collect();
-        return ("status: Failed · killed by harness".to_string(), lines);
+        return ("status: Failed · terminated by harness".to_string(), lines);
     }
 
     // Legacy format fallback: `Exit {}\nSTDOUT:\n...\nSTDERR:\n...`
@@ -660,6 +660,32 @@ mod tests {
             &[],
         );
         assert!(out.contains("## Activity\n\n    $ cargo test\n    status: Failed · exit 101\n      test failed\n      assertion failed\n"));
+    }
+
+    #[test]
+    fn renders_shell_harness_interrupted_status() {
+        let call = ToolCall {
+            id: "bash_term".to_string(),
+            name: "execute_command".to_string(),
+            arguments: r#"{"command":"cargo run"}"#.to_string(),
+        };
+        let messages = vec![
+            assistant_with_call("", call),
+            tool_result(
+                "execute_command",
+                "running stream...\n[terminated by harness: output limit reached]",
+            ),
+        ];
+        let out = format_export_markdown(
+            ExportContext {
+                session_id: "id",
+                provider: "p",
+                model: "m",
+            },
+            &messages,
+            &[],
+        );
+        assert!(out.contains("## Activity\n\n    $ cargo run\n    status: Failed · terminated by harness\n      running stream...\n"));
     }
 
     #[test]

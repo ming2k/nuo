@@ -2536,8 +2536,17 @@ pub(super) fn activate_tab_at_index(
     runtime: &UiRuntime,
     viewed_session_id: &str,
 ) -> ActionFlow {
+    let current_idx = app.surfaces.active_tab_index();
+    if index == current_idx {
+        // [INV-TAB-11] Idempotent container gesture: Re-selecting the already active tab
+        // is an inert container operation that preserves the active scene context.
+        return ActionFlow::Handled;
+    }
+
     if let Some(target_tab) = app.surfaces.tabs().get(index).cloned() {
-        let is_same_tab = index == app.surfaces.active_tab_index();
+        // Checkpoint departing tab context (ADR-0091 [INV-TAB-12])
+        app.checkpoint_active_tab_context();
+
         let was_in_thread = app.current_scene() == crate::surfaces::SceneKind::Thread;
         app.surfaces.select_tab(index);
         match &target_tab.kind {
@@ -2549,11 +2558,8 @@ pub(super) fn activate_tab_at_index(
                 } else {
                     if !was_in_thread {
                         enter_scene(app, crate::surfaces::SceneKind::Thread, runtime);
-                        app.transcript_focused = false;
-                    } else {
-                        app.transcript_focused = is_same_tab;
                     }
-                    app.focused_target = None;
+                    app.restore_active_tab_context();
                     app.selection = SelectionState::None;
                 }
             }
@@ -2595,8 +2601,7 @@ pub(super) fn handle_close_tab(
                     return ActionFlow::Exit;
                 } else {
                     enter_scene(app, crate::surfaces::SceneKind::Thread, runtime);
-                    app.transcript_focused = false;
-                    app.focused_target = None;
+                    app.restore_active_tab_context();
                     app.selection = SelectionState::None;
                 }
             }
@@ -2627,6 +2632,9 @@ pub(super) fn enter_scene(
     let scene = scene.into();
     let previous = app.current_scene();
     if previous != scene {
+        if previous == SceneKind::Thread {
+            app.checkpoint_active_tab_context();
+        }
         app.leave_scene_for_navigation(previous);
     }
     match scene {
@@ -3240,7 +3248,7 @@ mod transcript_scroll_tests {
     }
 
     #[tokio::test]
-    async fn mouse_click_on_tab_bar_background_blurs_composer() {
+    async fn mouse_click_on_tab_bar_background_is_inert_and_preserves_composer_focus() {
         let mut app = crate::tests::new_app_for_relay_tests();
         let runtime = UiRuntime::minimal_for_test();
 
@@ -3258,14 +3266,16 @@ mod transcript_scroll_tests {
 
         // Click outside tabs on the TabBar background (col 50)
         mouse::handle_selection_start(&mut app, &runtime, "s1", 50, 0).await;
+        // ADR-0091 [INV-TAB-11]: TabBar background clicks are inert container gestures
+        // and must NOT leak side-effects into active scene context.
         assert!(
-            app.transcript_focused,
-            "clicking TabBar background must blur composer"
+            !app.transcript_focused,
+            "clicking TabBar background must not blur composer"
         );
     }
 
     #[tokio::test]
-    async fn mouse_click_on_active_thread_tab_blurs_composer() {
+    async fn mouse_click_on_active_thread_tab_is_idempotent_and_preserves_composer_focus() {
         let mut app = crate::tests::new_app_for_relay_tests();
         let runtime = UiRuntime::minimal_for_test();
 
@@ -3286,14 +3296,62 @@ mod transcript_scroll_tests {
         // Click on already-active Thread tab (col 5)
         mouse::handle_selection_start(&mut app, &runtime, "s1", 5, 0).await;
         assert_eq!(app.surfaces.active_tab_index(), 0);
+        // ADR-0091 [INV-TAB-11]: Re-selecting the already active tab is an idempotent
+        // container gesture that preserves active context.
         assert!(
-            app.transcript_focused,
-            "clicking active tab must blur composer"
+            !app.transcript_focused,
+            "clicking active tab must not blur composer"
         );
     }
 
     #[tokio::test]
-    async fn mouse_click_outside_composer_dead_zone_blurs_composer() {
+    async fn tab_switching_preserves_and_restores_sovereign_tab_context() {
+        let mut app = crate::tests::new_app_for_relay_tests();
+        let runtime = UiRuntime::minimal_for_test();
+
+        app.surfaces
+            .open_tab(crate::surfaces::ClientTab::thread("s1", Some("Thread 1")));
+        app.surfaces
+            .open_tab(crate::surfaces::ClientTab::dashboard());
+        app.surfaces.select_tab(0);
+
+        // Customize Thread 1 context: browse mode, scrolled up, draft input text
+        app.transcript_focused = true;
+        app.scroll = 42;
+        app.input = "draft question for thread 1".to_string();
+        app.cursor_position = 5;
+
+        // Switch to Dashboard (Tab 1)
+        activate_tab_at_index(&mut app, 1, &runtime, "s1");
+        assert_eq!(app.surfaces.active_tab_index(), 1);
+        assert_eq!(
+            app.surfaces.active_scene(),
+            crate::surfaces::SceneKind::Dashboard
+        );
+
+        // Switch back to Thread 1 (Tab 0)
+        activate_tab_at_index(&mut app, 0, &runtime, "s1");
+        assert_eq!(app.surfaces.active_tab_index(), 0);
+        assert_eq!(
+            app.surfaces.active_scene(),
+            crate::surfaces::SceneKind::Thread
+        );
+
+        // ADR-0091 [INV-TAB-12]: Restores sovereign tab context exactly as left
+        assert!(
+            app.transcript_focused,
+            "browse focus mode must be preserved across tab switch"
+        );
+        assert_eq!(app.scroll, 42, "scroll offset must be preserved");
+        assert_eq!(
+            app.input, "draft question for thread 1",
+            "draft text must be preserved"
+        );
+        assert_eq!(app.cursor_position, 5, "caret position must be preserved");
+    }
+
+    #[tokio::test]
+    async fn mouse_click_outside_composer_on_unmounted_zone_is_inert() {
         let mut app = crate::tests::new_app_for_relay_tests();
         let runtime = UiRuntime::minimal_for_test();
 
@@ -3301,9 +3359,11 @@ mod transcript_scroll_tests {
 
         // Click in outer unmounted zone / dead zone
         mouse::handle_selection_start(&mut app, &runtime, "s1", 79, 10).await;
+        // ADR-0091 [INV-TAB-11]: Unmounted zones outside the active transcript content rect
+        // are inert and must not leak focus mutations into the composer.
         assert!(
-            app.transcript_focused,
-            "clicking outside composer must blur composer"
+            !app.transcript_focused,
+            "clicking outside composer on unmounted zone must be inert"
         );
     }
 

@@ -3,7 +3,7 @@
 //! Provides a uniform [`CredentialSource`] abstraction for resolving live
 //! authentication credentials and associated account metadata just-in-time
 //! before sending requests to upstream LLMs.
-use futures::future::BoxFuture;
+pub use futures::future::BoxFuture;
 use nuo_host::SecretString;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;

@@ -2254,10 +2254,10 @@ deepseek = "new-key"
             "the legacy monolith is retired on promotion"
         );
         let mut cfg = loaded;
-        cfg.default_connection = "zai".to_string();
+        cfg.default_connection = "glm-cn".to_string();
         cfg.save().unwrap();
         let client = std::fs::read_to_string(Config::client_config_file_path()).unwrap();
-        assert!(client.contains("default_connection = \"zai\""));
+        assert!(client.contains("default_connection = \"glm-cn\""));
         assert!(!client.contains("providers"));
         assert!(!sandbox.path().join("config.toml").exists());
     }

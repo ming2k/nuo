@@ -173,6 +173,32 @@ fn composer_image_paste_accepted_when_model_has_vision() {
 }
 
 #[test]
+fn composer_image_paste_accepted_for_commandcode_deepseek_flash() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.reset_to_thread();
+    app.current_provider = "commandcode".to_string();
+    app.current_model = "deepseek/deepseek-v4.1-flash".to_string();
+    app.input = String::new();
+    app.cursor_position = 0;
+
+    clipboard_ops::apply_clipboard_paste(
+        &mut app,
+        crate::clipboard::ClipboardRead::Image {
+            data: vec![0x89, 0x50, 0x4e, 0x47],
+            mime: "image/png".to_string(),
+        },
+    );
+
+    assert_eq!(
+        app.pending_images.len(),
+        1,
+        "commandcode deepseek flash must accept image paste"
+    );
+    assert!(app.input.contains("Image #1"));
+    assert!(!app.copy_toast_failed);
+}
+
+#[test]
 fn composer_image_paste_follows_picker_snapshot_vision() {
     // The snapshot's per-route `vision` flag is the authority: it is the
     // server-side resolution the TUI's own process cannot reproduce

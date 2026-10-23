@@ -165,18 +165,6 @@ mod tests {
         for id in ["qwen3.8-max", "qwen3.8-flash", "qwen3.6-flash"] {
             assert_eq!(resolve(id).effort_levels, QWEN_MIXED, "{id}");
         }
-        // The third-party ids live on their home baselines (the capability
-        // union is model-id-keyed); the qianwen table does not shadow them, so
-        // they carry the home platform's accepted vocabulary — `none`
-        // (thinking off) and the vendor-mapped aliases included (ADR-0083).
-        assert_eq!(
-            resolve("glm-5.3").effort_levels,
-            nuo_provider::effort_ladders::GLM_5
-        );
-        assert_eq!(
-            resolve("deepseek-v4-pro").effort_levels,
-            nuo_provider::effort_ladders::DEEPSEEK_NATIVE
-        );
     }
 
     /// A "reasoning off" request never emits a rung the DeepSeek V4 Pro

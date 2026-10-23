@@ -25,6 +25,7 @@ Fixed-size modals (`FixedModalSpec(width_percent, height_percent)`):
 | Preset | width % | height % |
 | :--- | :--- | :--- |
 | `PROVIDER` | 76 | 80 |
+| `MODELS` | 84 | 80 |
 | `SESSIONS` | 82 | 78 |
 
 Content-sized modals (`ContentModalSpec(width_percent, min_rows, max_viewport_percent)`):

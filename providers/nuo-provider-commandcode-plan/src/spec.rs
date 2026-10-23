@@ -41,7 +41,7 @@ pub const MODELS: &[Model] = &[
         context_window: 1_000_000,
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
-        vision: false,
+        vision: true,
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
@@ -60,7 +60,7 @@ pub const MODELS: &[Model] = &[
         context_window: 1_000_000,
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
-        vision: false,
+        vision: true,
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
@@ -72,7 +72,7 @@ pub const MODELS: &[Model] = &[
         context_window: 1_000_000,
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
-        vision: false,
+        vision: true,
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
@@ -114,7 +114,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 
 #[cfg(test)]
 mod tests {
-    use super::{COMMANDCODE_BUILTIN_MODELS, MODEL_PROVIDER_SPEC};
+    use super::{COMMANDCODE_BUILTIN_MODELS, MODEL_PROVIDER_SPEC, MODELS};
     use nuo_inference_wire::WireProtocol;
     use nuo_provider::DisplayPolicy;
 
@@ -170,5 +170,22 @@ mod tests {
                 "{id} resolved to {label:?}: a namespace separator is not a name"
             );
         }
+    }
+
+    #[test]
+    fn deepseek_flash_models_support_vision() {
+        for id in [
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4.1-flash",
+            "deepseek/deepseek-v4.1-flash-fast",
+        ] {
+            let model = MODELS.iter().find(|m| m.id == id).expect("seeded model");
+            assert!(model.vision, "{id} must support vision");
+        }
+        let pro = MODELS
+            .iter()
+            .find(|m| m.id == "deepseek/deepseek-v4-pro")
+            .expect("seeded model");
+        assert!(!pro.vision, "deepseek-v4-pro must remain text-only");
     }
 }

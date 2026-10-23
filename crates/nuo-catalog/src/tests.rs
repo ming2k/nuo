@@ -1338,7 +1338,7 @@ async fn single_source_endpoint_failure_records_failure_and_preserves_determinis
         .create_async()
         .await;
 
-    let provider_id = "test-mock-zai";
+    let provider_id = "test-mock-glm-cn";
     register_mock_provider(
         provider_id,
         &server.url(),
@@ -1348,7 +1348,7 @@ async fn single_source_endpoint_failure_records_failure_and_preserves_determinis
     );
     let instances = Connections {
         connections: vec![Connection {
-            name: "zai".to_string(),
+            name: "glm-cn".to_string(),
             provider: provider_id.to_string(),
             ..Default::default()
         }],
@@ -1364,7 +1364,7 @@ async fn single_source_endpoint_failure_records_failure_and_preserves_determinis
         outcome
             .failures
             .iter()
-            .any(|failure| failure.connection == "zai"),
+            .any(|failure| failure.connection == "glm-cn"),
         "the failed endpoint must be reported as a failure: {:?}",
         outcome.failures
     );

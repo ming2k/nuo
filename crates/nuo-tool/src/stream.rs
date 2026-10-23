@@ -85,7 +85,7 @@ pub enum ShellTermination {
     /// No output for longer than the idle budget — the child was almost
     /// certainly blocked waiting for stdin (a prompt the agent cannot answer).
     /// Rendered as a `warn()`-coloured footer with a non-interactive remedy
-    /// hint. The child was killed.
+    /// hint. The process was terminated by the harness.
     IdleBlocked,
     /// The interactive classifier matched the command (sudo/gpg/passwd/…) and
     /// the operator declined to supply input (or none was reachable). The
@@ -93,25 +93,25 @@ pub enum ShellTermination {
     /// with the suggested non-interactive flags.
     InteractiveBlocked,
     /// A supervised command reached an input wait, the operator was asked, and
-    /// no answer was supplied (declined, or no reachable channel); the child
-    /// was killed. Distinct from [`InteractiveBlocked`](Self::InteractiveBlocked)
+    /// no answer was supplied (declined, or no reachable channel); the process
+    /// was terminated by the harness. Distinct from [`InteractiveBlocked`](Self::InteractiveBlocked)
     /// (refused *before* spawn, by the classifier) — this is a wait the
     /// examiner detected *at runtime*. Rendered with a remedy hint.
     InputUnanswered,
     /// The sync budget expired while the child was still alive and producing
-    /// output (detach-on-budget): the process was *not* killed — it
+    /// output (detach-on-budget): the process was *not* terminated — it
     /// was adopted by the background-job fabric, results arrive via job
     /// notification. `exit` is `None`; the job id rides the output payload.
     Detached,
     /// The wall-clock timeout ceiling was reached (the command was producing
-    /// output but running too long). The child was killed.
+    /// output but running too long). The process was terminated by the harness.
     Timeout,
-    /// The tool execution was cancelled by an operator interrupt. The child
-    /// was killed.
+    /// The tool execution was cancelled by an operator interrupt. The process
+    /// was terminated by the harness.
     Cancelled,
     /// The foreground command produced unbounded continuous streaming output
     /// reaching the StreamGuard budget without self-terminating.
-    /// The process was killed and an instantaneous snapshot was preserved.
+    /// The process was terminated by the harness and an instantaneous snapshot was preserved.
     StreamGuard,
 }
 

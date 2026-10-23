@@ -184,6 +184,7 @@ impl OpenAiChatCompletionsProvider {
             nuo_provider::OpenAiChatDialect::OpenRouter => "OpenRouter",
             nuo_provider::OpenAiChatDialect::Qoder => "Qoder",
             nuo_provider::OpenAiChatDialect::DeepSeek => "DeepSeek",
+            nuo_provider::OpenAiChatDialect::CodeBuddy => "CodeBuddy",
             nuo_provider::OpenAiChatDialect::Standard => "OpenAI",
         }
     }
@@ -375,10 +376,12 @@ impl Provider for OpenAiChatCompletionsProvider {
         let response_json: serde_json::Value = decode_response_json(resp, label).await?;
 
         if let Some(err) = response_json.get("error") {
+            let msg = nuo_provider::transport::extract_error_summary(err)
+                .unwrap_or_else(|| err.to_string());
             return Err(ProviderError::new(
                 label,
                 ProviderErrorKind::Protocol,
-                format!("{label} Error: {}", err),
+                format!("{label} Error: {msg}"),
             ));
         }
 

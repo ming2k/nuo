@@ -1,0 +1,615 @@
+# OpenAPI 3.1 reference for Tencent AI CodeBuddy API (copilot.tencent.com / codebuddy.ai),
+# reverse engineered from @tencent-ai/codebuddy-code v2.172.1 (lib/node/index.js + dist/codebuddy-headless.js)
+# and live-verified against Tencent Cloud production endpoints on 2026-10-23.
+#
+# Consumers: the implementer maintaining `providers/nuo-provider-codebuddy` in Nuo.
+#
+# Authentication & Storage:
+#   Credentials are saved by the CodeBuddy CLI in:
+#     - Linux:   ~/.local/share/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
+#     - macOS:   ~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
+#     - Windows: %LOCALAPPDATA%/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
+#   JSON payload carries `auth.accessToken`, `auth.refreshToken`, `account.uid`, etc.
+#   Alternatively, direct API key or bearer token can be supplied via CODEBUDDY_API_KEY.
+#
+# Server-side constraints discovered:
+#   1. User-Agent format: Must match `<Product>/<Version>` (e.g. `CLI/2.172.1 CodeBuddy/2.172.1`).
+#      Failing this check returns HTTP 400 `{"code":12403,"msg":"check ua, get coding copilot version error"}`.
+#   2. Stream requirement: `/v2/chat/completions` requires `stream: true`. Non-streaming calls
+#      return HTTP 400 `{"code":11101,"msg":"Non-stream chat request is currently not supported"}`.
+#   3. Thinking / Reasoning: Served in SSE chunks via `choices[0].delta.reasoning_content`.
+
+openapi: 3.1.0
+info:
+  title: Tencent AI CodeBuddy API
+  version: 2.172.1
+  summary: >-
+    Reverse-engineered inference, configuration, account, and authentication API
+    powering Tencent AI CodeBuddy (formerly Tencent Cloud Coding Copilot).
+  description: |
+    Environments and Base URLs:
+
+    | Environment | Base URL | Usage / Protocol |
+    | --- | --- | --- |
+    | Domestic Default (Tencent Cloud) | `https://copilot.tencent.com/v2` | Primary inference (`/chat/completions`, `/responses`) |
+    | International (CodeBuddy AI) | `https://www.codebuddy.ai/v2` | Global inference (`/chat/completions`, `/responses`) |
+    | Configuration & Catalog Root | `https://copilot.tencent.com` | Product config & model discovery (`/v3/config`) |
+    | Staging Domestic | `https://staging-copilot.tencent.com/v2` | Test & pre-release inference |
+    | Staging International | `https://staging-codebuddy.tencent.com/v2` | Global staging inference |
+
+    Authentication:
+    All inference and account endpoints accept a Bearer token in the `Authorization` header
+    or an `X-API-Key` header:
+    ```http
+    Authorization: Bearer <accessToken>
+    ```
+
+    Required Client Headers:
+    The Tencent backend enforces client identity. Calls should supply:
+    ```http
+    User-Agent: CLI/2.172.1 CodeBuddy/2.172.1
+    X-Domain: copilot.tencent.com
+    X-Product: SaaS
+    X-IDE-Type: CLI
+    X-IDE-Name: CodeBuddy
+    X-IDE-Version: 2.172.1
+    X-Agent-Intent: craft
+    X-Agent-Runtime: local-agent
+    ```
+
+servers:
+  - url: https://copilot.tencent.com/v2
+    description: Production Tencent Cloud domestic inference endpoint (Chat Completions & Responses)
+  - url: https://www.codebuddy.ai/v2
+    description: Production International CodeBuddy inference endpoint
+  - url: https://copilot.tencent.com
+    description: Production root endpoint for configuration and plugin auth
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+paths:
+  /chat/completions:
+    post:
+      summary: Create chat completion (OpenAI SSE streaming format)
+      description: >-
+        Primary streaming inference endpoint. Requires `stream: true`. Streams deltas
+        including normal content, thinking/reasoning (`reasoning_content`), and tool calls.
+      operationId: createChatCompletion
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - in: header
+          name: User-Agent
+          required: true
+          schema:
+            type: string
+            example: CLI/2.172.1 CodeBuddy/2.172.1
+          description: Client User-Agent. Must follow `<Name>/<Version>` format.
+        - in: header
+          name: X-Domain
+          required: false
+          schema:
+            type: string
+            example: copilot.tencent.com
+        - in: header
+          name: X-Product
+          required: false
+          schema:
+            type: string
+            example: SaaS
+        - in: header
+          name: X-User-Id
+          required: false
+          schema:
+            type: string
+          description: Account UUID.
+        - in: header
+          name: X-Request-ID
+          required: false
+          schema:
+            type: string
+          description: Unique request correlation ID.
+        - in: header
+          name: X-Conversation-ID
+          required: false
+          schema:
+            type: string
+          description: Client session / conversation ID.
+        - in: header
+          name: X-Agent-Intent
+          required: false
+          schema:
+            type: string
+            default: craft
+        - in: header
+          name: X-Agent-Runtime
+          required: false
+          schema:
+            type: string
+            default: local-agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: Server-Sent Events stream of completion chunks
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionChunk'
+        '400':
+          description: Invalid request parameters (e.g. non-streaming or missing headers)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized or token expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /responses:
+    post:
+      summary: Create model response (OpenAI Responses API)
+      description: >-
+        Responses API endpoint mounted at `/v2/responses`. Supports input item histories,
+        structured tool invocation, and encrypted/streamed reasoning output.
+      operationId: createResponse
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - model
+                - input
+              properties:
+                model:
+                  type: string
+                  example: hy4-preview
+                input:
+                  type: array
+                  items:
+                    type: object
+                stream:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Streaming Responses event sequence or completed response object
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /v3/config:
+    get:
+      summary: Fetch remote product configuration, available models, and feature flags
+      description: >-
+        Discovers runtime feature toggles, agent definitions, and model catalog.
+        Works without authentication for public models, and reflects user-specific entitlements
+        when passed an Authorization header.
+      operationId: getProductConfig
+      servers:
+        - url: https://copilot.tencent.com
+      security:
+        - BearerAuth: []
+        - {}
+      parameters:
+        - in: header
+          name: User-Agent
+          required: true
+          schema:
+            type: string
+            example: CodeBuddy/2.172.1
+      responses:
+        '200':
+          description: Product configuration payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 0
+                  msg:
+                    type: string
+                    example: OK
+                  requestId:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      models:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ModelDescriptor'
+
+  /v2/plugin/auth/token/refresh:
+    post:
+      summary: Refresh OAuth access token
+      description: Exchanges an active refresh token for a newly minted access token and refresh token.
+      operationId: refreshToken
+      servers:
+        - url: https://copilot.tencent.com
+      parameters:
+        - in: header
+          name: X-Refresh-Token
+          required: true
+          schema:
+            type: string
+          description: The long-lived refresh token
+        - in: header
+          name: X-Auth-Refresh-Source
+          required: true
+          schema:
+            type: string
+            example: plugin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              default: {}
+      responses:
+        '200':
+          description: Successfully refreshed token payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefreshResponse'
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v2/plugin/account:
+    get:
+      summary: Fetch current user profile
+      description: Returns identity metadata for the authenticated user (UID, UIN, nickname, enterprise tenancy).
+      operationId: getCurrentAccount
+      servers:
+        - url: https://copilot.tencent.com
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: header
+          name: X-Domain
+          schema:
+            type: string
+            example: copilot.tencent.com
+      responses:
+        '200':
+          description: Account profile information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OAuth Access Token or Personal Access Token from CodeBuddy.
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Alternative API Key header supported by Tencent CodeBuddy.
+
+  schemas:
+    ChatCompletionRequest:
+      type: object
+      required:
+        - model
+        - messages
+        - stream
+      properties:
+        model:
+          type: string
+          description: Target model wire identifier.
+          enum:
+            - hy4-preview
+            - hy3
+            - deepseek-v4-flash
+            - deepseek-v4-pro
+            - kimi-k3-1
+            - glm-5.3-flash
+            - minimax-m2.5
+            - gpt-5.6-sol
+            - default
+          example: hy4-preview
+        messages:
+          type: array
+          description: Conversation turn history.
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        stream:
+          type: boolean
+          description: Must be set to true for CodeBuddy inference.
+          default: true
+        stream_options:
+          type: object
+          properties:
+            include_usage:
+              type: boolean
+              default: true
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          example: 0.9
+        top_p:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 1.0
+        reasoning_effort:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+          example: high
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolDefinition'
+        tool_choice:
+          type: [string, object]
+
+    ChatMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant, tool]
+        content:
+          type: [string, array]
+        reasoning_content:
+          type: string
+          description: Past turn thinking reasoning trace (preserved across tool loops).
+        tool_calls:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolCall'
+        tool_call_id:
+          type: string
+          description: Identifier of the tool call this message answers (for role=tool).
+
+    ToolDefinition:
+      type: object
+      required:
+        - type
+        - function
+      properties:
+        type:
+          type: string
+          enum: [function]
+        function:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+            description:
+              type: string
+            parameters:
+              type: object
+
+    ToolCall:
+      type: object
+      required:
+        - id
+        - type
+        - function
+      properties:
+        id:
+          type: string
+          example: call_01928374
+        type:
+          type: string
+          enum: [function]
+        function:
+          type: object
+          properties:
+            name:
+              type: string
+            arguments:
+              type: string
+
+    ChatCompletionChunk:
+      type: object
+      properties:
+        id:
+          type: string
+          example: cmb-18c9031fce9911f1a1919a1f2e87cfc7
+        object:
+          type: string
+          example: chat.completion.chunk
+        created:
+          type: integer
+          example: 1792729237
+        model:
+          type: string
+          example: hy4-preview
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              delta:
+                type: object
+                properties:
+                  role:
+                    type: string
+                  content:
+                    type: string
+                  reasoning_content:
+                    type: string
+                    description: Incremental thinking / reasoning trace delta.
+                  tool_calls:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        index:
+                          type: integer
+                        id:
+                          type: string
+                        function:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            arguments:
+                              type: string
+              finish_reason:
+                type: [string, 'null']
+                enum: [stop, tool_calls, length, content_filter, '']
+        usage:
+          type: [object, 'null']
+          properties:
+            prompt_tokens:
+              type: integer
+            completion_tokens:
+              type: integer
+            total_tokens:
+              type: integer
+
+    ModelDescriptor:
+      type: object
+      properties:
+        id:
+          type: string
+          example: hy4-preview
+        name:
+          type: string
+          example: Hy4 preview
+        vendor:
+          type: string
+          example: j
+        maxInputTokens:
+          type: integer
+          example: 1000000
+        maxOutputTokens:
+          type: integer
+          example: 64000
+        maxAllowedSize:
+          type: integer
+          example: 1000000
+        supportsToolCall:
+          type: boolean
+          example: true
+        supportsImages:
+          type: boolean
+          example: true
+        supportsReasoning:
+          type: boolean
+          example: true
+        onlyReasoning:
+          type: boolean
+          example: true
+        credits:
+          type: string
+          example: x0.00 credits
+        descriptionZh:
+          type: string
+          example: 混元思考模型，具有增强的推理能力
+
+    TokenRefreshResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 0
+        msg:
+          type: string
+          example: OK
+        data:
+          type: object
+          properties:
+            data:
+              type: object
+              properties:
+                accessToken:
+                  type: string
+                refreshToken:
+                  type: string
+                tokenType:
+                  type: string
+                  example: Bearer
+                expiresIn:
+                  type: integer
+                  example: 7200
+                refreshExpiresIn:
+                  type: integer
+
+    AccountResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 0
+        data:
+          type: object
+          properties:
+            data:
+              type: object
+              properties:
+                uid:
+                  type: string
+                  example: 00d689ae-7ddc-469f-a547-c7dee0a776e5
+                uin:
+                  type: string
+                  example: "330115376154"
+                nickname:
+                  type: string
+                type:
+                  type: string
+                  example: personal
+                enterpriseId:
+                  type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 11101
+        msg:
+          type: string
+          example: Non-stream chat request is currently not supported
+        requestId:
+          type: string
+        displayMsg:
+          type: object
+          properties:
+            zh:
+              type: string
+            en:
+              type: string

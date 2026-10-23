@@ -762,7 +762,6 @@ models = ["llama3:latest", "mistral:latest"]
             ("antigravity-oauth", "google-antigravity"),
             ("copilot-oauth", "github-copilot"),
             ("xai-oauth", "xai"),
-            ("zai-code", "glm-cn"),
             ("custom-openai", "custom-c"),
         ] {
             let raw: RawConnections = toml::from_str(&format!(

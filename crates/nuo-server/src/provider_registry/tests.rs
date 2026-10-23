@@ -328,14 +328,14 @@ fn openai_channel_without_override_defaults_effort_on_the_wire() {
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
     };
-    let provider = build_provider_for_channel(&channel, "zai-code", None);
+    let provider = build_provider_for_channel(&channel, "glm-cn", None);
     assert_eq!(provider.effort(), Some(nuo_provider::Effort::High));
 
     let mut pinned = channel;
     if let Transport::OpenAiChatCompletions { effort, .. } = &mut pinned.transport {
         *effort = Some(nuo_provider::Effort::Low);
     }
-    let provider = build_provider_for_channel(&pinned, "zai-code", None);
+    let provider = build_provider_for_channel(&pinned, "glm-cn", None);
     assert_eq!(provider.effort(), Some(nuo_provider::Effort::Low));
 }
 
@@ -460,7 +460,7 @@ fn builtin_provider_models_resolve_with_expected_wire_formats() {
         ),
         (
             "glm-cn",
-            nuo_provider::model_providers::ZAI_CODE_MODELS,
+            nuo_provider::model_providers::GLM_CN_MODELS,
             WireProtocol::OpenAiChatCompletions,
         ),
         (

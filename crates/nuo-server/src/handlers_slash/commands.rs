@@ -1009,7 +1009,7 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
                     user_granted.join(", ")
                 };
                 let message = format!(
-                    "User asset trust recorded (30-day lease granted).\n\
+                    "User asset trust updated.\n\
                      - Granted: {}\n\
                      - Connected MCP: {}",
                     user_granted_str,
@@ -1153,7 +1153,7 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
                 format!("\n- MCP connected: {}", report.connected_mcp.join(", "))
             };
             let message = format!(
-                "Asset trust recorded (30-day lease granted).\n\
+                "Workspace trust updated.\n\
                  - Root: {}\n\
                  - Granted: {}\n\
                  - Instructions: {}; Ex-Workspace: {}; MCP: {}; Skills: {}; Hooks: {}; User Assets: {}{}",

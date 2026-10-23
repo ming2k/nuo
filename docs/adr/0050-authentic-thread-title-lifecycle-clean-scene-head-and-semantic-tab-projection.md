@@ -17,6 +17,8 @@ negative_knowledge: true
 - Informed: System Architects, Release Engineering
 - Amends: [ADR-0024](0024-two-row-head-band-session-identity-and-scene-row.md), [ADR-0040](0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md), [ADR-0042](0042-client-viewport-routing-ownership-tab-history-and-scene-self-projection.md), [ADR-0043](0043-thread-domain-nomenclature-unification-compact-tabbar-affordance-and-c-x-namespace-reorganization.md)
 
+> **Superseded in part (2026-10-23)**: safety posture flags were replaced by the `auto` / `open` posture tokens, and the workspace path moved from following the title slot to the `ThreadContextBar`'s right edge ([ADR-0062](0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md) `[INV-HEAD-07]`, `[INV-HEAD-08]`). The anchor-stable title slot and the `thread` breadcrumb root established here are **unaffected and remain in force**.
+
 ---
 
 ## Context and Problem Statement
@@ -76,7 +78,7 @@ Row 2 (Scene Context Head, [ADR-0024](0024-two-row-head-band-session-identity-an
 - **Root Conversation View (`cursor == 0`, `breadcrumbs.len() <= 1`)**:
   - The leading title slot is anchor-stable: when an authentic title exists, the title leads the row (styled in heading tone); when untitled (fresh session awaiting AI distillation or explicit rename), `thread` stands in as a muted placeholder in the title slot.
   - Once an authentic title is established, the title replaces `thread` in-place. This preserves slot consistency and eliminates visual layout shift (workspace path jumping horizontally).
-  - The bound workspace path follows the title slot, and right-hand persistent safety flags (`UNATTENDED`, `UNCONFINED`) remain anchored to the right edge.
+  - The bound workspace path follows the title slot, and right-hand persistent safety posture tokens (`auto`, `open`) remain anchored to the right edge.
 - **Hierarchical Drill-in View (`breadcrumbs.len() > 1`)**:
   - The `thread` identifier is preserved strictly as the root breadcrumb anchor (e.g. `< thread > subagent: explore > diff`), maintaining clear spatial orientation during deep task inspection ([ADR-0042](0042-client-viewport-routing-ownership-tab-history-and-scene-self-projection.md)).
 - **Peripheral Tool Scenes (`dashboard`, `settings`)**:

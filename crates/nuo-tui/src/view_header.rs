@@ -21,13 +21,18 @@
 //!
 //! - **Tier 3 — Sovereign ThreadContextBar (`draw_thread_context_bar`).**
 //!   Height: 1 row on Thread viewports; **0 rows on non-thread scenes** (`Dashboard`, `Settings`)
-//!   [INV-HEAD-05]. Displays thread execution boundaries on the left:
-//!   `[ROLE]` badge and tilde-shortened workspace path; persistent safety posture
-//!   flags (`UNATTENDED`, `UNCONFINED`) on the right edge.
+//!   [INV-HEAD-05]. Reads *who → how → where* across the row: the staffing
+//!   `[ROLE]` badge (brand), the persistent safety posture tokens (`auto`,
+//!   `open`; warning tone) on the left, and the bound workspace path pinned to
+//!   the right edge, where it shortens from the ancestor end and therefore
+//!   never moves the governance cluster around.
 use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use super::{STEP_MIN_WIDTH, TRANSCRIPT_H_INSET, Theme};
+use super::{
+    CONTEXT_BAR_WORKSPACE_MIN_COLS, JOIN_ENUMERATE_COLS, STEP_MIN_WIDTH, TRANSCRIPT_H_INSET, Theme,
+};
+use crate::components::path::{PathFormatStrategy, PathStyle, PathView};
 use crate::surfaces::SceneKind;
 
 /// Canonical scene identifier alias for header presentation (ADR-0042).
@@ -72,45 +77,31 @@ impl<'a> ViewHints<'a> {
     }
 }
 
-/// Canonical thread identity & governance state for header presentation (ADR-0043, ADR-0060, ADR-0062 [INV-THREAD-02]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ThreadHead<'a> {
-    /// The thread's persistent id (full string). Only its last four
-    /// characters are shown, dimmed, as a disambiguating tag.
-    pub thread_id: &'a str,
+/// Canonical client tabbar projection props (ADR-0039, ADR-0060, ADR-0062 [INV-TAB-09]).
+///
+/// Tier 1: Client Global TabBar is owned purely by the Client container.
+/// It strictly carries open tabs and active tab index — no thread-specific
+/// governance metadata (role, workspace, safety posture).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) struct TabBarProps<'a> {
+    pub tabs: Option<&'a [crate::surfaces::ClientTab]>,
+    pub active_tab: usize,
+}
+
+/// Canonical thread execution governance context (ADR-0043, ADR-0060, ADR-0062 [INV-HEAD-05, INV-HEAD-07, INV-HEAD-08]).
+///
+/// Tier 3: Sovereign ThreadContextBar is owned strictly by the Thread domain.
+/// Displays staffing role, safety posture tokens, and bound workspace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) struct ThreadContext<'a> {
+    /// Active staffing role for this thread (e.g. "developer").
+    pub role: Option<&'a str>,
     /// Tilde-shortened workspace path (e.g. `~/projects/xx`), or empty when unbound.
     pub workspace: &'a str,
-    /// Active staffing role for this thread.
-    pub role: Option<&'a str>,
-    /// Client-owned tabs mounted in this viewport (ADR-0039, ADR-0060).
-    pub tabs: Option<&'a [crate::surfaces::ClientTab]>,
-    /// Active tab index within `tabs`.
-    pub active_tab: usize,
     /// `true` while the thread runs unattended (`--unattended` / `/unattended on`).
     pub unattended: bool,
     /// `false` while workspace filesystem confinement is off (`/confinement off`).
     pub confined: bool,
-}
-
-#[allow(dead_code)]
-impl<'a> ThreadHead<'a> {
-    pub fn new(
-        thread_id: &'a str,
-        workspace: &'a str,
-        role: Option<&'a str>,
-        unattended: bool,
-        confined: bool,
-    ) -> Self {
-        Self {
-            thread_id,
-            workspace,
-            role,
-            tabs: None,
-            active_tab: 0,
-            unattended,
-            confined,
-        }
-    }
 }
 
 /// Draw Tier 1: Client Global TabBar (ADR-0039, ADR-0040, ADR-0060 [INV-TAB-09], ADR-0062).
@@ -121,7 +112,7 @@ impl<'a> ThreadHead<'a> {
 pub(crate) fn draw_tab_bar(
     frame: &mut Frame,
     rect: Rect,
-    head: &ThreadHead<'_>,
+    tab_bar: &TabBarProps<'_>,
     theme: &Theme,
 ) -> Vec<(usize, Rect)> {
     let full_width = rect.width as usize;
@@ -139,7 +130,7 @@ pub(crate) fn draw_tab_bar(
     let right_width = affordance.width();
 
     // Tab workspace rendering (ADR-0039 [INV-TAB-01], ADR-0040 [INV-UI-01], ADR-0060 [INV-TAB-09])
-    if let Some(tabs) = head.tabs.filter(|t| !t.is_empty()) {
+    if let Some(tabs) = tab_bar.tabs.filter(|t| !t.is_empty()) {
         let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
         let mut tab_rects = Vec::with_capacity(tabs.len());
         let mut current_x = rect.x.saturating_add(pad as u16);
@@ -147,7 +138,7 @@ pub(crate) fn draw_tab_bar(
         let mut used_tab_w = 0usize;
 
         for (i, tab) in tabs.iter().enumerate() {
-            let active = i == head.active_tab;
+            let active = i == tab_bar.active_tab;
             let label = match &tab.kind {
                 crate::surfaces::TabKind::Thread(id) => {
                     if let Some(title) = tab.display_title() {
@@ -375,15 +366,110 @@ pub(crate) fn draw_scene_bar(
     frame.render_widget(Paragraph::new(Line::from(spans)), rect);
 }
 
+/// One persistent safety posture token of the ThreadContextBar.
+///
+/// Posture is reported as a *closed vocabulary* of short lowercase tokens, not
+/// as sentences: the bar is read at a glance, and the ambient honesty rule is
+/// that **only deviations from the safe default are drawn** (interactive
+/// confirmation + workspace-confined filesystem), so a normally-behaved
+/// session spends zero columns on safety prose.
+///
+/// Each token is chosen to be self-describing — `auto` and `open` name the
+/// state they assert — so no tooltip layer is needed. The authoritative
+/// long-form wording (usage, subcommands, examples) lives in the slash-command
+/// catalog (`BuiltinCmd::SPECS` in `nuo-server`), which is where
+/// `/unattended on|off` and `/confinement on|off` explain themselves. Adding a
+/// second explanation surface here would fork that text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PostureToken {
+    /// Tool calls are approved without asking (`--unattended` / `/unattended on`).
+    Auto,
+    /// File tools may leave the workspace (`/confinement off`).
+    Open,
+}
+
+impl PostureToken {
+    /// The token's display text. Deliberately lowercase: the uppercase form
+    /// reads as a second badge competing with `[ROLE]`, and `[N queued]`-style
+    /// bracketed caps already mean *count* in the footer stack.
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Open => "open",
+        }
+    }
+}
+
+/// The posture tokens a context currently owes the user, in a fixed display
+/// order. Empty means "the session is behaving safely" — the overwhelmingly
+/// common case, and the one that must cost nothing on the row.
+fn posture_tokens(context: &ThreadContext<'_>) -> Vec<PostureToken> {
+    let mut tokens = Vec::with_capacity(2);
+    if context.unattended {
+        tokens.push(PostureToken::Auto);
+    }
+    if !context.confined {
+        tokens.push(PostureToken::Open);
+    }
+    tokens
+}
+
+/// Display width of the posture block including its own inter-token gaps.
+///
+/// Reserved up-front so the role badge cannot eat into it: posture is safety
+/// state, and a token clipped to a prefix (`op`) misreports the session.
+fn posture_block_width(tokens: &[PostureToken]) -> usize {
+    let labels = tokens.iter().map(|t| t.label().width()).sum::<usize>();
+    let gaps = tokens.len().saturating_sub(1) * JOIN_ENUMERATE_COLS;
+    labels + gaps
+}
+
+/// Truncate a role badge to fit `budget`, keeping the bracket pair intact.
+///
+/// The brackets are structural — they mark the badge slot, and `visual-language`
+/// reserves that shape for it — so a shortened role still reads as a badge
+/// (`[SECURITY-AU…]`) instead of degrading into a bare fragment. Below a
+/// readable floor the badge is dropped entirely rather than emitted as `[D…]`:
+/// a one-letter role identifies nobody, so the columns are better spent on the
+/// path. Constants are ASCII-explicit so the math does not depend on the theme.
+fn truncate_badge(badge: &str, budget: usize, ellipsis: &str) -> String {
+    /// `[]` plus at least three legible inner characters before the ellipsis
+    /// (`[DEV…]`). Anything shorter — `[D…]` — names nobody.
+    const BADGE_MIN_COLS: usize = 2 + 3;
+    const BRACKETS: usize = 2;
+    if badge.width() <= budget {
+        return badge.to_string();
+    }
+    if budget < BADGE_MIN_COLS {
+        return String::new();
+    }
+    let inner = badge
+        .strip_prefix('[')
+        .and_then(|b| b.strip_suffix(']'))
+        .unwrap_or(badge);
+    format!("[{}]", truncate_with(inner, budget - BRACKETS, ellipsis))
+}
+
 /// Draw Tier 3: Sovereign ThreadContextBar (ADR-0062 [INV-HEAD-05]).
 ///
 /// Only rendered on thread-backed viewports (0 rows on non-thread scenes).
-/// - Left side: staffing `[ROLE]` badge and bound `workspace` path.
-/// - Right side: persistent safety execution posture flags (`UNATTENDED`, `UNCONFINED`).
+///
+/// Row grammar, left to right — *who → how → where*:
+/// - `[ROLE]` staffing badge, brand tone (absent when no role is staffed).
+/// - Posture tokens (`auto`, `open`), warning tone, joined by the peer
+///   enumeration gap. Absent entirely in the safe default.
+/// - The bound workspace path, right-anchored (dim ancestor directory, crisp stem).
+///
+/// Anchoring the workspace on the right is a correctness property, not a
+/// preference: the path is the only element that may shrink, so pinning it to
+/// the right edge keeps the governance cluster (role + posture) at a fixed
+/// screen position — toggling `/unattended` can no longer re-truncate the
+/// path out from under the reader, and a narrow terminal degrades by
+/// shortening the path rather than by stealing columns from safety.
 pub(crate) fn draw_thread_context_bar(
     frame: &mut Frame,
     rect: Rect,
-    head: &ThreadHead<'_>,
+    context: &ThreadContext<'_>,
     theme: &Theme,
 ) {
     let full_width = rect.width as usize;
@@ -397,60 +483,120 @@ pub(crate) fn draw_thread_context_bar(
     let text_width = full_width.saturating_sub(2 * pad);
 
     let badge_style = fill.fg(theme.brand()).add_modifier(Modifier::BOLD);
-    let ws_style = fill.fg(theme.dim());
-    let flag_style = fill.fg(theme.warn()).add_modifier(Modifier::BOLD);
+    let posture_style = fill.fg(theme.warn()).add_modifier(Modifier::BOLD);
 
-    let badge = head
-        .role
-        .map(|r| format!("[{}]", r.to_uppercase()))
-        .unwrap_or_default();
-
-    // Right-aligned persistent safety execution posture flags
-    let mut flags = String::new();
-    if head.unattended {
-        flags.push_str("UNATTENDED ");
-    }
-    if !head.confined {
-        flags.push_str("UNCONFINED ");
-    }
-    let flags_width = flags.width();
-
-    let badge_w = if badge.is_empty() {
+    // ---- Left cluster: role badge + posture tokens ----
+    // Priority is posture (safety) > role (identity) > path (location). The
+    // posture block is budgeted *first* and is never truncated: a clipped
+    // `open` reading `op` is a lie about the session's blast radius, which is
+    // worse than showing no path at all. The role badge therefore absorbs the
+    // pressure, shortening with an ellipsis; the path takes what is left.
+    let tokens = posture_tokens(context);
+    let posture_w = posture_block_width(&tokens);
+    let badge_gap = if tokens.is_empty() {
         0
     } else {
-        badge.width() + 1
+        JOIN_ENUMERATE_COLS
     };
+    let badge = context.role.map_or_else(String::new, |role| {
+        let full = format!("[{}]", role.to_uppercase());
+        truncate_badge(
+            &full,
+            text_width.saturating_sub(posture_w + badge_gap),
+            theme.glyphs.ellipsis,
+        )
+    });
 
-    // Remaining budget for workspace path
-    let ws_budget = text_width.saturating_sub(badge_w + flags_width + 1);
-    let truncated_ws = if !head.workspace.is_empty() {
-        truncate_to_width(head.workspace, ws_budget)
+    let mut left_spans: Vec<Span<'static>> = Vec::new();
+    let mut left_width = 0usize;
+    if !badge.is_empty() {
+        left_width += badge.width();
+        left_spans.push(Span::styled(badge, badge_style));
+    }
+    for token in &tokens {
+        let label = token.label();
+        if left_width > 0 {
+            left_spans.push(Span::styled(" ".repeat(JOIN_ENUMERATE_COLS), fill));
+            left_width += JOIN_ENUMERATE_COLS;
+        }
+        left_width += label.width();
+        left_spans.push(Span::styled(label, posture_style));
+    }
+
+    // ---- Right cluster: the workspace path (the only shrinkable element) ----
+    // The path may claim everything the governance cluster leaves, less the
+    // inter-cluster gap. That gap is charged only when the path is actually
+    // drawn — otherwise the dropped path's separator would push the row one
+    // column past its budget and clip the trailing pad.
+    let sep_w = if left_width > 0 && !context.workspace.is_empty() {
+        JOIN_ENUMERATE_COLS
     } else {
-        String::new()
-    };
-    let ws_w = if truncated_ws.is_empty() {
         0
-    } else {
-        truncated_ws.width() + 1
     };
+    let ws_budget = text_width.saturating_sub(left_width + sep_w);
+    let ws_spans = workspace_spans(context.workspace, ws_budget, fill, theme);
+    let ws_width: usize = ws_spans.iter().map(Span::width).sum();
+    let drawn_sep = if ws_width > 0 { sep_w } else { 0 };
 
-    let total_left_w = badge_w + ws_w;
-    let gap = text_width.saturating_sub(total_left_w + flags_width);
+    let gap = text_width.saturating_sub(left_width + drawn_sep + ws_width);
 
     let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
-    if !badge.is_empty() {
-        spans.push(Span::styled(format!("{badge} "), badge_style));
-    }
-    if !truncated_ws.is_empty() {
-        spans.push(Span::styled(format!("{truncated_ws} "), ws_style));
-    }
-    spans.push(Span::styled(" ".repeat(gap), fill));
-    if !flags.is_empty() {
-        spans.push(Span::styled(flags, flag_style));
-    }
+    spans.extend(left_spans);
+    spans.push(Span::styled(" ".repeat(drawn_sep + gap), fill));
+    spans.extend(ws_spans);
     spans.push(Span::styled(" ".repeat(pad), fill));
 
     frame.render_widget(Paragraph::new(Line::from(spans)), rect);
+}
+
+/// Render the workspace path for the right edge of the context bar.
+///
+/// The path goes through the shared [`PathView`] shortening ladder
+/// (`Full` → `.../parent/leaf` → fish → basename → middle-truncate) instead of
+/// a plain right-side `truncate_to_width`, for two reasons:
+///
+/// 1. **Information order.** A tail-truncated path (`~/projects…`) drops the
+///    leaf — the part that names the project — while keeping ancestors the
+///    user already knows. The ladder keeps the leaf and elides ancestors.
+/// 2. **Honesty floor.** [`CONTEXT_BAR_WORKSPACE_MIN_COLS`] is the ladder's own
+///    last stop (the bare leaf), so at that width the path still names the
+///    project. Below it there is nothing faithful left to draw, and the path is
+///    dropped rather than replaced by a fragment that asserts a location it
+///    cannot show.
+///
+/// Ancestor directories are styled dimmed (`theme.dim()`), and the project
+/// stem is styled crisp (`theme.fg()`), matching the semantic path language.
+fn workspace_spans(
+    workspace: &str,
+    budget: usize,
+    fill: Style,
+    theme: &Theme,
+) -> Vec<Span<'static>> {
+    if workspace.is_empty() || budget < CONTEXT_BAR_WORKSPACE_MIN_COLS {
+        return Vec::new();
+    }
+    let style = PathStyle::Custom {
+        dir: fill.fg(theme.dim()),
+        stem: fill.fg(theme.fg()),
+        ext: fill.fg(theme.muted()),
+        line_col: fill.fg(theme.brand()),
+    };
+    let view = PathView::from_str(workspace)
+        .strategy(PathFormatStrategy::Adaptive)
+        .max_width(budget)
+        .style(style);
+    let marker = theme.glyphs.ellipsis;
+    view.to_spans(theme)
+        .into_iter()
+        .map(|span| {
+            let content = if marker == "…" {
+                span.content
+            } else {
+                std::borrow::Cow::Owned(span.content.replace('…', marker))
+            };
+            Span::styled(content, span.style.bg(fill.bg))
+        })
+        .collect()
 }
 
 /// The scene row's name for the `C-x` scene namespace (ADR-0023, ADR-0043).
@@ -462,19 +608,29 @@ fn id_tail(id: &str) -> &str {
     if len <= 4 { id } else { &id[len - 4..] }
 }
 
-/// Truncate `s` to at most `max_width` display columns using an ellipsis character.
+/// Truncate `s` to at most `max_width` display columns using the theme's
+/// ellipsis glyph.
 fn truncate_to_width(s: &str, max_width: usize) -> String {
+    truncate_with(s, max_width, "…")
+}
+
+/// Truncate `s` to `max_width` columns, appending `ellipsis` when cut.
+///
+/// The marker comes from the caller rather than being hardcoded so a
+/// non-Unicode terminal degrades with the rest of the chrome
+/// (`theme.glyphs.ellipsis` is `...` under `ASCII_GLYPHS`, `…` under
+/// `UNICODE_GLYPHS`). The result never exceeds `max_width`, marker included.
+fn truncate_with(s: &str, max_width: usize, ellipsis: &str) -> String {
+    let ellipsis_w = ellipsis.width();
     if max_width == 0 {
         return String::new();
     }
-    let total_width = s.width();
-    if total_width <= max_width {
+    if s.width() <= max_width {
         return s.to_string();
     }
-    if max_width == 1 {
-        return "…".to_string();
-    }
-    let budget = max_width.saturating_sub(1);
+    // `max_width == 1` with a wide marker has no room for content; emitting the
+    // bare marker is still honest about the truncation.
+    let budget = max_width.saturating_sub(ellipsis_w);
     let mut out = String::new();
     let mut current_width = 0;
     for ch in s.chars() {
@@ -485,7 +641,7 @@ fn truncate_to_width(s: &str, max_width: usize) -> String {
         out.push(ch);
         current_width += ch_width;
     }
-    out.push('…');
+    out.push_str(ellipsis);
     out
 }
 
@@ -493,15 +649,15 @@ fn truncate_to_width(s: &str, max_width: usize) -> String {
 mod tests {
     use super::*;
 
-    fn render_row1(width: u16, head: ThreadHead<'_>) -> String {
-        let cells = render_row1_cells(width, head, &Theme::default());
+    fn render_row1(width: u16, tab_bar: TabBarProps<'_>) -> String {
+        let cells = render_row1_cells(width, tab_bar, &Theme::default());
         cells.iter().map(|c| c.symbol()).collect()
     }
 
-    fn render_row1_cells(width: u16, head: ThreadHead<'_>, theme: &Theme) -> Vec<nuotc::Cell> {
+    fn render_row1_cells(width: u16, tab_bar: TabBarProps<'_>, theme: &Theme) -> Vec<nuotc::Cell> {
         let mut terminal = nuotc::TestTerminal::new(width, 1);
         terminal.draw(|frame| {
-            draw_tab_bar(frame, frame.area(), &head, theme);
+            draw_tab_bar(frame, frame.area(), &tab_bar, theme);
         });
         terminal.buffer().content.clone()
     }
@@ -524,17 +680,28 @@ mod tests {
         terminal.buffer().content.clone()
     }
 
-    fn render_row3(width: u16, head: ThreadHead<'_>) -> String {
-        let cells = render_row3_cells(width, head, &Theme::default());
+    fn render_row3(width: u16, context: ThreadContext<'_>) -> String {
+        let cells = render_row3_cells(width, context, &Theme::default());
         cells.iter().map(|c| c.symbol()).collect()
     }
 
-    fn render_row3_cells(width: u16, head: ThreadHead<'_>, theme: &Theme) -> Vec<nuotc::Cell> {
+    fn render_row3_cells(
+        width: u16,
+        context: ThreadContext<'_>,
+        theme: &Theme,
+    ) -> Vec<nuotc::Cell> {
         let mut terminal = nuotc::TestTerminal::new(width, 1);
         terminal.draw(|frame| {
-            draw_thread_context_bar(frame, frame.area(), &head, theme);
+            draw_thread_context_bar(frame, frame.area(), &context, theme);
         });
         terminal.buffer().content.clone()
+    }
+
+    fn render_row3_with_theme(width: u16, context: ThreadContext<'_>, theme: &Theme) -> String {
+        render_row3_cells(width, context, theme)
+            .iter()
+            .map(|c| c.symbol())
+            .collect()
     }
 
     fn hints<'a>(kind: ViewKind) -> ViewHints<'a> {
@@ -547,16 +714,11 @@ mod tests {
             crate::surfaces::ClientTab::thread("sess-01a2b3c4", None::<String>),
             crate::surfaces::ClientTab::dashboard(),
         ];
-        let head = ThreadHead {
-            thread_id: "sess-01a2b3c4",
-            workspace: "~/projects/xx",
-            role: Some("developer"),
+        let tab_bar = TabBarProps {
             tabs: Some(&tabs),
             active_tab: 0,
-            unattended: false,
-            confined: true,
         };
-        let row = render_row1(80, head);
+        let row = render_row1(80, tab_bar);
         assert!(row.contains("thread#b3c4"), "{row}");
         assert!(
             !row.contains("1:thread#b3c4"),
@@ -583,16 +745,11 @@ mod tests {
             crate::surfaces::ClientTab::thread("sess-05d6e7f8", None::<String>),
             crate::surfaces::ClientTab::dashboard(),
         ];
-        let head = ThreadHead {
-            thread_id: "sess-01a2b3c4",
-            workspace: "~/projects/xx",
-            role: Some("developer"),
+        let tab_bar = TabBarProps {
             tabs: Some(&tabs),
             active_tab: 0,
-            unattended: false,
-            confined: true,
         };
-        let row = render_row1(80, head);
+        let row = render_row1(80, tab_bar);
         assert!(
             row.contains("Refactor Database C…"),
             "semantic title projected with wider budget: {row}"
@@ -612,20 +769,15 @@ mod tests {
             crate::surfaces::ClientTab::dashboard(),
             crate::surfaces::ClientTab::settings(),
         ];
-        let head = ThreadHead {
-            thread_id: "sess-01a2b3c4",
-            workspace: "~/projects/xx",
-            role: Some("developer"),
+        let tab_bar = TabBarProps {
             tabs: Some(&tabs),
             active_tab: 0,
-            unattended: false,
-            confined: true,
         };
         let mut terminal = nuotc::TestTerminal::new(80, 1);
         let theme = Theme::default();
         let mut tab_rects = Vec::new();
         terminal.draw(|frame| {
-            tab_rects = draw_tab_bar(frame, frame.area(), &head, &theme);
+            tab_rects = draw_tab_bar(frame, frame.area(), &tab_bar, &theme);
         });
         assert_eq!(tab_rects.len(), 3);
         assert_eq!(tab_rects[0].0, 0);
@@ -649,14 +801,8 @@ mod tests {
 
     #[test]
     fn row1_renders_brand_when_no_tabs() {
-        let head = ThreadHead::new(
-            "sess-01a2b3c4",
-            "~/projects/xx",
-            Some("developer"),
-            false,
-            true,
-        );
-        let row = render_row1(80, head);
+        let tab_bar = TabBarProps::default();
+        let row = render_row1(80, tab_bar);
         assert!(row.contains("nuo"), "brand shown: {row}");
         assert!(row.contains("C-x menu"), "client menu shown: {row}");
     }
@@ -808,66 +954,330 @@ mod tests {
     }
 
     #[test]
-    fn row3_renders_thread_context_role_and_workspace() {
-        let head = ThreadHead {
-            thread_id: "sess-01a2b3c4",
+    fn row3_reads_who_how_where_left_to_right() {
+        let context = ThreadContext {
             workspace: "~/projects/xx",
             role: Some("developer"),
-            tabs: None,
-            active_tab: 0,
             unattended: true,
             confined: false,
         };
-        let row = render_row3(80, head);
-        assert!(row.starts_with("  [DEVELOPER] ~/projects/xx"), "{row}");
-        assert!(row.contains("UNATTENDED"), "unattended flag: {row}");
-        assert!(row.contains("UNCONFINED"), "unconfined flag: {row}");
+        let row = render_row3(80, context);
+        // Who (`[ROLE]`) → how (`auto`/`open`) → where (workspace, right-anchored).
+        assert!(row.starts_with("  [DEVELOPER]  auto  open"), "{row}");
+        assert!(row.trim_end().ends_with("~/projects/xx"), "{row}");
+    }
+
+    #[test]
+    fn row3_reports_only_deviations_from_the_safe_default() {
+        // Interactive confirmation + workspace-confined filesystem is the
+        // default posture: it costs zero columns.
+        let context = ThreadContext {
+            workspace: "~/projects/xx",
+            role: Some("developer"),
+            unattended: false,
+            confined: true,
+        };
+        let row = render_row3(80, context);
+        assert!(
+            row.starts_with("  [DEVELOPER]  "),
+            "no posture tokens: {row}"
+        );
+        assert!(!row.contains("auto"), "{row}");
+        assert!(!row.contains("open"), "{row}");
+    }
+
+    #[test]
+    fn row3_posture_tokens_are_lowercase_and_unbracketed() {
+        // Caps + brackets are already spoken for: `[ROLE]` is the badge slot and
+        // `[N queued]` means a count in the footer stack. Posture stays a plain
+        // lowercase word so it cannot be misread as either.
+        assert_eq!(PostureToken::Auto.label(), "auto");
+        assert_eq!(PostureToken::Open.label(), "open");
+        for label in [PostureToken::Auto.label(), PostureToken::Open.label()] {
+            assert!(
+                !label.chars().any(char::is_uppercase) && !label.contains(['[', ']']),
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
+    fn row3_posture_tokens_join_with_the_peer_enumeration_gap() {
+        let context = ThreadContext {
+            workspace: "",
+            role: Some("developer"),
+            unattended: true,
+            confined: false,
+        };
+        let row = render_row3(80, context);
+        assert!(
+            row.contains("[DEVELOPER]  auto  open"),
+            "peer tokens use a plain two-column gap, no glyph: {row}"
+        );
     }
 
     #[test]
     fn row3_workspace_free_hides_workspace_and_shows_role_badge() {
-        let head = ThreadHead {
-            thread_id: "sess-01a2b3c4",
+        let context = ThreadContext {
             workspace: "",
             role: Some("philosophist"),
-            tabs: None,
-            active_tab: 0,
             unattended: false,
             confined: true,
         };
-        let row = render_row3(80, head);
+        let row = render_row3(80, context);
         assert!(row.starts_with("  [PHILOSOPHIST]"), "{row}");
         assert!(!row.contains("~/"), "{row}");
     }
 
     #[test]
     fn row3_shows_custom_user_role_badge() {
-        let head = ThreadHead {
-            thread_id: "sess-01a2b3c4",
+        let context = ThreadContext {
             workspace: "~/projects/xx",
             role: Some("security-auditor"),
-            tabs: None,
-            active_tab: 0,
             unattended: false,
             confined: true,
         };
-        let row = render_row3(80, head);
+        let row = render_row3(80, context);
         assert!(row.starts_with("  [SECURITY-AUDITOR]"), "{row}");
+    }
+
+    /// `[INV-HEAD-07]` anchor stability: flipping a posture token must not reflow
+    /// the *path*, because the path is right-anchored and the governance
+    /// cluster grows into the gap between them.
+    #[test]
+    fn row3_toggling_posture_never_reflow_the_workspace_path() {
+        let quiet = ThreadContext {
+            workspace: "~/projects/nuo",
+            role: Some("developer"),
+            unattended: false,
+            confined: true,
+        };
+        let loud = ThreadContext {
+            unattended: true,
+            confined: false,
+            ..quiet
+        };
+        let quiet_row = render_row3(80, quiet);
+        let loud_row = render_row3(80, loud);
+        for row in [&quiet_row, &loud_row] {
+            assert!(row.trim_end().ends_with("~/projects/nuo"), "{row}");
+        }
+        // The path sits at the same column in both rows.
+        assert_eq!(
+            quiet_row.find("~/projects/nuo"),
+            loud_row.find("~/projects/nuo"),
+            "quiet: {quiet_row}\nloud: {loud_row}"
+        );
+    }
+
+    /// `[INV-HEAD-07]` safety-first degradation: as the row narrows, the path
+    /// shortens while `[ROLE]` and the posture tokens survive intact.
+    #[test]
+    fn row3_narrow_row_keeps_posture_and_shortens_the_path() {
+        let context = ThreadContext {
+            workspace: "~/projects/nuo/crates/nuo-tui",
+            role: Some("developer"),
+            unattended: true,
+            confined: false,
+        };
+        // Wide: the full path survives.
+        let wide = render_row3(80, context);
+        assert!(wide.contains("~/projects/nuo/crates/nuo-tui"), "{wide}");
+
+        // Narrower: still governed, path shortened from the ancestor end so the
+        // leaf — the part that names the project — is what remains.
+        let narrow = render_row3(46, context);
+        assert!(narrow.contains("[DEVELOPER]  auto  open"), "{narrow}");
+        assert!(narrow.contains("nuo-tui"), "leaf survives: {narrow}");
+        assert!(
+            !narrow.contains("~/projects/nuo/crates"),
+            "ancestors elided: {narrow}"
+        );
+    }
+
+    /// The row must never paint past its own width. Regression guard for the
+    /// inter-cluster gap: when the path is dropped the gap must be dropped with
+    /// it, or the row overruns by two columns and clips the trailing pad.
+    #[test]
+    fn row3_never_paints_beyond_the_row_width() {
+        let context = ThreadContext {
+            workspace: "~/projects/nuo",
+            role: Some("developer"),
+            unattended: true,
+            confined: false,
+        };
+        for width in 8u16..=120 {
+            let row = render_row3(width, context);
+            assert_eq!(
+                row.chars().count(),
+                width as usize,
+                "row must fill exactly {width} columns: {row:?}"
+            );
+        }
+    }
+
+    /// Below the honesty floor the path is dropped wholesale: a two-letter
+    /// sliver would still claim to be the workspace while naming nothing, so
+    /// posture keeps the row.
+    #[test]
+    fn row3_drops_the_path_rather_than_lying_about_it() {
+        let context = ThreadContext {
+            workspace: "~/projects/nuo/crates/nuo-tui",
+            role: Some("developer"),
+            unattended: true,
+            confined: false,
+        };
+        // 30 columns → 26 text columns. The governance cluster is 23 wide, so
+        // it survives whole while the path is left a 1-column budget — below
+        // the honesty floor, so it is dropped rather than drawn as `…`.
+        let row = render_row3(30, context);
+        assert!(row.contains("[DEVELOPER]  auto  open"), "{row}");
+        assert!(!row.contains("~"), "no fake path: {row}");
+        assert!(!row.contains("…"), "no fake path: {row}");
+    }
+
+    /// Posture is safety state, so it outranks every other element on the row
+    /// (`[INV-HEAD-08]`): a role badge long enough to crowd it must yield, and
+    /// the token must never be clipped into a prefix that misreports the session.
+    #[test]
+    fn row3_posture_outranks_a_long_role_badge() {
+        let context = ThreadContext {
+            workspace: "~/projects/nuo",
+            role: Some("a-very-long-custom-user-role-name"),
+            unattended: true,
+            confined: false,
+        };
+        let row = render_row3(44, context);
+        assert!(row.contains("auto  open"), "posture intact: {row}");
+        assert!(row.contains('…'), "role badge elided instead: {row}");
+        assert!(
+            !row.contains("A-VERY-LONG-CUSTOM-USER-ROLE-NAME"),
+            "full role must yield to safety state: {row}"
+        );
+    }
+
+    /// A posture token is never emitted as a prefix (`[INV-HEAD-08]`). `open`
+    /// clipped to `op` would still be rendered in the warning tone, claiming a
+    /// state the session does not have.
+    #[test]
+    fn row3_never_emits_a_truncated_posture_token() {
+        for width in 8u16..=80 {
+            let context = ThreadContext {
+                workspace: "~/projects/nuo",
+                role: Some("security-auditor"),
+                unattended: true,
+                confined: false,
+            };
+            let row = render_row3(width, context);
+            for fragment in ["aut", "ope"] {
+                let clipped =
+                    row.contains(fragment) && !row.contains("auto") && !row.contains("open");
+                assert!(
+                    !clipped,
+                    "width {width}: posture token clipped to a prefix: {row:?}"
+                );
+            }
+        }
+    }
+
+    /// A non-Unicode terminal must not receive `…`. Both the badge elision and
+    /// the path ladder take their marker from `theme.glyphs.ellipsis`, which is
+    /// `...` under `ASCII_GLYPHS`.
+    ///
+    /// Pinned to a width where an elision actually happens: a wider row draws no
+    /// marker at all, so asserting its absence there would pass even with the
+    /// glyph override removed.
+    #[test]
+    fn row3_degrades_its_ellipsis_marker_under_ascii_glyphs() {
+        let theme = Theme {
+            glyphs: nuotc::ASCII_GLYPHS,
+            ..Theme::default()
+        };
+        let context = ThreadContext {
+            workspace: "~/projects/nuo/crates/nuo-tui",
+            role: Some("security-auditor"),
+            unattended: true,
+            confined: false,
+        };
+        // Width 30 elides the role badge, so the marker must come from the theme.
+        let row = render_row3_with_theme(30, context, &theme);
+        assert!(
+            !row.contains('…'),
+            "ASCII profile must not draw the Unicode ellipsis: {row:?}"
+        );
+        assert!(row.contains("..."), "ASCII marker drawn instead: {row:?}");
+        assert!(row.contains("auto  open"), "posture intact: {row:?}");
+    }
+
+    /// The path ladder's own marker degrades too, even though `PathView`
+    /// hardcodes `…` internally: a single deep segment forces
+    /// `middle_truncate_filename`, the only ladder stage that emits one.
+    #[test]
+    fn row3_degrades_the_path_ladder_marker_under_ascii_glyphs() {
+        let theme = Theme {
+            glyphs: nuotc::ASCII_GLYPHS,
+            ..Theme::default()
+        };
+        let context = ThreadContext {
+            workspace: "a-really-long-single-directory-name-with-no-nesting",
+            role: None,
+            unattended: false,
+            confined: true,
+        };
+        let row = render_row3_with_theme(30, context, &theme);
+        assert!(
+            !row.contains('…'),
+            "ASCII profile must not draw the Unicode ellipsis: {row:?}"
+        );
+    }
+
+    /// `CONTEXT_BAR_WORKSPACE_MIN_COLS` must be the ladder's own last stop, not
+    /// one rung above it. Asserted directly against the budget seam: at exactly
+    /// the floor the path still names the project, one column under it there is
+    /// nothing faithful left. An earlier floor of 8 silently discarded widths
+    /// 4..=7 that the ladder serves correctly.
+    ///
+    /// This tests the constant itself. A render-width sweep would be a
+    /// tautology — it can only rediscover whatever floor is in force.
+    #[test]
+    fn row3_workspace_floor_matches_the_ladder_capability() {
+        let theme = Theme::default();
+        let at_floor = workspace_spans(
+            "~/projects/nuo",
+            CONTEXT_BAR_WORKSPACE_MIN_COLS,
+            Style::default(),
+            &theme,
+        );
+        let text: String = at_floor.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(
+            text, "nuo",
+            "at the floor the ladder must still name the project"
+        );
+
+        let below = workspace_spans(
+            "~/projects/nuo",
+            CONTEXT_BAR_WORKSPACE_MIN_COLS - 1,
+            Style::default(),
+            &theme,
+        );
+        assert!(
+            below.is_empty(),
+            "below the floor nothing faithful can be drawn"
+        );
     }
 
     #[test]
     fn row3_band_paints_the_full_row_width() {
         let theme = Theme::default();
-        let head = ThreadHead::new(
-            "sess-01a2b3c4",
-            "~/projects/xx",
-            Some("developer"),
-            false,
-            true,
-        );
+        let context = ThreadContext {
+            workspace: "~/projects/xx",
+            role: Some("developer"),
+            unattended: false,
+            confined: true,
+        };
         let mut terminal = nuotc::TestTerminal::new(60, 1);
         terminal.draw(|frame| {
-            draw_thread_context_bar(frame, frame.area(), &head, &theme);
+            draw_thread_context_bar(frame, frame.area(), &context, &theme);
         });
         for cell in &terminal.buffer().content {
             assert_eq!(cell.bg, theme.contextbar_bg());
